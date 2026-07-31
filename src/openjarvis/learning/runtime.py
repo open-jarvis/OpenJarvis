@@ -28,8 +28,12 @@ from openjarvis.learning.phase7_store import Phase7StoreCoordinator
 from openjarvis.learning.routing.shadow import ShadowRoutingService
 from openjarvis.learning.skills.execution import SkillExecutionRecord
 from openjarvis.learning.skills.metrics import VerifiedSkillMetricService
+from openjarvis.learning.skills.packages import SkillPackageRecord
 from openjarvis.learning.skills.promotion import (
+    SkillActivationRecord,
+    SkillDeprecationRecord,
     SkillLifecycleService,
+    SkillPromotionRecord,
     SkillRollbackRecord,
 )
 from openjarvis.learning.skills.registry import SkillRegistry
@@ -180,6 +184,21 @@ class Phase7LearningRuntime:
                         skill_id, version.semantic_version
                     ),
                     "rollbacks": self._rollback_history(
+                        skill_id, version.semantic_version
+                    ),
+                    "promotions": self._promotion_history(
+                        skill_id, version.semantic_version
+                    ),
+                    "activations": self._activation_history(
+                        skill_id, version.semantic_version
+                    ),
+                    "deprecations": self._deprecation_history(
+                        skill_id, version.semantic_version
+                    ),
+                    "packages": self._package_history(
+                        skill_id, version.semantic_version
+                    ),
+                    "quarantined_imports": self._quarantined_imports(
                         skill_id, version.semantic_version
                     ),
                 }
@@ -342,6 +361,88 @@ class Phase7LearningRuntime:
         return tuple(
             SkillRollbackRecord.model_validate_json(row["payload_json"]) for row in rows
         )
+
+    def _promotion_history(
+        self, skill_id: str, semantic_version: str
+    ) -> tuple[SkillPromotionRecord, ...]:
+        with self.database.reader() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json FROM skill_promotion_records
+                WHERE skill_id = ? AND semantic_version = ?
+                ORDER BY created_at, promotion_id
+                """,
+                (skill_id, semantic_version),
+            ).fetchall()
+        return tuple(
+            SkillPromotionRecord.model_validate_json(row["payload_json"])
+            for row in rows
+        )
+
+    def _activation_history(
+        self, skill_id: str, semantic_version: str
+    ) -> tuple[SkillActivationRecord, ...]:
+        with self.database.reader() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json FROM skill_activation_records
+                WHERE skill_id = ? AND semantic_version = ?
+                ORDER BY created_at, activation_id
+                """,
+                (skill_id, semantic_version),
+            ).fetchall()
+        return tuple(
+            SkillActivationRecord.model_validate_json(row["payload_json"])
+            for row in rows
+        )
+
+    def _deprecation_history(
+        self, skill_id: str, semantic_version: str
+    ) -> tuple[SkillDeprecationRecord, ...]:
+        with self.database.reader() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json FROM skill_deprecation_records
+                WHERE skill_id = ? AND semantic_version = ?
+                ORDER BY created_at, deprecation_id
+                """,
+                (skill_id, semantic_version),
+            ).fetchall()
+        return tuple(
+            SkillDeprecationRecord.model_validate_json(row["payload_json"])
+            for row in rows
+        )
+
+    def _package_history(
+        self, skill_id: str, semantic_version: str
+    ) -> tuple[SkillPackageRecord, ...]:
+        with self.database.reader() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json FROM skill_package_records
+                WHERE skill_id = ? AND semantic_version = ?
+                ORDER BY created_at, package_id
+                """,
+                (skill_id, semantic_version),
+            ).fetchall()
+        return tuple(
+            SkillPackageRecord.model_validate_json(row["payload_json"])
+            for row in rows
+        )
+
+    def _quarantined_imports(
+        self, skill_id: str, semantic_version: str
+    ) -> tuple[dict[str, Any], ...]:
+        with self.database.reader() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json FROM skill_import_quarantine_records
+                WHERE skill_id = ? AND semantic_version = ?
+                ORDER BY created_at, package_id
+                """,
+                (skill_id, semantic_version),
+            ).fetchall()
+        return tuple(json.loads(row["payload_json"]) for row in rows)
 
     def _phase7_events(self, task_id: str) -> tuple[dict[str, Any], ...]:
         with self.database.reader() as connection:

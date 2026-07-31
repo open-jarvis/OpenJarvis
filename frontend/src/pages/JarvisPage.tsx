@@ -53,8 +53,9 @@ import { ensureActiveTaskId, useJarvisStore } from '../lib/jarvisStore';
 import { useCanonicalTaskStream } from '../lib/useCanonicalTaskStream';
 import { useSpeech } from '../hooks/useSpeech';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
+import { Phase7Panel } from '../components/Jarvis/Phase7Panel';
 
-type WorkspaceFocus = 'chat' | 'tasks' | 'approvals' | 'tools' | 'browser' | 'overview';
+type WorkspaceFocus = 'chat' | 'tasks' | 'approvals' | 'tools' | 'browser' | 'learning' | 'skills' | 'overview';
 
 const TERMINAL = new Set(['done', 'failed', 'canceled']);
 
@@ -86,6 +87,26 @@ const EVENT_LABELS: Record<string, string> = {
   'browser.recovery_started': 'Browser recovery started',
   'browser.reconnected': 'Browser reconnected',
   'browser.recovery_failed': 'Browser recovery failed',
+  'routing.recommended': 'Shadow route recommended',
+  'routing.shadow_compared': 'Shadow route compared',
+  'feedback.recorded': 'Feedback recorded',
+  'feedback.revised': 'Feedback revised',
+  'feedback.revoked': 'Feedback revoked',
+  'evaluation.completed': 'Trace evaluation completed',
+  'candidate.created': 'Learning candidate created',
+  'candidate.revised': 'Learning candidate revised',
+  'candidate.quarantined': 'Learning candidate quarantined',
+  'conflict.resolved': 'Learning conflict resolved',
+  'skill.test_started': 'Skill tests started',
+  'skill.verified': 'Skill verified',
+  'skill.promotion_requested': 'Skill promotion requested',
+  'skill.promoted': 'Skill promoted',
+  'skill.activated': 'Skill activated',
+  'skill.execution_started': 'Skill execution started',
+  'skill.execution_completed': 'Skill execution completed',
+  'skill.execution_failed': 'Skill execution failed',
+  'skill.deprecated': 'Skill deprecated',
+  'skill.rolled_back': 'Skill rolled back',
 };
 
 function focusForPath(path: string): WorkspaceFocus {
@@ -93,6 +114,8 @@ function focusForPath(path: string): WorkspaceFocus {
   if (path.startsWith('/approvals')) return 'approvals';
   if (path.startsWith('/tools')) return 'tools';
   if (path.startsWith('/browser')) return 'browser';
+  if (path.startsWith('/learning')) return 'learning';
+  if (path.startsWith('/skills')) return 'skills';
   if (path.startsWith('/chat')) return 'chat';
   return 'overview';
 }
@@ -257,6 +280,12 @@ export function JarvisPage() {
   const activeApprovals = state.approvals.filter(
     (item) => !item.task_id || item.task_id === state.activeTaskId,
   );
+  const latestAnswer = [...state.timeline].reverse().find(
+    (event) => event.event_type === 'chat.assistant_message',
+  );
+  const latestAnswerDigest = typeof latestAnswer?.payload.sha256 === 'string'
+    ? latestAnswer.payload.sha256
+    : null;
 
   const refreshGlobal = useCallback(async (signal?: AbortSignal) => {
     state.setLoading(true);
@@ -442,6 +471,8 @@ export function JarvisPage() {
     ['/approvals', 'Approvals'],
     ['/tools', 'Tools & actions'],
     ['/browser', 'Browser'],
+    ['/learning', 'Learning'],
+    ['/skills', 'Skills'],
   ] as const;
 
   const shouldShowChat = focus === 'overview' || focus === 'chat';
@@ -686,6 +717,19 @@ export function JarvisPage() {
                   </article>
                 ))}
               </section>
+            )}
+
+            {(focus === 'learning' || focus === 'skills') && (
+              <Phase7Panel
+                mode={focus}
+                taskId={state.activeTaskId}
+                sessionId={state.sessionId}
+                answerId={latestAnswer?.event_id || null}
+                answerDigest={latestAnswerDigest}
+                onChanged={() => {
+                  if (state.activeTaskId) void refreshTask(state.activeTaskId);
+                }}
+              />
             )}
           </main>
 

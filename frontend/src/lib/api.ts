@@ -1825,6 +1825,383 @@ export async function denyToolAction(actionId: string): Promise<ToolActionInfo> 
 }
 
 // ---------------------------------------------------------------------------
+// Phase-7 learning, shadow routing, feedback, and verified skills
+// ---------------------------------------------------------------------------
+
+export interface LearningHealth {
+  status: 'healthy' | 'degraded';
+  evaluator_version: string;
+  extractor_version: string;
+  migrations: Array<{ version: number; checksum: string }>;
+  store_status: string;
+  open_conflicts: number;
+  quarantined_candidates: number;
+  promotion_pending: number;
+  active_skill_versions: number;
+  last_verification: string | null;
+  last_metric_revision: string | null;
+  shadow_routing: {
+    enabled: boolean;
+    shadow_mode: true;
+    productive_route_changes: false;
+    recommendations: number;
+  };
+  feedback_store: {
+    status: string;
+    records: number;
+    approval_authority: false;
+  };
+  integrity_errors: string[];
+  recovery_status: string;
+}
+
+export interface TraceEvaluationInfo {
+  evaluation_id: string;
+  task_id: string;
+  session_id: string;
+  correlation_id: string;
+  task_type: string;
+  evaluation_class: string;
+  verification_state: string;
+  evidence_state: string;
+  confidence: string;
+  confidence_basis: string[];
+  evidence_references: Array<Record<string, unknown>>;
+  warnings: string[];
+  evaluator_version: string;
+  evaluation_hash: string;
+  created_at: string;
+}
+
+export interface LearningCandidateInfo {
+  candidate_id: string;
+  revision: number;
+  candidate_type: string;
+  title: string;
+  structured_content: Record<string, unknown>;
+  scope: string;
+  project: string;
+  origin: string;
+  provenance: Array<Record<string, unknown>>;
+  source_evidence_ids: string[];
+  confidence: string;
+  confidence_basis: string[];
+  independence_count: number;
+  duplicate_signature: string;
+  conflict_signature: string;
+  risk_level: number;
+  proposed_tests: string[];
+  proposed_verification: string[];
+  state: string;
+  quarantine_reasons: string[];
+  rejection_reason: string | null;
+  content_hash: string;
+}
+
+export interface CandidateHistoryInfo {
+  candidate_id: string;
+  revisions: Array<Record<string, unknown>>;
+  reviews: Array<Record<string, unknown>>;
+}
+
+export interface LearningConflictInfo {
+  conflict_id: string;
+  candidate_ids: [string, string];
+  candidate_revisions?: [number, number];
+  conflict_signature: string;
+  conflict_type: string;
+  priority: string;
+  reason: string;
+  is_open: boolean;
+}
+
+export interface RoutingRecommendationView {
+  recommendation: {
+    recommendation_id: string;
+    task_id: string;
+    task_type: string;
+    recommended_route: string;
+    alternative_routes: string[];
+    evidence_references: Array<Record<string, unknown>>;
+    skill_id: string | null;
+    semantic_version: string | null;
+    expected_risk: number;
+    expected_cost: number;
+    expected_latency: number;
+    confidence: number;
+    confidence_basis: string[];
+    known_limitations: string[];
+    sample_size: number;
+    small_sample: boolean;
+    shadow_mode: true;
+    actual_route: string;
+    comparison_result: 'pending';
+    recommendation_hash: string;
+    created_at: string;
+  };
+  comparison: null | {
+    comparison_id: string;
+    actual_route: string;
+    actual_risk: number;
+    actual_cost: number;
+    actual_latency: number;
+    verified_success: boolean;
+    comparison_result: string;
+    comparison_hash: string;
+  };
+}
+
+export interface FeedbackRecordInfo {
+  feedback_id: string;
+  revision: number;
+  task_id: string;
+  session_id: string;
+  correlation_id: string;
+  answer_id: string | null;
+  execution_id: string | null;
+  actor: string;
+  feedback_type: string;
+  structured_content: Record<string, unknown>;
+  source_digest: string;
+  source_priority: string;
+  supersedes_revision: number | null;
+  created_at: string;
+  revoked_at: string | null;
+  feedback_hash: string;
+}
+
+export interface TaskFeedbackInfo {
+  task_id: string;
+  feedback: FeedbackRecordInfo[];
+  history: Record<string, FeedbackRecordInfo[]>;
+}
+
+export interface SkillVersionView {
+  version: {
+    skill_id: string;
+    semantic_version: string;
+    registry_revision: number;
+    manifest_hash: string;
+    candidate_id: string;
+    candidate_revision: number;
+  };
+  head: {
+    lifecycle_state: string;
+    state_revision: number;
+    candidate_id: string;
+    candidate_revision: number;
+    manifest_hash: string;
+  };
+  manifest: {
+    skill_id: string;
+    semantic_version: string;
+    scope: string;
+    origin_candidate_id: string;
+    origin_candidate_revision: number;
+    allowed_tool_ids: string[];
+    required_capabilities: string[];
+    maximum_risk_level: number;
+    known_limitations: string[];
+    content_hash: string;
+    deprecated_at: string | null;
+  };
+  metrics: Array<Record<string, unknown>>;
+  verification: Array<Record<string, unknown>>;
+  executions: Array<Record<string, unknown>>;
+  rollbacks: Array<Record<string, unknown>>;
+  promotions: Array<Record<string, unknown>>;
+  activations: Array<Record<string, unknown>>;
+  deprecations: Array<Record<string, unknown>>;
+  packages: Array<Record<string, unknown>>;
+  quarantined_imports: Array<Record<string, unknown>>;
+}
+
+export interface SkillDetailInfo {
+  skill_id: string;
+  versions: SkillVersionView[];
+}
+
+const phase7Mutation = <T>(
+  path: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+): Promise<T> => apiJson<T>(path, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Correlation-ID': mutation.correlationId,
+    'Idempotency-Key': mutation.idempotencyKey,
+  },
+  body: JSON.stringify(body),
+});
+
+export const fetchLearningHealth = (): Promise<LearningHealth> =>
+  apiJson<LearningHealth>('/v1/learning/health');
+
+export async function fetchLearningEvaluations(): Promise<TraceEvaluationInfo[]> {
+  const data = await apiJson<{ evaluations: TraceEvaluationInfo[] }>(
+    '/v1/learning/evaluations',
+  );
+  return data.evaluations || [];
+}
+
+export async function fetchLearningCandidates(): Promise<LearningCandidateInfo[]> {
+  const data = await apiJson<{ candidates: LearningCandidateInfo[] }>(
+    '/v1/learning/candidates',
+  );
+  return data.candidates || [];
+}
+
+export const fetchCandidateHistory = (candidateId: string): Promise<CandidateHistoryInfo> =>
+  apiJson<CandidateHistoryInfo>(
+    `/v1/learning/candidates/${encodeURIComponent(candidateId)}/history`,
+  );
+
+export async function fetchLearningConflicts(): Promise<LearningConflictInfo[]> {
+  const data = await apiJson<{ conflicts: LearningConflictInfo[] }>(
+    '/v1/learning/conflicts',
+  );
+  return data.conflicts || [];
+}
+
+export async function fetchRoutingRecommendations(
+  taskId?: string,
+): Promise<RoutingRecommendationView[]> {
+  const suffix = taskId ? `?task_id=${encodeURIComponent(taskId)}` : '';
+  const data = await apiJson<{ recommendations: RoutingRecommendationView[] }>(
+    `/v1/learning/routing/recommendations${suffix}`,
+  );
+  return data.recommendations || [];
+}
+
+export async function fetchTaskFeedback(taskId: string): Promise<TaskFeedbackInfo> {
+  return apiJson<TaskFeedbackInfo>(
+    `/v1/tasks/${encodeURIComponent(taskId)}/feedback`,
+  );
+}
+
+export async function fetchCanonicalSkills(): Promise<SkillDetailInfo[]> {
+  const data = await apiJson<{ skills: SkillDetailInfo[] }>('/v1/skills');
+  return data.skills || [];
+}
+
+export const reviewLearningCandidate = (
+  candidateId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(
+  `/v1/learning/candidates/${encodeURIComponent(candidateId)}/review`,
+  body,
+  mutation,
+);
+
+export const rejectLearningCandidate = (
+  candidateId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(
+  `/v1/learning/candidates/${encodeURIComponent(candidateId)}/reject`,
+  body,
+  mutation,
+);
+
+export const resolveLearningConflict = (
+  conflictId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(
+  `/v1/learning/conflicts/${encodeURIComponent(conflictId)}/resolve`,
+  body,
+  mutation,
+);
+
+export const testCanonicalSkill = (
+  skillId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(`/v1/skills/${encodeURIComponent(skillId)}/test`, body, mutation);
+
+export const requestSkillPromotion = (
+  skillId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(
+  `/v1/skills/${encodeURIComponent(skillId)}/request-promotion`,
+  body,
+  mutation,
+);
+
+export const decideSkillPromotion = (
+  skillId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(
+  `/v1/skills/${encodeURIComponent(skillId)}/decide-promotion`,
+  body,
+  mutation,
+);
+
+export const activateCanonicalSkill = (
+  skillId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(
+  `/v1/skills/${encodeURIComponent(skillId)}/activate`,
+  body,
+  mutation,
+);
+
+export const deprecateCanonicalSkill = (
+  skillId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(
+  `/v1/skills/${encodeURIComponent(skillId)}/deprecate`,
+  body,
+  mutation,
+);
+
+export const rollbackCanonicalSkill = (
+  skillId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(
+  `/v1/skills/${encodeURIComponent(skillId)}/rollback`,
+  body,
+  mutation,
+);
+
+export const recordTaskFeedback = (
+  taskId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(
+  `/v1/tasks/${encodeURIComponent(taskId)}/feedback`,
+  body,
+  mutation,
+);
+
+export const reviseTaskFeedback = (
+  feedbackId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(
+  `/v1/feedback/${encodeURIComponent(feedbackId)}/revise`,
+  body,
+  mutation,
+);
+
+export const revokeTaskFeedback = (
+  feedbackId: string,
+  body: Record<string, unknown>,
+  mutation: MutationContext,
+) => phase7Mutation(
+  `/v1/feedback/${encodeURIComponent(feedbackId)}/revoke`,
+  body,
+  mutation,
+);
+
+// ---------------------------------------------------------------------------
 // Inference source (desktop only)
 // ---------------------------------------------------------------------------
 

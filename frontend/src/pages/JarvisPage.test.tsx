@@ -90,4 +90,14 @@ describe('Jarvis canonical workspace', () => {
     expect(html).toContain('dir="rtl"');
     expect(html).toContain('مرحبا من جارفس');
   });
+  it('integrates Learning and Skills into the existing Jarvis navigation', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter initialEntries={['/learning']}>
+        <JarvisPage />
+      </MemoryRouter>,
+    );
+    expect(html).toContain('href="/learning"');
+    expect(html).toContain('href="/skills"');
+    expect(html).toContain('Select or create a canonical task');
+  });
 });
