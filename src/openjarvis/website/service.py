@@ -644,9 +644,16 @@ class WebsiteStagingService:
             return action
         if action.status is not ActionStatus.WAITING_APPROVAL:
             return action
+        bound_decision_id = f"{decision_id}:{action.action_id}"
         if decision == "deny":
-            return self.actions.deny(action.action_id, decision_id=decision_id)
-        return await self.actions.approve(action.action_id, decision_id=decision_id)
+            return self.actions.deny(
+                action.action_id,
+                decision_id=bound_decision_id,
+            )
+        return await self.actions.approve(
+            action.action_id,
+            decision_id=bound_decision_id,
+        )
 
     def _handle_tool(self, arguments: dict[str, Any]) -> dict[str, Any]:
         try:

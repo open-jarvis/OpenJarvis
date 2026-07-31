@@ -239,6 +239,7 @@ def create_app(
     codex_orchestrator=None,
     recovery_coordinator=None,
     tool_action_service=None,
+    website_staging_service=None,
     browser_session_service=None,
     phase7_learning_runtime=None,
     phase7_skill_test_runner=None,
@@ -334,6 +335,7 @@ def create_app(
     app.state.codex_orchestrator = codex_orchestrator
     app.state.recovery_coordinator = recovery_coordinator
     app.state.tool_action_service = tool_action_service
+    app.state.website_staging_service = website_staging_service
     app.state.browser_session_service = browser_session_service
     app.state.phase7_learning_runtime = phase7_learning_runtime
     app.state.phase7_skill_test_runner = phase7_skill_test_runner

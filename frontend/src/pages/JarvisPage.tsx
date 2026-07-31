@@ -54,8 +54,9 @@ import { useCanonicalTaskStream } from '../lib/useCanonicalTaskStream';
 import { useSpeech } from '../hooks/useSpeech';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import { Phase7Panel } from '../components/Jarvis/Phase7Panel';
+import { WebsiteStagingPanel } from '../components/WebsiteStagingPanel';
 
-type WorkspaceFocus = 'chat' | 'tasks' | 'approvals' | 'tools' | 'browser' | 'learning' | 'skills' | 'overview';
+type WorkspaceFocus = 'chat' | 'tasks' | 'approvals' | 'tools' | 'browser' | 'website-staging' | 'learning' | 'skills' | 'overview';
 
 const TERMINAL = new Set(['done', 'failed', 'canceled']);
 
@@ -107,6 +108,9 @@ const EVENT_LABELS: Record<string, string> = {
   'skill.execution_failed': 'Skill execution failed',
   'skill.deprecated': 'Skill deprecated',
   'skill.rolled_back': 'Skill rolled back',
+  'website.staging.previewed': 'Website preview created',
+  'website.staging.verified': 'Website artifacts verified',
+  'website.staging.rolled_back': 'Website staging rolled back',
 };
 
 function focusForPath(path: string): WorkspaceFocus {
@@ -114,6 +118,7 @@ function focusForPath(path: string): WorkspaceFocus {
   if (path.startsWith('/approvals')) return 'approvals';
   if (path.startsWith('/tools')) return 'tools';
   if (path.startsWith('/browser')) return 'browser';
+  if (path.startsWith('/website-staging')) return 'website-staging';
   if (path.startsWith('/learning')) return 'learning';
   if (path.startsWith('/skills')) return 'skills';
   if (path.startsWith('/chat')) return 'chat';
@@ -471,6 +476,7 @@ export function JarvisPage() {
     ['/approvals', 'Approvals'],
     ['/tools', 'Tools & actions'],
     ['/browser', 'Browser'],
+    ['/website-staging', 'Website staging'],
     ['/learning', 'Learning'],
     ['/skills', 'Skills'],
   ] as const;
@@ -731,6 +737,8 @@ export function JarvisPage() {
                 }}
               />
             )}
+
+            {focus === 'website-staging' && <WebsiteStagingPanel />}
           </main>
 
           <aside className="space-y-4 min-w-0" aria-label="Task context and system health">

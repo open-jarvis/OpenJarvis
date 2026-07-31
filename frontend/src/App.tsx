@@ -192,6 +192,7 @@ export default function App() {
           <Route path="approvals" element={<JarvisPage />} />
           <Route path="tools" element={<JarvisPage />} />
           <Route path="browser" element={<JarvisPage />} />
+          <Route path="website-staging" element={<JarvisPage />} />
           <Route path="learning" element={<JarvisPage />} />
           <Route path="skills" element={<JarvisPage />} />
           <Route path="dashboard" element={<DashboardPage />} />

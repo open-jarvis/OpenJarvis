@@ -1815,6 +1815,169 @@ export async function fetchToolHealth(): Promise<ToolHealth> {
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Isolated website staging pilot
+// ---------------------------------------------------------------------------
+
+export interface WebsiteFileDiff {
+  relative_path: string;
+  change: 'created' | 'modified' | 'unchanged';
+  before_sha256: string | null;
+  after_sha256: string;
+  size_bytes: number;
+}
+
+export interface WebsiteFileProposalSummary {
+  relative_path: string;
+  media_type: string;
+  size_bytes: number;
+  proposed_sha256: string;
+  expected_before_sha256: string | null;
+}
+
+export interface WebsiteStagingPlanInfo {
+  request: {
+    request_id: string;
+    task_id: string;
+    session_id: string;
+    correlation_id: string;
+    workspace_id: string;
+    idempotency_key: string;
+  };
+  proposals: WebsiteFileProposalSummary[];
+  file_diffs: WebsiteFileDiff[];
+  risk_level: number;
+  warnings: string[];
+  external_urls: string[];
+  script_files: string[];
+  preview_hash: string;
+  predicted_manifest_sha256: string;
+}
+
+export interface WebsiteStagingAction {
+  action_id: string;
+  status: string;
+  verification_status: string;
+  approval_id: string | null;
+  risk_level: number;
+  error: string;
+}
+
+export interface WebsiteStagingExecutionInfo {
+  execution_id: string;
+  status: string;
+  no_op: boolean;
+  after_manifest_sha256: string;
+  artifact_manifest_sha256: string;
+  verification_hash: string;
+  trace_evaluation_hash: string | null;
+}
+
+export interface WebsiteVerificationInfo {
+  status: 'passed' | 'warning' | 'failed';
+  passed: boolean;
+  file_count: number;
+  total_bytes: number;
+  manifest_sha256: string;
+  errors: string[];
+  warnings: string[];
+  verification_hash: string;
+}
+
+export interface WebsiteArtifactManifestInfo {
+  manifest_sha256: string;
+  artifacts: Array<{
+    artifact_id: string;
+    relative_path: string;
+    media_type: string;
+    size_bytes: number;
+    sha256: string;
+    verification_status: string;
+    warnings: string[];
+  }>;
+}
+
+export interface WebsiteRollbackInfo {
+  rollback_id: string;
+  byte_identical: boolean;
+  drift_detected: boolean;
+  restore_probe_removed: boolean;
+  record_hash: string;
+}
+
+export interface WebsiteStagingWorkspace {
+  schema_version: string;
+  workspace_id: string;
+  plan: WebsiteStagingPlanInfo;
+  execution?: WebsiteStagingExecutionInfo;
+  verification?: WebsiteVerificationInfo;
+  artifact_manifest?: WebsiteArtifactManifestInfo;
+  rollback?: WebsiteRollbackInfo;
+}
+
+export async function fetchWebsiteStagingWorkspace(
+  workspaceId: string,
+): Promise<WebsiteStagingWorkspace> {
+  return apiJson<WebsiteStagingWorkspace>(
+    `/v1/website-staging/${encodeURIComponent(workspaceId)}`,
+  );
+}
+
+function websiteMutationHeaders(workspace: WebsiteStagingWorkspace): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'X-Actor': 'local-ui',
+    'X-Correlation-ID': workspace.plan.request.correlation_id,
+    'Idempotency-Key': workspace.plan.request.idempotency_key,
+  };
+}
+
+export async function applyWebsiteStaging(
+  workspace: WebsiteStagingWorkspace,
+  decision: 'request_approval' | 'allow_once' | 'deny',
+): Promise<{ action: WebsiteStagingAction; execution: WebsiteStagingExecutionInfo | null; allow_once_only: true }> {
+  return apiJson('/v1/website-staging/apply', {
+    method: 'POST',
+    headers: websiteMutationHeaders(workspace),
+    body: JSON.stringify({
+      workspace_id: workspace.workspace_id,
+      request_id: workspace.plan.request.request_id,
+      expected_preview_hash: workspace.plan.preview_hash,
+      decision,
+    }),
+  });
+}
+
+export async function validateWebsiteStaging(
+  workspace: WebsiteStagingWorkspace,
+): Promise<WebsiteVerificationInfo> {
+  if (!workspace.execution) throw new Error('Website staging has no execution to validate.');
+  return apiJson('/v1/website-staging/validate', {
+    method: 'POST',
+    headers: websiteMutationHeaders(workspace),
+    body: JSON.stringify({
+      workspace_id: workspace.workspace_id,
+      expected_manifest_hash: workspace.execution.after_manifest_sha256,
+    }),
+  });
+}
+
+export async function rollbackWebsiteStaging(
+  workspace: WebsiteStagingWorkspace,
+): Promise<{ action: WebsiteStagingAction; rollback: WebsiteRollbackInfo | null; allow_once_only: true }> {
+  if (!workspace.execution) throw new Error('Website staging has no execution to roll back.');
+  return apiJson('/v1/website-staging/rollback', {
+    method: 'POST',
+    headers: websiteMutationHeaders(workspace),
+    body: JSON.stringify({
+      workspace_id: workspace.workspace_id,
+      execution_id: workspace.execution.execution_id,
+      expected_manifest_hash: workspace.execution.after_manifest_sha256,
+      decision: 'allow_once',
+    }),
+  });
+}
+
 export async function fetchTaskActions(taskId: string): Promise<ToolActionInfo[]> {
   const res = await apiFetch(`/v1/tasks/${encodeURIComponent(taskId)}/actions`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);

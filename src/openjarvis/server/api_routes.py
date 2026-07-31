@@ -1124,11 +1124,15 @@ def include_all_routes(app) -> None:
     from openjarvis.server.tool_browser_routes import (  # noqa: PLC0415
         router as tool_browser_router,
     )
+    from openjarvis.server.website_staging_routes import (  # noqa: PLC0415
+        router as website_staging_router,
+    )
 
     app.include_router(approval_router)
     app.include_router(task_router)
     app.include_router(system_health_router)
     app.include_router(tool_browser_router)
+    app.include_router(website_staging_router)
     app.include_router(memory_vault_router)
     app.include_router(learning_skill_router)
     app.include_router(agents_router)
