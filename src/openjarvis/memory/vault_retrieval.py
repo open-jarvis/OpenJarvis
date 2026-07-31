@@ -215,9 +215,7 @@ class VaultRetriever:
             "include_archived",
         }
         clean = {key: value for key, value in filters.items() if key in allowed}
-        if purpose is RetrievalPurpose.NORMAL:
-            clean.setdefault("status", "active")
-        clean.setdefault("include_archived", False)
+        clean.setdefault("include_archived", purpose is not RetrievalPurpose.NORMAL)
         tags = clean.get("tags")
         if isinstance(tags, str):
             clean["tags"] = [tags]
@@ -241,16 +239,35 @@ class VaultRetriever:
         ]
         params: list[Any] = [_fts_query(terms)]
         project_scope = str(filters.get("project") or "")
+        status = filters.get("status")
         if purpose is RetrievalPurpose.NORMAL:
             if project_scope:
-                clauses.append(
-                    "((n.retrieval_class='normal' AND n.project=?) OR "
-                    "(n.retrieval_class='project_scoped' "
-                    "AND n.scope_binding=?))"
-                )
-                params.extend((project_scope, project_scope))
+                if status not in (None, ""):
+                    clauses.append(
+                        "((n.retrieval_class='normal' AND n.project=? "
+                        "AND n.status=?) OR "
+                        "(n.retrieval_class='project_scoped' "
+                        "AND n.scope_binding=? AND n.status=?))"
+                    )
+                    params.extend(
+                        (project_scope, str(status), project_scope, str(status))
+                    )
+                else:
+                    clauses.append(
+                        "((n.retrieval_class='normal' AND n.project=? "
+                        "AND n.status='active') OR "
+                        "(n.retrieval_class='project_scoped' "
+                        "AND n.scope_binding=?))"
+                    )
+                    params.extend((project_scope, project_scope))
             else:
-                clauses.append("n.retrieval_class='normal'")
+                clauses.extend(
+                    (
+                        "n.retrieval_class='normal'",
+                        "n.status=?",
+                    )
+                )
+                params.append(str(status or "active"))
         elif purpose is RetrievalPurpose.EXPLICIT_REVIEW:
             clauses.append(
                 "n.retrieval_class IN ('review_only', 'explicit_review_only')"
@@ -261,13 +278,15 @@ class VaultRetriever:
             raise ValueError("unsupported retrieval purpose")
         for key, column in (
             ("note_type", "n.note_type"),
-            ("status", "n.status"),
             ("scope", "n.scope"),
         ):
             value = filters.get(key)
             if value not in (None, ""):
                 clauses.append(f"{column}=?")
                 params.append(str(value))
+        if purpose is not RetrievalPurpose.NORMAL and status not in (None, ""):
+            clauses.append("n.status=?")
+            params.append(str(status))
         if not filters.get("include_archived", False):
             clauses.append("n.archived=0")
         if filters.get("since"):

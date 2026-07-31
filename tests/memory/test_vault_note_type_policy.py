@@ -72,6 +72,7 @@ def _write_note(
     body: str,
     scope: str = "personal",
     project: str | None = None,
+    status: str = "active",
     extra: str = "",
 ) -> str:
     note_id = str(uuid.uuid4())
@@ -81,7 +82,7 @@ def _write_note(
         f"id: {note_id}\n"
         "schema_version: 1\n"
         f"type: {note_type}\n"
-        "status: active\n"
+        f"status: {status}\n"
         f"scope: {scope}\n"
         f"{project_line}"
         "source: manual\n"
@@ -178,6 +179,9 @@ def test_retrieval_classes_are_separate_and_fail_closed(tmp_path: Path) -> None:
             vault / f"{note_type}.md",
             note_type=note_type,
             body=f"Unique {note_type} evidence token.",
+            status=(
+                "archived" if note_type in {"category", "navigation"} else "active"
+            ),
         )
         for note_type in (
             "capture",
@@ -267,6 +271,7 @@ def test_project_profile_requires_exact_project_scope(tmp_path: Path) -> None:
         note_type="project_profile",
         body="Unique project alpha profile.",
         scope="Project-Alpha",
+        status="current",
     )
     with VaultIndex(vault, tmp_path / "memory.sqlite3") as index:
         index.rebuild()
