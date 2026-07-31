@@ -320,9 +320,7 @@ async def memory_index(req: MemoryIndexRequest, request: Request):
                 for d in workspace.split(os.pathsep)
                 if d.strip()
             ]
-            if not any(
-                target == root or root in target.parents for root in roots
-            ):
+            if not any(target == root or root in target.parents for root in roots):
                 raise HTTPException(
                     status_code=403,
                     detail="Path is outside the allowed workspace directories.",
@@ -503,6 +501,14 @@ skills_router = APIRouter(prefix="/v1/skills", tags=["skills"])
 async def list_skills(request: Request):
     """List installed skills."""
     try:
+        phase7 = getattr(request.app.state, "phase7_learning_runtime", None)
+        if phase7 is not None:
+            return {
+                "skills": [
+                    phase7.skill_detail(skill_id) for skill_id in phase7.skill_ids()
+                ],
+                "canonical": True,
+            }
         from openjarvis.core.registry import SkillRegistry
 
         skills = []
@@ -1105,6 +1111,9 @@ def include_all_routes(app) -> None:
     from openjarvis.server.approval_routes import (
         router as approval_router,  # noqa: PLC0415
     )
+    from openjarvis.server.learning_skill_routes import (  # noqa: PLC0415
+        router as learning_skill_router,
+    )
     from openjarvis.server.memory_vault_routes import (  # noqa: PLC0415
         router as memory_vault_router,
     )
@@ -1121,6 +1130,7 @@ def include_all_routes(app) -> None:
     app.include_router(system_health_router)
     app.include_router(tool_browser_router)
     app.include_router(memory_vault_router)
+    app.include_router(learning_skill_router)
     app.include_router(agents_router)
     app.include_router(memory_router)
     app.include_router(traces_router)

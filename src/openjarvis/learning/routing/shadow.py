@@ -250,10 +250,13 @@ class ShadowRoutingService:
         *,
         idempotency_key: str,
         expected_revision: int = 0,
+        actor: str | None = None,
     ) -> RoutingRecommendation:
         if expected_revision != 0:
             raise ValueError("new recommendations require expected_revision=0")
         validate_identifier(idempotency_key, "idempotency_key")
+        if actor is not None:
+            validate_identifier(actor, "actor")
         selected, skill_id, version, basis, limitations = self._select(context)
         estimate = context.route_estimates.get(selected)
         if estimate is None:
@@ -272,6 +275,7 @@ class ShadowRoutingService:
                 "selected": selected.value,
                 "skill_id": skill_id,
                 "semantic_version": version,
+                "actor": actor,
             }
         )
         with self.database.transaction() as connection:
@@ -344,7 +348,7 @@ class ShadowRoutingService:
                 task_id=context.task_id,
                 session_id=context.session_id,
                 correlation_id=context.correlation_id,
-                actor=None,
+                actor=actor,
                 reference_ids=(recommendation.recommendation_id,),
                 created_at=now,
             )
@@ -373,6 +377,7 @@ class ShadowRoutingService:
         evidence_references: tuple[RoutingEvidenceReference, ...],
         idempotency_key: str,
         expected_revision: int = 0,
+        actor: str | None = None,
     ) -> RoutingComparison:
         if expected_revision != 0:
             raise ValueError("first comparison requires expected_revision=0")
@@ -382,6 +387,8 @@ class ShadowRoutingService:
             raise ValueError("actual cost and latency must be non-negative")
         if not evidence_references:
             raise ValueError("routing comparison requires verified evidence")
+        if actor is not None:
+            validate_identifier(actor, "actor")
         request_digest = digest(
             {
                 "recommendation_id": recommendation_id,
@@ -390,6 +397,7 @@ class ShadowRoutingService:
                 "actual_cost": actual_cost,
                 "actual_latency": actual_latency,
                 "verified_success": verified_success,
+                "actor": actor,
                 "evidence_references": [
                     item.model_dump(mode="json") for item in evidence_references
                 ],
@@ -453,7 +461,7 @@ class ShadowRoutingService:
                 task_id=recommendation.task_id,
                 session_id=recommendation.session_id,
                 correlation_id=recommendation.correlation_id,
-                actor=None,
+                actor=actor,
                 reference_ids=(recommendation_id, comparison.comparison_id),
                 created_at=now,
             )

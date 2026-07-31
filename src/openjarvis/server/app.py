@@ -240,6 +240,9 @@ def create_app(
     recovery_coordinator=None,
     tool_action_service=None,
     browser_session_service=None,
+    phase7_learning_runtime=None,
+    phase7_skill_test_runner=None,
+    phase7_healthcheck_runner=None,
     owns_task_runtime: bool = False,
     api_key: str = "",
     webhook_config: dict | None = None,
@@ -262,6 +265,7 @@ def create_app(
     config:
         Optional JarvisConfig for other settings.
     """
+
     @asynccontextmanager
     async def lifespan(runtime_app: FastAPI):
         runtime_app.state.lifecycle_started = True
@@ -331,6 +335,9 @@ def create_app(
     app.state.recovery_coordinator = recovery_coordinator
     app.state.tool_action_service = tool_action_service
     app.state.browser_session_service = browser_session_service
+    app.state.phase7_learning_runtime = phase7_learning_runtime
+    app.state.phase7_skill_test_runner = phase7_skill_test_runner
+    app.state.phase7_healthcheck_runner = phase7_healthcheck_runner
     app.state.owns_task_runtime = owns_task_runtime
     app.state.shutdown_complete = False
     app.state.session_start = time.time()

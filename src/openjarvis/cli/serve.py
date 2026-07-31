@@ -710,6 +710,18 @@ def serve(
         logger.error("Vault memory failed to initialize: %s", exc)
         raise
 
+    phase7_learning_runtime = None
+    try:
+        from openjarvis.learning.runtime import Phase7LearningRuntime
+
+        phase7_learning_runtime = Phase7LearningRuntime.create(
+            (get_config_dir() / "phase7-learning.sqlite3").resolve()
+        )
+        console.print("  Phase-7 learning: [cyan]shadow/review active[/cyan]")
+    except Exception as exc:
+        logger.error("Phase-7 learning runtime failed to initialize: %s", exc)
+        raise
+
     app = create_app(
         engine,
         model_name,
@@ -727,13 +739,9 @@ def serve(
         agent_scheduler=agent_scheduler,
         trace_store=codex_trace_store,
         task_store=(codex_runtime.store if codex_runtime is not None else None),
-        task_service=(
-            codex_runtime.service if codex_runtime is not None else None
-        ),
+        task_service=(codex_runtime.service if codex_runtime is not None else None),
         approval_broker=(
-            codex_runtime.approval_broker
-            if codex_runtime is not None
-            else None
+            codex_runtime.approval_broker if codex_runtime is not None else None
         ),
         codex_orchestrator=(
             codex_runtime.orchestrator if codex_runtime is not None else None
@@ -741,6 +749,7 @@ def serve(
         recovery_coordinator=(
             codex_runtime.recovery if codex_runtime is not None else None
         ),
+        phase7_learning_runtime=phase7_learning_runtime,
         owns_task_runtime=codex_runtime is not None,
         api_key=api_key,
         webhook_config=webhook_config,
