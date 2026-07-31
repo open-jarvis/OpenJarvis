@@ -98,11 +98,73 @@ def test_credentials_are_metadata_only_and_never_opened(
 
     monkeypatch.setattr(Path, "open", prohibit_open)
     result = _plan(tmp_path, source)
-    entry = next(item for item in result.entries if item.path.endswith("token.json"))
+    entry = next(item for item in result.entries if item.path == "state/sessions")
 
     assert entry.category is PathCategory.CREDENTIAL_OR_SESSION_PROHIBITED
     assert entry.content_access_allowed is False
     assert entry.hashing_allowed is False
+    assert not any(item.path.endswith("token.json") for item in result.entries)
+
+
+def test_browser_and_credential_roots_are_inherited_but_not_enumerated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    browser = source / "state" / "browser-profile"
+    browser_secret = browser / ".cache" / "Default" / "Cookies"
+    credential = source / "state" / "credentials"
+    credential_secret = credential / "nested" / "token.json"
+    for path in (browser_secret, credential_secret):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"MUST-NOT-BE-OPENED-OR-LISTED")
+
+    def prohibit_open(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("planning mode must not open prohibited content")
+
+    monkeypatch.setattr(Path, "open", prohibit_open)
+    result = _plan(tmp_path, source)
+    by_path = {entry.path: entry for entry in result.entries}
+
+    assert by_path["state/browser-profile"].category is (
+        PathCategory.BROWSER_RUNTIME_PROHIBITED
+    )
+    assert by_path["state/credentials"].category is (
+        PathCategory.CREDENTIAL_OR_SESSION_PROHIBITED
+    )
+    assert not any(
+        entry.path.startswith("state/browser-profile/") for entry in result.entries
+    )
+    assert not any(
+        entry.path.startswith("state/credentials/") for entry in result.entries
+    )
+    assert result.simulation.prohibited_root_count == 2
+    assert result.simulation.prohibited_descendant_entry_count == 0
+    assert result.simulation.passed is True
+
+    assert (
+        planner.classify_path(
+            Path("state/browser-profile/.cache/item.bin"),
+            is_directory=False,
+            is_reparse=False,
+        )
+        is PathCategory.BROWSER_RUNTIME_PROHIBITED
+    )
+    assert (
+        planner.classify_path(
+            Path("state/browser-profile/sessions/item.bin"),
+            is_directory=False,
+            is_reparse=False,
+        )
+        is PathCategory.BROWSER_RUNTIME_PROHIBITED
+    )
+    assert (
+        planner.classify_path(
+            Path("state/credentials/browser-profile/item.bin"),
+            is_directory=False,
+            is_reparse=False,
+        )
+        is PathCategory.CREDENTIAL_OR_SESSION_PROHIBITED
+    )
 
 
 def test_unknown_technical_root_blocks_simulation(tmp_path: Path) -> None:

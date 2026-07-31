@@ -277,6 +277,8 @@ class SimulationResult:
     unknown_long_path_count: int
     migration_long_path_count: int
     prohibited_content_backup_count: int
+    prohibited_root_count: int
+    prohibited_descendant_entry_count: int
     reparse_points_not_followed: int
     violations: tuple[str, ...]
 
@@ -364,6 +366,23 @@ def _looks_like_configuration(name: str, suffix: str) -> bool:
     )
 
 
+def _prohibited_category(
+    parts: tuple[str, ...], *, is_directory: bool
+) -> PathCategory | None:
+    credential_names = SENSITIVE_DIRECTORY_NAMES - BROWSER_RUNTIME_NAMES
+    roots: list[tuple[int, int, PathCategory]] = []
+    for index, part in enumerate(parts):
+        if part in credential_names:
+            roots.append((index, 0, PathCategory.CREDENTIAL_OR_SESSION_PROHIBITED))
+        if part in BROWSER_RUNTIME_NAMES:
+            roots.append((index, 1, PathCategory.BROWSER_RUNTIME_PROHIBITED))
+    if not is_directory and _is_sensitive_file(parts[-1]):
+        roots.append((len(parts) - 1, 0, PathCategory.CREDENTIAL_OR_SESSION_PROHIBITED))
+    if not roots:
+        return None
+    return min(roots, key=lambda item: (item[0], item[1]))[2]
+
+
 def classify_path(
     relative: Path, *, is_directory: bool, is_reparse: bool
 ) -> PathCategory:
@@ -372,14 +391,11 @@ def classify_path(
     name = parts[-1]
     suffix = Path(name).suffix.casefold()
 
+    prohibited = _prohibited_category(parts, is_directory=is_directory)
+    if prohibited is not None:
+        return prohibited
     if is_reparse:
         return PathCategory.UNKNOWN_REVIEW_REQUIRED
-    if name in BROWSER_RUNTIME_NAMES:
-        return PathCategory.BROWSER_RUNTIME_PROHIBITED
-    if name in SENSITIVE_DIRECTORY_NAMES or (
-        not is_directory and _is_sensitive_file(name)
-    ):
-        return PathCategory.CREDENTIAL_OR_SESSION_PROHIBITED
     if any(part in TECHNICAL_DIRECTORIES for part in parts):
         return PathCategory.BUILD_ARTIFACT_EXCLUDED
     if root == "deployment-backups":
@@ -476,16 +492,19 @@ def scan_metadata(source: Path, destination_root: Path) -> tuple[PlanEntry, ...]
             try:
                 reparse = _is_reparse(path)
                 is_directory = child.is_dir(follow_symlinks=False)
-                entries.append(
-                    _entry(
-                        path,
-                        source,
-                        destination_root,
-                        is_directory=is_directory,
-                        is_reparse=reparse,
-                    )
+                entry = _entry(
+                    path,
+                    source,
+                    destination_root,
+                    is_directory=is_directory,
+                    is_reparse=reparse,
                 )
-                if is_directory and not reparse:
+                entries.append(entry)
+                prohibited_root = entry.category in {
+                    PathCategory.BROWSER_RUNTIME_PROHIBITED,
+                    PathCategory.CREDENTIAL_OR_SESSION_PROHIBITED,
+                }
+                if is_directory and not reparse and not prohibited_root:
                     pending.append(path)
             except OSError as error:
                 relative = path.relative_to(source).as_posix()
@@ -520,6 +539,22 @@ def _simulate(
         if entry.backup_decision == "content_backup"
         and entry.category not in CONTENT_CATEGORIES
     )
+    prohibited_roots = tuple(
+        entry
+        for entry in entries
+        if entry.entry_type == "directory"
+        and entry.category
+        in {
+            PathCategory.BROWSER_RUNTIME_PROHIBITED,
+            PathCategory.CREDENTIAL_OR_SESSION_PROHIBITED,
+        }
+    )
+    prohibited_prefixes = tuple(f"{entry.path}/" for entry in prohibited_roots)
+    prohibited_descendants = tuple(
+        entry
+        for entry in entries
+        if any(entry.path.startswith(prefix) for prefix in prohibited_prefixes)
+    )
     violations: list[str] = []
     if not source_destination_disjoint:
         violations.append("source_and_destination_not_disjoint")
@@ -529,6 +564,10 @@ def _simulate(
         violations.append(f"migration_long_paths:{len(migration_long)}")
     if prohibited_content:
         violations.append(f"prohibited_content_backup:{len(prohibited_content)}")
+    if prohibited_descendants:
+        violations.append(
+            f"prohibited_descendants_inventoried:{len(prohibited_descendants)}"
+        )
     return SimulationResult(
         passed=not violations,
         source_destination_disjoint=source_destination_disjoint,
@@ -536,6 +575,8 @@ def _simulate(
         unknown_long_path_count=len(unknown_long),
         migration_long_path_count=len(migration_long),
         prohibited_content_backup_count=len(prohibited_content),
+        prohibited_root_count=len(prohibited_roots),
+        prohibited_descendant_entry_count=len(prohibited_descendants),
         reparse_points_not_followed=sum(entry.reparse_point for entry in entries),
         violations=tuple(violations),
     )
@@ -919,6 +960,10 @@ def render_policy_report(
             f"{plan.simulation.migration_long_path_count}",
             f"- technische/sensitive Pfade im Content-Backup: "
             f"{plan.simulation.prohibited_content_backup_count}",
+            f"- nur als Root erfasste prohibited Verzeichnisse: "
+            f"{plan.simulation.prohibited_root_count}",
+            f"- inventarisierte Nachfahren prohibited Roots: "
+            f"{plan.simulation.prohibited_descendant_entry_count}",
             "- nicht verfolgte Reparse Points: "
             f"{plan.simulation.reparse_points_not_followed}",
             f"- Verletzungen: `{', '.join(plan.simulation.violations) or 'none'}`",
