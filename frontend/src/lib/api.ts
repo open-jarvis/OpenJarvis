@@ -1167,6 +1167,16 @@ export interface VaultMemoryHealth {
   retrieval_mode: string;
   open_candidates: number;
   open_conflicts: number;
+  discovered_count: number;
+  frontmatter_parsed_count: number;
+  schema_valid_count: number;
+  type_supported_count: number;
+  fts_document_count: number;
+  retrieval_eligible_count: number;
+  review_only_count: number;
+  structural_count: number;
+  authority_sensitive_count: number;
+  rejected_count: number;
 }
 
 export interface VaultMemorySource {
@@ -1183,6 +1193,11 @@ export interface VaultMemorySource {
   selection_reason: string;
   content_hash: string;
   indexed_at: string;
+  note_type: string;
+  trust_class: string;
+  retrieval_class: string;
+  authority_class: string;
+  scope_class: string;
 }
 
 export interface VaultMemoryCandidateResult {
@@ -1194,6 +1209,11 @@ export interface VaultMemoryCandidateResult {
   content_hash: string;
   conflict_state: string;
   source_priority: number;
+  note_type: string;
+  trust_class: string;
+  retrieval_class: string;
+  authority_class: string;
+  scope_class: string;
 }
 
 export interface VaultMemoryRetrieval {
@@ -1206,6 +1226,7 @@ export interface VaultMemoryRetrieval {
   evidence_status: 'sufficient' | 'partial' | 'insufficient' | 'conflicting' | 'unavailable';
   evidence_code: string;
   retrieval_method: string;
+  retrieval_purpose: 'normal' | 'explicit_review' | 'vault_structure';
   filters: Record<string, unknown>;
   warnings: string[];
 }
@@ -1249,6 +1270,12 @@ export interface VaultMemoryNote {
   content_hash: string;
   conflict_state: string;
   identity_kind: string;
+  trust_class: string;
+  retrieval_class: string;
+  authority_class: string;
+  scope_class: string;
+  parse_status: 'valid' | 'rejected';
+  retrieval_eligible: boolean;
 }
 
 export interface VaultMemoryLinks {
@@ -1286,6 +1313,26 @@ export async function searchVaultMemory(
     headers: memoryTaskHeaders(context),
   });
   if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to search vault memory'));
+  return res.json();
+}
+
+export async function reviewVaultMemory(
+  query: string,
+  topK = 5,
+): Promise<VaultMemoryRetrieval> {
+  const params = new URLSearchParams({ query, top_k: String(topK) });
+  const res = await apiFetch(`/v1/memory/review/search?${params}`);
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to review vault sources'));
+  return res.json();
+}
+
+export async function searchVaultStructure(
+  query: string,
+  topK = 5,
+): Promise<VaultMemoryRetrieval> {
+  const params = new URLSearchParams({ query, top_k: String(topK) });
+  const res = await apiFetch(`/v1/memory/structure/search?${params}`);
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to inspect vault structure'));
   return res.json();
 }
 

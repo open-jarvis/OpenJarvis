@@ -15,6 +15,8 @@ import {
   fetchVaultMemoryHealth,
   fetchVaultMemoryLinks,
   fetchVaultMemoryNote,
+  reviewVaultMemory,
+  searchVaultStructure,
   searchVaultMemory,
 } from '../lib/api';
 import type {
@@ -80,6 +82,12 @@ export function EvidenceSources({
             {source.relevant_text}
           </p>
           <div className="flex flex-wrap gap-3 mt-2 text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
+            <span>{source.note_type}</span>
+            <span>{source.trust_class}</span>
+            <span>{source.retrieval_class}</span>
+            <span style={{ color: source.authority_class === 'none' ? undefined : 'var(--color-error)' }}>
+              {source.authority_class}
+            </span>
             <span>Note {shortId(source.note_id)}</span>
             <span>
               {source.section || 'span'}
@@ -99,6 +107,7 @@ export function MemoryVaultPanel() {
   const [tasks, setTasks] = useState<CanonicalTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState('');
   const [query, setQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<'normal' | 'review' | 'structure'>('normal');
   const [retrieval, setRetrieval] = useState<VaultMemoryRetrieval | null>(null);
   const [candidates, setCandidates] = useState<VaultMemoryCandidate[]>([]);
   const [conflicts, setConflicts] = useState<VaultMemoryConflict[]>([]);
@@ -137,22 +146,26 @@ export function MemoryVaultPanel() {
 
   const runSearch = useCallback(async () => {
     const selected = tasks.find(task => task.task_id === selectedTaskId);
-    if (!selected || !query.trim()) return;
+    if (!query.trim() || (searchMode === 'normal' && !selected)) return;
     setSearching(true);
     setError(null);
     try {
-      const result = await searchVaultMemory(query.trim(), {
-        task_id: selected.task_id,
-        session_id: selected.session_id,
-        correlation_id: selected.correlation_id,
-      });
+      const result = searchMode === 'review'
+        ? await reviewVaultMemory(query.trim())
+        : searchMode === 'structure'
+          ? await searchVaultStructure(query.trim())
+          : await searchVaultMemory(query.trim(), {
+              task_id: selected!.task_id,
+              session_id: selected!.session_id,
+              correlation_id: selected!.correlation_id,
+            });
       setRetrieval(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSearching(false);
     }
-  }, [query, selectedTaskId, tasks]);
+  }, [query, searchMode, selectedTaskId, tasks]);
 
   const selectSource = useCallback(async (noteId: string) => {
     setError(null);
@@ -193,10 +206,14 @@ export function MemoryVaultPanel() {
       {health && (
         <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
-            ['Notes', health.note_count],
+            ['Discovered', health.discovered_count],
+            ['Schema valid', health.schema_valid_count],
+            ['FTS documents', health.fts_document_count],
+            ['Normal retrieval', health.retrieval_eligible_count],
+            ['Review only', health.review_only_count],
+            ['Authority sensitive', health.authority_sensitive_count],
             ['Parser errors', health.parser_error_count],
-            ['Open candidates', health.open_candidates],
-            ['Open conflicts', health.open_conflicts],
+            ['Rejected', health.rejected_count],
           ].map(([label, value]) => (
             <div key={String(label)} className="rounded-xl p-4" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
               <div className="text-xl font-semibold">{String(value)}</div>
@@ -219,10 +236,22 @@ export function MemoryVaultPanel() {
           <Search size={15} style={{ color: 'var(--color-accent)' }} />
           <h2 className="text-sm font-semibold">Evidence-bound search</h2>
         </div>
-        <div className="grid md:grid-cols-[minmax(180px,0.7fr)_minmax(260px,1.4fr)_auto] gap-2">
+        <div className="grid md:grid-cols-[minmax(150px,0.5fr)_minmax(180px,0.7fr)_minmax(260px,1.4fr)_auto] gap-2">
+          <select
+            value={searchMode}
+            onChange={event => setSearchMode(event.target.value as 'normal' | 'review' | 'structure')}
+            className="rounded-lg px-3 py-2 text-sm"
+            style={{ background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)' }}
+            aria-label="Vault query boundary"
+          >
+            <option value="normal">Normal memory</option>
+            <option value="review">Explicit review only</option>
+            <option value="structure">Vault structure only</option>
+          </select>
           <select
             value={selectedTaskId}
             onChange={event => setSelectedTaskId(event.target.value)}
+            disabled={searchMode !== 'normal'}
             className="rounded-lg px-3 py-2 text-sm"
             style={{ background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)' }}
             aria-label="Canonical task"
@@ -247,13 +276,18 @@ export function MemoryVaultPanel() {
           <button
             type="button"
             onClick={runSearch}
-            disabled={!query.trim() || !selectedTaskId || searching}
+            disabled={!query.trim() || (searchMode === 'normal' && !selectedTaskId) || searching}
             className="rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50 cursor-pointer"
             style={{ background: 'var(--color-accent)', color: 'var(--color-bg)' }}
           >
             {searching ? 'Searching…' : 'Search'}
           </button>
         </div>
+        {searchMode !== 'normal' && (
+          <p className="mt-2 text-xs" style={{ color: 'var(--color-warning)' }}>
+            This explicit inspection is isolated from task context and grants no runtime authority.
+          </p>
+        )}
       </section>
 
       {retrieval && (
@@ -264,6 +298,9 @@ export function MemoryVaultPanel() {
               {retrieval.evidence_code} · confidence {retrieval.confidence.toFixed(2)}
             </span>
           </div>
+          <p className="text-xs mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
+            Query boundary: {retrieval.retrieval_purpose}
+          </p>
           {retrieval.warnings.length > 0 && (
             <p className="text-xs mb-3" style={{ color: 'var(--color-warning)' }}>
               {retrieval.warnings.join(' · ')}
@@ -324,6 +361,14 @@ export function MemoryVaultPanel() {
           <div className="flex flex-wrap gap-3 mt-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             <span>Note {shortId(note.note_id)}</span>
             <span>{note.identity_kind}</span>
+            <span>{note.note_type}</span>
+            <span>{note.trust_class}</span>
+            <span>{note.retrieval_class}</span>
+            <span style={{ color: note.authority_class === 'none' ? undefined : 'var(--color-error)' }}>
+              {note.authority_class}
+            </span>
+            <span>{note.scope_class}</span>
+            <span>{note.parse_status}</span>
             <span>{note.conflict_state}</span>
             <span className="flex items-center gap-1"><Link2 size={11} />{countLinks(links, 'outgoing')} links · {countLinks(links, 'backlinks')} backlinks</span>
           </div>
