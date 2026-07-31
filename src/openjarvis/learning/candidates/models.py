@@ -815,14 +815,15 @@ class LearningCandidate(StrictFrozenModel):
         if self.state is not CandidateState.REJECTED and self.rejection_reason:
             raise ValueError("rejection_reason is only valid for rejected candidates")
         if (
-            self.origin is CandidateOrigin.AUTOMATIC_TRACE_EVALUATION
+            self.revision == 1
+            and self.origin is CandidateOrigin.AUTOMATIC_TRACE_EVALUATION
             and self.state
             not in {
                 CandidateState.PROPOSED,
                 CandidateState.QUARANTINED,
             }
         ):
-            raise ValueError("automatic extraction may only propose or quarantine")
+            raise ValueError("automatic revision 1 may only propose or quarantine")
         if self.content_hash != self.recompute_hash():
             raise ValueError("content_hash does not match candidate payload")
         return self
