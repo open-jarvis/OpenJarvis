@@ -23,13 +23,13 @@ from openjarvis.memory.safe_write import (
 from openjarvis.memory.task_bridge import MemoryTaskBridge, MemoryTaskContext
 from openjarvis.memory.vault_index import VaultIndex
 from openjarvis.memory.vault_models import (
-    NOTE_TYPES,
     SOURCE_PRIORITY,
     CandidateStatus,
     ConflictState,
     MemoryCandidate,
     MemoryConflict,
 )
+from openjarvis.memory.vault_policy import WRITABLE_NOTE_TYPES
 from openjarvis.memory.vault_retrieval import VaultRetriever, normalize_query
 from openjarvis.tasks.policy import CentralRiskPolicy
 from openjarvis.tasks.types import ApprovalKind, ApprovalStatus
@@ -109,7 +109,7 @@ class MemoryCandidateWorkflow:
         body = (body or "").strip()
         if not body:
             raise ValueError("candidate body must not be blank")
-        if note_type not in NOTE_TYPES:
+        if note_type not in WRITABLE_NOTE_TYPES:
             raise ValueError(f"unsupported note type: {note_type}")
         operation_key = self._operation_key(
             context.task_id, "candidate.create", idempotency_key
@@ -360,9 +360,7 @@ class MemoryCandidateWorkflow:
                 raise PermissionError("vault is not in writable-test mode")
             if not candidate.approval_id:
                 raise PermissionError("candidate has no approval")
-            approval = self.task_bridge.task_store.get_approval(
-                candidate.approval_id
-            )
+            approval = self.task_bridge.task_store.get_approval(candidate.approval_id)
             if approval is None or approval.status is not ApprovalStatus.APPROVED:
                 if approval is not None and approval.status in {
                     ApprovalStatus.DENIED,
@@ -721,7 +719,7 @@ class MemoryCandidateWorkflow:
         with self.index.connection:
             self.index.connection.execute(
                 f"""
-                UPDATE memory_candidates SET {', '.join(updates)}
+                UPDATE memory_candidates SET {", ".join(updates)}
                 WHERE candidate_id=?
                 """,
                 params,

@@ -81,9 +81,7 @@ def _context(
         task_id=_validated_header(task_id, "X-Task-ID"),
         session_id=_validated_header(session_id, "X-Session-ID"),
         correlation_id=_validated_header(correlation_id, "X-Correlation-ID"),
-        thread_id=(
-            _validated_header(thread_id, "X-Thread-ID") if thread_id else None
-        ),
+        thread_id=(_validated_header(thread_id, "X-Thread-ID") if thread_id else None),
         turn_id=_validated_header(turn_id, "X-Turn-ID") if turn_id else None,
     )
     bridge = getattr(_service(request), "task_bridge", None)
@@ -141,6 +139,16 @@ async def memory_health(request: Request) -> dict[str, Any]:
             "retrieval_mode": "fts5_bm25",
             "open_candidates": 0,
             "open_conflicts": 0,
+            "discovered_count": 0,
+            "frontmatter_parsed_count": 0,
+            "schema_valid_count": 0,
+            "type_supported_count": 0,
+            "fts_document_count": 0,
+            "retrieval_eligible_count": 0,
+            "review_only_count": 0,
+            "structural_count": 0,
+            "authority_sensitive_count": 0,
+            "rejected_count": 0,
         }
     return asdict(service.health())
 
@@ -189,6 +197,38 @@ async def memory_search(
         context=context,
     )
     return _retrieval_dict(result)
+
+
+@router.get("/review/search")
+async def memory_review_search(
+    request: Request,
+    query: str = Query(min_length=1, max_length=20_000),
+    top_k: int = Query(default=5, ge=1, le=25),
+    note_type: str | None = None,
+) -> dict[str, Any]:
+    """Explicitly inspect review-only sources without task/model attachment."""
+
+    _require_local(request)
+    filters = {"note_type": note_type} if note_type is not None else {}
+    return _retrieval_dict(
+        _service(request).review_search(query, top_k=top_k, filters=filters)
+    )
+
+
+@router.get("/structure/search")
+async def memory_structure_search(
+    request: Request,
+    query: str = Query(min_length=1, max_length=20_000),
+    top_k: int = Query(default=5, ge=1, le=25),
+    note_type: str | None = None,
+) -> dict[str, Any]:
+    """Explicitly inspect taxonomy/navigation sources outside answer context."""
+
+    _require_local(request)
+    filters = {"note_type": note_type} if note_type is not None else {}
+    return _retrieval_dict(
+        _service(request).structure_search(query, top_k=top_k, filters=filters)
+    )
 
 
 @router.get("/notes/{note_id}")
@@ -427,6 +467,11 @@ def _note_dict(note: MemoryNote) -> dict[str, Any]:
     data = asdict(note)
     data["conflict_state"] = note.conflict_state.value
     data["identity_kind"] = note.identity_kind.value
+    data["trust_class"] = note.trust_class.value
+    data["retrieval_class"] = note.retrieval_class.value
+    data["authority_class"] = note.authority_class.value
+    data["scope_class"] = note.scope_class.value
+    data["parse_status"] = note.parse_status
     return data
 
 
@@ -453,6 +498,7 @@ def _retrieval_dict(result) -> dict[str, Any]:
         "evidence_status": result.evidence_status.value,
         "evidence_code": result.evidence_code,
         "retrieval_method": result.retrieval_method,
+        "retrieval_purpose": result.retrieval_purpose,
         "filters": dict(result.filters),
         "warnings": list(result.warnings),
     }

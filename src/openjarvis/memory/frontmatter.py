@@ -22,6 +22,7 @@ from openjarvis.memory.vault_models import (
     IdentityKind,
     MemoryNote,
 )
+from openjarvis.memory.vault_policy import NoteType, classify_note_type
 
 _WIKILINK_RE = re.compile(r"(?<!!)\[\[([^\]\n]+)\]\]")
 _H1_RE = re.compile(r"^\s*#\s+(.+?)\s*$", re.MULTILINE)
@@ -269,10 +270,13 @@ def load_memory_note(path: Path, vault_root: Path) -> tuple[MemoryNote, ParsedMa
             validation_errors.append("schema_version must be an integer")
             conflict_state = ConflictState.INVALID_SCHEMA
 
-    note_type = str(metadata.get("type") or "capture").strip().lower()
-    if note_type not in NOTE_TYPES:
+    note_type = str(metadata.get("type") or NoteType.CAPTURE.value).strip()
+    type_supported = note_type in NOTE_TYPES
+    if not type_supported:
         validation_errors.append(f"unsupported note type: {note_type}")
         conflict_state = ConflictState.INVALID_SCHEMA
+
+    classification = classify_note_type(note_type)
 
     created_at, created_error = _iso_value(metadata.get("created_at"))
     updated_at, updated_error = _iso_value(metadata.get("updated_at"))
@@ -288,19 +292,29 @@ def load_memory_note(path: Path, vault_root: Path) -> tuple[MemoryNote, ParsedMa
     archived = archived or bool(relative_parts & {"archive", "archived", "archiv"})
 
     body = parsed.body if not parsed.error else parsed.body or parsed.raw_text
-    parser_error = "; ".join(validation_errors) or None
+    raw_scope = metadata.get("scope")
+    scope = str(raw_scope or "personal").strip()
+    project = (
+        str(metadata.get("project")).strip()
+        if metadata.get("project") not in (None, "")
+        else None
+    )
+    scope_binding: str | None = None
+    if note_type == NoteType.PROJECT_PROFILE.value:
+        scope_binding = project or (scope if raw_scope not in (None, "") else None)
+        if not scope_binding:
+            validation_errors.append("project_profile requires exact project scope")
+            conflict_state = ConflictState.INVALID_SCHEMA
+
+    schema_valid = not validation_errors
     note = MemoryNote(
         note_id=note_id,
         path=relative.as_posix(),
         title=_title(metadata, body, relative),
         note_type=note_type,
         status=status,
-        scope=str(metadata.get("scope") or "personal").strip().lower(),
-        project=(
-            str(metadata.get("project")).strip()
-            if metadata.get("project") not in (None, "")
-            else None
-        ),
+        scope=scope,
+        project=project,
         tags=_string_list(metadata.get("tags")),
         aliases=_string_list(metadata.get("aliases")),
         source=str(metadata.get("source") or "legacy").strip().lower(),
@@ -327,8 +341,18 @@ def load_memory_note(path: Path, vault_root: Path) -> tuple[MemoryNote, ParsedMa
         modified_ns=stat.st_mtime_ns,
         size_bytes=size_bytes,
         raw_frontmatter=_json_safe(metadata),
-        parser_error=parser_error,
+        parser_error="; ".join(validation_errors) or None,
         body_start_line=parsed.body_start_line,
+        frontmatter_parsed=parsed.error is None,
+        schema_valid=schema_valid,
+        type_supported=type_supported,
+        content_indexed=False,
+        retrieval_eligible=schema_valid and classification.retrieval_eligible,
+        trust_class=classification.trust_class,
+        retrieval_class=classification.retrieval_class,
+        authority_class=classification.authority_class,
+        scope_class=classification.scope_class,
+        scope_binding=scope_binding,
     )
     return note, parsed
 

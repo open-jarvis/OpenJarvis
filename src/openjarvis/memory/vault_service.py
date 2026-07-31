@@ -16,6 +16,7 @@ from openjarvis.memory.vault_models import (
     MemoryHealth,
     MemoryRetrievalResult,
 )
+from openjarvis.memory.vault_policy import RetrievalPurpose
 from openjarvis.memory.vault_retrieval import VaultRetriever
 from openjarvis.memory.vault_watcher import PollingVaultWatcher
 from openjarvis.tasks.store import TaskStore
@@ -73,6 +74,40 @@ class VaultMemoryService:
             self.task_bridge.record_result(context, result)
         return result
 
+    def review_search(
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        filters: Mapping[str, Any] | None = None,
+    ) -> MemoryRetrievalResult:
+        """Search review-only sources without attaching them to a task context."""
+
+        return self.retriever.search(
+            query,
+            top_k=top_k,
+            filters=dict(filters or {}),
+            purpose=RetrievalPurpose.EXPLICIT_REVIEW,
+            persist_sources=False,
+        )
+
+    def structure_search(
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        filters: Mapping[str, Any] | None = None,
+    ) -> MemoryRetrievalResult:
+        """Search taxonomy/navigation notes outside normal answer retrieval."""
+
+        return self.retriever.search(
+            query,
+            top_k=top_k,
+            filters=dict(filters or {}),
+            purpose=RetrievalPurpose.VAULT_STRUCTURE,
+            persist_sources=False,
+        )
+
     def rebuild(self, *, context: MemoryTaskContext | None = None) -> IndexReport:
         try:
             report = self.index.rebuild()
@@ -94,6 +129,10 @@ class VaultMemoryService:
                     "run_id": report.run_id,
                     "mode": report.mode,
                     "indexed": report.indexed,
+                    "discovered": report.discovered,
+                    "schema_valid": report.schema_valid,
+                    "type_supported": report.type_supported,
+                    "retrieval_eligible": report.retrieval_eligible,
                     "parser_errors": report.parser_errors,
                     "conflicts": report.conflicts,
                 },

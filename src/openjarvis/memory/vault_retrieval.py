@@ -22,6 +22,7 @@ from openjarvis.memory.vault_models import (
     MemorySource,
     RetrievalCandidate,
 )
+from openjarvis.memory.vault_policy import RetrievalPurpose
 
 _TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 _MAX_CANDIDATES = 100
@@ -100,13 +101,15 @@ class VaultRetriever:
         correlation_id: str | None = None,
         thread_id: str | None = None,
         turn_id: str | None = None,
+        purpose: RetrievalPurpose = RetrievalPurpose.NORMAL,
+        persist_sources: bool = True,
     ) -> MemoryRetrievalResult:
         """Search FTS5 and persist only sources selected for the result."""
 
         normalized = normalize_query(query)
         terms = _tokens(normalized)
         actual_retrieval_id = retrieval_id or uuid.uuid4().hex
-        clean_filters = self._normalize_filters(filters or {})
+        clean_filters = self._normalize_filters(filters or {}, purpose=purpose)
         if not terms:
             return MemoryRetrievalResult(
                 retrieval_id=actual_retrieval_id,
@@ -119,12 +122,14 @@ class VaultRetriever:
                 retrieval_method="fts5_bm25",
                 filters=clean_filters,
                 warnings=("query contains no searchable terms",),
+                retrieval_purpose=purpose.value,
             )
         try:
             rows = self._search_rows(
                 terms,
                 filters=clean_filters,
                 limit=min(self.max_candidates, max(top_k * 8, 20)),
+                purpose=purpose,
             )
         except (sqlite3.Error, RuntimeError) as exc:
             return MemoryRetrievalResult(
@@ -138,6 +143,7 @@ class VaultRetriever:
                 retrieval_method="fts5_bm25",
                 filters=clean_filters,
                 warnings=(f"vault index unavailable: {exc}",),
+                retrieval_purpose=purpose.value,
             )
 
         ranked = self._rank(rows, terms, normalized, clean_filters)
@@ -153,6 +159,11 @@ class VaultRetriever:
                 content_hash=item.row["content_hash"],
                 conflict_state=ConflictState(item.row["conflict_state"]),
                 source_priority=item.source_priority,
+                note_type=item.row["note_type"],
+                trust_class=item.row["trust_class"],
+                retrieval_class=item.row["retrieval_class"],
+                authority_class=item.row["authority_class"],
+                scope_class=item.row["scope_class"],
             )
             for item in deduped[: self.max_candidates]
         )
@@ -164,14 +175,15 @@ class VaultRetriever:
             warnings.append(
                 "embeddings are enabled but not required; this result used FTS5/BM25"
             )
-        self._persist_sources(
-            sources,
-            task_id=task_id,
-            session_id=session_id,
-            correlation_id=correlation_id,
-            thread_id=thread_id,
-            turn_id=turn_id,
-        )
+        if persist_sources:
+            self._persist_sources(
+                sources,
+                task_id=task_id,
+                session_id=session_id,
+                correlation_id=correlation_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+            )
         return MemoryRetrievalResult(
             retrieval_id=actual_retrieval_id,
             query=query,
@@ -183,10 +195,15 @@ class VaultRetriever:
             retrieval_method="fts5_bm25",
             filters=clean_filters,
             warnings=tuple(warnings),
+            retrieval_purpose=purpose.value,
         )
 
     @staticmethod
-    def _normalize_filters(filters: Mapping[str, Any]) -> dict[str, Any]:
+    def _normalize_filters(
+        filters: Mapping[str, Any],
+        *,
+        purpose: RetrievalPurpose = RetrievalPurpose.NORMAL,
+    ) -> dict[str, Any]:
         allowed = {
             "note_type",
             "status",
@@ -198,7 +215,8 @@ class VaultRetriever:
             "include_archived",
         }
         clean = {key: value for key, value in filters.items() if key in allowed}
-        clean.setdefault("status", "active")
+        if purpose is RetrievalPurpose.NORMAL:
+            clean.setdefault("status", "active")
         clean.setdefault("include_archived", False)
         tags = clean.get("tags")
         if isinstance(tags, str):
@@ -213,14 +231,38 @@ class VaultRetriever:
         *,
         filters: Mapping[str, Any],
         limit: int,
+        purpose: RetrievalPurpose,
     ) -> list[sqlite3.Row]:
-        clauses = ["memory_fts MATCH ?", "n.index_status='indexed'"]
+        clauses = [
+            "memory_fts MATCH ?",
+            "n.content_indexed=1",
+            "n.schema_valid=1",
+            "n.type_supported=1",
+        ]
         params: list[Any] = [_fts_query(terms)]
+        project_scope = str(filters.get("project") or "")
+        if purpose is RetrievalPurpose.NORMAL:
+            if project_scope:
+                clauses.append(
+                    "((n.retrieval_class='normal' AND n.project=?) OR "
+                    "(n.retrieval_class='project_scoped' "
+                    "AND n.scope_binding=?))"
+                )
+                params.extend((project_scope, project_scope))
+            else:
+                clauses.append("n.retrieval_class='normal'")
+        elif purpose is RetrievalPurpose.EXPLICIT_REVIEW:
+            clauses.append(
+                "n.retrieval_class IN ('review_only', 'explicit_review_only')"
+            )
+        elif purpose is RetrievalPurpose.VAULT_STRUCTURE:
+            clauses.append("n.retrieval_class IN ('taxonomy_only', 'navigation_only')")
+        else:  # pragma: no cover - defensive Enum exhaustiveness
+            raise ValueError("unsupported retrieval purpose")
         for key, column in (
             ("note_type", "n.note_type"),
             ("status", "n.status"),
             ("scope", "n.scope"),
-            ("project", "n.project"),
         ):
             value = filters.get(key)
             if value not in (None, ""):
@@ -248,7 +290,7 @@ class VaultRetriever:
                        AS bm25_rank
             FROM memory_fts
             JOIN memory_notes n ON n.note_id=memory_fts.note_id
-            WHERE {' AND '.join(clauses)}
+            WHERE {" AND ".join(clauses)}
             ORDER BY bm25_rank, n.updated_at DESC, n.path
             LIMIT ?
         """
@@ -309,9 +351,7 @@ class VaultRetriever:
                 reasons.append("project match")
             folders = json.loads(row["folder_relations"])
             if any(
-                term in normalize_query(folder)
-                for term in terms
-                for folder in folders
+                term in normalize_query(folder) for term in terms for folder in folders
             ):
                 score += 0.07
                 reasons.append("folder relation")
@@ -418,6 +458,11 @@ class VaultRetriever:
             selection_reason=ranked.reason,
             content_hash=row["content_hash"],
             indexed_at=row["indexed_at"],
+            note_type=row["note_type"],
+            trust_class=row["trust_class"],
+            retrieval_class=row["retrieval_class"],
+            authority_class=row["authority_class"],
+            scope_class=row["scope_class"],
         )
 
     @staticmethod

@@ -15,7 +15,7 @@ import uuid
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from openjarvis.memory.frontmatter import parse_markdown
 from openjarvis.memory.vault_index import VaultIndex
@@ -944,15 +944,26 @@ def _parser_report(pilot: Path, state: Path) -> dict[str, Any]:
         readback = reopened.sync()
         readback_health = reopened.health()
     return {
+        "authority_sensitive": first.authority_sensitive,
+        "content_indexed": first.content_indexed,
+        "discovered": first.discovered,
         "duplicate_contents": first.duplicate_contents,
         "duplicate_ids": first.duplicate_ids,
         "error_type_counts": dict(sorted(error_types.items())),
+        "frontmatter_parsed": first.frontmatter_parsed,
+        "fts_documents": health.fts_document_count,
         "fts5_available": health.fts5_available,
         "indexed": first.indexed,
         "parser_errors": first.parser_errors,
-        "process_restart_readback_indexed": readback_health.note_count,
+        "process_restart_readback_indexed": readback_health.fts_document_count,
         "process_restart_sync_unchanged": readback.unchanged,
+        "rejected": first.rejected,
+        "retrieval_eligible": first.retrieval_eligible,
+        "review_only": first.review_only,
         "scanned": first.scanned,
+        "schema_valid": first.schema_valid,
+        "structural": first.structural,
+        "type_supported": first.type_supported,
         "unsupported_note_type_errors": unsupported,
     }
 
@@ -981,6 +992,10 @@ def run_isolated_pilot(
     *,
     expected_source_manifest_sha256: str,
     established_vault_backup_tree_sha256: str,
+    additional_review: Callable[
+        [Path, Path, MappingTable, Mapping[str, Any]], Mapping[str, Any]
+    ]
+    | None = None,
 ) -> dict[str, Any]:
     """Run the full pilot from backup data and always remove disposable copies."""
 
@@ -1056,6 +1071,11 @@ def run_isolated_pilot(
             ),
         }
         parser = _parser_report(pilot, state)
+        extra_review = (
+            dict(additional_review(pilot, state, table, parser))
+            if additional_review is not None
+            else {}
+        )
 
         _copy_verified(restore_source, rollback)
         rollback_manifest, rollback_hash = build_manifest(rollback)
@@ -1093,6 +1113,10 @@ def run_isolated_pilot(
                 "body_hashes_unchanged"
             ],
         }
+        extra_gates = extra_review.get("gates", {})
+        if not isinstance(extra_gates, Mapping):
+            raise VaultSchemaPilotError("additional review gates must be a mapping")
+        gates.update({str(key): bool(value) for key, value in extra_gates.items()})
         status = "passed" if all(gates.values()) else "failed_gates"
         result = {
             "after_manifest_sha256": after_hash,
@@ -1124,12 +1148,25 @@ def run_isolated_pilot(
             "vault_backup_unchanged": True,
             "vault_source_manifest_sha256": expected_source_manifest_sha256,
         }
+        if "summary" in extra_review:
+            result["note_type_compatibility"] = extra_review["summary"]
         _write(review / "after-manifest.jsonl", _canonical_jsonl(after))
         _write(
             review / "diff-manifest.jsonl", _canonical_jsonl(_diff_manifest(planned))
         )
         _write_json(review / "reference-report.json", reference_report)
         _write_json(review / "parser-report.json", parser)
+        artifacts = extra_review.get("artifacts", {})
+        if not isinstance(artifacts, Mapping):
+            raise VaultSchemaPilotError("additional review artifacts must be a mapping")
+        for name, artifact in artifacts.items():
+            safe_name = PurePosixPath(str(name))
+            if safe_name.name != str(name) or safe_name.is_absolute():
+                raise VaultSchemaPilotError("unsafe additional review artifact name")
+            if isinstance(artifact, bytes):
+                _write(review / str(name), artifact)
+            else:
+                _write_json(review / str(name), artifact)
         rollback_text = (
             "Phase 8B isolated rollback proof\n"
             f"before_manifest_sha256: {before_hash}\n"

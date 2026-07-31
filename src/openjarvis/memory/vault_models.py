@@ -6,6 +6,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping
 
+from openjarvis.memory.vault_policy import (
+    NOTE_TYPES,
+    AuthorityClass,
+    RetrievalClass,
+    ScopeClass,
+    TrustClass,
+)
+
 
 class ConflictState(str, Enum):
     """Conflict state attached to a note or write candidate."""
@@ -45,24 +53,6 @@ class CandidateStatus(str, Enum):
     CONFLICTED = "conflicted"
     EXPIRED = "expired"
 
-
-NOTE_TYPES = frozenset(
-    {
-        "fact",
-        "preference",
-        "project",
-        "decision",
-        "task",
-        "experience",
-        "error",
-        "solution",
-        "skill",
-        "person",
-        "capture",
-        "review",
-        "system",
-    }
-)
 
 SOURCE_PRIORITY: Mapping[str, int] = {
     "user_correction": 5,
@@ -110,6 +100,22 @@ class MemoryNote:
     body_start_line: int = 1
     raw_frontmatter: Mapping[str, Any] = field(default_factory=dict)
     parser_error: str | None = None
+    frontmatter_parsed: bool = True
+    schema_valid: bool = True
+    type_supported: bool = True
+    content_indexed: bool = False
+    retrieval_eligible: bool = True
+    trust_class: TrustClass = TrustClass.SOURCE_BOUND
+    retrieval_class: RetrievalClass = RetrievalClass.NORMAL
+    authority_class: AuthorityClass = AuthorityClass.NONE
+    scope_class: ScopeClass = ScopeClass.DECLARED
+    scope_binding: str | None = None
+
+    @property
+    def parse_status(self) -> str:
+        """Return a stable API status distinct from physical discovery."""
+
+        return "valid" if self.schema_valid and self.type_supported else "rejected"
 
     @property
     def is_provisional(self) -> bool:
@@ -135,6 +141,11 @@ class MemorySource:
     selection_reason: str
     content_hash: str
     indexed_at: str
+    note_type: str
+    trust_class: str
+    retrieval_class: str
+    authority_class: str
+    scope_class: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +160,11 @@ class RetrievalCandidate:
     content_hash: str
     conflict_state: ConflictState
     source_priority: int
+    note_type: str
+    trust_class: str
+    retrieval_class: str
+    authority_class: str
+    scope_class: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +181,7 @@ class MemoryRetrievalResult:
     retrieval_method: str
     filters: Mapping[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
+    retrieval_purpose: str = "normal"
 
     @property
     def evidence_code(self) -> str:
@@ -195,6 +212,16 @@ class IndexReport:
     duplicate_contents: int
     conflicts: int
     warnings: tuple[str, ...] = ()
+    discovered: int = 0
+    frontmatter_parsed: int = 0
+    schema_valid: int = 0
+    type_supported: int = 0
+    content_indexed: int = 0
+    retrieval_eligible: int = 0
+    review_only: int = 0
+    structural: int = 0
+    authority_sensitive: int = 0
+    rejected: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +289,16 @@ class MemoryHealth:
     retrieval_mode: str
     open_candidates: int
     open_conflicts: int
+    discovered_count: int = 0
+    frontmatter_parsed_count: int = 0
+    schema_valid_count: int = 0
+    type_supported_count: int = 0
+    fts_document_count: int = 0
+    retrieval_eligible_count: int = 0
+    review_only_count: int = 0
+    structural_count: int = 0
+    authority_sensitive_count: int = 0
+    rejected_count: int = 0
 
 
 __all__ = [

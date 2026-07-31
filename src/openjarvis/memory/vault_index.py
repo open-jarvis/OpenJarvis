@@ -22,8 +22,14 @@ from openjarvis.memory.vault_models import (
     MemoryHealth,
     MemoryNote,
 )
+from openjarvis.memory.vault_policy import (
+    AuthorityClass,
+    RetrievalClass,
+    ScopeClass,
+    TrustClass,
+)
 
-_INDEX_SCHEMA_VERSION = 1
+_INDEX_SCHEMA_VERSION = 2
 _TEXT_EXTENSIONS = {".md", ".markdown"}
 _SKIP_DIRS = {
     ".git",
@@ -47,6 +53,11 @@ CREATE TABLE IF NOT EXISTS memory_notes (
     path                TEXT NOT NULL UNIQUE,
     title               TEXT NOT NULL,
     note_type           TEXT NOT NULL,
+    trust_class         TEXT NOT NULL DEFAULT 'unclassified',
+    retrieval_class     TEXT NOT NULL DEFAULT 'rejected',
+    authority_class     TEXT NOT NULL DEFAULT 'prohibited_runtime_authority',
+    scope_class         TEXT NOT NULL DEFAULT 'unclassified',
+    scope_binding       TEXT,
     status              TEXT NOT NULL,
     scope               TEXT NOT NULL,
     project             TEXT,
@@ -69,6 +80,12 @@ CREATE TABLE IF NOT EXISTS memory_notes (
     size_bytes          INTEGER NOT NULL,
     indexed_at          TEXT NOT NULL,
     index_status        TEXT NOT NULL,
+    frontmatter_parsed  INTEGER NOT NULL DEFAULT 0,
+    schema_valid        INTEGER NOT NULL DEFAULT 0,
+    type_supported      INTEGER NOT NULL DEFAULT 0,
+    content_indexed     INTEGER NOT NULL DEFAULT 0,
+    retrieval_eligible INTEGER NOT NULL DEFAULT 0,
+    parse_status        TEXT NOT NULL DEFAULT 'rejected',
     parser_error        TEXT,
     raw_frontmatter     TEXT NOT NULL DEFAULT '{}'
 );
@@ -379,13 +396,55 @@ class VaultIndex:
     def _migrate(self) -> None:
         with self._lock, self._conn:
             self._conn.executescript(_SCHEMA)
+            existing = {
+                str(row[1])
+                for row in self._conn.execute("PRAGMA table_info(memory_notes)")
+            }
+            additions = {
+                "trust_class": "TEXT NOT NULL DEFAULT 'unclassified'",
+                "retrieval_class": "TEXT NOT NULL DEFAULT 'rejected'",
+                "authority_class": (
+                    "TEXT NOT NULL DEFAULT 'prohibited_runtime_authority'"
+                ),
+                "scope_class": "TEXT NOT NULL DEFAULT 'unclassified'",
+                "scope_binding": "TEXT",
+                "frontmatter_parsed": "INTEGER NOT NULL DEFAULT 0",
+                "schema_valid": "INTEGER NOT NULL DEFAULT 0",
+                "type_supported": "INTEGER NOT NULL DEFAULT 0",
+                "content_indexed": "INTEGER NOT NULL DEFAULT 0",
+                "retrieval_eligible": "INTEGER NOT NULL DEFAULT 0",
+                "parse_status": "TEXT NOT NULL DEFAULT 'rejected'",
+            }
+            for name, declaration in additions.items():
+                if name not in existing:
+                    self._conn.execute(
+                        f"ALTER TABLE memory_notes ADD COLUMN {name} {declaration}"
+                    )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_memory_notes_retrieval
+                ON memory_notes(content_indexed, retrieval_class, scope_binding)
+                """
+            )
             self._conn.execute(
                 """
                 INSERT OR IGNORE INTO memory_schema_migrations
                     (version, name, applied_at)
                 VALUES (?, ?, ?)
                 """,
-                (_INDEX_SCHEMA_VERSION, "initial vault memory index", _now()),
+                (1, "initial vault memory index", _now()),
+            )
+            self._conn.execute(
+                """
+                INSERT OR IGNORE INTO memory_schema_migrations
+                    (version, name, applied_at)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    _INDEX_SCHEMA_VERSION,
+                    "vault note trust and retrieval classifications",
+                    _now(),
+                ),
             )
 
     def schema_version(self) -> int:
@@ -410,11 +469,13 @@ class VaultIndex:
 
     def _scan(
         self, run_id: str
-    ) -> tuple[list[MemoryNote], list[dict[str, str]], int]:
+    ) -> tuple[list[MemoryNote], list[dict[str, str]], int, int]:
         notes: list[MemoryNote] = []
         errors: list[dict[str, str]] = []
         skipped_reparse = 0
+        discovered = 0
         for path in self._iter_paths():
+            discovered += 1
             try:
                 note, _parsed = load_memory_note(path, self.vault_root)
             except (OSError, ValueError) as exc:
@@ -429,6 +490,12 @@ class VaultIndex:
                 )
                 continue
             note.indexed_at = _now()
+            note.content_indexed = bool(
+                note.frontmatter_parsed
+                and note.schema_valid
+                and note.type_supported
+                and not note.parser_error
+            )
             if note.parser_error:
                 errors.append(
                     {
@@ -453,7 +520,7 @@ class VaultIndex:
                         "hash": "",
                     }
                 )
-        return notes, errors, skipped_reparse
+        return notes, errors, skipped_reparse, discovered
 
     def rebuild(self) -> IndexReport:
         """Fully reconstruct the index from Markdown."""
@@ -478,12 +545,17 @@ class VaultIndex:
                 (run_id, mode, started_at),
             )
         try:
-            scanned_notes, scan_errors, skipped_reparse = self._scan(run_id)
+            scanned_notes, scan_errors, skipped_reparse, discovered = self._scan(run_id)
             prepared, duplicate_ids, duplicate_contents, conflicts = (
                 self._prepare_notes(scanned_notes, scan_errors)
             )
             existing_rows = self._conn.execute(
-                "SELECT note_id, path, content_hash, indexed_at FROM memory_notes"
+                """
+                SELECT note_id, path, content_hash, indexed_at,
+                       content_indexed, trust_class, retrieval_class,
+                       authority_class, scope_class, scope_binding
+                FROM memory_notes
+                """
             ).fetchall()
             existing = {row["note_id"]: row for row in existing_rows}
             current_ids = {note.note_id for note in prepared}
@@ -495,11 +567,12 @@ class VaultIndex:
                     continue
                 same_path = previous["path"] == note.path
                 same_hash = previous["content_hash"] == note.content_hash
+                same_policy = self._same_index_policy(previous, note)
                 if not same_path:
                     moved += 1
                 if not same_hash:
                     modified += 1
-                if same_path and same_hash:
+                if same_path and same_hash and same_policy:
                     unchanged += 1
                     note.indexed_at = previous["indexed_at"]
             deleted_ids = set(existing) - current_ids
@@ -514,13 +587,14 @@ class VaultIndex:
                 deleted_ids=deleted_ids,
             )
             completed_at = _now()
+            content_indexed = sum(note.content_indexed for note in prepared)
             report = IndexReport(
                 run_id=run_id,
                 mode=mode,
                 started_at=started_at,
                 completed_at=completed_at,
                 scanned=len(scanned_notes),
-                indexed=len(prepared),
+                indexed=content_indexed,
                 created=created,
                 modified=modified,
                 moved=moved,
@@ -537,6 +611,41 @@ class VaultIndex:
                     if skipped_reparse
                     else ()
                 ),
+                discovered=discovered,
+                frontmatter_parsed=sum(
+                    note.frontmatter_parsed for note in scanned_notes
+                ),
+                schema_valid=sum(note.schema_valid for note in scanned_notes),
+                type_supported=sum(note.type_supported for note in scanned_notes),
+                content_indexed=content_indexed,
+                retrieval_eligible=sum(
+                    note.content_indexed and note.retrieval_eligible
+                    for note in prepared
+                ),
+                review_only=sum(
+                    note.content_indexed
+                    and note.retrieval_class
+                    in {
+                        RetrievalClass.REVIEW_ONLY,
+                        RetrievalClass.EXPLICIT_REVIEW_ONLY,
+                    }
+                    for note in prepared
+                ),
+                structural=sum(
+                    note.content_indexed
+                    and note.retrieval_class
+                    in {
+                        RetrievalClass.TAXONOMY_ONLY,
+                        RetrievalClass.NAVIGATION_ONLY,
+                    }
+                    for note in prepared
+                ),
+                authority_sensitive=sum(
+                    note.content_indexed
+                    and note.trust_class is TrustClass.AUTHORITY_SENSITIVE_SOURCE
+                    for note in prepared
+                ),
+                rejected=sum(not note.content_indexed for note in scanned_notes),
             )
             with self._lock, self._conn:
                 self._conn.execute(
@@ -665,6 +774,7 @@ class VaultIndex:
                     elif (
                         previous["path"] != note.path
                         or previous["content_hash"] != note.content_hash
+                        or not self._same_index_policy(previous, note)
                     ):
                         changed = True
                     self._upsert_note(note)
@@ -683,7 +793,7 @@ class VaultIndex:
                         self._conn.execute(
                             "DELETE FROM memory_fts WHERE note_id=?", (note.note_id,)
                         )
-                        if not note.parser_error:
+                        if note.content_indexed:
                             self._insert_fts(note)
                         self._conn.execute(
                             "DELETE FROM memory_tags WHERE note_id=?", (note.note_id,)
@@ -725,25 +835,44 @@ class VaultIndex:
                 self._conn.rollback()
                 raise
 
+    @staticmethod
+    def _same_index_policy(previous: sqlite3.Row, note: MemoryNote) -> bool:
+        return (
+            bool(previous["content_indexed"]) == note.content_indexed
+            and previous["trust_class"] == note.trust_class.value
+            and previous["retrieval_class"] == note.retrieval_class.value
+            and previous["authority_class"] == note.authority_class.value
+            and previous["scope_class"] == note.scope_class.value
+            and previous["scope_binding"] == note.scope_binding
+        )
+
     def _upsert_note(self, note: MemoryNote) -> None:
         self._conn.execute(
             """
             INSERT INTO memory_notes (
-                note_id, identity_kind, path, title, note_type, status, scope,
-                project, source, source_task_id, source_session_id, created_at,
-                updated_at, content_hash, body_hash, frontmatter_version, body,
-                body_start_line, aliases, tags, folder_relations, archived,
-                conflict_state, modified_ns, size_bytes, indexed_at,
-                index_status, parser_error, raw_frontmatter
+                note_id, identity_kind, path, title, note_type, trust_class,
+                retrieval_class, authority_class, scope_class, scope_binding,
+                status, scope, project, source, source_task_id,
+                source_session_id, created_at, updated_at, content_hash,
+                body_hash, frontmatter_version, body, body_start_line, aliases,
+                tags, folder_relations, archived, conflict_state, modified_ns,
+                size_bytes, indexed_at, index_status, frontmatter_parsed,
+                schema_valid, type_supported, content_indexed,
+                retrieval_eligible, parse_status, parser_error, raw_frontmatter
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             ON CONFLICT(note_id) DO UPDATE SET
                 identity_kind=excluded.identity_kind,
                 path=excluded.path,
                 title=excluded.title,
                 note_type=excluded.note_type,
+                trust_class=excluded.trust_class,
+                retrieval_class=excluded.retrieval_class,
+                authority_class=excluded.authority_class,
+                scope_class=excluded.scope_class,
+                scope_binding=excluded.scope_binding,
                 status=excluded.status,
                 scope=excluded.scope,
                 project=excluded.project,
@@ -766,6 +895,12 @@ class VaultIndex:
                 size_bytes=excluded.size_bytes,
                 indexed_at=excluded.indexed_at,
                 index_status=excluded.index_status,
+                frontmatter_parsed=excluded.frontmatter_parsed,
+                schema_valid=excluded.schema_valid,
+                type_supported=excluded.type_supported,
+                content_indexed=excluded.content_indexed,
+                retrieval_eligible=excluded.retrieval_eligible,
+                parse_status=excluded.parse_status,
                 parser_error=excluded.parser_error,
                 raw_frontmatter=excluded.raw_frontmatter
             """,
@@ -775,6 +910,11 @@ class VaultIndex:
                 note.path,
                 note.title,
                 note.note_type,
+                note.trust_class.value,
+                note.retrieval_class.value,
+                note.authority_class.value,
+                note.scope_class.value,
+                note.scope_binding,
                 note.status,
                 note.scope,
                 note.project,
@@ -796,7 +936,13 @@ class VaultIndex:
                 note.modified_ns,
                 note.size_bytes,
                 note.indexed_at or _now(),
-                "error" if note.parser_error else "indexed",
+                "indexed" if note.content_indexed else "rejected",
+                int(note.frontmatter_parsed),
+                int(note.schema_valid),
+                int(note.type_supported),
+                int(note.content_indexed),
+                int(note.retrieval_eligible),
+                note.parse_status,
                 note.parser_error,
                 json.dumps(note.raw_frontmatter, ensure_ascii=False, sort_keys=True),
             ),
@@ -882,9 +1028,7 @@ class VaultIndex:
                     (relation_id, note.note_id, f"project:{note.project}"),
                 )
             if note.source_task_id:
-                relation_id = _stable_digest(
-                    note.note_id, "task", note.source_task_id
-                )
+                relation_id = _stable_digest(note.note_id, "task", note.source_task_id)
                 self._conn.execute(
                     """
                     INSERT INTO memory_relations (
@@ -1032,9 +1176,7 @@ class VaultIndex:
             "SELECT note_id FROM memory_notes ORDER BY path LIMIT ?", (limit,)
         ).fetchall()
         return [
-            note
-            for row in rows
-            if (note := self.get_note(row["note_id"])) is not None
+            note for row in rows if (note := self.get_note(row["note_id"])) is not None
         ]
 
     def list_errors(self, *, limit: int = 100) -> list[dict[str, Any]]:
@@ -1083,7 +1225,9 @@ class VaultIndex:
         note_rows = self._conn.execute(
             """
             SELECT note_id, path, title, note_type, status, scope, project,
-                   archived, conflict_state
+                   archived, conflict_state, trust_class, retrieval_class,
+                   authority_class, scope_class, parse_status,
+                   retrieval_eligible
             FROM memory_notes ORDER BY path LIMIT ?
             """,
             (limit,),
@@ -1119,6 +1263,12 @@ class VaultIndex:
                     "project": row["project"],
                     "archived": bool(row["archived"]),
                     "conflict_state": row["conflict_state"],
+                    "trust_class": row["trust_class"],
+                    "retrieval_class": row["retrieval_class"],
+                    "authority_class": row["authority_class"],
+                    "scope_class": row["scope_class"],
+                    "parse_status": row["parse_status"],
+                    "retrieval_eligible": bool(row["retrieval_eligible"]),
                 }
                 for row in note_rows
             ],
@@ -1131,8 +1281,43 @@ class VaultIndex:
         )
         error_count = int(
             self._conn.execute(
-                "SELECT COUNT(*) FROM memory_index_errors"
+                """
+                SELECT COUNT(*) FROM memory_index_errors
+                WHERE error_type='parser_error'
+                """
             ).fetchone()[0]
+        )
+        status = self._conn.execute(
+            """
+            SELECT
+                COUNT(*) AS discovered,
+                COALESCE(SUM(frontmatter_parsed), 0) AS frontmatter_parsed,
+                COALESCE(SUM(schema_valid), 0) AS schema_valid,
+                COALESCE(SUM(type_supported), 0) AS type_supported,
+                COALESCE(SUM(retrieval_eligible), 0) AS retrieval_eligible,
+                COALESCE(SUM(
+                    CASE WHEN retrieval_class IN (
+                        'review_only', 'explicit_review_only'
+                    ) AND content_indexed=1 THEN 1 ELSE 0 END
+                ), 0) AS review_only,
+                COALESCE(SUM(
+                    CASE WHEN retrieval_class IN (
+                        'taxonomy_only', 'navigation_only'
+                    ) AND content_indexed=1 THEN 1 ELSE 0 END
+                ), 0) AS structural,
+                COALESCE(SUM(
+                    CASE WHEN trust_class='authority_sensitive_source'
+                              AND content_indexed=1
+                         THEN 1 ELSE 0 END
+                ), 0) AS authority_sensitive,
+                COALESCE(SUM(
+                    CASE WHEN content_indexed=0 THEN 1 ELSE 0 END
+                ), 0) AS rejected
+            FROM memory_notes
+            """
+        ).fetchone()
+        fts_documents = int(
+            self._conn.execute("SELECT COUNT(*) FROM memory_fts").fetchone()[0]
         )
         last = self._conn.execute(
             """
@@ -1170,6 +1355,16 @@ class VaultIndex:
             retrieval_mode="fts5_bm25",
             open_candidates=candidates,
             open_conflicts=conflicts,
+            discovered_count=int(status["discovered"]),
+            frontmatter_parsed_count=int(status["frontmatter_parsed"]),
+            schema_valid_count=int(status["schema_valid"]),
+            type_supported_count=int(status["type_supported"]),
+            fts_document_count=fts_documents,
+            retrieval_eligible_count=int(status["retrieval_eligible"]),
+            review_only_count=int(status["review_only"]),
+            structural_count=int(status["structural"]),
+            authority_sensitive_count=int(status["authority_sensitive"]),
+            rejected_count=int(status["rejected"]),
         )
 
     def close(self) -> None:
@@ -1214,6 +1409,16 @@ def _note_from_row(row: sqlite3.Row) -> MemoryNote:
         body_start_line=row["body_start_line"],
         raw_frontmatter=json.loads(row["raw_frontmatter"]),
         parser_error=row["parser_error"],
+        frontmatter_parsed=bool(row["frontmatter_parsed"]),
+        schema_valid=bool(row["schema_valid"]),
+        type_supported=bool(row["type_supported"]),
+        content_indexed=bool(row["content_indexed"]),
+        retrieval_eligible=bool(row["retrieval_eligible"]),
+        trust_class=TrustClass(row["trust_class"]),
+        retrieval_class=RetrievalClass(row["retrieval_class"]),
+        authority_class=AuthorityClass(row["authority_class"]),
+        scope_class=ScopeClass(row["scope_class"]),
+        scope_binding=row["scope_binding"],
     )
 
 
@@ -1235,6 +1440,16 @@ def _report_dict(report: IndexReport) -> dict[str, Any]:
         "duplicate_contents": report.duplicate_contents,
         "conflicts": report.conflicts,
         "warnings": list(report.warnings),
+        "discovered": report.discovered,
+        "frontmatter_parsed": report.frontmatter_parsed,
+        "schema_valid": report.schema_valid,
+        "type_supported": report.type_supported,
+        "content_indexed": report.content_indexed,
+        "retrieval_eligible": report.retrieval_eligible,
+        "review_only": report.review_only,
+        "structural": report.structural,
+        "authority_sensitive": report.authority_sensitive,
+        "rejected": report.rejected,
     }
 
 

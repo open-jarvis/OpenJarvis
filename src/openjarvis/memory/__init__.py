@@ -59,6 +59,15 @@ from openjarvis.memory.vault_models import (
     MemorySource,
     RetrievalCandidate,
 )
+from openjarvis.memory.vault_policy import (
+    AuthorityClass,
+    NoteType,
+    RetrievalClass,
+    RetrievalPurpose,
+    ScopeClass,
+    TrustClass,
+    classify_note_type,
+)
 from openjarvis.memory.vault_retrieval import VaultRetriever, normalize_query
 from openjarvis.memory.vault_service import (
     VaultMemoryService,
@@ -74,6 +83,7 @@ __all__ = [
     "CandidateStatus",
     "AtomicMarkdownWriter",
     "AtomicWriteResult",
+    "AuthorityClass",
     "ConflictState",
     "ConcurrentMemoryWrite",
     "EvidenceStatus",
@@ -92,9 +102,14 @@ __all__ = [
     "MemorySource",
     "MemoryTaskBridge",
     "MemoryTaskContext",
+    "NoteType",
     "ParsedMarkdown",
     "PlannedMigrationChange",
     "RetrievalCandidate",
+    "RetrievalClass",
+    "RetrievalPurpose",
+    "ScopeClass",
+    "TrustClass",
     "VaultIndex",
     "VaultMemoryService",
     "VaultRetriever",
@@ -104,6 +119,7 @@ __all__ = [
     "build_vault_memory_service",
     "analyze_vault_migration",
     "candidate_to_dict",
+    "classify_note_type",
     "create_fact_store",
     "load_memory_note",
     "parse_markdown",
