@@ -31,7 +31,7 @@ EXPECTED_TABLES = {
 
 def test_migration_creates_required_schema(database_path: Path) -> None:
     database = SQLiteLearningDatabase(database_path)
-    assert database.initialize() == (1, 2)
+    assert database.initialize() == (1, 2, 3)
     with database.reader() as connection:
         rows = connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'"
@@ -41,7 +41,7 @@ def test_migration_creates_required_schema(database_path: Path) -> None:
 
 def test_migration_is_idempotent(database_path: Path) -> None:
     database = SQLiteLearningDatabase(database_path)
-    assert database.initialize() == (1, 2)
+    assert database.initialize() == (1, 2, 3)
     assert database.initialize() == ()
 
 

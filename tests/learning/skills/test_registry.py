@@ -151,9 +151,11 @@ def _register(registry: SkillRegistry, manifest: SkillManifest, *, key: str):
     )
 
 
-def test_migration_two_creates_registry_schema(tmp_path: Path) -> None:
+def test_migration_two_registry_schema_survives_later_migrations(
+    tmp_path: Path,
+) -> None:
     database = SQLiteLearningDatabase((tmp_path / "registry.sqlite3").resolve())
-    assert database.initialize() == (1, 2)
+    assert database.initialize() == (1, 2, 3)
     assert database.initialize() == ()
     with database.reader() as connection:
         tables = {
@@ -166,7 +168,7 @@ def test_migration_two_creates_registry_schema(tmp_path: Path) -> None:
             "SELECT version FROM learning_schema_migrations ORDER BY version"
         ).fetchall()
     assert V2_TABLES <= tables
-    assert [row["version"] for row in versions] == [1, 2]
+    assert [row["version"] for row in versions] == [1, 2, 3]
 
 
 def test_manifest_registration_round_trip_and_events(tmp_path: Path) -> None:

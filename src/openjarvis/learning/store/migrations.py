@@ -551,6 +551,139 @@ MIGRATIONS = (
             """,
         ),
     ),
+    Migration(
+        version=3,
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS routing_recommendations (
+                recommendation_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                correlation_id TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                recommended_route TEXT NOT NULL,
+                skill_id TEXT,
+                semantic_version TEXT,
+                expected_risk INTEGER NOT NULL CHECK(expected_risk BETWEEN 0 AND 4),
+                confidence REAL NOT NULL CHECK(confidence BETWEEN 0.0 AND 1.0),
+                sample_size INTEGER NOT NULL CHECK(sample_size >= 0),
+                recommendation_hash TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                CHECK((skill_id IS NULL) = (semantic_version IS NULL)),
+                UNIQUE(task_id, recommendation_hash)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS routing_comparisons (
+                comparison_id TEXT PRIMARY KEY,
+                recommendation_id TEXT NOT NULL UNIQUE,
+                actual_route TEXT NOT NULL,
+                comparison_result TEXT NOT NULL,
+                comparison_hash TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(recommendation_id)
+                    REFERENCES routing_recommendations(recommendation_id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS feedback_revisions (
+                feedback_id TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK(revision >= 1),
+                task_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                correlation_id TEXT NOT NULL,
+                answer_id TEXT,
+                execution_id TEXT,
+                actor TEXT NOT NULL,
+                feedback_type TEXT NOT NULL,
+                source_digest TEXT NOT NULL,
+                supersedes_revision INTEGER,
+                revoked_at TEXT,
+                feedback_hash TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(feedback_id, revision),
+                CHECK((answer_id IS NULL) <> (execution_id IS NULL)),
+                CHECK(
+                    (revision = 1 AND supersedes_revision IS NULL)
+                    OR
+                    (revision > 1 AND supersedes_revision = revision - 1)
+                ),
+                UNIQUE(feedback_id, feedback_hash)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS feedback_heads (
+                feedback_id TEXT PRIMARY KEY,
+                current_revision INTEGER NOT NULL CHECK(current_revision >= 1),
+                current_feedback_hash TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                correlation_id TEXT NOT NULL,
+                revoked INTEGER NOT NULL CHECK(revoked IN (0, 1)),
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(feedback_id, current_revision)
+                    REFERENCES feedback_revisions(feedback_id, revision)
+                    DEFERRABLE INITIALLY DEFERRED
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS feedback_candidate_hints (
+                hint_id TEXT PRIMARY KEY,
+                feedback_id TEXT NOT NULL,
+                feedback_revision INTEGER NOT NULL,
+                candidate_type TEXT NOT NULL,
+                source_priority TEXT NOT NULL,
+                hint_hash TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(feedback_id, feedback_revision),
+                FOREIGN KEY(feedback_id, feedback_revision)
+                    REFERENCES feedback_revisions(feedback_id, revision)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS phase7_idempotency_records (
+                namespace TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                request_digest TEXT NOT NULL,
+                result_references_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(namespace, idempotency_key)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS phase7_audit_events (
+                sequence INTEGER PRIMARY KEY,
+                event_id TEXT NOT NULL UNIQUE,
+                event_type TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                correlation_id TEXT NOT NULL,
+                actor TEXT,
+                reference_ids_json TEXT NOT NULL,
+                event_hash TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS ix_routing_task_created
+            ON routing_recommendations(task_id, created_at)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS ix_feedback_task_created
+            ON feedback_revisions(task_id, created_at)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS ix_phase7_events_task_sequence
+            ON phase7_audit_events(task_id, sequence)
+            """,
+        ),
+    ),
 )
 
 
