@@ -22,6 +22,19 @@ from openjarvis.learning.skills.manifest import (
     VerificationKind,
     VerificationStrategy,
 )
+from openjarvis.learning.skills.registry import (
+    SkillRegistry,
+    SkillRegistryError,
+    SkillVersionConflictError,
+)
+from openjarvis.learning.skills.registry_models import (
+    RegistryDisposition,
+    SkillAuditEvent,
+    SkillAuditEventType,
+    SkillRegistrationOutcome,
+    SkillVersionHead,
+    SkillVersionRecord,
+)
 
 __all__ = [
     "DeclarativeSkillStep",
@@ -31,6 +44,9 @@ __all__ = [
     "RetryPolicy",
     "RollbackKind",
     "RollbackStrategy",
+    "RegistryDisposition",
+    "SkillAuditEvent",
+    "SkillAuditEventType",
     "SkillIdempotencyPolicy",
     "SkillLifecycleStatus",
     "SkillManifest",
@@ -38,6 +54,12 @@ __all__ = [
     "SkillManifestError",
     "SkillMetricDefinition",
     "SkillProvenance",
+    "SkillRegistrationOutcome",
+    "SkillRegistry",
+    "SkillRegistryError",
+    "SkillVersionConflictError",
+    "SkillVersionHead",
+    "SkillVersionRecord",
     "VerificationKind",
     "VerificationStrategy",
 ]
