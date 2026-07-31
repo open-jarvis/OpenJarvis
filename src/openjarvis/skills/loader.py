@@ -19,6 +19,10 @@ import logging
 LOGGER = logging.getLogger(__name__)
 
 
+class LegacySkillLoadBlocked(RuntimeError):
+    """Legacy files cannot become trusted skills in canonical mode."""
+
+
 def _read_source_metadata(path: Path) -> dict:
     """Read .source TOML file if present, returning the parsed dict.
 
@@ -49,6 +53,7 @@ def load_skill(
     verify_signature: bool = False,
     public_key: Optional[bytes] = None,
     scan_for_injection: bool = False,
+    canonical_mode: bool = False,
 ) -> SkillManifest:
     """Load a skill manifest from a TOML file.
 
@@ -73,6 +78,8 @@ def load_skill(
     output_key = "summary"
     ```
     """
+    if canonical_mode:
+        raise LegacySkillLoadBlocked("legacy TOML loading is blocked in canonical mode")
     path = Path(path)
     with open(path, "rb") as fh:
         data = tomllib.load(fh)
@@ -143,13 +150,19 @@ def load_skill(
     return manifest
 
 
-def load_skill_markdown(path: str | Path) -> SkillManifest:
+def load_skill_markdown(
+    path: str | Path, *, canonical_mode: bool = False
+) -> SkillManifest:
     """Load a skill manifest from a SKILL.md file via SkillParser.
 
     Parses YAML frontmatter (between ``---`` delimiters) and the markdown
     body, then runs them through :class:`SkillParser` for strict validation
     and tolerant field mapping.
     """
+    if canonical_mode:
+        raise LegacySkillLoadBlocked(
+            "legacy markdown loading is blocked in canonical mode"
+        )
     from openjarvis.skills.parser import SkillParseError, SkillParser
 
     path = Path(path)
@@ -202,7 +215,9 @@ def load_skill_markdown(path: str | Path) -> SkillManifest:
         )
 
 
-def load_skill_directory(path: str | Path) -> SkillManifest:
+def load_skill_directory(
+    path: str | Path, *, canonical_mode: bool = False
+) -> SkillManifest:
     """Load a skill from a directory containing ``skill.toml`` and/or ``SKILL.md``.
 
     - If only ``skill.toml`` is present the manifest is loaded from TOML.
@@ -211,6 +226,10 @@ def load_skill_directory(path: str | Path) -> SkillManifest:
       fields and ``markdown_content`` is merged in from the markdown file.
     - If neither is present a ``FileNotFoundError`` is raised.
     """
+    if canonical_mode:
+        raise LegacySkillLoadBlocked(
+            "legacy skill directories are blocked in canonical mode"
+        )
     path = Path(path)
     toml_path = path / "skill.toml"
     md_path = path / "SKILL.md"
@@ -263,7 +282,9 @@ def load_skill_directory(path: str | Path) -> SkillManifest:
     return manifest
 
 
-def discover_skills(directory: str | Path) -> list[SkillManifest]:
+def discover_skills(
+    directory: str | Path, *, canonical_mode: bool = False
+) -> list[SkillManifest]:
     """Scan a directory for skill definitions and load them.
 
     Handles three layouts:
@@ -271,6 +292,10 @@ def discover_skills(directory: str | Path) -> list[SkillManifest]:
     - Skill directories: ``<directory>/<name>/{skill.toml,SKILL.md}``.
     - Sourced layout: ``<directory>/<source>/<name>/{skill.toml,SKILL.md}``.
     """
+    if canonical_mode:
+        raise LegacySkillLoadBlocked(
+            "legacy skill discovery is blocked in canonical mode"
+        )
     directory = Path(directory).expanduser()
     if not directory.exists():
         return []
@@ -312,8 +337,9 @@ def discover_skills(directory: str | Path) -> list[SkillManifest]:
 
 
 __all__ = [
-    "load_skill",
-    "load_skill_markdown",
-    "load_skill_directory",
+    "LegacySkillLoadBlocked",
     "discover_skills",
+    "load_skill",
+    "load_skill_directory",
+    "load_skill_markdown",
 ]

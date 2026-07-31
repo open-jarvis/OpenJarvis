@@ -9,7 +9,11 @@ from typing import Any, Dict, List, Optional
 from openjarvis.core.events import EventBus
 from openjarvis.core.paths import get_config_dir
 from openjarvis.skills.dependency import validate_dependencies
-from openjarvis.skills.executor import SkillExecutor, SkillResult
+from openjarvis.skills.executor import (
+    LegacySkillExecutionBlocked,
+    SkillExecutor,
+    SkillResult,
+)
 from openjarvis.skills.loader import discover_skills
 from openjarvis.skills.tool_adapter import SkillTool
 from openjarvis.skills.types import SkillManifest
@@ -33,9 +37,11 @@ class SkillManager:
         *,
         capability_policy: Optional[Any] = None,
         overlay_dir: Optional[Path] = None,
+        canonical_mode: bool = False,
     ) -> None:
         self._bus = bus
         self._capability_policy = capability_policy
+        self._canonical_mode = canonical_mode
         self._skills: Dict[str, SkillManifest] = {}
         self._tool_executor: Optional[ToolExecutor] = None
         if overlay_dir is None:
@@ -76,6 +82,10 @@ class SkillManager:
             from disk — but ``_load_overlays()`` still runs (in case the
             caller had previously seeded ``self._skills`` directly).
         """
+        if self._canonical_mode:
+            raise LegacySkillExecutionBlocked(
+                "legacy skill discovery is blocked in canonical mode"
+            )
         if paths:
             for directory in paths:
                 manifests = discover_skills(directory)
@@ -102,6 +112,8 @@ class SkillManager:
 
         Bad overlays are silently ignored — they should not break discovery.
         """
+        if self._canonical_mode:
+            return
         from openjarvis.skills.overlay import SkillOverlayLoader
 
         loader = SkillOverlayLoader(self._overlay_dir)
@@ -161,6 +173,9 @@ class SkillManager:
         executor = tool_executor or self._tool_executor
         tools: List[BaseTool] = []
 
+        if self._canonical_mode:
+            return tools
+
         for manifest in self._skills.values():
             real_executor = executor or _NullToolExecutor()
             skill_exec = SkillExecutor(real_executor, bus=self._bus)
@@ -177,6 +192,10 @@ class SkillManager:
         """Return a resolver callback that delegates sub-skill execution."""
 
         def _resolver(name: str, context: Dict[str, Any]) -> SkillResult:
+            if self._canonical_mode:
+                raise LegacySkillExecutionBlocked(
+                    "legacy sub-skill resolution is blocked in canonical mode"
+                )
             manifest = self.resolve(name)
             skill_exec = SkillExecutor(
                 self._tool_executor or _NullToolExecutor(),
@@ -197,6 +216,8 @@ class SkillManager:
         Skills with ``disable_model_invocation=True`` are excluded so that
         internal or automation-only skills are not surfaced to the model.
         """
+        if self._canonical_mode:
+            return "<available_skills>\n</available_skills>"
         lines: List[str] = ["<available_skills>"]
 
         for manifest in self._skills.values():
@@ -217,6 +238,8 @@ class SkillManager:
         Pulls from ``manifest.metadata.openjarvis.few_shot`` for every
         registered skill.  Returns one formatted string per example.
         """
+        if self._canonical_mode:
+            return []
         examples: List[str] = []
         for name, manifest in self._skills.items():
             oj = manifest.metadata.get("openjarvis", {}) if manifest.metadata else {}
@@ -253,6 +276,10 @@ class SkillManager:
         hyphens, no underscores) so the resulting manifests load cleanly
         through the discovery walker.
         """
+        if self._canonical_mode:
+            raise LegacySkillExecutionBlocked(
+                "trace-driven legacy skill discovery is blocked in canonical mode"
+            )
         from openjarvis.learning.agents.skill_discovery import SkillDiscovery
 
         traces = trace_store.list_traces(limit=10000)
@@ -346,6 +373,10 @@ class SkillManager:
         -------
         SkillResult
         """
+        if self._canonical_mode:
+            raise LegacySkillExecutionBlocked(
+                "legacy SkillManager execution is blocked in canonical mode"
+            )
         manifest = self.resolve(name)
         executor = SkillExecutor(
             self._tool_executor or _NullToolExecutor(),
@@ -360,6 +391,10 @@ class SkillManager:
 
     def set_tool_executor(self, tool_executor: ToolExecutor) -> None:
         """Attach a :class:`ToolExecutor` for running tool steps in skill pipelines."""
+        if self._canonical_mode:
+            raise LegacySkillExecutionBlocked(
+                "legacy tool executor wiring is blocked in canonical mode"
+            )
         self._tool_executor = tool_executor
 
     # ------------------------------------------------------------------

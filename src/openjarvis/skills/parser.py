@@ -71,6 +71,8 @@ class SkillParser:
       returns a normalized :class:`SkillManifest`.
     """
 
+    legacy_untrusted = True
+
     def parse_frontmatter(
         self,
         frontmatter: Dict[str, Any],

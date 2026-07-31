@@ -31,10 +31,12 @@ class WorkflowEngine:
         bus: Optional[EventBus] = None,
         max_parallel: int = 4,
         default_node_timeout: int = 300,
+        canonical_mode: bool = False,
     ) -> None:
         self._bus = bus
         self._max_parallel = max_parallel
         self._default_node_timeout = default_node_timeout
+        self._canonical_mode = canonical_mode
 
     def run(
         self,
@@ -45,6 +47,15 @@ class WorkflowEngine:
         context: Optional[Dict[str, Any]] = None,
     ) -> WorkflowResult:
         """Execute a workflow graph end-to-end."""
+        if self._canonical_mode:
+            return WorkflowResult(
+                workflow_name=graph.name,
+                success=False,
+                final_output=(
+                    "Direct WorkflowEngine execution is blocked in canonical mode; "
+                    "use the registry-pinned action service path."
+                ),
+            )
         valid, msg = graph.validate()
         if not valid:
             return WorkflowResult(

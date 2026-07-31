@@ -53,12 +53,14 @@ class SkillImporter:
         parser: SkillParser,
         tool_translator: ToolTranslator,
         target_root: Path | None = None,
+        canonical_mode: bool = False,
     ) -> None:
         self._parser = parser
         self._translator = tool_translator
         if target_root is None:
             target_root = get_config_dir() / "skills"
         self._target_root = Path(target_root)
+        self._canonical_mode = canonical_mode
 
     def import_skill(
         self,
@@ -72,6 +74,11 @@ class SkillImporter:
         Returns an :class:`ImportResult` with status, paths, translated
         tools, untranslated tools, and warnings.
         """
+        if self._canonical_mode:
+            raise RuntimeError(
+                "legacy skill import is blocked in canonical mode; "
+                "use quarantined local package inspection"
+            )
         result = ImportResult()
         target_dir = self._target_root / resolved.source / resolved.name
         result.target_path = target_dir

@@ -4,6 +4,19 @@ Legacy ``openjarvis.skills`` objects remain untrusted compatibility inputs.  The
 types exported here are the only manifests accepted by the learning registry.
 """
 
+from openjarvis.learning.skills.execution import (
+    ActionServiceProtocol,
+    ApprovalDecision,
+    CanonicalSkillExecutor,
+    SkillApprovalRequired,
+    SkillExecutionError,
+    SkillExecutionOutcome,
+    SkillExecutionPin,
+    SkillExecutionRecord,
+    SkillExecutionRequest,
+    SkillStepExecution,
+    SkillTaskBudget,
+)
 from openjarvis.learning.skills.manifest import (
     DeclarativeSkillStep,
     FailureBehavior,
@@ -49,6 +62,9 @@ from openjarvis.learning.skills.verification import (
 )
 
 __all__ = [
+    "ActionServiceProtocol",
+    "ApprovalDecision",
+    "CanonicalSkillExecutor",
     "DeclarativeSkillStep",
     "FailureBehavior",
     "FixtureClass",
@@ -61,6 +77,12 @@ __all__ = [
     "REQUIRED_VERIFICATION_TYPES",
     "SkillAuditEvent",
     "SkillAuditEventType",
+    "SkillApprovalRequired",
+    "SkillExecutionError",
+    "SkillExecutionOutcome",
+    "SkillExecutionPin",
+    "SkillExecutionRecord",
+    "SkillExecutionRequest",
     "SkillIdempotencyPolicy",
     "SkillLifecycleStatus",
     "SkillManifest",
@@ -75,6 +97,8 @@ __all__ = [
     "SkillTestResult",
     "SkillTestRun",
     "SkillTestType",
+    "SkillStepExecution",
+    "SkillTaskBudget",
     "SkillVerificationOutcome",
     "SkillVerificationRecord",
     "SkillVerificationService",

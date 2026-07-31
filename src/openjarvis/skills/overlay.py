@@ -54,8 +54,9 @@ class SkillOverlayLoader:
     Layout: ``<root>/<skill-name>/optimized.toml``
     """
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, canonical_mode: bool = False) -> None:
         self._root = Path(root).expanduser()
+        self._canonical_mode = canonical_mode
 
     def load(self, skill_name: str) -> Optional[SkillOverlay]:
         """Load the overlay for *skill_name*.
@@ -63,6 +64,8 @@ class SkillOverlayLoader:
         Returns ``None`` if the overlay file is missing or malformed.
         Never raises — bad overlay files should not break skill loading.
         """
+        if self._canonical_mode:
+            return None
         path = self._root / skill_name / "optimized.toml"
         if not path.exists():
             return None

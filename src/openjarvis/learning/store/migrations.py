@@ -423,6 +423,25 @@ MIGRATIONS = (
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS skill_execution_pins (
+                pin_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                correlation_id TEXT NOT NULL,
+                scope_key TEXT NOT NULL,
+                scope_revision INTEGER NOT NULL CHECK(scope_revision >= 1),
+                skill_id TEXT NOT NULL,
+                semantic_version TEXT NOT NULL,
+                manifest_hash TEXT NOT NULL,
+                pin_hash TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(skill_id, semantic_version)
+                    REFERENCES skill_versions(skill_id, semantic_version),
+                FOREIGN KEY(manifest_hash) REFERENCES skill_manifests(content_hash)
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS skill_metric_snapshots (
                 snapshot_id TEXT PRIMARY KEY,
                 skill_id TEXT NOT NULL,

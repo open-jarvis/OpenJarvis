@@ -6,7 +6,7 @@ import re
 from typing import Any, Dict, List, Optional, Set
 
 from openjarvis.core.types import ToolResult
-from openjarvis.skills.executor import SkillExecutor
+from openjarvis.skills.executor import LegacySkillExecutionBlocked, SkillExecutor
 from openjarvis.skills.types import SkillManifest
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
@@ -36,10 +36,12 @@ class SkillTool(BaseTool):
         executor: SkillExecutor,
         *,
         skill_manager: Optional[Any] = None,
+        canonical_mode: bool = False,
     ) -> None:
         self._manifest = manifest
         self._executor = executor
         self._skill_manager = skill_manager
+        self._canonical_mode = canonical_mode
         self.tool_id = f"skill_{manifest.name}"
         self._parameters = self._build_parameters()
 
@@ -140,6 +142,10 @@ class SkillTool(BaseTool):
         collect the last step's output.  If ``markdown_content`` is present,
         append it to the content.  Returns a combined :class:`ToolResult`.
         """
+        if self._canonical_mode:
+            raise LegacySkillExecutionBlocked(
+                "legacy SkillTool is blocked in canonical mode"
+            )
         tool_name = self.spec.name
         content_parts: List[str] = []
 

@@ -429,6 +429,10 @@ class SkillManifestDraft(StrictFrozenModel):
             raise ValueError("allowed tools must exactly match declarative step tools")
         input_ids = {field.field_id for field in self.input_schema.fields}
         for step in self.declarative_steps:
+            if not step.preconditions or not step.postconditions:
+                raise ValueError(
+                    "every declarative step requires preconditions and postconditions"
+                )
             unknown_bindings = set(step.input_binding_ids) - input_ids
             if unknown_bindings:
                 raise ValueError("step references an unknown input binding")
