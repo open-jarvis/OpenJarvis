@@ -136,7 +136,10 @@ def test_required_routes_are_on_the_existing_app(api) -> None:
     required = {
         ("GET", "/v1/learning/health"),
         ("GET", "/v1/learning/evaluations"),
+        ("GET", "/v1/learning/evaluations/{evaluation_id}"),
         ("GET", "/v1/learning/candidates"),
+        ("GET", "/v1/learning/candidates/{candidate_id}"),
+        ("GET", "/v1/learning/candidates/{candidate_id}/history"),
         ("GET", "/v1/learning/conflicts"),
         ("GET", "/v1/learning/routing/recommendations"),
         ("GET", "/v1/tasks/{task_id}/learning"),
@@ -197,6 +200,36 @@ def test_auth_health_evaluation_and_restart_readback_are_safe(api) -> None:
     evaluation = response.json()["evaluation"]
     assert evaluation["evaluation_class"] == "completed"
     assert response.json()["ingest"]["candidates"]
+    listed = client.get(
+        "/v1/learning/candidates",
+        headers={"Authorization": "Bearer phase7-test-key"},
+    )
+    assert listed.status_code == 200
+    candidate = next(
+        item for item in listed.json()["candidates"] if item["state"] == "proposed"
+    )
+
+    started_review = client.post(
+        f"/v1/learning/candidates/{candidate['candidate_id']}/review",
+        headers=_headers("candidate-review-once"),
+        json={
+            "task_id": "task-phase7-api",
+            "session_id": "session-phase7-api",
+            "actor": "local-user",
+            "expected_revision": candidate["revision"],
+            "reason": "Synthetic evidence reviewed through the canonical API.",
+            "reason_code": "synthetic_review_started",
+            "evidence_reference_ids": candidate["source_evidence_ids"],
+        },
+    )
+    assert started_review.status_code == 200, started_review.text
+    before_restart = client.get(
+        f"/v1/learning/candidates/{candidate['candidate_id']}/history",
+        headers={"Authorization": "Bearer phase7-test-key"},
+    )
+    assert before_restart.status_code == 200
+    assert len(before_restart.json()["revisions"]) == 2
+    assert len(before_restart.json()["reviews"]) == 1
 
     replay = client.post(
         "/v1/learning/evaluate",
@@ -216,6 +249,12 @@ def test_auth_health_evaluation_and_restart_readback_are_safe(api) -> None:
     assert restarted.learning.get_evaluation(
         evaluation["evaluation_id"]
     ).evaluation_hash
+    restarted_history = restarted.learning.candidate_history(
+        candidate["candidate_id"]
+    )
+    assert [item.model_dump(mode="json") for item in restarted_history] == (
+        before_restart.json()["revisions"]
+    )
     events = tasks.timeline("task-phase7-api")
     assert [event.sequence for event in events] == list(range(1, len(events) + 1))
     assert sum(event.event_type == "evaluation.completed" for event in events) == 1

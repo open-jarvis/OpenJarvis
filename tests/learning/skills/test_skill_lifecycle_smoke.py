@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 import pytest
 
 from openjarvis.learning.lifecycle import ActorType
+from openjarvis.learning.runtime import Phase7LearningRuntime
 from openjarvis.learning.skills import (
     ActivationDecision,
     CanonicalSkillExecutor,
@@ -210,6 +211,23 @@ async def test_offline_skill_lifecycle_restart_smoke(
         )
         assert imported.quarantined is True
         assert imported.package.package_hash == exported.package.package_hash
+
+        canonical_readback = Phase7LearningRuntime.create(
+            database_path,
+            tool_catalog=registry.tool_catalog,
+        ).skill_detail(manifest_one.skill_id)
+        version_readback = next(
+            value
+            for value in canonical_readback["versions"]
+            if value["version"].semantic_version == manifest_one.semantic_version
+        )
+        assert version_readback["verification"]
+        assert version_readback["executions"]
+        assert version_readback["metrics"]
+        assert version_readback["promotions"]
+        assert version_readback["activations"]
+        assert version_readback["packages"]
+        assert version_readback["quarantined_imports"]
 
         restarted_learning, restarted_registry = _registry(database_path)
         restarted_lifecycle = SkillLifecycleService(restarted_registry)
