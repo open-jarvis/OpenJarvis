@@ -92,6 +92,17 @@ class ActionServiceProtocol(Protocol):
     async def retry(self, action_id: str) -> ToolAction: ...
 
 
+class TaskEventStoreProtocol(Protocol):
+    def append_event(self, **values: Any) -> tuple[Any, bool]: ...
+
+
+class TaskTimelineProtocol(Protocol):
+    @property
+    def store(self) -> TaskEventStoreProtocol: ...
+
+    def project_committed(self, event: Any) -> None: ...
+
+
 class SkillExecutionError(SkillRegistryError):
     """Canonical execution could not safely advance."""
 
@@ -265,9 +276,11 @@ class CanonicalSkillExecutor:
         registry: SkillRegistry,
         *,
         action_service: ActionServiceProtocol | None,
+        task_service: TaskTimelineProtocol | None = None,
     ) -> None:
         self.registry = registry
         self.action_service = action_service
+        self.task_service = task_service
 
     def pin_active(self, request: SkillExecutionRequest) -> SkillExecutionPin:
         """Persist the exact active version selected for a canonical task."""
@@ -405,7 +418,9 @@ class CanonicalSkillExecutor:
                 request_digest=request_digest,
             )
             if replay is not None:
-                return self._execution(connection, replay["execution_id"])
+                record = self._execution(connection, replay["execution_id"])
+                self._project_timeline(record)
+                return record
 
         started_at = _now()
         started_monotonic = time.monotonic()
@@ -575,7 +590,11 @@ class CanonicalSkillExecutor:
                 "completed_at": completed_at,
             }
         )
-        return self._persist_execution(record, key=key, request_digest=request_digest)
+        persisted = self._persist_execution(
+            record, key=key, request_digest=request_digest
+        )
+        self._project_timeline(persisted)
+        return persisted
 
     @staticmethod
     async def _within_budget(awaitable, *, started_monotonic: float, budget):
@@ -791,6 +810,51 @@ class CanonicalSkillExecutor:
                 references={"execution_id": record.execution_id},
             )
             return record
+
+    def _project_timeline(self, record: SkillExecutionRecord) -> None:
+        service = self.task_service
+        if service is None:
+            return
+        final_event = (
+            "skill.execution_completed"
+            if record.outcome
+            in {
+                SkillExecutionOutcome.COMPLETED,
+                SkillExecutionOutcome.COMPLETED_WITH_WARNING,
+            }
+            else "skill.execution_failed"
+        )
+        references = sorted(
+            {
+                record.execution_id,
+                record.pin_id,
+                record.skill_id,
+                record.semantic_version,
+                *(step.action_id for step in record.steps),
+            }
+        )
+        for suffix, event_type, occurred_at in (
+            ("started", "skill.execution_started", record.created_at),
+            ("finished", final_event, record.completed_at),
+        ):
+            event, created = service.store.append_event(
+                task_id=record.task_id,
+                source_event_id=(
+                    f"phase7-skill-execution:{record.execution_id}:{suffix}"
+                ),
+                event_type=event_type,
+                occurred_at=_iso(occurred_at),
+                cause=f"canonical_skill_{record.outcome.value}",
+                component="canonical_skill_runtime",
+                payload={
+                    "reference_ids": references,
+                    "hashes": [record.manifest_hash, record.record_hash],
+                    "effect_known": record.effect_known,
+                    "metadata_only": True,
+                },
+            )
+            if created:
+                service.project_committed(event)
 
     @staticmethod
     def _pin(connection: sqlite3.Connection, pin_id: str) -> SkillExecutionPin:

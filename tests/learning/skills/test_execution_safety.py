@@ -28,6 +28,8 @@ from openjarvis.skills.loader import LegacySkillLoadBlocked, load_skill
 from openjarvis.skills.manager import SkillManager
 from openjarvis.skills.types import SkillManifest as LegacySkillManifest
 from openjarvis.tasks.policy import RiskLevel
+from openjarvis.tasks.service import TaskService
+from openjarvis.tasks.store import TaskStore
 from openjarvis.tasks.types import ExecutionLane
 from openjarvis.tools.actions import (
     ActionStatus,
@@ -224,6 +226,53 @@ async def test_execution_uses_only_action_service_and_persists_restart_safe_reco
     assert service.proposals[0].arguments == {"path": "fixtures/example.txt"}
     assert executor.get_execution(first.execution_id) == first
     assert first.steps[0].verification_status is VerificationStatus.PASSED
+
+
+@pytest.mark.asyncio
+async def test_execution_projects_restart_safe_metadata_only_task_timeline(
+    tmp_path: Path,
+) -> None:
+    registry, pin = _registered_pin(tmp_path)
+    task_store = TaskStore(tmp_path / "tasks.sqlite3")
+    task_service = TaskService(task_store)
+    request = _request()
+    task_service.create(
+        task_id=request.task_id,
+        session_id=request.session_id,
+        correlation_id=request.correlation_id,
+        description="Synthetic canonical skill timeline test",
+        execution_lane=ExecutionLane.MODEL,
+        backend="fake",
+        risk_level=0,
+        component="test",
+        cause="synthetic_fixture",
+        idempotency_key="create_skill_timeline_fixture",
+    )
+    action_service = _ActionServiceDouble()
+    record = await CanonicalSkillExecutor(
+        registry,
+        action_service=action_service,
+        task_service=task_service,
+    ).execute_pinned(pin.pin_id, request)
+    replay = await CanonicalSkillExecutor(
+        registry,
+        action_service=action_service,
+        task_service=task_service,
+    ).execute_pinned(pin.pin_id, request)
+
+    assert replay == record
+    events = task_service.timeline(request.task_id)
+    skill_events = [event for event in events if event.event_type.startswith("skill.")]
+    assert [event.event_type for event in skill_events] == [
+        "skill.execution_started",
+        "skill.execution_completed",
+    ]
+    assert all(event.payload["metadata_only"] is True for event in skill_events)
+    assert all(
+        "fixtures/example.txt" not in str(event.payload) for event in skill_events
+    )
+    assert all(record.record_hash in event.payload["hashes"] for event in skill_events)
+    task_store.close()
 
 
 @pytest.mark.asyncio
