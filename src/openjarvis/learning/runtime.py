@@ -426,8 +426,7 @@ class Phase7LearningRuntime:
                 (skill_id, semantic_version),
             ).fetchall()
         return tuple(
-            SkillPackageRecord.model_validate_json(row["payload_json"])
-            for row in rows
+            SkillPackageRecord.model_validate_json(row["payload_json"]) for row in rows
         )
 
     def _quarantined_imports(

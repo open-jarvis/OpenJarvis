@@ -249,9 +249,7 @@ def test_auth_health_evaluation_and_restart_readback_are_safe(api) -> None:
     assert restarted.learning.get_evaluation(
         evaluation["evaluation_id"]
     ).evaluation_hash
-    restarted_history = restarted.learning.candidate_history(
-        candidate["candidate_id"]
-    )
+    restarted_history = restarted.learning.candidate_history(candidate["candidate_id"])
     assert [item.model_dump(mode="json") for item in restarted_history] == (
         before_restart.json()["revisions"]
     )
