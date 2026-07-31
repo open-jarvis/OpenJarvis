@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from openjarvis.migration import assessment
 from openjarvis.migration.archive_backup import create_atomic_archive_backup
 from openjarvis.migration.assessment import (
     AssessmentError,
@@ -163,3 +164,9 @@ def test_vault_compatibility_reports_only_aggregate_schema_state(
     assert result["id_state_counts"] == {"missing": 1, "valid_uuid": 1}
     assert result["schema_version_counts"] == {"1": 1, "missing": 1}
     assert result["markdown_files"] == 2
+
+
+def test_invalid_uuid_is_not_double_counted_as_yaml_failure() -> None:
+    assert assessment._parser_error_reasons("frontmatter id is not a valid UUID") == (
+        "invalid_uuid",
+    )

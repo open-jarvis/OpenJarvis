@@ -334,7 +334,7 @@ def _parser_error_reasons(message: str | None) -> tuple[str, ...]:
         reasons.append("invalid_uuid")
     if "schema_version" in lowered:
         reasons.append("schema_version")
-    if "yaml" in lowered or "frontmatter" in lowered:
+    if not reasons and ("yaml" in lowered or "frontmatter" in lowered):
         reasons.append("frontmatter_or_yaml")
     return tuple(reasons or ("other_schema_error",))
 
