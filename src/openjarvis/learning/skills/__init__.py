@@ -35,6 +35,17 @@ from openjarvis.learning.skills.manifest import (
     VerificationKind,
     VerificationStrategy,
 )
+from openjarvis.learning.skills.metrics import (
+    SkillMetricObservation,
+    SkillMetricSnapshot,
+    VerifiedSkillMetricService,
+)
+from openjarvis.learning.skills.packages import (
+    LocalSkillPackageService,
+    PackageDirection,
+    SkillPackage,
+    SkillPackageRecord,
+)
 from openjarvis.learning.skills.promotion import (
     ActivationDecision,
     ActivationKind,
@@ -87,8 +98,10 @@ __all__ = [
     "FailureBehavior",
     "FixtureClass",
     "HealthcheckRunner",
+    "LocalSkillPackageService",
     "ManifestSchema",
     "ManifestSchemaField",
+    "PackageDirection",
     "RetryPolicy",
     "RollbackKind",
     "RollbackStrategy",
@@ -115,6 +128,10 @@ __all__ = [
     "SkillManifestDraft",
     "SkillManifestError",
     "SkillMetricDefinition",
+    "SkillMetricObservation",
+    "SkillMetricSnapshot",
+    "SkillPackage",
+    "SkillPackageRecord",
     "SkillProvenance",
     "SkillPromotionRecord",
     "SkillRegistrationOutcome",
@@ -136,4 +153,5 @@ __all__ = [
     "VerificationKind",
     "VerificationStatus",
     "VerificationStrategy",
+    "VerifiedSkillMetricService",
 ]

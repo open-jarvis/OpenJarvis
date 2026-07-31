@@ -492,6 +492,18 @@ MIGRATIONS = (
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS skill_import_quarantine_records (
+                package_id TEXT PRIMARY KEY,
+                skill_id TEXT NOT NULL,
+                semantic_version TEXT NOT NULL,
+                package_hash TEXT NOT NULL,
+                record_hash TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS skill_idempotency_records (
                 idempotency_key TEXT PRIMARY KEY,
                 operation TEXT NOT NULL,
