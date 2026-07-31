@@ -129,7 +129,7 @@ def _python_structure(path: str, payload: bytes) -> dict[str, Any]:
     functions: list[str] = []
     classes: list[str] = []
     routes: list[dict[str, str]] = []
-    for node in tree.body:
+    for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             functions.append(node.name)
             for decorator in node.decorator_list:
