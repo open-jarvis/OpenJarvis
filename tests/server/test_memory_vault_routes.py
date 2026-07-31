@@ -24,17 +24,30 @@ from openjarvis.tasks.types import ExecutionLane
 from openjarvis.traces.store import TraceStore
 
 
-def _note(path: Path, *, title: str, body: str) -> str:
+def _note(
+    path: Path,
+    *,
+    title: str,
+    body: str,
+    note_type: str = "fact",
+    status: str = "active",
+    scope: str = "personal",
+    project: str | None = None,
+    extra: str = "",
+) -> str:
     note_id = str(uuid.uuid4())
+    project_line = f"project: {project}\n" if project is not None else ""
     path.write_text(
         "---\n"
         f"id: {note_id}\n"
         "schema_version: 1\n"
-        "type: fact\n"
-        "status: active\n"
-        "scope: personal\n"
+        f"type: {note_type}\n"
+        f"status: {status}\n"
+        f"scope: {scope}\n"
+        f"{project_line}"
         "source: manual\n"
         f"title: {title}\n"
+        f"{extra}"
         "---\n"
         f"{body.rstrip()}\n",
         encoding="utf-8",
@@ -128,6 +141,123 @@ def test_health_is_privacy_safe_and_search_returns_exact_sources(
     assert payload["evidence_status"] == "sufficient"
     assert payload["selected_sources"][0]["note_id"] == note_id
     assert payload["selected_sources"][0]["path"] == "python.md"
+    assert payload["selected_sources"][0]["retrieval_class"] == "normal"
+    assert payload["retrieval_purpose"] == "normal"
+
+
+def test_sensitive_and_structural_notes_require_separate_explicit_endpoints(
+    api_runtime,
+) -> None:
+    vault, service, _workflow, _task_store, client, headers = api_runtime
+    policy_id = _note(
+        vault / "policy.md",
+        title="Synthetic Policy",
+        body="Unique authority boundary policy token.",
+        note_type="system_policy",
+        extra="trust_class: trusted\nauthority_class: runtime\n",
+    )
+    category_id = _note(
+        vault / "category.md",
+        title="Synthetic Category",
+        body="Unique taxonomy boundary category token.",
+        note_type="category",
+    )
+    service.rebuild()
+
+    normal_policy = client.get(
+        "/v1/memory/search",
+        params={"query": "authority boundary", "note_type": "system_policy"},
+        headers=headers,
+    )
+    review_policy = client.get(
+        "/v1/memory/review/search",
+        params={"query": "authority boundary", "note_type": "system_policy"},
+    )
+    normal_category = client.get(
+        "/v1/memory/search",
+        params={"query": "taxonomy boundary", "note_type": "category"},
+        headers=headers,
+    )
+    structure_category = client.get(
+        "/v1/memory/structure/search",
+        params={"query": "taxonomy boundary", "note_type": "category"},
+    )
+
+    assert normal_policy.status_code == 200
+    assert normal_policy.json()["selected_sources"] == []
+    assert review_policy.status_code == 200
+    assert review_policy.json()["retrieval_purpose"] == "explicit_review"
+    assert review_policy.json()["selected_sources"][0]["note_id"] == policy_id
+    assert review_policy.json()["selected_sources"][0]["authority_class"] == (
+        "prohibited_runtime_authority"
+    )
+    assert normal_category.json()["selected_sources"] == []
+    assert structure_category.json()["retrieval_purpose"] == "vault_structure"
+    assert structure_category.json()["selected_sources"][0]["note_id"] == (category_id)
+
+
+def test_project_profile_api_requires_exact_project_scope(api_runtime) -> None:
+    vault, service, _workflow, _task_store, client, headers = api_runtime
+    note_id = _note(
+        vault / "project.md",
+        title="Project Alpha",
+        body="Unique exact project scope token.",
+        note_type="project_profile",
+        scope="Project-Alpha",
+    )
+    service.rebuild()
+
+    missing = client.get(
+        "/v1/memory/search",
+        params={"query": "exact project scope"},
+        headers=headers,
+    )
+    wrong = client.get(
+        "/v1/memory/search",
+        params={"query": "exact project scope", "project": "project-alpha"},
+        headers=headers,
+    )
+    exact = client.get(
+        "/v1/memory/search",
+        params={"query": "exact project scope", "project": "Project-Alpha"},
+        headers=headers,
+    )
+
+    assert missing.json()["selected_sources"] == []
+    assert wrong.json()["selected_sources"] == []
+    assert exact.json()["selected_sources"][0]["note_id"] == note_id
+    assert exact.json()["selected_sources"][0]["scope_class"] == "exact_project"
+
+
+def test_health_and_note_api_report_derived_status_without_honoring_overrides(
+    api_runtime,
+) -> None:
+    vault, service, _workflow, _task_store, client, _headers = api_runtime
+    note_id = _note(
+        vault / "proposal.md",
+        title="Proposal",
+        body="Review-only proposal.",
+        note_type="memory_proposal",
+        status="proposed",
+        extra="retrieval_class: normal\nauthority_class: runtime\n",
+    )
+    service.rebuild()
+
+    health = client.get("/v1/memory/health").json()
+    note = client.get(f"/v1/memory/notes/{note_id}").json()
+
+    assert health["discovered_count"] == 1
+    assert health["schema_valid_count"] == 1
+    assert health["type_supported_count"] == 1
+    assert health["fts_document_count"] == 1
+    assert health["retrieval_eligible_count"] == 0
+    assert health["review_only_count"] == 1
+    assert note["note_type"] == "memory_proposal"
+    assert note["trust_class"] == "untrusted_proposal"
+    assert note["retrieval_class"] == "review_only"
+    assert note["authority_class"] == "none"
+    assert note["parse_status"] == "valid"
+    assert note["retrieval_eligible"] is False
 
 
 def test_note_links_graph_and_task_sources_endpoints(api_runtime) -> None:
@@ -160,8 +290,7 @@ def test_note_links_graph_and_task_sources_endpoints(api_runtime) -> None:
     assert sources.status_code == 200
     assert sources.json()["count"] >= 1
     assert all(
-        item["source_kind"] == "memory_note"
-        for item in sources.json()["sources"]
+        item["source_kind"] == "memory_note" for item in sources.json()["sources"]
     )
 
 
@@ -235,6 +364,24 @@ def test_candidate_reject_writes_nothing(api_runtime) -> None:
     assert rejected.status_code == 200
     assert rejected.json()["status"] == "rejected"
     assert not (vault / created["proposed_path"]).exists()
+
+
+def test_api_cannot_turn_legacy_source_type_into_a_memory_candidate(
+    api_runtime,
+) -> None:
+    _vault, _service, workflow, _task_store, client, headers = api_runtime
+
+    response = client.post(
+        "/v1/memory/candidates",
+        headers={**headers, "Idempotency-Key": "no-proposal-elevation"},
+        json={
+            "body": "A parsed proposal is not a confirmed memory.",
+            "note_type": "memory_proposal",
+        },
+    )
+
+    assert response.status_code == 422
+    assert workflow.list() == []
 
 
 def test_candidate_api_create_is_idempotent(api_runtime) -> None:

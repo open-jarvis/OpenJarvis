@@ -63,7 +63,7 @@ def test_rebuild_enables_wal_foreign_keys_and_fts5(index_paths) -> None:
         assert journal.casefold() == "wal"
         assert foreign_keys == 1
         assert index.fts5_available is True
-        assert index.schema_version() == 1
+        assert index.schema_version() == 2
 
 
 def test_legacy_and_invalid_yaml_are_read_only_indexed(index_paths) -> None:
@@ -79,7 +79,10 @@ def test_legacy_and_invalid_yaml_are_read_only_indexed(index_paths) -> None:
         report = index.rebuild()
         notes = index.list_notes()
 
-        assert report.indexed == 2
+        assert report.discovered == 2
+        assert report.indexed == 1
+        assert report.schema_valid == 1
+        assert report.rejected == 1
         assert report.parser_errors == 1
         assert any(note.note_id.startswith("provisional:") for note in notes)
         assert any(
@@ -183,9 +186,9 @@ def test_conflict_key_marks_disagreeing_facts(index_paths) -> None:
         report = index.rebuild()
 
         assert report.conflicts == 1
-        assert {
-            note.conflict_state for note in index.list_notes()
-        } == {ConflictState.CONFIRMED_CONFLICT}
+        assert {note.conflict_state for note in index.list_notes()} == {
+            ConflictState.CONFIRMED_CONFLICT
+        }
         row = index.connection.execute(
             "SELECT conflict_type FROM memory_conflicts"
         ).fetchone()
@@ -254,9 +257,7 @@ def test_alias_link_resolves_to_stable_note_id(index_paths) -> None:
     with VaultIndex(vault, db) as index:
         index.rebuild()
 
-        assert (
-            index.note_links(source_id)["outgoing"][0]["target_note_id"] == target_id
-        )
+        assert index.note_links(source_id)["outgoing"][0]["target_note_id"] == target_id
 
 
 def test_graph_contains_note_folder_project_and_wikilink_edges(index_paths) -> None:

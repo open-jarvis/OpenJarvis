@@ -21,6 +21,11 @@ describe('EvidenceSources', () => {
             selection_reason: 'title_alias_bm25',
             content_hash: 'abc',
             indexed_at: '2026-07-30T00:00:00Z',
+            note_type: 'system_policy',
+            trust_class: 'authority_sensitive_source',
+            retrieval_class: 'explicit_review_only',
+            authority_class: 'prohibited_runtime_authority',
+            scope_class: 'explicit_review_only',
           },
         ]}
       />,
@@ -30,6 +35,9 @@ describe('EvidenceSources', () => {
     expect(html).toContain('projects/synthetic.md');
     expect(html).toContain('lines 8–9');
     expect(html).toContain('title_alias_bm25');
+    expect(html).toContain('authority_sensitive_source');
+    expect(html).toContain('explicit_review_only');
+    expect(html).toContain('prohibited_runtime_authority');
     expect(html).not.toContain('unselected source');
   });
 
