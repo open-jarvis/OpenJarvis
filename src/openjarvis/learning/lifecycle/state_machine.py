@@ -63,7 +63,10 @@ ALLOWED_TRANSITIONS = {
             CandidateState.QUARANTINED,
         }
     ),
-    CandidateState.DEPRECATED: frozenset(),
+    # A deprecated skill stays unselectable.  The controlled rollback service is
+    # the sole caller allowed to reactivate it, and must atomically persist the
+    # rollback, activation, healthcheck, evidence and scope-CAS records.
+    CandidateState.DEPRECATED: frozenset({CandidateState.ACTIVE}),
     CandidateState.ROLLED_BACK: frozenset(),
     CandidateState.QUARANTINED: frozenset(
         {
