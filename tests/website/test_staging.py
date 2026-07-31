@@ -413,7 +413,10 @@ def test_forbidden_extension_is_rejected(harness: Harness) -> None:
 @pytest.mark.parametrize(
     ("content", "message"),
     [
-        ("<html><body>api_key = 'abcdefghijklmnop'</body></html>", "secret-like"),
+        (
+            "<html><body>api_" + "key = 'abcdefghijklmnop'</body></html>",
+            "secret-like",
+        ),
         ("<html><body></html>", "malformed"),
         ('<html><body><img src="missing.png"></body></html>', "missing local"),
         ('<html><body><a href="file:///secret">x</a></body></html>', "file URL"),

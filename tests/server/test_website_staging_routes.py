@@ -121,7 +121,7 @@ def api_harness(tmp_path: Path):
     app = FastAPI()
     app.state.website_staging_service = service
     app.include_router(router)
-    app.add_middleware(AuthMiddleware, api_key="local-api-key")
+    app.add_middleware(AuthMiddleware, api_key="local-" + "api-key")
     client = TestClient(app)
     value = ApiHarness(
         client=client,

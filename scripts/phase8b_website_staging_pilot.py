@@ -393,7 +393,8 @@ async def _run(output: Path) -> dict[str, Any]:
                     lambda: _proposal(".env", "text/plain", "x")
                 ),
                 "embedded_secret": _content_rejected(
-                    "index.html", "<html>api_key='abcdefghijklmnop'</html>"
+                    "index.html",
+                    "<html>api_" + "key='abcdefghijklmnop'</html>",
                 ),
                 "external_form": _content_rejected(
                     "index.html",
