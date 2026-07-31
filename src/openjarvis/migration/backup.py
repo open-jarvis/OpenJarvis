@@ -52,13 +52,28 @@ TECHNICAL_DIRECTORIES = frozenset(
 
 SENSITIVE_DIRECTORY_NAMES = frozenset(
     {
+        ".credentials",
         ".secrets",
+        "auth-data",
+        "auth_data",
         "browser-profile",
         "browser-profiles",
         "browser_profile",
         "browser_profiles",
+        "cookie-data",
+        "cookie_data",
+        "cookies",
         "credentials",
+        "playwright-profile",
+        "playwright_profile",
+        "session-data",
+        "session-state",
+        "session_data",
+        "session_state",
         "sessions",
+        "token-data",
+        "token_data",
+        "tokens",
         "user data",
     }
 )
@@ -136,14 +151,12 @@ def _is_sensitive_file(name: str) -> bool:
     )
 
 
-def _excluded_directory(relative: Path, kind: BackupKind) -> str | None:
+def _excluded_directory(relative: Path) -> str | None:
     name = relative.name.casefold()
     if name in TECHNICAL_DIRECTORIES:
         return "technical_or_build_artifact"
-    if kind is BackupKind.LEGACY_PROJECT and name in SENSITIVE_DIRECTORY_NAMES:
-        first = relative.parts[0].casefold()
-        if first not in {"docs", "src", "test", "tests"}:
-            return "credential_session_or_browser_runtime"
+    if name in SENSITIVE_DIRECTORY_NAMES:
+        return "credential_session_or_browser_runtime"
     return None
 
 
@@ -186,9 +199,7 @@ def _scan(root: Path, kind: BackupKind, *, apply_policy: bool) -> ScanResult:
                     )
                     continue
                 if child.is_dir(follow_symlinks=False):
-                    reason = (
-                        _excluded_directory(relative, kind) if apply_policy else None
-                    )
+                    reason = _excluded_directory(relative) if apply_policy else None
                     if reason is not None:
                         exclusions.append(
                             ExclusionEntry(
@@ -210,11 +221,7 @@ def _scan(root: Path, kind: BackupKind, *, apply_policy: bool) -> ScanResult:
                         )
                     )
                     continue
-                if (
-                    apply_policy
-                    and kind is BackupKind.LEGACY_PROJECT
-                    and _is_sensitive_file(child.name)
-                ):
+                if apply_policy and _is_sensitive_file(child.name):
                     # Do not hash or copy credentials, cookies, tokens, or sessions.
                     exclusions.append(
                         ExclusionEntry(
