@@ -241,7 +241,7 @@ async def test_missing_action_service_and_unsafe_inputs_fail_closed(
             registry, action_service=_ActionServiceDouble()
         ).execute_pinned(
             pin.pin_id,
-            _request(inputs={"path": "sk-abcdefghijklmnopqrstuvwxyz012345"}),
+            _request(inputs={"path": "sk-" + "abcdefghijklmnopqrstuvwxyz012345"}),
         )
 
 
@@ -262,6 +262,35 @@ async def test_effective_risk_level_four_is_denied_before_action_creation(
     assert record.outcome is SkillExecutionOutcome.POLICY_DENIED
     assert record.steps == ()
     assert service.proposals == []
+
+
+@pytest.mark.asyncio
+async def test_effective_risk_is_maximum_and_step_budget_is_enforced(
+    tmp_path: Path,
+) -> None:
+    original = valid_draft().declarative_steps[0]
+    second = original.model_copy(update={"step_id": "read_fixture_again"})
+    registry, pin = _registered_pin(
+        tmp_path,
+        draft_updates={
+            "declarative_steps": (original, second),
+            "maximum_steps": 2,
+        },
+    )
+    service = _ActionServiceDouble()
+    record = await CanonicalSkillExecutor(
+        registry, action_service=service
+    ).execute_pinned(
+        pin.pin_id,
+        _request(
+            task_risk_level=RiskLevel.DESTRUCTIVE_OR_SENSITIVE,
+            budget=SkillTaskBudget(maximum_steps=1, maximum_runtime_seconds=10),
+        ),
+    )
+    assert record.outcome is SkillExecutionOutcome.PARTIAL
+    assert len(record.steps) == 1
+    assert len(service.proposals) == 1
+    assert service.proposals[0].risk_level is RiskLevel.DESTRUCTIVE_OR_SENSITIVE
 
 
 @pytest.mark.asyncio

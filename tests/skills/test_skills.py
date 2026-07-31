@@ -16,7 +16,15 @@ class EchoTool(BaseTool):
 
     @property
     def spec(self):
-        return ToolSpec(name="echo", description="Echo input")
+        return ToolSpec(
+            name="echo",
+            description="Echo input",
+            parameters={
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            },
+        )
 
     def execute(self, **params):
         return ToolResult(
@@ -33,7 +41,15 @@ class UpperTool(BaseTool):
 
     @property
     def spec(self):
-        return ToolSpec(name="upper", description="Uppercase input")
+        return ToolSpec(
+            name="upper",
+            description="Uppercase input",
+            parameters={
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            },
+        )
 
     def execute(self, **params):
         return ToolResult(

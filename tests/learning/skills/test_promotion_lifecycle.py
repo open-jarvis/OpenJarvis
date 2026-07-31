@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from openjarvis.learning.lifecycle import ActorType
 from openjarvis.learning.skills import (
     REQUIRED_VERIFICATION_TYPES,
     ActivationDecision,
+    CanonicalSkillExecutor,
     FixtureClass,
     PromotionDecision,
     SkillHealthcheckResult,
@@ -25,8 +27,14 @@ from openjarvis.learning.skills import (
     SkillVerificationService,
     VerificationStatus,
 )
+from openjarvis.learning.store import (
+    ExpectedRevisionError,
+    LearningIntegrityError,
+    LearningRecordNotFoundError,
+)
 from tests.learning.candidates.conftest import NOW, digest
 
+from .test_execution_safety import _ActionServiceDouble, _request
 from .test_manifest_legacy import valid_draft
 from .test_registry import _register, _registry, _seed_reviewed_skill
 
@@ -116,7 +124,14 @@ def _verification(
     )
 
 
-def _verified_version(learning, registry, *, suffix: str, version: str):
+def _verified_version(
+    learning,
+    registry,
+    *,
+    suffix: str,
+    version: str,
+    supersedes_version: str | None = None,
+):
     candidate_id = _seed_reviewed_skill(learning, suffix=suffix)
     updates = {
         "origin_candidate_id": candidate_id,
@@ -125,7 +140,7 @@ def _verified_version(learning, registry, *, suffix: str, version: str):
         "description": f"Read bounded synthetic fixture version {version}.",
     }
     if version != "1.0.0":
-        updates["supersedes_version"] = "1.0.0"
+        updates["supersedes_version"] = supersedes_version or "1.0.0"
     manifest = SkillManifest.create(valid_draft(**updates))
     _register(registry, manifest, key=f"register_{suffix}")
     verifier = SkillVerificationService(registry)
@@ -466,3 +481,165 @@ def test_open_conflict_and_failed_healthcheck_block_mutations(
             evidence_digests=(digest("blocked_evidence"),),
             idempotency_key="blocked_promotion",
         )
+
+
+@pytest.mark.asyncio
+async def test_deprecation_blocks_new_selection_but_not_existing_pin(
+    tmp_path: Path,
+) -> None:
+    learning, registry = _registry((tmp_path / "deprecation.sqlite3").resolve())
+    _, manifest, verified = _verified_version(
+        learning, registry, suffix="deprecate", version="1.0.0"
+    )
+    lifecycle = SkillLifecycleService(registry)
+    _, promoted = _promote(lifecycle, verified, suffix="deprecate")
+    active = _activate(
+        lifecycle,
+        promoted.skill_head,
+        suffix="deprecate",
+        scope_revision=0,
+        previous_version=None,
+    )
+    request = _request(
+        task_id="task_pinned_before_deprecation",
+        session_id="session_pinned_before_deprecation",
+        correlation_id="correlation_pinned_before_deprecation",
+        thread_id="thread_pinned_before_deprecation",
+        turn_id="turn_pinned_before_deprecation",
+        item_id="item_pinned_before_deprecation",
+        scope_key="project_fixture",
+        idempotency_key="pinned_before_deprecation",
+    )
+    executor = CanonicalSkillExecutor(registry, action_service=_ActionServiceDouble())
+    pin = executor.pin_active(request)
+    lifecycle.deprecate(
+        skill_id=manifest.skill_id,
+        semantic_version=manifest.semantic_version,
+        expected_candidate_revision=active.skill_head.candidate_revision,
+        expected_state_revision=active.skill_head.state_revision,
+        scope_key="project_fixture",
+        expected_scope_revision=1,
+        actor_type=ActorType.SYSTEM_POLICY,
+        actor_id="actor_security_policy",
+        reason_code="synthetic_security_deprecation",
+        correlation_id="correlation_security_deprecation",
+        evidence_reference_ids=("security_evidence",),
+        idempotency_key="deprecate_active_skill",
+    )
+    with pytest.raises(LearningRecordNotFoundError, match="deactivated"):
+        lifecycle.active_manifest("project_fixture")
+    with pytest.raises(LearningIntegrityError, match="non-active"):
+        executor.pin_active(
+            _request(
+                task_id="task_after_deprecation",
+                session_id="session_after_deprecation",
+                correlation_id="correlation_after_deprecation",
+                idempotency_key="pin_after_deprecation",
+            )
+        )
+    completed = await executor.execute_pinned(pin.pin_id, request)
+    assert completed.outcome.value == "completed"
+
+
+def test_failed_healthcheck_cannot_activate(tmp_path: Path) -> None:
+    learning, registry = _registry((tmp_path / "healthcheck.sqlite3").resolve())
+    _, _, verified = _verified_version(
+        learning, registry, suffix="healthcheck", version="1.0.0"
+    )
+    lifecycle = SkillLifecycleService(registry)
+    _, promoted = _promote(lifecycle, verified, suffix="healthcheck")
+
+    def failed(manifest: SkillManifest) -> SkillHealthcheckResult:
+        successful = _healthcheck(manifest)
+        return SkillHealthcheckResult.create(
+            {
+                **successful.model_dump(exclude={"passed", "healthcheck_hash"}),
+                "passed": False,
+            }
+        )
+
+    with pytest.raises(SkillRegistryError, match="healthcheck failed"):
+        lifecycle.activate(
+            skill_id=promoted.skill_head.skill_id,
+            semantic_version=promoted.skill_head.semantic_version,
+            expected_candidate_revision=promoted.skill_head.candidate_revision,
+            expected_state_revision=promoted.skill_head.state_revision,
+            scope_key="project_fixture",
+            expected_scope_revision=0,
+            expected_active_skill_id=None,
+            expected_active_semantic_version=None,
+            decision=ActivationDecision.ALLOW_ONCE,
+            actor_type=ActorType.DETERMINISTIC_TEST,
+            actor_id="actor_lifecycle_fixture",
+            reason_code="failed_healthcheck",
+            correlation_id="correlation_failed_healthcheck",
+            evidence_reference_ids=("failed_healthcheck_evidence",),
+            idempotency_key="failed_healthcheck_activation",
+            healthcheck_runner=failed,
+        )
+
+
+def test_competing_scope_activations_have_exactly_one_cas_winner(
+    tmp_path: Path,
+) -> None:
+    learning, registry = _registry((tmp_path / "concurrent.sqlite3").resolve())
+    lifecycle = SkillLifecycleService(registry)
+    _, _, verified_one = _verified_version(
+        learning, registry, suffix="race_v1", version="1.0.0"
+    )
+    _, promoted_one = _promote(lifecycle, verified_one, suffix="race_v1")
+    _activate(
+        lifecycle,
+        promoted_one.skill_head,
+        suffix="race_v1",
+        scope_revision=0,
+        previous_version=None,
+    )
+    _, _, verified_two = _verified_version(
+        learning,
+        registry,
+        suffix="race_v2",
+        version="2.0.0",
+        supersedes_version="1.0.0",
+    )
+    _, promoted_two = _promote(lifecycle, verified_two, suffix="race_v2")
+    _, _, verified_three = _verified_version(
+        learning,
+        registry,
+        suffix="race_v3",
+        version="3.0.0",
+        supersedes_version="2.0.0",
+    )
+    _, promoted_three = _promote(lifecycle, verified_three, suffix="race_v3")
+
+    def compete(item):
+        suffix, head = item
+        try:
+            return _activate(
+                lifecycle,
+                head,
+                suffix=suffix,
+                scope_revision=1,
+                previous_version="1.0.0",
+            )
+        except ExpectedRevisionError as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = tuple(
+            pool.map(
+                compete,
+                (
+                    ("race_v2", promoted_two.skill_head),
+                    ("race_v3", promoted_three.skill_head),
+                ),
+            )
+        )
+    winners = [item for item in results if not isinstance(item, Exception)]
+    losers = [item for item in results if isinstance(item, ExpectedRevisionError)]
+    assert len(winners) == 1
+    assert len(losers) == 1
+    assert lifecycle.active_manifest("project_fixture").semantic_version in {
+        "2.0.0",
+        "3.0.0",
+    }

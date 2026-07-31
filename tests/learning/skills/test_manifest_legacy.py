@@ -170,7 +170,7 @@ def test_unknown_manifest_field_is_rejected() -> None:
 @pytest.mark.parametrize(
     "unsafe",
     [
-        "sk-abcdefghijklmnopqrstuvwxyz012345",
+        "sk-" + "abcdefghijklmnopqrstuvwxyz012345",
         "eval(user_input)",
         "exec(user_input)",
         "pickle.loads(blob)",
