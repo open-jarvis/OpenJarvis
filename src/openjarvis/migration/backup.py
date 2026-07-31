@@ -92,6 +92,29 @@ SENSITIVE_FILE_NAMES = frozenset(
     }
 )
 
+PROTECTED_CONTENT_ROOTS = frozenset({"docs", "src", "test", "tests"})
+
+TECHNICAL_RUNTIME_CONTEXTS = frozenset(
+    {
+        ".local",
+        "artifacts",
+        "generated",
+        "generated-data",
+        "generated_data",
+        "model-data",
+        "model_data",
+        "models",
+        "runtime",
+        "state",
+        "temp",
+        "temporary",
+        "tmp",
+        "var",
+    }
+)
+
+WINDOWS_SAFE_TARGET_PATH_LENGTH = 247
+
 
 @dataclass(frozen=True, slots=True)
 class ManifestEntry:
@@ -157,6 +180,12 @@ def _excluded_directory(relative: Path) -> str | None:
         return "technical_or_build_artifact"
     if name in SENSITIVE_DIRECTORY_NAMES:
         return "credential_session_or_browser_runtime"
+    parts = tuple(part.casefold() for part in relative.parts)
+    contextual_cache = name == "review-cache" or name.endswith(("-cache", "_cache"))
+    protected_root = bool(parts and parts[0] in PROTECTED_CONTENT_ROOTS)
+    technical_context = any(part in TECHNICAL_RUNTIME_CONTEXTS for part in parts[:-1])
+    if contextual_cache and technical_context and not protected_root:
+        return "generated_runtime_cache"
     return None
 
 
@@ -308,12 +337,27 @@ def _copy_files(source: Path, data_root: Path, scan: ScanResult) -> None:
         os.utime(data_root / Path(directory), ns=(mtime_ns, mtime_ns))
 
 
+def _preflight_target_paths(data_root: Path, scan: ScanResult) -> None:
+    if os.name != "nt":
+        return
+    candidates = [entry.path for entry in scan.files]
+    candidates.extend(directory for directory, _mtime_ns in scan.directories)
+    for relative in candidates:
+        target_length = len(os.fspath(data_root / Path(relative)))
+        if target_length > WINDOWS_SAFE_TARGET_PATH_LENGTH:
+            raise BackupError(
+                "target path exceeds safe Windows length "
+                f"({target_length}>{WINDOWS_SAFE_TARGET_PATH_LENGTH}): {relative}"
+            )
+
+
 def _remove_tree(path: Path) -> None:
     def make_writable(function: Any, target: str, _error: Any) -> None:
         os.chmod(target, stat.S_IWRITE)
         function(target)
 
-    shutil.rmtree(path, onerror=make_writable)
+    if path.exists():
+        shutil.rmtree(path, onerror=make_writable)
 
 
 def create_verified_backup(
@@ -349,6 +393,7 @@ def create_verified_backup(
 
     try:
         before = _scan(source, kind, apply_policy=True)
+        _preflight_target_paths(data_root, before)
         _copy_files(source, data_root, before)
         backup_scan = _scan(data_root, kind, apply_policy=False)
         if backup_scan.files != before.files:
@@ -401,11 +446,8 @@ def create_verified_backup(
             restore_verified=True,
             source_stable=True,
         )
-    except Exception as error:
-        _write_jsonl(
-            manifests_root / "errors.jsonl",
-            [{"error_type": type(error).__name__, "message": str(error)}],
-        )
+    except Exception:
+        _remove_tree(destination)
         raise
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -122,6 +123,57 @@ def test_vault_excludes_credentials_tokens_sessions_and_browser_profiles(
         "credentials",
         "sessions",
         "token.json",
+    }
+
+
+def test_generated_caches_are_contextual_and_never_opened(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    excluded_files = {
+        source / "state" / "models" / "review-cache" / "nested" / "voice.bin",
+        source / "state" / "example-cache" / "generated.bin",
+        source / "state" / "example_cache" / "generated.bin",
+    }
+    included_files = {
+        source / "src" / "cache" / "module.py",
+        source / "tests" / "example-cache" / "test_fixture.py",
+        source / "src" / "main.py",
+    }
+    for path in excluded_files:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"CACHE-CONTENT-MUST-NOT-BE-READ")
+    for path in included_files:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("safe = True\n", encoding="utf-8")
+    real_hash_stable = backup_module._hash_stable
+
+    def reject_cache_hash(path: Path) -> tuple[int, int, str]:
+        assert path not in excluded_files
+        return real_hash_stable(path)
+
+    monkeypatch.setattr(backup_module, "_hash_stable", reject_cache_hash)
+    destination = tmp_path / "backup"
+    result = create_verified_backup(
+        source,
+        destination,
+        kind=BackupKind.LEGACY_PROJECT,
+        source_label="synthetic-legacy",
+    )
+
+    assert result.file_count == 3
+    for path in included_files:
+        assert (destination / "data" / path.relative_to(source)).is_file()
+    for path in excluded_files:
+        assert not (destination / "data" / path.relative_to(source)).exists()
+    exclusion_text = (destination / "manifests" / "exclusions.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert "CACHE-CONTENT-MUST-NOT-BE-READ" not in exclusion_text
+    assert {item["path"] for item in map(json.loads, exclusion_text.splitlines())} == {
+        "state/example-cache",
+        "state/example_cache",
+        "state/models/review-cache",
     }
 
 
@@ -249,5 +301,62 @@ def test_source_change_during_backup_aborts(
             source_label="synthetic-vault",
         )
 
-    errors = (destination / "manifests" / "errors.jsonl").read_text(encoding="utf-8")
-    assert "source changed during backup" in errors
+    assert not destination.exists()
+
+
+def test_long_target_path_preflight_runs_before_copy_and_removes_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    relative = Path("nested") / ("x" * 40 + ".md")
+    path = source / relative
+    path.parent.mkdir()
+    path.write_text("safe", encoding="utf-8")
+    destination = tmp_path / "backup"
+    limit = len(os.fspath(destination / "data" / "nested")) + 5
+    monkeypatch.setattr(backup_module, "WINDOWS_SAFE_TARGET_PATH_LENGTH", limit)
+    copy_called = False
+
+    def unexpected_copy(*_args: object, **_kwargs: object) -> None:
+        nonlocal copy_called
+        copy_called = True
+
+    monkeypatch.setattr(backup_module, "_copy_files", unexpected_copy)
+
+    with pytest.raises(BackupError, match=relative.as_posix()) as error:
+        create_verified_backup(
+            source,
+            destination,
+            kind=BackupKind.LEGACY_PROJECT,
+            source_label="synthetic-legacy",
+        )
+
+    assert copy_called is False
+    assert str(destination) not in str(error.value)
+    assert not destination.exists()
+
+
+def test_copy_error_removes_partial_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "file.txt").write_text("safe", encoding="utf-8")
+    destination = tmp_path / "backup"
+
+    def partial_copy(_source: Path, data_root: Path, _scan: object) -> None:
+        (data_root / "partial.txt").write_text("partial", encoding="utf-8")
+        raise BackupError("synthetic copy failure")
+
+    monkeypatch.setattr(backup_module, "_copy_files", partial_copy)
+
+    with pytest.raises(BackupError, match="synthetic copy failure"):
+        create_verified_backup(
+            source,
+            destination,
+            kind=BackupKind.LEGACY_PROJECT,
+            source_label="synthetic-legacy",
+        )
+
+    assert not destination.exists()
