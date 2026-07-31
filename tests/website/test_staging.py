@@ -704,6 +704,10 @@ async def test_missing_verifier_fails_closed(harness: Harness) -> None:
     assert action.status is ActionStatus.FAILED
     assert action.effect_known is False
     assert execution is None
+    assert any(harness.service.workspaces.restores.iterdir())
+    harness.service.cleanup(request.workspace_id)
+    assert not any(harness.service.workspaces.restores.iterdir())
+    assert not harness.service.workspaces.workspace_root(request.workspace_id).exists()
 
 
 @pytest.mark.asyncio

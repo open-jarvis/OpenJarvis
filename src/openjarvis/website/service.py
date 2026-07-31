@@ -626,9 +626,16 @@ class WebsiteStagingService:
 
     def cleanup(self, workspace_id: str) -> None:
         record = self._record(workspace_id)
+        restore_ids: set[str] = set()
         execution = record.get("execution")
         if execution:
-            restore_id = WebsiteStagingExecution.model_validate(execution).restore_id
+            restore_ids.add(
+                WebsiteStagingExecution.model_validate(execution).restore_id
+            )
+        apply_result = record.get("apply_result")
+        if apply_result:
+            restore_ids.add(str(apply_result["restore_id"]))
+        for restore_id in restore_ids:
             self.workspaces.remove_restore(restore_id)
         self.workspaces.cleanup_workspace(workspace_id)
 
