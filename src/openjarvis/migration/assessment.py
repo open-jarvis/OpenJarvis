@@ -10,11 +10,13 @@ import os
 import shutil
 import stat
 import tempfile
+import uuid
 from collections import Counter
 from pathlib import Path, PurePosixPath
 from typing import Any
 from zipfile import ZipFile
 
+from openjarvis.memory.frontmatter import load_memory_note
 from openjarvis.memory.migration import analyze_vault_migration
 from openjarvis.memory.vault_index import VaultIndex
 from openjarvis.migration.archive_backup import (
@@ -321,6 +323,71 @@ def _tree_fingerprint(root: Path) -> tuple[str, int, int]:
             )
         )
     return hashlib.sha256(b"".join(rows)).hexdigest(), count, total_bytes
+
+
+def _parser_error_reasons(message: str | None) -> tuple[str, ...]:
+    if not message:
+        return ()
+    reasons: list[str] = []
+    lowered = message.casefold()
+    if "id is not a valid uuid" in lowered:
+        reasons.append("invalid_uuid")
+    if "schema_version" in lowered:
+        reasons.append("schema_version")
+    if "yaml" in lowered or "frontmatter" in lowered:
+        reasons.append("frontmatter_or_yaml")
+    return tuple(reasons or ("other_schema_error",))
+
+
+def assess_vault_compatibility(vault_backup: Path) -> dict[str, Any]:
+    """Report schema compatibility from the verified backup without note content."""
+
+    vault_backup = vault_backup.absolute()
+    data_root = vault_backup / "data"
+    manifests_root = vault_backup / "manifests"
+    _assert_safe_tree(data_root)
+    expected = load_manifest(manifests_root / "source-before.jsonl")
+    if not verify_manifest(data_root, expected):
+        raise AssessmentError("vault backup data does not match its verified manifest")
+    before = _tree_fingerprint(data_root)
+    id_states: Counter[str] = Counter()
+    parser_reasons: Counter[str] = Counter()
+    schema_versions: Counter[str] = Counter()
+    note_types: Counter[str] = Counter()
+    markdown_files = 0
+    for path in sorted(data_root.rglob("*")):
+        if not path.is_file() or path.suffix.casefold() not in {".md", ".markdown"}:
+            continue
+        markdown_files += 1
+        note, parsed = load_memory_note(path, data_root)
+        raw_id = str(parsed.metadata.get("id") or "").strip()
+        if not raw_id:
+            id_states["missing"] += 1
+        else:
+            try:
+                uuid.UUID(raw_id)
+            except ValueError:
+                id_states["invalid_uuid"] += 1
+            else:
+                id_states["valid_uuid"] += 1
+        schema_versions[str(parsed.metadata.get("schema_version") or "missing")] += 1
+        note_types[note.note_type] += 1
+        parser_reasons.update(_parser_error_reasons(note.parser_error))
+    after = _tree_fingerprint(data_root)
+    if after != before:
+        raise AssessmentError("vault backup changed during compatibility analysis")
+    return {
+        "backup_manifest_verified": True,
+        "backup_tree_fingerprint": before[0],
+        "backup_unchanged": True,
+        "content_or_paths_reported": False,
+        "id_state_counts": dict(sorted(id_states.items())),
+        "markdown_files": markdown_files,
+        "note_type_counts": dict(sorted(note_types.items())),
+        "parser_error_reasons": dict(sorted(parser_reasons.items())),
+        "read_only": True,
+        "schema_version_counts": dict(sorted(schema_versions.items())),
+    }
 
 
 def _canonical_json(value: Any) -> bytes:

@@ -10,6 +10,7 @@ from openjarvis.migration.assessment import (
     AssessmentError,
     assess_legacy_archive,
     assess_runtime_metadata,
+    assess_vault_compatibility,
     run_vault_pilot,
 )
 from openjarvis.migration.backup import BackupKind, create_verified_backup
@@ -147,3 +148,18 @@ def test_vault_pilot_indexes_copy_and_removes_it(tmp_path: Path) -> None:
     assert result["index"]["fts5_available"] is True
     assert not list(workspace.glob("phase8a-vault-pilot-*"))
     assert {path: path.read_bytes() for path in before} == before
+
+
+def test_vault_compatibility_reports_only_aggregate_schema_state(
+    tmp_path: Path,
+) -> None:
+    backup = _vault_backup(tmp_path)
+
+    result = assess_vault_compatibility(backup)
+
+    assert result["backup_manifest_verified"] is True
+    assert result["backup_unchanged"] is True
+    assert result["content_or_paths_reported"] is False
+    assert result["id_state_counts"] == {"missing": 1, "valid_uuid": 1}
+    assert result["schema_version_counts"] == {"1": 1, "missing": 1}
+    assert result["markdown_files"] == 2
