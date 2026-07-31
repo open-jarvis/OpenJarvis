@@ -23,10 +23,54 @@ ALLOWED_TRANSITIONS = {
         }
     ),
     CandidateState.UNDER_REVIEW: frozenset(
-        {CandidateState.REJECTED, CandidateState.QUARANTINED}
+        {
+            CandidateState.TESTING,
+            CandidateState.REJECTED,
+            CandidateState.QUARANTINED,
+        }
     ),
+    CandidateState.TESTING: frozenset(
+        {
+            CandidateState.VERIFIED,
+            CandidateState.VERIFICATION_FAILED,
+            CandidateState.QUARANTINED,
+        }
+    ),
+    CandidateState.VERIFICATION_FAILED: frozenset(
+        {
+            CandidateState.UNDER_REVIEW,
+            CandidateState.REJECTED,
+            CandidateState.QUARANTINED,
+        }
+    ),
+    CandidateState.VERIFIED: frozenset(
+        {CandidateState.PROMOTION_PENDING, CandidateState.QUARANTINED}
+    ),
+    CandidateState.PROMOTION_PENDING: frozenset(
+        {
+            CandidateState.PROMOTED,
+            CandidateState.REJECTED,
+            CandidateState.QUARANTINED,
+        }
+    ),
+    CandidateState.PROMOTED: frozenset(
+        {CandidateState.ACTIVE, CandidateState.DEPRECATED, CandidateState.QUARANTINED}
+    ),
+    CandidateState.ACTIVE: frozenset(
+        {
+            CandidateState.DEPRECATED,
+            CandidateState.ROLLED_BACK,
+            CandidateState.QUARANTINED,
+        }
+    ),
+    CandidateState.DEPRECATED: frozenset(),
+    CandidateState.ROLLED_BACK: frozenset(),
     CandidateState.QUARANTINED: frozenset(
-        {CandidateState.UNDER_REVIEW, CandidateState.REJECTED}
+        {
+            CandidateState.UNDER_REVIEW,
+            CandidateState.REJECTED,
+            CandidateState.DEPRECATED,
+        }
     ),
     CandidateState.REJECTED: frozenset(),
 }
@@ -37,7 +81,40 @@ def validate_transition(
     request: TransitionRequest,
     *,
     has_open_conflict: bool,
+    skill_lifecycle_authorized: bool = False,
+    resolving_conflict: bool = False,
 ) -> None:
+    privileged_targets = {
+        CandidateState.TESTING,
+        CandidateState.VERIFICATION_FAILED,
+        CandidateState.VERIFIED,
+        CandidateState.PROMOTION_PENDING,
+        CandidateState.PROMOTED,
+        CandidateState.ACTIVE,
+        CandidateState.DEPRECATED,
+        CandidateState.ROLLED_BACK,
+    }
+    privileged_sources = {
+        CandidateState.TESTING,
+        CandidateState.VERIFICATION_FAILED,
+        CandidateState.VERIFIED,
+        CandidateState.PROMOTION_PENDING,
+        CandidateState.PROMOTED,
+        CandidateState.ACTIVE,
+    }
+    if request.target_state in privileged_targets and not skill_lifecycle_authorized:
+        raise TransitionDeniedError(
+            "skill lifecycle transition requires the controlled skill service"
+        )
+    if current.state in privileged_sources and not skill_lifecycle_authorized:
+        raise TransitionDeniedError(
+            "skill lifecycle source requires the controlled skill service"
+        )
+    if request.target_state in privileged_targets:
+        if request.skill_lifecycle_record_id is None:
+            raise TransitionDeniedError("skill lifecycle record is required")
+        if not request.evidence_reference_ids:
+            raise TransitionDeniedError("skill lifecycle evidence is required")
     if request.target_state not in ALLOWED_TRANSITIONS[current.state]:
         raise TransitionDeniedError(
             f"transition {current.state.value}->{request.target_state.value} is denied"
@@ -65,7 +142,7 @@ def validate_transition(
         raise TransitionDeniedError("every quarantine reason must be resolved exactly")
     if QuarantineReason.MANIPULATED_EVALUATION in existing:
         raise TransitionDeniedError("manipulated evaluations cannot be resolved")
-    if has_open_conflict:
+    if has_open_conflict and not resolving_conflict:
         raise TransitionDeniedError("open conflict links prevent quarantine resolution")
 
 

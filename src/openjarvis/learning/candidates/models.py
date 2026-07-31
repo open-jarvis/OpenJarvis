@@ -118,6 +118,14 @@ class CandidateType(str, Enum):
 class CandidateState(str, Enum):
     PROPOSED = "proposed"
     UNDER_REVIEW = "under_review"
+    TESTING = "testing"
+    VERIFICATION_FAILED = "verification_failed"
+    VERIFIED = "verified"
+    PROMOTION_PENDING = "promotion_pending"
+    PROMOTED = "promoted"
+    ACTIVE = "active"
+    DEPRECATED = "deprecated"
+    ROLLED_BACK = "rolled_back"
     REJECTED = "rejected"
     QUARANTINED = "quarantined"
 

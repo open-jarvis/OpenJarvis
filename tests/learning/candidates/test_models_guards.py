@@ -74,19 +74,26 @@ def test_candidate_types_are_closed_and_complete() -> None:
     }
 
 
-def test_candidate_states_are_minimal() -> None:
+def test_candidate_states_cover_controlled_skill_lifecycle() -> None:
     assert {item.value for item in CandidateState} == {
         "proposed",
         "under_review",
+        "testing",
+        "verification_failed",
+        "verified",
+        "promotion_pending",
+        "promoted",
+        "active",
+        "deprecated",
+        "rolled_back",
         "rejected",
         "quarantined",
     }
 
 
-@pytest.mark.parametrize("forbidden", ["verified", "active", "promoted", "testing"])
-def test_later_candidate_state_is_rejected(forbidden: str) -> None:
-    with pytest.raises(ValueError):
-        CandidateState(forbidden)
+@pytest.mark.parametrize("controlled", ["verified", "active", "promoted", "testing"])
+def test_later_candidate_states_are_closed_enum_members(controlled: str) -> None:
+    assert CandidateState(controlled).value == controlled
 
 
 def test_candidate_is_immutable() -> None:

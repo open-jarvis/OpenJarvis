@@ -56,6 +56,8 @@ class TransitionRequest(StrictFrozenModel):
     reason_code: Identifier
     correlation_id: Identifier
     idempotency_key: Identifier
+    evidence_reference_ids: tuple[Identifier, ...] = ()
+    skill_lifecycle_record_id: Identifier | None = None
     quarantine_resolution_records: tuple[QuarantineResolution, ...] = ()
     quarantine_reasons: tuple[QuarantineReason, ...] = ()
 
@@ -69,6 +71,11 @@ class TransitionRequest(StrictFrozenModel):
         if len(reasons) != len(set(reasons)):
             raise ValueError("one resolution record is allowed per quarantine reason")
         return tuple(sorted(values, key=lambda value: value.quarantine_reason.value))
+
+    @field_validator("evidence_reference_ids")
+    @classmethod
+    def _sort_evidence_references(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(set(values)))
 
     @field_validator("quarantine_reasons")
     @classmethod
@@ -109,13 +116,15 @@ class TransitionRecord(StrictFrozenModel):
     reason_code: Identifier
     correlation_id: Identifier
     idempotency_key: Identifier
+    evidence_reference_ids: tuple[Identifier, ...] = ()
+    skill_lifecycle_record_id: Identifier | None = None
     quarantine_resolution_ids: tuple[Identifier, ...] = ()
     created_at: datetime = Field(default_factory=utc_now)
     transition_hash: Digest
 
     _normalize_created = field_validator("created_at")(_utc)
 
-    @field_validator("quarantine_resolution_ids")
+    @field_validator("evidence_reference_ids", "quarantine_resolution_ids")
     @classmethod
     def _sort_ids(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(sorted(set(values)))

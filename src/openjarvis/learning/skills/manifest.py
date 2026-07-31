@@ -168,6 +168,8 @@ class StrictFrozenModel(BaseModel):
 
 class SkillLifecycleStatus(str, Enum):
     DRAFT = "draft"
+    PROPOSED = "proposed"
+    UNDER_REVIEW = "under_review"
     TESTING = "testing"
     VERIFICATION_FAILED = "verification_failed"
     VERIFIED = "verified"
@@ -176,6 +178,7 @@ class SkillLifecycleStatus(str, Enum):
     ACTIVE = "active"
     DEPRECATED = "deprecated"
     ROLLED_BACK = "rolled_back"
+    REJECTED = "rejected"
     QUARANTINED = "quarantined"
 
 

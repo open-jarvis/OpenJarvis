@@ -58,6 +58,15 @@ class AuditEventType(str, Enum):
     CANDIDATE_REJECTED = "candidate.rejected"
     CANDIDATE_QUARANTINED = "candidate.quarantined"
     CANDIDATE_QUARANTINE_RESOLVED = "candidate.quarantine_resolved"
+    CANDIDATE_TESTING_STARTED = "candidate.testing_started"
+    CANDIDATE_VERIFICATION_FAILED = "candidate.verification_failed"
+    CANDIDATE_VERIFIED = "candidate.verified"
+    CANDIDATE_PROMOTION_PENDING = "candidate.promotion_pending"
+    CANDIDATE_PROMOTED = "candidate.promoted"
+    CANDIDATE_ACTIVATED = "candidate.activated"
+    CANDIDATE_DEPRECATED = "candidate.deprecated"
+    CANDIDATE_ROLLED_BACK = "candidate.rolled_back"
+    CONFLICT_RESOLVED = "conflict.resolved"
     LIFECYCLE_TRANSITION_DENIED = "lifecycle.transition_denied"
 
 

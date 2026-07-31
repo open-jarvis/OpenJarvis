@@ -439,7 +439,7 @@ MIGRATIONS = (
             """
             CREATE TABLE IF NOT EXISTS candidate_conflict_resolutions (
                 resolution_id TEXT PRIMARY KEY,
-                conflict_id TEXT NOT NULL UNIQUE,
+                conflict_id TEXT NOT NULL,
                 left_candidate_id TEXT NOT NULL,
                 left_revision INTEGER NOT NULL,
                 right_candidate_id TEXT NOT NULL,

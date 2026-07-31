@@ -374,106 +374,120 @@ class LearningRepository:
             return outcome
 
     def transition(self, request: TransitionRequest) -> TransitionOutcome:
-        request_digest = request.semantic_digest()
         try:
             with self.database.transaction() as connection:
-                replay = self._check_idempotency(
-                    connection,
-                    idempotency_key=request.idempotency_key,
-                    operation="candidate.transition",
-                    request_digest=request_digest,
-                )
-                if replay is not None:
-                    transition = self._get_transition_with_connection(
-                        connection, replay["transition_id"]
-                    )
-                    return TransitionOutcome(
-                        transition=transition,
-                        candidate_id=replay["candidate_id"],
-                        revision=replay["revision"],
-                        content_hash=replay["content_hash"],
-                        idempotent=True,
-                    )
-                current = self._get_head_candidate(connection, request.candidate_id)
-                if current.revision != request.expected_revision:
-                    raise ExpectedRevisionError(
-                        f"expected revision {request.expected_revision}, "
-                        f"found {current.revision}"
-                    )
-                has_open_conflict = self._has_open_conflict(
-                    connection, request.candidate_id
-                )
-                validate_transition(
-                    current,
-                    request,
-                    has_open_conflict=has_open_conflict,
-                )
-                transition = self._build_transition(current, request)
-                revised = self._candidate_for_transition(current, request, transition)
-                revision = self._append_revision(
-                    connection,
-                    revised,
-                    previous=current,
-                    transition_id=transition.transition_id,
-                )
-                connection.execute(
-                    """
-                    INSERT INTO candidate_transition_events(
-                        transition_id, candidate_id, source_revision,
-                        target_revision, idempotency_key, transition_hash,
-                        payload_json, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        transition.transition_id,
-                        transition.candidate_id,
-                        transition.source_revision,
-                        transition.target_revision,
-                        transition.idempotency_key,
-                        transition.transition_hash,
-                        transition.model_dump_json(),
-                        _iso(transition.created_at),
-                    ),
-                )
-                self._compare_and_swap_head(
-                    connection,
-                    previous=current,
-                    revised=revised,
-                )
-                event_type = self._transition_event_type(current.state, revised.state)
-                self._append_event(
-                    connection,
-                    event_type=event_type,
-                    candidate_id=current.candidate_id,
-                    revision=revised.revision,
-                    correlation_id=request.correlation_id,
-                    actor_type=request.actor_type,
-                    actor_id=request.actor_id,
-                    reason_code=request.reason_code,
-                    reference_ids=(transition.transition_id,),
-                )
-                outcome = TransitionOutcome(
-                    transition=transition,
-                    candidate_id=current.candidate_id,
-                    revision=revision.revision,
-                    content_hash=revision.content_hash,
-                )
-                self._complete_idempotency(
-                    connection,
-                    idempotency_key=request.idempotency_key,
-                    operation="candidate.transition",
-                    request_digest=request_digest,
-                    references={
-                        "candidate_id": outcome.candidate_id,
-                        "content_hash": outcome.content_hash,
-                        "revision": outcome.revision,
-                        "transition_id": transition.transition_id,
-                    },
-                )
-                return outcome
+                return self._transition_in_transaction(connection, request)
         except (TransitionDeniedError, ExpectedRevisionError) as exc:
             self._record_transition_denied(request, type(exc).__name__)
             raise
+
+    def _transition_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        request: TransitionRequest,
+        *,
+        skill_lifecycle_authorized: bool = False,
+        resolving_conflict: bool = False,
+    ) -> TransitionOutcome:
+        """Apply one transition inside a caller-owned atomic transaction.
+
+        Privileged skill states are inaccessible through :meth:`transition`.
+        Only the controlled skill lifecycle uses this internal composition
+        point while persisting its corresponding record in the same database
+        transaction.
+        """
+
+        request_digest = request.semantic_digest()
+        replay = self._check_idempotency(
+            connection,
+            idempotency_key=request.idempotency_key,
+            operation="candidate.transition",
+            request_digest=request_digest,
+        )
+        if replay is not None:
+            transition = self._get_transition_with_connection(
+                connection, replay["transition_id"]
+            )
+            return TransitionOutcome(
+                transition=transition,
+                candidate_id=replay["candidate_id"],
+                revision=replay["revision"],
+                content_hash=replay["content_hash"],
+                idempotent=True,
+            )
+        current = self._get_head_candidate(connection, request.candidate_id)
+        if current.revision != request.expected_revision:
+            raise ExpectedRevisionError(
+                f"expected revision {request.expected_revision}, "
+                f"found {current.revision}"
+            )
+        has_open_conflict = self._has_open_conflict(connection, request.candidate_id)
+        validate_transition(
+            current,
+            request,
+            has_open_conflict=has_open_conflict,
+            skill_lifecycle_authorized=skill_lifecycle_authorized,
+            resolving_conflict=resolving_conflict,
+        )
+        transition = self._build_transition(current, request)
+        revised = self._candidate_for_transition(current, request, transition)
+        revision = self._append_revision(
+            connection,
+            revised,
+            previous=current,
+            transition_id=transition.transition_id,
+        )
+        connection.execute(
+            """
+            INSERT INTO candidate_transition_events(
+                transition_id, candidate_id, source_revision,
+                target_revision, idempotency_key, transition_hash,
+                payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                transition.transition_id,
+                transition.candidate_id,
+                transition.source_revision,
+                transition.target_revision,
+                transition.idempotency_key,
+                transition.transition_hash,
+                transition.model_dump_json(),
+                _iso(transition.created_at),
+            ),
+        )
+        self._compare_and_swap_head(connection, previous=current, revised=revised)
+        event_type = self._transition_event_type(current.state, revised.state)
+        self._append_event(
+            connection,
+            event_type=event_type,
+            candidate_id=current.candidate_id,
+            revision=revised.revision,
+            correlation_id=request.correlation_id,
+            actor_type=request.actor_type,
+            actor_id=request.actor_id,
+            reason_code=request.reason_code,
+            reference_ids=(transition.transition_id,) + request.evidence_reference_ids,
+        )
+        outcome = TransitionOutcome(
+            transition=transition,
+            candidate_id=current.candidate_id,
+            revision=revision.revision,
+            content_hash=revision.content_hash,
+        )
+        self._complete_idempotency(
+            connection,
+            idempotency_key=request.idempotency_key,
+            operation="candidate.transition",
+            request_digest=request_digest,
+            references={
+                "candidate_id": outcome.candidate_id,
+                "content_hash": outcome.content_hash,
+                "revision": outcome.revision,
+                "transition_id": transition.transition_id,
+            },
+        )
+        return outcome
 
     def get_evaluation(self, evaluation_id: str) -> TraceEvaluation:
         with self.database.reader() as connection:
@@ -615,7 +629,13 @@ class LearningRepository:
                 SELECT conflict_id, conflict_hash, conflict_signature,
                     candidate_a_id, candidate_b_id, is_open, payload_json
                 FROM candidate_conflict_links
-                WHERE is_open = 1 ORDER BY conflict_id
+                WHERE is_open = 1
+                  AND NOT EXISTS (
+                    SELECT 1 FROM candidate_conflict_resolutions resolution
+                    WHERE resolution.conflict_id = candidate_conflict_links.conflict_id
+                      AND resolution.decision <> 'unresolved'
+                  )
+                ORDER BY conflict_id
                 """
             ).fetchall()
             links = tuple(self._conflict_from_row(row) for row in rows)
@@ -1260,6 +1280,8 @@ class LearningRepository:
             "reason_code": request.reason_code,
             "correlation_id": request.correlation_id,
             "idempotency_key": request.idempotency_key,
+            "evidence_reference_ids": request.evidence_reference_ids,
+            "skill_lifecycle_record_id": request.skill_lifecycle_record_id,
             "quarantine_resolution_ids": tuple(
                 item.resolution_id for item in request.quarantine_resolution_records
             ),
@@ -1270,6 +1292,7 @@ class LearningRepository:
             "from_state": current.state.value,
             "to_state": request.target_state.value,
             "actor_type": request.actor_type.value,
+            "evidence_reference_ids": list(sorted(payload["evidence_reference_ids"])),
             "quarantine_resolution_ids": list(
                 sorted(payload["quarantine_resolution_ids"])
             ),
@@ -1433,6 +1456,11 @@ class LearningRepository:
             """
             SELECT 1 FROM candidate_conflict_links
             WHERE is_open = 1 AND (candidate_a_id = ? OR candidate_b_id = ?)
+              AND NOT EXISTS (
+                SELECT 1 FROM candidate_conflict_resolutions resolution
+                WHERE resolution.conflict_id = candidate_conflict_links.conflict_id
+                  AND resolution.decision <> 'unresolved'
+              )
             LIMIT 1
             """,
             (candidate_id, candidate_id),
@@ -1648,7 +1676,23 @@ class LearningRepository:
             return AuditEventType.CANDIDATE_REVIEW_STARTED
         if to_state is CandidateState.REJECTED:
             return AuditEventType.CANDIDATE_REJECTED
-        return AuditEventType.CANDIDATE_QUARANTINED
+        if to_state is CandidateState.QUARANTINED:
+            return AuditEventType.CANDIDATE_QUARANTINED
+        mapping = {
+            CandidateState.TESTING: AuditEventType.CANDIDATE_TESTING_STARTED,
+            CandidateState.VERIFICATION_FAILED: (
+                AuditEventType.CANDIDATE_VERIFICATION_FAILED
+            ),
+            CandidateState.VERIFIED: AuditEventType.CANDIDATE_VERIFIED,
+            CandidateState.PROMOTION_PENDING: (
+                AuditEventType.CANDIDATE_PROMOTION_PENDING
+            ),
+            CandidateState.PROMOTED: AuditEventType.CANDIDATE_PROMOTED,
+            CandidateState.ACTIVE: AuditEventType.CANDIDATE_ACTIVATED,
+            CandidateState.DEPRECATED: AuditEventType.CANDIDATE_DEPRECATED,
+            CandidateState.ROLLED_BACK: AuditEventType.CANDIDATE_ROLLED_BACK,
+        }
+        return mapping.get(to_state, AuditEventType.CANDIDATE_REVISED)
 
     def _validate_evaluation(self, evaluation: TraceEvaluation) -> None:
         if evaluation.recompute_hash() != evaluation.evaluation_hash:
