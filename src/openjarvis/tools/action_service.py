@@ -90,6 +90,26 @@ class ToolActionService:
     def runtime_available(self, tool_id: str) -> bool:
         return tool_id in self._runtimes
 
+    def policy_context(self, proposal: ToolProposal) -> ToolPolicyContext:
+        """Expose the trusted context for additional code-owned root binding."""
+
+        return self._context_factory(proposal)
+
+    def register_runtime(
+        self,
+        manifest: ToolManifest,
+        runtime: RegisteredToolRuntime,
+    ) -> None:
+        """Bind one trusted startup runtime without exposing model registration."""
+
+        self.catalog.register(manifest)
+        existing = self._runtimes.get(manifest.tool_id)
+        if existing is not None and existing is not runtime:
+            raise ToolActionError(
+                f"tool runtime is already registered: {manifest.tool_id}"
+            )
+        self._runtimes[manifest.tool_id] = runtime
+
     def create(self, proposal: ToolProposal) -> ToolAction:
         """Validate and persist a proposal without executing before approval."""
 

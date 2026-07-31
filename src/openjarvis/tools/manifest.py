@@ -376,6 +376,19 @@ class ToolManifestCatalog:
         except KeyError as exc:
             raise ManifestValidationError(f"unregistered tool: {tool_id}") from exc
 
+    def register(self, manifest: ToolManifest) -> ToolManifest:
+        """Register one code-owned manifest during trusted runtime setup."""
+
+        existing = self._manifests.get(manifest.tool_id)
+        if existing is not None:
+            if existing != manifest:
+                raise ManifestValidationError(
+                    f"conflicting manifest registration: {manifest.tool_id}"
+                )
+            return existing
+        self._manifests[manifest.tool_id] = manifest
+        return manifest
+
     def list(self) -> tuple[ToolManifest, ...]:
         return tuple(self._manifests.values())
 
