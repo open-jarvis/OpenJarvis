@@ -44,6 +44,8 @@ export async function saveCloudKey(keyName: string, keyValue: string): Promise<v
 let _tauriApiBase: string | null = null;
 let _tauriFinalAttachOnly = false;
 
+export const isFinalAttachOnly = (): boolean => isTauri() && _tauriFinalAttachOnly;
+
 /** Pre-fetch the API base URL from the Tauri backend (call once at init). */
 export async function initApiBase(): Promise<void> {
   if (!isTauri()) return;
@@ -75,7 +77,7 @@ const getSettingsApiUrl = (): string => {
 };
 
 export const getBase = (): string => {
-  if (isTauri() && _tauriFinalAttachOnly) {
+  if (isFinalAttachOnly()) {
     return _tauriApiBase || DESKTOP_API_FALLBACK;
   }
   const settingsUrl = getSettingsApiUrl();

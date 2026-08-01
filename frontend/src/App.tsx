@@ -13,12 +13,19 @@ import { CommandPalette } from './components/CommandPalette';
 import { SetupScreen } from './components/SetupScreen';
 import { Toaster } from './components/ui/sonner';
 import { useAppStore } from './lib/store';
-import { fetchModels, fetchServerInfo, fetchSavings, submitSavings, isTauri } from './lib/api';
+import {
+  fetchModels,
+  fetchServerInfo,
+  fetchSavings,
+  submitSavings,
+  isFinalAttachOnly,
+  isTauri,
+} from './lib/api';
 import { OptInModal } from './components/OptInModal';
 import { UpdateChecker } from './components/Desktop/UpdateChecker';
 import { track, hashId } from './lib/analytics';
 
-export default function App() {
+function LegacyApp() {
   const [setupDone, setSetupDone] = useState(!isTauri());
   const handleSetupReady = useCallback(() => {
     setSetupDone(true);
@@ -211,4 +218,19 @@ export default function App() {
       )}
     </>
   );
+}
+
+export function FinalAttachApp() {
+  return (
+    <>
+      <div className="h-screen overflow-hidden">
+        <JarvisPage />
+      </div>
+      <Toaster position="bottom-right" />
+    </>
+  );
+}
+
+export default function App() {
+  return isFinalAttachOnly() ? <FinalAttachApp /> : <LegacyApp />;
 }

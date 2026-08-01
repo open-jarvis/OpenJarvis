@@ -110,10 +110,11 @@ describe('final desktop API base', () => {
       }),
     }));
 
-    const { getBase, initApiBase } = await freshApi();
+    const { getBase, initApiBase, isFinalAttachOnly } = await freshApi();
     await initApiBase();
 
     expect(getBase()).toBe('http://127.0.0.1:8000');
+    expect(isFinalAttachOnly()).toBe(true);
   });
 
   it('bypasses the webview cache for dynamic task evidence', async () => {
