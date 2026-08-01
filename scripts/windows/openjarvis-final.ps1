@@ -67,24 +67,32 @@ function Get-FinalHealth {
 }
 
 function Get-PortOwner {
-    $outputPath = Join-Path $RunRoot ("netstat-" + [Guid]::NewGuid().ToString('N') + '.txt')
+    $errorPath = Join-Path $RunRoot ("netstat-error-" + [Guid]::NewGuid().ToString('N') + '.txt')
     try {
-        $netstat = Start-Process -FilePath "$env:SystemRoot\System32\netstat.exe" `
-            -ArgumentList @('-ano', '-p', 'tcp') -RedirectStandardOutput $outputPath `
-            -WindowStyle Hidden -PassThru
-        if (-not $netstat.WaitForExit(5000)) {
-            Stop-Process -Id $netstat.Id -Force -ErrorAction SilentlyContinue
-            throw 'Bounded netstat inventory timed out.'
+        $lines = @(& "$env:SystemRoot\System32\netstat.exe" -ano -p tcp 2> $errorPath)
+        $exitCode = $LASTEXITCODE
+        $stderr = @()
+        if (Test-Path -LiteralPath $errorPath) {
+            $stderr = @(Get-Content -LiteralPath $errorPath)
         }
-        if ($netstat.ExitCode -ne 0) { throw "netstat failed with code $($netstat.ExitCode)." }
+        if ($exitCode -isnot [int]) {
+            throw 'netstat.exe did not provide a numeric exit status.'
+        }
+        if ($exitCode -ne 0) {
+            $detail = ($stderr -join ' ').Trim()
+            if (-not [string]::IsNullOrWhiteSpace($detail)) {
+                throw "netstat.exe failed with exit code $exitCode. $detail"
+            }
+            throw "netstat.exe failed with exit code $exitCode."
+        }
         $owners = @(
-            Get-Content -LiteralPath $outputPath | ForEach-Object {
-                if ($_ -match '^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$' -and
+            $lines | ForEach-Object {
+                if ($_ -match '^\s*TCP\s+\S+:(\d+)\s+\S+\s+(?:LISTENING|ABH(?:\u00D6|O|OE)REN)\s+(\d+)\s*$' -and
                     [int]$Matches[1] -eq $Port) { [int]$Matches[2] }
             } | Sort-Object -Unique
         )
     } finally {
-        Remove-Item -LiteralPath $outputPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $errorPath -Force -ErrorAction SilentlyContinue
     }
     if ($owners.Count -eq 0) { return $null }
     if ($owners.Count -ne 1) { throw "Port $Port has ambiguous owners." }
