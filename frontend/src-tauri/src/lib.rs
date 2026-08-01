@@ -8,6 +8,8 @@ use tokio::sync::Mutex;
 
 const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8000;
+const FINAL_HEALTH_MARKER: &str = "OPENJARVIS-FINAL-RUNTIME";
+const FINAL_RUNTIME_NAME: &str = "phase8-final";
 
 /// Small, fast model pulled at startup so the app opens quickly.
 const STARTUP_MODEL: &str = "qwen3.5:4b";
@@ -416,7 +418,7 @@ struct SetupStatus {
     server_ready: bool,
     model_ready: bool,
     error: Option<String>,
-    /// "ollama" | "custom" — lets the setup UI relabel the progress steps.
+    /// "ollama" | "custom" | "codex" — lets the UI relabel progress steps.
     source: String,
 }
 
@@ -435,6 +437,57 @@ impl Default for SetupStatus {
 }
 
 type SharedStatus = Arc<Mutex<SetupStatus>>;
+
+fn final_attach_only() -> bool {
+    std::env::var("OPENJARVIS_FINAL_ATTACH_ONLY")
+        .map(|value| value == "1")
+        .unwrap_or(false)
+}
+
+fn valid_final_health(body: &serde_json::Value) -> bool {
+    body.get("marker").and_then(|value| value.as_str()) == Some(FINAL_HEALTH_MARKER)
+        && body.get("runtime").and_then(|value| value.as_str()) == Some(FINAL_RUNTIME_NAME)
+        && body.get("status").and_then(|value| value.as_str()) == Some("ready")
+        && body.get("backend").and_then(|value| value.as_str()) == Some("python_sdk")
+}
+
+/// Attach to one already-owned final backend. This path never launches a
+/// model, process, clone, dependency sync, updater, or non-loopback URL.
+async fn attach_final_backend(status: SharedStatus) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .map_err(|error| format!("could not build local health client: {error}"))?;
+    let url = format!("http://127.0.0.1:{JARVIS_PORT}/v1/final/health");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Ok(response) = client.get(&url).send().await {
+            if response.status().is_success() {
+                if let Ok(body) = response.json::<serde_json::Value>().await {
+                    if valid_final_health(&body) {
+                        let mut current = status.lock().await;
+                        current.phase = "ready".into();
+                        current.detail = "Codex runtime ready.".into();
+                        current.ollama_ready = true;
+                        current.server_ready = true;
+                        current.model_ready = true;
+                        current.source = "codex".into();
+                        current.error = None;
+                        return Ok(());
+                    }
+                    return Err(
+                        "local server did not provide the exact final runtime marker".into(),
+                    );
+                }
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err("timed out waiting for the owned final runtime".into());
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Health-check helpers
@@ -739,6 +792,21 @@ fn format_uv_sync_spawn_error(root: &std::path::Path, uv_bin: &str, err: &str) -
 // ---------------------------------------------------------------------------
 
 async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
+    if final_attach_only() {
+        {
+            let mut current = status.lock().await;
+            current.phase = "server".into();
+            current.detail = "Attaching to Codex runtime...".into();
+            current.source = "codex".into();
+        }
+        if let Err(error) = attach_final_backend(status.clone()).await {
+            let mut current = status.lock().await;
+            current.phase = "error".into();
+            current.error = Some(error);
+        }
+        return;
+    }
+
     // Decide the inference source (default Ollama) before launching anything.
     let cfg = read_inference_config();
     let plan = boot_plan(&cfg, total_ram_gb());
@@ -2528,6 +2596,11 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .on_window_event(|window, event| {
+            if final_attach_only() && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                window.app_handle().exit(0);
+            }
+        })
         .setup(move |app| {
             // System tray
             let show = MenuItemBuilder::with_id("show", "Show / Hide").build(app)?;
@@ -2646,9 +2719,25 @@ mod tests {
     use super::{
         boot_plan, default_local_model, format_uv_sync_failure, format_uv_sync_spawn_error,
         normalize_host, parse_inference_config, upsert_engine_host, uv_sync_stderr_tail,
-        InferenceConfig, SourceKind,
+        valid_final_health, InferenceConfig, SourceKind, FINAL_HEALTH_MARKER,
+        FINAL_RUNTIME_NAME,
     };
     use std::path::Path;
+
+    #[test]
+    fn final_health_requires_exact_runtime_identity() {
+        let valid = serde_json::json!({
+            "marker": FINAL_HEALTH_MARKER,
+            "runtime": FINAL_RUNTIME_NAME,
+            "status": "ready",
+            "backend": "python_sdk",
+        });
+        assert!(valid_final_health(&valid));
+        assert!(!valid_final_health(&serde_json::json!({"status": "ready"})));
+        let mut wrong = valid;
+        wrong["marker"] = serde_json::json!("some-other-server");
+        assert!(!valid_final_health(&wrong));
+    }
 
     #[test]
     fn tail_returns_whole_string_when_shorter_than_limit() {
