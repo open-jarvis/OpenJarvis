@@ -295,6 +295,7 @@ def test_sessions_and_summary_are_canonical_projections(api_runtime) -> None:
     detail = client.get("/v1/sessions/session-chat").json()
     assert detail["tasks"][0]["task_id"] == "task-chat"
     summary = client.get("/v1/tasks/task-chat/summary").json()
+    assert summary["task"]["task_id"] == "task-chat"
     assert summary["last_sequence"] == 4
     assert summary["safe_to_present_as_success"] is False
 
@@ -470,6 +471,7 @@ def test_health_is_credential_safe_and_redacts_thread_by_default(api_runtime) ->
     assert body["chatgpt_authenticated"] is True
     assert body["persistent_threads"] is True
     assert body["cli_fallback_enabled"] is False
+    assert body["active_task"]["task_id"] == task.task_id
     assert body["active_task"]["active_thread_id"] == "…et-value"
     assert body["turn_model_evidence"]["resolved"] == {
         "model": "unknown",

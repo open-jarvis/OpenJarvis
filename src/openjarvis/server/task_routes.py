@@ -250,6 +250,22 @@ def serialize_task(task: TaskRecord, *, developer: bool = False) -> dict[str, An
     }
 
 
+def _redact_task_projection(
+    payload: dict[str, Any],
+    *,
+    task_key: str,
+) -> dict[str, Any]:
+    """Redact free-form values without corrupting canonical task identity."""
+
+    redacted = redact_data(payload)
+    original_task = payload.get(task_key)
+    redacted_task = redacted.get(task_key)
+    if isinstance(original_task, dict) and isinstance(redacted_task, dict):
+        for key in ("task_id", "session_id", "correlation_id"):
+            redacted_task[key] = original_task[key]
+    return redacted
+
+
 def serialize_turn_model_evidence(
     turn: Any | None,
     *,
@@ -803,7 +819,7 @@ async def get_task_summary(task_id: str, request: Request) -> dict[str, Any]:
         else ()
     )
     last_event = events[-1] if events else None
-    return redact_data(
+    return _redact_task_projection(
         {
             "task": serialize_task(task),
             "turn_model_evidence": serialize_turn_model_evidence(
@@ -828,7 +844,8 @@ async def get_task_summary(task_id: str, request: Request) -> dict[str, Any]:
             ),
             "can_resume": task.status
             in {TaskStatus.PAUSED, TaskStatus.RECOVERING},
-        }
+        },
+        task_key="task",
     )
 
 
@@ -1020,7 +1037,7 @@ async def codex_health(
         (task.error_category for task in tasks if task.error_category),
         None,
     )
-    return redact_data(
+    return _redact_task_projection(
         {
             "active_backend": (
                 selected.backend.value if selected is not None else None
@@ -1082,7 +1099,8 @@ async def codex_health(
                 }
                 for report in reports
             ],
-        }
+        },
+        task_key="active_task",
     )
 
 
