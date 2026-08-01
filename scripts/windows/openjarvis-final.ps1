@@ -182,6 +182,35 @@ function Get-OwnedServer(
     return $process
 }
 
+function Get-OwnedUi(
+    [int]$ExpectedPid,
+    [string]$ExpectedStartedAtUtc,
+    [string]$ExpectedExecutable
+) {
+    if ($ExpectedPid -le 0 -or
+        [string]::IsNullOrWhiteSpace($ExpectedStartedAtUtc) -or
+        [string]::IsNullOrWhiteSpace($ExpectedExecutable)) {
+        return $null
+    }
+    $process = Get-Process -Id $ExpectedPid -ErrorAction SilentlyContinue
+    if ($null -eq $process) { return $null }
+    $expectedPath = [IO.Path]::GetFullPath($ExpectedExecutable)
+    $executable = $process.Path
+    if ([string]::IsNullOrWhiteSpace($executable) -or
+        -not $executable.Equals($expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "PID $ExpectedPid is not the recorded desktop executable."
+    }
+    $expected = [DateTime]::Parse(
+        $ExpectedStartedAtUtc,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind
+    ).ToUniversalTime()
+    if ($process.StartTime.ToUniversalTime().Ticks -ne $expected.Ticks) {
+        throw "PID $ExpectedPid start time does not match managed desktop state."
+    }
+    return $process
+}
+
 $RepoRoot = Resolve-NormalDirectory $RepoRoot 'repository' $false
 $VaultPath = Resolve-NormalDirectory $VaultPath 'vault' $false
 $proposedRuntimeRoot = [IO.Path]::GetFullPath($RuntimeRoot)
@@ -198,6 +227,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'pyproject.toml'))) {
 }
 $Python = Join-Path $RepoRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) { throw 'Repository Python is missing.' }
+if ([string]::IsNullOrWhiteSpace($DesktopExecutable)) {
+    $DesktopExecutable = Join-Path $RepoRoot 'frontend\src-tauri\target\release\openjarvis-desktop.exe'
+}
+$DesktopExecutable = [IO.Path]::GetFullPath($DesktopExecutable)
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) { $ConfigPath = Join-Path $RuntimeRoot 'config.toml' }
 $ConfigPath = [IO.Path]::GetFullPath($ConfigPath)
 if (-not (Test-UnderRoot $ConfigPath $RuntimeRoot)) { throw 'Config must remain under RuntimeRoot.' }
@@ -229,6 +262,7 @@ function Show-Status {
     $health = Get-FinalHealth
     $portOwner = Get-PortOwner
     $owned = $false
+    $uiOwned = $false
     if ($null -ne $state -and $null -ne $health -and $null -ne $portOwner) {
         try {
             $process = Get-OwnedServer `
@@ -237,10 +271,17 @@ function Show-Status {
                 ([string]$state.executable)
             $owned = $null -ne $process -and $portOwner -eq [int]$state.server_pid -and
                 [int]$health.pid -eq [int]$state.server_pid
+            if ($owned) {
+                $uiProcess = Get-OwnedUi `
+                    ([int]$state.ui_pid) `
+                    ([string]$state.ui_started_at_utc) `
+                    ([string]$state.ui_executable)
+                $uiOwned = $null -ne $uiProcess
+            }
         } catch { $owned = $false }
     }
     [pscustomobject]@{
-        status = if ($owned) { 'ready' } else { 'stopped_or_unverified' }
+        status = if ($owned -and $uiOwned) { 'ready' } else { 'stopped_or_unverified' }
         marker = if ($null -ne $health) { $health.marker } else { $null }
         server_pid = if ($null -ne $state) { $state.server_pid } else { $null }
         ui_pid = if ($null -ne $state) { $state.ui_pid } else { $null }
@@ -301,22 +342,31 @@ function Start-FinalRuntime {
         }
         Get-OwnedServer $managedServer.Id $serverStartedAtUtc $serverExecutable | Out-Null
         $uiPid = $null
-        if (-not [string]::IsNullOrWhiteSpace($DesktopExecutable)) {
-            $desktop = [IO.Path]::GetFullPath($DesktopExecutable)
-            if (-not (Test-Path -LiteralPath $desktop -PathType Leaf)) { throw 'Desktop executable is missing.' }
-            $priorAttach = $env:OPENJARVIS_FINAL_ATTACH_ONLY
-            try {
-                $env:OPENJARVIS_FINAL_ATTACH_ONLY = '1'
-                $ui = Start-Process -FilePath $desktop -WorkingDirectory (Split-Path $desktop) -PassThru
-                $uiPid = $ui.Id
-            } finally {
-                $env:OPENJARVIS_FINAL_ATTACH_ONLY = $priorAttach
-            }
+        $uiStartedAtUtc = $null
+        $uiExecutable = $null
+        $desktop = [IO.Path]::GetFullPath($DesktopExecutable)
+        if (-not (Test-Path -LiteralPath $desktop -PathType Leaf)) { throw 'Desktop executable is missing.' }
+        $priorAttach = $env:OPENJARVIS_FINAL_ATTACH_ONLY
+        try {
+            $env:OPENJARVIS_FINAL_ATTACH_ONLY = '1'
+            $ui = Start-Process -FilePath $desktop -WorkingDirectory (Split-Path $desktop) -PassThru
+            Start-Sleep -Milliseconds 500
+            $ui.Refresh()
+            if ($ui.HasExited) { throw "Desktop UI exited early with code $($ui.ExitCode)." }
+            $uiPid = $ui.Id
+            $uiExecutable = $ui.Path
+            $uiStartedAtUtc = $ui.StartTime.ToUniversalTime().ToString(
+                'o', [Globalization.CultureInfo]::InvariantCulture
+            )
+        } finally {
+            $env:OPENJARVIS_FINAL_ATTACH_ONLY = $priorAttach
         }
         [pscustomobject]@{
             schema = 1
             server_pid = $managedServer.Id
             ui_pid = $uiPid
+            ui_executable = $uiExecutable
+            ui_started_at_utc = $uiStartedAtUtc
             port = $Port
             repo_root = $RepoRoot
             executable = $serverExecutable
@@ -367,7 +417,10 @@ function Stop-FinalRuntime {
     if ($null -eq $state) { throw 'No managed final-runtime state exists.' }
     $uiCloseFailure = $null
     if ($null -ne $state.ui_pid) {
-        $ui = Get-Process -Id ([int]$state.ui_pid) -ErrorAction SilentlyContinue
+        $ui = Get-OwnedUi `
+            ([int]$state.ui_pid) `
+            ([string]$state.ui_started_at_utc) `
+            ([string]$state.ui_executable)
         if ($null -ne $ui) {
             if (-not $ui.CloseMainWindow() -or -not $ui.WaitForExit($TimeoutSeconds * 1000)) {
                 $uiCloseFailure = 'Desktop did not exit after WM_CLOSE; no forced kill was used.'

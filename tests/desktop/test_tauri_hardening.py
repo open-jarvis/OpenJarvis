@@ -53,7 +53,12 @@ def test_final_attach_branch_returns_before_every_legacy_bootstrap() -> None:
     assert "if final_attach_only()" in attach
     assert "attach_final_backend(status.clone()).await" in attach
     assert "return;" in attach
-    for forbidden in ('resolve_bin("uv")', "launch_ollama", "ollama_has_model", "uv sync"):
+    for forbidden in (
+        'resolve_bin("uv")',
+        "launch_ollama",
+        "ollama_has_model",
+        "uv sync",
+    ):
         assert forbidden not in attach
     assert "OpenJarvis Codex Runtime ist nicht erreichbar." in source
 
@@ -76,13 +81,34 @@ def test_final_launcher_passes_attach_only_and_tracks_only_managed_pids() -> Non
 
     attach = source.index("$env:OPENJARVIS_FINAL_ATTACH_ONLY = '1'")
     desktop_start = source.index("$ui = Start-Process -FilePath $desktop", attach)
-    restore = source.index("$env:OPENJARVIS_FINAL_ATTACH_ONLY = $priorAttach", desktop_start)
+    restore = source.index(
+        "$env:OPENJARVIS_FINAL_ATTACH_ONLY = $priorAttach", desktop_start
+    )
     assert attach < desktop_start < restore
     assert "$uiPid = $ui.Id" in source
     assert "ui_pid = $uiPid" in source
+    assert "ui_executable = $uiExecutable" in source
+    assert "ui_started_at_utc = $uiStartedAtUtc" in source
+    assert "Get-OwnedUi" in source
+    assert "status = if ($owned -and $uiOwned)" in source
     assert "-RedirectStandardOutput $ServerOutputPath" in source
     assert "-RedirectStandardError $ServerErrorPath" in source
-    assert "Get-Process -Id ([int]$state.ui_pid)" in source
+    assert "([int]$state.ui_pid)" in source
+    assert "([string]$state.ui_started_at_utc)" in source
+    assert "([string]$state.ui_executable)" in source
     assert "'Restart' { Stop-FinalRuntime; Start-FinalRuntime }" in source
     assert "Stop-Process -Name" not in source
     assert "taskkill" not in source.lower()
+
+
+def test_final_launcher_defaults_to_the_repository_release_desktop() -> None:
+    source = (ROOT / "scripts/windows/openjarvis-final.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "if ([string]::IsNullOrWhiteSpace($DesktopExecutable))" in source
+    assert (
+        "$DesktopExecutable = Join-Path $RepoRoot "
+        "'frontend\\src-tauri\\target\\release\\openjarvis-desktop.exe'"
+    ) in source
+    assert 'throw "Desktop UI exited early with code $($ui.ExitCode)."' in source
