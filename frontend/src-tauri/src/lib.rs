@@ -11,6 +11,20 @@ const JARVIS_PORT: u16 = 8000;
 const FINAL_HEALTH_MARKER: &str = "OPENJARVIS-FINAL-RUNTIME";
 const FINAL_RUNTIME_NAME: &str = "phase8-final";
 const FINAL_ATTACH_ERROR: &str = "OpenJarvis Codex Runtime ist nicht erreichbar.";
+const FINAL_ATTACH_SERVICE_WORKER_RECOVERY: &str = r#"
+(() => {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.getRegistrations().then(async (registrations) => {
+    if (registrations.length === 0) return;
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+    const reloadKey = "openjarvis-final-service-worker-recovered";
+    if (navigator.serviceWorker.controller && !sessionStorage.getItem(reloadKey)) {
+      sessionStorage.setItem(reloadKey, "1");
+      window.location.reload();
+    }
+  });
+})();
+"#;
 
 /// Small, fast model pulled at startup so the app opens quickly.
 const STARTUP_MODEL: &str = "qwen3.5:4b";
@@ -2616,6 +2630,12 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            if final_attach_only() {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.eval(FINAL_ATTACH_SERVICE_WORKER_RECOVERY)?;
+                }
+            }
+
             // System tray
             let show = MenuItemBuilder::with_id("show", "Show / Hide").build(app)?;
             let health = MenuItemBuilder::with_id("health", "Health: starting...")

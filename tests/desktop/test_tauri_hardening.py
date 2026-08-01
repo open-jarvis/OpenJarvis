@@ -112,3 +112,17 @@ def test_final_launcher_defaults_to_the_repository_release_desktop() -> None:
         "'frontend\\src-tauri\\target\\release\\openjarvis-desktop.exe'"
     ) in source
     assert 'throw "Desktop UI exited early with code $($ui.ExitCode)."' in source
+
+
+def test_tauri_final_attach_does_not_reuse_pwa_service_worker_cache() -> None:
+    vite = (ROOT / "frontend/vite.config.ts").read_text(encoding="utf-8")
+    package = json.loads((ROOT / "frontend/package.json").read_text(encoding="utf-8"))
+    native = (ROOT / "frontend/src-tauri/src/lib.rs").read_text(encoding="utf-8")
+
+    assert "disable: mode === 'tauri'" in vite
+    assert "vite build --mode tauri --outDir dist" in package["scripts"]["build:tauri"]
+    assert "FINAL_ATTACH_SERVICE_WORKER_RECOVERY" in native
+    assert "navigator.serviceWorker.getRegistrations()" in native
+    assert "registration.unregister()" in native
+    assert "window.location.reload()" in native
+    assert "caches.delete" not in native

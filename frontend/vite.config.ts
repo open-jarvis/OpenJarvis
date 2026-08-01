@@ -7,7 +7,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 // VITE_SUPABASE_ANON_KEY is intentionally NOT required here: a missing key
 // disables the savings leaderboard at runtime (see src/lib/supabase.ts) rather
 // than failing the build, so the package/app stays publishable without it.
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -17,6 +17,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
+      disable: mode === 'tauri',
       registerType: 'autoUpdate',
       manifest: {
         name: 'OpenJarvis',
@@ -59,4 +60,4 @@ export default defineConfig({
       '/api': process.env.VITE_API_URL || 'http://localhost:8000',
     },
   },
-});
+}));
