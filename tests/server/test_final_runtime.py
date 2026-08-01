@@ -6,6 +6,8 @@ import httpx
 import pytest
 
 from openjarvis.final_runtime import (
+    FINAL_CODEX_EFFORT,
+    FINAL_CODEX_MODEL,
     FINAL_HEALTH_MARKER,
     FINAL_MODEL,
     FINAL_RUNTIME_NAME,
@@ -43,6 +45,9 @@ def test_generated_config_is_secret_free_and_fail_closed(tmp_path: Path) -> None
     assert "python_sdk" in rendered
     assert 'approval_mode = "deny_all"' in rendered
     assert 'analysis_sandbox = "read_only"' in rendered
+    assert f'model = "{FINAL_CODEX_MODEL}"' in rendered
+    assert f'reasoning_effort = "{FINAL_CODEX_EFFORT}"' in rendered
+    assert "require_model_confirmation = true" in rendered
     assert "enabled = false" in rendered
     assert "api_key" not in rendered.lower()
     assert "password" not in rendered.lower()

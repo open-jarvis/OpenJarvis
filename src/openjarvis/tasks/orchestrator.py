@@ -12,6 +12,7 @@ from typing import Any, Coroutine, TypeVar
 from openjarvis.codex.protocol import CodexBackend
 from openjarvis.codex.router import CodexBackendRouter
 from openjarvis.codex.types import (
+    CodexBackendError,
     CodexEvent,
     CodexEventType,
     CodexModelConfig,
@@ -26,6 +27,7 @@ from openjarvis.tasks.policy import CentralRiskPolicy
 from openjarvis.tasks.projection import CodexTaskEventProjector
 from openjarvis.tasks.service import TaskService
 from openjarvis.tasks.types import (
+    InvalidTaskTransition,
     TaskOutcome,
     TaskRecord,
     TaskStatus,
@@ -83,6 +85,7 @@ class CodexTaskOrchestrator:
         default_token_limit: int | None = None,
         lane_scheduler: ExecutionLaneScheduler | None = None,
         budget_limits: BudgetLimits | None = None,
+        default_model: CodexModelConfig | None = None,
     ) -> None:
         if default_timeout_seconds <= 0:
             raise ValueError("default_timeout_seconds must be positive")
@@ -95,6 +98,11 @@ class CodexTaskOrchestrator:
         self._token_limit = default_token_limit
         self._lanes = lane_scheduler or ExecutionLaneScheduler()
         self._budget = BudgetController(task_service.store, budget_limits)
+        self._default_model = default_model or CodexModelConfig(
+            model=None,
+            effort=None,
+            service_tier=None,
+        )
         self._timeout_seconds = min(
             default_timeout_seconds,
             self._budget.limits.max_turn_duration,
@@ -154,11 +162,7 @@ class CodexTaskOrchestrator:
                 policy.approval_mode.value == "brokered"
             )
         )
-        model_config = model or CodexModelConfig(
-            model=None,
-            effort=None,
-            service_tier=None,
-        )
+        model_config = model or self._default_model
 
         thread_context = CodexRunContext(
             task_id=task.task_id,
@@ -247,6 +251,30 @@ class CodexTaskOrchestrator:
                         await backend.interrupt(turn.turn_id)
                         facts.budget_interrupted = True
                         facts.interrupted = True
+        except Exception as exc:
+            current = self._tasks.get(task.task_id)
+            if current is not None and current.status is TaskStatus.RUNNING:
+                try:
+                    self._tasks.transition(
+                        task.task_id,
+                        TaskStatus.FAILED,
+                        component="codex_task_orchestrator",
+                        cause="codex_event_stream_failed",
+                        idempotency_key=(
+                            f"{turn_context.correlation_id}:stream-failed"
+                        ),
+                        outcome=TaskOutcome.FAILED,
+                        result=facts.content,
+                        error_category=(
+                            "codex_backend_error"
+                            if isinstance(exc, CodexBackendError)
+                            else "codex_runtime_error"
+                        ),
+                        payload={"error_type": type(exc).__name__},
+                    )
+                except InvalidTaskTransition:
+                    pass
+            raise
         finally:
             self._active_turns.pop(task.task_id, None)
         self._project_persisted_events(thread.thread_id)

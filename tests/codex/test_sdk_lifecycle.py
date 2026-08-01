@@ -8,6 +8,8 @@ import pytest
 
 from openjarvis.codex import (
     ApprovalMode,
+    CodexCapabilityError,
+    CodexEventType,
     CodexModelConfig,
     CodexPolicyError,
     CodexPythonSdkBackend,
@@ -416,9 +418,13 @@ async def test_turn_streaming_steer_interrupt_and_checkpoint(tmp_path: Path) -> 
 async def test_step_limit_interrupts_turn(tmp_path: Path) -> None:
     events = [
         {
-            "method": "item/agentMessage/delta",
+            "method": "item/started",
             "eventId": f"event-{index}",
-            "params": {"threadId": "thread-1", "turnId": "turn-1"},
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {"id": f"item-{index}", "type": "agentMessage"},
+            },
         }
         for index in range(2)
     ]
@@ -442,6 +448,82 @@ async def test_step_limit_interrupts_turn(tmp_path: Path) -> None:
         _ = [event async for event in backend.stream_events(turn.turn_id)]
 
     assert handle.interrupt_count == 1
+    await backend.close()
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_text_deltas_do_not_consume_step_budget(tmp_path: Path) -> None:
+    events = [
+        {
+            "method": "item/agentMessage/delta",
+            "eventId": f"delta-{index}",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "message-1",
+                "delta": "text",
+            },
+        }
+        for index in range(250)
+    ]
+    events.append(
+        {
+            "method": "turn/completed",
+            "eventId": "turn-completed",
+            "params": {
+                "threadId": "thread-1",
+                "turn": {"id": "turn-1", "status": "completed"},
+            },
+        }
+    )
+    handle = FakeTurnHandle("turn-1", events)
+    fake = FakeSdk()
+    fake.started_thread = FakeThread("thread-1", turn_handle=handle)
+    store = CodexStateStore(tmp_path / "codex.db")
+    backend = _backend(fake, store)
+    await backend.start_thread(
+        ThreadStartRequest(context=_context(tmp_path, "thread-correlation"))
+    )
+    turn = await backend.start_turn(
+        TurnStartRequest(
+            context=_context(tmp_path, "turn-correlation", step_limit=1),
+            thread_id="thread-1",
+            prompt="Read only",
+        )
+    )
+
+    streamed = [event async for event in backend.stream_events(turn.turn_id)]
+
+    assert streamed[-1].event_type is CodexEventType.TURN_COMPLETED
+    assert handle.interrupt_count == 0
+    await backend.close()
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_required_model_confirmation_rejects_runtime_fallback(
+    tmp_path: Path,
+) -> None:
+    fake = FakeSdk()
+    store = CodexStateStore(tmp_path / "codex.db")
+    backend = CodexPythonSdkBackend(
+        sdk_factory=lambda spec: fake,
+        store=store,
+        require_model_confirmation=True,
+    )
+    backend._thread_evidence["thread-1"] = (
+        "different-model",
+        "medium",
+        "test-evidence",
+    )
+
+    with pytest.raises(CodexCapabilityError, match="did not confirm"):
+        await backend.start_thread(
+            ThreadStartRequest(context=_context(tmp_path, "thread-correlation"))
+        )
+
+    assert store.get_thread_by_id("thread-1") is None
     await backend.close()
     store.close()
 

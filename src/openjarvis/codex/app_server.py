@@ -23,7 +23,7 @@ from openjarvis.codex.approval import (
     ApprovalRequest,
     DenyApprovalBroker,
 )
-from openjarvis.codex.events import CodexEventAdapter
+from openjarvis.codex.events import CodexEventAdapter, is_counted_step
 from openjarvis.codex.redaction import (
     redact_data,
     redact_text,
@@ -91,6 +91,7 @@ class AppServerTransport:
         self._stderr: deque[str] = deque(maxlen=100)
         self._pending: dict[int, asyncio.Future[Any]] = {}
         self._next_request_id = 1
+        self._start_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
         self._server_request_lock = asyncio.Lock()
         self._responded_server_requests: set[str] = set()
@@ -113,43 +114,44 @@ class AppServerTransport:
         return self._process is not None and self._process.returncode is None
 
     async def start(self) -> None:
-        if self.running:
-            return
-        if self._closed:
-            raise CodexBackendError("app-server transport is closed")
-        creationflags = 0
-        if os.name == "nt":
-            creationflags = subprocess.CREATE_NO_WINDOW
-        try:
-            self._process = await asyncio.create_subprocess_exec(
-                *self._command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=self._cwd,
-                env=self._environment,
-                creationflags=creationflags,
-            )
-        except Exception as exc:
-            raise CodexBackendError(safe_error_message(exc)) from exc
-        self._stdout_task = asyncio.create_task(self._read_stdout())
-        self._stderr_task = asyncio.create_task(self._read_stderr())
-        try:
-            await self.request(
-                "initialize",
-                {
-                    "clientInfo": {
-                        "name": "openjarvis",
-                        "title": "OpenJarvis Codex App Server Backend",
-                        "version": "0.1.0",
+        async with self._start_lock:
+            if self.running:
+                return
+            if self._closed:
+                raise CodexBackendError("app-server transport is closed")
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = subprocess.CREATE_NO_WINDOW
+            try:
+                self._process = await asyncio.create_subprocess_exec(
+                    *self._command,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=self._cwd,
+                    env=self._environment,
+                    creationflags=creationflags,
+                )
+            except Exception as exc:
+                raise CodexBackendError(safe_error_message(exc)) from exc
+            self._stdout_task = asyncio.create_task(self._read_stdout())
+            self._stderr_task = asyncio.create_task(self._read_stderr())
+            try:
+                await self.request(
+                    "initialize",
+                    {
+                        "clientInfo": {
+                            "name": "openjarvis",
+                            "title": "OpenJarvis Codex App Server Backend",
+                            "version": "0.1.0",
+                        },
+                        "capabilities": {"experimentalApi": False},
                     },
-                    "capabilities": {"experimentalApi": False},
-                },
-            )
-            await self.notify("initialized", {})
-        except Exception:
-            await self.close()
-            raise
+                )
+                await self.notify("initialized", {})
+            except Exception:
+                await self.close()
+                raise
 
     async def request(
         self,
@@ -738,7 +740,7 @@ class CodexAppServerBackend:
         if active is None:
             raise CodexCapabilityError(f"unknown active turn: {turn_id}")
         transport = await self._get_transport()
-        step_count = 0
+        counted_steps: set[str] = set()
         try:
             while True:
                 remaining = active.context.timeout_seconds - (
@@ -761,8 +763,9 @@ class CodexAppServerBackend:
                 )
                 if event is None:
                     continue
-                step_count += 1
-                if step_count > active.context.step_limit:
+                if is_counted_step(event):
+                    counted_steps.add(event.item_id or event.event_id)
+                if len(counted_steps) > active.context.step_limit:
                     await self.interrupt(turn_id)
                     raise CodexPolicyError("turn step limit exceeded")
                 if self._token_limit_exceeded(event, active.context.token_limit):

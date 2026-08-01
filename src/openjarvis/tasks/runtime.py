@@ -9,6 +9,7 @@ from openjarvis.codex.app_server import CodexAppServerBackend
 from openjarvis.codex.cli_backend import CodexCliFallbackBackend
 from openjarvis.codex.router import CodexBackendRouter
 from openjarvis.codex.sdk_backend import CodexPythonSdkBackend
+from openjarvis.codex.types import CodexModelConfig
 from openjarvis.tasks.approval import PersistentApprovalBroker
 from openjarvis.tasks.budget import BudgetLimits
 from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
@@ -53,7 +54,10 @@ def build_codex_task_runtime(
             risk_policy=risk_policy,
             timeout_seconds=config.default_timeout_seconds,
         )
-        sdk_backend = CodexPythonSdkBackend(store=store)
+        sdk_backend = CodexPythonSdkBackend(
+            store=store,
+            require_model_confirmation=config.require_model_confirmation,
+        )
         app_backend = CodexAppServerBackend(
             codex_bin=config.app_server_binary or None,
             approval_broker=approval_broker,
@@ -92,6 +96,11 @@ def build_codex_task_runtime(
                 max_total_tokens_per_task=config.max_total_tokens_per_task,
                 warning_threshold=config.warning_threshold,
                 hard_limit_action=config.hard_limit_action,
+            ),
+            default_model=CodexModelConfig(
+                model=config.model or None,
+                effort=config.reasoning_effort or None,
+                service_tier=config.service_tier or None,
             ),
         )
         recovery = RecoveryCoordinator(store, service)

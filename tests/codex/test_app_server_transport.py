@@ -140,3 +140,30 @@ async def test_transport_bounds_requests_and_reconnect_policy(tmp_path: Path) ->
         await transport.reconnect(safe=False)
 
     await transport.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_start_creates_one_reader_pair(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = asyncio.create_subprocess_exec
+    launch_count = 0
+
+    async def delayed_launch(*args, **kwargs):
+        nonlocal launch_count
+        launch_count += 1
+        await asyncio.sleep(0.02)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", delayed_launch)
+    transport = AppServerTransport(
+        (sys.executable, str(_write_fake_server(tmp_path))),
+        request_timeout=2,
+    )
+
+    await asyncio.gather(*(transport.start() for _ in range(5)))
+
+    assert launch_count == 1
+    assert transport.running is True
+    await transport.close()

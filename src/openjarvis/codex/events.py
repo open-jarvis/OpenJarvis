@@ -17,6 +17,15 @@ from openjarvis.codex.types import (
     CodexRunContext,
 )
 
+_STEP_START_EVENTS = frozenset(
+    {
+        CodexEventType.ITEM_STARTED,
+        CodexEventType.COMMAND_STARTED,
+        CodexEventType.FILE_CHANGE_PROPOSED,
+        CodexEventType.TOOL_STARTED,
+    }
+)
+
 _DIRECT_EVENT_MAP = {
     "thread/started": CodexEventType.THREAD_STARTED,
     "thread/resumed": CodexEventType.THREAD_RESUMED,
@@ -279,4 +288,10 @@ class CodexEventAdapter:
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-__all__ = ["CodexEventAdapter"]
+def is_counted_step(event: CodexEvent) -> bool:
+    """Count work items, never transport chunks, against the step budget."""
+
+    return event.event_type in _STEP_START_EVENTS
+
+
+__all__ = ["CodexEventAdapter", "is_counted_step"]

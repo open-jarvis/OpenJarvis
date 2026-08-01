@@ -300,6 +300,31 @@ async def test_interrupted_turn_has_distinct_outcome(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_event_stream_error_closes_running_task_as_failed(
+    tmp_path: Path,
+) -> None:
+    store, service, fake, orchestrator = _runtime(tmp_path, [])
+
+    async def broken_stream(_turn_id: str) -> AsyncIterator[CodexEvent]:
+        if False:
+            yield  # pragma: no cover
+        raise RuntimeError("synthetic stream failure")
+
+    fake.stream_events = broken_stream  # type: ignore[method-assign]
+    try:
+        with pytest.raises(RuntimeError, match="synthetic stream failure"):
+            await orchestrator.execute("task", "question", cwd=tmp_path)
+        task = service.get("task")
+        assert task is not None
+        assert task.status is TaskStatus.FAILED
+        assert task.outcome is TaskOutcome.FAILED
+        assert task.error_category == "codex_runtime_error"
+        assert orchestrator.active_context("task") is None
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
 async def test_two_turns_resume_same_persistent_thread(tmp_path: Path) -> None:
     store, _, fake, orchestrator = _runtime(
         tmp_path,

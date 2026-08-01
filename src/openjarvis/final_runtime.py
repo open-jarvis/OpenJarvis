@@ -41,6 +41,8 @@ from openjarvis.website import WebsiteStagingService, WebsiteWorkspaceStore
 FINAL_HEALTH_MARKER = "OPENJARVIS-FINAL-RUNTIME"
 FINAL_RUNTIME_NAME = "phase8-final"
 FINAL_MODEL = "codex-python-sdk"
+FINAL_CODEX_MODEL = "gpt-5.6-terra"
+FINAL_CODEX_EFFORT = "xhigh"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _PILOT_WORKSPACE_ID = "phase8-final-website-pilot"
 
@@ -169,6 +171,9 @@ enabled = true
 primary_backend = "python_sdk"
 approval_mode = "deny_all"
 analysis_sandbox = "read_only"
+model = "{FINAL_CODEX_MODEL}"
+reasoning_effort = "{FINAL_CODEX_EFFORT}"
+require_model_confirmation = true
 state_db_path = {_toml_string(state / "codex.sqlite3")}
 allow_cli_fallback = false
 allow_global_cli_override = false
@@ -269,6 +274,12 @@ def _validate_loaded_config(config: JarvisConfig, *, home: Path, vault: Path) ->
         or config.codex.analysis_sandbox != "read_only"
     ):
         raise ValueError("final Codex policy must be deny_all/read_only")
+    if (
+        config.codex.model != FINAL_CODEX_MODEL
+        or config.codex.reasoning_effort != FINAL_CODEX_EFFORT
+        or not config.codex.require_model_confirmation
+    ):
+        raise ValueError("final Codex model must be explicitly confirmed")
     if config.codex.allow_cli_fallback or config.codex.allow_global_cli_override:
         raise ValueError("CLI fallback is forbidden in the final runtime")
     if config.analytics.enabled or config.telemetry.enabled or config.tools.mcp.enabled:
@@ -418,6 +429,9 @@ def build_final_runtime(
                 "runtime": FINAL_RUNTIME_NAME,
                 "status": "ready",
                 "backend": "python_sdk",
+                "model": FINAL_CODEX_MODEL,
+                "reasoning_effort": FINAL_CODEX_EFFORT,
+                "model_confirmation_required": True,
                 "policy": {"approval": "deny_all", "sandbox": "read_only"},
                 "components": {
                     "codex_tasks": True,
@@ -570,6 +584,8 @@ if __name__ == "__main__":
 
 __all__ = [
     "FINAL_HEALTH_MARKER",
+    "FINAL_CODEX_EFFORT",
+    "FINAL_CODEX_MODEL",
     "FINAL_MODEL",
     "FINAL_RUNTIME_NAME",
     "FinalCodexHealthEngine",

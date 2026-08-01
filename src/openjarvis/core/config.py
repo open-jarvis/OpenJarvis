@@ -1593,6 +1593,10 @@ class CodexBackendConfig:
     primary_backend: str = "python_sdk"
     approval_mode: str = "deny_all"
     analysis_sandbox: str = "read_only"
+    model: str = ""
+    reasoning_effort: str = ""
+    service_tier: str = ""
+    require_model_confirmation: bool = False
     default_timeout_seconds: float = 300.0
     default_step_limit: int = 100
     default_token_limit: int = 0

@@ -12,7 +12,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from openjarvis.codex.events import CodexEventAdapter
+from openjarvis.codex.events import CodexEventAdapter, is_counted_step
 from openjarvis.codex.redaction import (
     redact_data,
     redact_text,
@@ -117,13 +117,16 @@ class CodexPythonSdkBackend:
         environment: dict[str, str] | None = None,
         store: CodexStateStore | None = None,
         state_db_path: str | Path | None = None,
+        require_model_confirmation: bool = False,
     ) -> None:
         self._sdk_factory = sdk_factory
         self._codex_bin = codex_bin
         self._uses_installed_sdk = sdk_factory is None
         self._uses_pinned_runtime = sdk_factory is None and codex_bin is None
         self._environment = sanitized_codex_environment(environment)
+        self._require_model_confirmation = require_model_confirmation
         self._client: Any | None = None
+        self._client_lock = asyncio.Lock()
         self._store = store
         self._state_db_path = state_db_path
         self._owns_store = store is None
@@ -170,6 +173,10 @@ class CodexPythonSdkBackend:
         )
 
     async def _get_client(self) -> Any:
+        async with self._client_lock:
+            return await self._get_client_unlocked()
+
+    async def _get_client_unlocked(self) -> Any:
         if self._client is not None:
             return self._client
 
@@ -323,6 +330,7 @@ class CodexPythonSdkBackend:
         actual_model, actual_effort, evidence_source = (
             self._thread_evidence.pop(thread_id, (None, None, "unknown"))
         )
+        self._verify_model_evidence(context.model, actual_model, actual_effort)
         now = self._now()
         record = store.save_thread(
             CodexThreadRecord(
@@ -391,6 +399,7 @@ class CodexPythonSdkBackend:
         actual_model, actual_effort, evidence_source = (
             self._thread_evidence.pop(actual_id, (None, None, "unknown"))
         )
+        self._verify_model_evidence(context.model, actual_model, actual_effort)
         now = self._now()
         persisted = store.save_thread(
             CodexThreadRecord(
@@ -543,6 +552,7 @@ class CodexPythonSdkBackend:
             requested_model=context.model.model,
             requested_effort=context.model.effort,
         )
+        self._verify_model_evidence(context.model, actual_model, actual_effort)
         record = store.save_turn(
             CodexTurnRecord(
                 turn_id=turn_id,
@@ -584,7 +594,7 @@ class CodexPythonSdkBackend:
             raise CodexCapabilityError(f"turn is not persisted: {turn_id}")
 
         iterator = active.handle.stream().__aiter__()
-        step_count = 0
+        counted_steps: set[str] = set()
         try:
             while True:
                 elapsed = time.monotonic() - active.started_monotonic
@@ -621,8 +631,9 @@ class CodexPythonSdkBackend:
                 )
                 if event is None:
                     continue
-                step_count += 1
-                if step_count > active.context.step_limit:
+                if is_counted_step(event):
+                    counted_steps.add(event.item_id or event.event_id)
+                if len(counted_steps) > active.context.step_limit:
                     async for failure in self._limit_failure(
                         active,
                         turn_record,
@@ -750,6 +761,7 @@ class CodexPythonSdkBackend:
         actual_model, actual_effort, evidence_source = (
             self._thread_evidence.pop(thread_id, (None, None, "unknown"))
         )
+        self._verify_model_evidence(context.model, actual_model, actual_effort)
         self._get_store().update_thread_model_evidence(
             thread_id,
             actual_model=actual_model,
@@ -759,6 +771,31 @@ class CodexPythonSdkBackend:
         self._threads[thread_id] = thread
         self._thread_contexts[thread_id] = context
         return thread
+
+    def _verify_model_evidence(
+        self,
+        requested: CodexModelConfig,
+        actual_model: str | None,
+        actual_effort: str | None,
+    ) -> None:
+        if not self._require_model_confirmation:
+            return
+        if not requested.model:
+            raise CodexPolicyError(
+                "A product Codex turn requires an explicit model"
+            )
+        if actual_model != requested.model:
+            resolved = actual_model or "unconfirmed"
+            raise CodexCapabilityError(
+                "Codex runtime did not confirm the requested model "
+                f"{requested.model!r}; resolved {resolved!r}"
+            )
+        if requested.effort and actual_effort != requested.effort:
+            resolved = actual_effort or "unconfirmed"
+            raise CodexCapabilityError(
+                "Codex runtime did not confirm the requested reasoning effort "
+                f"{requested.effort!r}; resolved {resolved!r}"
+            )
 
     async def _limit_failure(
         self,
