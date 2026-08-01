@@ -175,17 +175,25 @@ function focusForPath(path: string): WorkspaceFocus {
   return 'overview';
 }
 
+function readableToken(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.length > 0
+    ? value.replace(/[._]/g, ' ')
+    : fallback;
+}
+
 function readableEvent(event: CanonicalTaskEvent): string {
-  if (EVENT_LABELS[event.event_type]) return EVENT_LABELS[event.event_type];
-  if (event.event_type.includes('plan')) return 'Plan updated';
-  if (event.event_type.includes('error') || event.event_type.includes('failed')) return 'Error';
-  return event.event_type.replace(/[._]/g, ' ');
+  const eventType = typeof event.event_type === 'string' ? event.event_type : '';
+  if (EVENT_LABELS[eventType]) return EVENT_LABELS[eventType];
+  if (eventType.includes('plan')) return 'Plan updated';
+  if (eventType.includes('error') || eventType.includes('failed')) return 'Error';
+  return readableToken(eventType, 'Event');
 }
 
 function eventTone(event: CanonicalTaskEvent): 'normal' | 'warning' | 'error' | 'success' {
-  if (event.event_type.includes('failed') || event.event_type.includes('error')) return 'error';
-  if (event.event_type.includes('insufficient') || event.event_type.includes('approval')) return 'warning';
-  if (event.event_type.includes('verified') || event.status_to === 'done') return 'success';
+  const eventType = typeof event.event_type === 'string' ? event.event_type : '';
+  if (eventType.includes('failed') || eventType.includes('error')) return 'error';
+  if (eventType.includes('insufficient') || eventType.includes('approval')) return 'warning';
+  if (eventType.includes('verified') || event.status_to === 'done') return 'success';
   return 'normal';
 }
 
@@ -194,7 +202,8 @@ function messageDirection(text: string): 'rtl' | 'ltr' | 'auto' {
 }
 
 export function EventCard({ event }: { event: CanonicalTaskEvent }) {
-  const content = typeof event.payload.content === 'string' ? event.payload.content : '';
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+  const content = typeof payload.content === 'string' ? payload.content : '';
   const role = event.event_type === 'chat.user_message'
     ? 'user'
     : event.event_type === 'chat.assistant_message'
@@ -229,7 +238,7 @@ export function EventCard({ event }: { event: CanonicalTaskEvent }) {
         ) : (
           <p className="whitespace-pre-wrap text-sm">{content}</p>
         )}
-        {event.payload.truncated === true && (
+        {payload.truncated === true && (
           <p className="mt-2 text-xs" style={{ color }}>
             Large content is stored as an artifact; this is a redacted preview.
           </p>
@@ -252,7 +261,7 @@ export function EventCard({ event }: { event: CanonicalTaskEvent }) {
       <p className="mt-1" style={{ color }}>
         {event.status_from && event.status_to
           ? `${event.status_from.replace(/_/g, ' ')} → ${event.status_to.replace(/_/g, ' ')}`
-          : event.cause.replace(/_/g, ' ')}
+          : readableToken(event.cause, 'event')}
       </p>
     </article>
   );
@@ -536,7 +545,7 @@ export function JarvisPage() {
   const stopSpeaking = tts.stop;
 
   const statusText = activeTask
-    ? activeTask.status.replace(/_/g, ' ')
+    ? readableToken(activeTask.status, 'unknown')
     : 'ready for a new task';
   const streamText = state.streamStatus === 'live'
     ? 'Timeline live'
@@ -771,7 +780,7 @@ export function JarvisPage() {
                   <article key={action.action_id} className="rounded-xl p-3 mb-3" style={{ background: 'var(--color-bg-secondary)' }}>
                     <div className="flex flex-wrap justify-between gap-2 text-sm">
                       <strong><Wrench size={14} className="inline mr-2" />{action.tool_id}</strong>
-                      <span>Risk {action.risk_level} · {action.status.replace(/_/g, ' ')}</span>
+                      <span>Risk {action.risk_level} · {readableToken(action.status, 'unknown')}</span>
                     </div>
                     <dl className="grid sm:grid-cols-[9rem_1fr] gap-x-3 gap-y-1 mt-2 text-xs">
                       <dt>Target</dt><dd>{action.target}</dd>
@@ -837,7 +846,7 @@ export function JarvisPage() {
                 <p className="text-sm mt-3" style={{ color: 'var(--color-text-secondary)' }}>No task is active. The first message creates one.</p>
               ) : (
                 <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 mt-3 text-xs">
-                  <dt>Status</dt><dd>{activeTask.status.replace(/_/g, ' ')}</dd>
+                  <dt>Status</dt><dd>{readableToken(activeTask.status, 'unknown')}</dd>
                   <dt>Current step</dt><dd>{state.taskSummary?.current_step ? readableEvent({ event_type: state.taskSummary.current_step } as CanonicalTaskEvent) : 'Waiting for input'}</dd>
                   <dt>Outcome</dt><dd>{activeTask.outcome || 'Not final'}</dd>
                   <TurnEvidenceDetails

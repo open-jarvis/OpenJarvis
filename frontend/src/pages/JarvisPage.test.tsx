@@ -1,7 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CanonicalTask, CanonicalTaskEvent, PendingApproval } from '../lib/api';
+import type {
+  CanonicalTask,
+  CanonicalTaskEvent,
+  PendingApproval,
+  ToolActionInfo,
+} from '../lib/api';
 import { dedupeEvents, ensureActiveTaskId, isTerminalTaskStatus, useJarvisStore } from '../lib/jarvisStore';
 import { MAX_RECONNECTS } from '../lib/useCanonicalTaskStream';
 import { ApprovalCard, attemptCanonicalChat, EventCard, JarvisPage, TurnEvidenceDetails } from './JarvisPage';
@@ -88,6 +93,38 @@ describe('Jarvis canonical workspace', () => {
   it('deduplicates replay and live events in stable sequence order', () => {
     expect(dedupeEvents([event(2), event(1), event(2)])).toEqual([event(1), event(2)]);
     expect(MAX_RECONNECTS).toBe(6);
+  });
+
+  it('renders incomplete runtime DTO fields without crashing the workspace', () => {
+    const incompleteEvent = {
+      ...event(3),
+      event_type: undefined,
+      cause: undefined,
+      payload: undefined,
+    } as unknown as CanonicalTaskEvent;
+    const incompleteTask = {
+      ...task('running', 'task-test'),
+      status: undefined,
+    } as unknown as CanonicalTask;
+    const incompleteAction = {
+      action_id: 'action-incomplete',
+      status: undefined,
+    } as unknown as ToolActionInfo;
+
+    expect(renderToStaticMarkup(<EventCard event={incompleteEvent} />)).toContain('Event');
+    useJarvisStore.setState({
+      tasks: [incompleteTask],
+      timeline: [incompleteEvent],
+      actions: [incompleteAction],
+    });
+    const html = renderToStaticMarkup(
+      <MemoryRouter initialEntries={['/']}>
+        <JarvisPage />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain('unknown');
+    expect(html).toContain('event');
   });
 
   it.each(['done', 'completed', 'canceled', 'failed', 'rejected'])(
