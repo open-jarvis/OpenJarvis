@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +19,7 @@ from openjarvis.codex import (
     ThreadStartRequest,
     TurnStartRequest,
 )
+from openjarvis.codex.sdk_backend import _ThreadEvidenceClientProxy
 
 
 class FakeAccount:
@@ -149,6 +151,112 @@ def _backend(
         environment={"PATH": "safe"},
         store=store,
     )
+
+
+@pytest.mark.asyncio
+async def test_low_level_sdk_proxy_captures_typed_thread_responses(
+    tmp_path: Path,
+) -> None:
+    class LowLevel:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+
+        async def thread_start(self, params):
+            self.calls.append(("start", params))
+            return SimpleNamespace(
+                thread=SimpleNamespace(id="thread-1"),
+                model="gpt-confirmed",
+                reasoning_effort=SimpleNamespace(value="xhigh"),
+            )
+
+        async def thread_resume(self, thread_id, params):
+            self.calls.append(("resume", (thread_id, params)))
+            return SimpleNamespace(
+                thread=SimpleNamespace(id=thread_id),
+                model="gpt-resumed",
+                reasoning_effort=None,
+            )
+
+    store = CodexStateStore(tmp_path / "codex.db")
+    backend = _backend(FakeSdk(), store)
+    low_level = LowLevel()
+    proxy = _ThreadEvidenceClientProxy(
+        low_level,
+        backend._capture_thread_evidence,
+    )
+
+    started = await proxy.thread_start({"ephemeral": False})
+    assert backend._thread_evidence["thread-1"] == (
+        "gpt-confirmed",
+        "xhigh",
+        "python_sdk_app_server_thread_start",
+    )
+    resumed = await proxy.thread_resume("thread-1", {"threadId": "thread-1"})
+
+    assert started.model == "gpt-confirmed"
+    assert resumed.model == "gpt-resumed"
+    assert low_level.calls == [
+        ("start", {"ephemeral": False}),
+        ("resume", ("thread-1", {"threadId": "thread-1"})),
+    ]
+    assert backend._thread_evidence["thread-1"] == (
+        "gpt-resumed",
+        None,
+        "python_sdk_app_server_thread_resume",
+    )
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_sdk_backend_persists_captured_app_server_model(
+    tmp_path: Path,
+) -> None:
+    class LowLevel:
+        async def thread_start(self, params):
+            del params
+            return SimpleNamespace(
+                thread=SimpleNamespace(id="thread-1"),
+                model="test-model",
+                reasoning_effort=SimpleNamespace(value="medium"),
+            )
+
+    class LowLevelAwareSdk(FakeSdk):
+        def __init__(self) -> None:
+            super().__init__()
+            self._client = LowLevel()
+
+        async def thread_start(self, **kwargs):
+            self.start_calls.append(kwargs)
+            response = await self._client.thread_start(kwargs)
+            self.started_thread.id = response.thread.id
+            return self.started_thread
+
+    store = CodexStateStore(tmp_path / "codex.db")
+    fake = LowLevelAwareSdk()
+    backend = _backend(fake, store)
+    backend._uses_installed_sdk = True
+    context = _context(tmp_path, "thread-correlation")
+
+    await backend.start_thread(ThreadStartRequest(context=context))
+    turn = await backend.start_turn(
+        TurnStartRequest(
+            context=replace(context, correlation_id="turn-correlation"),
+            thread_id="thread-1",
+            prompt="Read only",
+        )
+    )
+
+    record = store.get_turn(turn.turn_id)
+    assert record is not None
+    assert record.runtime_evidence["actual_model"] == "test-model"
+    assert record.runtime_evidence["actual_effort"] == "medium"
+    assert record.runtime_evidence["evidence_source"] == (
+        "python_sdk_app_server_thread_start"
+    )
+    assert record.runtime_evidence["sdk_version"] == "0.144.4"
+    assert record.runtime_evidence["runtime_version"] is None
+    await backend.close()
+    store.close()
 
 
 @pytest.mark.asyncio

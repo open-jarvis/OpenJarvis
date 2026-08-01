@@ -16,6 +16,7 @@ import {
   Mic,
   Pause,
   Play,
+  Plus,
   RefreshCw,
   Send,
   ShieldAlert,
@@ -48,8 +49,8 @@ import {
   resumeCanonicalTask,
   sendCanonicalChat,
 } from '../lib/api';
-import type { CanonicalTaskEvent, PendingApproval } from '../lib/api';
-import { ensureActiveTaskId, useJarvisStore } from '../lib/jarvisStore';
+import type { CanonicalTaskEvent, MutationContext, PendingApproval, TurnModelEvidence } from '../lib/api';
+import { ensureActiveTaskId, isTerminalTaskStatus, useJarvisStore } from '../lib/jarvisStore';
 import { useCanonicalTaskStream } from '../lib/useCanonicalTaskStream';
 import { useSpeech } from '../hooks/useSpeech';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
@@ -58,7 +59,56 @@ import { WebsiteStagingPanel } from '../components/WebsiteStagingPanel';
 
 type WorkspaceFocus = 'chat' | 'tasks' | 'approvals' | 'tools' | 'browser' | 'website-staging' | 'learning' | 'skills' | 'overview';
 
-const TERMINAL = new Set(['done', 'failed', 'canceled']);
+type CanonicalChatSender = typeof sendCanonicalChat;
+
+export async function attemptCanonicalChat(
+  body: Parameters<CanonicalChatSender>[0],
+  mutation: MutationContext,
+  signal: AbortSignal,
+  sender: CanonicalChatSender = sendCanonicalChat,
+) {
+  try {
+    return { ok: true as const, response: await sender(body, mutation, signal) };
+  } catch (error) {
+    return { ok: false as const, error, draft: body.message };
+  }
+}
+
+export function TurnEvidenceDetails({
+  evidence,
+  fallbackBackend,
+  fallbackRuntimeVersion,
+  fallbackThreadId,
+}: {
+  evidence: TurnModelEvidence | null;
+  fallbackBackend: string;
+  fallbackRuntimeVersion: string | null;
+  fallbackThreadId: string | null;
+}) {
+  return (
+    <>
+      <dt>Backend</dt><dd>{evidence?.backend || fallbackBackend}</dd>
+      <dt>Model</dt>
+      <dd>
+        {evidence?.resolved.model || 'unknown'}
+        {evidence?.confirmed.model ? ' · App Server confirmed' : ' · unconfirmed'}
+      </dd>
+      <dt>Reasoning</dt>
+      <dd>
+        {evidence?.resolved.effort || 'unknown'}
+        {evidence?.confirmed.effort ? ' · App Server confirmed' : ' · unconfirmed'}
+      </dd>
+      <dt>Requested</dt>
+      <dd>
+        {evidence?.requested.model || 'Codex config (no model override)'} ·{' '}
+        {evidence?.requested.effort || 'Codex config (no effort override)'}
+      </dd>
+      <dt>SDK</dt><dd>{evidence?.sdk_version || 'unknown'}</dd>
+      <dt>Pinned runtime</dt><dd>{evidence?.runtime_version || fallbackRuntimeVersion || 'unknown'}</dd>
+      <dt>Thread</dt><dd>{evidence?.thread_id || fallbackThreadId || 'Not started'}</dd>
+    </>
+  );
+}
 
 const EVENT_LABELS: Record<string, string> = {
   'task.created': 'Task created',
@@ -282,6 +332,19 @@ export function JarvisPage() {
   useCanonicalTaskStream(state.activeTaskId);
 
   const activeTask = state.tasks.find((task) => task.task_id === state.activeTaskId) ?? null;
+  const summaryMatchesActive = !!activeTask
+    && state.taskSummary?.task.task_id === activeTask.task_id;
+  const healthMatchesActive = !!activeTask
+    && state.codexHealth?.active_task?.task_id === activeTask.task_id;
+  const turnEvidence = summaryMatchesActive
+    ? state.taskSummary?.turn_model_evidence ?? null
+    : healthMatchesActive
+      ? state.codexHealth?.turn_model_evidence ?? null
+      : null;
+  const chatTurnBlocked = !!activeTask
+    && !isTerminalTaskStatus(activeTask.status)
+    && !['pending', 'running'].includes(activeTask.status);
+  const persistedTaskPending = !!state.activeTaskId && !state.tasksLoaded;
   const activeApprovals = state.approvals.filter(
     (item) => !item.task_id || item.task_id === state.activeTaskId,
   );
@@ -358,8 +421,17 @@ export function JarvisPage() {
   }, [state.timeline.length]);
 
   const submit = async () => {
-    const message = draft.trim();
+    const submittedDraft = draft;
+    const message = submittedDraft.trim();
     if (!message || state.sending || sendGuard.current) return;
+    if (persistedTaskPending) {
+      state.setError('The previous task status is still loading. Wait briefly or choose Neue Aufgabe.');
+      return;
+    }
+    if (chatTurnBlocked) {
+      state.setError('This task must be resumed or resolved before it can accept another chat turn.');
+      return;
+    }
     sendGuard.current = true;
     state.setSending(true);
     state.setError(null);
@@ -368,8 +440,9 @@ export function JarvisPage() {
     const controller = new AbortController();
     sendController.current = controller;
     setDraft('');
+    const failedDraft = submittedDraft;
     try {
-      const response = await sendCanonicalChat(
+      const attempt = await attemptCanonicalChat(
         {
           message,
           session_id: state.sessionId,
@@ -380,6 +453,10 @@ export function JarvisPage() {
         mutation,
         controller.signal,
       );
+      if (!attempt.ok) {
+        throw attempt.error;
+      }
+      const response = attempt.response;
       state.upsertTask(response.task);
       await refreshTask(taskId);
       await refreshGlobal();
@@ -390,7 +467,7 @@ export function JarvisPage() {
       } else {
         state.setError(error instanceof Error ? error.message : 'Jarvis could not process the message.');
       }
-      setDraft(message);
+      setDraft(failedDraft);
     } finally {
       sendController.current = null;
       state.setSending(false);
@@ -552,6 +629,15 @@ export function JarvisPage() {
                     <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{streamText}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={state.sending || (!!activeTask && !isTerminalTaskStatus(activeTask.status))}
+                      onClick={state.startNewTask}
+                      className="rounded-lg px-3 py-2 text-xs disabled:opacity-40 focus-visible:outline-2"
+                      style={{ border: '1px solid var(--color-border)' }}
+                    >
+                      <Plus size={14} className="inline mr-1" /> Neue Aufgabe
+                    </button>
                     <button type="button" onClick={state.speech.speaking ? stopSpeaking : speakLatest} className="rounded-lg px-3 py-2 text-xs focus-visible:outline-2" style={{ border: '1px solid var(--color-border)' }}>
                       {state.speech.speaking ? <VolumeX size={14} className="inline mr-1" /> : <Volume2 size={14} className="inline mr-1" />}
                       {state.speech.speaking ? 'Stop speech' : 'Read answer'}
@@ -640,7 +726,7 @@ export function JarvisPage() {
                     <button
                       type="button"
                       onClick={() => void submit()}
-                      disabled={!draft.trim() || state.sending}
+                      disabled={!draft.trim() || state.sending || chatTurnBlocked || persistedTaskPending}
                       className="rounded-lg px-4 py-2 font-semibold disabled:opacity-40 focus-visible:outline-2"
                       style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
                     >
@@ -754,17 +840,21 @@ export function JarvisPage() {
                   <dt>Status</dt><dd>{activeTask.status.replace(/_/g, ' ')}</dd>
                   <dt>Current step</dt><dd>{state.taskSummary?.current_step ? readableEvent({ event_type: state.taskSummary.current_step } as CanonicalTaskEvent) : 'Waiting for input'}</dd>
                   <dt>Outcome</dt><dd>{activeTask.outcome || 'Not final'}</dd>
-                  <dt>Backend</dt><dd>{activeTask.backend}</dd>
+                  <TurnEvidenceDetails
+                    evidence={turnEvidence}
+                    fallbackBackend={activeTask.backend}
+                    fallbackRuntimeVersion={state.codexHealth?.runtime_version || null}
+                    fallbackThreadId={activeTask.active_thread_id}
+                  />
                   <dt>Sandbox</dt><dd>{state.codexHealth?.sandbox || 'unknown'}</dd>
                   <dt>Risk level</dt><dd>{activeTask.risk_level}</dd>
-                  <dt>Thread</dt><dd>{activeTask.active_thread_id || 'Not started'}</dd>
                 </dl>
               )}
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button type="button" disabled={!activeTask || activeTask.status !== 'running'} onClick={() => void controlTask('pause')} className="rounded-lg px-3 py-2 text-xs disabled:opacity-40 focus-visible:outline-2" style={{ border: '1px solid var(--color-border)' }}><Pause size={13} className="inline mr-1" /> Pause</button>
                 <button type="button" disabled={!activeTask || !['paused', 'recovering'].includes(activeTask.status)} onClick={() => void controlTask('resume')} className="rounded-lg px-3 py-2 text-xs disabled:opacity-40 focus-visible:outline-2" style={{ border: '1px solid var(--color-border)' }}><Play size={13} className="inline mr-1" /> Resume</button>
                 <button type="button" disabled={!activeTask || activeTask.status !== 'running'} onClick={() => void controlTask('interrupt')} className="rounded-lg px-3 py-2 text-xs disabled:opacity-40 focus-visible:outline-2" style={{ border: '1px solid var(--color-border)' }}><CircleStop size={13} className="inline mr-1" /> Interrupt turn</button>
-                <button type="button" disabled={!activeTask || TERMINAL.has(activeTask.status)} onClick={() => void controlTask('cancel')} className="rounded-lg px-3 py-2 text-xs disabled:opacity-40 focus-visible:outline-2" style={{ border: '2px solid var(--color-error)', color: 'var(--color-error)' }}><Ban size={13} className="inline mr-1" /> Cancel task</button>
+                <button type="button" disabled={!activeTask || isTerminalTaskStatus(activeTask.status)} onClick={() => void controlTask('cancel')} className="rounded-lg px-3 py-2 text-xs disabled:opacity-40 focus-visible:outline-2" style={{ border: '2px solid var(--color-error)', color: 'var(--color-error)' }}><Ban size={13} className="inline mr-1" /> Cancel task</button>
               </div>
             </section>
 

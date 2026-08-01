@@ -12,7 +12,10 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from openjarvis.codex.store import CodexThreadRecord  # noqa: E402
+from openjarvis.codex.store import (  # noqa: E402
+    CodexThreadRecord,
+    CodexTurnRecord,
+)
 from openjarvis.codex.types import (  # noqa: E402
     ApprovalMode,
     BackendCapabilities,
@@ -468,8 +471,77 @@ def test_health_is_credential_safe_and_redacts_thread_by_default(api_runtime) ->
     assert body["persistent_threads"] is True
     assert body["cli_fallback_enabled"] is False
     assert body["active_task"]["active_thread_id"] == "…et-value"
+    assert body["turn_model_evidence"]["resolved"] == {
+        "model": "unknown",
+        "effort": "unknown",
+    }
+    assert body["turn_model_evidence"]["confirmed"] == {
+        "model": False,
+        "effort": False,
+    }
     assert "super-secret" not in serialized
     assert "[REDACTED]" in serialized
+
+
+def test_task_summary_exposes_confirmed_turn_model_evidence(api_runtime) -> None:
+    client, store, _, _, _ = api_runtime
+    task = _create(client).json()
+    timestamp = "2026-08-01T00:00:00+00:00"
+    store.save_thread(
+        CodexThreadRecord(
+            task_id=task["task_id"],
+            session_id=task["session_id"],
+            correlation_id="model-thread-correlation",
+            thread_id="thread-confirmed-value",
+            backend=CodexBackendKind.PYTHON_SDK,
+            sandbox=SandboxMode.READ_ONLY,
+            approval_mode=ApprovalMode.DENY_ALL,
+            cwd="C:\\isolated",
+            model_config={},
+            status="idle",
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+    )
+    store.save_turn(
+        CodexTurnRecord(
+            turn_id="turn-confirmed-value",
+            task_id=task["task_id"],
+            session_id=task["session_id"],
+            correlation_id="model-turn-correlation",
+            thread_id="thread-confirmed-value",
+            backend=CodexBackendKind.PYTHON_SDK,
+            sandbox=SandboxMode.READ_ONLY,
+            approval_mode=ApprovalMode.DENY_ALL,
+            cwd="C:\\isolated",
+            status="completed",
+            created_at=timestamp,
+            updated_at=timestamp,
+            runtime_evidence={
+                "requested_model": None,
+                "requested_effort": None,
+                "actual_model": "gpt-confirmed",
+                "actual_effort": "xhigh",
+                "evidence_source": "python_sdk_app_server_thread_start",
+                "sdk_version": "0.144.4",
+                "runtime_version": "0.144.4",
+            },
+        )
+    )
+
+    summary = client.get(f"/v1/tasks/{task['task_id']}/summary").json()
+    evidence = summary["turn_model_evidence"]
+
+    assert evidence["resolved"] == {
+        "model": "gpt-confirmed",
+        "effort": "xhigh",
+    }
+    assert evidence["confirmed"] == {"model": True, "effort": True}
+    assert evidence["backend"] == "python_sdk"
+    assert evidence["sdk_version"] == "0.144.4"
+    assert evidence["runtime_version"] == "0.144.4"
+    assert evidence["thread_id"] == "…ed-value"
+    assert evidence["turn_id"] is None
 
 
 def test_usage_endpoint_keeps_turn_and_thread_values_separate(api_runtime) -> None:

@@ -250,6 +250,76 @@ def serialize_task(task: TaskRecord, *, developer: bool = False) -> dict[str, An
     }
 
 
+def serialize_turn_model_evidence(
+    turn: Any | None,
+    *,
+    developer: bool = False,
+) -> dict[str, Any]:
+    """Expose confirmed per-turn runtime metadata without inventing defaults."""
+
+    if turn is None:
+        return {
+            "requested": {"model": None, "effort": None},
+            "resolved": {"model": "unknown", "effort": "unknown"},
+            "confirmed": {"model": False, "effort": False},
+            "evidence_source": {"model": "unknown", "effort": "unknown"},
+            "backend": "unknown",
+            "sdk_version": "unknown",
+            "runtime_version": "unknown",
+            "thread_id": None,
+            "turn_id": None,
+        }
+    thread_id = turn.thread_id
+    if thread_id and not developer:
+        thread_id = f"…{thread_id[-8:]}"
+    evidence = turn.runtime_evidence
+    actual_model = evidence.get("actual_model")
+    actual_effort = evidence.get("actual_effort")
+    evidence_source = evidence.get("evidence_source") or "unknown"
+    return {
+        "requested": {
+            "model": evidence.get("requested_model"),
+            "effort": evidence.get("requested_effort"),
+        },
+        "resolved": {
+            "model": actual_model or "unknown",
+            "effort": actual_effort or "unknown",
+        },
+        "confirmed": {
+            "model": actual_model is not None,
+            "effort": actual_effort is not None,
+        },
+        "evidence_source": {
+            "model": (
+                evidence_source if actual_model is not None else "unknown"
+            ),
+            "effort": (
+                evidence_source if actual_effort is not None else "unknown"
+            ),
+        },
+        "backend": turn.backend.value,
+        "sdk_version": evidence.get("sdk_version") or "unknown",
+        "runtime_version": evidence.get("runtime_version") or "unknown",
+        "thread_id": thread_id,
+        "turn_id": turn.turn_id if developer else None,
+    }
+
+
+def _latest_task_turn(service: Any, task: TaskRecord | None) -> Any | None:
+    if task is None:
+        return None
+    if task.active_turn_id:
+        turn = service.store.get_turn(task.active_turn_id)
+        if turn is not None:
+            return turn
+    thread = service.store.get_thread(task.task_id, task.session_id)
+    return (
+        service.store.get_latest_turn(thread.thread_id)
+        if thread is not None
+        else None
+    )
+
+
 def serialize_event(event: TaskEvent, *, developer: bool = False) -> dict[str, Any]:
     thread_id = event.thread_id
     if thread_id and not developer:
@@ -736,6 +806,9 @@ async def get_task_summary(task_id: str, request: Request) -> dict[str, Any]:
     return redact_data(
         {
             "task": serialize_task(task),
+            "turn_model_evidence": serialize_turn_model_evidence(
+                _latest_task_turn(service, task)
+            ),
             "current_step": last_event.event_type if last_event else None,
             "last_sequence": last_event.sequence if last_event else 0,
             "source_count": len(sources),
@@ -927,6 +1000,7 @@ async def codex_health(
         if active_task is not None
         else None
     )
+    active_turn = _latest_task_turn(service, active_task)
     available = [report for report in reports if report.available]
     authenticated = [
         report for report in available if report.authenticated
@@ -989,6 +1063,10 @@ async def codex_health(
                 if active_task is not None
                 else None
             ),
+            "turn_model_evidence": serialize_turn_model_evidence(
+                active_turn,
+                developer=developer,
+            ),
             "open_approvals": len(pending),
             "last_error_category": last_error,
             "backends": [
@@ -1013,4 +1091,5 @@ __all__ = [
     "serialize_approval",
     "serialize_event",
     "serialize_task",
+    "serialize_turn_model_evidence",
 ]

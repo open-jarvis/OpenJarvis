@@ -35,6 +35,7 @@ interface JarvisWorkspaceState {
   sessionId: string;
   activeTaskId: string | null;
   tasks: CanonicalTask[];
+  tasksLoaded: boolean;
   sessions: SessionSummary[];
   timeline: CanonicalTaskEvent[];
   sources: CanonicalTaskSource[];
@@ -56,6 +57,7 @@ interface JarvisWorkspaceState {
   speech: SpeechCapabilityState;
   setSession: (sessionId: string, taskId?: string | null) => void;
   newSession: () => void;
+  startNewTask: () => void;
   setTasks: (tasks: CanonicalTask[]) => void;
   setSessions: (sessions: SessionSummary[]) => void;
   upsertTask: (task: CanonicalTask) => void;
@@ -82,6 +84,13 @@ interface JarvisWorkspaceState {
 
 const SESSION_KEY = 'openjarvis-canonical-session';
 const TASK_KEY = 'openjarvis-canonical-task';
+const TERMINAL_TASK_STATUSES = new Set([
+  'done',
+  'completed',
+  'canceled',
+  'failed',
+  'rejected',
+]);
 
 function browserValue(key: string): string | null {
   if (typeof window === 'undefined') return null;
@@ -115,6 +124,7 @@ export const useJarvisStore = create<JarvisWorkspaceState>((set) => ({
   sessionId: initialSession,
   activeTaskId: initialTask,
   tasks: [],
+  tasksLoaded: false,
   sessions: [],
   timeline: [],
   sources: [],
@@ -176,7 +186,20 @@ export const useJarvisStore = create<JarvisWorkspaceState>((set) => ({
       error: null,
     });
   },
-  setTasks: (tasks) => set({ tasks }),
+  startNewTask: () => {
+    remember(TASK_KEY, null);
+    set({
+      activeTaskId: null,
+      timeline: [],
+      sources: [],
+      actions: [],
+      artifacts: [],
+      taskSummary: null,
+      lastSequence: 0,
+      error: null,
+    });
+  },
+  setTasks: (tasks) => set({ tasks, tasksLoaded: true }),
   setSessions: (sessions) => set({ sessions }),
   upsertTask: (task) => set((state) => ({
     tasks: [task, ...state.tasks.filter((item) => item.task_id !== task.task_id)],
@@ -204,11 +227,29 @@ export const useJarvisStore = create<JarvisWorkspaceState>((set) => ({
 
 export function ensureActiveTaskId(): string {
   const state = useJarvisStore.getState();
-  if (state.activeTaskId) return state.activeTaskId;
+  if (state.activeTaskId && !state.tasksLoaded) {
+    throw new Error('Task status is still loading; the persisted task cannot be reused yet.');
+  }
+  const activeTask = state.tasks.find((task) => task.task_id === state.activeTaskId);
+  if (state.activeTaskId && !isTerminalTaskStatus(activeTask?.status)) {
+    return state.activeTaskId;
+  }
   const taskId = freshId('task');
   remember(TASK_KEY, taskId);
-  useJarvisStore.setState({ activeTaskId: taskId });
+  useJarvisStore.setState({
+    activeTaskId: taskId,
+    timeline: [],
+    sources: [],
+    actions: [],
+    artifacts: [],
+    taskSummary: null,
+    lastSequence: 0,
+  });
   return taskId;
+}
+
+export function isTerminalTaskStatus(status: string | null | undefined): boolean {
+  return status !== null && status !== undefined && TERMINAL_TASK_STATUSES.has(status);
 }
 
 export { dedupeEvents };

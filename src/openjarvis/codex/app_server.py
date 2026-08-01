@@ -34,6 +34,8 @@ from openjarvis.codex.store import (
     CodexStateStore,
     CodexThreadRecord,
     CodexTurnRecord,
+    resolve_turn_model_evidence,
+    with_confirmed_model_evidence,
 )
 from openjarvis.codex.types import (
     ApprovalMode,
@@ -401,6 +403,7 @@ class CodexAppServerBackend:
             raise ValueError("request_timeout must be positive")
         self._transport = transport
         self._codex_bin = Path(codex_bin) if codex_bin else None
+        self._uses_pinned_runtime = transport is None and codex_bin is None
         self._environment = sanitized_codex_environment(environment)
         self._approval_broker = approval_broker
         self._store = store
@@ -459,6 +462,9 @@ class CodexAppServerBackend:
         except metadata.PackageNotFoundError:
             return None
 
+    def _pinned_runtime_version(self) -> str | None:
+        return self._runtime_version() if self._uses_pinned_runtime else None
+
     async def health(self) -> CodexHealth:
         try:
             transport = await self._get_transport()
@@ -515,6 +521,7 @@ class CodexAppServerBackend:
             timeout=context.timeout_seconds,
         )
         thread_id = self._response_id(result, "thread")
+        actual_model, actual_effort = self._thread_response_evidence(result)
         now = self._now()
         record = store.save_thread(
             CodexThreadRecord(
@@ -526,7 +533,12 @@ class CodexAppServerBackend:
                 sandbox=context.sandbox,
                 approval_mode=context.approval_mode,
                 cwd=str(context.cwd.resolve(strict=False)),
-                model_config=asdict(context.model),
+                model_config=with_confirmed_model_evidence(
+                    asdict(context.model),
+                    actual_model=actual_model,
+                    actual_effort=actual_effort,
+                    source="app_server_thread_start",
+                ),
                 status="started",
                 created_at=now,
                 updated_at=now,
@@ -562,6 +574,7 @@ class CodexAppServerBackend:
             timeout=context.timeout_seconds,
         )
         actual_id = self._response_id(result, "thread")
+        actual_model, actual_effort = self._thread_response_evidence(result)
         now = self._now()
         persisted = store.save_thread(
             CodexThreadRecord(
@@ -573,7 +586,12 @@ class CodexAppServerBackend:
                 sandbox=context.sandbox,
                 approval_mode=context.approval_mode,
                 cwd=str(context.cwd.resolve(strict=False)),
-                model_config=asdict(context.model),
+                model_config=with_confirmed_model_evidence(
+                    asdict(context.model),
+                    actual_model=actual_model,
+                    actual_effort=actual_effort,
+                    source="app_server_thread_resume",
+                ),
                 status="resumed",
                 created_at=record.created_at if record else now,
                 updated_at=now,
@@ -674,6 +692,15 @@ class CodexAppServerBackend:
         )
         turn_id = self._response_id(result, "turn")
         now = self._now()
+        (
+            actual_model,
+            actual_effort,
+            evidence_source,
+        ) = resolve_turn_model_evidence(
+            thread,
+            requested_model=context.model.model,
+            requested_effort=context.model.effort,
+        )
         record = store.save_turn(
             CodexTurnRecord(
                 turn_id=turn_id,
@@ -685,6 +712,15 @@ class CodexAppServerBackend:
                 sandbox=context.sandbox,
                 approval_mode=context.approval_mode,
                 cwd=str(context.cwd.resolve(strict=False)),
+                runtime_evidence={
+                    "requested_model": context.model.model,
+                    "requested_effort": context.model.effort,
+                    "actual_model": actual_model,
+                    "actual_effort": actual_effort,
+                    "evidence_source": evidence_source,
+                    "sdk_version": None,
+                    "runtime_version": self._pinned_runtime_version(),
+                },
                 status="started",
                 created_at=now,
                 updated_at=now,
@@ -925,6 +961,21 @@ class CodexAppServerBackend:
             thread_id=record.thread_id,
             backend=record.backend,
             status=record.status,
+        )
+
+    @staticmethod
+    def _thread_response_evidence(
+        result: Any,
+    ) -> tuple[str | None, str | None]:
+        """Read exact model fields from thread/start or thread/resume."""
+
+        if not isinstance(result, dict):
+            return None, None
+        model = result.get("model")
+        effort = result.get("reasoningEffort")
+        return (
+            model.strip() if isinstance(model, str) and model.strip() else None,
+            effort.strip() if isinstance(effort, str) and effort.strip() else None,
         )
 
     @staticmethod

@@ -31,6 +31,8 @@ class FakeTransport:
         self.reconnected = 0
         self.next_thread = "thread-1"
         self.next_turn = "turn-1"
+        self.thread_model: str | None = None
+        self.thread_effort: str | None = None
         self.account_type: str | None = "chatgpt"
 
     async def start(self) -> None:
@@ -52,7 +54,12 @@ class FakeTransport:
             )
             return {"account": account}
         if method in {"thread/start", "thread/resume", "thread/fork"}:
-            return {"thread": {"id": self.next_thread}}
+            response: dict[str, Any] = {"thread": {"id": self.next_thread}}
+            if self.thread_model is not None:
+                response["model"] = self.thread_model
+            if self.thread_effort is not None:
+                response["reasoningEffort"] = self.thread_effort
+            return response
         if method == "turn/start":
             return {"turn": {"id": self.next_turn}}
         if method == "thread/read":
@@ -204,6 +211,161 @@ async def test_fork_and_turn_are_idempotent(tmp_path: Path) -> None:
 
     assert first_turn == second_turn
     assert len([call for call in transport.calls if call[0] == "turn/start"]) == 1
+    await backend.close()
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_turn_persists_confirmed_app_server_thread_model(
+    tmp_path: Path,
+) -> None:
+    transport = FakeTransport()
+    transport.thread_model = "test-model"
+    transport.thread_effort = "medium"
+    store = CodexStateStore(tmp_path / "codex.db")
+    backend = _backend(transport, store)
+    context = _context(tmp_path, "thread-correlation")
+
+    await backend.start_thread(ThreadStartRequest(context=context))
+    turn = await backend.start_turn(
+        TurnStartRequest(
+            context=replace(context, correlation_id="turn-correlation"),
+            thread_id="thread-1",
+            prompt="Read only",
+        )
+    )
+
+    record = store.get_turn(turn.turn_id)
+    assert record is not None
+    assert record.runtime_evidence == {
+        "actual_effort": "medium",
+        "actual_model": "test-model",
+        "evidence_source": "app_server_thread_start",
+        "requested_effort": "medium",
+        "requested_model": "test-model",
+        "runtime_version": None,
+        "sdk_version": None,
+    }
+    await backend.close()
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_turn_model_is_unknown_without_confirmed_thread_response(
+    tmp_path: Path,
+) -> None:
+    transport = FakeTransport()
+    store = CodexStateStore(tmp_path / "codex.db")
+    backend = _backend(transport, store)
+    context = _context(tmp_path, "thread-correlation")
+
+    await backend.start_thread(ThreadStartRequest(context=context))
+    turn = await backend.start_turn(
+        TurnStartRequest(
+            context=replace(context, correlation_id="turn-correlation"),
+            thread_id="thread-1",
+            prompt="Read only",
+        )
+    )
+
+    record = store.get_turn(turn.turn_id)
+    assert record is not None
+    assert record.runtime_evidence["requested_model"] == "test-model"
+    assert record.runtime_evidence["requested_effort"] == "medium"
+    assert record.runtime_evidence["actual_model"] is None
+    assert record.runtime_evidence["actual_effort"] is None
+    assert record.runtime_evidence["evidence_source"] == "unknown"
+    await backend.close()
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_resumed_thread_response_replaces_confirmed_defaults(
+    tmp_path: Path,
+) -> None:
+    transport = FakeTransport()
+    transport.thread_model = "initial-model"
+    transport.thread_effort = "medium"
+    store = CodexStateStore(tmp_path / "codex.db")
+    backend = _backend(transport, store)
+    await backend.start_thread(
+        ThreadStartRequest(context=_context(tmp_path, "thread-correlation"))
+    )
+    transport.thread_model = "resumed-model"
+    transport.thread_effort = "high"
+    resumed_context = replace(
+        _context(tmp_path, "resume-correlation"),
+        model=CodexModelConfig(
+            model="resumed-model",
+            effort="high",
+            service_tier=None,
+        ),
+    )
+
+    await backend.resume_thread(
+        ThreadResumeRequest(
+            context=resumed_context,
+            thread_id="thread-1",
+        )
+    )
+    turn = await backend.start_turn(
+        TurnStartRequest(
+            context=replace(
+                resumed_context,
+                correlation_id="turn-correlation",
+            ),
+            thread_id="thread-1",
+            prompt="Read only",
+        )
+    )
+
+    record = store.get_turn(turn.turn_id)
+    assert record is not None
+    assert record.runtime_evidence["actual_model"] == "resumed-model"
+    assert record.runtime_evidence["actual_effort"] == "high"
+    assert record.runtime_evidence["evidence_source"] == (
+        "app_server_thread_resume"
+    )
+    await backend.close()
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_different_turn_override_does_not_reuse_thread_confirmation(
+    tmp_path: Path,
+) -> None:
+    transport = FakeTransport()
+    transport.thread_model = "test-model"
+    transport.thread_effort = "medium"
+    store = CodexStateStore(tmp_path / "codex.db")
+    backend = _backend(transport, store)
+    context = _context(tmp_path, "thread-correlation")
+
+    await backend.start_thread(ThreadStartRequest(context=context))
+    override = replace(
+        context,
+        correlation_id="turn-correlation",
+        model=CodexModelConfig(
+            model="different-model",
+            effort="high",
+            service_tier=None,
+        ),
+    )
+    turn = await backend.start_turn(
+        TurnStartRequest(
+            context=override,
+            thread_id="thread-1",
+            prompt="Read only",
+        )
+    )
+
+    record = store.get_turn(turn.turn_id)
+    assert record is not None
+    assert record.runtime_evidence["requested_model"] == "different-model"
+    assert record.runtime_evidence["requested_effort"] == "high"
+    assert record.runtime_evidence["actual_model"] is None
+    assert record.runtime_evidence["actual_effort"] is None
+    assert record.runtime_evidence["evidence_source"] == "unknown"
     await backend.close()
     store.close()
 

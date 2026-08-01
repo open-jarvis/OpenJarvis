@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -125,6 +126,108 @@ def test_turn_and_sequence_survive_restart(tmp_path: Path) -> None:
     assert reopened.get_turn("turn-1") is not None
     assert reopened.next_sequence("thread-1") == 2
     reopened.close()
+
+
+def test_turn_runtime_evidence_survives_restart(tmp_path: Path) -> None:
+    path = tmp_path / "codex.db"
+    store = CodexStateStore(path)
+    store.save_thread(_thread())
+    evidence = {
+        "requested_model": None,
+        "actual_model": "gpt-confirmed",
+        "actual_effort": "high",
+        "evidence_source": "app_server_thread_start",
+        "sdk_version": "0.144.4",
+        "runtime_version": "0.144.4",
+    }
+    store.save_turn(replace(_turn(), runtime_evidence=evidence))
+    store.close()
+
+    reopened = CodexStateStore(path)
+    record = reopened.get_turn("turn-1")
+
+    assert record is not None
+    assert record.backend is CodexBackendKind.PYTHON_SDK
+    assert record.thread_id == "thread-1"
+    assert record.runtime_evidence == evidence
+    reopened.close()
+
+
+def test_resume_evidence_replaces_old_partial_snapshot(tmp_path: Path) -> None:
+    store = CodexStateStore(tmp_path / "codex.db")
+    store.save_thread(
+        replace(
+            _thread(),
+            model_config={
+                "actual_model": "gpt-old",
+                "actual_effort": "high",
+                "evidence_source": "app_server_thread_start",
+            },
+        )
+    )
+
+    store.update_thread_model_evidence(
+        "thread-1",
+        actual_model="gpt-new",
+        actual_effort=None,
+        evidence_source="app_server_thread_resume",
+    )
+    partial = store.get_thread_by_id("thread-1")
+
+    assert partial is not None
+    assert partial.model_config["actual_model"] == "gpt-new"
+    assert "actual_effort" not in partial.model_config
+    assert partial.model_config["evidence_source"] == "app_server_thread_resume"
+
+    store.update_thread_model_evidence(
+        "thread-1",
+        actual_model=None,
+        actual_effort=None,
+        evidence_source="app_server_thread_resume",
+    )
+    unknown = store.get_thread_by_id("thread-1")
+
+    assert unknown is not None
+    assert "actual_model" not in unknown.model_config
+    assert "actual_effort" not in unknown.model_config
+    assert "evidence_source" not in unknown.model_config
+    store.close()
+
+
+def test_existing_turn_schema_is_upgraded_fail_closed(tmp_path: Path) -> None:
+    path = tmp_path / "legacy-codex.db"
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        """
+        CREATE TABLE codex_turns (
+            turn_id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            correlation_id TEXT NOT NULL UNIQUE,
+            thread_id TEXT NOT NULL,
+            backend TEXT NOT NULL,
+            sandbox TEXT NOT NULL,
+            approval_mode TEXT NOT NULL,
+            cwd TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO codex_turns VALUES (
+            'legacy-turn', 'task', 'session', 'correlation', 'thread',
+            'python_sdk', 'read_only', 'deny_all', 'C:\\isolated',
+            'completed', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+        );
+        """
+    )
+    connection.close()
+
+    store = CodexStateStore(path)
+    record = store.get_turn("legacy-turn")
+
+    assert record is not None
+    assert record.runtime_evidence == {}
+    store.close()
 
 
 def test_event_deduplication_and_redaction(tmp_path: Path) -> None:

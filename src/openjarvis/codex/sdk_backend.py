@@ -23,6 +23,8 @@ from openjarvis.codex.store import (
     CodexStateStore,
     CodexThreadRecord,
     CodexTurnRecord,
+    resolve_turn_model_evidence,
+    with_confirmed_model_evidence,
 )
 from openjarvis.codex.types import (
     ApprovalMode,
@@ -68,6 +70,27 @@ class _ActiveTurn:
     started_monotonic: float
 
 
+class _ThreadEvidenceClientProxy:
+    """Capture typed app-server thread responses the high-level SDK discards."""
+
+    def __init__(self, target: Any, capture: Callable[[Any, str], None]) -> None:
+        self._target = target
+        self._capture = capture
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._target, name)
+
+    async def thread_start(self, params: Any) -> Any:
+        response = await self._target.thread_start(params)
+        self._capture(response, "python_sdk_app_server_thread_start")
+        return response
+
+    async def thread_resume(self, thread_id: str, params: Any) -> Any:
+        response = await self._target.thread_resume(thread_id, params)
+        self._capture(response, "python_sdk_app_server_thread_resume")
+        return response
+
+
 class CodexPythonSdkBackend:
     """Credential-safe adapter for the public ``AsyncCodex`` API."""
 
@@ -97,6 +120,8 @@ class CodexPythonSdkBackend:
     ) -> None:
         self._sdk_factory = sdk_factory
         self._codex_bin = codex_bin
+        self._uses_installed_sdk = sdk_factory is None
+        self._uses_pinned_runtime = sdk_factory is None and codex_bin is None
         self._environment = sanitized_codex_environment(environment)
         self._client: Any | None = None
         self._store = store
@@ -107,6 +132,9 @@ class CodexPythonSdkBackend:
         )
         self._threads: dict[str, Any] = {}
         self._thread_contexts: dict[str, CodexRunContext] = {}
+        self._thread_evidence: dict[
+            str, tuple[str | None, str | None, str]
+        ] = {}
         self._turns: dict[str, _ActiveTurn] = {}
 
     @property
@@ -118,6 +146,17 @@ class CodexPythonSdkBackend:
             return metadata.version("openai-codex-cli-bin")
         except metadata.PackageNotFoundError:
             return None
+
+    def _sdk_version(self) -> str | None:
+        if not self._uses_installed_sdk:
+            return None
+        try:
+            return metadata.version("openai-codex")
+        except metadata.PackageNotFoundError:
+            return None
+
+    def _pinned_runtime_version(self) -> str | None:
+        return self._runtime_version() if self._uses_pinned_runtime else None
 
     def _launch_spec(self) -> _SdkLaunchSpec:
         return _SdkLaunchSpec(
@@ -157,6 +196,16 @@ class CodexPythonSdkBackend:
 
         if inspect.isawaitable(client):
             client = await client
+        if self._uses_installed_sdk:
+            low_level = getattr(client, "_client", None)
+            if low_level is not None:
+                try:
+                    client._client = _ThreadEvidenceClientProxy(  # noqa: SLF001
+                        low_level,
+                        self._capture_thread_evidence,
+                    )
+                except (AttributeError, TypeError):
+                    pass
         self._client = client
         return client
 
@@ -176,6 +225,25 @@ class CodexPythonSdkBackend:
         self._get_store()
         assert self._event_adapter is not None
         return self._event_adapter
+
+    def _capture_thread_evidence(self, response: Any, source: str) -> None:
+        """Store only typed fields from a successful pinned lifecycle response."""
+
+        thread = getattr(response, "thread", None)
+        thread_id = getattr(thread, "id", None)
+        model = getattr(response, "model", None)
+        effort = getattr(response, "reasoning_effort", None)
+        effort = getattr(effort, "value", effort)
+        if thread_id:
+            self._thread_evidence[str(thread_id)] = (
+                model.strip()
+                if isinstance(model, str) and model.strip()
+                else None,
+                effort.strip()
+                if isinstance(effort, str) and effort.strip()
+                else None,
+                source,
+            )
 
     @staticmethod
     def _model_dump(value: Any) -> dict[str, Any]:
@@ -252,6 +320,9 @@ class CodexPythonSdkBackend:
             raise CodexBackendError(safe_error_message(exc)) from exc
 
         thread_id = self._required_id(thread, "thread")
+        actual_model, actual_effort, evidence_source = (
+            self._thread_evidence.pop(thread_id, (None, None, "unknown"))
+        )
         now = self._now()
         record = store.save_thread(
             CodexThreadRecord(
@@ -263,7 +334,12 @@ class CodexPythonSdkBackend:
                 sandbox=context.sandbox,
                 approval_mode=context.approval_mode,
                 cwd=str(context.cwd.resolve(strict=False)),
-                model_config=asdict(context.model),
+                model_config=with_confirmed_model_evidence(
+                    asdict(context.model),
+                    actual_model=actual_model,
+                    actual_effort=actual_effort,
+                    source=evidence_source,
+                ),
                 status="started",
                 created_at=now,
                 updated_at=now,
@@ -312,6 +388,9 @@ class CodexPythonSdkBackend:
             raise CodexBackendError(safe_error_message(exc)) from exc
 
         actual_id = self._required_id(thread, "thread")
+        actual_model, actual_effort, evidence_source = (
+            self._thread_evidence.pop(actual_id, (None, None, "unknown"))
+        )
         now = self._now()
         persisted = store.save_thread(
             CodexThreadRecord(
@@ -323,7 +402,12 @@ class CodexPythonSdkBackend:
                 sandbox=context.sandbox,
                 approval_mode=context.approval_mode,
                 cwd=str(context.cwd.resolve(strict=False)),
-                model_config=asdict(context.model),
+                model_config=with_confirmed_model_evidence(
+                    asdict(context.model),
+                    actual_model=actual_model,
+                    actual_effort=actual_effort,
+                    source=evidence_source,
+                ),
                 status="resumed",
                 created_at=record.created_at if record else now,
                 updated_at=now,
@@ -432,6 +516,9 @@ class CodexPythonSdkBackend:
         thread = self._threads.get(request.thread_id)
         if thread is None:
             thread = await self._resume_handle(request.thread_id, context)
+            thread_record = (
+                store.get_thread_by_id(request.thread_id) or thread_record
+            )
         try:
             handle = await thread.turn(
                 request.prompt,
@@ -447,6 +534,15 @@ class CodexPythonSdkBackend:
 
         turn_id = self._required_id(handle, "turn")
         now = self._now()
+        (
+            actual_model,
+            actual_effort,
+            evidence_source,
+        ) = resolve_turn_model_evidence(
+            thread_record,
+            requested_model=context.model.model,
+            requested_effort=context.model.effort,
+        )
         record = store.save_turn(
             CodexTurnRecord(
                 turn_id=turn_id,
@@ -458,6 +554,15 @@ class CodexPythonSdkBackend:
                 sandbox=context.sandbox,
                 approval_mode=context.approval_mode,
                 cwd=str(context.cwd.resolve(strict=False)),
+                runtime_evidence={
+                    "requested_model": context.model.model,
+                    "requested_effort": context.model.effort,
+                    "actual_model": actual_model,
+                    "actual_effort": actual_effort,
+                    "evidence_source": evidence_source,
+                    "sdk_version": self._sdk_version(),
+                    "runtime_version": self._pinned_runtime_version(),
+                },
                 status="started",
                 created_at=now,
                 updated_at=now,
@@ -642,6 +747,15 @@ class CodexPythonSdkBackend:
             )
         except Exception as exc:
             raise CodexBackendError(safe_error_message(exc)) from exc
+        actual_model, actual_effort, evidence_source = (
+            self._thread_evidence.pop(thread_id, (None, None, "unknown"))
+        )
+        self._get_store().update_thread_model_evidence(
+            thread_id,
+            actual_model=actual_model,
+            actual_effort=actual_effort,
+            evidence_source=evidence_source,
+        )
         self._threads[thread_id] = thread
         self._thread_contexts[thread_id] = context
         return thread

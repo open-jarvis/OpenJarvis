@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS codex_turns (
     sandbox                 TEXT NOT NULL,
     approval_mode           TEXT NOT NULL,
     cwd                     TEXT NOT NULL,
+    runtime_evidence        TEXT NOT NULL DEFAULT '{}',
     status                  TEXT NOT NULL,
     created_at              TEXT NOT NULL,
     updated_at              TEXT NOT NULL,
@@ -120,6 +121,50 @@ class CodexTurnRecord:
     status: str
     created_at: str
     updated_at: str
+    runtime_evidence: dict[str, Any] = field(default_factory=dict)
+
+
+def with_confirmed_model_evidence(
+    model_config: dict[str, Any],
+    *,
+    actual_model: str | None,
+    actual_effort: str | None,
+    source: str,
+) -> dict[str, Any]:
+    """Attach confirmed protocol values to a requested thread config."""
+
+    result = dict(model_config)
+    if actual_model is not None:
+        result["actual_model"] = actual_model
+    if actual_effort is not None:
+        result["actual_effort"] = actual_effort
+    if actual_model is not None or actual_effort is not None:
+        result["evidence_source"] = source
+    return result
+
+
+def resolve_turn_model_evidence(
+    thread: CodexThreadRecord,
+    *,
+    requested_model: str | None,
+    requested_effort: str | None,
+) -> tuple[str | None, str | None, str]:
+    """Resolve a turn only when its override matches confirmed thread values."""
+
+    model = thread.model_config.get("actual_model")
+    effort = thread.model_config.get("actual_effort")
+    actual_model = model if requested_model in (None, model) else None
+    actual_effort = effort if requested_effort in (None, effort) else None
+    source = (
+        str(thread.model_config.get("evidence_source") or "unknown")
+        if actual_model or actual_effort
+        else "unknown"
+    )
+    return (
+        str(actual_model) if actual_model else None,
+        str(actual_effort) if actual_effort else None,
+        source,
+    )
 
 
 class CodexStateStore:
@@ -138,7 +183,21 @@ class CodexStateStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.executescript(_SCHEMA)
+        self._ensure_turn_evidence_columns()
         self._conn.commit()
+
+    def _ensure_turn_evidence_columns(self) -> None:
+        """Upgrade existing Phase 2 databases without rewriting turn data."""
+
+        existing = {
+            str(row["name"])
+            for row in self._conn.execute("PRAGMA table_info(codex_turns)")
+        }
+        if "runtime_evidence" not in existing:
+            self._conn.execute(
+                "ALTER TABLE codex_turns ADD COLUMN "
+                "runtime_evidence TEXT NOT NULL DEFAULT '{}'"
+            )
 
     @property
     def journal_mode(self) -> str:
@@ -248,6 +307,41 @@ class CodexStateStore:
                 (status, updated_at, resume_checkpoint, thread_id),
             )
 
+    def update_thread_model_evidence(
+        self,
+        thread_id: str,
+        *,
+        actual_model: str | None,
+        actual_effort: str | None,
+        evidence_source: str,
+    ) -> None:
+        """Merge confirmed protocol metadata into the thread JSON record."""
+
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT model_config FROM codex_threads WHERE thread_id=?",
+                (thread_id,),
+            ).fetchone()
+            if row is None:
+                return
+            model_config = json.loads(row["model_config"])
+            model_config.pop("actual_model", None)
+            model_config.pop("actual_effort", None)
+            model_config.pop("evidence_source", None)
+            if actual_model is not None:
+                model_config["actual_model"] = actual_model
+            if actual_effort is not None:
+                model_config["actual_effort"] = actual_effort
+            if actual_model is not None or actual_effort is not None:
+                model_config["evidence_source"] = evidence_source
+            self._conn.execute(
+                "UPDATE codex_threads SET model_config=? WHERE thread_id=?",
+                (
+                    json.dumps(redact_data(model_config), sort_keys=True),
+                    thread_id,
+                ),
+            )
+
     def next_sequence(self, thread_id: str) -> int:
         """Atomically allocate the next per-thread event sequence."""
 
@@ -284,9 +378,9 @@ class CodexStateStore:
                 """
                 INSERT INTO codex_turns (
                     turn_id, task_id, session_id, correlation_id, thread_id,
-                    backend, sandbox, approval_mode, cwd, status,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    backend, sandbox, approval_mode, cwd, runtime_evidence,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.turn_id,
@@ -298,6 +392,10 @@ class CodexStateStore:
                     record.sandbox.value,
                     record.approval_mode.value,
                     record.cwd,
+                    json.dumps(
+                        redact_data(record.runtime_evidence),
+                        sort_keys=True,
+                    ),
                     record.status,
                     record.created_at,
                     record.updated_at,
@@ -413,6 +511,7 @@ class CodexStateStore:
             status=row["status"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            runtime_evidence=json.loads(row["runtime_evidence"]),
         )
 
     @staticmethod
@@ -439,4 +538,6 @@ __all__ = [
     "CodexStateStore",
     "CodexThreadRecord",
     "CodexTurnRecord",
+    "resolve_turn_model_evidence",
+    "with_confirmed_model_evidence",
 ]

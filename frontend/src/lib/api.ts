@@ -1484,8 +1484,33 @@ export interface CanonicalTaskSource {
   };
 }
 
+export interface TurnModelEvidence {
+  requested: {
+    model: string | null;
+    effort: string | null;
+  };
+  resolved: {
+    model: string;
+    effort: string;
+  };
+  confirmed: {
+    model: boolean;
+    effort: boolean;
+  };
+  evidence_source: {
+    model: string;
+    effort: string;
+  };
+  backend: string;
+  sdk_version: string;
+  runtime_version: string;
+  thread_id: string | null;
+  turn_id: string | null;
+}
+
 export interface TaskSummary {
   task: CanonicalTask;
+  turn_model_evidence: TurnModelEvidence;
   current_step: string | null;
   last_sequence: number;
   source_count: number;
@@ -1525,6 +1550,7 @@ export interface TaskArtifactInfo {
 
 export interface CodexRuntimeHealth {
   active_backend: string | null;
+  active_task: CanonicalTask | null;
   chatgpt_authenticated: boolean;
   runtime_version: string | null;
   sandbox: string;
@@ -1535,6 +1561,7 @@ export interface CodexRuntimeHealth {
   degraded: boolean;
   open_approvals: number;
   last_error_category: string | null;
+  turn_model_evidence: TurnModelEvidence;
 }
 
 export interface CanonicalTaskUsage {
