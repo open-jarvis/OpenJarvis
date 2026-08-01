@@ -10,6 +10,7 @@ const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8000;
 const FINAL_HEALTH_MARKER: &str = "OPENJARVIS-FINAL-RUNTIME";
 const FINAL_RUNTIME_NAME: &str = "phase8-final";
+const FINAL_ATTACH_ERROR: &str = "OpenJarvis Codex Runtime ist nicht erreichbar.";
 
 /// Small, fast model pulled at startup so the app opens quickly.
 const STARTUP_MODEL: &str = "qwen3.5:4b";
@@ -439,9 +440,21 @@ impl Default for SetupStatus {
 type SharedStatus = Arc<Mutex<SetupStatus>>;
 
 fn final_attach_only() -> bool {
-    std::env::var("OPENJARVIS_FINAL_ATTACH_ONLY")
-        .map(|value| value == "1")
-        .unwrap_or(false)
+    final_attach_only_value(std::env::var("OPENJARVIS_FINAL_ATTACH_ONLY").ok().as_deref())
+}
+
+fn final_attach_only_value(value: Option<&str>) -> bool {
+    value == Some("1")
+}
+
+fn initial_setup_status() -> SetupStatus {
+    let mut status = SetupStatus::default();
+    if final_attach_only() {
+        status.phase = "server".into();
+        status.detail = "Attaching to Codex runtime...".into();
+        status.source = "codex".into();
+    }
+    status
 }
 
 fn valid_final_health(body: &serde_json::Value) -> bool {
@@ -800,9 +813,10 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             current.source = "codex".into();
         }
         if let Err(error) = attach_final_backend(status.clone()).await {
+            eprintln!("Final Codex runtime attach failed: {error}");
             let mut current = status.lock().await;
             current.phase = "error".into();
-            current.error = Some(error);
+            current.error = Some(FINAL_ATTACH_ERROR.into());
         }
         return;
     }
@@ -2574,7 +2588,7 @@ async fn hide_overlay() -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let backend: SharedBackend = Arc::new(Mutex::new(BackendManager::default()));
-    let status: SharedStatus = Arc::new(Mutex::new(SetupStatus::default()));
+    let status: SharedStatus = Arc::new(Mutex::new(initial_setup_status()));
 
     let boot_backend_ref = backend.clone();
     let boot_status_ref = status.clone();
@@ -2718,9 +2732,9 @@ pub fn run() {
 mod tests {
     use super::{
         boot_plan, default_local_model, format_uv_sync_failure, format_uv_sync_spawn_error,
-        normalize_host, parse_inference_config, upsert_engine_host, uv_sync_stderr_tail,
-        valid_final_health, InferenceConfig, SourceKind, FINAL_HEALTH_MARKER,
-        FINAL_RUNTIME_NAME,
+        final_attach_only_value, normalize_host, parse_inference_config, upsert_engine_host,
+        uv_sync_stderr_tail, valid_final_health, InferenceConfig, SourceKind, FINAL_ATTACH_ERROR,
+        FINAL_HEALTH_MARKER, FINAL_RUNTIME_NAME,
     };
     use std::path::Path;
 
@@ -2734,9 +2748,24 @@ mod tests {
         });
         assert!(valid_final_health(&valid));
         assert!(!valid_final_health(&serde_json::json!({"status": "ready"})));
-        let mut wrong = valid;
-        wrong["marker"] = serde_json::json!("some-other-server");
-        assert!(!valid_final_health(&wrong));
+        let mut wrong_marker = valid.clone();
+        wrong_marker["marker"] = serde_json::json!("some-other-server");
+        assert!(!valid_final_health(&wrong_marker));
+        let mut wrong_backend = valid;
+        wrong_backend["backend"] = serde_json::json!("ollama");
+        assert!(!valid_final_health(&wrong_backend));
+    }
+
+    #[test]
+    fn final_attach_mode_requires_exact_opt_in_and_has_bounded_error() {
+        assert!(final_attach_only_value(Some("1")));
+        assert!(!final_attach_only_value(None));
+        assert!(!final_attach_only_value(Some("0")));
+        assert!(!final_attach_only_value(Some("true")));
+        assert_eq!(
+            FINAL_ATTACH_ERROR,
+            "OpenJarvis Codex Runtime ist nicht erreichbar."
+        );
     }
 
     #[test]

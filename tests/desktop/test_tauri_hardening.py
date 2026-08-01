@@ -40,3 +40,49 @@ def test_desktop_close_dialog_offers_explicit_task_choices() -> None:
         assert label in source
     assert 'role="dialog"' in source
     assert 'aria-modal="true"' in source
+
+
+def test_final_attach_branch_returns_before_every_legacy_bootstrap() -> None:
+    source = (ROOT / "frontend/src-tauri/src/lib.rs").read_text(encoding="utf-8")
+    start = source.index("async fn boot_backend")
+    end = source.index("\nfn api_base", start)
+    boot = source[start:end]
+    legacy_start = boot.index("let cfg = read_inference_config();")
+    attach = boot[:legacy_start]
+
+    assert "if final_attach_only()" in attach
+    assert "attach_final_backend(status.clone()).await" in attach
+    assert "return;" in attach
+    for forbidden in ('resolve_bin("uv")', "launch_ollama", "ollama_has_model", "uv sync"):
+        assert forbidden not in attach
+    assert "OpenJarvis Codex Runtime ist nicht erreichbar." in source
+
+
+def test_final_attach_forces_the_owned_loopback_api_base() -> None:
+    source = (ROOT / "frontend/src/lib/api.ts").read_text(encoding="utf-8")
+    start = source.index("export const getBase")
+    end = source.index("\n};", start)
+    get_base = source[start:end]
+
+    assert "isTauri() && _tauriFinalAttachOnly" in get_base
+    assert get_base.index("_tauriFinalAttachOnly") < get_base.index("getSettingsApiUrl")
+    assert "http://127.0.0.1:8000" in source
+
+
+def test_final_launcher_passes_attach_only_and_tracks_only_managed_pids() -> None:
+    source = (ROOT / "scripts/windows/openjarvis-final.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    attach = source.index("$env:OPENJARVIS_FINAL_ATTACH_ONLY = '1'")
+    desktop_start = source.index("$ui = Start-Process -FilePath $desktop", attach)
+    restore = source.index("$env:OPENJARVIS_FINAL_ATTACH_ONLY = $priorAttach", desktop_start)
+    assert attach < desktop_start < restore
+    assert "$uiPid = $ui.Id" in source
+    assert "ui_pid = $uiPid" in source
+    assert "-RedirectStandardOutput $ServerOutputPath" in source
+    assert "-RedirectStandardError $ServerErrorPath" in source
+    assert "Get-Process -Id ([int]$state.ui_pid)" in source
+    assert "'Restart' { Stop-FinalRuntime; Start-FinalRuntime }" in source
+    assert "Stop-Process -Name" not in source
+    assert "taskkill" not in source.lower()

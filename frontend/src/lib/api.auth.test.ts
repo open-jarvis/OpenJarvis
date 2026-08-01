@@ -34,8 +34,10 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.doUnmock('@tauri-apps/api/core');
   (globalThis as unknown as { localStorage?: MemoryStorage }).localStorage =
     undefined;
+  delete (globalThis as unknown as { window?: unknown }).window;
 });
 
 async function freshApi() {
@@ -84,5 +86,32 @@ describe('authHeaders', () => {
       'Content-Type': 'application/json',
       Authorization: 'Bearer sk-local-123',
     });
+  });
+});
+
+describe('final desktop API base', () => {
+  it('ignores stale saved and build-time URLs in attach-only mode', async () => {
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { __TAURI_INTERNALS__: {} },
+    });
+    vi.stubEnv('VITE_API_URL', 'http://stale-build.example:9999');
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ apiUrl: 'http://stale-saved.example:9998' }),
+    );
+    vi.doMock('@tauri-apps/api/core', () => ({
+      invoke: vi.fn(async (command: string) => {
+        if (command === 'get_api_base') return 'http://127.0.0.1:8000';
+        if (command === 'get_setup_status') return { source: 'codex' };
+        throw new Error(`Unexpected command: ${command}`);
+      }),
+    }));
+
+    const { getBase, initApiBase } = await freshApi();
+    await initApiBase();
+
+    expect(getBase()).toBe('http://127.0.0.1:8000');
   });
 });

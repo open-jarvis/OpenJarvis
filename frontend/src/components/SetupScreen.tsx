@@ -14,6 +14,24 @@ const STEPS = [
   { key: 'server_ready', label: 'API Server', icon: Server, detail: 'Starting server...' },
 ] as const;
 
+const CUSTOM_STEPS = [
+  { key: 'ollama_ready', label: 'Inference Engine', icon: Cpu, detail: 'Connecting to your server...' },
+  { key: 'model_ready', label: 'Endpoint', icon: Database, detail: 'Checking endpoint...' },
+  { key: 'server_ready', label: 'API Server', icon: Server, detail: 'Starting server...' },
+] as const;
+
+const CODEX_STEPS = [
+  { key: 'ollama_ready', label: 'Codex Runtime', icon: Cpu, detail: 'Checking final runtime...' },
+  { key: 'model_ready', label: 'Python SDK', icon: Database, detail: 'Checking Codex backend...' },
+  { key: 'server_ready', label: 'Jarvis UI', icon: Server, detail: 'Connecting to OpenJarvis...' },
+] as const;
+
+export function setupHeading(source?: SetupStatus['source']): string {
+  if (source === 'codex') return 'Connecting to OpenJarvis Codex Runtime...';
+  if (source === 'ollama') return 'Setting up your local AI...';
+  return 'Starting OpenJarvis...';
+}
+
 type StepKey = (typeof STEPS)[number]['key'];
 
 function StepRow({
@@ -140,19 +158,17 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
             OpenJarvis
           </h1>
           <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-            Setting up your local AI...
+            {setupHeading(status?.source)}
           </p>
         </div>
 
         {/* Steps */}
         <div className="flex flex-col gap-2 mb-8">
-          {(status?.source === 'custom'
-            ? [
-                { key: 'ollama_ready' as const, label: 'Inference Engine', icon: Cpu, detail: 'Connecting to your server...' },
-                { key: 'model_ready' as const, label: 'Endpoint', icon: Database, detail: 'Checking endpoint...' },
-                { key: 'server_ready' as const, label: 'API Server', icon: Server, detail: 'Starting server...' },
-              ]
-            : STEPS
+          {(status?.source === 'codex'
+            ? CODEX_STEPS
+            : status?.source === 'custom'
+              ? CUSTOM_STEPS
+              : STEPS
           ).map((step) => (
             <StepRow
               key={step.key}

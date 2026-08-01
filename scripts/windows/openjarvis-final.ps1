@@ -68,7 +68,11 @@ function Get-FinalHealth {
 
 function Get-PortOwner {
     $errorPath = Join-Path $RunRoot ("netstat-error-" + [Guid]::NewGuid().ToString('N') + '.txt')
+    $priorOutputEncoding = [Console]::OutputEncoding
     try {
+        [Console]::OutputEncoding = [Text.Encoding]::GetEncoding(
+            [Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage
+        )
         $lines = @(& "$env:SystemRoot\System32\netstat.exe" -ano -p tcp 2> $errorPath)
         $exitCode = $LASTEXITCODE
         $stderr = @()
@@ -92,6 +96,7 @@ function Get-PortOwner {
             } | Sort-Object -Unique
         )
     } finally {
+        [Console]::OutputEncoding = $priorOutputEncoding
         Remove-Item -LiteralPath $errorPath -Force -ErrorAction SilentlyContinue
     }
     if ($owners.Count -eq 0) { return $null }
@@ -200,6 +205,8 @@ $RunRoot = Join-Path $RuntimeRoot 'run'
 if (-not (Test-Path -LiteralPath $RunRoot)) { New-Item -ItemType Directory -Path $RunRoot | Out-Null }
 $StatePath = Join-Path $RunRoot 'final-runtime.json'
 $TokenPath = Join-Path $RunRoot 'shutdown.token'
+$ServerOutputPath = Join-Path $RunRoot 'final-server.stdout.log'
+$ServerErrorPath = Join-Path $RunRoot 'final-server.stderr.log'
 
 function Write-LocalConfig {
     $priorHome = $env:OPENJARVIS_HOME
@@ -267,7 +274,9 @@ function Start-FinalRuntime {
                 '--home', ('"' + $RuntimeRoot + '"'),
                 '--vault', ('"' + $VaultPath + '"'),
                 '--config', ('"' + $ConfigPath + '"')
-            ) -WorkingDirectory $RepoRoot -WindowStyle Hidden -PassThru
+            ) -WorkingDirectory $RepoRoot -WindowStyle Hidden `
+                -RedirectStandardOutput $ServerOutputPath `
+                -RedirectStandardError $ServerErrorPath -PassThru
         } finally {
             $env:OPENJARVIS_HOME = $priorHome
             $env:OPENJARVIS_SHUTDOWN_TOKEN = $priorToken

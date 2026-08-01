@@ -1,145 +1,134 @@
-# Phase 8 – Final Production Acceptance
+# Phase 8 - Final Production Acceptance
 
 ## Endentscheidung
 
-**B. BLOCKIERT DURCH EINEN KONKRETEN, REPRODUZIERBAREN FEHLER**
+**A. OPENJARVIS PRODUKTIV BEREIT UND CUTOVER BESTANDEN**
 
-OpenJarvis wird nicht als produktiv bereit oder als erfolgreich umgeschaltet
-markiert. Der erste reale Aufruf des finalen Launchers scheiterte vor dem
-Start eines Server- oder UI-Prozesses. Gemäß der begrenzten
-Fehlerkorrekturregel wurde weder der Launcher geändert noch derselbe Start
-wiederholt. Der einzige freigegebene Codex-Live-Turn wurde nicht begonnen.
+OpenJarvis startet ueber den finalen Windows-Launcher als sichtbare
+Desktop-Anwendung und verwendet ausschliesslich den vorhandenen finalen
+Runtime-Server mit dem Backend `python_sdk`. Der produktive Modus startet
+keinen zweiten API-Server, kein lokales Modell, kein Ollama, kein Qwen und
+keine `uv`-Installation.
 
-## Sicherer Datenzustand
+## Ursache und Korrektur
 
-- Branch: `feature/codex-jarvis-orchestrator`.
-- Push-URL des Upstream bleibt `DISABLED`; es wurde weder gepusht noch
-  gemergt.
-- Die Altprojektquelle wurde nicht verändert und bleibt Recovery-Quelle.
-- Vor dem realen Write wurden ein vollständiges Git-Bundle, eine frische
-  Vault-Sicherung, die secretfreie lokale Konfiguration sowie die genehmigten
-  Mapping- und Recovery-Nachweise extern gesichert.
-- Die Vault-Sicherung enthält 59 Dateien mit 60.825 Byte, war vor/nach dem
-  Kopieren stabil und bestand eine bytegleiche Restore-Probe. Es gab null
-  Ausschlüsse.
-- Die reale Schemamigration wurde erfolgreich und transaktional angewendet.
-  Der aktuelle Vault entspricht exakt dem dokumentierten After-Manifest
-  `f88cf67aeb89e878c39bfcdc2ff6adf230a387c716b8fd258e4cef161573bda2`.
-- Nach dem blockierten Start existieren kein Laufzeitzustand, kein
-  Shutdown-Token, kein OpenJarvis-/Legacy-Prozess und kein Listener auf Port
-  8000. Obsidian wurde zuvor normal geschlossen und blieb geschlossen.
-- Ein destruktiver Rollback des erfolgreichen Vaults wurde nicht ausgeführt.
+Die zuvor manuell gestartete Desktop-EXE erhielt die Launcher-Variable
+`OPENJARVIS_FINAL_ATTACH_ONLY=1` nicht. Dadurch wurde der bestehende
+Legacy-Bootstrap der Upstream-Anwendung ausgefuehrt. Die Release-EXE war nicht
+grundsaetzlich veraltet; der direkte manuelle Start war jedoch kein gueltiger
+Produktivstart.
 
-## Reale Vault-Migration
+Der finale Attach-Modus wurde zusaetzlich fail-closed gehaertet:
 
-Der aktuelle Bestand hatte weiterhin exakt 59 Dateien und 46 genehmigte
-Markdownpfade. Notiztypen, Legacy-ID-Zustände und das genehmigte Mapping waren
-identisch; es gab keine Reparse Points, unbekannten Typen oder
-Referenzkonflikte. Die 46 Markdown-Bodies hatten gegenüber dem genehmigten
-Pilotbestand keinen Drift. Ein Nicht-Markdown-Artefakt unterschied den
-aktuellen Gesamtbestand vom älteren Pilotmanifest und wurde unverändert
-übernommen.
+- Nur der exakte Variablenwert `1` aktiviert Attach-only.
+- Vor dem UI-Start muss `/v1/final/health` den Marker
+  `OPENJARVIS-FINAL-RUNTIME`, Runtime `phase8-final`, Status `ready` und
+  Backend `python_sdk` melden.
+- Im Attach-Modus endet der Tauri-Bootpfad vor jedem Legacy-, Ollama-, Qwen-,
+  `uv`- oder Local-Model-Bootstrap.
+- Die Frontend-API-Basis ist in diesem Modus fest auf den bestehenden
+  Loopback-Server gesetzt; gespeicherte oder Build-Time-URLs koennen ihn nicht
+  uebersteuern.
+- Ein falscher oder nicht erreichbarer Runtime-Server fuehrt ohne Fallback zur
+  Meldung `OpenJarvis Codex Runtime ist nicht erreichbar.`
+- Die Setup-Anzeige kennt den Codex-Attach-Zustand und zeigt keine
+  Local-AI-Installationsschritte.
 
-Ergebnis des Apply:
+Zwei waehrend des realen Windows-Starts reproduzierte Launcher-Probleme wurden
+im selben eng begrenzten Abschluss behoben: lokalisierte `netstat.exe`-Ausgabe
+wird mit der OEM-Codepage gelesen, und der verwaltete Server schreibt seine
+Standardausgaben in Runtime-Logdateien, statt den aufrufenden Prozesskanal
+offen zu halten.
 
-- 41 ungültige IDs wurden durch ihre genehmigten UUIDv5-Werte ersetzt und als
-  exakte `legacy_id` erhalten.
-- Fünf fehlende IDs erhielten ihre genehmigten UUIDv5-Werte.
-- 46/46 Notizen erhielten `schema_version: 1`.
-- 46/46 Notizen besitzen eine gültige, eindeutige UUID.
-- 46/46 Bodies, Encodings und Zeilenenden blieben gegenüber dem unmittelbaren
-  Before-Zustand bytegleich.
-- 59/59 Pfade blieben erhalten; es gab keine Umbenennung, Ergänzung oder
-  Löschung.
-- Parserfehler: 0; schema-valid: 46; type-supported: 46; FTS-Dokumente: 46;
-  Restart-Readback: 46.
-- Retrievalklassen: 23 normal, 12 review-only, 6 taxonomy-only, 2
-  navigation-only, 1 project-scoped und 2 explicit-review-only.
-- Runtime-Policy-Aktivierungen, Approval-Grants, Risk-Senkungen,
-  Toolfreigaben, Systemprompt-Aktivierungen und automatische
-  Learning-Candidates durch die Migration: jeweils 0.
+## Produktiver Laufzeitnachweis
 
-## Rollback-Nachweis
+Nach einem kontrollierten WM_CLOSE-Smoke und genau einem Launcher-Restart galt:
 
-Der frische Before-Backup wurde in einen neuen leeren Root zurückgespielt.
-Alle 59 Dateien waren bytegleich zum Before-Manifest; der read-only
-Diagnoseindex las 46 Notizen. Der Migrationsplan wurde mit demselben Plan-Hash
-deterministisch erneut erzeugt. Restore- und Diagnoseverzeichnisse wurden
-anschließend vollständig entfernt. Der externe Notfallplan stellt immer in
-einen neuen Root wieder her und wurde nicht auf den erfolgreichen Vault
-angewendet.
+- Launcher-Status: `ready`.
+- Health-Marker: `OPENJARVIS-FINAL-RUNTIME`.
+- Runtime: `phase8-final`.
+- Backend: `python_sdk`.
+- Richtlinie: Sandbox `read_only`, Approval `deny_all`.
+- Server-PID, Health-PID und Port-Owner waren identisch: `3412392`.
+- Die persistierte UI-PID `3422040` gehoerte exakt zur gebauten Release-EXE.
+- Es lief genau eine Instanz der Release-UI; die alten Server- und UI-PIDs
+  waren beendet.
+- Die normale Jarvis-Hauptoberflaeche war sichtbar und zeigte
+  `codex-python-sdk`, bestehende ChatGPT-Anmeldung sowie Memory/FTS5.
 
-## Bestandene fokussierte Gates
+Der System-Sammelstatus meldet optionale, bewusst nicht gestartete Komponenten
+Browser, Desktop-Adapter und Speech als `unavailable`. Server, Codex, Memory,
+Task Store, Trace Store und Tools sind gesund; der verbindliche finale
+Health-Endpunkt ist `ready`. Das ist kein Qwen-/Ollama-Fallback und kein
+zweiter Server.
 
-- Phase 4 Memory/Vault: 260 bestanden, 16 umgebungsbedingte Skips.
-- Phase 5 ToolAction/Policy/Approval: 49 bestanden.
-- Phase 6 Tasks/Timeline/Desktop: 132 bestanden.
-- Phase-7-Kern: 321 bestanden; Skills: 269 bestanden;
-  Workflow/SDK: 72 bestanden.
-- Phase 8 Migration/Website: 135 bestanden, 1 Windows-Skip.
-- Neue finale Migrationstests: 10 bestanden.
-- Final-Runtime- und hermetische Live-Smoke-Tests: 7 bestanden.
-- Finaler Product-Evidence-Validator: 6 bestanden.
-- Explizite Lifespan-/Shutdown-Tests: 3 bestanden.
-- Frontend Vitest: 22 bestanden.
-- Frontend-Produktionsbuild und updater-freier Tauri-Webview-Build:
-  bestanden.
-- Nativer locked/offline Release-Build: bestanden in 3:08 Minuten.
-- Ruff, Formatprüfung der geänderten Dateien, Compile/Import und
-  `git diff --check`: bestanden.
+## Funktionspruefung
 
-Der bekannte breite Windows-Legacy-/Server-Sammellauf wurde nicht erneut
-gestartet. Sein früherer Prozess-/Thread-Shutdown-Hänger bleibt ein
-unverwertbarer abgebrochener Legacy-Lauf und ist kein nachgewiesener
-Phase-7- oder Phase-8-Funktionsfehler. Ein zusätzlicher Rust-Einzeltest war
-wegen eines rustc-ICE in der Abhängigkeit `h2` nicht verwertbar; der
-vollständige native Release-Build und `cargo check --offline` bestanden.
-Die bekannten Vite-Warnungen zu Chunking und gemischtem Analytics-Import
-blieben unverändert.
+- Das reale Vault wurde ausschliesslich read-only geoeffnet: 46 Notizen,
+  46 schema-gueltig, 46 FTS5-Dokumente und 0 Parserfehler.
+- Eine normale Memory-Abfrage lieferte belegte Quellen; sie enthielt keine
+  authority-sensitive Aktivierung.
+- Ein kanonischer Task wurde angelegt und seine Timeline war lesbar.
+- Learning- und Skills-Seiten wurden in der sichtbaren Release-UI geladen.
+- Die Skills-Registry war lesbar; ein leerer Registry-Bestand ist zulaessig.
+- Browser-, Modell- und externe Aktionen blieben deaktiviert.
+- Die UI akzeptierte WM_CLOSE und beendete sich ohne Force-Kill, waehrend der
+  Server zunaechst weiter ready blieb.
+- Der anschliessende einzelne Launcher-Restart beendete den verwalteten alten
+  Server kontrolliert und startete genau einen neuen Server sowie genau eine
+  neue UI.
 
-## Konkreter Blocker
+## Genau ein Codex-Live-Smoke
 
-Fehlerhaftes Gate: `final_launcher_start`.
-
-Reproduktion aus dem Repository-Root mit lokalen Platzhaltern:
-
-```powershell
-& .\scripts\windows\openjarvis-final.ps1 `
-  -Action Start `
-  -RuntimeRoot <runtime-root> `
-  -VaultPath <vault-root> `
-  -RepoRoot <repository-root> `
-  -Port 8000 `
-  -TimeoutSeconds 30
-```
-
-Reproduzierbares Ergebnis:
+Nach allen Offline- und Produktgates wurde genau ein ephemeraler Turn ueber das
+Codex Python SDK gestartet. Prompt und Antwort waren exakt:
 
 ```text
-netstat failed with code .
+Return exactly: JARVIS-FINAL-LIVE-OK
+JARVIS-FINAL-LIVE-OK
 ```
 
-Die begrenzte `netstat.exe`-Abfrage selbst endet, aber der von
-`Start-Process` gelieferte Prozesswrapper stellt an dieser Stelle keinen
-auswertbaren `ExitCode` bereit. `Get-PortOwner` interpretiert den leeren Wert
-als Fehler. Der Abbruch geschieht vor Server-, UI-, Modell- oder
-Vault-Zugriffen des Produktpiloten.
+Der Nachweis hat Status `passed`. Der Turn verwendete `read_only` und
+`deny_all`; Tool-, Datei-, Browser- und externe Aktionen: 0. Es gab keinen
+zweiten Turn und keinen Retry.
 
-## Nicht ausgeführte Gates
+## Bestandene fokussierte Abschlussgates
 
-- Kein realer Server-Health-Pilot.
-- Kein realer Tauri-Start-/Close-Smoke gegen den finalen Server.
-- Kein Produkt-Restart.
-- Kein produktiver ToolAction-/Website-/Learning-Pilot.
-- Kein Codex-Live-Turn; der exakte Prompt wurde nicht gesendet.
-- Kein Cutover.
+- Attach-/Launcher-Pytest: 15 bestanden.
+- Vollstaendiges Frontend Vitest: 25/25 bestanden.
+- Fokussierte Tauri-/Rust-Tests: 2 bestanden, 22 gefiltert.
+- Frontend-Produktionsbuild: bestanden.
+- Tauri-Webview-Build ohne Updater: bestanden.
+- Nativer locked/offline Tauri-Release-Build: bestanden.
+- Nativer Start-/WM_CLOSE-Smoke: bestanden, kein Force-Kill.
+- PowerShell-Parser: bestanden.
+- `git diff --check`: bestanden.
+- Finaler Launcher-Status, Health-/Listener-Ownership und Restart: bestanden.
+- Einziger Codex-Live-Smoke: bestanden.
 
-## Ein konkreter manueller nächster Schritt
+Der bekannte breite Windows-Legacy-/Server-Sammellauf wurde nicht erneut
+gestartet. Sein frueherer Prozess-/Thread-Shutdown-Haenger bleibt als
+abgebrochener Legacy-Sammellauf dokumentiert und ist kein nachgewiesener
+Phase-7- oder Phase-8-Funktionsfehler.
 
-`Get-PortOwner` im finalen Launcher manuell so korrigieren und fokussiert
-testen, dass der `netstat.exe`-Prozess nach `WaitForExit` aktualisiert und nur
-ein tatsächlich gesetzter numerischer Exitcode bewertet wird; anschließend
-den oben dokumentierten einzelnen Launcher-Start erneut manuell ausführen.
+## Daten-, Cutover- und Recovery-Grenzen
 
-Es gibt keine Phase 9, keine neue Roadmap und keine zusätzliche
-Featurefreigabe.
+- Das reale Vault wurde nicht erneut migriert, beschrieben oder
+  zurueckgerollt. Sein genehmigtes After-Manifest bleibt
+  `f88cf67aeb89e878c39bfcdc2ff6adf230a387c716b8fd258e4cef161573bda2`.
+- Altprojekt, Vault-Backup, Pre-Write-Repository-Bundle und genehmigte
+  Mapping-Artefakte bleiben unveraendert.
+- Es gab keinen Push, Merge oder eine neue Phase.
+- Der resultierende Commit traegt den Betreff
+  `fix: attach final desktop to codex runtime`.
+- Das nach diesem Commit erzeugte kanonische Repository-Bundle wird extern
+  geklont, auf exakten HEAD, sauberen Arbeitsbaum und `git fsck --strict`
+  geprueft. Sein exakter SHA-256 steht im externen `bundle.sha256` und im
+  Cutover-/Cleanup-Nachweis. Der Hash kann nicht sinnvoll in den Commit
+  eingebettet werden, dessen Inhalt das Bundle selbst bestimmt.
+- Der lokale, nicht versionierte Benutzerstart ruft ausschliesslich den
+  finalen Launcher mit den genehmigten Runtime-, Vault- und Desktopparametern
+  auf und enthaelt weder Secrets noch eine ExecutionPolicy-Umgehung.
+
+OpenJarvis bleibt nach dem Abschluss sichtbar geoeffnet und betriebsbereit.
+Es gibt keine Phase 9 und keine weitere Roadmap.

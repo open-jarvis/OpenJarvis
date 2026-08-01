@@ -42,6 +42,7 @@ export async function saveCloudKey(keyName: string, keyValue: string): Promise<v
 // This avoids hardcoding the port — the Rust backend is the single
 // source of truth for JARVIS_PORT.
 let _tauriApiBase: string | null = null;
+let _tauriFinalAttachOnly = false;
 
 /** Pre-fetch the API base URL from the Tauri backend (call once at init). */
 export async function initApiBase(): Promise<void> {
@@ -49,6 +50,12 @@ export async function initApiBase(): Promise<void> {
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     _tauriApiBase = await invoke<string>('get_api_base');
+    try {
+      const status = await invoke<{ source?: string }>('get_setup_status');
+      _tauriFinalAttachOnly = status?.source === 'codex';
+    } catch {
+      _tauriFinalAttachOnly = false;
+    }
   } catch {
     // Command may not exist on older builds; fall through to default.
   }
@@ -68,6 +75,9 @@ const getSettingsApiUrl = (): string => {
 };
 
 export const getBase = (): string => {
+  if (isTauri() && _tauriFinalAttachOnly) {
+    return _tauriApiBase || DESKTOP_API_FALLBACK;
+  }
   const settingsUrl = getSettingsApiUrl();
   if (settingsUrl) return settingsUrl;
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
@@ -227,7 +237,7 @@ export interface SetupStatus {
   server_ready: boolean;
   model_ready: boolean;
   error: string | null;
-  source?: 'ollama' | 'custom'; // drives source-aware setup labels
+  source?: 'ollama' | 'custom' | 'codex'; // drives source-aware setup labels
 }
 
 export async function getSetupStatus(): Promise<SetupStatus | null> {
