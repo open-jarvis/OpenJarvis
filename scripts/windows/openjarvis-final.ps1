@@ -99,13 +99,69 @@ function Get-PortOwner {
     return [int]$owners[0]
 }
 
-function Get-OwnedServer([int]$ExpectedPid, [string]$ExpectedStartedAtUtc = '') {
+function Get-LaunchedRuntimeProcess([object]$LaunchedProcess, [object]$Health) {
+    $healthPidProperty = $Health.PSObject.Properties['pid']
+    [int]$healthPid = 0
+    if ($null -eq $healthPidProperty -or
+        -not [int]::TryParse([string]$healthPidProperty.Value, [ref]$healthPid) -or
+        $healthPid -le 0) {
+        throw 'Final health response did not provide a numeric process ID.'
+    }
+    $owner = Get-PortOwner
+    if ($null -eq $owner -or [int]$owner -ne $healthPid) {
+        throw 'Final health PID and listener ownership do not match.'
+    }
+    $LaunchedProcess.Refresh()
+    if ($LaunchedProcess.HasExited) {
+        throw 'Launched process exited before runtime ownership could be verified.'
+    }
+    if ($healthPid -ne [int]$LaunchedProcess.Id) {
+        $currentId = $healthPid
+        $visited = [Collections.Generic.HashSet[int]]::new()
+        $isDescendant = $false
+        while ($currentId -gt 0 -and $visited.Add($currentId)) {
+            $records = @(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $currentId")
+            if ($null -eq $records -or $records.Count -ne 1 -or $null -eq $records[0]) { break }
+            $parentProperty = $records[0].PSObject.Properties['ParentProcessId']
+            [int]$parentId = 0
+            if ($null -eq $parentProperty -or
+                -not [int]::TryParse([string]$parentProperty.Value, [ref]$parentId)) { break }
+            if ($parentId -eq [int]$LaunchedProcess.Id) {
+                $isDescendant = $true
+                break
+            }
+            $currentId = $parentId
+        }
+        if (-not $isDescendant) {
+            throw 'Final health/listener process is not a descendant of the launched process.'
+        }
+    }
+    $runtimeProcess = Get-Process -Id $healthPid -ErrorAction SilentlyContinue
+    if ($null -eq $runtimeProcess) { throw 'Final health/listener process no longer exists.' }
+    $runtimeProcess.Refresh()
+    $LaunchedProcess.Refresh()
+    if ($runtimeProcess.HasExited -or $LaunchedProcess.HasExited -or
+        (Get-PortOwner) -ne $healthPid) {
+        throw 'Final runtime ownership changed during verification.'
+    }
+    return $runtimeProcess
+}
+
+function Get-OwnedServer(
+    [int]$ExpectedPid,
+    [string]$ExpectedStartedAtUtc = '',
+    [string]$ExpectedExecutable = ''
+) {
     $process = Get-Process -Id $ExpectedPid -ErrorAction SilentlyContinue
     if ($null -eq $process) { return $null }
-    $python = Join-Path $RepoRoot '.venv\Scripts\python.exe'
+    if ([string]::IsNullOrWhiteSpace($ExpectedExecutable)) {
+        $ExpectedExecutable = Join-Path $RepoRoot '.venv\Scripts\python.exe'
+    }
+    $expectedPath = [IO.Path]::GetFullPath($ExpectedExecutable)
     $executable = $process.Path
-    if (-not $executable.Equals($python, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "PID $ExpectedPid is not the repository Python executable."
+    if ([string]::IsNullOrWhiteSpace($executable) -or
+        -not $executable.Equals($expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "PID $ExpectedPid is not the recorded runtime executable."
     }
     if (-not [string]::IsNullOrWhiteSpace($ExpectedStartedAtUtc)) {
         $expected = [DateTime]::Parse(
@@ -168,7 +224,10 @@ function Show-Status {
     $owned = $false
     if ($null -ne $state -and $null -ne $health -and $null -ne $portOwner) {
         try {
-            $process = Get-OwnedServer ([int]$state.server_pid) ([string]$state.started_at_utc)
+            $process = Get-OwnedServer `
+                ([int]$state.server_pid) `
+                ([string]$state.started_at_utc) `
+                ([string]$state.executable)
             $owned = $null -ne $process -and $portOwner -eq [int]$state.server_pid -and
                 [int]$health.pid -eq [int]$state.server_pid
         } catch { $owned = $false }
@@ -195,6 +254,7 @@ function Start-FinalRuntime {
         throw 'Could not restrict the shutdown token ACL.'
     }
     $server = $null
+    $managedServer = $null
     $ui = $null
     try {
         $priorHome = $env:OPENJARVIS_HOME
@@ -221,15 +281,16 @@ function Start-FinalRuntime {
             Start-Sleep -Milliseconds 250
         } while ([DateTime]::UtcNow -lt $deadline)
         if ($null -eq $health) { throw 'Final runtime did not become ready.' }
-        $owner = Get-PortOwner
-        if ($owner -ne $server.Id -or [int]$health.pid -ne $server.Id) {
-            throw 'Health PID and listener ownership do not match the launched process.'
-        }
-        $server.Refresh()
-        $serverStartedAtUtc = $server.StartTime.ToUniversalTime().ToString(
+        $managedServer = Get-LaunchedRuntimeProcess $server $health
+        $managedServer.Refresh()
+        $serverStartedAtUtc = $managedServer.StartTime.ToUniversalTime().ToString(
             'o', [Globalization.CultureInfo]::InvariantCulture
         )
-        Get-OwnedServer $server.Id $serverStartedAtUtc | Out-Null
+        $serverExecutable = $managedServer.Path
+        if ([string]::IsNullOrWhiteSpace($serverExecutable)) {
+            throw 'Final runtime executable path is unavailable.'
+        }
+        Get-OwnedServer $managedServer.Id $serverStartedAtUtc $serverExecutable | Out-Null
         $uiPid = $null
         if (-not [string]::IsNullOrWhiteSpace($DesktopExecutable)) {
             $desktop = [IO.Path]::GetFullPath($DesktopExecutable)
@@ -245,11 +306,11 @@ function Start-FinalRuntime {
         }
         [pscustomobject]@{
             schema = 1
-            server_pid = $server.Id
+            server_pid = $managedServer.Id
             ui_pid = $uiPid
             port = $Port
             repo_root = $RepoRoot
-            executable = $Python
+            executable = $serverExecutable
             started_at_utc = $serverStartedAtUtc
         } | ConvertTo-Json | Set-Content -LiteralPath $StatePath -Encoding UTF8
         Show-Status
@@ -259,16 +320,27 @@ function Start-FinalRuntime {
             [void]$ui.CloseMainWindow()
             if (-not $ui.WaitForExit(3000)) { Stop-Process -Id $ui.Id -Force -ErrorAction SilentlyContinue }
         }
-        if ($null -ne $server -and -not $server.HasExited) {
+        if ($null -ne $managedServer -and -not $managedServer.HasExited) {
             try {
                 $ownedHealth = Get-FinalHealth
-                if ($null -ne $ownedHealth -and [int]$ownedHealth.pid -eq $server.Id) {
+                $ownedServer = if ($null -ne $ownedHealth) {
+                    Get-LaunchedRuntimeProcess $server $ownedHealth
+                } else { $null }
+                if ($null -ne $ownedServer -and $ownedServer.Id -eq $managedServer.Id) {
                     Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$Port/v1/final/shutdown" `
                         -Headers @{ 'X-OpenJarvis-Shutdown-Token' = $token } -TimeoutSec 3 | Out-Null
-                    [void]$server.WaitForExit(5000)
+                    [void]$managedServer.WaitForExit(5000)
                 }
             } catch { }
-            if (-not $server.HasExited) {
+            if (-not $managedServer.HasExited) {
+                Stop-Process -Id $managedServer.Id -Force -ErrorAction SilentlyContinue
+                [void]$managedServer.WaitForExit(3000)
+            }
+        }
+        if ($null -ne $server -and
+            ($null -eq $managedServer -or $server.Id -ne $managedServer.Id) -and
+            -not $server.HasExited) {
+            if (-not $server.WaitForExit(3000)) {
                 Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
                 [void]$server.WaitForExit(3000)
             }
@@ -293,7 +365,10 @@ function Stop-FinalRuntime {
             }
         }
     }
-    $server = Get-OwnedServer ([int]$state.server_pid) ([string]$state.started_at_utc)
+    $server = Get-OwnedServer `
+        ([int]$state.server_pid) `
+        ([string]$state.started_at_utc) `
+        ([string]$state.executable)
     if ($null -ne $server) {
         if ((Get-PortOwner) -ne [int]$state.server_pid) { throw 'Managed server no longer owns its recorded port.' }
         $health = Get-FinalHealth
