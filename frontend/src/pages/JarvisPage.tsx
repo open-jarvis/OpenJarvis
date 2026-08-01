@@ -59,6 +59,8 @@ import { WebsiteStagingPanel } from '../components/WebsiteStagingPanel';
 
 type WorkspaceFocus = 'chat' | 'tasks' | 'approvals' | 'tools' | 'browser' | 'website-staging' | 'learning' | 'skills' | 'overview';
 
+export const TASK_REFRESH_INTERVAL_MS = 15_000;
+
 type CanonicalChatSender = typeof sendCanonicalChat;
 
 export async function attemptCanonicalChat(
@@ -419,10 +421,16 @@ export function JarvisPage() {
   }, [refreshGlobal]);
 
   useEffect(() => {
-    if (!state.activeTaskId) return;
+    const taskId = state.activeTaskId;
+    if (!taskId) return;
     const controller = new AbortController();
-    void refreshTask(state.activeTaskId, controller.signal);
-    return () => controller.abort();
+    const refresh = () => void refreshTask(taskId, controller.signal);
+    refresh();
+    const timer = window.setInterval(refresh, TASK_REFRESH_INTERVAL_MS);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
   }, [state.activeTaskId, refreshTask]);
 
   useEffect(() => {

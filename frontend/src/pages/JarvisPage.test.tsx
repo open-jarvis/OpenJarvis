@@ -9,7 +9,14 @@ import type {
 } from '../lib/api';
 import { dedupeEvents, ensureActiveTaskId, isTerminalTaskStatus, useJarvisStore } from '../lib/jarvisStore';
 import { MAX_RECONNECTS } from '../lib/useCanonicalTaskStream';
-import { ApprovalCard, attemptCanonicalChat, EventCard, JarvisPage, TurnEvidenceDetails } from './JarvisPage';
+import {
+  ApprovalCard,
+  attemptCanonicalChat,
+  EventCard,
+  JarvisPage,
+  TASK_REFRESH_INTERVAL_MS,
+  TurnEvidenceDetails,
+} from './JarvisPage';
 
 function event(sequence: number, eventId = `event-${sequence}`): CanonicalTaskEvent {
   return {
@@ -93,6 +100,7 @@ describe('Jarvis canonical workspace', () => {
   it('deduplicates replay and live events in stable sequence order', () => {
     expect(dedupeEvents([event(2), event(1), event(2)])).toEqual([event(1), event(2)]);
     expect(MAX_RECONNECTS).toBe(6);
+    expect(TASK_REFRESH_INTERVAL_MS).toBe(15_000);
   });
 
   it('renders incomplete runtime DTO fields without crashing the workspace', () => {
