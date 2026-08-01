@@ -49,7 +49,7 @@ import {
   resumeCanonicalTask,
   sendCanonicalChat,
 } from '../lib/api';
-import type { CanonicalTaskEvent, MutationContext, PendingApproval, TurnModelEvidence } from '../lib/api';
+import type { CanonicalTask, CanonicalTaskEvent, MutationContext, PendingApproval, TurnModelEvidence } from '../lib/api';
 import { ensureActiveTaskId, isTerminalTaskStatus, useJarvisStore } from '../lib/jarvisStore';
 import { useCanonicalTaskStream } from '../lib/useCanonicalTaskStream';
 import { useSpeech } from '../hooks/useSpeech';
@@ -74,6 +74,14 @@ export async function attemptCanonicalChat(
   } catch (error) {
     return { ok: false as const, error, draft: body.message };
   }
+}
+
+export function canReplacePausedTaskForChat(
+  task: CanonicalTask | null,
+  approvals: PendingApproval[],
+): boolean {
+  if (!task || task.status !== 'paused' || task.risk_level !== 0) return false;
+  return !approvals.some((approval) => !approval.task_id || approval.task_id === task.task_id);
 }
 
 export function TurnEvidenceDetails({
@@ -352,13 +360,15 @@ export function JarvisPage() {
     : healthMatchesActive
       ? state.codexHealth?.turn_model_evidence ?? null
       : null;
-  const chatTurnBlocked = !!activeTask
-    && !isTerminalTaskStatus(activeTask.status)
-    && !['pending', 'running'].includes(activeTask.status);
-  const persistedTaskPending = !!state.activeTaskId && !state.tasksLoaded;
   const activeApprovals = state.approvals.filter(
     (item) => !item.task_id || item.task_id === state.activeTaskId,
   );
+  const replacePausedTaskOnSend = canReplacePausedTaskForChat(activeTask, activeApprovals);
+  const chatTurnBlocked = !!activeTask
+    && !isTerminalTaskStatus(activeTask.status)
+    && !['pending', 'running'].includes(activeTask.status)
+    && !replacePausedTaskOnSend;
+  const persistedTaskPending = !!state.activeTaskId && !state.tasksLoaded;
   const latestAnswer = [...state.timeline].reverse().find(
     (event) => event.event_type === 'chat.assistant_message',
   );
@@ -452,6 +462,7 @@ export function JarvisPage() {
     sendGuard.current = true;
     state.setSending(true);
     state.setError(null);
+    if (replacePausedTaskOnSend) state.startNewTask();
     const taskId = ensureActiveTaskId();
     const mutation = createMutationContext('jarvis-chat');
     const controller = new AbortController();
@@ -648,7 +659,9 @@ export function JarvisPage() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      disabled={state.sending || (!!activeTask && !isTerminalTaskStatus(activeTask.status))}
+                      disabled={state.sending || (!!activeTask
+                        && !isTerminalTaskStatus(activeTask.status)
+                        && activeTask.status !== 'paused')}
                       onClick={state.startNewTask}
                       className="rounded-lg px-3 py-2 text-xs disabled:opacity-40 focus-visible:outline-2"
                       style={{ border: '1px solid var(--color-border)' }}
@@ -747,7 +760,8 @@ export function JarvisPage() {
                       className="rounded-lg px-4 py-2 font-semibold disabled:opacity-40 focus-visible:outline-2"
                       style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
                     >
-                      <Send size={15} className="inline mr-2" /> Send
+                      <Send size={15} className="inline mr-2" />
+                      {replacePausedTaskOnSend ? 'Send as new task' : 'Send'}
                     </button>
                   </div>
                 </div>

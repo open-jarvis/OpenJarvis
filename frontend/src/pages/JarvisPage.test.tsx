@@ -12,6 +12,7 @@ import { MAX_RECONNECTS } from '../lib/useCanonicalTaskStream';
 import {
   ApprovalCard,
   attemptCanonicalChat,
+  canReplacePausedTaskForChat,
   EventCard,
   JarvisPage,
   TASK_REFRESH_INTERVAL_MS,
@@ -203,6 +204,14 @@ describe('Jarvis canonical workspace', () => {
     expect(ensureActiveTaskId()).toBe('task-running');
     expect(useJarvisStore.getState().timeline).toEqual([event(1)]);
     expect(useJarvisStore.getState().lastSequence).toBe(1);
+  });
+
+  it('lets a harmless question replace a paused task without resuming it', () => {
+    const paused = task('paused', 'task-paused');
+
+    expect(canReplacePausedTaskForChat(paused, [])).toBe(true);
+    expect(canReplacePausedTaskForChat({ ...paused, risk_level: 1 }, [])).toBe(false);
+    expect(canReplacePausedTaskForChat(paused, [{ ...approval, task_id: 'task-paused' }])).toBe(false);
   });
 
   it('fails closed until a persisted task has been refreshed after restart', () => {
