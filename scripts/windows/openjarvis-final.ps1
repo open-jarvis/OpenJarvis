@@ -447,7 +447,21 @@ function Stop-FinalRuntime {
         while ((Get-Process -Id ([int]$state.server_pid) -ErrorAction SilentlyContinue) -and
             [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 250 }
         if (Get-Process -Id ([int]$state.server_pid) -ErrorAction SilentlyContinue) {
-            throw 'Server did not complete graceful shutdown; no forced kill was used.'
+            $verifiedServer = Get-OwnedServer `
+                ([int]$state.server_pid) `
+                ([string]$state.started_at_utc) `
+                ([string]$state.executable)
+            if ($null -ne $verifiedServer) {
+                $remainingOwner = Get-PortOwner
+                if ($null -ne $remainingOwner -and $remainingOwner -ne $verifiedServer.Id) {
+                    throw 'A foreign process acquired the final runtime port during shutdown.'
+                }
+                Stop-Process -Id $verifiedServer.Id -Force
+                if (-not $verifiedServer.WaitForExit(3000)) {
+                    throw 'Verified managed server remained after shutdown recovery.'
+                }
+                Write-Warning "Verified managed server PID $($verifiedServer.Id) required shutdown recovery."
+            }
         }
     }
     if ($null -ne (Get-PortOwner)) { throw "Port $Port remains occupied after shutdown." }

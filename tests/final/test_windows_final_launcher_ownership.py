@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPOSITORY = Path(__file__).resolve().parents[2]
 LAUNCHER = REPOSITORY / "scripts" / "windows" / "openjarvis-final.ps1"
 
@@ -153,7 +152,10 @@ try {
                 "parents": {"400": 999},
             },
             None,
-            "Final health/listener process is not a descendant of the launched process.",
+            (
+                "Final health/listener process is not a descendant "
+                "of the launched process."
+            ),
             id="foreign-listener-fails-closed",
         ),
         pytest.param(
@@ -214,6 +216,9 @@ def test_status_stop_restart_and_cleanup_use_the_canonical_runtime_pid() -> None
         assert "([string]$state.executable)" in function
     assert "Stop-Process -Id $managedServer.Id" in start
     assert "Get-Process -Id ([int]$state.server_pid)" in stop
+    assert "$verifiedServer = Get-OwnedServer" in stop
+    assert "Stop-Process -Id $verifiedServer.Id -Force" in stop
+    assert "A foreign process acquired the final runtime port" in stop
     assert "'Restart' { Stop-FinalRuntime; Start-FinalRuntime }" in launcher
     assert "Stop-Process -Name" not in launcher
     assert "taskkill" not in launcher.lower()
