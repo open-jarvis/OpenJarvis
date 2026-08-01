@@ -34,6 +34,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   vi.doUnmock('@tauri-apps/api/core');
   (globalThis as unknown as { localStorage?: MemoryStorage }).localStorage =
     undefined;
@@ -113,5 +114,26 @@ describe('final desktop API base', () => {
     await initApiBase();
 
     expect(getBase()).toBe('http://127.0.0.1:8000');
+  });
+
+  it('bypasses the webview cache for dynamic task evidence', async () => {
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { setTimeout, clearTimeout },
+    });
+    const fetchMock = vi.fn(async () => new Response('{}', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { fetchTaskSummary } = await freshApi();
+    await fetchTaskSummary('task-test');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/v1/tasks/task-test/summary',
+      expect.objectContaining({ cache: 'no-store' }),
+    );
   });
 });

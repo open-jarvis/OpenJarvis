@@ -1729,7 +1729,7 @@ export async function fetchTaskSummary(
 ): Promise<TaskSummary> {
   return apiJson<TaskSummary>(
     `/v1/tasks/${encodeURIComponent(taskId)}/summary`,
-    {},
+    { cache: 'no-store' },
     { signal },
   );
 }
