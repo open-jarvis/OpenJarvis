@@ -15,6 +15,7 @@ from openjarvis.codex.types import (
     BackendCapabilities,
     BackendThread,
     BackendTurn,
+    CodexBackendError,
     CodexBackendKind,
     CodexEvent,
     CodexEventType,
@@ -320,6 +321,29 @@ async def test_event_stream_error_closes_running_task_as_failed(
         assert task.outcome is TaskOutcome.FAILED
         assert task.error_category == "codex_runtime_error"
         assert orchestrator.active_context("task") is None
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_thread_start_error_closes_pending_task_as_failed(
+    tmp_path: Path,
+) -> None:
+    store, service, fake, orchestrator = _runtime(tmp_path, [])
+
+    async def broken_start(_request: ThreadStartRequest) -> BackendThread:
+        raise CodexBackendError("synthetic thread start failure")
+
+    fake.start_thread = broken_start  # type: ignore[method-assign]
+    try:
+        with pytest.raises(CodexBackendError, match="synthetic thread start"):
+            await orchestrator.execute("task", "question", cwd=tmp_path)
+        task = service.get("task")
+        assert task is not None
+        assert task.status is TaskStatus.FAILED
+        assert task.outcome is TaskOutcome.FAILED
+        assert task.error_category == "codex_backend_error"
+        assert service.timeline("task")[-1].cause == "codex_turn_start_failed"
     finally:
         store.close()
 

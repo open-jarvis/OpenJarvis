@@ -279,6 +279,7 @@ async def test_thread_start_is_explicit_safe_and_persisted(tmp_path: Path) -> No
     assert call["sandbox"].value == "read-only"
     assert call["ephemeral"] is False
     assert call["cwd"] == str(tmp_path)
+    assert call["config"] == {"model_reasoning_effort": "medium"}
     assert "eyJabcdefghijk" not in (call["developer_instructions"] or "")
     record = store.get_thread("task-1", "session-1")
     assert record is not None
@@ -316,6 +317,7 @@ async def test_thread_resume_after_backend_restart(tmp_path: Path) -> None:
     kwargs = second_fake.resume_calls[0][1]
     assert kwargs["approval_mode"].value == "deny_all"
     assert kwargs["sandbox"].value == "read-only"
+    assert kwargs["config"] == {"model_reasoning_effort": "medium"}
     await second.close()
     reopened_store.close()
 
@@ -343,6 +345,9 @@ async def test_thread_fork_is_supported_and_persisted(tmp_path: Path) -> None:
 
     assert forked.thread_id == "thread-forked"
     assert fake.fork_calls[0][0] == "thread-1"
+    assert fake.fork_calls[0][1]["config"] == {
+        "model_reasoning_effort": "medium"
+    }
     assert store.get_thread("task-fork", "session-fork") is not None
     await backend.close()
     store.close()

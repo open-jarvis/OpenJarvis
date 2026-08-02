@@ -58,6 +58,7 @@ ALLOWED_TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = {
         {
             TaskStatus.RUNNING,
             TaskStatus.PAUSED,
+            TaskStatus.FAILED,
             TaskStatus.CANCELED,
         }
     ),

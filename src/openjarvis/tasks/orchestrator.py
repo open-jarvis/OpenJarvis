@@ -157,13 +157,7 @@ class CodexTaskOrchestrator:
                     _lane_acquired=True,
                 ),
             )
-        backend = await self._router.select(
-            require_interactive_approvals=(
-                policy.approval_mode.value == "brokered"
-            )
-        )
         model_config = model or self._default_model
-
         thread_context = CodexRunContext(
             task_id=task.task_id,
             session_id=task.session_id,
@@ -178,20 +172,6 @@ class CodexTaskOrchestrator:
             developer_instructions=developer_instructions,
             isolated_workspace=policy.isolated_workspace,
         ).validated()
-        persisted = self._tasks.store.get_thread(task.task_id, task.session_id)
-        if persisted is None:
-            thread = await backend.start_thread(
-                ThreadStartRequest(context=thread_context)
-            )
-        else:
-            thread = await backend.resume_thread(
-                ThreadResumeRequest(
-                    context=thread_context,
-                    thread_id=persisted.thread_id,
-                )
-            )
-        self._project_persisted_events(thread.thread_id)
-
         turn_context = CodexRunContext(
             task_id=task.task_id,
             session_id=task.session_id,
@@ -209,13 +189,42 @@ class CodexTaskOrchestrator:
             developer_instructions=developer_instructions,
             isolated_workspace=policy.isolated_workspace,
         ).validated()
-        turn = await backend.start_turn(
-            TurnStartRequest(
-                context=turn_context,
-                thread_id=thread.thread_id,
-                prompt=prompt,
+        try:
+            backend = await self._router.select(
+                require_interactive_approvals=(
+                    policy.approval_mode.value == "brokered"
+                )
             )
-        )
+            persisted = self._tasks.store.get_thread(
+                task.task_id,
+                task.session_id,
+            )
+            if persisted is None:
+                thread = await backend.start_thread(
+                    ThreadStartRequest(context=thread_context)
+                )
+            else:
+                thread = await backend.resume_thread(
+                    ThreadResumeRequest(
+                        context=thread_context,
+                        thread_id=persisted.thread_id,
+                    )
+                )
+            self._project_persisted_events(thread.thread_id)
+            turn = await backend.start_turn(
+                TurnStartRequest(
+                    context=turn_context,
+                    thread_id=thread.thread_id,
+                    prompt=prompt,
+                )
+            )
+        except Exception as exc:
+            self._fail_startup(
+                task.task_id,
+                exc,
+                transition_key=turn_context.correlation_id,
+            )
+            raise
         current = self._tasks.get(task.task_id)
         if current is None:
             raise RuntimeError("task disappeared before its turn started")
@@ -293,6 +302,40 @@ class CodexTaskOrchestrator:
             thread_id=thread.thread_id,
             turn_id=turn.turn_id,
         )
+
+    def _fail_startup(
+        self,
+        task_id: str,
+        error: Exception,
+        *,
+        transition_key: str,
+    ) -> None:
+        """Close a task whose backend, thread, or turn could not start."""
+
+        current = self._tasks.get(task_id)
+        if current is None or current.status not in {
+            TaskStatus.PENDING,
+            TaskStatus.RUNNING,
+            TaskStatus.RECOVERING,
+        }:
+            return
+        try:
+            self._tasks.transition(
+                task_id,
+                TaskStatus.FAILED,
+                component="codex_task_orchestrator",
+                cause="codex_turn_start_failed",
+                idempotency_key=f"{transition_key}:start-failed",
+                outcome=TaskOutcome.FAILED,
+                error_category=(
+                    "codex_backend_error"
+                    if isinstance(error, CodexBackendError)
+                    else "codex_runtime_error"
+                ),
+                payload={"error_type": type(error).__name__},
+            )
+        except InvalidTaskTransition:
+            pass
 
     def execute_sync(self, *args: Any, **kwargs: Any) -> TaskExecutionResult:
         return _run_coroutine_sync(self.execute(*args, **kwargs))

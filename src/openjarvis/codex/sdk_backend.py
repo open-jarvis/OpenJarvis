@@ -313,6 +313,7 @@ class CodexPythonSdkBackend:
         try:
             thread = await client.thread_start(
                 approval_mode=self._sdk_approval_mode(context.approval_mode),
+                config=self._sdk_model_config(context.model),
                 cwd=str(context.cwd.resolve(strict=False)),
                 developer_instructions=redact_text(
                     context.developer_instructions or ""
@@ -383,6 +384,7 @@ class CodexPythonSdkBackend:
             thread = await client.thread_resume(
                 thread_id,
                 approval_mode=self._sdk_approval_mode(context.approval_mode),
+                config=self._sdk_model_config(context.model),
                 cwd=str(context.cwd.resolve(strict=False)),
                 developer_instructions=redact_text(
                     context.developer_instructions or ""
@@ -451,6 +453,7 @@ class CodexPythonSdkBackend:
             thread = await client.thread_fork(
                 request.source_thread_id,
                 approval_mode=self._sdk_approval_mode(context.approval_mode),
+                config=self._sdk_model_config(context.model),
                 cwd=str(context.cwd.resolve(strict=False)),
                 developer_instructions=redact_text(
                     context.developer_instructions or ""
@@ -747,6 +750,7 @@ class CodexPythonSdkBackend:
             thread = await client.thread_resume(
                 thread_id,
                 approval_mode=self._sdk_approval_mode(context.approval_mode),
+                config=self._sdk_model_config(context.model),
                 cwd=str(context.cwd.resolve(strict=False)),
                 developer_instructions=redact_text(
                     context.developer_instructions or ""
@@ -796,6 +800,20 @@ class CodexPythonSdkBackend:
                 "Codex runtime did not confirm the requested reasoning effort "
                 f"{requested.effort!r}; resolved {resolved!r}"
             )
+
+    @staticmethod
+    def _sdk_model_config(model: CodexModelConfig) -> dict[str, str] | None:
+        """Return per-thread model settings that the flat SDK omits.
+
+        The SDK exposes ``model`` and ``service_tier`` as first-class thread
+        arguments, while reasoning effort remains a Codex config override.
+        Supplying it per thread prevents a user's global Codex default from
+        silently replacing OpenJarvis' requested effort.
+        """
+
+        if not model.effort:
+            return None
+        return {"model_reasoning_effort": model.effort}
 
     async def _limit_failure(
         self,
