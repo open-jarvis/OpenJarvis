@@ -604,7 +604,7 @@ enforce_tool_confirmation = true
 | `scan_output` | bool | `true` | Whether to scan model output. |
 | `secret_scanner` | bool | `true` | Enable secret detection (API keys, tokens, passwords). |
 | `pii_scanner` | bool | `true` | Enable PII detection (emails, SSNs, credit cards). |
-| `enforce_tool_confirmation` | bool | `true` | Require confirmation before executing tools. |
+| `enforce_tool_confirmation` | bool | `true` | Accepted but **not currently enforced**. Whether you get prompts depends on the entry point. See [System Access](../user-guide/system-access.md#confirmation-behaviour). |
 
 !!! tip "Choosing a security mode"
     Use `"warn"` during development to see what would be flagged without disrupting output.

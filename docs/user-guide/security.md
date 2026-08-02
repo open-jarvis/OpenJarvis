@@ -392,7 +392,7 @@ enforce_tool_confirmation = true
 | `secret_scanner` | `bool` | `true` | Run `SecretScanner` on all text |
 | `pii_scanner` | `bool` | `true` | Run `PIIScanner` on all text |
 | `audit_log_path` | `str` | `~/.openjarvis/audit.db` | Path to the SQLite audit log |
-| `enforce_tool_confirmation` | `bool` | `true` | Require explicit confirmation before tool execution |
+| `enforce_tool_confirmation` | `bool` | `true` | Accepted by the loader but **not currently enforced**. See [System Access](system-access.md#confirmation-behaviour) for when prompts actually happen |
 
 !!! tip "Start with warn, tighten later"
     `mode = "warn"` is a good starting point. It lets you observe what patterns are being triggered without disrupting normal usage. Switch to `"redact"` once you are satisfied that the scanner isn't producing too many false positives for your workload.

@@ -285,16 +285,17 @@ def build_tools_list() -> List[Dict[str, Any]]:
             logger.debug("Could not instantiate tool %s: %s", name, exc)
             spec = None
         cred_keys = TOOL_CREDENTIALS.get(name, [])
+        has_fallback = bool(spec and spec.metadata.get("fallback"))
         items.append(
             {
                 "name": name,
                 "description": spec.description if spec else "",
                 "category": spec.category if spec else "",
                 "source": "tool",
-                "requires_credentials": len(cred_keys) > 0,
+                "requires_credentials": len(cred_keys) > 0 and not has_fallback,
                 "credential_keys": cred_keys,
                 "configured": (
-                    all(bool(os.environ.get(k)) for k in cred_keys)
+                    has_fallback or all(bool(os.environ.get(k)) for k in cred_keys)
                     if cred_keys
                     else True
                 ),
@@ -2237,6 +2238,13 @@ def create_agent_manager_router(
             save_credential(tool_name, key, value)
             saved.append(key)
         return {"saved": saved}
+
+    @tools_router.delete("/{tool_name}/credentials/{key}")
+    def remove_tool_credential(tool_name: str, key: str):
+        from openjarvis.core.credentials import delete_credential
+
+        delete_credential(tool_name, key)
+        return {"deleted": key}
 
     @tools_router.get("/{tool_name}/credentials/status")
     def credential_status(tool_name: str):

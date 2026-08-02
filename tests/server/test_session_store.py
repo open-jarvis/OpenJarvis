@@ -115,3 +115,29 @@ class TestLastActiveChannel:
 
     def test_returns_none_for_unknown_user(self, store):
         assert store.get_last_active_channel("nobody") is None
+
+
+class TestInMemoryDatabase:
+    """``:memory:`` is a SQLite sentinel, not a path — it must not be created.
+
+    ``secure_create`` treats it as a filename, which fails outright on Windows
+    (``:`` is illegal there) and litters the working directory elsewhere.
+    """
+
+    def test_in_memory_store_is_usable(self):
+        s = SessionStore(db_path=":memory:")
+        try:
+            session = s.get_or_create("user1", "twilio")
+            assert session["sender_id"] == "user1"
+        finally:
+            s.close()
+
+    def test_in_memory_store_creates_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        before = set(tmp_path.iterdir())
+        s = SessionStore(db_path=":memory:")
+        try:
+            assert set(tmp_path.iterdir()) == before
+            assert not (tmp_path / ":memory:").exists()
+        finally:
+            s.close()
