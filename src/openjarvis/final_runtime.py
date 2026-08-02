@@ -45,7 +45,7 @@ FINAL_HEALTH_MARKER = "OPENJARVIS-FINAL-RUNTIME"
 FINAL_RUNTIME_NAME = "phase8-final"
 FINAL_MODEL = "codex-python-sdk"
 FINAL_CODEX_MODEL = "gpt-5.6-terra"
-FINAL_CODEX_EFFORT = "xhigh"
+FINAL_CODEX_EFFORT = "medium"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _PILOT_WORKSPACE_ID = "phase8-final-website-pilot"
 

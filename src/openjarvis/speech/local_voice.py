@@ -15,7 +15,9 @@ from openjarvis.speech.tts import TTSBackend, TTSResult
 from openjarvis.speech.voice_config import (
     AUDITION_TEXT,
     PROFILE_BY_ID,
+    VOICE_CACHE_SCHEMA,
     VOICE_PROFILES,
+    VOICE_REFERENCE_ASSETS,
     load_voice_config,
     public_profile,
     write_voice_config,
@@ -38,8 +40,9 @@ class LocalVoiceBackend(TTSBackend):
         worker_python: Path | None = None,
         repo_root: Path | None = None,
         health_timeout_seconds: float = 20.0,
-        synthesis_timeout_seconds: float = 120.0,
-        fallback_timeout_seconds: float = 60.0,
+        synthesis_timeout_seconds: float = 28.0,
+        fallback_timeout_seconds: float = 15.0,
+        warmup_timeout_seconds: float = 90.0,
     ) -> None:
         self.runtime_root = runtime_root.resolve(strict=True)
         self.voice_root = self.runtime_root / "voice"
@@ -56,6 +59,7 @@ class LocalVoiceBackend(TTSBackend):
         self.health_timeout_seconds = max(float(health_timeout_seconds), 0.01)
         self.synthesis_timeout_seconds = max(float(synthesis_timeout_seconds), 0.01)
         self.fallback_timeout_seconds = max(float(fallback_timeout_seconds), 0.01)
+        self.warmup_timeout_seconds = max(float(warmup_timeout_seconds), 0.01)
         self._process: subprocess.Popen[str] | None = None
         self._stderr_handle: Any = None
         self._response_queue: queue.Queue[str | None] | None = None
@@ -287,10 +291,12 @@ class LocalVoiceBackend(TTSBackend):
         try:
             response = self._request(
                 {"command": "warmup"},
-                timeout_seconds=self.synthesis_timeout_seconds,
+                timeout_seconds=self.warmup_timeout_seconds,
             )
             ready = bool(
                 response.get("chatterbox_loaded") and response.get("piper_loaded")
+                and response.get("reference_profiles_loaded")
+                == len(VOICE_REFERENCE_ASSETS)
             )
             if not ready:
                 self._last_error = str(
@@ -303,6 +309,17 @@ class LocalVoiceBackend(TTSBackend):
 
     def last_error(self) -> str:
         return self._last_error
+
+    def _audition_is_current(self, voice_id: str) -> bool:
+        path = self.audition_root / f"{voice_id}.wav"
+        metadata_path = path.with_suffix(".json")
+        if not path.is_file() or not metadata_path.is_file():
+            return False
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        return metadata.get("schema") == VOICE_CACHE_SCHEMA
 
     def voice_status(self) -> dict[str, Any]:
         config = load_voice_config(self.config_path)
@@ -318,9 +335,7 @@ class LocalVoiceBackend(TTSBackend):
             "profiles": [
                 {
                     **public_profile(profile),
-                    "audition_ready": (
-                        self.audition_root / f"{profile.voice_id}.wav"
-                    ).is_file(),
+                    "audition_ready": self._audition_is_current(profile.voice_id),
                 }
                 for profile in VOICE_PROFILES
             ],
@@ -332,6 +347,7 @@ class LocalVoiceBackend(TTSBackend):
                     "cuda",
                     "device",
                     "chatterbox_loaded",
+                    "reference_profiles_loaded",
                     "piper_loaded",
                 )
             },
@@ -372,6 +388,8 @@ class LocalVoiceBackend(TTSBackend):
     def audition_path(self, voice_id: str) -> Path:
         if voice_id not in PROFILE_BY_ID:
             raise ValueError("unknown voice profile")
+        if not self._audition_is_current(voice_id):
+            raise FileNotFoundError("current voice audition is not available")
         path = (self.audition_root / f"{voice_id}.wav").resolve(strict=True)
         if not path.is_relative_to(self.audition_root):
             raise ValueError("invalid audition path")

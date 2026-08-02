@@ -8,6 +8,7 @@ import {
   LOCAL_AUDIO_END_EVENT,
   LOCAL_AUDIO_LEVEL_EVENT,
   LOCAL_AUDIO_START_EVENT,
+  sentenceChunks,
 } from './speechProviders';
 
 vi.mock('./api', () => ({
@@ -49,6 +50,16 @@ afterEach(() => {
 });
 
 describe('speech provider boundaries', () => {
+  it('bounds long clauses so the first local audio starts promptly', () => {
+    const chunks = sentenceChunks(
+      'Ich habe deine umfangreiche Anfrage vollständig analysiert, und bereite jetzt die wichtigsten Ergebnisse in einer klaren Reihenfolge auf, damit du nicht auf einen einzigen sehr langen Sprachblock warten musst.',
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((chunk) => chunk.length <= 110)).toBe(true);
+    expect(chunks.join(' ').replace(/\s+/g, ' ')).toContain('sehr langen Sprachblock');
+  });
+
   it('keeps disabled speech explicitly unavailable', async () => {
     const provider = new DisabledSpeechToTextProvider();
     expect(provider.available).toBe(false);

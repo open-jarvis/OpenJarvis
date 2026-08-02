@@ -1,0 +1,28 @@
+{
+  "schema": "openjarvis-synthetic-voice-references-v1",
+  "generator": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+  "generator_license": "Apache-2.0",
+  "provenance": "Machine-generated preset voices; no human reference recording was used.",
+  "text": "Guten Abend, Deaa. Alle Systeme sind bereit. Womit darf ich dir helfen?",
+  "instruction": "Ruhig, präzise und natürlich sprechen. Keine übertriebene Dramatik.",
+  "assets": [
+    {
+      "voice_id": "jarvis-deep-calm",
+      "preset_speaker": "Uncle_Fu",
+      "file": "jarvis-deep-calm.wav",
+      "sha256": "1430fded8455dfd660535bde48ae287963ae3f12ac0823dfe7468b376a367be2"
+    },
+    {
+      "voice_id": "jarvis-deep-clear",
+      "preset_speaker": "Ryan",
+      "file": "jarvis-deep-clear.wav",
+      "sha256": "0c2297327f4354223ad6c94712e2302e399ca84f395884f9b97368840bd127ac"
+    },
+    {
+      "voice_id": "jarvis-balanced",
+      "preset_speaker": "Aiden",
+      "file": "jarvis-balanced.wav",
+      "sha256": "6ef312e4754e441a3715b8c80ba12b6bad96a0d2e1c821eea67977d10ba1bb2a"
+    }
+  ]
+}

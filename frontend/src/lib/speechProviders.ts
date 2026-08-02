@@ -227,18 +227,33 @@ export const LOCAL_AUDIO_START_EVENT = 'openjarvis:audio-start';
 export const LOCAL_AUDIO_LEVEL_EVENT = 'openjarvis:audio-level';
 export const LOCAL_AUDIO_END_EVENT = 'openjarvis:audio-end';
 
-function sentenceChunks(text: string): string[] {
+const LOCAL_SPEECH_CHUNK_LIMIT = 110;
+
+export function sentenceChunks(text: string): string[] {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
   const chunks = normalized.match(/[^.!?]+(?:[.!?]+|$)/g)?.map((part) => part.trim()) ?? [normalized];
   const bounded: string[] = [];
   for (const chunk of chunks) {
-    if (chunk.length <= 450) bounded.push(chunk);
-    else {
-      for (let start = 0; start < chunk.length; start += 450) {
-        bounded.push(chunk.slice(start, start + 450).trim());
-      }
+    let remaining = chunk;
+    while (remaining.length > LOCAL_SPEECH_CHUNK_LIMIT) {
+      const window = remaining.slice(0, LOCAL_SPEECH_CHUNK_LIMIT + 1);
+      const punctuation = Math.max(
+        window.lastIndexOf(','),
+        window.lastIndexOf(';'),
+        window.lastIndexOf(':'),
+        window.lastIndexOf('—'),
+      );
+      const wordBoundary = window.lastIndexOf(' ');
+      const splitAt = punctuation >= 60
+        ? punctuation + 1
+        : wordBoundary >= 60
+          ? wordBoundary
+          : LOCAL_SPEECH_CHUNK_LIMIT;
+      bounded.push(remaining.slice(0, splitAt).trim());
+      remaining = remaining.slice(splitAt).trim();
     }
+    if (remaining) bounded.push(remaining);
   }
   return bounded.filter(Boolean);
 }

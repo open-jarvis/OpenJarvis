@@ -13,6 +13,29 @@ AUDITION_TEXT = (
     "aktuellen Aufgaben analysiert und bin bereit, sie auszuführen."
 )
 
+# Bump this whenever conditioning or audio rendering changes. Existing WAV files
+# are accepted only when their adjacent metadata carries this exact value.
+VOICE_CACHE_SCHEMA = "voice-v8-synthetic-reference-natural"
+
+# The files are machine-generated, non-human reference voices. Hash allowlisting
+# prevents a runtime file from silently turning this into arbitrary voice cloning.
+VOICE_REFERENCE_ASSETS: dict[str, tuple[str, str]] = {
+    "jarvis-deep-calm": (
+        "jarvis-deep-calm.wav",
+        "1430fded8455dfd660535bde48ae287963ae3f12ac0823dfe7468b376a367be2",
+    ),
+    "jarvis-deep-clear": (
+        "jarvis-deep-clear.wav",
+        "0c2297327f4354223ad6c94712e2302e399ca84f395884f9b97368840bd127ac",
+    ),
+    "jarvis-balanced": (
+        "jarvis-balanced.wav",
+        "6ef312e4754e441a3715b8c80ba12b6bad96a0d2e1c821eea67977d10ba1bb2a",
+    ),
+}
+
+LEGACY_VOICE_ALIASES = {"jarvis-sovereign": "jarvis-deep-calm"}
+
 
 @dataclass(frozen=True, slots=True)
 class VoiceProfile:
@@ -35,65 +58,52 @@ VOICE_PROFILES = (
         1,
         "Tief und ruhig",
         "chatterbox",
-        -3.0,
-        0.92,
-        0.32,
-        0.55,
+        0.0,
+        1.0,
+        0.38,
+        0.52,
         0.72,
         104729,
-        "Tiefe, ruhige Hauptvariante mit kontrollierter Dynamik.",
+        "Ruhiges neuronales Stimmprofil mit eigenem natürlichem Timbre.",
     ),
     VoiceProfile(
         "jarvis-deep-clear",
         2,
         "Tief und klar",
         "chatterbox",
-        -2.2,
-        0.96,
-        0.36,
-        0.52,
+        0.0,
+        1.0,
+        0.42,
+        0.48,
         0.70,
         130363,
-        "Etwas schneller, mit besonders klarer deutscher Artikulation.",
-    ),
-    VoiceProfile(
-        "jarvis-sovereign",
-        3,
-        "Souverän",
-        "chatterbox",
-        -3.8,
-        0.90,
-        0.38,
-        0.58,
-        0.68,
-        155921,
-        "Die tiefste, bewusst gemessene Variante mit wenig Emotion.",
+        "Klares neuronales Stimmprofil mit präziser deutscher Artikulation.",
     ),
     VoiceProfile(
         "jarvis-balanced",
-        4,
+        3,
         "Ausgewogen",
         "chatterbox",
-        -1.6,
-        0.98,
-        0.40,
-        0.50,
-        0.74,
+        0.0,
+        1.0,
+        0.34,
+        0.56,
+        0.68,
         180503,
-        "Natürlichere Tonhöhe bei weiterhin ruhigem JARVIS-Charakter.",
+        "Ausgewogenes neuronales Stimmprofil mit natürlicher Sprechlage.",
     ),
     VoiceProfile(
         "jarvis-piper-fast",
-        5,
-        "Schneller Fallback",
+        4,
+        "Notfallstimme (schnell)",
         "piper",
-        -1.4,
-        0.96,
+        0.0,
+        1.0,
         0.0,
         0.0,
         0.0,
         0,
-        "Schnelle lokale CPU-Stimme für Fehler- und Niedriglatenzfälle.",
+        "Schnelle synthetische CPU-Stimme, nur als technischer Fallback.",
     ),
 )
 
@@ -128,6 +138,10 @@ def load_voice_config(path: Path) -> dict[str, Any]:
         write_voice_config(path, default_voice_config())
     data = json.loads(path.read_text(encoding="utf-8"))
     selected = str(data.get("selected_voice_id", ""))
+    if selected in LEGACY_VOICE_ALIASES:
+        selected = LEGACY_VOICE_ALIASES[selected]
+        data["selected_voice_id"] = selected
+        write_voice_config(path, {**default_voice_config(), **data})
     if selected not in PROFILE_BY_ID:
         raise ValueError("voice config contains an unknown voice profile")
     if data.get("voice_reference") is not None:
@@ -160,8 +174,11 @@ def write_voice_config(path: Path, data: dict[str, Any]) -> None:
 __all__ = [
     "AUDITION_TEXT",
     "DEFAULT_VOICE_ID",
+    "LEGACY_VOICE_ALIASES",
     "PROFILE_BY_ID",
+    "VOICE_CACHE_SCHEMA",
     "VOICE_PROFILES",
+    "VOICE_REFERENCE_ASSETS",
     "VoiceProfile",
     "default_voice_config",
     "load_voice_config",

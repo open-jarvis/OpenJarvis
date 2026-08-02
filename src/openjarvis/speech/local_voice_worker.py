@@ -16,9 +16,13 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
-from openjarvis.speech.voice_config import PROFILE_BY_ID, load_voice_config
+from openjarvis.speech.voice_config import (
+    PROFILE_BY_ID,
+    VOICE_CACHE_SCHEMA,
+    VOICE_REFERENCE_ASSETS,
+    load_voice_config,
+)
 
-_VOICE_SCHEMA = "voice-v7-chatterbox-5de7a54a-seeded-lufs19-peak1db-timeout"
 _PEAK_HEADROOM = 10 ** (-1.0 / 20.0)
 
 
@@ -89,10 +93,17 @@ class VoiceWorker:
         self.cache_root = self.voice_root / "cache"
         self.audition_root = self.voice_root / "auditions"
         self.model_root = self.voice_root / "models"
-        for path in (self.cache_root, self.audition_root, self.model_root):
+        self.reference_root = self.model_root / "references"
+        for path in (
+            self.cache_root,
+            self.audition_root,
+            self.model_root,
+            self.reference_root,
+        ):
             path.mkdir(parents=True, exist_ok=True)
         load_voice_config(self.config_path)
         self._chatterbox: Any = None
+        self._chatterbox_conditionals: dict[str, Any] = {}
         self._piper: Any = None
 
     def health(self) -> dict[str, Any]:
@@ -109,6 +120,7 @@ class VoiceWorker:
                 torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
             ),
             "chatterbox_loaded": self._chatterbox is not None,
+            "reference_profiles_loaded": len(self._chatterbox_conditionals),
             "piper_loaded": self._piper is not None,
         }
 
@@ -127,9 +139,36 @@ class VoiceWorker:
         return {
             **response,
             "chatterbox_loaded": self._chatterbox is not None,
+            "reference_profiles_loaded": len(self._chatterbox_conditionals),
             "piper_loaded": piper_ready,
             "primary_error": primary_error,
         }
+
+    def _verified_reference_path(self, voice_id: str) -> Path:
+        filename, expected_sha256 = VOICE_REFERENCE_ASSETS[voice_id]
+        root = self.reference_root.resolve(strict=True)
+        path = (root / filename).resolve(strict=True)
+        if not path.is_relative_to(root) or not path.is_file():
+            raise RuntimeError("VoiceReferenceUnavailable")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != expected_sha256:
+            raise RuntimeError("VoiceReferenceHashMismatch")
+        return path
+
+    def _prepare_chatterbox_conditionals(self, model: Any) -> None:
+        if len(self._chatterbox_conditionals) == len(VOICE_REFERENCE_ASSETS):
+            return
+        prepared: dict[str, Any] = {}
+        for voice_id in VOICE_REFERENCE_ASSETS:
+            profile = PROFILE_BY_ID[voice_id]
+            reference = self._verified_reference_path(voice_id)
+            model.prepare_conditionals(
+                str(reference), exaggeration=profile.exaggeration
+            )
+            if model.conds is None:
+                raise RuntimeError("VoiceReferenceConditioningFailed")
+            prepared[voice_id] = model.conds
+        self._chatterbox_conditionals = prepared
 
     def _load_chatterbox(self) -> Any:
         if self._chatterbox is None:
@@ -138,9 +177,17 @@ class VoiceWorker:
 
             if not torch.cuda.is_available():
                 raise RuntimeError("ChatterboxCudaUnavailable")
-            self._chatterbox = ChatterboxMultilingualTTS.from_pretrained(
-                device="cuda", t3_model="v3"
-            )
+            try:
+                self._chatterbox = ChatterboxMultilingualTTS.from_pretrained(
+                    device="cuda", t3_model="v3"
+                )
+                self._prepare_chatterbox_conditionals(self._chatterbox)
+            except Exception:
+                self._chatterbox = None
+                self._chatterbox_conditionals = {}
+                raise
+        elif not self._chatterbox_conditionals:
+            self._prepare_chatterbox_conditionals(self._chatterbox)
         return self._chatterbox
 
     def _load_piper(self) -> Any:
@@ -156,17 +203,20 @@ class VoiceWorker:
 
     @staticmethod
     def _postprocess(samples: Any, sample_rate: int, pitch: float, speed: float) -> Any:
-        import librosa
         import numpy as np
         import pyloudnorm as pyln
 
         audio = np.asarray(samples, dtype=np.float32).reshape(-1)
         audio = np.nan_to_num(audio, copy=False)
         if pitch:
+            import librosa
+
             audio = librosa.effects.pitch_shift(
                 audio, sr=sample_rate, n_steps=float(pitch), res_type="soxr_hq"
             )
         if abs(speed - 1.0) > 0.001:
+            import librosa
+
             audio = librosa.effects.time_stretch(audio, rate=float(speed))
         if audio.size >= sample_rate // 2:
             meter = pyln.Meter(sample_rate)
@@ -184,10 +234,15 @@ class VoiceWorker:
     def _generate_chatterbox(
         self, text: str, profile: Any, path: Path, speed: float
     ) -> int:
+        del speed  # Resampling a generated voice was the source of audible artifacts.
         import soundfile as sf
         import torch
 
         model = self._load_chatterbox()
+        conditionals = self._chatterbox_conditionals.get(profile.voice_id)
+        if conditionals is None:
+            raise RuntimeError("VoiceReferenceProfileUnavailable")
+        model.conds = conditionals
         torch.manual_seed(profile.seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(profile.seed)
@@ -206,8 +261,8 @@ class VoiceWorker:
         samples = self._postprocess(
             samples,
             int(model.sr),
-            profile.pitch_semitones,
-            profile.speed * speed,
+            0.0,
+            1.0,
         )
         sf.write(path, samples, int(model.sr), subtype="PCM_16")
         return int(model.sr)
@@ -274,7 +329,7 @@ class VoiceWorker:
                     "seed": profile.seed,
                     "backend_override": backend_override or None,
                     "fallback_reason": fallback_reason,
-                    "schema": _VOICE_SCHEMA,
+                    "schema": VOICE_CACHE_SCHEMA,
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -294,7 +349,7 @@ class VoiceWorker:
         )
         if (
             destination.is_file()
-            and cached_metadata.get("schema") == _VOICE_SCHEMA
+            and cached_metadata.get("schema") == VOICE_CACHE_SCHEMA
             and not transient_primary_fallback
             and not bypass_cache
         ):
@@ -355,7 +410,10 @@ class VoiceWorker:
                         "fallback_used": fallback_used,
                         "primary_error": primary_error,
                         "backend_override": backend_override or None,
-                        "schema": _VOICE_SCHEMA,
+                        "schema": VOICE_CACHE_SCHEMA,
+                        "reference_profile": (
+                            voice_id if backend == "chatterbox" else None
+                        ),
                     },
                     sort_keys=True,
                 )

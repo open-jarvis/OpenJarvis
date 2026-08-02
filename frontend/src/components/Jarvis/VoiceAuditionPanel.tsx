@@ -37,7 +37,7 @@ export function VoiceProfileCard({
         </span>
       </div>
       <dl className="mt-3 grid grid-cols-[7rem_1fr] gap-x-2 gap-y-1 text-xs">
-        <dt>Tonhöhe</dt><dd>{profile.pitch_semitones} Halbtöne</dd>
+        <dt>Stimmprofil</dt><dd>{profile.backend === 'chatterbox' ? 'eigenes neuronales Timbre' : 'CPU-Notfallprofil'}</dd>
         <dt>Tempo</dt><dd>{profile.speed.toFixed(2)}×</dd>
         <dt>Emotion</dt><dd>{profile.backend === 'chatterbox' ? profile.exaggeration.toFixed(2) : 'kontrolliert'}</dd>
         <dt>CFG</dt><dd>{profile.backend === 'chatterbox' ? profile.cfg_weight.toFixed(2) : 'n/a'}</dd>
@@ -131,7 +131,7 @@ export function VoiceAuditionPanel({ embedded = false }: { embedded?: boolean })
         <div>
           <h2 id="voice-audition-heading" className="font-semibold">Stimmenauswahl</h2>
           <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-            Chatterbox Multilingual V3 · Piper-CPU-Fallback · Deutsch · keine Referenzstimme
+            Drei natürliche neuronale Profile · Piper nur als Notfallstimme · Deutsch
           </p>
         </div>
         <button
@@ -148,7 +148,7 @@ export function VoiceAuditionPanel({ embedded = false }: { embedded?: boolean })
       {error && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--color-error)' }}>{error}</p>}
       {busy && (
         <p role="status" className="mt-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-          Lokale Erzeugung läuft. Der erste Chatterbox-Lauf kann mehrere Minuten dauern; diese Ansicht bleibt bedienbar.
+          Lokale Erzeugung läuft. Das Modell wird einmal geladen; danach entstehen die Proben nacheinander.
         </p>
       )}
       {!status && !error && <p className="mt-4 text-sm">Lokaler Sprachdienst wird geladen…</p>}

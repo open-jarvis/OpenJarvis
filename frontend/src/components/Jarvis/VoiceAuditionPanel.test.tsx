@@ -8,13 +8,13 @@ const profile: VoiceProfileInfo = {
   number: 1,
   label: 'Tief und ruhig',
   backend: 'chatterbox',
-  pitch_semitones: -3,
-  speed: 0.92,
-  exaggeration: 0.32,
-  cfg_weight: 0.55,
+  pitch_semitones: 0,
+  speed: 1,
+  exaggeration: 0.38,
+  cfg_weight: 0.52,
   temperature: 0.72,
   seed: 104729,
-  description: 'Tiefe, ruhige Hauptvariante mit kontrollierter Dynamik.',
+  description: 'Ruhiges neuronales Stimmprofil mit eigenem natürlichem Timbre.',
   audition_ready: true,
 };
 
@@ -31,8 +31,8 @@ describe('Voice audition UI', () => {
     );
 
     expect(html).toContain('1. Tief und ruhig');
-    expect(html).toContain('-3 Halbtöne');
-    expect(html).toContain('0.92×');
+    expect(html).toContain('eigenes neuronales Timbre');
+    expect(html).toContain('1.00×');
     expect(html).toContain('104729');
     expect(html).toContain('blob:jarvis-deep-calm');
     expect(html).toContain('aria-pressed="true"');
@@ -45,8 +45,8 @@ describe('Voice audition UI', () => {
         profile={{
           ...profile,
           voice_id: 'jarvis-piper-fast',
-          number: 5,
-          label: 'Schneller Fallback',
+          number: 4,
+          label: 'Notfallstimme (schnell)',
           backend: 'piper',
           exaggeration: 0,
           cfg_weight: 0,
@@ -57,7 +57,8 @@ describe('Voice audition UI', () => {
       />,
     );
 
-    expect(html).toContain('5. Schneller Fallback');
+    expect(html).toContain('4. Notfallstimme (schnell)');
+    expect(html).toContain('CPU-Notfallprofil');
     expect(html).toContain('kontrolliert');
     expect(html).toContain('n/a');
     expect(html).toContain('Probe wurde noch nicht erzeugt.');

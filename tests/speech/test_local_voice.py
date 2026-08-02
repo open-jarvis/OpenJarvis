@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import queue
@@ -12,7 +13,10 @@ from openjarvis.speech.local_voice import LocalVoiceBackend, VoiceWorkerTimeout
 from openjarvis.speech.voice_config import (
     AUDITION_TEXT,
     DEFAULT_VOICE_ID,
+    LEGACY_VOICE_ALIASES,
     PROFILE_BY_ID,
+    VOICE_CACHE_SCHEMA,
+    VOICE_REFERENCE_ASSETS,
     load_voice_config,
     write_voice_config,
 )
@@ -84,13 +88,42 @@ def test_voice_config_is_secret_free_persistent_and_rejects_references(
 
 def test_profiles_are_numbered_unique_and_have_local_fallback() -> None:
     profiles = list(PROFILE_BY_ID.values())
-    assert [profile.number for profile in profiles] == [1, 2, 3, 4, 5]
+    assert [profile.number for profile in profiles] == [1, 2, 3, 4]
     assert len({profile.voice_id for profile in profiles}) == len(profiles)
     assert profiles[0].backend == "chatterbox"
     assert any(profile.backend == "piper" for profile in profiles)
-    assert all(profile.pitch_semitones <= 0 for profile in profiles)
-    assert len({profile.seed for profile in profiles[:-1]}) == 4
+    assert all(profile.pitch_semitones == 0 for profile in profiles)
+    assert all(profile.speed == 1 for profile in profiles)
+    assert len({profile.seed for profile in profiles[:-1]}) == 3
     assert all(profile.seed > 0 for profile in profiles[:-1])
+    assert {profile.voice_id for profile in profiles[:-1]} == set(
+        VOICE_REFERENCE_ASSETS
+    )
+
+
+def test_synthetic_reference_assets_match_the_allowlisted_hashes() -> None:
+    reference_root = (
+        Path(__file__).resolve().parents[2] / "configs" / "voice" / "references"
+    )
+    for filename, expected_sha256 in VOICE_REFERENCE_ASSETS.values():
+        asset = reference_root / filename
+        assert asset.is_file()
+        assert hashlib.sha256(asset.read_bytes()).hexdigest() == expected_sha256
+
+
+def test_legacy_sovereign_selection_migrates_to_a_natural_profile(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "voice-config.json"
+    config = load_voice_config(path)
+    config["selected_voice_id"] = "jarvis-sovereign"
+    path.write_text(json.dumps(config), encoding="utf-8")
+
+    migrated = load_voice_config(path)
+
+    assert migrated["selected_voice_id"] == LEGACY_VOICE_ALIASES["jarvis-sovereign"]
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted["selected_voice_id"] == migrated["selected_voice_id"]
 
 
 def test_config_manifest_never_contains_audio_or_reference_data(tmp_path: Path) -> None:
@@ -189,7 +222,7 @@ def test_piper_timeout_does_not_start_an_unbounded_retry(
     assert calls == 1
 
 
-def test_warmup_uses_the_bounded_synthesis_deadline(
+def test_warmup_uses_its_bounded_model_loading_deadline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     backend = _backend(tmp_path)
@@ -202,6 +235,7 @@ def test_warmup_uses_the_bounded_synthesis_deadline(
         return {
             "ok": True,
             "chatterbox_loaded": True,
+            "reference_profiles_loaded": len(VOICE_REFERENCE_ASSETS),
             "piper_loaded": True,
         }
 
@@ -209,5 +243,24 @@ def test_warmup_uses_the_bounded_synthesis_deadline(
 
     assert backend.warmup() is True
     assert calls == [
-        ({"command": "warmup"}, backend.synthesis_timeout_seconds)
+        ({"command": "warmup"}, backend.warmup_timeout_seconds)
     ]
+
+
+def test_auditions_must_match_the_current_voice_schema(tmp_path: Path) -> None:
+    backend = _backend(tmp_path)
+    voice_id = DEFAULT_VOICE_ID
+    audition = backend.audition_root / f"{voice_id}.wav"
+    audition.write_bytes(b"RIFF-current-test")
+    metadata = audition.with_suffix(".json")
+    metadata.write_text(json.dumps({"schema": "old-schema"}), encoding="utf-8")
+
+    assert backend._audition_is_current(voice_id) is False
+    with pytest.raises(FileNotFoundError, match="current voice audition"):
+        backend.audition_path(voice_id)
+
+    metadata.write_text(
+        json.dumps({"schema": VOICE_CACHE_SCHEMA}), encoding="utf-8"
+    )
+    assert backend._audition_is_current(voice_id) is True
+    assert backend.audition_path(voice_id) == audition.resolve()
