@@ -1455,6 +1455,7 @@ class SpeechConfig:
     language: str = "de"  # Phase-6 default; callers may explicitly override.
     device: str = "auto"  # "auto", "cpu", "cuda"
     compute_type: str = "float16"  # "float16", "int8", "float32"
+    stt_runtime_path: str = ""
     tts_enabled: bool = False
     tts_backend: str = "chatterbox"
     tts_fallback_backend: str = "piper"

@@ -486,7 +486,8 @@ switch ($Action) {
         $priorUpdater = $env:VITE_OPENJARVIS_NO_UPDATER
         try {
             $env:VITE_OPENJARVIS_NO_UPDATER = '1'
-            & npm --prefix (Join-Path $RepoRoot 'frontend') run tauri build
+            & npm --prefix (Join-Path $RepoRoot 'frontend') run tauri -- `
+                build --no-bundle --ci --no-sign
             if ($LASTEXITCODE -ne 0) { throw 'Final Tauri build failed.' }
         } finally { $env:VITE_OPENJARVIS_NO_UPDATER = $priorUpdater }
     }

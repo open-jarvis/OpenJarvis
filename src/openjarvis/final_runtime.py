@@ -30,6 +30,7 @@ from openjarvis.memory.vault_service import (
     build_vault_memory_service,
 )
 from openjarvis.server.app import create_app
+from openjarvis.speech._discovery import get_speech_backend
 from openjarvis.speech.local_voice import LocalVoiceBackend
 from openjarvis.tasks import ExecutionLane
 from openjarvis.tasks.policy import RiskLevel, ToolPolicyContext
@@ -198,8 +199,9 @@ vault_watch_enabled = false
 backend = "auto"
 model = "base"
 language = "de"
-device = "auto"
-compute_type = "float16"
+device = "cpu"
+compute_type = "int8"
+stt_runtime_path = {_toml_string(home / "speech" / "models")}
 tts_enabled = true
 tts_backend = "chatterbox"
 tts_fallback_backend = "piper"
@@ -322,6 +324,7 @@ def _validate_loaded_config(config: JarvisConfig, *, home: Path, vault: Path) ->
         config.tools.storage.vault_index_path,
         config.tools.storage.vault_restore_path,
         config.sandbox.workspace,
+        config.speech.stt_runtime_path,
         config.speech.tts_runtime_path,
     ):
         if not Path(raw).resolve(strict=False).is_relative_to(home):
@@ -337,6 +340,7 @@ def build_final_runtime(
     shutdown_callback: Callable[[], None] | None = None,
     initial_index: bool = True,
     warm_voice: bool = False,
+    warm_speech: bool = False,
 ) -> FinalRuntime:
     """Build the bounded product app without starting a listener or SDK turn."""
 
@@ -422,6 +426,11 @@ def build_final_runtime(
             runtime_home / "state" / "phase7.sqlite3",
             tool_catalog=catalog,
         )
+        speech_backend = get_speech_backend(config)
+        if speech_backend is None:
+            raise RuntimeError("local speech backend is not installed")
+        if warm_speech and not speech_backend.health():
+            raise RuntimeError("local speech backend failed its warmup")
         tts_backend = LocalVoiceBackend(runtime_home)
         if warm_voice:
             tts_backend.warmup()
@@ -442,6 +451,7 @@ def build_final_runtime(
             website_staging_service=website_service,
             browser_session_service=None,
             phase7_learning_runtime=phase7,
+            speech_backend=speech_backend,
             tts_backend=tts_backend,
             owns_task_runtime=True,
             api_key="",
@@ -469,6 +479,7 @@ def build_final_runtime(
                     "phase7": True,
                     "tools": True,
                     "website_staging": True,
+                    "local_speech_input": True,
                     "local_voice": True,
                     "analytics": False,
                     "browser": False,
@@ -602,6 +613,7 @@ def _serve(args: argparse.Namespace) -> int:
         config_path=Path(args.config),
         shutdown_token=token,
         shutdown_callback=request_shutdown,
+        warm_speech=True,
         warm_voice=True,
     )
     server = uvicorn.Server(

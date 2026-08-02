@@ -87,6 +87,18 @@ describe('Jarvis experience', () => {
     );
   });
 
+  it('keeps the wide entity inside the talk viewport with a soft lower edge', () => {
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/components/Jarvis/experience/jarvis-experience.css'),
+      'utf8',
+    );
+    expect(css).toContain('.jarvis-talk .jarvis-avatar__portrait');
+    expect(css).toContain("inset: 1.5% 1.4% 4%");
+    expect(css).toContain('.jarvis-talk .jarvis-avatar::after');
+    expect(css).toContain('linear-gradient(to bottom, transparent');
+    expect(css).toMatch(/\.jarvis-talk\s*\{[^}]*padding:\s*52px 0 0/s);
+  });
+
   it('shows the avatar but no chat or internal work in Talk mode', () => {
     const html = experience('talk');
     expect(html).toContain('Jarvis Talk-Modus');

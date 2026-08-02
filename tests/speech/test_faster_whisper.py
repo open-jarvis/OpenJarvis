@@ -1,5 +1,6 @@
 """Tests for Faster-Whisper speech backend."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -53,6 +54,31 @@ def test_faster_whisper_transcribe():
         assert result.duration_seconds == 1.5
 
 
+def test_faster_whisper_closes_temp_file_before_decoder_opens_it():
+    """Windows decoders must be able to reopen the temporary audio path."""
+    opened_paths = []
+
+    def transcribe(path, **_kwargs):
+        temp_path = Path(path)
+        opened_paths.append(temp_path)
+        assert temp_path.read_bytes() == b"real wav bytes"
+        info = MagicMock(language="de", language_probability=0.9, duration=0.5)
+        return ([], info)
+
+    mock_model = MagicMock()
+    mock_model.transcribe.side_effect = transcribe
+    with patch(
+        "openjarvis.speech.faster_whisper.WhisperModel",
+        return_value=mock_model,
+    ):
+        backend = FasterWhisperBackend(model_size="base", device="cpu")
+        result = backend.transcribe(b"real wav bytes", language="de")
+
+    assert result.language == "de"
+    assert len(opened_paths) == 1
+    assert not opened_paths[0].exists()
+
+
 def test_faster_whisper_falls_back_from_unsupported_float16():
     mock_model = MagicMock()
 
@@ -76,6 +102,30 @@ def test_faster_whisper_falls_back_from_unsupported_float16():
         assert backend._ensure_model() is mock_model
 
     mock_whisper.assert_called_once_with("base", device="cpu", compute_type="int8")
+
+
+def test_faster_whisper_keeps_downloads_inside_runtime(tmp_path):
+    mock_model = MagicMock()
+    model_root = tmp_path / "speech-models"
+
+    with patch(
+        "openjarvis.speech.faster_whisper.WhisperModel",
+        return_value=mock_model,
+    ) as mock_whisper:
+        backend = FasterWhisperBackend(
+            model_size="base",
+            device="cpu",
+            compute_type="int8",
+            download_root=str(model_root),
+        )
+        assert backend._ensure_model() is mock_model
+
+    mock_whisper.assert_called_once_with(
+        "base",
+        device="cpu",
+        compute_type="int8",
+        download_root=str(model_root.resolve()),
+    )
 
 
 def test_faster_whisper_missing_dependency_hint_uses_desktop_extra():

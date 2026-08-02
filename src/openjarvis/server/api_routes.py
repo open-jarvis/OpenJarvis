@@ -950,7 +950,12 @@ async def transcribe_speech(request: Request):
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "wav"
         if ext not in _SPEECH_FORMATS:
             raise HTTPException(status_code=415, detail="Unsupported audio format")
-        result = backend.transcribe(audio_bytes, format=ext, language=language)
+        result = await asyncio.to_thread(
+            backend.transcribe,
+            audio_bytes,
+            format=ext,
+            language=language,
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -1100,7 +1105,9 @@ async def speech_health(request: Request):
     available = False
     reason = None
     try:
-        available = bool(backend is not None and backend.health())
+        available = bool(
+            backend is not None and await asyncio.to_thread(backend.health)
+        )
     except Exception as exc:
         logger.exception("Speech health check failed")
         available = False
@@ -1113,7 +1120,10 @@ async def speech_health(request: Request):
             reason = raw_reason[:160] if raw_reason else None
 
     try:
-        tts_available = bool(tts_backend is not None and tts_backend.health())
+        tts_available = bool(
+            tts_backend is not None
+            and await asyncio.to_thread(tts_backend.health)
+        )
         tts_error = None
     except Exception as exc:
         logger.exception("TTS health check failed")

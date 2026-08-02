@@ -39,6 +39,7 @@ def _create_backend(
                 model_size=config.speech.model,
                 device=config.speech.device,
                 compute_type=config.speech.compute_type,
+                download_root=config.speech.stt_runtime_path or None,
             )
         elif key == "openai":
             api_key = os.environ.get("OPENAI_API_KEY", "")
@@ -62,8 +63,28 @@ def get_speech_backend(config: "JarvisConfig") -> Optional["SpeechBackend"]:
     If ``config.speech.backend`` is ``"auto"``, tries backends in
     priority order and returns the first healthy one.
     """
-    # Trigger registration of built-in backends
+    # Importing the package registers built-ins during normal startup. Re-add
+    # an already imported backend if a test or an embedded host cleared the
+    # process-wide registry afterwards.
     import openjarvis.speech  # noqa: F401
+    from openjarvis.core.registry import SpeechRegistry
+
+    builtin_backends: dict[str, tuple[str, str]] = {
+        "faster-whisper": (
+            "openjarvis.speech.faster_whisper",
+            "FasterWhisperBackend",
+        ),
+        "openai": ("openjarvis.speech.openai_whisper", "OpenAIWhisperBackend"),
+        "deepgram": ("openjarvis.speech.deepgram", "DeepgramSpeechBackend"),
+    }
+    for key, (module_name, class_name) in builtin_backends.items():
+        if SpeechRegistry.contains(key):
+            continue
+        try:
+            module = __import__(module_name, fromlist=[class_name])
+            SpeechRegistry.register_value(key, getattr(module, class_name))
+        except (ImportError, AttributeError):
+            continue
 
     backend_key = config.speech.backend
 

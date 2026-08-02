@@ -121,6 +121,7 @@ async def test_factory_wires_only_bounded_runtime_and_guarded_shutdown(
     assert runtime.app.state.browser_session_service is None
     assert runtime.app.state.channel_bridge is None
     assert runtime.app.state.analytics_client is None
+    assert runtime.app.state.speech_backend.backend_id == "faster-whisper"
     assert runtime.app.state.final_staging_root.is_relative_to(home.resolve())
     assert not runtime.app.state.final_staging_root.is_relative_to(vault.resolve())
     assert runtime.app.state.tool_action_service.runtime_available(
@@ -152,6 +153,7 @@ async def test_factory_wires_only_bounded_runtime_and_guarded_shutdown(
                 "phase7": True,
                 "tools": True,
                 "website_staging": True,
+                "local_speech_input": True,
                 "local_voice": True,
                 "analytics": False,
                 "browser": False,

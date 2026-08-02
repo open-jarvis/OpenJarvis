@@ -1,0 +1,9 @@
+# Local CPU speech-to-text for the final Windows runtime.
+# Keep the model/runtime stack deterministic across repairs and reinstalls.
+faster-whisper==1.2.1
+ctranslate2==4.8.1
+av==18.0.0
+onnxruntime==1.28.0
+tokenizers==0.23.1
+protobuf==7.35.1
+flatbuffers==25.12.19

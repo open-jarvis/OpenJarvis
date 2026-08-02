@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from pathlib import Path
 from typing import List, Optional
 
 from openjarvis.core.registry import SpeechRegistry
@@ -33,10 +34,16 @@ class FasterWhisperBackend(SpeechBackend):
         model_size: str = "base",
         device: str = "auto",
         compute_type: str = "float16",
+        download_root: str | None = None,
     ) -> None:
         self._model_size = model_size
         self._device = device
         self._compute_type = compute_type
+        self._download_root = (
+            str(Path(download_root).expanduser().resolve(strict=False))
+            if download_root
+            else None
+        )
         self._model: Optional[WhisperModel] = None
         self._last_error: Optional[str] = None
 
@@ -86,11 +93,13 @@ class FasterWhisperBackend(SpeechBackend):
                 )
                 raise ImportError(self._last_error)
             compute_type = self._resolve_compute_type()
-            self._model = WhisperModel(
-                self._model_size,
-                device=self._device,
-                compute_type=compute_type,
-            )
+            model_kwargs = {
+                "device": self._device,
+                "compute_type": compute_type,
+            }
+            if self._download_root:
+                model_kwargs["download_root"] = self._download_root
+            self._model = WhisperModel(self._model_size, **model_kwargs)
         self._last_error = None
         return self._model
 
@@ -105,18 +114,26 @@ class FasterWhisperBackend(SpeechBackend):
         try:
             model = self._ensure_model()
 
-            # Write audio to a temp file (faster-whisper needs a file path)
+            # Faster Whisper opens the path itself. The first handle must be
+            # closed beforehand because Windows otherwise denies the decoder
+            # access to a NamedTemporaryFile that is still open.
             suffix = f".{format}" if not format.startswith(".") else format
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
-                tmp.write(audio)
-                tmp.flush()
+            temp_path: Path | None = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                    temp_path = Path(tmp.name)
+                    tmp.write(audio)
+                    tmp.flush()
 
                 kwargs = {}
                 if language:
                     kwargs["language"] = language
 
-                segments_iter, info = model.transcribe(tmp.name, **kwargs)
+                segments_iter, info = model.transcribe(str(temp_path), **kwargs)
                 segments_list = list(segments_iter)
+            finally:
+                if temp_path is not None:
+                    temp_path.unlink(missing_ok=True)
         except Exception as exc:
             self._last_error = str(exc)
             raise

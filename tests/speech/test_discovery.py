@@ -28,6 +28,34 @@ def test_get_speech_backend_explicit():
         assert result.backend_id == "faster-whisper"
 
 
+def test_faster_whisper_receives_runtime_model_path():
+    """The local backend keeps downloaded models inside OPENJARVIS_HOME."""
+    from openjarvis.speech._discovery import _create_backend
+
+    config = JarvisConfig()
+    config.speech.model = "base"
+    config.speech.device = "cpu"
+    config.speech.compute_type = "int8"
+    config.speech.stt_runtime_path = r"C:\runtime\speech\models"
+
+    class MockBackend:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    backend_cls = MockBackend
+    with (
+        patch("openjarvis.core.registry.SpeechRegistry.contains", return_value=True),
+        patch("openjarvis.core.registry.SpeechRegistry.get", return_value=backend_cls),
+    ):
+        result = _create_backend("faster-whisper", config)
+
+    assert result is not None
+    assert result.model_size == "base"
+    assert result.device == "cpu"
+    assert result.compute_type == "int8"
+    assert result.download_root == r"C:\runtime\speech\models"
+
+
 def test_get_speech_backend_returns_none_if_nothing_available():
     """Returns None when no backend can be created."""
     from openjarvis.speech._discovery import get_speech_backend

@@ -130,3 +130,6 @@ npm run build
 - Resemble PerTh 1.0.1 with `setuptools 80.9.0` compatibility pin
 
 The full reproducible input is `configs/voice/requirements-windows.txt`.
+
+Microphone transcription is a separate local Faster Whisper component. Its
+installation and verification are documented in `docs/local-speech.md`.
