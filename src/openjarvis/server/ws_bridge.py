@@ -81,8 +81,27 @@ def create_ws_router(event_bus: EventBus) -> Any:
         clients[websocket] = (queue, loop)
         try:
             while True:
-                payload = await queue.get()
-                await websocket.send_json(payload)
+                recv = asyncio.create_task(websocket.receive())
+                payload = asyncio.create_task(queue.get())
+                done, _ = await asyncio.wait(
+                    {recv, payload}, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in (recv, payload):
+                    if task not in done:
+                        task.cancel()
+                if recv in done:
+                    # A completed receive surfaces the client's disconnect —
+                    # Starlette delivers it as a message (or raises
+                    # WebSocketDisconnect for a clean close frame) only when
+                    # the app actually reads from the socket. Without this the
+                    # handler never learns the client left, its task stays
+                    # open forever, and uvicorn's graceful shutdown blocks on
+                    # it until systemd SIGKILLs the unit (TimeoutStopSec).
+                    message = await recv
+                    if message.get("type") == "websocket.disconnect":
+                        break
+                else:
+                    await websocket.send_json(payload.result())
         except WebSocketDisconnect:
             pass
         finally:
