@@ -1,232 +1,200 @@
 # Phase 8 – Final Production Acceptance
 
-Stand: 1. August 2026, korrigierter Nachweis nach dem Chat-Lifecycle-Fehler
+Stand: 2. August 2026, Abschlussprüfung des allgemeinen Jarvis-Assistenten
 
 ## Endentscheidung
 
 **B. MANUELLE FREIGABE ERFORDERLICH**
 
-Der Python-Chatpfad beantwortet normale Fragen wieder zuverlässig über das
-Codex Python SDK mit explizit bestätigtem `gpt-5.6-terra` und `xhigh`. Der
-laufende finale Server ist gesund und die vorhandene native App ist sichtbar
-verbunden. Die aktuelle Release-EXE enthält jedoch noch nicht die neue
-Frontend-Lifecycle-Korrektur, weil die einzige installierte Rust-Toolchain ihre
-eigenen `std`-/`core`-Artefakte nicht kompilieren kann. Eine automatische
-Reparatur oder Neuinstallation der Toolchain ist nicht freigegeben.
+Die lokale Anwendung, die native Windows-Binary, das Python-Codex-Backend,
+das sichere Action-Routing sowie die Desktop-, Browser-, Approval- und
+Cleanup-Primitiven sind technisch grün. Die vollständige Definition of Done
+kann dennoch nicht als bestanden gelten: Der erste Wissens-Turn in der neu
+gebauten EXE wurde vom authentifizierten Codex-App-Server mit
+`usageLimitExceeded` abgelehnt. Codex nannte als Rücksetzzeitpunkt den
+8. August 2026. Deshalb konnten in diesem Lauf weder eine nutzbare normale
+Antwort, die Kontext-Rückfrage noch der produktive Programmier-Turn erneut
+abgenommen werden.
 
-Die erweiterte Definition of Done für Desktop-, Browser- und
-Programmieraufgaben ist außerdem noch nicht vollständig durch reale E2E-Smokes
-nachgewiesen. Deshalb darf der frühere Produktiv-Bereit-Status nicht als
-aktuelle Abnahme verwendet werden.
+Es wurde bewusst kein Luna-, Sol-, Ollama-, Qwen-, API-Key- oder
+Responses-API-Fallback gestartet. Ein Kauf, Upgrade oder eine Änderung der
+ChatGPT-/Codex-Anmeldung lag außerhalb der Freigabe. Der Fehler ist daher ein
+externer Nutzungslimit-Blocker und kein nachgewiesener Fehler des neuen
+Routing-, Build- oder Launcher-Codes.
 
-## Behobene Abschlussblocker
+## Repository und Commits
 
-Nach dem reproduzierbaren normalen Chatfehler wurden zusätzlich behoben:
+- Repository: `openjarvis-codex`
+- Branch: `feature/codex-jarvis-orchestrator`
+- Ausgangsstand dieses Fortsetzungsauftrags: `4b6fa9c6`
+- Isolierter Runtime-Workspace: `c7c878c7`
+- Allgemeines Assistenz-Routing und sichere lokale Tools: `6c71450c`
+- Kein Push, kein Pull Request, kein Merge.
+- Fremde Änderungen wurden nicht verworfen oder überschrieben.
 
-- Text-Streaming-Deltas zählen nicht mehr einzeln gegen das Turn-Schrittlimit;
-  nur begonnene Arbeits-Items werden gezählt.
-- Gleichzeitige SDK-/App-Server-Starts werden serialisiert, sodass nicht zwei
-  Leser denselben App-Server-Stream konsumieren.
-- Ein Streamfehler hinterlässt keinen dauerhaft `running` markierten Task,
-  sondern terminalisiert ihn fail-closed als `failed`.
-- Der finale Runtimepfad fordert für jeden Turn ausdrücklich
-  `gpt-5.6-terra`/`xhigh` an und verwirft einen unbestätigten oder abweichenden
-  Runtime-Nachweis.
-- Ein pausierter, risikofreier Chat-Task ohne offene Approval kann in der neuen
-  UI durch einen neuen Task ersetzt werden. Riskante oder approval-gebundene
-  pausierte Tasks bleiben gesperrt.
+## Ursache und Reparaturen
 
-Die folgenden kleinen, getrennten Korrekturen waren für den realen
-Windows-Produktstart erforderlich:
+Die zuvor gemeldete Rust-Standardbibliotheksstörung war im aktuellen Zustand
+nicht mehr reproduzierbar. Die aktive Toolchain `1.97.1` konnte Cargo-Metadaten
+lesen, ein minimales Rust-Programm bauen und den vollständigen nativen
+Tauri-Release-Build kompilieren. Eine Rustup- oder Systemänderung war deshalb
+nicht erforderlich.
 
-- Der Launcher startet standardmäßig die repository-relative Release-EXE.
-- `netstat.exe` wird direkt ausgewertet; ein leerer Wrapper-Exitcode kann nicht
-  mehr als `code .` erscheinen.
-- Die vom Health-Endpunkt und Listener gemeinsam bestätigte Nachfahren-PID ist
-  die kanonische Server-PID; eine Wrapper-PID wird nicht persistiert.
-- Ein nach dem geschlossenen Listener verbleibender Windows-Serverthread wird
-  nur nach erneuter Prüfung von PID, Startzeit und Executable beendet. Es gibt
-  kein Beenden nach Prozessnamen.
-- Der native Tauri-Build deaktiviert den PWA-Service-Worker. Eine vorhandene
-  alte Registration wird im Attach-Modus abgemeldet und höchstens einmal neu
-  geladen; Cache-, Cookie- und Profildaten werden nicht geöffnet oder gelöscht.
-- Unvollständige Live-DTOs können die Jarvis-Timeline nicht mehr über
-  `.replace()`/`.includes()` in den ErrorBoundary bringen.
-- Die Task-Summary wird periodisch und ohne Webview-Cache aktualisiert.
-- Der Secret-Redactor bewahrt die kanonischen Task-, Session- und
-  Correlation-IDs. Zuvor wurde der Teil `sk-` in IDs des Formats `task-…`
-  fälschlich als API-Key erkannt, wodurch die UI bestätigte Turndaten verwarf.
+Für die allgemeine Assistentenfunktion wurden folgende begrenzte Reparaturen
+implementiert:
 
-Die zugehörigen lokalen Commits sind `25706fda`, `e05c2dc6`, `8d76e65f`,
-`94fcf1fa`, `0ce8d250`, `87975cfa` und `6fff70ce`. Es gab keinen Push oder
-Merge.
+- Konservative, mehrsprachige Unterscheidung zwischen normalem Chat,
+  Desktop-, Browser- und Programmieraufträgen. Unsicherheit bleibt read-only.
+- Erklärfragen wie „Wie funktioniert ein Browser/Build?“ werden nicht allein
+  wegen eines Schlüsselworts zu Aktionen hochgestuft.
+- Der Risikoboden eines Tasks ist unveränderlich. Eine höher riskante
+  Folgeanfrage wird vor User-Event und Codex-Turn mit `NEW_TASK_REQUIRED`
+  abgelehnt; die UI wiederholt sie genau einmal unter einer neuen Task-ID.
+- Aktionstasks sind auf den isolierten Runtime-Workspace beschränkt.
+- Code-eigene Developer-Anweisungen grenzen Desktop, Browser und Programmieren
+  ein; Benutzer-, Tool- und Webseiteninhalt erteilt keine Berechtigung.
+- Ein eigener sichtbarer Win32-Testeditor speichert ausschließlich neue
+  `.txt`-/`.md`-Dateien im Testworkspace und beendet sich mit seinem Owner.
+- Die Browserrecherche verwendet ausschließlich eine eigene temporäre
+  Edge-Session, öffentlich auflösbare HTTPS-Ziele, Prompt-Injection-Prüfung,
+  mehrere Quellen und verifizierte Cleanup-Grenzen.
+- App-Server-Kindprozesse erhalten lokal die tatsächlich aktive Python-
+  Umgebung zuerst im `PATH`; kein privater absoluter Pfad ist committed.
+- Der Launcher beendet nach erneutem PID-/Pfad-/Startzeit-Nachweis nur die
+  kanonische eigene UI oder Server-PID. Es gibt kein Beenden nach Prozessnamen.
+- Ein Codex-Nutzungslimit wird künftig als klarer HTTP-429-Fehler ohne
+  kontospezifischen Rohtext gemeldet, nicht mehr als irreführende leere Antwort.
 
-## Produktiver Laufzeitnachweis
+## Native Build- und Laufzeitnachweise
 
-Für den aktuell laufenden Launcherzustand gilt:
+- Cargo: `1.97.1 (c980f4866 2026-06-30)`
+- Rustc: `1.97.1 (8bab26f4f 2026-07-14)`
+- Host: `x86_64-pc-windows-msvc`
+- `cargo metadata --no-deps --format-version 1`: bestanden.
+- Tauri-Befehl: `tauri build --ci --no-bundle --no-sign`
+- Release-Profil: erfolgreich in 1 Minute 15 Sekunden; kompletter Befehl
+  einschließlich Frontend dauerte 102 Sekunden.
+- EXE: `frontend/src-tauri/target/release/openjarvis-desktop.exe`
+- Größe: 17.934.336 Bytes
+- Zeitstempel UTC: `2026-08-02T00:21:52.2744925Z`
+- SHA-256:
+  `cf25f1fb2d11de1fcf7f3aeb460b8d1c75b10d2b514176e52c4090165bd3324b`
 
-- Status `ready`, Marker `OPENJARVIS-FINAL-RUNTIME`, Runtime `phase8-final`.
-- Server-PID/Health-PID/Port-Owner: `3622456`.
-- Sichtbare Release-UI-PID: `3625076`.
-- Backend `python_sdk`, ChatGPT-Anmeldung vorhanden.
-- Sandbox `read_only`, Approval-Modus `deny_all`, CLI-Fallback aus.
-- Browser-Sessions deaktiviert, 0 wartende Approvals, 0 Tool-Aktionen.
-- Tool-Health gesund (1 registriertes Tool); Browser und weitere optionale,
-  bewusst nicht gestartete Komponenten erklären den aggregierten Status
-  `degraded`, nicht ein Kernsystemfehler.
-- Kein Qwen-, Ollama- oder `uv`-Setup war sichtbar oder aktiv.
+Die EXE wurde genau über den finalen Launcher gestartet. Der anschließende
+kontrollierte Restart war erfolgreich. Nach dem Restart:
 
-Der bekannte Windows-Prozess-/Thread-Shutdown-Hänger trat beim kontrollierten
-Stop reproduzierbar auf. Der Listener war bereits geschlossen; anschließend
-griff ausschließlich die erneut verifizierte kanonische PID-Recovery. Stop,
-Start und Restart waren danach vollständig und hinterließen keinen fremden
-Prozess oder offenen zweiten Listener.
+- Status `ready`, Marker `OPENJARVIS-FINAL-RUNTIME`, Runtime `phase8-final`;
+- Health-PID und einziger Listener auf `127.0.0.1:8000`: `2654264`;
+- sichtbare UI-PID: `3684384`;
+- UI-Pfad entspricht exakt der oben gehashten Release-EXE;
+- die alten Server-/UI-PIDs waren beendet;
+- Backend `python_sdk`, Runtime `0.144.4`, ChatGPT-authentifiziert;
+- CLI-Fallback aus, 0 offene Approvals nach dem Approval-Smoke.
 
-## Chat-, Task- und Modellnachweis
+## Chat- und Modellnachweis
 
-Der reproduzierbare Fehler bei `was kannst du` war kein fehlendes
-Sprachverständnis. Die Antwort wurde als viele Text-Deltas gestreamt und lief
-dadurch fälschlich in `turn step limit exceeded`. Dieser Task wurde nach der
-Reparatur kontrolliert als `canceled` terminalisiert, ohne ihn fortzusetzen.
+Ein vorheriger erfolgreicher Produktlauf hatte eine normale Wissensfrage und
+genau eine Kontext-Rückfrage im selben persistenten Thread sinnvoll
+beantwortet. Die persistierte Runtime-Evidenz bestätigte dabei
+`gpt-5.6-terra`, `xhigh`, Python SDK und Runtime `0.144.4`.
 
-Danach wurde genau eine normale Wissensfrage ohne Toolaufruf verarbeitet:
+Für die neu gebaute EXE wurde erneut eine normale Frage über denselben
+kanonischen `/v1/chat`-Pfad der UI gesendet. Der Turn startete korrekt und die
+persistierte Evidenz bestätigte technisch:
 
-```text
-Erkläre mir einfach, wie ein Elektromotor funktioniert.
-[vollständige, verständliche Erklärung eines Elektromotors]
-```
-
-Genau eine Rückfrage im selben Task und Thread wurde im Kontext verstanden:
-
-```text
-Und warum bleibt er nach einer halben Umdrehung nicht stehen?
-[kontextbezogene Erklärung von Kommutator beziehungsweise elektronischer Umschaltung]
-```
-
-Die persistierte Task-Summary bestätigt für diese tatsächlichen Turns:
-
-- angefordertes und aufgelöstes Modell `gpt-5.6-terra`;
-- Reasoning-Effort `xhigh`;
-- Modell und Effort jeweils `App Server confirmed`;
+- Modell `gpt-5.6-terra` – App Server bestätigt;
+- Reasoning `xhigh` – App Server bestätigt;
 - Backend `python_sdk`;
-- Python-SDK-Version `0.144.4`;
-- gepinnte App-Server-/CLI-Runtime `0.144.4`;
-- persistierte, in der UI gekürzte Codex-Thread-ID.
+- SDK und Runtime `0.144.4`;
+- bestehende ChatGPT-Anmeldung;
+- kein Fallback.
 
-Die Anmeldung erfolgt über die vorhandene ChatGPT-Anmeldung; die Anwendung
-nutzt das Python Codex SDK gegen die gepinnte App-Server-/CLI-Runtime, nicht
-Ollama oder ein externes Modell. Ein stiller Modell-Fallback ist im finalen
-Pfad jetzt verboten.
+Danach meldete der Codex-App-Server `usageLimitExceeded`, bevor ein
+Assistant-Item entstand. Der Task wurde fail-closed als `failed` gespeichert.
+Dieser Turn ist **nicht bestanden** und zählt nicht als normale Chatantwort.
+Es wurde kein weiterer Live-Turn und kein erneuter finaler Marker-Turn
+gestartet.
 
-## Finaler Codex-Live-Smoke
+## Assistenten-Smokes
 
-Der bereits früher genehmigte finale Marker-Turn bleibt historisch dokumentiert:
+### Bestanden
 
-```text
-Return exactly: JARVIS-FINAL-LIVE-OK
-JARVIS-FINAL-LIVE-OK
-```
+- Allgemeines Routing: Normale Informationsfragen bleiben read-only und ohne
+  Toolanweisung; klare Aktionen erhalten Modus, Risikoboden und sichtbares
+  Timeline-Event.
+- Desktop: Eigener sichtbarer Editor erzeugte ausschließlich
+  `final-desktop-smoke-verified.txt` im externen Testworkspace. Inhalt und
+  SHA-256 wurden verifiziert, Screenshot erfasst und der Owner-Prozess sauber
+  beendet. Keine echten Benutzerdokumente wurden verändert.
+- Browser: Eigene temporäre Edge-Session recherchierte das ungefährliche Thema
+  „bicycle and motorcycle dynamics“, öffnete drei öffentliche Quellen,
+  dokumentierte blockierte Quellen, übernahm keine Webseitenanweisung,
+  führte keinen externen Effekt aus und entfernte das temporäre Profil.
+- Approval: Eine synthetische lokale Website-Aktion wechselte real in
+  `waiting_approval`, wurde ausdrücklich abgelehnt, hinterließ 0 offene
+  Approvals und erzeugte keinen Website-Workspace.
+- Pause/Abbruch/Cleanup: Fokustests und reale Launcher-/Tool-Smokes bestätigten
+  Owner-gebundenes Schließen, Timeout-Cleanup, Cancel und fehlende verwaiste
+  Testprozesse.
+- Programmier-Primitiven: Isolierter Datei-/Git-/Test-Smoke einschließlich
+  Änderung, Test, Bundle-/Restore-Prüfung und Cleanup war grün; kein Push.
 
-Es entstanden damals genau ein User- und ein Assistant-Event. Der Antwort-Hash ist
-`1c4b014fb0d1689000c2de13253e190ba3b675bf58b1d994c50c472d14479367`.
-Tool-, Browser-, Datei-, Vault- und externe Aktionen: 0. Dieser Marker-Turn
-wurde bei der aktuellen Reparatur nicht wiederholt. Die normale Wissensfrage
-und ihre eine Kontextfolge waren die einzigen aktuellen Modell-Turns.
+### Nicht erneut produktiv abnehmbar
 
-## Bestandene fokussierte Gates
+- Normale Antwort und Kontext-Rückfrage in der neu gebauten EXE.
+- Modellgesteuerte Desktop-/Browseraktion über einen neuen Codex-Turn.
+- Modellgesteuerte Diagnose und Reparatur des isolierten Programmierprojekts.
 
-Aktuelle Reparaturgates:
+Diese drei Punkte wurden nicht durch einen anderen Modellanbieter ersetzt.
+Sie müssen nach Freigabe des Codex-Nutzungskontingents erneut über den
+kanonischen Produktpfad geprüft werden.
 
-- Python-Transport-, SDK-, Orchestrator-, Konfigurations- und
-  Final-Runtime-Fokustests: 30/30.
-- Betroffene Frontend-Lifecycle-Tests: 16/16.
-- Frontend-Tauri-Webview-Produktionsbuild: bestanden.
-- Ruff, Compileprüfung und `git diff --check`: bestanden.
+## Testergebnisse
 
-Historisch bestandene Gates vor der aktuellen Reparatur:
-
-- Frontend Vitest: 37/37.
-- Neue API-/Lifecycle-Fokustests: 23/23.
-- Rust/Tauri Unit-Tests: 24/24.
-- Launcher-/Tauri-Pytests: 17/17.
-- Task-Route-Suite einschließlich Identity-Regression: 14/14.
-- Server-Lifespan-/Shutdown-Fokus: 3/3.
-- Final-Product-Pilot/Offline-Socket-Guard: 6/6.
-- Hermetischer Live-Smoke-Vertrag: 3/3.
-- Recovery-Bundle-Test: 1/1.
-- Frontend-Produktionsbuild: bestanden.
-- Tauri-Webview-Build ohne Service-Worker: bestanden.
-- Der frühere serielle native Tauri-Release-Build war bestanden;
-  die unveränderte alte Binary hat SHA-256
-  `527ed3548d04d96e70c46e2da43d383115789757ffc3c5a8a0d90be60d8c1ab7`.
-- Ruff, Compile-/Importprüfung, `git diff --check` und Secret-Scan: bestanden.
-
-Der komplette `BuildFinal`-Wrapper erreichte einmal nach 304 Sekunden sein
-Zeitlimit und wird nicht als grün gezählt. Seine Child-Prozesse waren beendet
-und MSI/NSIS-Artefakte waren erzeugt; kanonischer nativer Nachweis bleibt der
-separat mit Exitcode 0 beendete serielle Release-Build. `cargo fmt --check`
-war nicht verfügbar, weil die bestehende Toolchain keine `rustfmt`-Komponente
-enthält; es wurde nichts installiert.
+- Fokussierte Python-Gesamtgruppe für Assistenz, Task-Routing, Runtime,
+  Browser, Desktop und Launcher: 72/72 bestanden.
+- Echte Launcher-Ownership-/Netstat-Gruppe: 9/9 bestanden.
+- Nachträgliche Routing-/Usage-Limit-Gruppe: 36/36 bestanden.
+- Final-Product-, Offline-/Socket-, Browser-, Tool- und Runtime-Gruppe:
+  35/35 bestanden.
+- Frontend Vitest: 40/40 bestanden.
+- Frontend-/Tauri-Webview-Produktionsbuild: bestanden.
+- Nativer Tauri-Release-Build: bestanden.
+- Ruff über alle geänderten Python-Dateien: bestanden.
+- Compileall und Importprüfung: bestanden.
+- `git diff --check`: bestanden.
+- High-Confidence-Secret-Scan über 1.350 hinzugefügte Diff-Zeilen: 0 Treffer.
+- Scan auf committed private absolute Benutzerpfade: 0 Treffer.
 
 Der frühere breite Windows-Legacy-/Server-Sammellauf bleibt als
-Prozess-/Thread-Shutdown-Hänger, Timeout/Abbruch ohne verwertbares Endergebnis
-und nicht bestanden dokumentiert. Er wurde nicht wiederholt und ist kein
-nachgewiesener Phase-7- oder Phase-8-Funktionsfehler.
+Windows-Prozess-/Thread-Shutdown-Hänger, Timeout/Abbruch ohne verwertbares
+Endergebnis und nicht bestanden dokumentiert. Er wurde nicht wiederholt und
+ist kein nachgewiesener Fehler dieser Reparatur.
 
-## Offenes natives Build-Gate
+## Daten- und Sicherheitsgrenzen
 
-Der aktuelle native Release-Build ist **nicht bestanden** und wird nicht als
-grün gezählt:
+- Ausschließlich das genehmigte isolierte Test-Vault wurde für die Runtime
+  verwendet.
+- Das reale Obsidian-Vault wurde in diesem Auftrag weder geöffnet noch
+  beschrieben, migriert, umbenannt oder neu geordnet.
+- Keine Secrets, Cookies, Tokens oder Browserprofile wurden geöffnet oder
+  gespeichert.
+- Keine Nachricht, Veröffentlichung, Buchung, Bestellung, Zahlung oder
+  Kontoänderung wurde ausgeführt.
+- Kein fremder Prozess wurde beendet; Shutdown-Recovery war an PID,
+  Executable und Startzeit gebunden.
+- Keine globale PATH-, Registry-, Execution-Policy- oder Rustup-Änderung.
+- Kein Push.
 
-- `rustc 1.97.1` und `cargo 1.97.1` werden über die einzige installierte
-  Toolchain `stable-x86_64-pc-windows-msvc` gefunden.
-- `rust-std` ist als installiert registriert und der Sysroot enthält Dateien
-  für `std` und `core`.
-- Ein direktes minimales `rustc`-Programm scheitert dennoch außerhalb jedes
-  Cargo-Target-Caches mit `only metadata stub found` beziehungsweise einer als
-  `staticlib` statt `rlib` erkannten Standardbibliothek.
-- Ein neuer externer Target-Ordner reproduziert denselben Fehler. Das Problem
-  ist deshalb kein repository-lokaler `target`-Cache.
-- Es existiert keine zweite bereits installierte Toolchain als zulässige
-  Ausweichmöglichkeit.
+## Verbleibender Freigabeschritt
 
-Die alte native EXE blieb byte-identisch und die laufende App verwendet sie
-weiterhin. Für einen korrekten Neubau ist eine ausdrücklich genehmigte manuelle
-Reparatur oder Neuinstallation der Rust-Toolchain notwendig. Danach müssen
-Release-Build, betroffene Rust-/Tauri-Tests sowie Start/Close/Restart erneut
-bestanden werden.
+Nach Rücksetzung oder ausdrücklicher Erweiterung des bestehenden
+ChatGPT-/Codex-Nutzungskontingents sind ausschließlich die offenen
+Produktturns zu wiederholen: normale Frage, eine Kontext-Rückfrage und ein
+isolierter Programmierauftrag. Erst wenn diese drei Resultate nutzbar sind,
+darf die vollständige Definition of Done als bestanden markiert werden.
 
-## Noch offene Definition-of-Done-Nachweise
-
-Nicht als bestanden gemeldet werden:
-
-- die neue Frontend-Lifecycle-Korrektur in einer neu gebauten nativen EXE;
-- ein sicherer Desktop-E2E-Smoke mit sichtbarer Ausführung und Verifikation;
-- ein Browserrecherche-E2E-Smoke mit Quellen und Prompt-Injection-Abwehr;
-- ein isolierter Programmier-E2E-Smoke;
-- reale Approval-/Ablehnungs- und Timeout-/Prozess-Cleanup-Smokes für diese
-  vier Assistentenpfade.
-
-## Daten-, Vault- und Recovery-Grenzen
-
-- Das reale Vault wurde in diesem Abschluss nicht migriert, beschrieben,
-  umbenannt, neu geordnet oder zurückgerollt.
-- Sein reine-Metadaten-Fingerprint blieb exakt unverändert: 59 Dateien,
-  46 Markdown-Dateien, SHA-256
-  `60ac7361cdf51b97b27c9e34c625cfbbfcbe37fd3580f1a79a524d78dedbaab6`.
-- Der genehmigte After-Manifest-Hash bleibt
-  `f88cf67aeb89e878c39bfcdc2ff6adf230a387c716b8fd258e4cef161573bda2`.
-- Altprojekt, Vault-Backup, Pre-Write-Bundle und Mapping-Artefakte bleiben
-  unverändert.
-- Kein Netzwerkdownload, keine globale PATH-/Registry-/Policy-Änderung, keine
-  Installation, kein Zugriff auf Browserprofile/Cookies/Tokens und kein Push.
-- Der aktuelle Cargo-Pfad wurde ausschließlich pro Buildprozess ergänzt.
-
-Das externe Recovery-Bundle wird nach diesem Dokumentationscommit auf den
-aktuellen nachweisbaren Stand aktualisiert. Es darf die offenen Gates nicht als
-bestanden kennzeichnen.
-
-OpenJarvis bleibt sichtbar geöffnet; der Python-Chatpfad ist betriebsbereit.
-Die vollständige Produktabnahme bleibt bis zur Toolchain-Freigabe, zum nativen
-Neubau und zu den noch offenen sicheren E2E-Smokes ausgesetzt. Es gibt keine
-neue Phase und keine weitere Roadmap.
+Nach dem Dokumentationscommit wird ein neues, vollständiges externes
+Git-Recovery-Bundle für den finalen HEAD erzeugt und mit `git bundle verify`
+und SHA-256 geprüft. Der konkrete Bundle-Hash wird im externen
+Recovery-Nachweis und im Abschlussbericht dieses Auftrags angegeben.
