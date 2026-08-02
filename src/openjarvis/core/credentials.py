@@ -67,6 +67,24 @@ def load_credentials(path: Path | None = None) -> dict[str, dict[str, str]]:
         return tomllib.load(f)
 
 
+def _validate_credential_key(tool_name: str, key: str) -> None:
+    allowed = TOOL_CREDENTIALS.get(tool_name, [])
+    if key not in allowed:
+        raise ValueError(f"Unknown credential key '{key}' for tool '{tool_name}'")
+
+
+def _write_credentials(creds: dict[str, dict[str, str]], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    for section, kvs in creds.items():
+        lines.append(f"[{section}]")
+        for k, v in kvs.items():
+            lines.append(f'{k} = "{v}"')
+        lines.append("")
+    path.write_text("\n".join(lines))
+    os.chmod(path, 0o600)
+
+
 def save_credential(
     tool_name: str,
     key: str,
@@ -75,9 +93,7 @@ def save_credential(
     path: Path | None = None,
 ) -> None:
     """Save a single credential key, validate, write file, and set os.environ."""
-    allowed = TOOL_CREDENTIALS.get(tool_name, [])
-    if key not in allowed:
-        raise ValueError(f"Unknown credential key '{key}' for tool '{tool_name}'")
+    _validate_credential_key(tool_name, key)
     stripped = value.strip()
     if not stripped:
         raise ValueError("Credential value must not be empty")
@@ -88,18 +104,30 @@ def save_credential(
         if tool_name not in creds:
             creds[tool_name] = {}
         creds[tool_name][key] = stripped
-
-        p.parent.mkdir(parents=True, exist_ok=True)
-        lines: list[str] = []
-        for section, kvs in creds.items():
-            lines.append(f"[{section}]")
-            for k, v in kvs.items():
-                lines.append(f'{k} = "{v}"')
-            lines.append("")
-        p.write_text("\n".join(lines))
-        os.chmod(p, 0o600)
+        _write_credentials(creds, p)
 
     os.environ[key] = stripped
+
+
+def delete_credential(
+    tool_name: str,
+    key: str,
+    *,
+    path: Path | None = None,
+) -> None:
+    """Delete a persisted credential and remove it from the running process."""
+    _validate_credential_key(tool_name, key)
+    p = Path(path) if path else _default_path()
+    with _LOCK:
+        creds = load_credentials(path=p)
+        tool_creds = creds.get(tool_name)
+        if tool_creds is not None:
+            tool_creds.pop(key, None)
+            if not tool_creds:
+                creds.pop(tool_name, None)
+            _write_credentials(creds, p)
+
+    os.environ.pop(key, None)
 
 
 def get_credential_status(tool_name: str) -> dict[str, bool]:

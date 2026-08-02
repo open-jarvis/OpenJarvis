@@ -10,6 +10,7 @@ from rich.console import Console
 
 from openjarvis.cli._banner import print_banner
 from openjarvis.core.config import load_config
+from openjarvis.core.credentials import inject_credentials
 from openjarvis.core.events import EventBus
 from openjarvis.core.paths import get_config_dir
 from openjarvis.engine import (
@@ -121,6 +122,11 @@ def serve(
             "  [cyan]uv sync --extra server[/cyan]"
         )
         sys.exit(1)
+
+    # Tool credentials saved through the browser UI live in the OpenJarvis
+    # credential store. Restore them before engines and tools are constructed
+    # so availability checks and tool instances see the same environment.
+    inject_credentials()
 
     config = load_config()
 

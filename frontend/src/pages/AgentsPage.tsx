@@ -23,7 +23,6 @@ import {
   fetchAgentTrace,
   fetchManagedAgent,
   fetchAvailableTools,
-  saveToolCredentials,
   fetchModels,
   updateManagedAgent,
   fetchRecommendedModel,

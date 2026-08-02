@@ -81,14 +81,28 @@ def start(
     if agent_name:
         cmd.extend(["--agent", agent_name])
 
-    # Start as background process
+    # Start as background process, fully detached from the launching terminal.
+    #
+    # ``start_new_session`` is POSIX-only: CPython's Windows ``_execute_child``
+    # names the parameter ``unused_start_new_session`` and ignores it. Relying
+    # on it there leaves the server sharing its parent's console, so closing
+    # that console — or logging off — delivers CTRL_CLOSE_EVENT and kills the
+    # daemon. DETACHED_PROCESS gives it no console at all; the new process
+    # group additionally stops a Ctrl-C in the parent reaching it.
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     log_fh = open(_LOG_FILE, "a")  # noqa: SIM115
+    spawn_kwargs: dict = {}
+    if sys.platform == "win32":
+        spawn_kwargs["creationflags"] = (
+            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+    else:
+        spawn_kwargs["start_new_session"] = True
     proc = subprocess.Popen(
         cmd,
         stdout=log_fh,
         stderr=log_fh,
-        start_new_session=True,
+        **spawn_kwargs,
     )
     _write_pid(proc.pid)
 
