@@ -8,7 +8,7 @@ import subprocess
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from openjarvis.desktop.models import (
@@ -46,6 +46,7 @@ class WindowsDesktopSession:
         script: str | Path,
         expected_title: str,
         allowed_root: str | Path,
+        arguments: Sequence[str] = (),
         timeout: float = 10.0,
     ) -> DesktopWindow:
         if os.name != "nt":
@@ -59,7 +60,11 @@ class WindowsDesktopSession:
         if self.process is not None and self.process.poll() is None:
             raise WindowsDesktopError("a desktop test application is already active")
         self.process = subprocess.Popen(
-            [str(Path(executable).resolve(strict=True)), str(script_path)],
+            [
+                str(Path(executable).resolve(strict=True)),
+                str(script_path),
+                *(str(argument) for argument in arguments),
+            ],
             cwd=root,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

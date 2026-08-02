@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import mimetypes
 import re
+import socket
 import unicodedata
 import uuid
 from dataclasses import dataclass
@@ -68,6 +70,42 @@ class BrowserNetworkPolicy:
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         if port not in self.allowed_loopback_ports:
             raise BrowserPolicyError("loopback port is not allowlisted")
+        return url
+
+
+class PublicBrowserNetworkPolicy:
+    """Allow HTTPS research while rejecting local, private, and credential URLs."""
+
+    def __init__(self, *, allowed_ports: frozenset[int] = frozenset({443})) -> None:
+        if not allowed_ports:
+            raise ValueError("at least one public HTTPS port is required")
+        self.allowed_ports = allowed_ports
+
+    def validate(self, url: str) -> str:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise BrowserPolicyError("public research requires an HTTPS URL")
+        if parsed.username or parsed.password:
+            raise BrowserPolicyError("URL credentials are blocked")
+        port = parsed.port or 443
+        if port not in self.allowed_ports:
+            raise BrowserPolicyError("public research port is not allowlisted")
+        host = parsed.hostname.rstrip(".")
+        if host.casefold() == "localhost" or not host:
+            raise BrowserPolicyError("local browser destinations are blocked")
+        try:
+            addresses = {
+                item[4][0].split("%", 1)[0]
+                for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            }
+        except OSError as exc:
+            raise BrowserPolicyError(
+                "public browser destination did not resolve"
+            ) from exc
+        if not addresses or any(
+            not ipaddress.ip_address(address).is_global for address in addresses
+        ):
+            raise BrowserPolicyError("non-public browser destination is blocked")
         return url
 
 
@@ -352,6 +390,7 @@ __all__ = [
     "BrowserArtifactStore",
     "BrowserNetworkPolicy",
     "BrowserPolicyError",
+    "PublicBrowserNetworkPolicy",
     "BrowserToolAdapter",
     "BrowserTransferPolicy",
     "InjectionAssessment",

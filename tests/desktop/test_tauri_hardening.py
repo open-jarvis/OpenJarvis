@@ -69,8 +69,12 @@ def test_final_attach_forces_the_owned_loopback_api_base() -> None:
     end = source.index("\n};", start)
     get_base = source[start:end]
 
-    assert "isTauri() && _tauriFinalAttachOnly" in get_base
-    assert get_base.index("_tauriFinalAttachOnly") < get_base.index("getSettingsApiUrl")
+    assert "isFinalAttachOnly()" in get_base
+    assert (
+        "isTauri() && _tauriFinalAttachOnly"
+        in source[source.index("export const isFinalAttachOnly") : start]
+    )
+    assert get_base.index("isFinalAttachOnly()") < get_base.index("getSettingsApiUrl")
     assert "http://127.0.0.1:8000" in source
 
 

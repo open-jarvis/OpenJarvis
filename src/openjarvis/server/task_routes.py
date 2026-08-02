@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from openjarvis import __version__
+from openjarvis.assistant import (
+    AssistantIntentKind,
+    classify_assistant_intent,
+    developer_instructions_for,
+)
 from openjarvis.codex.redaction import redact_data
 from openjarvis.codex.types import CodexBackendError
 from openjarvis.tasks.policy import CentralRiskPolicy, RiskLevel
@@ -225,6 +230,32 @@ def _append_chat_event(
     return event, created
 
 
+def _missing_codex_response_error(service, task_id: str) -> tuple[int, str, str]:
+    """Map known fail-closed Codex errors without exposing raw backend data."""
+
+    for event in reversed(service.timeline(task_id, limit=5000)):
+        if event.event_type == "error":
+            error = event.payload.get("error")
+        elif event.event_type == "turn.failed":
+            turn = event.payload.get("turn")
+            error = turn.get("error") if isinstance(turn, dict) else None
+        else:
+            continue
+        if not isinstance(error, dict):
+            continue
+        if error.get("codexErrorInfo") == "usageLimitExceeded":
+            return (
+                429,
+                "Codex ChatGPT usage limit exceeded; no alternate backend was used.",
+                "codex_usage_limit_exceeded",
+            )
+    return (
+        502,
+        "Codex turn failed before producing a usable response",
+        "empty_codex_response",
+    )
+
+
 def serialize_task(task: TaskRecord, *, developer: bool = False) -> dict[str, Any]:
     thread_id = task.active_thread_id
     if thread_id and not developer:
@@ -409,12 +440,15 @@ async def canonical_chat(
     correlation_id, idempotency_key = mutation
     service = _task_service(request)
     orchestrator = _orchestrator(request)
+    intent = classify_assistant_intent(body.message)
+    # The intent classifier requires an action verb and defaults uncertainty to
+    # read-only chat.  Do not re-escalate ordinary questions merely because
+    # they mention words such as "browser", "desktop", or "build".
+    classified_risk = RiskLevel(
+        max(body.risk_level, int(intent.risk_level))
+    )
     task = service.get(body.task_id)
     if task is None:
-        risk_level = CentralRiskPolicy().classify(
-            requested_level=body.risk_level,
-            action=body.message,
-        )
         task = service.create(
             task_id=body.task_id,
             session_id=body.session_id,
@@ -422,10 +456,10 @@ async def canonical_chat(
             description=body.message,
             execution_lane=(
                 ExecutionLane.INTERACTIVE
-                if risk_level >= RiskLevel.EXTERNAL_PREPARATION
+                if classified_risk >= RiskLevel.EXTERNAL_PREPARATION
                 else ExecutionLane.MODEL
             ),
-            risk_level=int(risk_level),
+            risk_level=int(classified_risk),
             component="jarvis_chat_api",
             cause="local_user_created_chat_task",
             idempotency_key=f"chat:{idempotency_key}:create",
@@ -434,6 +468,13 @@ async def canonical_chat(
         raise HTTPException(
             status_code=409,
             detail="task_id belongs to another session",
+        )
+    elif classified_risk > task.risk_level:
+        # A task's permission boundary is immutable.  The UI may retry once
+        # with a fresh task ID because no user event or Codex turn has started.
+        raise HTTPException(
+            status_code=409,
+            detail="NEW_TASK_REQUIRED: assistant action needs a higher risk boundary",
         )
     elif task.status in {
         TaskStatus.DONE,
@@ -489,6 +530,21 @@ async def canonical_chat(
             "pending": replay is None,
         }
 
+    _append_chat_event(
+        service,
+        task_id=task.task_id,
+        source_event_id=f"chat:{idempotency_key}:intent",
+        event_type="assistant.intent_classified",
+        payload={
+            "kind": intent.kind.value,
+            "risk_level": task.risk_level,
+            "reason": intent.reason,
+            "authority": "code_owned",
+        },
+        thread_id=task.active_thread_id,
+        turn_id=task.active_turn_id,
+    )
+
     prompt = body.message
     memory = getattr(request.app.state, "vault_memory_service", None)
     if body.use_memory and memory is not None:
@@ -535,18 +591,47 @@ async def canonical_chat(
     sandbox_config = getattr(config, "sandbox", None)
     configured_workspace = str(getattr(sandbox_config, "workspace", "") or "")
     fallback = Path(configured_workspace) if configured_workspace else Path.cwd()
-    cwd = _workspace_path(body.cwd, fallback=fallback)
-    isolated = (
-        _workspace_path(body.isolated_workspace)
-        if body.isolated_workspace
-        else None
-    )
+    if task.risk_level > int(RiskLevel.READ_ONLY):
+        trusted_root = getattr(request.app.state, "assistant_workspace", None)
+        if trusted_root is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Assistant action workspace is not configured",
+            )
+        root = Path(trusted_root).resolve(strict=True)
+        cwd = _workspace_path(body.cwd, fallback=root)
+        isolated = _workspace_path(body.isolated_workspace, fallback=root)
+        try:
+            cwd.relative_to(root)
+            isolated.relative_to(root)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="assistant action workspace escaped its trusted root",
+            ) from exc
+        if not cwd.is_relative_to(isolated):
+            raise HTTPException(
+                status_code=422,
+                detail="cwd must remain inside the isolated assistant workspace",
+            )
+    else:
+        cwd = _workspace_path(body.cwd, fallback=fallback)
+        isolated = (
+            _workspace_path(body.isolated_workspace)
+            if body.isolated_workspace
+            else None
+        )
     try:
         result = await orchestrator.execute(
             task.task_id,
             prompt,
             cwd=cwd,
             isolated_workspace=isolated,
+            developer_instructions=(
+                developer_instructions_for(intent)
+                if intent.kind is not AssistantIntentKind.CHAT
+                else None
+            ),
             turn_correlation_id=correlation_id,
             finalize_task=body.finalize_task,
         )
@@ -556,18 +641,21 @@ async def canonical_chat(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     if not result.content.strip():
+        status_code, detail, error_category = _missing_codex_response_error(
+            service, task.task_id
+        )
         _append_chat_event(
             service,
             task_id=task.task_id,
             source_event_id=f"chat:{idempotency_key}:empty",
             event_type="chat.response_missing",
-            payload={"error_category": "empty_codex_response"},
+            payload={"error_category": error_category},
             thread_id=result.thread_id,
             turn_id=result.turn_id,
         )
         raise HTTPException(
-            status_code=502,
-            detail="Codex completed without a usable response",
+            status_code=status_code,
+            detail=detail,
         )
 
     response_payload = {

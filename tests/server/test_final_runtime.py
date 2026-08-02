@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import httpx
@@ -12,6 +13,7 @@ from openjarvis.final_runtime import (
     FINAL_MODEL,
     FINAL_RUNTIME_NAME,
     FinalCodexHealthEngine,
+    _prepend_active_python_to_path,
     build_final_runtime,
     render_final_config,
     write_final_config,
@@ -55,6 +57,42 @@ def test_generated_config_is_secret_free_and_fail_closed(tmp_path: Path) -> None
     assert "ollama" not in rendered.lower()
     assert "http://" not in rendered.lower()
     assert "https://" not in rendered.lower()
+
+
+def test_active_python_environment_is_prepended_for_child_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    python_bin = tmp_path / "isolated-python" / "Scripts"
+    python_bin.mkdir(parents=True)
+    monkeypatch.setattr(
+        "openjarvis.final_runtime.sys.executable", str(python_bin / "python.exe")
+    )
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(tmp_path / "system"), str(python_bin)])
+    )
+
+    _prepend_active_python_to_path()
+    first = os.environ["PATH"]
+    _prepend_active_python_to_path()
+
+    assert first.split(os.pathsep)[0] == str(python_bin)
+    assert first.split(os.pathsep).count(str(python_bin)) == 1
+    assert os.environ["PATH"] == first
+
+
+def test_active_python_environment_is_added_without_private_hardcoding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    python_bin = tmp_path / "venv" / "Scripts"
+    python_bin.mkdir(parents=True)
+    monkeypatch.setattr(
+        "openjarvis.final_runtime.sys.executable", str(python_bin / "python.exe")
+    )
+    monkeypatch.setenv("PATH", str(tmp_path / "system"))
+
+    _prepend_active_python_to_path()
+
+    assert os.environ["PATH"].split(os.pathsep)[0] == str(python_bin)
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,7 @@ from openjarvis.browser import (
     BrowserSession,
     BrowserToolAdapter,
     BrowserTransferPolicy,
+    PublicBrowserNetworkPolicy,
     WebInjectionGuard,
 )
 from openjarvis.tasks.policy import RiskLevel
@@ -88,6 +89,41 @@ def test_navigation_is_loopback_only_and_verified(browser) -> None:
     )
     assert result.verified
     assert result.observation.ready_state == "complete"
+
+
+def test_public_research_policy_allows_only_public_https(monkeypatch) -> None:
+    policy = PublicBrowserNetworkPolicy()
+
+    monkeypatch.setattr(
+        "openjarvis.browser.actions.socket.getaddrinfo",
+        lambda *_args, **_kwargs: [(2, 1, 6, "", ("93.184.216.34", 443))],
+    )
+    assert policy.validate("https://example.com/research") == (
+        "https://example.com/research"
+    )
+    with pytest.raises(BrowserPolicyError, match="HTTPS"):
+        policy.validate("http://example.com/research")
+    with pytest.raises(BrowserPolicyError, match="credentials"):
+        policy.validate("https://user:password@example.com/research")
+
+    monkeypatch.setattr(
+        "openjarvis.browser.actions.socket.getaddrinfo",
+        lambda *_args, **_kwargs: [(2, 1, 6, "", ("127.0.0.1", 443))],
+    )
+    with pytest.raises(BrowserPolicyError, match="non-public"):
+        policy.validate("https://example.test/research")
+
+
+def test_public_research_policy_rejects_mixed_public_private_dns(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "openjarvis.browser.actions.socket.getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (2, 1, 6, "", ("93.184.216.34", 443)),
+            (2, 1, 6, "", ("10.0.0.4", 443)),
+        ],
+    )
+    with pytest.raises(BrowserPolicyError, match="non-public"):
+        PublicBrowserNetworkPolicy().validate("https://example.com/research")
 
 
 def test_click_and_input_are_observed_after_action(browser) -> None:

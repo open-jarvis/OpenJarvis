@@ -76,6 +76,12 @@ export async function attemptCanonicalChat(
   }
 }
 
+export function requiresFreshTask(error: unknown): boolean {
+  return error instanceof JarvisApiError
+    && error.category === 'conflict'
+    && error.message.startsWith('NEW_TASK_REQUIRED:');
+}
+
 export function canReplacePausedTaskForChat(
   task: CanonicalTask | null,
   approvals: PendingApproval[],
@@ -463,14 +469,14 @@ export function JarvisPage() {
     state.setSending(true);
     state.setError(null);
     if (replacePausedTaskOnSend) state.startNewTask();
-    const taskId = ensureActiveTaskId();
+    let taskId = ensureActiveTaskId();
     const mutation = createMutationContext('jarvis-chat');
     const controller = new AbortController();
     sendController.current = controller;
     setDraft('');
     const failedDraft = submittedDraft;
     try {
-      const attempt = await attemptCanonicalChat(
+      let attempt = await attemptCanonicalChat(
         {
           message,
           session_id: state.sessionId,
@@ -481,6 +487,23 @@ export function JarvisPage() {
         mutation,
         controller.signal,
       );
+      if (!attempt.ok && requiresFreshTask(attempt.error)) {
+        // The rejected request has not appended a user event or started Codex.
+        // Retry exactly once under a new immutable permission boundary.
+        state.startNewTask();
+        taskId = ensureActiveTaskId();
+        attempt = await attemptCanonicalChat(
+          {
+            message,
+            session_id: state.sessionId,
+            task_id: taskId,
+            input_mode: inputMode,
+            use_memory: true,
+          },
+          mutation,
+          controller.signal,
+        );
+      }
       if (!attempt.ok) {
         throw attempt.error;
       }

@@ -13,6 +13,7 @@ import hmac
 import json
 import os
 import stat
+import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,6 +107,7 @@ class FinalRuntime:
     action_store: ActionStore
     phase7: Phase7LearningRuntime
     staging_root: Path
+    assistant_workspace: Path
 
 
 def _is_reparse(path: Path) -> bool:
@@ -177,6 +179,10 @@ require_model_confirmation = true
 state_db_path = {_toml_string(state / "codex.sqlite3")}
 allow_cli_fallback = false
 allow_global_cli_override = false
+
+[sandbox]
+enabled = false
+workspace = {_toml_string(home / "assistant-workspace")}
 
 [memory]
 enabled = false
@@ -302,6 +308,7 @@ def _validate_loaded_config(config: JarvisConfig, *, home: Path, vault: Path) ->
         config.traces.db_path,
         config.tools.storage.vault_index_path,
         config.tools.storage.vault_restore_path,
+        config.sandbox.workspace,
     ):
         if not Path(raw).resolve(strict=False).is_relative_to(home):
             raise ValueError("mutable runtime path escaped OPENJARVIS_HOME")
@@ -347,6 +354,7 @@ def build_final_runtime(
         runtime_home / "restore" / "vault",
         runtime_home / "website-staging",
         runtime_home / "tool-artifacts",
+        runtime_home / "assistant-workspace",
     ):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -367,6 +375,9 @@ def build_final_runtime(
         if vault_service is None:
             raise RuntimeError("vault memory was not constructed")
         staging_root = (runtime_home / "website-staging").resolve(strict=True)
+        assistant_workspace = (runtime_home / "assistant-workspace").resolve(
+            strict=True
+        )
         action_store = ActionStore(runtime_home / "state" / "tool-actions.sqlite3")
         policy_context = ToolPolicyContext(
             granted_capabilities=frozenset({"website:stage"}),
@@ -501,6 +512,7 @@ def build_final_runtime(
         app.state.final_runtime_name = FINAL_RUNTIME_NAME
         app.state.final_runtime_home = runtime_home
         app.state.final_staging_root = staging_root
+        app.state.assistant_workspace = assistant_workspace
         return FinalRuntime(
             app=app,
             config=config,
@@ -510,6 +522,7 @@ def build_final_runtime(
             action_store=action_store,
             phase7=phase7,
             staging_root=staging_root,
+            assistant_workspace=assistant_workspace,
         )
     except Exception:
         if action_store is not None:
@@ -524,10 +537,39 @@ def build_final_runtime(
         raise
 
 
+def _prepend_active_python_to_path() -> None:
+    """Make child commands resolve to this runtime's Python environment."""
+
+    # Codex App Server commands inherit this process environment.  Prepend the
+    # active interpreter's bin directory so `python -m openjarvis...` resolves
+    # to this exact environment without committing a machine-specific path.
+    python_bin = str(Path(sys.executable).parent)
+    inherited_path = os.environ.get("PATH", "")
+    inherited_parts = [part for part in inherited_path.split(os.pathsep) if part]
+    normalized_python_bin = os.path.normcase(python_bin)
+    inherited_parts = [
+        part
+        for part in inherited_parts
+        if os.path.normcase(part) != normalized_python_bin
+    ]
+    os.environ["PATH"] = os.pathsep.join([python_bin, *inherited_parts])
+
+
 def _serve(args: argparse.Namespace) -> int:
     import uvicorn
 
     token = os.environ.get("OPENJARVIS_SHUTDOWN_TOKEN", "")
+    runtime_home = Path(args.home).resolve(strict=True)
+    _prepend_active_python_to_path()
+    os.environ["OPENJARVIS_ASSISTANT_WORKSPACE"] = str(
+        (runtime_home / "assistant-workspace").resolve(strict=True)
+    )
+    os.environ["OPENJARVIS_TOOL_ARTIFACT_ROOT"] = str(
+        (runtime_home / "tool-artifacts" / "assistant").resolve(strict=False)
+    )
+    Path(os.environ["OPENJARVIS_TOOL_ARTIFACT_ROOT"]).mkdir(
+        parents=True, exist_ok=True
+    )
     server: uvicorn.Server | None = None
 
     def request_shutdown() -> None:

@@ -7,6 +7,7 @@ import type {
   PendingApproval,
   ToolActionInfo,
 } from '../lib/api';
+import { JarvisApiError } from '../lib/api';
 import { dedupeEvents, ensureActiveTaskId, isTerminalTaskStatus, useJarvisStore } from '../lib/jarvisStore';
 import { MAX_RECONNECTS } from '../lib/useCanonicalTaskStream';
 import {
@@ -15,6 +16,7 @@ import {
   canReplacePausedTaskForChat,
   EventCard,
   JarvisPage,
+  requiresFreshTask,
   TASK_REFRESH_INTERVAL_MS,
   TurnEvidenceDetails,
 } from './JarvisPage';
@@ -80,6 +82,20 @@ function task(status: string, taskId = 'task-terminal'): CanonicalTask {
 }
 
 describe('Jarvis canonical workspace', () => {
+  it('retries only an explicit higher-risk task-boundary conflict', () => {
+    expect(requiresFreshTask(new JarvisApiError(
+      'NEW_TASK_REQUIRED: assistant action needs a higher risk boundary',
+      'conflict',
+      409,
+    ))).toBe(true);
+    expect(requiresFreshTask(new JarvisApiError(
+      'terminal task cannot accept another chat turn',
+      'conflict',
+      409,
+    ))).toBe(false);
+    expect(requiresFreshTask(new Error('NEW_TASK_REQUIRED: forged'))).toBe(false);
+  });
+
   beforeEach(() => {
     useJarvisStore.setState({
       sessionId: 'session-test',

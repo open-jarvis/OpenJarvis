@@ -63,6 +63,7 @@ class FakeOrchestrator:
     def __init__(self, service: TaskService) -> None:
         self.service = service
         self.execute_count = 0
+        self.last_execute_kwargs = {}
 
     async def health(self):
         return (
@@ -91,7 +92,8 @@ class FakeOrchestrator:
         prompt: str,
         **kwargs,
     ) -> TaskExecutionResult:
-        del prompt, kwargs
+        del prompt
+        self.last_execute_kwargs = kwargs
         self.execute_count += 1
         current = self.service.get(task_id)
         assert current is not None
@@ -153,6 +155,9 @@ def api_runtime(tmp_path: Path):
     app.state.task_service = service
     app.state.approval_broker = broker
     app.state.codex_orchestrator = orchestrator
+    assistant_workspace = tmp_path / "assistant-workspace"
+    assistant_workspace.mkdir()
+    app.state.assistant_workspace = assistant_workspace
     app.state.config = SimpleNamespace(
         codex=SimpleNamespace(
             analysis_sandbox="read_only",
@@ -242,6 +247,7 @@ def test_chat_creates_canonical_task_and_persisted_messages(api_runtime) -> None
     assert [event["event_type"] for event in timeline] == [
         "task.created",
         "chat.user_message",
+        "assistant.intent_classified",
         "task.state_changed",
         "chat.assistant_message",
     ]
@@ -296,8 +302,150 @@ def test_sessions_and_summary_are_canonical_projections(api_runtime) -> None:
     assert detail["tasks"][0]["task_id"] == "task-chat"
     summary = client.get("/v1/tasks/task-chat/summary").json()
     assert summary["task"]["task_id"] == "task-chat"
-    assert summary["last_sequence"] == 4
+    assert summary["last_sequence"] == 5
     assert summary["safe_to_present_as_success"] is False
+
+
+def test_action_request_uses_trusted_workspace_and_code_owned_instructions(
+    api_runtime,
+) -> None:
+    client, _, _, _, orchestrator = api_runtime
+    response = _chat(
+        client,
+        message="Fix the bug in this repository and run the tests.",
+        task_id="task-programming",
+        idempotency_key="programming-once",
+    )
+
+    assert response.status_code == 200
+    task = response.json()["task"]
+    assert task["risk_level"] == 1
+    kwargs = orchestrator.last_execute_kwargs
+    assert kwargs["cwd"] == kwargs["isolated_workspace"]
+    assert kwargs["cwd"].name == "assistant-workspace"
+    assert "do not commit or push" in kwargs["developer_instructions"].lower()
+    timeline = client.get("/v1/tasks/task-programming/timeline").json()["events"]
+    classified = next(
+        event
+        for event in timeline
+        if event["event_type"] == "assistant.intent_classified"
+    )
+    assert classified["payload"] == {
+        "authority": "code_owned",
+        "kind": "programming",
+        "reason": "programming_action",
+        "risk_level": 1,
+    }
+
+
+def test_informational_browser_question_stays_read_only_chat(api_runtime) -> None:
+    client, _, _, _, orchestrator = api_runtime
+
+    response = _chat(
+        client,
+        message="Explain simply how a browser works.",
+        task_id="task-browser-explanation",
+        idempotency_key="browser-explanation-once",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["task"]["risk_level"] == 0
+    assert orchestrator.last_execute_kwargs["developer_instructions"] is None
+    timeline = client.get(
+        "/v1/tasks/task-browser-explanation/timeline"
+    ).json()["events"]
+    classified = next(
+        event
+        for event in timeline
+        if event["event_type"] == "assistant.intent_classified"
+    )
+    assert classified["payload"]["kind"] == "chat"
+    assert classified["payload"]["reason"] == "informational_chat"
+
+
+def test_chat_surfaces_usage_limit_without_raw_backend_message(api_runtime) -> None:
+    client, _, service, _, orchestrator = api_runtime
+
+    async def usage_limited_execute(task_id: str, prompt: str, **kwargs):
+        del prompt, kwargs
+        running = service.transition(
+            task_id,
+            TaskStatus.RUNNING,
+            component="fake_codex",
+            cause="fake_turn_started",
+            idempotency_key="usage-limit-running",
+            active_thread_id="thread-usage-limit",
+        )
+        event, _ = service.store.append_event(
+            task_id=task_id,
+            source_event_id="usage-limit-error",
+            event_type="error",
+            occurred_at=running.updated_at,
+            cause="fake_backend_error",
+            component="fake_codex",
+            thread_id="thread-usage-limit",
+            payload={
+                "error": {
+                    "codexErrorInfo": "usageLimitExceeded",
+                    "message": "raw account-specific reset details",
+                }
+            },
+        )
+        service.project_committed(event)
+        failed = service.transition(
+            task_id,
+            TaskStatus.FAILED,
+            component="fake_codex",
+            cause="fake_turn_failed",
+            idempotency_key="usage-limit-failed",
+            outcome=TaskOutcome.FAILED,
+            error_category="codex_turn_failed",
+            active_thread_id="thread-usage-limit",
+        )
+        return TaskExecutionResult(
+            task=failed,
+            content="",
+            thread_id="thread-usage-limit",
+            turn_id=None,
+        )
+
+    orchestrator.execute = usage_limited_execute
+    response = _chat(
+        client,
+        message="Explain why the sky is blue.",
+        task_id="task-usage-limited",
+        idempotency_key="usage-limited-once",
+    )
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == (
+        "Codex ChatGPT usage limit exceeded; no alternate backend was used."
+    )
+    assert "account-specific" not in response.text
+    timeline = client.get("/v1/tasks/task-usage-limited/timeline").json()["events"]
+    missing = next(
+        event for event in timeline if event["event_type"] == "chat.response_missing"
+    )
+    assert missing["payload"]["error_category"] == "codex_usage_limit_exceeded"
+
+
+def test_higher_risk_followup_requires_new_task_before_user_event(api_runtime) -> None:
+    client, _, _, _, orchestrator = api_runtime
+    assert _chat(client).status_code == 200
+    before = client.get("/v1/tasks/task-chat/timeline").json()["events"]
+
+    response = _chat(
+        client,
+        message="Open the browser and research bicycle balance online.",
+        correlation_id="browser-correlation",
+        idempotency_key="browser-once",
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"].startswith("NEW_TASK_REQUIRED:")
+    after = client.get("/v1/tasks/task-chat/timeline").json()["events"]
+    assert after == before
+    assert orchestrator.execute_count == 1
 
 
 def test_create_and_resume_are_idempotent(api_runtime, tmp_path: Path) -> None:

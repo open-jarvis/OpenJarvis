@@ -415,7 +415,6 @@ function Start-FinalRuntime {
 function Stop-FinalRuntime {
     $state = Read-State
     if ($null -eq $state) { throw 'No managed final-runtime state exists.' }
-    $uiCloseFailure = $null
     if ($null -ne $state.ui_pid) {
         $ui = Get-OwnedUi `
             ([int]$state.ui_pid) `
@@ -423,7 +422,18 @@ function Stop-FinalRuntime {
             ([string]$state.ui_executable)
         if ($null -ne $ui) {
             if (-not $ui.CloseMainWindow() -or -not $ui.WaitForExit($TimeoutSeconds * 1000)) {
-                $uiCloseFailure = 'Desktop did not exit after WM_CLOSE; no forced kill was used.'
+                $verifiedUi = Get-OwnedUi `
+                    ([int]$state.ui_pid) `
+                    ([string]$state.ui_started_at_utc) `
+                    ([string]$state.ui_executable)
+                if ($null -eq $verifiedUi) {
+                    throw 'Desktop ownership changed during shutdown recovery.'
+                }
+                Stop-Process -Id $verifiedUi.Id -Force
+                if (-not $verifiedUi.WaitForExit(3000)) {
+                    throw 'Verified managed desktop remained after shutdown recovery.'
+                }
+                Write-Warning "Verified managed desktop PID $($verifiedUi.Id) required shutdown recovery."
             }
         }
     }
@@ -465,7 +475,6 @@ function Stop-FinalRuntime {
         }
     }
     if ($null -ne (Get-PortOwner)) { throw "Port $Port remains occupied after shutdown." }
-    if ($null -ne $uiCloseFailure) { throw $uiCloseFailure }
     Remove-Item -LiteralPath $TokenPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $StatePath -Force
     Show-Status

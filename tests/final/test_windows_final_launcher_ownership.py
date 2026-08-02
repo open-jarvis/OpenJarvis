@@ -218,6 +218,9 @@ def test_status_stop_restart_and_cleanup_use_the_canonical_runtime_pid() -> None
     assert "Get-Process -Id ([int]$state.server_pid)" in stop
     assert "$verifiedServer = Get-OwnedServer" in stop
     assert "Stop-Process -Id $verifiedServer.Id -Force" in stop
+    assert "$verifiedUi = Get-OwnedUi" in stop
+    assert "Stop-Process -Id $verifiedUi.Id -Force" in stop
+    assert "Desktop ownership changed during shutdown recovery" in stop
     assert "A foreign process acquired the final runtime port" in stop
     assert "'Restart' { Stop-FinalRuntime; Start-FinalRuntime }" in launcher
     assert "Stop-Process -Name" not in launcher

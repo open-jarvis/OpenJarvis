@@ -10,6 +10,7 @@ from openjarvis.browser.actions import (
     BrowserToolAdapter,
     BrowserTransferPolicy,
     InjectionAssessment,
+    PublicBrowserNetworkPolicy,
     WebInjectionGuard,
 )
 from openjarvis.browser.cdp import (
@@ -42,6 +43,7 @@ __all__ = [
     "BrowserObservation",
     "BrowserOpenError",
     "BrowserPolicyError",
+    "PublicBrowserNetworkPolicy",
     "BrowserProcessManager",
     "BrowserProfilePolicy",
     "BrowserRecoveryController",
