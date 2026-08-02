@@ -142,6 +142,7 @@ describe('Jarvis experience', () => {
     expect(settings).toContain('Mundbewegung');
     expect(settings).toContain('<option value="subtle" selected="">Dezent</option>');
     expect(settings).toContain('Reduzierte Bewegung');
+    expect(settings).toContain('Stimmenauswahl');
   });
 
   it('maps production state without starting another voice implementation', () => {

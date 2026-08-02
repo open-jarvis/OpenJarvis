@@ -445,6 +445,93 @@ export interface SpeechHealth {
   last_error?: string | null;
 }
 
+export interface VoiceProfileInfo {
+  voice_id: string;
+  number: number;
+  label: string;
+  backend: 'chatterbox' | 'piper';
+  pitch_semitones: number;
+  speed: number;
+  exaggeration: number;
+  cfg_weight: number;
+  temperature: number;
+  seed: number;
+  description: string;
+  audition_ready: boolean;
+}
+
+export interface LocalVoiceStatus {
+  selected_voice_id: string;
+  primary_backend: string;
+  fallback_backend: string;
+  language: string;
+  audition_text: string;
+  profiles: VoiceProfileInfo[];
+  worker: {
+    chatterbox: boolean;
+    piper: boolean;
+    cuda: boolean;
+    device: string;
+    chatterbox_loaded?: boolean;
+    piper_loaded?: boolean;
+  };
+}
+
+export interface SynthesizedSpeech {
+  audio: Blob;
+  backend: string;
+  fallbackUsed: boolean;
+  cacheHit: boolean;
+  synthesisMs: number;
+}
+
+export async function synthesizeSpeech(
+  text: string,
+  language = 'de-DE',
+  signal?: AbortSignal,
+): Promise<SynthesizedSpeech> {
+  const res = await apiFetch('/v1/speech/synthesize', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, language, speed: 1.0 }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`Local speech synthesis failed (${res.status}).`);
+  return {
+    audio: await res.blob(),
+    backend: res.headers.get('x-openjarvis-tts-backend') || 'unknown',
+    fallbackUsed: res.headers.get('x-openjarvis-fallback') === 'true',
+    cacheHit: res.headers.get('x-openjarvis-cache') === 'hit',
+    synthesisMs: Number(res.headers.get('x-openjarvis-synthesis-ms') || 0),
+  };
+}
+
+export async function fetchLocalVoices(): Promise<LocalVoiceStatus> {
+  const res = await apiFetch('/v1/speech/voices');
+  if (!res.ok) throw new Error(`Local voice status failed (${res.status}).`);
+  return res.json();
+}
+
+export async function selectLocalVoice(voiceId: string): Promise<void> {
+  const res = await apiFetch('/v1/speech/voices/selected', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ voice_id: voiceId }),
+  });
+  if (!res.ok) throw new Error(`Voice selection failed (${res.status}).`);
+}
+
+export async function generateVoiceAuditions(): Promise<void> {
+  const res = await apiFetch('/v1/speech/auditions/generate', { method: 'POST' });
+  if (!res.ok) throw new Error(`Voice audition generation failed (${res.status}).`);
+}
+
+export async function fetchVoiceAudition(voiceId: string): Promise<Blob> {
+  const res = await apiFetch(`/v1/speech/auditions/${encodeURIComponent(voiceId)}.wav`);
+  if (!res.ok) throw new Error(`Voice audition is not ready (${res.status}).`);
+  return res.blob();
+}
+
 export async function transcribeAudio(audioBlob: Blob, filename = 'recording.webm'): Promise<TranscriptionResult> {
   if (isTauri()) {
     try {

@@ -152,6 +152,7 @@ async def test_factory_wires_only_bounded_runtime_and_guarded_shutdown(
                 "phase7": True,
                 "tools": True,
                 "website_staging": True,
+                "local_voice": True,
                 "analytics": False,
                 "browser": False,
                 "channels": False,

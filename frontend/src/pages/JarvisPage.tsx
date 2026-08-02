@@ -53,14 +53,15 @@ import type { CanonicalTask, CanonicalTaskEvent, MutationContext, PendingApprova
 import { ensureActiveTaskId, isTerminalTaskStatus, useJarvisStore } from '../lib/jarvisStore';
 import { useCanonicalTaskStream } from '../lib/useCanonicalTaskStream';
 import { useSpeech } from '../hooks/useSpeech';
-import { useTextToSpeech } from '../hooks/useTextToSpeech';
+import { useLocalAudioLevel, useTextToSpeech } from '../hooks/useTextToSpeech';
 import { Phase7Panel } from '../components/Jarvis/Phase7Panel';
 import { WebsiteStagingPanel } from '../components/WebsiteStagingPanel';
+import { VoiceAuditionPanel } from '../components/Jarvis/VoiceAuditionPanel';
 import { JarvisExperience } from '../components/Jarvis/experience/JarvisExperience';
 import { useJarvisPreferences } from '../components/Jarvis/experience/preferences';
 import { deriveVoiceSnapshot } from '../components/Jarvis/experience/voiceAdapter';
 
-type WorkspaceFocus = 'chat' | 'tasks' | 'approvals' | 'tools' | 'browser' | 'website-staging' | 'learning' | 'skills' | 'overview';
+type WorkspaceFocus = 'chat' | 'tasks' | 'approvals' | 'tools' | 'browser' | 'website-staging' | 'learning' | 'skills' | 'voice' | 'overview';
 
 export const TASK_REFRESH_INTERVAL_MS = 15_000;
 
@@ -190,6 +191,7 @@ function focusForPath(path: string): WorkspaceFocus {
   if (path.startsWith('/website-staging')) return 'website-staging';
   if (path.startsWith('/learning')) return 'learning';
   if (path.startsWith('/skills')) return 'skills';
+  if (path.startsWith('/voice')) return 'voice';
   if (path.startsWith('/chat')) return 'chat';
   return 'overview';
 }
@@ -360,6 +362,7 @@ export function JarvisPage() {
   const listEndRef = useRef<HTMLDivElement>(null);
   const speech = useSpeech();
   const tts = useTextToSpeech();
+  const localAudioLevel = useLocalAudioLevel();
   const { preferences, setPreferences } = useJarvisPreferences();
 
   useCanonicalTaskStream(state.activeTaskId);
@@ -652,6 +655,7 @@ export function JarvisPage() {
     ['/website-staging', 'Website staging'],
     ['/learning', 'Learning'],
     ['/skills', 'Skills'],
+    ['/voice', 'Voice'],
   ] as const;
 
   const shouldShowChat = focus === 'overview' || focus === 'chat';
@@ -665,7 +669,7 @@ export function JarvisPage() {
       sttAvailable: speech.available,
       streamStatus: state.streamStatus,
       errorMessage: state.error || speech.error,
-      volumeLevel: state.speech.speaking ? 0.36 : 0,
+      volumeLevel: localAudioLevel,
     });
     return (
       <JarvisExperience
@@ -962,6 +966,7 @@ export function JarvisPage() {
             )}
 
             {focus === 'website-staging' && <WebsiteStagingPanel />}
+            {focus === 'voice' && <VoiceAuditionPanel />}
           </main>
 
           <aside className="space-y-4 min-w-0" aria-label="Task context and system health">

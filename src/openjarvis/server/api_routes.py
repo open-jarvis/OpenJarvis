@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -898,6 +907,16 @@ _MAX_SPEECH_UPLOAD_BYTES = 10 * 1024 * 1024
 _SPEECH_FORMATS = {"wav", "webm", "mp3", "m4a", "ogg", "flac", "mp4"}
 
 
+class VoiceSynthesisRequest(BaseModel):
+    text: str
+    voice_id: str = ""
+    speed: float = 1.0
+
+
+class VoiceSelectionRequest(BaseModel):
+    voice_id: str
+
+
 @speech_router.post("/transcribe")
 async def transcribe_speech(request: Request):
     """Transcribe uploaded audio to text."""
@@ -953,6 +972,121 @@ async def transcribe_speech(request: Request):
         "confidence": result.confidence,
         "duration_seconds": result.duration_seconds,
     }
+
+
+def _local_tts(request: Request):
+    backend = getattr(request.app.state, "tts_backend", None)
+    if backend is None or not hasattr(backend, "voice_status"):
+        raise HTTPException(
+            status_code=501, detail="Local voice backend not configured"
+        )
+    return backend
+
+
+@speech_router.post("/synthesize")
+async def synthesize_speech(
+    payload: VoiceSynthesisRequest, request: Request
+) -> Response:
+    """Return a local WAV chunk; callers stream responses sentence by sentence."""
+
+    if not payload.text.strip() or len(payload.text) > 4000:
+        raise HTTPException(
+            status_code=422,
+            detail="Speech text must contain 1 to 4000 characters",
+        )
+    if not 0.75 <= payload.speed <= 1.25:
+        raise HTTPException(
+            status_code=422,
+            detail="Speech speed must be between 0.75 and 1.25",
+        )
+    backend = _local_tts(request)
+    try:
+        result = await asyncio.to_thread(
+            backend.synthesize,
+            payload.text,
+            voice_id=payload.voice_id,
+            speed=payload.speed,
+            output_format="wav",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Local speech synthesis failed")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Local speech synthesis failed ({type(exc).__name__})",
+        ) from exc
+    metadata = result.metadata
+    return Response(
+        content=result.audio,
+        media_type="audio/wav",
+        headers={
+            "X-OpenJarvis-Voice": result.voice_id,
+            "X-OpenJarvis-TTS-Backend": str(metadata.get("backend") or "unknown"),
+            "X-OpenJarvis-Cache": "hit" if metadata.get("cache_hit") else "miss",
+            "X-OpenJarvis-Fallback": (
+                "true" if metadata.get("fallback_used") else "false"
+            ),
+            "X-OpenJarvis-Synthesis-Ms": str(
+                round(float(metadata.get("synthesis_ms") or 0), 2)
+            ),
+        },
+    )
+
+
+@speech_router.get("/voices")
+async def voice_status(request: Request) -> dict[str, Any]:
+    backend = _local_tts(request)
+    try:
+        return await asyncio.to_thread(backend.voice_status)
+    except Exception as exc:
+        logger.exception("Local voice status failed")
+        raise HTTPException(
+            status_code=503, detail=f"Local voice unavailable ({type(exc).__name__})"
+        ) from exc
+
+
+@speech_router.put("/voices/selected")
+async def select_voice(
+    payload: VoiceSelectionRequest, request: Request
+) -> dict[str, str]:
+    backend = _local_tts(request)
+    try:
+        await asyncio.to_thread(backend.select_voice, payload.voice_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"selected_voice_id": payload.voice_id, "status": "saved"}
+
+
+@speech_router.post("/auditions/generate")
+async def generate_voice_auditions(request: Request) -> dict[str, Any]:
+    backend = _local_tts(request)
+    try:
+        results = await asyncio.to_thread(backend.generate_auditions)
+    except Exception as exc:
+        logger.exception("Voice audition generation failed")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Voice audition generation failed ({type(exc).__name__})",
+        ) from exc
+    return {"status": "ready", "auditions": results}
+
+
+@speech_router.get("/auditions/{voice_id}.wav")
+async def get_voice_audition(voice_id: str, request: Request) -> FileResponse:
+    backend = _local_tts(request)
+    try:
+        path = backend.audition_path(voice_id)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(
+            status_code=404, detail="Audition sample not generated"
+        ) from exc
+    return FileResponse(
+        path,
+        media_type="audio/wav",
+        filename=f"{voice_id}.wav",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @speech_router.get("/health")

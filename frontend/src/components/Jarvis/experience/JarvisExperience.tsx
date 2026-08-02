@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import type { CanonicalTaskEvent, PendingApproval } from '../../../lib/api';
+import { VoiceAuditionPanel } from '../VoiceAuditionPanel';
 import { JarvisAvatar, voiceStateLabel } from './JarvisAvatar';
 import type { JarvisMode, JarvisPreferences } from './preferences';
 import { MockVoiceAdapter } from './voiceAdapter';
@@ -277,6 +278,7 @@ export function SettingsPanel({
             </select>
           </label>
           <p className="jarvis-settings__hint">Diese Ansicht konsumiert nur den Voice-Vertrag. Auswahl und Erzeugung der Stimme bleiben im separaten Sprachsystem.</p>
+          <VoiceAuditionPanel embedded />
         </section>
 
         <section className="jarvis-settings__section" aria-labelledby="developer-settings-title">

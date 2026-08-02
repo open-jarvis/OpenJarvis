@@ -1446,7 +1446,7 @@ class OperatorsConfig:
 
 @dataclass(slots=True)
 class SpeechConfig:
-    """Speech-to-text settings."""
+    """Local speech-to-text and text-to-speech settings."""
 
     # "auto" is deliberately local-only. Cloud backends require an explicit
     # provider name and are never selected merely because an env key exists.
@@ -1455,6 +1455,11 @@ class SpeechConfig:
     language: str = "de"  # Phase-6 default; callers may explicitly override.
     device: str = "auto"  # "auto", "cpu", "cuda"
     compute_type: str = "float16"  # "float16", "int8", "float32"
+    tts_enabled: bool = False
+    tts_backend: str = "chatterbox"
+    tts_fallback_backend: str = "piper"
+    tts_voice_id: str = "jarvis-deep-calm"
+    tts_runtime_path: str = ""
 
 
 @dataclass(slots=True)

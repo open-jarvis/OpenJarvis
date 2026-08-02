@@ -9,6 +9,7 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from openjarvis.speech._stubs import TranscriptionResult  # noqa: E402
+from openjarvis.speech.tts import TTSResult  # noqa: E402
 
 
 @pytest.fixture
@@ -132,3 +133,78 @@ def test_health_no_backend():
     assert data["available"] is False
     assert data["stt_provider"] == "disabled"
     assert data["tts_provider"] == "disabled"
+
+
+def test_local_voice_synthesis_selection_and_audition_routes(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from openjarvis.server.api_routes import speech_router
+
+    backend = MagicMock()
+    backend.backend_id = "chatterbox+piper"
+    backend.health.return_value = True
+    backend.voice_status.return_value = {
+        "selected_voice_id": "jarvis-deep-calm",
+        "profiles": [],
+    }
+    backend.synthesize.return_value = TTSResult(
+        audio=b"RIFF-test",
+        format="wav",
+        voice_id="jarvis-deep-calm",
+        metadata={
+            "backend": "piper",
+            "cache_hit": True,
+            "fallback_used": True,
+            "synthesis_ms": 12.5,
+        },
+    )
+    audition = tmp_path / "jarvis-deep-calm.wav"
+    audition.write_bytes(b"RIFF-audition")
+    backend.audition_path.return_value = audition
+    backend.generate_auditions.return_value = [{"voice_id": "jarvis-deep-calm"}]
+
+    app = FastAPI()
+    app.state.speech_backend = None
+    app.state.tts_backend = backend
+    app.include_router(speech_router)
+    client = TestClient(app)
+
+    speech = client.post("/v1/speech/synthesize", json={"text": "Guten Abend."})
+    assert speech.status_code == 200
+    assert speech.content == b"RIFF-test"
+    assert speech.headers["x-openjarvis-tts-backend"] == "piper"
+    assert speech.headers["x-openjarvis-cache"] == "hit"
+    assert speech.headers["x-openjarvis-fallback"] == "true"
+
+    assert client.get("/v1/speech/voices").status_code == 200
+    selected = client.put(
+        "/v1/speech/voices/selected", json={"voice_id": "jarvis-deep-calm"}
+    )
+    assert selected.json()["status"] == "saved"
+    generated = client.post("/v1/speech/auditions/generate")
+    assert generated.json()["status"] == "ready"
+    sample = client.get("/v1/speech/auditions/jarvis-deep-calm.wav")
+    assert sample.status_code == 200
+    assert sample.content == b"RIFF-audition"
+
+
+def test_local_voice_api_rejects_invalid_text_and_redacts_worker_errors():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from openjarvis.server.api_routes import speech_router
+
+    backend = MagicMock()
+    backend.voice_status.return_value = {}
+    backend.synthesize.side_effect = RuntimeError("C:\\private\\model-token")
+    app = FastAPI()
+    app.state.tts_backend = backend
+    app.include_router(speech_router)
+    client = TestClient(app)
+
+    assert client.post("/v1/speech/synthesize", json={"text": ""}).status_code == 422
+    failed = client.post("/v1/speech/synthesize", json={"text": "Hallo"})
+    assert failed.status_code == 503
+    assert "private" not in failed.text
+    assert "token" not in failed.text

@@ -204,6 +204,7 @@ async def _shutdown_app_resources(app: FastAPI) -> None:
             logger.debug("trace_store shutdown failed", exc_info=True)
 
     for attribute, method in (
+        ("tts_backend", "close"),
         ("vault_memory_service", "close"),
         ("memory_service", "stop"),
         ("analytics_bridge", "stop"),
