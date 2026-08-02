@@ -19,9 +19,9 @@ export interface JarvisPreferences {
 export const DEFAULT_JARVIS_PREFERENCES: JarvisPreferences = {
   mode: 'talk',
   animationQuality: 'standard',
-  // The supplied image has a closed, textured mouth. Off is the quality-safe default.
-  mouthMovement: 'off',
-  movementIntensity: 'low',
+  // The face remains dignified; speech is carried primarily by energy and particles.
+  mouthMovement: 'subtle',
+  movementIntensity: 'standard',
   reducedMotion: false,
   showAvatarInTextMode: true,
   developerMode: false,

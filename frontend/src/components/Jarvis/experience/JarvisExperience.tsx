@@ -447,7 +447,11 @@ function TextView({
   onStop: () => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
-  useEffect(() => endRef.current?.scrollIntoView({ block: 'nearest' }), [messages.length, sending]);
+  useEffect(() => {
+    // WebView2 may return a host value from scrollIntoView. Never expose that
+    // value as a React effect cleanup function (StrictMode invokes it at once).
+    endRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [messages.length, sending]);
   return (
     <main className="jarvis-text" aria-label="Jarvis Text-Modus">
       {preferences.showAvatarInTextMode && (

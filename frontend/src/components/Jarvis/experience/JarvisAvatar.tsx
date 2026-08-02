@@ -2,9 +2,10 @@ import type { CSSProperties } from 'react';
 import type { JarvisPreferences } from './preferences';
 import type { AnimationFallbackTier } from './useAnimationBudget';
 import type { JarvisVoiceState, VoiceAdapterSnapshot } from './voiceAdapter';
+import { CosmicField } from './CosmicField';
 import './jarvis-experience.css';
 
-const AVATAR_SRC = '/assets/jarvis/cosmic-face.png';
+const AVATAR_SRC = '/assets/jarvis/cosmic-entity-wide-v2.png';
 
 const STATE_LABELS: Record<JarvisVoiceState, string> = {
   idle: 'Jarvis ist bereit',
@@ -16,13 +17,6 @@ const STATE_LABELS: Record<JarvisVoiceState, string> = {
   offline: 'Jarvis ist offline',
   reconnecting: 'Verbindung wird wiederhergestellt',
 };
-
-const PARTICLES = [
-  [9, 18, 0.7], [17, 69, 0.45], [24, 33, 0.55], [31, 82, 0.6], [38, 13, 0.4],
-  [44, 74, 0.7], [52, 22, 0.5], [58, 88, 0.4], [66, 16, 0.65], [73, 72, 0.55],
-  [81, 31, 0.45], [89, 63, 0.65], [14, 48, 0.35], [35, 57, 0.4], [63, 46, 0.35],
-  [84, 87, 0.45],
-] as const;
 
 export function voiceStateLabel(state: JarvisVoiceState): string {
   return STATE_LABELS[state];
@@ -45,7 +39,7 @@ export function JarvisAvatar({
     ? Math.min(2.4, (voice.volumeLevel - 0.16) * 3.2 * mouthMultiplier)
     : 0;
   const style = {
-    '--jarvis-volume': voice.state === 'speaking' ? voice.volumeLevel.toFixed(3) : '0',
+    '--jarvis-volume': voice.state === 'speaking' ? Math.max(voice.volumeLevel, 0.32).toFixed(3) : '0',
     '--jarvis-mouth-open': `${mouthOpening.toFixed(2)}px`,
   } as CSSProperties & Record<`--${string}`, string>;
 
@@ -59,27 +53,17 @@ export function JarvisAvatar({
       style={style}
       aria-label={voiceStateLabel(voice.state)}
     >
+      <CosmicField state={voice.state} volumeLevel={voice.volumeLevel} tier={fallbackTier} />
       <div className="jarvis-avatar__cosmos" aria-hidden="true">
         <div className="jarvis-avatar__nebula jarvis-avatar__nebula--outer" />
         <div className="jarvis-avatar__nebula jarvis-avatar__nebula--inner" />
         <div className="jarvis-avatar__stars jarvis-avatar__stars--far" />
         <div className="jarvis-avatar__stars jarvis-avatar__stars--near" />
-        <div className="jarvis-avatar__particles">
-          {PARTICLES.map(([left, top, opacity], index) => (
-            <i
-              key={`${left}-${top}`}
-              style={{
-                left: `${left}%`,
-                top: `${top}%`,
-                opacity,
-                animationDelay: `${-index * 0.41}s`,
-              }}
-            />
-          ))}
-        </div>
       </div>
 
       <div className="jarvis-avatar__aura" aria-hidden="true" />
+      <div className="jarvis-avatar__orbit jarvis-avatar__orbit--one" aria-hidden="true" />
+      <div className="jarvis-avatar__orbit jarvis-avatar__orbit--two" aria-hidden="true" />
       <div className="jarvis-avatar__portrait">
         <img
           className="jarvis-avatar__image"
@@ -90,6 +74,10 @@ export function JarvisAvatar({
           fetchPriority="high"
         />
         <div className="jarvis-avatar__mouth" aria-hidden="true" />
+        <div className="jarvis-avatar__scan" aria-hidden="true" />
+      </div>
+      <div className="jarvis-avatar__voicewave" aria-hidden="true">
+        {Array.from({ length: 9 }, (_, index) => <i key={index} style={{ animationDelay: `${-index * 73}ms` }} />)}
       </div>
       <div className="jarvis-avatar__rim" aria-hidden="true" />
       <figcaption className="sr-only">{voiceStateLabel(voice.state)}</figcaption>

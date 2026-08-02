@@ -80,10 +80,17 @@ describe('Jarvis experience', () => {
     );
   });
 
+  it('ships the reviewed wide runtime entity unchanged', () => {
+    const bytes = readFileSync(resolve(process.cwd(), 'public/assets/jarvis/cosmic-entity-wide-v2.png'));
+    expect(createHash('sha256').update(bytes).digest('hex').toUpperCase()).toBe(
+      '3A07A106E2481DC016CED0350B349615AAA02A1DC1566F5305DEF7D9C65F438A',
+    );
+  });
+
   it('shows the avatar but no chat or internal work in Talk mode', () => {
     const html = experience('talk');
     expect(html).toContain('Jarvis Talk-Modus');
-    expect(html).toContain('/assets/jarvis/cosmic-face.png');
+    expect(html).toContain('/assets/jarvis/cosmic-entity-wide-v2.png');
     expect(html).toContain('data-voice-state="idle"');
     expect(html).not.toContain('Zeige mir den Status');
     expect(html).not.toContain('Fertig.');
@@ -133,7 +140,7 @@ describe('Jarvis experience', () => {
     expect(menu).toContain('Talk-Modus');
     expect(menu).toContain('Text-Modus');
     expect(settings).toContain('Mundbewegung');
-    expect(settings).toContain('<option value="off" selected="">Aus</option>');
+    expect(settings).toContain('<option value="subtle" selected="">Dezent</option>');
     expect(settings).toContain('Reduzierte Bewegung');
   });
 
