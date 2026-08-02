@@ -164,6 +164,7 @@ class TestDerivedMetricsInStore:
             throughput_per_watt=0.5,
         )
         store.record(rec)
+        store.flush()
 
         agg = TelemetryAggregator(tmp_path / "test.db")
         stats = agg.per_model_stats()
@@ -185,6 +186,8 @@ class TestDerivedMetricsInStore:
                     throughput_per_watt=1.0 * (i + 1),
                 )
             )
+        store.flush()
+
         agg = TelemetryAggregator(tmp_path / "test.db")
         summary = agg.summary()
         assert summary.avg_energy_per_output_token_joules > 0

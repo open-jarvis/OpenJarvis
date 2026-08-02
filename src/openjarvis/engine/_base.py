@@ -13,6 +13,46 @@ class EngineConnectionError(Exception):
     """Raised when an engine is unreachable."""
 
 
+class EngineContextLengthError(EngineConnectionError):
+    """The prompt exceeds the served model's maximum context window.
+
+    Subclasses ``EngineConnectionError`` so existing ``except
+    EngineConnectionError`` handlers keep catching it, while callers that want a
+    distinct, user-facing "conversation too long" message can branch on this type
+    (or the ``is_context_length_error`` marker) instead of surfacing a generic
+    engine failure.
+    """
+
+    is_context_length_error: bool = True
+
+
+# Substrings that identify an error body as a context-window overflow (vLLM,
+# SGLang, and OpenAI-compatible servers phrase this a few different ways).
+# Every marker is anchored on "context" on purpose: generic phrases like
+# "please reduce" or "too many tokens" also appear in unrelated 400 bodies
+# (max_tokens validation, rate limiting, oversized images) and would
+# misclassify those as "conversation too long".
+CONTEXT_LENGTH_MARKERS = (
+    "context length",
+    "maximum context",
+    "context window",
+    "maximum_context",
+    "context_length_exceeded",
+)
+
+
+def looks_like_context_length_error(text: str) -> bool:
+    """True when *text* reads like a context-window overflow error.
+
+    The single shared heuristic for recognizing vendor context-overflow
+    phrasings — used by the engine layer (typing upstream 400s), agent error
+    classification, and the server stream bridge, so a new vendor phrasing
+    only ever needs to be added here.
+    """
+    low = (text or "").lower()
+    return any(marker in low for marker in CONTEXT_LENGTH_MARKERS)
+
+
 _REASONING_METADATA_KEYS = ("reasoning_content", "thinking")
 
 
@@ -80,8 +120,11 @@ def estimate_prompt_tokens(messages: Sequence[Message]) -> int:
 
 
 __all__ = [
+    "CONTEXT_LENGTH_MARKERS",
     "EngineConnectionError",
+    "EngineContextLengthError",
     "InferenceEngine",
     "estimate_prompt_tokens",
+    "looks_like_context_length_error",
     "messages_to_dicts",
 ]

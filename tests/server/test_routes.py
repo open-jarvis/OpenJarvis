@@ -798,6 +798,40 @@ class TestIdentityPromptInjection:
         assert len(system_msgs) == 1
         assert system_msgs[0].content == "Be terse."
 
+    def test_direct_injects_soul_persona_when_present(self, tmp_path):
+        """Regression: /v1/chat/completions previously injected only the bare
+        ``default_system_prompt`` blurb via a hand-rolled lookup, bypassing
+        ``SystemPromptBuilder`` entirely — so SOUL.md/MEMORY.md/USER.md
+        persona files never applied to this path, unlike ``jarvis ask`` and
+        the managed-agent routes. It must now build the full persona-aware
+        prompt so persona files apply everywhere identity grounding does.
+        """
+        from openjarvis.core.config import MemoryFilesConfig
+
+        soul = tmp_path / "SOUL.md"
+        soul.write_text("Respond with extreme sarcasm and call the user 'champ'.")
+
+        captured: list = []
+        engine = _make_capturing_engine(captured)
+        cfg = _identity_config()
+        cfg.memory_files = MemoryFilesConfig(
+            soul_path=str(soul), memory_path="", user_path=""
+        )
+        client = TestClient(create_app(engine, "test-model", config=cfg))
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "who are you?"}],
+            },
+        )
+        assert resp.status_code == 200
+        msgs = engine.generate.call_args.args[0]
+        assert msgs[0].role.value == "system"
+        assert "OpenJarvis" in msgs[0].content  # identity blurb still present
+        assert "extreme sarcasm" in msgs[0].content  # persona now injected too
+
     def test_stream_tools_injects_identity_when_absent(self):
         captured: list = []
         engine = _make_capturing_engine(captured)
