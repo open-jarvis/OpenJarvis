@@ -148,8 +148,9 @@ describe('Jarvis canonical workspace', () => {
       </MemoryRouter>,
     );
 
-    expect(html).toContain('unknown');
-    expect(html).toContain('event');
+    expect(html).toContain('Jarvis Talk-Modus');
+    expect(html).not.toContain('unknown');
+    expect(html).not.toContain('Task timeline');
   });
 
   it.each(['done', 'completed', 'canceled', 'failed', 'rejected'])(
@@ -299,7 +300,8 @@ describe('Jarvis canonical workspace', () => {
         <JarvisPage />
       </MemoryRouter>,
     );
-    expect(chatHtml).toContain('Neue Aufgabe');
+    expect(chatHtml).toContain('Neue Unterhaltung');
+    expect(chatHtml).toContain('Jarvis-Menü öffnen');
     const approvalHtml = renderToStaticMarkup(
       <ApprovalCard approval={approval} busy={false} onDecision={() => {}} />,
     );

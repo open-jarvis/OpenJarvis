@@ -56,6 +56,9 @@ import { useSpeech } from '../hooks/useSpeech';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import { Phase7Panel } from '../components/Jarvis/Phase7Panel';
 import { WebsiteStagingPanel } from '../components/WebsiteStagingPanel';
+import { JarvisExperience } from '../components/Jarvis/experience/JarvisExperience';
+import { useJarvisPreferences } from '../components/Jarvis/experience/preferences';
+import { deriveVoiceSnapshot } from '../components/Jarvis/experience/voiceAdapter';
 
 type WorkspaceFocus = 'chat' | 'tasks' | 'approvals' | 'tools' | 'browser' | 'website-staging' | 'learning' | 'skills' | 'overview';
 
@@ -189,6 +192,10 @@ function focusForPath(path: string): WorkspaceFocus {
   if (path.startsWith('/skills')) return 'skills';
   if (path.startsWith('/chat')) return 'chat';
   return 'overview';
+}
+
+function isPrimaryExperience(focus: WorkspaceFocus): boolean {
+  return focus === 'overview' || focus === 'chat';
 }
 
 function readableToken(value: unknown, fallback: string): string {
@@ -353,6 +360,7 @@ export function JarvisPage() {
   const listEndRef = useRef<HTMLDivElement>(null);
   const speech = useSpeech();
   const tts = useTextToSpeech();
+  const { preferences, setPreferences } = useJarvisPreferences();
 
   useCanonicalTaskStream(state.activeTaskId);
 
@@ -453,9 +461,10 @@ export function JarvisPage() {
     listEndRef.current?.scrollIntoView({ block: 'nearest' });
   }, [state.timeline.length]);
 
-  const submit = async () => {
-    const submittedDraft = draft;
+  const submit = async (messageOverride?: string, inputModeOverride?: 'text' | 'voice') => {
+    const submittedDraft = messageOverride ?? draft;
     const message = submittedDraft.trim();
+    const selectedInputMode = inputModeOverride ?? inputMode;
     if (!message || state.sending || sendGuard.current) return;
     if (persistedTaskPending) {
       state.setError('The previous task status is still loading. Wait briefly or choose Neue Aufgabe.');
@@ -473,7 +482,7 @@ export function JarvisPage() {
     const mutation = createMutationContext('jarvis-chat');
     const controller = new AbortController();
     sendController.current = controller;
-    setDraft('');
+    if (messageOverride === undefined) setDraft('');
     const failedDraft = submittedDraft;
     try {
       let attempt = await attemptCanonicalChat(
@@ -481,7 +490,7 @@ export function JarvisPage() {
           message,
           session_id: state.sessionId,
           task_id: taskId,
-          input_mode: inputMode,
+          input_mode: selectedInputMode,
           use_memory: true,
         },
         mutation,
@@ -497,7 +506,7 @@ export function JarvisPage() {
             message,
             session_id: state.sessionId,
             task_id: taskId,
-            input_mode: inputMode,
+            input_mode: selectedInputMode,
             use_memory: true,
           },
           mutation,
@@ -511,6 +520,14 @@ export function JarvisPage() {
       state.upsertTask(response.task);
       await refreshTask(taskId);
       await refreshGlobal();
+      if (preferences.mode === 'talk') {
+        const answer = [...useJarvisStore.getState().timeline].reverse().find(
+          (event) => event.event_type === 'chat.assistant_message'
+            && typeof event.payload.content === 'string',
+        );
+        const answerText = answer?.payload.content;
+        if (typeof answerText === 'string') tts.speak(answerText);
+      }
       setInputMode('text');
     } catch (error) {
       if (error instanceof JarvisApiError && error.category === 'aborted') {
@@ -518,7 +535,7 @@ export function JarvisPage() {
       } else {
         state.setError(error instanceof Error ? error.message : 'Jarvis could not process the message.');
       }
-      setDraft(failedDraft);
+      if (messageOverride === undefined) setDraft(failedDraft);
     } finally {
       sendController.current = null;
       state.setSending(false);
@@ -545,6 +562,30 @@ export function JarvisPage() {
     }
   };
 
+  const startNewConversation = async () => {
+    const taskId = state.activeTaskId;
+    const shouldInterrupt = !!taskId && activeTask?.status === 'running';
+    speech.cancelRecording();
+    tts.stop();
+    sendController.current?.abort();
+    if (taskId && shouldInterrupt) {
+      try {
+        await interruptCanonicalTask(taskId, createMutationContext('new-conversation'));
+      } catch {
+        // The new visible session must still start empty; the persisted task remains auditable.
+      }
+    }
+    state.newSession();
+    setDraft('');
+    setInputMode('text');
+  };
+
+  const stopActiveOutput = async () => {
+    tts.stop();
+    if (speech.isRecording) speech.cancelRecording();
+    if (activeTask?.status === 'running') await controlTask('interrupt');
+  };
+
   const decide = async (approval: PendingApproval, allow: boolean) => {
     if (decisionBusy) return;
     setDecisionBusy(approval.id);
@@ -560,13 +601,17 @@ export function JarvisPage() {
     }
   };
 
-  const toggleRecording = async () => {
+  const toggleRecording = async (submitTranscript = false) => {
     tts.stop();
     if (speech.isRecording) {
       try {
         const transcript = await speech.stopRecording();
-        setDraft((current) => `${current}${current ? ' ' : ''}${transcript}`);
-        setInputMode('voice');
+        if (submitTranscript) {
+          await submit(transcript, 'voice');
+        } else {
+          setDraft((current) => `${current}${current ? ' ' : ''}${transcript}`);
+          setInputMode('voice');
+        }
       } catch {
         // useSpeech exposes the user-safe error below.
       }
@@ -611,6 +656,44 @@ export function JarvisPage() {
 
   const shouldShowChat = focus === 'overview' || focus === 'chat';
   const shouldShowTimeline = focus === 'overview' || focus === 'tasks' || focus === 'chat';
+
+  if (isPrimaryExperience(focus)) {
+    const voice = deriveVoiceSnapshot({
+      recording: speech.isRecording,
+      processing: speech.isTranscribing || state.sending,
+      speaking: state.speech.speaking,
+      sttAvailable: speech.available,
+      streamStatus: state.streamStatus,
+      errorMessage: state.error || speech.error,
+      volumeLevel: state.speech.speaking ? 0.36 : 0,
+    });
+    return (
+      <JarvisExperience
+        sessionId={state.sessionId}
+        timeline={state.timeline}
+        activeTaskStatus={activeTask?.status ?? null}
+        draft={draft}
+        sending={state.sending}
+        submitBlocked={state.sending || chatTurnBlocked || persistedTaskPending}
+        error={state.error || speech.error}
+        voice={voice}
+        sttAvailable={speech.available}
+        ttsAvailable={tts.available}
+        speechLanguage={state.speech.language}
+        preferences={preferences}
+        approvals={activeApprovals}
+        decisionBusy={decisionBusy}
+        onPreferencesChange={setPreferences}
+        onDraftChange={(value) => { setDraft(value); if (inputMode === 'voice') setInputMode('text'); }}
+        onSubmit={submit}
+        onToggleMicrophone={toggleRecording}
+        onStop={stopActiveOutput}
+        onNewConversation={startNewConversation}
+        onLanguageChange={(language) => state.setSpeech({ language })}
+        onApprovalDecision={(approval, allow) => decide(approval, allow)}
+      />
+    );
+  }
 
   return (
     <div className="h-full overflow-y-auto" style={{ color: 'var(--color-text)' }}>

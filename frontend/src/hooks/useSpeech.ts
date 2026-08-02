@@ -130,6 +130,14 @@ export function useSpeech() {
     }
   }, [clearLimit, setSpeech, state]);
 
+  const cancelRecording = useCallback((): void => {
+    clearLimit();
+    providerRef.current.dispose();
+    setState('idle');
+    setError(null);
+    setSpeech({ recording: false });
+  }, [clearLimit, setSpeech]);
+
   return {
     state,
     error,
@@ -137,6 +145,7 @@ export function useSpeech() {
     providerId,
     startRecording,
     stopRecording,
+    cancelRecording,
     isRecording: state === 'recording',
     isTranscribing: state === 'transcribing',
   };

@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe('final desktop attach experience', () => {
-  it('mounts only the canonical Jarvis workspace', async () => {
+  it('mounts only the focused Jarvis experience', async () => {
     (globalThis as unknown as { localStorage: MemoryStorage }).localStorage =
       new MemoryStorage();
     const { FinalAttachApp } = await import('./App');
@@ -33,10 +33,13 @@ describe('final desktop attach experience', () => {
       </MemoryRouter>,
     );
 
-    expect(html).toContain('CANONICAL WORKSPACE');
-    expect(html).toContain('One session, one task authority');
+    expect(html).toContain('Jarvis Talk-Modus');
+    expect(html).toContain('/assets/jarvis/cosmic-face.png');
+    expect(html).toContain('Jarvis-Menü öffnen');
+    expect(html).not.toContain('CANONICAL WORKSPACE');
+    expect(html).not.toContain('Task timeline');
     expect(html).not.toContain('Setting up your local AI');
     expect(html).not.toContain('API key');
     expect(html).not.toContain('Get Started');
-  });
+  }, 10_000);
 });
