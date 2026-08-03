@@ -860,7 +860,7 @@ class CodexPythonSdkBackend:
         if mode is SandboxMode.WORKSPACE_WRITE:
             return SdkSandbox.workspace_write
         if mode is SandboxMode.FULL_ACCESS:
-            return SdkSandbox.danger_full_access
+            return SdkSandbox.full_access
         raise CodexPolicyError("unsupported sandbox mode")
 
     @staticmethod

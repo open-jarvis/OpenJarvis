@@ -615,3 +615,12 @@ async def test_read_thread_redacts_credentials(tmp_path: Path) -> None:
     assert result["thread"]["accessToken"] == "[REDACTED]"
     await backend.close()
     store.close()
+
+
+def test_full_access_maps_to_installed_sdk_sandbox() -> None:
+    from openai_codex import Sandbox as SdkSandbox
+
+    assert (
+        CodexPythonSdkBackend._sdk_sandbox(SandboxMode.FULL_ACCESS)
+        is SdkSandbox.full_access
+    )
