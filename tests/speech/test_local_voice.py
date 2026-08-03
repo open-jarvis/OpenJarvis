@@ -71,7 +71,7 @@ def test_voice_config_is_secret_free_persistent_and_rejects_references(
     config = load_voice_config(path)
     assert config["selected_voice_id"] == DEFAULT_VOICE_ID
     assert config["voice_reference"] is None
-    assert "Guten Abend, Deaa." in AUDITION_TEXT
+    assert AUDITION_TEXT.startswith("Guten Abend.")
 
     config["selected_voice_id"] = "jarvis-piper-fast"
     write_voice_config(path, config)
@@ -88,15 +88,18 @@ def test_voice_config_is_secret_free_persistent_and_rejects_references(
 
 def test_profiles_are_numbered_unique_and_have_local_fallback() -> None:
     profiles = list(PROFILE_BY_ID.values())
-    assert [profile.number for profile in profiles] == [1, 2, 3, 4]
+    assert [profile.number for profile in profiles] == [1, 2, 3, 4, 5]
     assert len({profile.voice_id for profile in profiles}) == len(profiles)
-    assert profiles[0].backend == "chatterbox"
+    assert profiles[0].backend == "elevenlabs"
     assert any(profile.backend == "piper" for profile in profiles)
     assert all(profile.pitch_semitones == 0 for profile in profiles)
     assert all(profile.speed == 1 for profile in profiles)
-    assert len({profile.seed for profile in profiles[:-1]}) == 3
-    assert all(profile.seed > 0 for profile in profiles[:-1])
-    assert {profile.voice_id for profile in profiles[:-1]} == set(
+    chatterbox_profiles = [
+        profile for profile in profiles if profile.backend == "chatterbox"
+    ]
+    assert len({profile.seed for profile in chatterbox_profiles}) == 3
+    assert all(profile.seed > 0 for profile in chatterbox_profiles)
+    assert {profile.voice_id for profile in chatterbox_profiles} == set(
         VOICE_REFERENCE_ASSETS
     )
 
@@ -133,8 +136,14 @@ def test_config_manifest_never_contains_audio_or_reference_data(tmp_path: Path) 
     assert raw == config
     assert set(raw) == {
         "cache_enabled",
-        "fallback_backend",
+        "elevenlabs_model_id",
+        "elevenlabs_voice_id",
+        "emergency_backend",
         "language",
+        "local_fallback_backend",
+        "local_fallback_voice_id",
+        "monthly_char_limit",
+        "per_response_char_limit",
         "primary_backend",
         "schema_version",
         "selected_voice_id",

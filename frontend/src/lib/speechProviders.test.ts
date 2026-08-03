@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { synthesizeSpeech } from './api';
 import {
-  BrowserSpeechToTextProvider,
-  BrowserTextToSpeechProvider,
   DisabledSpeechToTextProvider,
   LocalTextToSpeechProvider,
   LOCAL_AUDIO_END_EVENT,
@@ -15,23 +13,6 @@ vi.mock('./api', () => ({
   synthesizeSpeech: vi.fn(),
   transcribeAudio: vi.fn(),
 }));
-
-class FakeRecognition {
-  static instance: FakeRecognition | null = null;
-  lang = '';
-  continuous = false;
-  interimResults = false;
-  onresult: ((event: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null = null;
-  onerror: ((event: { error: string }) => void) | null = null;
-  onend: (() => void) | null = null;
-  started = false;
-  aborted = false;
-
-  constructor() { FakeRecognition.instance = this; }
-  start() { this.started = true; }
-  stop() { this.onend?.(); }
-  abort() { this.aborted = true; }
-}
 
 beforeEach(() => {
   vi.mocked(synthesizeSpeech).mockReset().mockResolvedValue({
@@ -46,7 +27,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  FakeRecognition.instance = null;
 });
 
 describe('speech provider boundaries', () => {
@@ -66,40 +46,7 @@ describe('speech provider boundaries', () => {
     await expect(provider.start()).rejects.toThrow('disabled');
   });
 
-  it('starts and stops browser push-to-talk without persisting audio', async () => {
-    vi.stubGlobal('window', { SpeechRecognition: FakeRecognition });
-    const provider = new BrowserSpeechToTextProvider();
-    expect(provider.available).toBe(true);
-    await provider.start('de-DE');
-    const recognition = FakeRecognition.instance!;
-    expect(recognition.lang).toBe('de-DE');
-    recognition.onresult?.({
-      resultIndex: 0,
-      results: [{ isFinal: true, 0: { transcript: 'Hallo Jarvis' } }],
-    });
-    await expect(provider.stop()).resolves.toBe('Hallo Jarvis');
-    expect(Object.keys(provider).join(' ')).not.toContain('Blob');
-  });
-
-  it('starts and cancels browser TTS for barge-in', () => {
-    const speak = vi.fn();
-    const cancel = vi.fn();
-    vi.stubGlobal('SpeechSynthesisUtterance', class {
-      lang = '';
-      onend: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-      constructor(public text: string) {}
-    });
-    vi.stubGlobal('window', { speechSynthesis: { speak, cancel } });
-    const provider = new BrowserTextToSpeechProvider();
-    provider.speak('Antwort', 'de-DE', vi.fn(), vi.fn());
-    expect(speak).toHaveBeenCalledOnce();
-    expect(cancel).toHaveBeenCalledOnce();
-    provider.stop();
-    expect(cancel).toHaveBeenCalledTimes(2);
-  });
-
-  it('aborts local sentence streaming and emits the mouth-animation end event', () => {
+  it('aborts local sentence streaming and emits the shared playback end event', () => {
     const abort = vi.spyOn(AbortController.prototype, 'abort');
     const dispatch = vi.fn();
     vi.stubGlobal('window', { dispatchEvent: dispatch });
@@ -165,7 +112,7 @@ describe('speech provider boundaries', () => {
     expect(revokeObjectURL).toHaveBeenCalledTimes(2);
   });
 
-  it('emits a bounded, audible waveform level for the avatar consumer', async () => {
+  it('emits a bounded, audible waveform level for the star/core consumer', async () => {
     const dispatch = vi.fn();
     class FakeAudioContext {
       destination = {};

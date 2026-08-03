@@ -29,6 +29,7 @@ export interface SpeechCapabilityState {
   lastError: string | null;
   recording: boolean;
   speaking: boolean;
+  inputLevel: number;
 }
 
 interface JarvisWorkspaceState {
@@ -154,6 +155,7 @@ export const useJarvisStore = create<JarvisWorkspaceState>((set) => ({
     lastError: null,
     recording: false,
     speaking: false,
+    inputLevel: 0,
   },
   setSession: (sessionId, taskId = null) => {
     remember(SESSION_KEY, sessionId);

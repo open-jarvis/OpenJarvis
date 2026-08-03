@@ -449,7 +449,7 @@ export interface VoiceProfileInfo {
   voice_id: string;
   number: number;
   label: string;
-  backend: 'chatterbox' | 'piper';
+  backend: 'elevenlabs' | 'chatterbox' | 'piper';
   pitch_semitones: number;
   speed: number;
   exaggeration: number;
@@ -458,23 +458,48 @@ export interface VoiceProfileInfo {
   seed: number;
   description: string;
   audition_ready: boolean;
+  audition_backend: string;
+  audition_fallback_used: boolean;
+}
+
+export interface ElevenLabsUsage {
+  month: string;
+  characters_used: number;
 }
 
 export interface LocalVoiceStatus {
   selected_voice_id: string;
   primary_backend: string;
-  fallback_backend: string;
+  local_fallback_backend: string;
+  emergency_backend: string;
+  elevenlabs_voice_id?: string | null;
+  monthly_char_limit: number;
+  per_response_char_limit: number;
   language: string;
   audition_text: string;
   profiles: VoiceProfileInfo[];
   worker: {
+    elevenlabs_configured: boolean;
+    elevenlabs_voice_id_set: boolean;
+    elevenlabs_api_key_set: boolean;
+    elevenlabs_usage: ElevenLabsUsage | null;
     chatterbox: boolean;
     piper: boolean;
     cuda: boolean;
     device: string;
     chatterbox_loaded?: boolean;
+    reference_profiles_loaded?: number;
     piper_loaded?: boolean;
   };
+}
+
+export interface ElevenLabsVoiceInfo {
+  voice_id: string;
+  name: string;
+  category: string;
+  description: string;
+  labels: Record<string, string>;
+  verified_languages: Array<{ language: string; locale: string; accent: string }>;
 }
 
 export interface SynthesizedSpeech {
@@ -489,14 +514,19 @@ export async function synthesizeSpeech(
   text: string,
   language = 'de-DE',
   signal?: AbortSignal,
+  responseId = '',
 ): Promise<SynthesizedSpeech> {
   const res = await apiFetch('/v1/speech/synthesize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, language, speed: 1.0 }),
+    body: JSON.stringify({ text, language, speed: 1.0, response_id: responseId }),
     signal,
   });
-  if (!res.ok) throw new Error(`Local speech synthesis failed (${res.status}).`);
+  if (!res.ok) {
+    let detail = '';
+    try { detail = String((await res.json()).detail || ''); } catch { /* no response body */ }
+    throw new Error(detail || `Sprachausgabe fehlgeschlagen (${res.status}).`);
+  }
   return {
     audio: await res.blob(),
     backend: res.headers.get('x-openjarvis-tts-backend') || 'unknown',
@@ -521,13 +551,46 @@ export async function selectLocalVoice(voiceId: string): Promise<void> {
   if (!res.ok) throw new Error(`Voice selection failed (${res.status}).`);
 }
 
+export async function fetchElevenLabsVoices(): Promise<ElevenLabsVoiceInfo[]> {
+  const res = await apiFetch('/v1/speech/elevenlabs/voices');
+  if (!res.ok) {
+    let detail = '';
+    try { detail = String((await res.json()).detail || ''); } catch { /* no response body */ }
+    throw new Error(detail || `ElevenLabs-Stimmen konnten nicht geladen werden (${res.status}).`);
+  }
+  const payload = await res.json();
+  return Array.isArray(payload.voices) ? payload.voices : [];
+}
+
+export async function selectElevenLabsVoice(voiceId: string): Promise<void> {
+  const res = await apiFetch('/v1/speech/elevenlabs/voice', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ voice_id: voiceId }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = String((await res.json()).detail || ''); } catch { /* no response body */ }
+    throw new Error(detail || `ElevenLabs-Stimme konnte nicht gespeichert werden (${res.status}).`);
+  }
+}
+
+export async function updateVoiceLimits(monthly: number, perResponse: number): Promise<void> {
+  const res = await apiFetch('/v1/speech/limits', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ monthly_char_limit: monthly, per_response_char_limit: perResponse }),
+  });
+  if (!res.ok) throw new Error(`Kostenlimits konnten nicht gespeichert werden (${res.status}).`);
+}
+
 export async function generateVoiceAuditions(): Promise<void> {
   const res = await apiFetch('/v1/speech/auditions/generate', { method: 'POST' });
   if (!res.ok) throw new Error(`Voice audition generation failed (${res.status}).`);
 }
 
 export async function fetchVoiceAudition(voiceId: string): Promise<Blob> {
-  const res = await apiFetch(`/v1/speech/auditions/${encodeURIComponent(voiceId)}.wav`);
+  const res = await apiFetch(`/v1/speech/auditions/${encodeURIComponent(voiceId)}`);
   if (!res.ok) throw new Error(`Voice audition is not ready (${res.status}).`);
   return res.blob();
 }
@@ -1939,6 +2002,155 @@ export async function fetchToolHealth(): Promise<ToolHealth> {
   const res = await apiFetch('/v1/tools/health');
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
+}
+
+export interface McpToolStatus {
+  name: string;
+  tool_id: string;
+  policy: 'read' | 'prepare' | 'write' | 'blocked';
+}
+
+export interface McpServerStatus {
+  server_id: string;
+  label: string;
+  transport: 'http' | 'stdio';
+  enabled: boolean;
+  url: string;
+  command: string;
+  args: string[];
+  token_env: string;
+  token_configured: boolean;
+  include_tools: string[];
+  exclude_tools: string[];
+  tool_policies: Record<string, McpToolStatus['policy']>;
+  connected: boolean;
+  tool_count: number;
+  tools: McpToolStatus[];
+  last_connected_at: string;
+  last_error: string;
+}
+
+export interface McpStatus {
+  available: boolean;
+  servers: McpServerStatus[];
+  connected_servers: number;
+  disconnected_servers: number;
+  discovered_tools: number;
+  active_provider: 'mcp' | 'none';
+}
+
+export type McpServerInput = Pick<
+  McpServerStatus,
+  | 'server_id'
+  | 'label'
+  | 'transport'
+  | 'enabled'
+  | 'url'
+  | 'command'
+  | 'args'
+  | 'token_env'
+  | 'include_tools'
+  | 'exclude_tools'
+  | 'tool_policies'
+>;
+
+const mutationHeaders = (mutation: MutationContext): Record<string, string> => ({
+  'Content-Type': 'application/json',
+  'X-Correlation-ID': mutation.correlationId,
+  'Idempotency-Key': mutation.idempotencyKey,
+});
+
+export const fetchMcpStatus = (): Promise<McpStatus> => apiJson('/v1/mcp/status');
+
+export async function saveMcpServer(server: McpServerInput): Promise<void> {
+  const mutation = createMutationContext('mcp-save');
+  await apiJson(`/v1/mcp/servers/${encodeURIComponent(server.server_id)}`, {
+    method: 'PUT',
+    headers: mutationHeaders(mutation),
+    body: JSON.stringify(server),
+  });
+}
+
+export async function removeMcpServer(serverId: string): Promise<void> {
+  const mutation = createMutationContext('mcp-remove');
+  await apiJson(`/v1/mcp/servers/${encodeURIComponent(serverId)}`, {
+    method: 'DELETE',
+    headers: mutationHeaders(mutation),
+  });
+}
+
+export async function reconnectMcpServer(serverId: string): Promise<McpStatus> {
+  const mutation = createMutationContext('mcp-reconnect');
+  return apiJson(`/v1/mcp/servers/${encodeURIComponent(serverId)}/reconnect`, {
+    method: 'POST',
+    headers: mutationHeaders(mutation),
+  }, { timeoutMs: 90_000 });
+}
+
+export async function interruptMcp(): Promise<void> {
+  const mutation = createMutationContext('mcp-interrupt');
+  await apiJson('/v1/mcp/interrupt', {
+    method: 'POST',
+    headers: mutationHeaders(mutation),
+  });
+}
+
+export interface DesktopTargetStatus {
+  target_id: string;
+  label: string;
+  executable: string;
+  title_contains: string;
+  mode: 'off' | 'observe' | 'interact';
+  capabilities: string[];
+  connected: boolean;
+}
+
+export interface DesktopStatus {
+  available: boolean;
+  mode: 'off' | 'configured';
+  secure_desktop: string;
+  secure_desktop_blocked: boolean;
+  interrupt_requested: boolean;
+  interrupt_available: boolean;
+  current_target_id: string | null;
+  current_window: string;
+  target_monitor: string;
+  target_dpi: number | null;
+  target_scale: number | null;
+  semantic_backend: 'not_checked' | 'windows_uia' | 'win32_fallback';
+  last_action: { action: string; verified: boolean; timestamp: number } | null;
+  targets: DesktopTargetStatus[];
+  unsupported_boundaries: string[];
+}
+
+export type DesktopTargetInput = Omit<DesktopTargetStatus, 'connected'>;
+
+export const fetchDesktopStatus = (): Promise<DesktopStatus> => apiJson('/v1/desktop/status');
+
+export async function saveDesktopTarget(target: DesktopTargetInput): Promise<void> {
+  const mutation = createMutationContext('desktop-save');
+  await apiJson(`/v1/desktop/targets/${encodeURIComponent(target.target_id)}`, {
+    method: 'PUT',
+    headers: mutationHeaders(mutation),
+    body: JSON.stringify(target),
+  });
+}
+
+export async function connectDesktopTarget(targetId: string): Promise<void> {
+  const mutation = createMutationContext('desktop-connect');
+  await apiJson('/v1/desktop/connect', {
+    method: 'POST',
+    headers: mutationHeaders(mutation),
+    body: JSON.stringify({ target_id: targetId }),
+  });
+}
+
+export async function interruptDesktop(): Promise<void> {
+  const mutation = createMutationContext('desktop-interrupt');
+  await apiJson('/v1/desktop/interrupt', {
+    method: 'POST',
+    headers: mutationHeaders(mutation),
+  });
 }
 
 // ---------------------------------------------------------------------------

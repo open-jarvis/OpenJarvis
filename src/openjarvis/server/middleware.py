@@ -6,6 +6,15 @@ from typing import Any
 
 __all__ = ["SECURITY_HEADERS", "create_security_middleware"]
 
+_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "connect-src 'self' http://localhost:* http://127.0.0.1:* "
+    "ws://localhost:* ws://127.0.0.1:*; "
+    "img-src 'self' data: blob:"
+)
+
 
 def create_security_middleware() -> Any:
     """Create a FastAPI middleware that adds security headers.
@@ -48,9 +57,7 @@ def create_security_middleware() -> Any:
             response.headers["Permissions-Policy"] = (
                 "camera=(), microphone=(), geolocation=()"
             )
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'self' 'unsafe-inline' 'unsafe-eval'"
-            )
+            response.headers["Content-Security-Policy"] = _CONTENT_SECURITY_POLICY
             return response
 
     return SecurityHeadersMiddleware
@@ -64,5 +71,5 @@ SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Content-Security-Policy": "default-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    "Content-Security-Policy": _CONTENT_SECURITY_POLICY,
 }

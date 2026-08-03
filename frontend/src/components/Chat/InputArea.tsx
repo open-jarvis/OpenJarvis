@@ -5,8 +5,6 @@ import { useAppStore, generateId } from '../../lib/store';
 import { streamChat, streamResearch } from '../../lib/sse';
 import { fetchSavings, getBase } from '../../lib/api';
 import { listConnectors, getSyncStatus } from '../../lib/connectors-api';
-import { MicButton } from './MicButton';
-import { useSpeech } from '../../hooks/useSpeech';
 import type {
   ChatMessage,
   MessageTelemetry,
@@ -84,7 +82,6 @@ export function InputArea() {
   const selectedModel = useAppStore((s) => s.selectedModel);
   const streamState = useAppStore((s) => s.streamState);
   const messages = useAppStore((s) => s.messages);
-  const speechEnabled = useAppStore((s) => s.settings.speechEnabled);
   const maxTokens = useAppStore((s) => s.settings.maxTokens);
   const temperature = useAppStore((s) => s.settings.temperature);
   const createConversation = useAppStore((s) => s.createConversation);
@@ -96,14 +93,6 @@ export function InputArea() {
   const deepResearch = useAppStore((s) => s.deepResearch);
   const setDeepResearch = useAppStore((s) => s.setDeepResearch);
   const corpusSync = useResearchCorpusSync(deepResearch);
-
-  const {
-    state: speechState,
-    error: speechError,
-    available: speechAvailable,
-    startRecording,
-    stopRecording,
-  } = useSpeech();
 
   // Abort in-flight stream when the user switches models mid-generation.
   // This prevents errors from trying to continue a stream with a stale model.
@@ -120,34 +109,6 @@ export function InputArea() {
     }
     prevModelRef.current = selectedModel;
   }, [selectedModel, streamState.isStreaming, resetStream]);
-
-  const micDisabled = !speechEnabled || !speechAvailable || streamState.isStreaming;
-  const micReason: 'not-enabled' | 'no-backend' | 'streaming' | undefined =
-    !speechEnabled ? 'not-enabled'
-    : !speechAvailable ? 'no-backend'
-    : streamState.isStreaming ? 'streaming'
-    : undefined;
-
-  useEffect(() => {
-    if (speechError) {
-      toast.error(speechError, { duration: 8000 });
-    }
-  }, [speechError]);
-
-  const handleMicClick = useCallback(async () => {
-    if (speechState === 'recording') {
-      try {
-        const text = await stopRecording();
-        if (text) {
-          setInput((prev) => (prev ? prev + ' ' + text : text));
-        }
-      } catch {
-        // Error is captured in useSpeech
-      }
-    } else {
-      await startRecording();
-    }
-  }, [speechState, startRecording, stopRecording]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -606,12 +567,6 @@ export function InputArea() {
           </button>
         ) : (
           <div className="flex items-center gap-1">
-            <MicButton
-              state={speechState}
-              onClick={handleMicClick}
-              disabled={micDisabled}
-              reason={micReason}
-            />
             <button
               onClick={sendMessage}
               disabled={!input.trim() || modelLoading || !selectedModel}

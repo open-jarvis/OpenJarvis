@@ -1,158 +1,96 @@
-# External MCP Server Integration
+# External MCP servers
 
-OpenJarvis can extend agent capabilities by connecting to external [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers. This allows agents to use tools provided by services like Home Assistant, databases, custom APIs, or any MCP-compatible server -- without writing custom tool code.
+OpenJarvis can expose tools from explicitly configured Model Context Protocol
+(MCP) servers. Discovery and execution are separate: discovering a tool never
+authorizes the model to call it directly.
 
-## How It Works
+## Canonical execution path
 
-When OpenJarvis starts, it reads the `[tools.mcp]` section in `config.toml`. For each configured server, it:
+Every model-reachable call uses the existing OpenJarvis path:
 
-1. Opens a connection using the appropriate transport (Streamable HTTP or stdio).
-2. Performs the MCP initialize handshake (protocol version negotiation and `initialized` notification).
-3. Discovers available tools via `tools/list`.
-4. Wraps each discovered tool as a standard `BaseTool` so agents can call them like any built-in tool.
+`ToolProposal → ToolActionService → CentralRiskPolicy → optional allow-once → MCP call → verification → TaskEvent/Trace`
 
-If a server is unreachable or returns an error, OpenJarvis logs a warning and continues loading the remaining servers. One broken server does not prevent other tools from being available.
+Tool IDs are namespaced as `mcp__<server>__<tool>`. The server cannot choose
+its capability, risk or approval boundary. Unknown tools default to **write**
+(Level 3 and allow-once); the local user may classify a discovered tool as:
 
-## Configuration
+- **read**: Level 0;
+- **prepare**: Level 2 with allow-once;
+- **write**: Level 3 with allow-once;
+- **blocked**: Level 4 and disabled.
 
-External MCP servers are configured in `config.toml` under `[tools.mcp]`:
+MCP metadata and results are untrusted data. Remote descriptions are not copied
+into the developer prompt, unsupported schemas are rejected, arguments are
+validated against the retained schema, and result text cannot become a system
+instruction. A successful protocol envelope is recorded separately from the
+assistant's natural-language answer.
 
-```toml
-[tools.mcp]
-enabled = true
-servers = '[{"name": "homeassistant", "url": "http://172.16.3.1:9583/private_abc123"}]'
-```
+## Desktop Settings
 
-The `servers` value is a **JSON-encoded string** containing an array of server objects. Each object defines one external MCP server.
+Settings can add, enable, disable, remove and reconnect servers. They also show
+connection state, discovered tools, last connection/error, Include/Exclude
+filters and the local policy per tool. Configuration is stored in
+`%OPENJARVIS_HOME%\state\mcp-servers.json`; it contains no token values.
 
-!!! note
-    The value must be a JSON string (with single-quote TOML delimiters around it), not a native TOML array. This is because the configuration system passes it through as a single string field.
+Streamable HTTP configuration uses:
 
-## Server Config Schema
+- a `http` or `https` URL without user info, query credentials or fragments;
+- an optional `MCP_*_API_KEY` keyring reference;
+- bounded connection/request timeouts.
 
-Each server object supports the following fields:
+Stdio configuration uses:
 
-| Field            | Type           | Required | Description                                              |
-|------------------|----------------|----------|----------------------------------------------------------|
-| `name`           | string         | No       | Human-readable name used in log messages. Defaults to `<unnamed>`. |
-| `url`            | string         | No*      | URL for Streamable HTTP transport.                       |
-| `command`         | string         | No*      | Command to launch a stdio-based MCP server.              |
-| `args`           | list of strings| No       | Arguments passed to the stdio command.                   |
-| `include_tools`  | list of strings| No       | Whitelist of tool names to import. Only these tools are loaded. |
-| `exclude_tools`  | list of strings| No       | Blacklist of tool names to skip. All other tools are loaded. |
+- an absolute executable path;
+- at most 32 non-secret arguments;
+- an optional `MCP_*_API_KEY` environment reference;
+- a bounded response timeout and an interruptible owned process.
 
-*Either `url` or `command` must be provided. If neither is set, the server is skipped with a warning.
+Do not put bearer tokens, passwords, API keys or database credentials in URLs
+or stdio arguments. The stdio child does not inherit unrelated secret-looking
+environment variables. Global Stop closes active MCP transports.
 
-When both `include_tools` and `exclude_tools` are specified, the whitelist is applied first, then the blacklist filters the result.
+## Compatibility configuration
 
-## Examples
-
-### Home Assistant via Streamable HTTP
-
-Connect to the [ha-mcp](https://github.com/tevonsb/ha-mcp) Home Assistant add-on:
-
-```toml
-[tools.mcp]
-enabled = true
-servers = '[{"name": "homeassistant", "url": "http://172.16.3.1:9583/private_abc123"}]'
-```
-
-This discovers all HA tools (entity control, automations, history, etc.) and makes them available to agents.
-
-### Stdio Server
-
-Launch a local MCP server as a subprocess:
+CLI/non-desktop deployments may retain the existing JSON-encoded TOML field:
 
 ```toml
 [tools.mcp]
 enabled = true
-servers = '[{"name": "myserver", "command": "python", "args": ["-m", "my_mcp_server"]}]'
+servers = '[{"server_id":"local-notes","transport":"stdio","command":"C:\\\\Tools\\\\notes-mcp.exe","args":[],"include_tools":["search_notes"]}]'
 ```
 
-OpenJarvis starts the process automatically, communicates via JSON-RPC over stdin/stdout, and terminates it on shutdown.
-
-### Multiple Servers
+For HTTP, provide a normal endpoint and a token environment reference rather
+than embedding a credential:
 
 ```toml
 [tools.mcp]
 enabled = true
-servers = '[{"name": "homeassistant", "url": "http://172.16.3.1:9583/private_abc123"}, {"name": "database", "command": "db-mcp-server", "args": ["--db", "postgres://localhost/mydb"]}]'
+servers = '[{"server_id":"internal-service","transport":"http","url":"https://mcp.example.invalid/mcp","token_env":"MCP_INTERNAL_SERVICE_API_KEY"}]'
 ```
 
-### Tool Filtering
+The desktop registry is preferred because it validates and persists the
+non-secret grant separately from the keyring value.
 
-When a server exposes many tools but you only need a few, use `include_tools` to whitelist:
+## Failure and recovery
 
-```toml
-[tools.mcp]
-enabled = true
-servers = '[{"name": "ha", "url": "http://172.16.3.1:9583/private_abc123", "include_tools": ["hassTurnOn", "hassTurnOff", "hassGetState"]}]'
-```
+Discovery isolates each server. One unavailable or invalid server is marked
+disconnected without removing already healthy servers. Ordinary chat never
+waits for a background reconnect. Reconnect explicitly performs discovery;
+Include/Exclude filters are then applied before manifests are registered.
 
-To load everything except specific tools, use `exclude_tools`:
+HTTP errors, stdio exits, invalid schemas and timeouts are reduced to safe
+categories in normal UI. Raw tokens, headers, stderr and stack traces are not
+returned. A runtime call failure becomes a failed ToolAction and must not be
+presented as success.
 
-```toml
-[tools.mcp]
-enabled = true
-servers = '[{"name": "ha", "url": "http://172.16.3.1:9583/private_abc123", "exclude_tools": ["hassCreateBackup", "hassDeleteBackup"]}]'
-```
+## Recommended categories
 
-## Transport Types
+The internal Windows desktop adapter is integrated and does not require an
+external MCP server. GitHub, Google Drive, Gmail, Calendar, Outlook, Teams,
+Slack and Notion are useful optional categories only when the user supplies a
+compatible server and credentials. They are **not installed, connected or
+verified** by this implementation. Existing Playwright, safe-shell and local
+filesystem capabilities should be preferred over redundant external servers.
 
-### Streamable HTTP
-
-Used when the `url` field is set. The transport sends JSON-RPC requests as HTTP POST to the given URL using `httpx`. It tracks the `Mcp-Session-Id` header across requests as required by the MCP Streamable HTTP specification.
-
-**When to use:** Remote MCP servers, services running as HTTP endpoints (e.g., Home Assistant MCP add-on, cloud-hosted MCP servers).
-
-**Connection parameters:**
-
-- Connect timeout: 10 seconds
-- Request timeout: 60 seconds
-
-### Stdio
-
-Used when the `command` field is set. OpenJarvis spawns the command as a subprocess and communicates via JSON-RPC lines on stdin/stdout.
-
-**When to use:** Local MCP servers distributed as CLI tools, development/testing, servers that require filesystem access on the same machine.
-
-!!! info "SSETransport alias"
-    `SSETransport` is provided as a backward-compatible alias for `StreamableHTTPTransport`. Both refer to the same implementation.
-
-## Error Handling
-
-OpenJarvis handles MCP server failures gracefully:
-
-- **Server unreachable:** A warning is logged and the server is skipped. All other servers and built-in tools continue to load normally.
-- **Timeout:** HTTP requests time out after 60 seconds. The server is skipped with a warning.
-- **Invalid config:** If the `servers` JSON is malformed or a server entry has neither `url` nor `command`, a warning is logged and that entry is skipped.
-- **Tool discovery failure:** If `tools/list` fails on a server, the error is caught and the server is skipped.
-- **Runtime tool call failure:** If a tool call to an external MCP server fails at runtime, it returns a `ToolResult` with `success=False` and the error message.
-
-No single server failure causes OpenJarvis to crash or prevents other tools from working.
-
-## Troubleshooting
-
-### Server not discovered
-
-1. Check that `[tools.mcp]` has `enabled = true`.
-2. Verify the `servers` JSON is valid. A common mistake is using TOML arrays instead of a JSON string.
-3. Check the OpenJarvis logs for warnings like `Failed to discover external MCP tools`.
-
-### Connection refused / timeout
-
-1. Verify the server is running and reachable from the OpenJarvis host: `curl -v http://host:port/`.
-2. Check firewall rules between the OpenJarvis container and the MCP server.
-3. For Docker deployments, ensure both containers are on the same network or use host IPs.
-
-### Tools not appearing
-
-1. Run with debug logging to see which tools were discovered.
-2. Check if `include_tools` or `exclude_tools` filters are too restrictive.
-3. Verify the MCP server actually exposes tools via `tools/list` (some servers only expose resources or prompts).
-
-### Stdio server crashes immediately
-
-1. Test the command manually: `python -m my_mcp_server` should start and wait for input on stdin.
-2. Check stderr output in the OpenJarvis logs for error messages from the subprocess.
-3. Ensure all dependencies for the MCP server are installed in the same environment.
+Use [the manual verification runbook](../jarvis-manual-verification.md) before
+calling any configured MCP integration verified.

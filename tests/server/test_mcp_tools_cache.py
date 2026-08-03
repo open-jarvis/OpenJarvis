@@ -33,6 +33,7 @@ def _make_tool_spec(name: str, description: str = "") -> MagicMock:
     spec.name = name
     spec.description = description
     spec.parameters = {"type": "object", "properties": {}}
+    spec.timeout_seconds = 30.0
     return spec
 
 
@@ -40,6 +41,19 @@ def _make_adapter(name: str) -> MagicMock:
     adapter = MagicMock()
     adapter.spec = _make_tool_spec(name)
     return adapter
+
+
+def _make_state() -> _FakeAppState:
+    from openjarvis.tools.manifest import ToolManifestCatalog
+
+    state = _FakeAppState()
+    service = MagicMock()
+    service.catalog = ToolManifestCatalog(())
+    service.register_runtime.side_effect = lambda manifest, _runtime: (
+        service.catalog.register(manifest)
+    )
+    state.tool_action_service = service
+    return state
 
 
 # ---------------------------------------------------------------------------
@@ -66,12 +80,12 @@ def test_returns_tools_from_mcp_server(mock_load_config: MagicMock):
     ):
         MockProvider.return_value.discover.return_value = [mock_adapter]
 
-        app_state = _FakeAppState()
+        app_state = _make_state()
         tools, adapters = _get_mcp_tools(app_state)
 
     assert len(tools) == 1
-    assert tools[0]["function"]["name"] == "get_weather"
-    assert "get_weather" in adapters
+    assert tools[0]["function"]["name"] == "mcp__test-server__get_weather"
+    assert "mcp__test-server__get_weather" in adapters
 
 
 @patch("openjarvis.core.config.load_config")
@@ -93,7 +107,7 @@ def test_caches_successful_discovery(mock_load_config: MagicMock):
     ):
         MockProvider.return_value.discover.return_value = [mock_adapter]
 
-        app_state = _FakeAppState()
+        app_state = _make_state()
 
         # First call discovers
         tools1, _ = _get_mcp_tools(app_state)
@@ -123,7 +137,7 @@ def test_does_not_cache_empty_results(mock_load_config: MagicMock):
     ):
         # First call: discovery returns empty
         MockProvider.return_value.discover.return_value = []
-        app_state = _FakeAppState()
+        app_state = _make_state()
 
         tools1, _ = _get_mcp_tools(app_state)
         assert len(tools1) == 0
@@ -137,7 +151,7 @@ def test_does_not_cache_empty_results(mock_load_config: MagicMock):
 
         tools2, _ = _get_mcp_tools(app_state)
         assert len(tools2) == 1
-        assert tools2[0]["function"]["name"] == "retry_tool"
+        assert tools2[0]["function"]["name"] == "mcp__failing-server__retry_tool"
 
 
 @patch("openjarvis.core.config.load_config")
@@ -147,7 +161,7 @@ def test_handles_config_load_failure(mock_load_config: MagicMock):
 
     mock_load_config.side_effect = RuntimeError("config broken")
 
-    app_state = _FakeAppState()
+    app_state = _make_state()
     tools, adapters = _get_mcp_tools(app_state)
 
     assert tools == []

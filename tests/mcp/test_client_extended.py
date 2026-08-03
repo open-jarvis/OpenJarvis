@@ -7,7 +7,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from openjarvis.mcp.client import MCPClient
-from openjarvis.mcp.protocol import MCPRequest, MCPResponse
+from openjarvis.mcp.protocol import (
+    MCP_PROTOCOL_VERSION,
+    MCPError,
+    MCPRequest,
+    MCPResponse,
+)
 from openjarvis.tools._stubs import ToolSpec
 
 
@@ -15,7 +20,7 @@ from openjarvis.tools._stubs import ToolSpec
 def mock_transport():
     """A mock transport that returns configurable responses."""
     transport = MagicMock()
-    transport.send.return_value = MCPResponse(result={})
+    transport.send.return_value = MCPResponse(result={}, id=1)
     return transport
 
 
@@ -23,7 +28,11 @@ class TestInitialize:
     def test_sends_correct_params(self, mock_transport):
         """initialize() must send protocolVersion, capabilities, clientInfo."""
         mock_transport.send.return_value = MCPResponse(
-            result={"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}}
+            result={
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {"tools": {}},
+            },
+            id=1,
         )
         client = MCPClient(mock_transport)
         client.initialize()
@@ -33,7 +42,7 @@ class TestInitialize:
         req = init_call[0][0]
         assert isinstance(req, MCPRequest)
         assert req.method == "initialize"
-        assert req.params["protocolVersion"] == "2025-03-26"
+        assert req.params["protocolVersion"] == MCP_PROTOCOL_VERSION
         assert req.params["capabilities"] == {}
         assert req.params["clientInfo"]["name"] == "openjarvis"
         assert req.params["clientInfo"]["version"] == "0.1.0"
@@ -42,7 +51,8 @@ class TestInitialize:
         """After initialize, notifications/initialized must be sent via
         send_notification."""
         mock_transport.send.return_value = MCPResponse(
-            result={"protocolVersion": "2025-03-26", "capabilities": {}}
+            result={"protocolVersion": MCP_PROTOCOL_VERSION, "capabilities": {}},
+            id=1,
         )
         client = MCPClient(mock_transport)
         client.initialize()
@@ -53,15 +63,31 @@ class TestInitialize:
         req = mock_transport.send_notification.call_args[0][0]
         assert req.method == "notifications/initialized"
         assert req.id is None  # notifications must not have an id
+        mock_transport.set_protocol_version.assert_called_once_with(
+            MCP_PROTOCOL_VERSION
+        )
 
     def test_stores_capabilities(self, mock_transport):
         """initialize() should store server capabilities."""
         mock_transport.send.return_value = MCPResponse(
-            result={"capabilities": {"tools": {"listChanged": True}}}
+            result={
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {"tools": {"listChanged": True}},
+            },
+            id=1,
         )
         client = MCPClient(mock_transport)
         client.initialize()
         assert client._capabilities == {"tools": {"listChanged": True}}
+
+    def test_rejects_unsupported_protocol_version(self, mock_transport):
+        mock_transport.send.return_value = MCPResponse(
+            result={"protocolVersion": "2099-01-01", "capabilities": {}},
+            id=1,
+        )
+        with pytest.raises(MCPError, match="unsupported protocol version"):
+            MCPClient(mock_transport).initialize()
+        mock_transport.close.assert_called_once()
 
 
 class TestNotify:
@@ -131,7 +157,8 @@ class TestListTools:
                         "inputSchema": {"type": "object", "properties": {}},
                     },
                 ]
-            }
+            },
+            id=1,
         )
         client = MCPClient(mock_transport)
         tools = client.list_tools()
@@ -145,7 +172,7 @@ class TestListTools:
 
     def test_empty_tools_list(self, mock_transport):
         """list_tools() with no tools should return empty list."""
-        mock_transport.send.return_value = MCPResponse(result={"tools": []})
+        mock_transport.send.return_value = MCPResponse(result={"tools": []}, id=1)
         client = MCPClient(mock_transport)
         assert client.list_tools() == []
 
@@ -154,7 +181,8 @@ class TestCallTool:
     def test_call_tool_sends_correct_params(self, mock_transport):
         """call_tool() should send method=tools/call with name and arguments."""
         mock_transport.send.return_value = MCPResponse(
-            result={"content": [{"type": "text", "text": "ok"}], "isError": False}
+            result={"content": [{"type": "text", "text": "ok"}], "isError": False},
+            id=1,
         )
         client = MCPClient(mock_transport)
         result = client.call_tool("get_entities", {"domain": "light"})
@@ -167,10 +195,16 @@ class TestCallTool:
     def test_call_tool_no_arguments(self, mock_transport):
         """call_tool() with no arguments passes empty dict."""
         mock_transport.send.return_value = MCPResponse(
-            result={"content": [{"type": "text", "text": "done"}], "isError": False}
+            result={"content": [{"type": "text", "text": "done"}], "isError": False},
+            id=1,
         )
         client = MCPClient(mock_transport)
         client.call_tool("ping")
 
         req = mock_transport.send.call_args[0][0]
         assert req.params == {"name": "ping", "arguments": {}}
+
+    def test_rejects_mismatched_response_id(self, mock_transport):
+        mock_transport.send.return_value = MCPResponse(result={}, id=99)
+        with pytest.raises(MCPError, match="response ID"):
+            MCPClient(mock_transport).call_tool("ping")

@@ -17,6 +17,10 @@ import {
   Search,
   Brain,
   RefreshCw,
+  Plus,
+  Plug,
+  Shield,
+  Square,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
 import {
@@ -29,6 +33,18 @@ import {
   saveCloudKey,
   isTauri,
   type InferenceSource,
+  fetchMcpStatus,
+  saveMcpServer,
+  removeMcpServer,
+  reconnectMcpServer,
+  fetchDesktopStatus,
+  saveDesktopTarget,
+  connectDesktopTarget,
+  interruptDesktop,
+  type McpServerInput,
+  type McpServerStatus,
+  type McpToolStatus,
+  type DesktopStatus,
 } from '../lib/api';
 import { isAutoUpdateDisabled, setAutoUpdateDisabled } from '../components/Desktop/UpdateChecker';
 
@@ -170,6 +186,296 @@ function CloudProviderStatus({ label, keyName }: { label: string; keyName: strin
       {label}
     </span>
   );
+}
+
+const serverInput = (server: McpServerStatus): McpServerInput => ({
+  server_id: server.server_id,
+  label: server.label,
+  transport: server.transport,
+  enabled: server.enabled,
+  url: server.url || '',
+  command: server.command || '',
+  args: server.args || [],
+  token_env: server.token_env || '',
+  include_tools: server.include_tools || [],
+  exclude_tools: server.exclude_tools || [],
+  tool_policies: server.tool_policies || {},
+});
+
+function McpTokenInput({ server, onSaved }: { server: McpServerStatus; onSaved: () => Promise<void> }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const save = async () => {
+    if (!value.trim() || !server.token_env) return;
+    setError('');
+    try {
+      await saveCloudKey(server.token_env, value.trim());
+      setValue('');
+      await onSaved();
+    } catch (reason: any) {
+      setError(reason?.message || 'Token konnte nicht gespeichert werden.');
+    }
+  };
+  const remove = async () => {
+    if (!server.token_env) return;
+    setError('');
+    try {
+      await saveCloudKey(server.token_env, '');
+      setValue('');
+      await onSaved();
+    } catch (reason: any) {
+      setError(reason?.message || 'Token konnte nicht entfernt werden.');
+    }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2 mt-2">
+      <input aria-label={`Token für ${server.label}`} type="password" value={value} onChange={(event) => setValue(event.target.value)}
+        placeholder={server.token_configured ? 'Token sicher gespeichert' : 'Bearer-Token (optional)'}
+        disabled={!isTauri() || !server.token_env}
+        className="px-2 py-1 rounded text-xs"
+        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
+      <button type="button" onClick={() => void save()} disabled={!isTauri() || !server.token_env || !value.trim()}
+        className="px-2 py-1 rounded text-xs disabled:opacity-40"
+        style={{ border: '1px solid var(--color-border)' }}>Token speichern</button>
+      {server.token_configured && <button type="button" onClick={() => void remove()}
+        className="px-2 py-1 rounded text-xs"
+        style={{ color: 'var(--color-error)', border: '1px solid var(--color-error)' }}>Token entfernen</button>}
+      {error && <span className="text-xs" style={{ color: 'var(--color-error)' }}>{error}</span>}
+    </div>
+  );
+}
+
+export function McpSettings() {
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof fetchMcpStatus>> | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState('');
+  const [confirmRemove, setConfirmRemove] = useState('');
+  const [draft, setDraft] = useState({
+    server_id: '', label: '', transport: 'http' as 'http' | 'stdio', endpoint: '',
+    args: '', include: '', exclude: '', token: '',
+  });
+  const refresh = useCallback(async () => {
+    try {
+      setStatus(await fetchMcpStatus());
+      setError('');
+    } catch (reason: any) {
+      setStatus(null);
+      setError(reason?.message || 'MCP-Status ist nicht verfügbar.');
+    }
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const reconnect = async (serverId: string) => {
+    setBusy(serverId);
+    try {
+      setStatus(await reconnectMcpServer(serverId));
+      setError('');
+    } catch (reason: any) {
+      setError(reason?.message || 'Der MCP-Server ist nicht erreichbar.');
+      await refresh();
+    } finally { setBusy(''); }
+  };
+
+  const add = async () => {
+    const id = draft.server_id.trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9_-]{0,47}$/.test(id) || !draft.endpoint.trim()) {
+      setError('Server-ID und Endpunkt sind erforderlich.');
+      return;
+    }
+    const tokenEnv = `MCP_${id.replace(/[^a-z0-9]/g, '_').toUpperCase()}_API_KEY`;
+    const input: McpServerInput = {
+      server_id: id,
+      label: draft.label.trim() || id,
+      transport: draft.transport,
+      enabled: true,
+      url: draft.transport === 'http' ? draft.endpoint.trim() : '',
+      command: draft.transport === 'stdio' ? draft.endpoint.trim() : '',
+      args: draft.args.split(',').map((item) => item.trim()).filter(Boolean),
+      token_env: tokenEnv,
+      include_tools: draft.include.split(',').map((item) => item.trim()).filter(Boolean),
+      exclude_tools: draft.exclude.split(',').map((item) => item.trim()).filter(Boolean),
+      tool_policies: {},
+    };
+    setBusy(id);
+    let serverSaved = false;
+    try {
+      await saveMcpServer(input);
+      serverSaved = true;
+      if (draft.token.trim()) await saveCloudKey(tokenEnv, draft.token.trim());
+      setDraft({ server_id: '', label: '', transport: 'http', endpoint: '', args: '', include: '', exclude: '', token: '' });
+      try {
+        setStatus(await reconnectMcpServer(id));
+        setError('');
+      } catch (reason: any) {
+        await refresh();
+        setError(`Server gespeichert, aber die Verbindung ist fehlgeschlagen: ${reason?.message || 'nicht erreichbar'}`);
+      }
+    } catch (reason: any) {
+      setError(serverSaved
+        ? (reason?.message || 'Server gespeichert, aber der Token konnte nicht geladen werden.')
+        : (reason?.message || 'MCP-Server konnte nicht gespeichert werden.'));
+    } finally { setBusy(''); }
+  };
+
+  const update = async (server: McpServerStatus, patch: Partial<McpServerInput>) => {
+    setBusy(server.server_id);
+    try {
+      const next = { ...serverInput(server), ...patch };
+      await saveMcpServer(next);
+      if (next.enabled) {
+        try {
+          setStatus(await reconnectMcpServer(server.server_id));
+          setError('');
+        } catch (reason: any) {
+          await refresh();
+          setError(`Einstellung gespeichert, aber die Verbindung ist fehlgeschlagen: ${reason?.message || 'nicht erreichbar'}`);
+        }
+      } else {
+        await refresh();
+      }
+    } catch (reason: any) {
+      setError(reason?.message || 'MCP-Berechtigung konnte nicht gespeichert werden.');
+    } finally { setBusy(''); }
+  };
+
+  const remove = async (serverId: string) => {
+    if (confirmRemove !== serverId) {
+      setConfirmRemove(serverId);
+      return;
+    }
+    setBusy(serverId);
+    try {
+      await removeMcpServer(serverId);
+      setConfirmRemove('');
+      await refresh();
+    } catch (reason: any) {
+      setError(reason?.message || 'MCP-Server konnte nicht entfernt werden.');
+    } finally { setBusy(''); }
+  };
+
+  const setPolicy = async (server: McpServerStatus, tool: McpToolStatus, policy: McpToolStatus['policy']) => {
+    await update(server, { tool_policies: { ...server.tool_policies, [tool.name]: policy } });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+        {status ? `${status.connected_servers} verbunden · ${status.discovered_tools} Werkzeuge · ${status.disconnected_servers} getrennt` : 'MCP getrennt'}
+      </div>
+      {error && <div className="text-xs rounded p-2" style={{ color: 'var(--color-error)', border: '1px solid var(--color-error)' }}>{error}</div>}
+      {status?.servers.map((server) => (
+        <div key={server.server_id} className="rounded-lg p-3" style={{ border: '1px solid var(--color-border)' }}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-medium">{server.label}</div>
+              <div className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                {server.server_id} · {server.transport} · {server.connected ? 'verbunden' : server.enabled ? 'getrennt' : 'deaktiviert'}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => void update(server, { enabled: !server.enabled })} disabled={!!busy} className="px-2 py-1 rounded text-xs disabled:opacity-40" style={{ border: '1px solid var(--color-border)' }}>
+                {server.enabled ? 'Deaktivieren' : 'Aktivieren'}
+              </button>
+              <button type="button" onClick={() => void reconnect(server.server_id)} disabled={!server.enabled || !!busy} className="px-2 py-1 rounded text-xs disabled:opacity-40" style={{ border: '1px solid var(--color-border)' }}>
+                <Plug size={11} className="inline mr-1" />Neu verbinden
+              </button>
+              <button type="button" onClick={() => void remove(server.server_id)} disabled={!!busy} className="px-2 py-1 rounded text-xs disabled:opacity-40" style={{ color: 'var(--color-error)', border: '1px solid var(--color-error)' }}>{confirmRemove === server.server_id ? 'Entfernen bestätigen' : 'Entfernen'}</button>
+            </div>
+          </div>
+          {server.last_error && <div className="text-xs mt-2" style={{ color: 'var(--color-error)' }}>{server.last_error}</div>}
+          {server.last_connected_at && <div className="text-[11px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Letzte Verbindung: {server.last_connected_at}</div>}
+          <McpTokenInput server={server} onSaved={() => reconnect(server.server_id)} />
+          {server.tools.length > 0 && <div className="mt-3 space-y-1">
+            {server.tools.map((tool) => <div key={tool.tool_id} className="flex items-center justify-between gap-2 text-xs">
+              <span title={tool.tool_id}>{tool.name}</span>
+              <select aria-label={`Berechtigung für ${tool.name}`} value={server.tool_policies[tool.name] || tool.policy} disabled={!!busy} onChange={(event) => void setPolicy(server, tool, event.target.value as McpToolStatus['policy'])}
+                className="px-2 py-1 rounded disabled:opacity-40" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
+                <option value="read">Nur lesen</option><option value="prepare">Vorbereiten + Freigabe</option><option value="write">Schreiben + Freigabe</option><option value="blocked">Blockiert</option>
+              </select>
+            </div>)}
+          </div>}
+        </div>
+      ))}
+      <div className="rounded-lg p-3 space-y-2" style={{ border: '1px dashed var(--color-border)' }}>
+        <div className="text-sm font-medium"><Plus size={13} className="inline mr-1" />MCP-Server hinzufügen</div>
+        <div className="grid grid-cols-2 gap-2">
+          <input aria-label="MCP Server-ID" value={draft.server_id} onChange={(e) => setDraft((v) => ({ ...v, server_id: e.target.value }))} placeholder="server-id" className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />
+          <input aria-label="MCP Anzeigename" value={draft.label} onChange={(e) => setDraft((v) => ({ ...v, label: e.target.value }))} placeholder="Anzeigename" className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />
+          <select aria-label="MCP Transport" value={draft.transport} onChange={(e) => setDraft((v) => ({ ...v, transport: e.target.value as 'http' | 'stdio' }))} className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }}><option value="http">Streamable HTTP</option><option value="stdio">Stdio</option></select>
+          <input aria-label="MCP Endpunkt" value={draft.endpoint} onChange={(e) => setDraft((v) => ({ ...v, endpoint: e.target.value }))} placeholder={draft.transport === 'http' ? 'https://…/mcp' : 'C:\\…\\server.exe'} className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />
+          <input aria-label="MCP Argumente" value={draft.args} onChange={(e) => setDraft((v) => ({ ...v, args: e.target.value }))} placeholder="Argumente, kommagetrennt" className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />
+          <input aria-label="MCP Token" type="password" value={draft.token} onChange={(e) => setDraft((v) => ({ ...v, token: e.target.value }))} disabled={!isTauri()} placeholder="Token (optional, Schlüsselbund)" className="px-2 py-1 rounded text-xs disabled:opacity-50" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />
+          <input aria-label="MCP Include-Tools" value={draft.include} onChange={(e) => setDraft((v) => ({ ...v, include: e.target.value }))} placeholder="Include-Tools (optional)" className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />
+          <input aria-label="MCP Exclude-Tools" value={draft.exclude} onChange={(e) => setDraft((v) => ({ ...v, exclude: e.target.value }))} placeholder="Exclude-Tools (optional)" className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />
+        </div>
+        <button type="button" onClick={() => void add()} disabled={!!busy} className="px-3 py-1.5 rounded text-xs disabled:opacity-40" style={{ border: '1px solid var(--color-border)' }}>Server speichern</button>
+      </div>
+      <div className="text-[11px] leading-5" style={{ color: 'var(--color-text-tertiary)' }}>
+        <Shield size={11} className="inline mr-1" />Intern integriert: Windows-Desktopadapter. Optional, nicht installiert und nicht verifiziert: GitHub, Google Drive, Gmail, Calendar, Outlook, Teams, Slack und Notion über kompatible MCP-Server. Externe MCPs werden nicht automatisch installiert oder verbunden.
+      </div>
+    </div>
+  );
+}
+
+function DesktopAccessSettings() {
+  const [status, setStatus] = useState<DesktopStatus | null>(null);
+  const [error, setError] = useState('');
+  const [draft, setDraft] = useState({ target_id: '', label: '', executable: '', title_contains: '' });
+  const refresh = useCallback(async () => {
+    try { setStatus(await fetchDesktopStatus()); setError(''); }
+    catch (reason: any) { setStatus(null); setError(reason?.message || 'Desktopadapter nicht verfügbar.'); }
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+  const save = async () => {
+    try {
+      await saveDesktopTarget({
+        ...draft,
+        mode: 'interact',
+        capabilities: ['inspect', 'screenshot', 'focus', 'window', 'launch', 'type', 'click', 'hotkey', 'scroll', 'visual_click', 'clipboard'],
+      });
+      setDraft({ target_id: '', label: '', executable: '', title_contains: '' });
+      await refresh();
+    } catch (reason: any) { setError(reason?.message || 'Desktopfreigabe konnte nicht gespeichert werden.'); }
+  };
+  return <div className="space-y-3">
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+      <span>
+        {status?.mode === 'configured' ? 'Desktopzugriff aktiv' : 'Desktopzugriff inaktiv'} · {status?.current_window || 'kein Zielfenster'}
+        {status?.target_monitor ? ` · ${status.target_monitor} · ${status.target_dpi} DPI` : ''}
+      </span>
+      <button type="button" onClick={async () => { try { await interruptDesktop(); await refresh(); } catch (reason: any) { setError(reason?.message || 'Aktion konnte nicht unterbrochen werden.'); } }} className="px-3 py-1.5 rounded" style={{ color: 'var(--color-error)', border: '1px solid var(--color-error)' }}><Square size={11} className="inline mr-1" />Global Stop</button>
+    </div>
+    {status?.secure_desktop_blocked && <div className="text-xs" style={{ color: 'var(--color-error)' }}>Windows Secure Desktop kann nicht automatisiert werden ({status.secure_desktop}).</div>}
+    {status?.last_action && <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Letzte Aktion: {status.last_action.action} · {status.last_action.verified ? 'verifiziert' : 'nicht bestätigt'}</div>}
+    {status && <div className="text-xs" style={{ color: status.semantic_backend === 'windows_uia' ? 'var(--color-text-secondary)' : 'var(--color-warning)' }}>Semantik: {status.semantic_backend === 'windows_uia' ? 'Windows UI Automation' : status.semantic_backend === 'win32_fallback' ? 'klassischer Win32-Fallback' : 'noch nicht geprüft'}</div>}
+    {error && <div className="text-xs" style={{ color: 'var(--color-error)' }}>{error}</div>}
+    {status?.targets.map((target) => <div key={target.target_id} className="rounded-lg p-3" style={{ border: '1px solid var(--color-border)' }}>
+      <div className="flex justify-between gap-2"><div><div className="text-sm font-medium">{target.label}</div><div className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>{target.title_contains} · {target.connected ? 'verbunden' : target.mode}</div></div>
+      <div className="flex gap-2"><button type="button" onClick={async () => { try { await connectDesktopTarget(target.target_id); await refresh(); } catch (reason: any) { setError(reason?.message || 'Zielfenster nicht gefunden.'); } }} className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)' }}>Verbinden</button>
+      <button type="button" onClick={async () => { await saveDesktopTarget({ target_id: target.target_id, label: target.label, executable: target.executable, title_contains: target.title_contains, mode: 'off', capabilities: target.capabilities }); await refresh(); }} className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)' }}>Abschalten</button></div></div>
+      <div className="text-[11px] mt-2" style={{ color: 'var(--color-text-tertiary)' }}>{target.capabilities.join(', ')}</div>
+    </div>)}
+    <div className="grid grid-cols-2 gap-2">
+      <input value={draft.target_id} onChange={(e) => setDraft((v) => ({ ...v, target_id: e.target.value.toLowerCase() }))} placeholder="ziel-id" className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />
+      <input value={draft.label} onChange={(e) => setDraft((v) => ({ ...v, label: e.target.value }))} placeholder="Anwendung" className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />
+      <input value={draft.executable} onChange={(e) => setDraft((v) => ({ ...v, executable: e.target.value }))} placeholder="C:\\…\\app.exe" className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />
+      <input value={draft.title_contains} onChange={(e) => setDraft((v) => ({ ...v, title_contains: e.target.value }))} placeholder="Fenstertitel enthält" className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />
+    </div>
+    <button type="button" onClick={() => void save()} className="px-3 py-1.5 rounded text-xs" style={{ border: '1px solid var(--color-border)' }}>Dauerhaften Zugriff speichern</button>
+    <div className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>Dauerhafter Desktopzugriff ersetzt keine Level-3-Freigabe. UAC, Anmeldebildschirm, andere Sitzungen und geschützte Passwortfelder bleiben gesperrt.</div>
+  </div>;
+}
+
+const PERSONAL_KEY = 'openjarvis-personal-preferences-v1';
+function PersonalPreferences() {
+  const empty = { name: '', address: '', answerLength: '', role: '', applications: '', folders: '', tools: '', voiceId: '', desktopMode: '', approvalLimits: '' };
+  const [value, setValue] = useState<typeof empty>(() => { try { return { ...empty, ...JSON.parse(localStorage.getItem(PERSONAL_KEY) || '{}') }; } catch { return empty; } });
+  const [saved, setSaved] = useState(false);
+  const fields: Array<[keyof typeof empty, string]> = [['name', 'Name'], ['address', 'Bevorzugte Ansprache'], ['answerLength', 'Antwortlänge'], ['role', 'Persönliche/berufliche Rolle'], ['applications', 'Wichtige Anwendungen'], ['folders', 'Häufig genutzte Ordner'], ['tools', 'Bevorzugte Tools und Dienste'], ['voiceId', 'Gewünschte Voice-ID'], ['desktopMode', 'Desktop-Zugriffsmodus'], ['approvalLimits', 'Freigabegrenzen']];
+  return <div className="space-y-2"><div className="grid grid-cols-2 gap-2">{fields.map(([key, label]) => <input key={key} value={value[key]} onChange={(e) => setValue((current) => ({ ...current, [key]: e.target.value }))} placeholder={label} className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />)}</div>
+    <button type="button" onClick={() => { localStorage.setItem(PERSONAL_KEY, JSON.stringify(value)); setSaved(true); setTimeout(() => setSaved(false), 1500); }} className="px-3 py-1.5 rounded text-xs" style={{ border: '1px solid var(--color-border)' }}>Freiwillige Angaben speichern</button>{saved && <span className="text-xs ml-2" style={{ color: 'var(--color-success)' }}>Gespeichert</span>}
+    <div className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>Alle Felder dürfen leer bleiben. Diese Angaben werden lokal gespeichert und erteilen allein keine Tool- oder Memory-Freigabe.</div>
+  </div>;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -537,6 +843,9 @@ export function SettingsPage() {
             <SettingRow label="OpenRouter" description="Multi-provider routing">
               <ApiKeyInput keyName="OPENROUTER_API_KEY" placeholder="sk-or-..." />
             </SettingRow>
+            <SettingRow label="ElevenLabs" description="JARVIS-Sprachausgabe; sicher im Desktop-Schlüsselbund gespeichert">
+              <ApiKeyInput keyName="ELEVENLABS_API_KEY" placeholder="sk_..." />
+            </SettingRow>
           </Section>
 
           {/* Tools */}
@@ -544,6 +853,18 @@ export function SettingsPage() {
             <SettingRow label="Web Search" description="Tavily key for web search tool">
               <ApiKeyInput keyName="TAVILY_API_KEY" placeholder="tvly-..." />
             </SettingRow>
+          </Section>
+
+          <Section title="Windows-Desktopzugriff">
+            <DesktopAccessSettings />
+          </Section>
+
+          <Section title="MCP-Server und Berechtigungen">
+            <McpSettings />
+          </Section>
+
+          <Section title="Persönliche Konfiguration (freiwillig)">
+            <PersonalPreferences />
           </Section>
 
           {/* Memory */}

@@ -31,6 +31,15 @@ class DesktopWindow:
 
 
 @dataclass(frozen=True, slots=True)
+class DesktopMonitor:
+    handle: int
+    device: str
+    bounds: DesktopRect
+    work_area: DesktopRect
+    primary: bool
+
+
+@dataclass(frozen=True, slots=True)
 class DesktopElement:
     handle: int
     process_id: int
@@ -38,6 +47,8 @@ class DesktopElement:
     name: str
     automation_id: int
     bounds: DesktopRect
+    value: str = ""
+    protected: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +85,7 @@ __all__ = [
     "CoordinateActionContext",
     "DesktopArtifact",
     "DesktopElement",
+    "DesktopMonitor",
     "DesktopRect",
     "DesktopWindow",
     "DisplayContext",

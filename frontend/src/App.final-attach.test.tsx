@@ -34,7 +34,7 @@ describe('final desktop attach experience', () => {
     );
 
     expect(html).toContain('Jarvis Talk-Modus');
-    expect(html).toContain('/assets/jarvis/cosmic-entity-wide-v2.png');
+    expect(html).toContain('jarvis-core');
     expect(html).toContain('Jarvis-Menü öffnen');
     expect(html).not.toContain('CANONICAL WORKSPACE');
     expect(html).not.toContain('Task timeline');

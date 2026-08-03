@@ -110,6 +110,54 @@ class ToolActionService:
             )
         self._runtimes[manifest.tool_id] = runtime
 
+    def refresh_runtime(
+        self,
+        manifest: ToolManifest,
+        runtime: RegisteredToolRuntime,
+    ) -> None:
+        """Refresh a reconnectable runtime only when its manifest is unchanged."""
+
+        existing = self.catalog.get(manifest.tool_id)
+        if existing != manifest:
+            raise ToolActionError(
+                f"tool manifest changed during runtime refresh: {manifest.tool_id}"
+            )
+        self._runtimes[manifest.tool_id] = runtime
+
+    def replace_runtime_policy(
+        self,
+        manifest: ToolManifest,
+        runtime: RegisteredToolRuntime,
+    ) -> None:
+        """Apply a trusted local policy change without accepting schema drift."""
+
+        existing = self.catalog.get(manifest.tool_id)
+        mutable_policy_fields = {
+            "risk_level",
+            "side_effect_class",
+            "required_approval",
+            "idempotency_policy",
+            "undo_strategy",
+            "enabled",
+            "degraded_reason",
+        }
+        if existing.model_dump(exclude=mutable_policy_fields) != manifest.model_dump(
+            exclude=mutable_policy_fields
+        ):
+            raise ToolActionError(
+                f"tool schema changed during runtime refresh: {manifest.tool_id}"
+            )
+        self.catalog.replace(manifest)
+        if manifest.enabled:
+            self._runtimes[manifest.tool_id] = runtime
+        else:
+            self._runtimes.pop(manifest.tool_id, None)
+
+    def unregister_runtime(self, tool_id: str) -> None:
+        """Remove an external runtime binding while retaining its audit manifest."""
+
+        self._runtimes.pop(tool_id, None)
+
     def create(self, proposal: ToolProposal) -> ToolAction:
         """Validate and persist a proposal without executing before approval."""
 

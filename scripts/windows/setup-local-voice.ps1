@@ -81,11 +81,22 @@ print("imports=ok")
 $importCheck | & $voicePython -
 if ($LASTEXITCODE -ne 0) { throw "Voice runtime import check failed" }
 
+# ElevenLabs API key check (informational, not blocking).
+if ($env:ELEVENLABS_API_KEY) {
+    Write-Output "ElevenLabs API key is set (primary TTS will use ElevenLabs)."
+} else {
+    Write-Output "WARNING: ELEVENLABS_API_KEY is not set. ElevenLabs TTS will be skipped; Chatterbox will be used as primary."
+}
+
 if ($Warmup) {
     $warmupCheck = @'
+import torch
 from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-model = ChatterboxMultilingualTTS.from_pretrained(device="cuda", t3_model="v3")
-print(f"chatterbox_v3_sample_rate={model.sr}")
+if not torch.cuda.is_available():
+    print("chatterbox_warmup=skipped (no CUDA)")
+else:
+    model = ChatterboxMultilingualTTS.from_pretrained(device="cuda", t3_model="v3")
+    print("chatterbox_warmup=ok")
 '@
     $warmupCheck | & $voicePython -
     if ($LASTEXITCODE -ne 0) { throw "Chatterbox warmup failed" }

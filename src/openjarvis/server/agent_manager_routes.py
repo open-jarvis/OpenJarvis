@@ -652,12 +652,19 @@ def _merge_tool_call_fragments(
             entry["function"]["arguments"] += fn["arguments"]
 
 
-def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+def _get_mcp_tools(
+    app_state: Any, *, force: bool = False
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Return (openai_tools_list, mcp_adapters_by_name).
 
     Lazily discovers MCP tools from config and caches them on ``app_state``
     so that subsequent requests reuse the same connections.
     """
+    from openjarvis.mcp.action_bridge import discover_action_tools
+
+    return discover_action_tools(app_state, force=force)
+
+    # Compatibility implementation retained below for downstream patch context.
     cached = getattr(app_state, "_mcp_tools_cache", None)
     if cached is not None:
         return cached
@@ -854,7 +861,7 @@ async def _execute_exposed_tool_via_action_service(
             idempotency_key=proposal_key,
             timeout_seconds=manifest.timeout,
             rationale="Model proposed this tool during a user-visible managed task.",
-            parameter_sources={key: ParameterSource.USER for key in arguments},
+            parameter_sources={key: ParameterSource.TASK for key in arguments},
         )
         action = action_service.create(proposal)
         if action.status is ActionStatus.VALIDATED:

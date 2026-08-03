@@ -49,7 +49,7 @@ class MCPToolAdapter(BaseTool):
         except Exception as exc:
             return ToolResult(
                 tool_name=self._spec.name,
-                content=f"MCP tool error: {exc}",
+                content=f"MCP tool error ({type(exc).__name__})",
                 success=False,
             )
 

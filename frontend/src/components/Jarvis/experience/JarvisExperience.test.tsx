@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -57,7 +56,9 @@ function experience(mode: 'talk' | 'text') {
       speechLanguage="de-DE"
       preferences={{ ...DEFAULT_JARVIS_PREFERENCES, mode }}
       approvals={[]}
+      actions={[]}
       decisionBusy={null}
+      audioBackendInfo={{ backend: null, fallbackUsed: false, cacheHit: false, chunksSkipped: 0, lastError: null }}
       onPreferencesChange={() => {}}
       onDraftChange={() => {}}
       onSubmit={() => {}}
@@ -73,36 +74,22 @@ function experience(mode: 'talk' | 'text') {
 afterEach(() => vi.useRealTimers());
 
 describe('Jarvis experience', () => {
-  it('keeps the approved avatar asset byte-identical', () => {
-    const bytes = readFileSync(resolve(process.cwd(), 'public/assets/jarvis/cosmic-face.png'));
-    expect(createHash('sha256').update(bytes).digest('hex').toUpperCase()).toBe(
-      'BE9B0A872B6A853D178B3D56465C881DE4EA2070E034B5E8AFE2CFFBF2A84C1B',
-    );
-  });
-
-  it('ships the reviewed wide runtime entity unchanged', () => {
-    const bytes = readFileSync(resolve(process.cwd(), 'public/assets/jarvis/cosmic-entity-wide-v2.png'));
-    expect(createHash('sha256').update(bytes).digest('hex').toUpperCase()).toBe(
-      '3A07A106E2481DC016CED0350B349615AAA02A1DC1566F5305DEF7D9C65F438A',
-    );
-  });
-
-  it('keeps the wide entity inside the talk viewport with a soft lower edge', () => {
+  it('uses the responsive star core without portrait or mouth selectors', () => {
     const css = readFileSync(
       resolve(process.cwd(), 'src/components/Jarvis/experience/jarvis-experience.css'),
       'utf8',
     );
-    expect(css).toContain('.jarvis-talk .jarvis-avatar__portrait');
-    expect(css).toContain("inset: 1.5% 1.4% 4%");
-    expect(css).toContain('.jarvis-talk .jarvis-avatar::after');
-    expect(css).toContain('linear-gradient(to bottom, transparent');
-    expect(css).toMatch(/\.jarvis-talk\s*\{[^}]*padding:\s*52px 0 0/s);
+    expect(css).toContain('.jarvis-core__sphere');
+    expect(css).toContain('.jarvis-core__field');
+    expect(css).not.toContain('jarvis-avatar__portrait');
+    expect(css).not.toContain('jarvis-avatar__mouth');
   });
 
-  it('shows the avatar but no chat or internal work in Talk mode', () => {
+  it('shows the star core but no chat or internal work in Talk mode', () => {
     const html = experience('talk');
     expect(html).toContain('Jarvis Talk-Modus');
-    expect(html).toContain('/assets/jarvis/cosmic-entity-wide-v2.png');
+    expect(html).toContain('jarvis-core__sphere');
+    expect(html).not.toContain('<img');
     expect(html).toContain('data-voice-state="idle"');
     expect(html).not.toContain('Zeige mir den Status');
     expect(html).not.toContain('Fertig.');
@@ -151,8 +138,8 @@ describe('Jarvis experience', () => {
     expect(menu).toContain('Neue Unterhaltung');
     expect(menu).toContain('Talk-Modus');
     expect(menu).toContain('Text-Modus');
-    expect(settings).toContain('Mundbewegung');
-    expect(settings).toContain('<option value="subtle" selected="">Dezent</option>');
+    expect(settings).toContain('Sternkern im Textmodus');
+    expect(settings).toContain('<option value="standard" selected="">Standard</option>');
     expect(settings).toContain('Reduzierte Bewegung');
     expect(settings).toContain('Stimmenauswahl');
   });
@@ -205,6 +192,6 @@ describe('Jarvis experience', () => {
 
   it('redacts technical errors from the normal UI', () => {
     expect(userSafeError('Server failed at C:\\private\\app.py')).toBe('Die Verbindung zu Jarvis ist unterbrochen. Die Wiederherstellung läuft.');
-    expect(userSafeError('Traceback with token and raw JSON')).toBe('Jarvis konnte die Aktion nicht abschließen. Versuche es bitte erneut.');
+    expect(userSafeError('Traceback with token and raw JSON')).toBe('Die Aktion ist fehlgeschlagen. Im Statusbereich stehen weitere sichere Details.');
   });
 });

@@ -6,7 +6,12 @@ torchaudio==2.6.0+cu124
 
 # Pinned official V3 source: PyPI 0.1.7 lacks the documented t3_model argument.
 chatterbox-tts @ git+https://github.com/resemble-ai/chatterbox.git@5de7a54aa4e5e2baadb0182dde554908b48b85c2
+
+# Piper — CPU-only emergency fallback.
 piper-tts==1.6.0
-setuptools==80.9.0
-psutil==7.1.3
+
+# Audio post-processing and utilities.
+pyloudnorm==0.1.1
 soundfile==0.13.1
+psutil==7.1.3
+setuptools==80.9.0

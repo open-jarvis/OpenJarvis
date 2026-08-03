@@ -25,14 +25,9 @@ function seededParticles(count: number): Particle[] {
 }
 
 function effectiveEnergy(state: JarvisVoiceState, level: number, time: number): number {
-  if (state === 'speaking') {
-    const fallbackEnvelope = 0.3 + Math.abs(Math.sin(time * 0.0067)) * 0.34
-      + Math.abs(Math.sin(time * 0.0161)) * 0.18;
-    return Math.max(level, fallbackEnvelope);
-  }
-  if (state === 'listening') return 0.36 + Math.sin(time * 0.0042) * 0.12;
+  if (state === 'speaking' || state === 'listening') return Math.max(0.04, level);
   if (state === 'processing') return 0.48;
-  return 0.14;
+  return 0.08 + Math.sin(time * 0.0012) * 0.025;
 }
 
 export function CosmicField({
@@ -52,7 +47,7 @@ export function CosmicField({
     const context = canvas?.getContext('2d');
     if (!canvas || !container || !context || tier === 4) return undefined;
 
-    const particles = seededParticles(tier === 1 ? 88 : tier === 2 ? 58 : 34);
+    const particles = seededParticles(tier === 1 ? 148 : tier === 2 ? 92 : 52);
     let frame = 0;
     let width = 1;
     let height = 1;
@@ -105,10 +100,11 @@ export function CosmicField({
           const angle = time * 0.00008 * particle.depth;
           x = centerX + dx * Math.cos(angle) - dy * Math.sin(angle);
           y = centerY + dx * Math.sin(angle) + dy * Math.cos(angle);
-        } else if (state === 'speaking') {
+        } else if (state === 'speaking' || state === 'interrupted') {
           const dx = x - centerX;
           const dy = y - centerY;
-          const expansion = 1 + energy * 0.035 * Math.sin(time * 0.012 + particle.phase);
+          const interruption = state === 'interrupted' ? 0.11 : 0;
+          const expansion = 1 + interruption + energy * 0.035 * Math.sin(time * 0.012 + particle.phase);
           x = centerX + dx * expansion;
           y = centerY + dy * expansion;
         } else {
@@ -148,5 +144,5 @@ export function CosmicField({
     };
   }, [state, tier, volumeLevel]);
 
-  return <canvas ref={canvasRef} className="jarvis-avatar__field" aria-hidden="true" />;
+  return <canvas ref={canvasRef} className="jarvis-core__field" aria-hidden="true" />;
 }

@@ -97,7 +97,7 @@ class TestMCPClient:
         assert id2 > id1
 
     def test_call_tool_with_no_arguments(self, client):
-        """Calling a tool with no arguments passes empty dict."""
+        """Calling a tool with no arguments passes an empty object to validation."""
         result = client.call_tool("think")
-        # Think tool echoes empty thought
-        assert result["isError"] is False
+        assert result["isError"] is True
+        assert "required" in result["content"][0]["text"]

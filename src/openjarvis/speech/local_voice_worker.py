@@ -1,4 +1,4 @@
-"""Isolated Chatterbox/Piper worker using a JSON-lines stdio protocol."""
+"""Isolated ElevenLabs/Chatterbox/Piper worker using JSON-lines stdio."""
 
 from __future__ import annotations
 
@@ -11,7 +11,11 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import wave
+from collections import OrderedDict
 from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
@@ -20,10 +24,43 @@ from openjarvis.speech.voice_config import (
     PROFILE_BY_ID,
     VOICE_CACHE_SCHEMA,
     VOICE_REFERENCE_ASSETS,
+    ElevenLabsUsageLimit,
     load_voice_config,
+    load_elevenlabs_usage,
+    reserve_elevenlabs_usage,
 )
 
 _PEAK_HEADROOM = 10 ** (-1.0 / 20.0)
+_ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
+_ELEVENLABS_TIMEOUT_SECONDS = 15.0
+_ELEVENLABS_MAX_AUDIO_BYTES = 16 * 1024 * 1024
+_ELEVENLABS_OUTPUT_FORMAT = "mp3_44100_128"
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        del req, fp, code, msg, headers, newurl
+        raise ElevenLabsUnavailable("ElevenLabsRedirectRejected")
+
+
+class ElevenLabsNotConfigured(RuntimeError):
+    pass
+
+
+class ElevenLabsInvalidVoice(RuntimeError):
+    pass
+
+
+class ElevenLabsAuthenticationFailed(RuntimeError):
+    pass
+
+
+class ElevenLabsRateLimited(RuntimeError):
+    pass
+
+
+class ElevenLabsUnavailable(RuntimeError):
+    pass
 
 
 class _GpuSampler:
@@ -105,14 +142,23 @@ class VoiceWorker:
         self._chatterbox: Any = None
         self._chatterbox_conditionals: dict[str, Any] = {}
         self._piper: Any = None
+        self._response_usage: OrderedDict[str, int] = OrderedDict()
 
     def health(self) -> dict[str, Any]:
         import importlib.util
 
         import torch
 
+        config = load_voice_config(self.config_path)
+        api_key_set = bool(os.environ.get("ELEVENLABS_API_KEY", "").strip())
+        voice_id_set = bool(str(config.get("elevenlabs_voice_id") or "").strip())
         return {
             "ok": True,
+            "elevenlabs": True,
+            "elevenlabs_api_key_set": api_key_set,
+            "elevenlabs_voice_id_set": voice_id_set,
+            "elevenlabs_configured": api_key_set and voice_id_set,
+            "elevenlabs_usage": load_elevenlabs_usage(self.voice_root),
             "chatterbox": importlib.util.find_spec("chatterbox") is not None,
             "piper": importlib.util.find_spec("piper") is not None,
             "cuda": bool(torch.cuda.is_available()),
@@ -143,6 +189,121 @@ class VoiceWorker:
             "piper_loaded": piper_ready,
             "primary_error": primary_error,
         }
+
+    @staticmethod
+    def _api_key() -> str:
+        key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+        if not key:
+            raise ElevenLabsNotConfigured("ElevenLabsNotConfigured")
+        return key
+
+    @staticmethod
+    def _voice_id(config: dict[str, Any]) -> str:
+        voice_id = str(config.get("elevenlabs_voice_id") or "").strip()
+        if not voice_id:
+            raise ElevenLabsNotConfigured("ElevenLabsVoiceNotConfigured")
+        if len(voice_id) > 128 or not all(
+            character.isalnum() or character in {"_", "-"}
+            for character in voice_id
+        ):
+            raise ElevenLabsInvalidVoice("ElevenLabsInvalidVoice")
+        return voice_id
+
+    @staticmethod
+    def _url_request(
+        request: urllib.request.Request,
+        *,
+        timeout: float = _ELEVENLABS_TIMEOUT_SECONDS,
+    ) -> bytes:
+        try:
+            opener = urllib.request.build_opener(_NoRedirectHandler())
+            with opener.open(request, timeout=timeout) as response:  # noqa: S310
+                content_type = str(response.headers.get("Content-Type", ""))
+                body = response.read(_ELEVENLABS_MAX_AUDIO_BYTES + 1)
+                if len(body) > _ELEVENLABS_MAX_AUDIO_BYTES:
+                    raise ElevenLabsUnavailable("ElevenLabsResponseTooLarge")
+                if request.method == "POST" and not content_type.startswith("audio/"):
+                    raise ElevenLabsUnavailable("ElevenLabsInvalidContentType")
+                return body
+        except urllib.error.HTTPError as exc:
+            if exc.code in {401, 403}:
+                raise ElevenLabsAuthenticationFailed(
+                    "ElevenLabsAuthenticationFailed"
+                ) from None
+            if exc.code in {404, 422}:
+                raise ElevenLabsInvalidVoice("ElevenLabsInvalidVoice") from None
+            if exc.code == 429:
+                raise ElevenLabsRateLimited("ElevenLabsRateLimited") from None
+            raise ElevenLabsUnavailable(f"ElevenLabsHttp{exc.code}") from None
+        except (TimeoutError, urllib.error.URLError, OSError):
+            raise ElevenLabsUnavailable("ElevenLabsUnavailable") from None
+
+    def list_elevenlabs_voices(self) -> dict[str, Any]:
+        """Return secret-free voice metadata from the official v2 list endpoint."""
+
+        key = self._api_key()
+        query = urllib.parse.urlencode(
+            {"page_size": 100, "include_total_count": "false", "sort": "name"}
+        )
+        request = urllib.request.Request(
+            f"{_ELEVENLABS_BASE_URL}/v2/voices?{query}",
+            headers={"xi-api-key": key, "Accept": "application/json"},
+            method="GET",
+        )
+        raw = self._url_request(request)
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ElevenLabsUnavailable("ElevenLabsInvalidResponse") from exc
+        voices = []
+        for item in payload.get("voices", []):
+            if not isinstance(item, dict):
+                continue
+            voice_id = str(item.get("voice_id") or "")
+            name = str(item.get("name") or "")
+            if not voice_id or not name:
+                continue
+            labels = item.get("labels") if isinstance(item.get("labels"), dict) else {}
+            verified = item.get("verified_languages")
+            voices.append(
+                {
+                    "voice_id": voice_id,
+                    "name": name[:160],
+                    "category": str(item.get("category") or "")[:80],
+                    "description": str(item.get("description") or "")[:500],
+                    "labels": {
+                        str(key)[:80]: str(value)[:160]
+                        for key, value in labels.items()
+                    },
+                    "verified_languages": [
+                        {
+                            "language": str(language.get("language") or "")[:16],
+                            "locale": str(language.get("locale") or "")[:32],
+                            "accent": str(language.get("accent") or "")[:80],
+                        }
+                        for language in verified or []
+                        if isinstance(language, dict)
+                    ],
+                }
+            )
+        return {"ok": True, "voices": voices}
+
+    def validate_elevenlabs_voice(self, voice_id: str) -> dict[str, Any]:
+        key = self._api_key()
+        safe_id = self._voice_id({"elevenlabs_voice_id": voice_id})
+        request = urllib.request.Request(
+            f"{_ELEVENLABS_BASE_URL}/v1/voices/{urllib.parse.quote(safe_id)}",
+            headers={"xi-api-key": key, "Accept": "application/json"},
+            method="GET",
+        )
+        raw = self._url_request(request)
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ElevenLabsUnavailable("ElevenLabsInvalidResponse") from exc
+        if str(payload.get("voice_id") or "") != safe_id:
+            raise ElevenLabsInvalidVoice("ElevenLabsInvalidVoice")
+        return {"ok": True, "voice_id": safe_id, "name": str(payload.get("name") or "")[:160]}
 
     def _verified_reference_path(self, voice_id: str) -> Path:
         filename, expected_sha256 = VOICE_REFERENCE_ASSETS[voice_id]
@@ -267,6 +428,76 @@ class VoiceWorker:
         sf.write(path, samples, int(model.sr), subtype="PCM_16")
         return int(model.sr)
 
+    def _reserve_response_usage(
+        self,
+        response_id: str,
+        characters: int,
+        per_response_limit: int,
+    ) -> None:
+        if not response_id:
+            # Older callers send a single chunk per request; keep that safe too.
+            if characters > per_response_limit:
+                raise ElevenLabsUsageLimit("ElevenLabsResponseLimitReached")
+            return
+        current = self._response_usage.get(response_id, 0)
+        if per_response_limit <= 0 or current + characters > per_response_limit:
+            raise ElevenLabsUsageLimit("ElevenLabsResponseLimitReached")
+        self._response_usage[response_id] = current + characters
+        self._response_usage.move_to_end(response_id)
+        while len(self._response_usage) > 256:
+            self._response_usage.popitem(last=False)
+
+    def _generate_elevenlabs(
+        self,
+        text: str,
+        config: dict[str, Any],
+        path: Path,
+        *,
+        response_id: str,
+    ) -> None:
+        api_key = self._api_key()
+        voice_id = self._voice_id(config)
+        characters = len(text)
+        self._reserve_response_usage(
+            response_id,
+            characters,
+            int(config["per_response_char_limit"]),
+        )
+        # Reserve before starting the potentially billable request. The local
+        # tracker is intentionally conservative and is not an invoice.
+        reserve_elevenlabs_usage(
+            self.voice_root,
+            characters,
+            monthly_limit=int(config["monthly_char_limit"]),
+        )
+        query = urllib.parse.urlencode({"output_format": _ELEVENLABS_OUTPUT_FORMAT})
+        url = (
+            f"{_ELEVENLABS_BASE_URL}/v1/text-to-speech/"
+            f"{urllib.parse.quote(voice_id)}?{query}"
+        )
+        body = json.dumps(
+            {
+                "text": text,
+                "model_id": str(config.get("elevenlabs_model_id") or "eleven_flash_v2_5"),
+                "language_code": "de",
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "xi-api-key": api_key,
+                "Content-Type": "application/json",
+                "Accept": "audio/mpeg",
+            },
+            method="POST",
+        )
+        audio = self._url_request(request)
+        if not audio:
+            raise ElevenLabsUnavailable("ElevenLabsEmptyAudio")
+        path.write_bytes(audio)
+
     def _generate_piper(self, text: str, profile: Any, path: Path, speed: float) -> int:
         from piper.config import SynthesisConfig
 
@@ -301,6 +532,22 @@ class VoiceWorker:
             rate = wav_file.getframerate()
             return wav_file.getnframes() / float(rate), rate
 
+    @staticmethod
+    def _backend_chain(profile: Any, backend_override: str) -> tuple[str, ...]:
+        if backend_override:
+            if backend_override == "piper":
+                return ("piper",)
+            if backend_override == "chatterbox":
+                return ("chatterbox", "piper")
+            raise ValueError("InvalidBackendOverride")
+        if profile.backend == "elevenlabs":
+            return ("elevenlabs", "chatterbox", "piper")
+        if profile.backend == "chatterbox":
+            return ("chatterbox", "piper")
+        if profile.backend == "piper":
+            return ("piper",)
+        raise ValueError("InvalidVoiceBackend")
+
     def synthesize(self, request: dict[str, Any]) -> dict[str, Any]:
         import psutil
         import torch
@@ -309,24 +556,43 @@ class VoiceWorker:
         voice_id = str(request.get("voice_id", ""))
         if not text or len(text) > 4000 or voice_id not in PROFILE_BY_ID:
             raise ValueError("InvalidSynthesisRequest")
+        config = load_voice_config(self.config_path)
         profile = PROFILE_BY_ID[voice_id]
+        local_profile = (
+            PROFILE_BY_ID[str(config["local_fallback_voice_id"])]
+            if profile.backend == "elevenlabs"
+            else profile
+        )
         speed = max(0.75, min(float(request.get("speed_multiplier", 1.0)), 1.25))
         backend_override = str(request.get("backend_override", "")).strip()
-        if backend_override not in {"", "piper"}:
+        if backend_override not in {"", "chatterbox", "piper"}:
             raise ValueError("InvalidBackendOverride")
+        chain = self._backend_chain(profile, backend_override)
         fallback_reason = str(request.get("primary_error", "")).strip() or None
+        response_id = str(request.get("response_id", ""))[:128]
         cache_key = hashlib.sha256(
             json.dumps(
                 {
                     "text": text,
                     "voice_id": voice_id,
+                    "local_fallback_voice_id": local_profile.voice_id,
+                    "elevenlabs_voice_id": (
+                        str(config.get("elevenlabs_voice_id") or "")
+                        if "elevenlabs" in chain
+                        else None
+                    ),
+                    "elevenlabs_model_id": (
+                        str(config.get("elevenlabs_model_id") or "")
+                        if "elevenlabs" in chain
+                        else None
+                    ),
                     "speed": speed,
-                    "pitch": profile.pitch_semitones,
-                    "profile_speed": profile.speed,
-                    "exaggeration": profile.exaggeration,
-                    "cfg_weight": profile.cfg_weight,
-                    "temperature": profile.temperature,
-                    "seed": profile.seed,
+                    "pitch": local_profile.pitch_semitones,
+                    "profile_speed": local_profile.speed,
+                    "exaggeration": local_profile.exaggeration,
+                    "cfg_weight": local_profile.cfg_weight,
+                    "temperature": local_profile.temperature,
+                    "seed": local_profile.seed,
                     "backend_override": backend_override or None,
                     "fallback_reason": fallback_reason,
                     "schema": VOICE_CACHE_SCHEMA,
@@ -335,31 +601,47 @@ class VoiceWorker:
                 sort_keys=True,
             ).encode("utf-8")
         ).hexdigest()
-        if bool(request.get("audition")):
-            destination = self.audition_root / f"{voice_id}.wav"
-        else:
-            destination = self.cache_root / f"{cache_key}.wav"
+        audition = bool(request.get("audition"))
+        output_root = self.audition_root if audition else self.cache_root
+        stem = voice_id if audition else cache_key
         bypass_cache = bool(request.get("bypass_cache"))
-        metadata_path = destination.with_suffix(".json")
+        metadata_path = output_root / f"{stem}.json"
         cached_metadata: dict[str, Any] = {}
         if metadata_path.is_file():
-            cached_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            try:
+                cached_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                cached_metadata = {}
         transient_primary_fallback = bool(cached_metadata.get("fallback_used")) and (
-            profile.backend == "chatterbox" and not backend_override
+            len(chain) > 1 and not backend_override
+        )
+        cached_name = str(cached_metadata.get("audio_file") or "")
+        cached_path = (output_root / cached_name).resolve(strict=False)
+        cache_path_valid = bool(
+            cached_name
+            and cached_path.is_relative_to(output_root.resolve())
+            and cached_path.is_file()
         )
         if (
-            destination.is_file()
+            cache_path_valid
             and cached_metadata.get("schema") == VOICE_CACHE_SCHEMA
             and not transient_primary_fallback
             and not bypass_cache
         ):
-            duration, sample_rate = self._wav_duration(destination)
+            audio_format = str(cached_metadata.get("format") or "wav")
+            duration, sample_rate = (
+                self._wav_duration(cached_path)
+                if audio_format == "wav"
+                else (float(cached_metadata.get("duration_seconds") or 0.0), 44100)
+            )
             return {
                 "ok": True,
-                "audio_path": str(destination),
+                "audio_path": str(cached_path),
+                "format": audio_format,
                 "backend": cached_metadata.get("backend", profile.backend),
                 "fallback_used": bool(cached_metadata.get("fallback_used", False)),
                 "primary_error": cached_metadata.get("primary_error"),
+                "provider_errors": cached_metadata.get("provider_errors", []),
                 "cache_hit": True,
                 "duration_seconds": duration,
                 "sample_rate": sample_rate,
@@ -380,39 +662,68 @@ class VoiceWorker:
         gpu_sampler.start()
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
-        temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp.wav")
         temporary_metadata = metadata_path.with_name(
             f".{metadata_path.name}.{os.getpid()}.tmp"
         )
-        backend = backend_override or profile.backend
-        fallback_used = bool(
-            profile.backend == "chatterbox" and backend == "piper"
-        )
-        primary_error = fallback_reason if fallback_used else None
+        backend = ""
+        audio_format = "wav"
+        sample_rate = 22050
+        errors = [fallback_reason] if fallback_reason else []
+        destination: Path | None = None
+        temporary: Path | None = None
         try:
-            if backend == "chatterbox":
+            for candidate in chain:
+                audio_format = "mp3" if candidate == "elevenlabs" else "wav"
+                destination = output_root / f"{stem}.{audio_format}"
+                # Keep the real suffix so soundfile/Piper can select the WAV
+                # encoder while the file is still replace-on-success temporary.
+                temporary = destination.with_name(
+                    f".{destination.stem}.{os.getpid()}.tmp{destination.suffix}"
+                )
                 try:
-                    sample_rate = self._generate_chatterbox(
-                        text, profile, temporary, speed
-                    )
+                    if candidate == "elevenlabs":
+                        self._generate_elevenlabs(
+                            text,
+                            config,
+                            temporary,
+                            response_id=response_id,
+                        )
+                        sample_rate = 44100
+                    elif candidate == "chatterbox":
+                        sample_rate = self._generate_chatterbox(
+                            text, local_profile, temporary, speed
+                        )
+                    else:
+                        sample_rate = self._generate_piper(
+                            text, local_profile, temporary, speed
+                        )
+                    backend = candidate
+                    break
                 except Exception as exc:
-                    backend = "piper"
-                    fallback_used = True
-                    primary_error = type(exc).__name__
-                    sample_rate = self._generate_piper(text, profile, temporary, speed)
-            else:
-                sample_rate = self._generate_piper(text, profile, temporary, speed)
+                    errors.append(type(exc).__name__)
+                    temporary.unlink(missing_ok=True)
+            if not backend or destination is None or temporary is None:
+                raise RuntimeError("VoiceProviderChainFailed")
+            fallback_used = backend != chain[0]
+            primary_error = errors[0] if errors else None
             temporary.replace(destination)
+            duration = 0.0
+            if audio_format == "wav":
+                duration, sample_rate = self._wav_duration(destination)
             temporary_metadata.write_text(
                 json.dumps(
                     {
+                        "audio_file": destination.name,
+                        "format": audio_format,
                         "backend": backend,
                         "fallback_used": fallback_used,
                         "primary_error": primary_error,
+                        "provider_errors": errors,
                         "backend_override": backend_override or None,
                         "schema": VOICE_CACHE_SCHEMA,
+                        "duration_seconds": duration,
                         "reference_profile": (
-                            voice_id if backend == "chatterbox" else None
+                            local_profile.voice_id if backend == "chatterbox" else None
                         ),
                     },
                     sort_keys=True,
@@ -423,11 +734,18 @@ class VoiceWorker:
             temporary_metadata.replace(metadata_path)
         finally:
             gpu_sampler.stop()
-            temporary.unlink(missing_ok=True)
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
             temporary_metadata.unlink(missing_ok=True)
         elapsed = max(time.perf_counter() - started, 0.001)
         cpu_after = sum(process.cpu_times()[:2])
-        duration, sample_rate = self._wav_duration(destination)
+        if destination is None:
+            raise RuntimeError("VoiceProviderChainFailed")
+        duration = (
+            self._wav_duration(destination)[0]
+            if audio_format == "wav"
+            else 0.0
+        )
         peak_vram = (
             float(torch.cuda.max_memory_allocated()) / (1024 * 1024)
             if torch.cuda.is_available()
@@ -436,9 +754,11 @@ class VoiceWorker:
         return {
             "ok": True,
             "audio_path": str(destination),
+            "format": audio_format,
             "backend": backend,
             "fallback_used": fallback_used,
             "primary_error": primary_error,
+            "provider_errors": errors,
             "cache_hit": False,
             "duration_seconds": duration,
             "sample_rate": sample_rate,
@@ -466,6 +786,12 @@ def _serve(runtime_root: Path) -> int:
                     response = worker.warmup()
                 elif command == "synthesize":
                     response = worker.synthesize(request)
+                elif command == "list_elevenlabs_voices":
+                    response = worker.list_elevenlabs_voices()
+                elif command == "validate_elevenlabs_voice":
+                    response = worker.validate_elevenlabs_voice(
+                        str(request.get("voice_id") or "")
+                    )
                 else:
                     raise ValueError("UnknownWorkerCommand")
         except Exception as exc:

@@ -2,16 +2,15 @@ import { useCallback, useState } from 'react';
 
 export type JarvisMode = 'talk' | 'text';
 export type AnimationQuality = 'off' | 'reduced' | 'standard' | 'high';
-export type MouthMovement = 'off' | 'subtle' | 'normal';
 export type MovementIntensity = 'very-low' | 'low' | 'standard' | 'high';
 
 export interface JarvisPreferences {
   mode: JarvisMode;
   animationQuality: AnimationQuality;
-  mouthMovement: MouthMovement;
   movementIntensity: MovementIntensity;
   reducedMotion: boolean;
-  showAvatarInTextMode: boolean;
+  showCoreInTextMode: boolean;
+  processingSound: boolean;
   developerMode: boolean;
   mockVoiceEnabled: boolean;
 }
@@ -19,11 +18,10 @@ export interface JarvisPreferences {
 export const DEFAULT_JARVIS_PREFERENCES: JarvisPreferences = {
   mode: 'talk',
   animationQuality: 'standard',
-  // The face remains dignified; speech is carried primarily by energy and particles.
-  mouthMovement: 'subtle',
   movementIntensity: 'standard',
   reducedMotion: false,
-  showAvatarInTextMode: true,
+  showCoreInTextMode: true,
+  processingSound: true,
   developerMode: false,
   mockVoiceEnabled: false,
 };

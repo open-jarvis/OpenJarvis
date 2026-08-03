@@ -1,111 +1,107 @@
 # Local JARVIS voice
 
-The final Windows runtime uses a fully local German text-to-speech stack.
-Chatterbox Multilingual V3 runs on CUDA as the natural primary engine; Piper
-runs on CPU only as the bounded emergency fallback. A persistent worker in
-`.venv-voice` owns both engines and communicates with the server through a
-JSON-lines standard-I/O pipe. No cloud API, API key, or extra listener port is
-used.
+JARVIS implements one three-tier German speech pipeline:
 
-The selected profile is stored under
-`%OPENJARVIS_HOME%\voice\voice-config.json`. Synthesized chunks are cached under
-`%OPENJARVIS_HOME%\voice\cache`, and audition files under
-`%OPENJARVIS_HOME%\voice\auditions`.
+1. ElevenLabs (`eleven_flash_v2_5`, `language_code="de"`) when a key and a
+   real selected voice ID are configured.
+2. Chatterbox Multilingual v3 (`language_id="de"`, `t3_model="v3"`) on CUDA.
+3. Piper `de_DE-thorsten-high` as the final CPU emergency voice.
 
-## Natural profile design
+Kokoro is not used for German. Browser `SpeechRecognition` and
+`window.speechSynthesis` are not automatic fallback paths.
 
-The three Chatterbox choices use three distinct, machine-generated reference
-timbres. They are preset outputs from
-`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`, not recordings of a real person. Their
-provenance and SHA-256 allowlist are committed in
-`configs/voice/references/manifest.json`. The setup script verifies every hash
-before deploying the files to `%OPENJARVIS_HOME%\voice\models\references`.
+The configuration is stored below
+`%OPENJARVIS_HOME%\voice\voice-config.json`. Audio chunks and auditions have
+separate caches. The current schema is `voice-v11-elevenlabs-hybrid`.
 
-This fixes the previous profile design: all former Chatterbox choices used the
-same built-in speaker and then changed pitch and tempo with resampling. That
-made the choices sound nearly identical and introduced robotic artifacts. The
-current profiles switch the model's speaker conditioning and do not pitch-shift
-or time-stretch generated speech.
+## Profiles and fallback chains
 
-| Number | ID | Engine | Character |
-| --- | --- | --- | --- |
-| 1 | `jarvis-deep-calm` | Chatterbox | deep and calm; default |
-| 2 | `jarvis-deep-clear` | Chatterbox | clear German articulation |
-| 3 | `jarvis-balanced` | Chatterbox | balanced, natural speaking position |
-| 4 | `jarvis-piper-fast` | Piper | synthetic CPU emergency voice |
+| Profile | Chain |
+| --- | --- |
+| `jarvis-elevenlabs` | ElevenLabs → Chatterbox → Piper |
+| Chatterbox profiles | Chatterbox → Piper |
+| `jarvis-piper-fast` | Piper only |
 
-An existing `jarvis-sovereign` selection migrates automatically to
-`jarvis-deep-calm`. The `voice_reference` config field still rejects arbitrary
-paths, so users cannot turn the feature into unrestricted voice cloning.
+The frontend shows the provider that actually produced each chunk. A failed
+provider never causes an already played chunk to be repeated. A chunk that all
+providers fail to synthesize is counted and shown as skipped; the turn is not
+reported as a normal successful playback completion.
 
-## Install or repair
+## ElevenLabs setup and secrets
 
-From PowerShell in the repository:
+The voice ID is never invented. In the voice settings, load the voices exposed
+by the authenticated ElevenLabs account, select one, validate it, and save the
+ID. Until both key and ID exist the UI reports that ElevenLabs is not set up and
+the worker starts with the local fallback.
+
+In the desktop app, save `ELEVENLABS_API_KEY` through the secure key input. The
+Tauri keyring is preferred; an environment variable with the same name is the
+manual fallback. The backend APIs return only key-present status and voice
+metadata, never the key. Saving or removing a key restarts the isolated voice
+worker so it inherits the updated environment.
+
+Only the text chosen for spoken output is sent to ElevenLabs. Microphone audio,
+screenshots, files, clipboard data, tool arguments and unrelated memory are not
+part of the synthesis request.
+
+## Cost controls and cache
+
+- `monthly_char_limit` defaults to 100,000 characters.
+- `per_response_char_limit` defaults to 4,000 characters.
+- The local monthly counter is an estimate stored in
+  `%OPENJARVIS_HOME%\voice\elevenlabs-usage.json`.
+- Reservation is made before the paid request under a process- and
+  thread-safe file lock, so concurrent chunks cannot pass the configured limit.
+- Cache hits do not reserve or increment character usage.
+- Reaching a limit is reported and switches only the pending chunk to the local
+  chain.
+
+Also configure a credit limit for the API key in the ElevenLabs dashboard. The
+local counter is a safety estimate, not provider billing authority.
+
+No ElevenLabs synthesis request is required during installation.
+
+## Chatterbox and Piper
+
+The Windows requirements file pins Chatterbox to the repository's known
+official commit. Reference WAVs are accepted only when their deployed SHA-256
+matches the repository manifest and allowlist. The setup script verifies both
+source and deployed files. Chatterbox explicitly selects CUDA and multilingual
+v3. Piper remains labelled as the synthetic emergency provider.
+
+The setup script is intentionally separate from the application:
 
 ```powershell
 $runtimeRoot = (Resolve-Path ..\openjarvis-runtime).Path
-.\scripts\windows\setup-local-voice.ps1 `
-  -RuntimeRoot $runtimeRoot `
-  -Warmup
+.\scripts\windows\setup-local-voice.ps1 -RuntimeRoot $runtimeRoot -Warmup
 ```
 
-The script creates only `.venv-voice`, installs pinned dependencies, downloads
-`de_DE-thorsten-high`, verifies and deploys the three synthetic references, and
-optionally warms Chatterbox.
+It creates the voice environment, installs the pinned requirements, verifies
+and deploys references, prepares Piper, and optionally warms Chatterbox. Do not
+run it while merely reviewing the implementation.
 
-## Audition and select
+## Turn-taking and interruption
 
-Start JARVIS with the final launcher, open **Einstellungen**, and use
-**Stimmenauswahl**. Generate the four samples once, compare them in the embedded
-WAV players, and choose **Als JARVIS-Stimme verwenden**. Auditions from an older
-voice schema are treated as stale and never shown as current samples.
+Local STT owns exactly one `MediaStream` per recording. The level analyser uses
+that stream. A stable 50 ms timer first calibrates the noise floor, then
+requires at least 180 ms of real speech, and only afterwards permits the 900 ms
+silence window to end the turn. Manual stop, silence stop and the maximum
+recording timer share a single completion guard.
 
-The fixed comparison text is:
+Stop and barge-in cancel the active HTTP request where possible, terminate a
+blocked local worker request, discard prefetched chunks, stop audio playback and
+its analyser, invalidate callbacks, and stop the processing tone. The text
+answer is independent of TTS and remains usable after a speech failure.
 
-> Guten Abend, Deaa. Alle Systeme sind betriebsbereit. Ich habe deine aktuellen
-> Aufgaben analysiert und bin bereit, sie auszuführen.
+Playback events now drive the abstract star/core visualization; there is no
+portrait, mouth layer or avatar animation.
 
-## Latency and recovery
+## Manual verification
 
-The frontend splits speech at sentence, clause, or word boundaries with a hard
-limit of 110 characters. It starts playing the first completed chunk while
-prefetching the next. This prevents a long sentence from blocking all audio.
-Push-to-talk still interrupts playback immediately.
+The implementation has not been installed, built, warmed or exercised as part
+of this change. Follow [the manual JARVIS runbook](jarvis-manual-verification.md)
+after installing the declared dependencies and configuring your own key and
+voice ID.
 
-Worker health checks are bounded to 20 seconds, each primary synthesis request
-to 28 seconds, and the single Piper recovery attempt to 15 seconds. Model
-warmup has its own 90-second startup deadline. A timed-out worker is terminated
-and restarted; retries are never unbounded. The interactive final runtime uses
-medium reasoning effort to avoid spending answer latency on an `xhigh` pass.
-
-Reference-conditioning measurements on the target RTX 3070 produced three
-different, ASR-verified German voices in roughly 9.5 to 10.0 seconds for a
-short uncached phrase after model loading. Warm cache hits remain effectively
-immediate. Chatterbox peak allocation is about 3.4 GB of VRAM.
-
-Playback emits these WebView events for avatar mouth animation:
-
-- `openjarvis:audio-start`
-- `openjarvis:audio-level` with `detail.level` from 0 to 1
-- `openjarvis:audio-end`
-
-`audio-start` comes from the real `HTMLAudioElement.onplay` callback and
-includes `detail.requestToPlaybackMs`.
-
-## Verification
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests\speech tests\server\test_speech_routes.py tests\server\test_final_runtime.py
-.\.venv\Scripts\python.exe -m ruff check src\openjarvis\speech tests\speech scripts\benchmark_local_voice.py
-Set-Location frontend
-npm test -- --run
-npm run build
-```
-
-Pinned primary packages remain Python 3.11.9, Torch/Torchaudio 2.6.0+cu124,
-Chatterbox source commit `5de7a54aa4e5e2baadb0182dde554908b48b85c2`,
-and Piper TTS 1.6.0. Qwen is not installed in the runtime; only its three small,
-pre-generated synthetic reference WAV files are deployed.
-
-Microphone transcription is the separate local Faster Whisper component
-documented in `docs/local-speech.md`.
+Microphone transcription is documented separately in
+[`local-speech.md`](local-speech.md).

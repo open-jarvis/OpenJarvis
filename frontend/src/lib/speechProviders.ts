@@ -1,4 +1,4 @@
-import { synthesizeSpeech, transcribeAudio } from './api';
+import { synthesizeSpeech, transcribeAudio, type SynthesizedSpeech } from './api';
 
 export type SpeechProviderLocation = 'browser' | 'local' | 'disabled';
 
@@ -19,109 +19,6 @@ export interface TextToSpeechProvider {
   stop(): void;
 }
 
-interface RecognitionResultLike {
-  isFinal: boolean;
-  0: { transcript: string };
-}
-
-interface RecognitionEventLike {
-  resultIndex: number;
-  results: ArrayLike<RecognitionResultLike>;
-}
-
-interface RecognitionErrorLike {
-  error: string;
-}
-
-interface RecognitionLike {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((event: RecognitionEventLike) => void) | null;
-  onerror: ((event: RecognitionErrorLike) => void) | null;
-  onend: (() => void) | null;
-  start(): void;
-  stop(): void;
-  abort(): void;
-}
-
-type RecognitionConstructor = new () => RecognitionLike;
-
-function recognitionConstructor(): RecognitionConstructor | null {
-  if (typeof window === 'undefined') return null;
-  const speechWindow = window as Window & {
-    SpeechRecognition?: RecognitionConstructor;
-    webkitSpeechRecognition?: RecognitionConstructor;
-  };
-  return speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition || null;
-}
-
-export class BrowserSpeechToTextProvider implements SpeechToTextProvider {
-  readonly id = 'browser-web-speech';
-  readonly location = 'browser' as const;
-  readonly available = recognitionConstructor() !== null;
-  private recognition: RecognitionLike | null = null;
-  private transcript = '';
-  private resolveStop: ((text: string) => void) | null = null;
-  private rejectStop: ((error: Error) => void) | null = null;
-
-  async start(language: string): Promise<void> {
-    const Constructor = recognitionConstructor();
-    if (!Constructor) throw new Error('Browser speech recognition is not available.');
-    this.dispose();
-    this.transcript = '';
-    const recognition = new Constructor();
-    recognition.lang = language;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.onresult = (event) => {
-      let next = '';
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        if (result.isFinal) next += result[0]?.transcript || '';
-      }
-      if (next.trim()) this.transcript = `${this.transcript} ${next}`.trim();
-    };
-    recognition.onerror = (event) => {
-      this.rejectStop?.(new Error(`Microphone recognition failed (${event.error}).`));
-      this.clearCallbacks();
-    };
-    recognition.onend = () => {
-      this.resolveStop?.(this.transcript.trim());
-      this.clearCallbacks();
-      this.recognition = null;
-    };
-    this.recognition = recognition;
-    recognition.start();
-  }
-
-  stop(): Promise<string> {
-    if (!this.recognition) return Promise.reject(new Error('Microphone is not recording.'));
-    return new Promise((resolve, reject) => {
-      this.resolveStop = resolve;
-      this.rejectStop = reject;
-      this.recognition?.stop();
-    });
-  }
-
-  dispose(): void {
-    if (this.recognition) {
-      this.recognition.onresult = null;
-      this.recognition.onerror = null;
-      this.recognition.onend = null;
-      this.recognition.abort();
-      this.recognition = null;
-    }
-    this.clearCallbacks();
-    this.transcript = '';
-  }
-
-  private clearCallbacks(): void {
-    this.resolveStop = null;
-    this.rejectStop = null;
-  }
-}
-
 export class LocalSpeechToTextProvider implements SpeechToTextProvider {
   readonly id: string;
   readonly location = 'local' as const;
@@ -129,6 +26,11 @@ export class LocalSpeechToTextProvider implements SpeechToTextProvider {
   private recorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
   private chunks: Blob[] = [];
+
+  /** Expose the active microphone stream for silence detection (no second getUserMedia). */
+  get activeStream(): MediaStream | null {
+    return this.stream;
+  }
 
   constructor(id: string, available: boolean) {
     this.id = id || 'local-stt';
@@ -200,32 +102,12 @@ export class DisabledSpeechToTextProvider implements SpeechToTextProvider {
   dispose(): void {}
 }
 
-export class BrowserTextToSpeechProvider implements TextToSpeechProvider {
-  readonly id = 'browser-speech-synthesis';
-  readonly location = 'browser' as const;
-  readonly available = typeof window !== 'undefined' && 'speechSynthesis' in window;
-
-  speak(text: string, language: string, onEnd: () => void, onError: (message: string) => void): void {
-    if (!this.available) {
-      onError('Text-to-speech is not available.');
-      return;
-    }
-    this.stop();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = language;
-    utterance.onend = onEnd;
-    utterance.onerror = () => onError('Text-to-speech failed.');
-    window.speechSynthesis.speak(utterance);
-  }
-
-  stop(): void {
-    if (this.available) window.speechSynthesis.cancel();
-  }
-}
-
 export const LOCAL_AUDIO_START_EVENT = 'openjarvis:audio-start';
 export const LOCAL_AUDIO_LEVEL_EVENT = 'openjarvis:audio-level';
 export const LOCAL_AUDIO_END_EVENT = 'openjarvis:audio-end';
+export const LOCAL_AUDIO_FALLBACK_EVENT = 'openjarvis:audio-fallback';
+export const LOCAL_AUDIO_PROVIDER_EVENT = 'openjarvis:audio-provider';
+export const LOCAL_AUDIO_CHUNK_SKIPPED_EVENT = 'openjarvis:audio-chunk-skipped';
 
 const LOCAL_SPEECH_CHUNK_LIMIT = 110;
 
@@ -276,15 +158,14 @@ export class LocalTextToSpeechProvider implements TextToSpeechProvider {
   private audioContext: AudioContext | null = null;
   private active = false;
 
-  constructor(id: string, available: boolean, private readonly fallback?: TextToSpeechProvider) {
+  constructor(id: string, available: boolean) {
     this.id = id || 'local-tts';
     this.available = available && typeof Audio !== 'undefined';
   }
 
   speak(text: string, language: string, onEnd: () => void, onError: (message: string) => void): void {
     if (!this.available) {
-      if (this.fallback?.available) this.fallback.speak(text, language, onEnd, onError);
-      else onError('Local text-to-speech is not available.');
+      onError('Local text-to-speech is not available.');
       return;
     }
     this.stop();
@@ -294,14 +175,18 @@ export class LocalTextToSpeechProvider implements TextToSpeechProvider {
     this.controller = controller;
     this.active = true;
     void this.playStream(text, language, generation, controller.signal, requestedAt)
-      .then((started) => {
+      .then(({ started, skippedCount, total }) => {
         if (generation !== this.generation) return;
         this.controller = null;
         this.active = false;
         if (started && typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent(LOCAL_AUDIO_END_EVENT));
         }
-        onEnd();
+        if (skippedCount > 0) {
+          onError(`${skippedCount} von ${total} Sprachabschnitten konnten trotz Fallback nicht wiedergegeben werden.`);
+        } else {
+          onEnd();
+        }
       })
       .catch((error) => {
         if (controller.signal.aborted || generation !== this.generation) return;
@@ -311,10 +196,6 @@ export class LocalTextToSpeechProvider implements TextToSpeechProvider {
         this.cleanupAudioGraph();
         if (hadLocalActivity && typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent(LOCAL_AUDIO_END_EVENT));
-        }
-        if (this.fallback?.available) {
-          this.fallback.speak(text, language, onEnd, onError);
-          return;
         }
         onError(error instanceof Error ? error.message : 'Local text-to-speech failed.');
       });
@@ -329,7 +210,6 @@ export class LocalTextToSpeechProvider implements TextToSpeechProvider {
     this.audio = null;
     this.active = false;
     this.cleanupAudioGraph();
-    this.fallback?.stop();
     if (hadActivity && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(LOCAL_AUDIO_END_EVENT));
     }
@@ -341,27 +221,81 @@ export class LocalTextToSpeechProvider implements TextToSpeechProvider {
     generation: number,
     signal: AbortSignal,
     requestedAt: number,
-  ): Promise<boolean> {
+  ): Promise<{ started: boolean; skippedCount: number; total: number }> {
     const chunks = sentenceChunks(text);
-    if (!chunks.length) return false;
+    if (!chunks.length) return { started: false, skippedCount: 0, total: 0 };
     let started = false;
-    let next = synthesizeSpeech(chunks[0], language, signal);
+    let skippedCount = 0;
+    const responseId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `speech-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    let next: Promise<SynthesizedSpeech> | null = synthesizeSpeech(
+      chunks[0], language, signal, responseId,
+    );
     for (let index = 0; index < chunks.length; index += 1) {
-      const result = await next;
-      if (signal.aborted || generation !== this.generation) return started;
-      if (index + 1 < chunks.length) next = synthesizeSpeech(chunks[index + 1], language, signal);
+      if (signal.aborted || generation !== this.generation) {
+        return { started, skippedCount, total: chunks.length };
+      }
+      let result: SynthesizedSpeech | null = null;
+      try {
+        result = next ? await next : null;
+      } catch (err) {
+        // Chunk failed after all 3 backends. Report visibly but continue.
+        skippedCount += 1;
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent(LOCAL_AUDIO_CHUNK_SKIPPED_EVENT, {
+            detail: {
+              chunkIndex: index,
+              total: chunks.length,
+              error: err instanceof Error ? err.message : 'Synthesis failed',
+            },
+          }));
+        }
+      }
+      next = null;
+      if (signal.aborted || generation !== this.generation) {
+        return { started, skippedCount, total: chunks.length };
+      }
+      if (index + 1 < chunks.length) {
+        next = synthesizeSpeech(chunks[index + 1], language, signal, responseId);
+      }
+      if (!result) continue;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(LOCAL_AUDIO_PROVIDER_EVENT, {
+          detail: {
+            backend: result.backend,
+            fallbackUsed: result.fallbackUsed,
+            cacheHit: result.cacheHit,
+            chunkIndex: index,
+          },
+        }));
+      }
+      // Emit fallback event when backend is not the primary.
+      if (result.fallbackUsed && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(LOCAL_AUDIO_FALLBACK_EVENT, {
+          detail: { backend: result.backend, chunkIndex: index },
+        }));
+      }
       await this.playBlob(result.audio, generation, signal, () => {
         if (started || typeof window === 'undefined') return;
         started = true;
         window.dispatchEvent(new CustomEvent(LOCAL_AUDIO_START_EVENT, {
           detail: {
-            backend: result.backend,
+            backend: result!.backend,
+              fallbackUsed: result!.fallbackUsed,
+              cacheHit: result!.cacheHit,
             requestToPlaybackMs: Math.max(monotonicNow() - requestedAt, 0),
           },
         }));
       });
     }
-    return started;
+    // Warn visibly if any chunks had to be skipped entirely.
+    if (skippedCount > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(LOCAL_AUDIO_CHUNK_SKIPPED_EVENT, {
+        detail: { skippedCount, total: chunks.length, summary: true },
+      }));
+    }
+    return { started, skippedCount, total: chunks.length };
   }
 
   private playBlob(

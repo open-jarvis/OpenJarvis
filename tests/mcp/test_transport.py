@@ -136,6 +136,46 @@ class TestStdioTransport:
         finally:
             transport.close()
 
+    def test_skips_notifications_and_answers_ping_before_response(self, tmp_path):
+        """Server messages preceding a response must not desynchronise stdio."""
+        script = tmp_path / "message_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import json
+            import sys
+
+            request = json.loads(sys.stdin.readline())
+            print(json.dumps({
+                "jsonrpc": "2.0",
+                "method": "notifications/progress",
+                "params": {"progress": 1},
+            }), flush=True)
+            print(json.dumps({
+                "jsonrpc": "2.0",
+                "id": "server-ping",
+                "method": "ping",
+                "params": {},
+            }), flush=True)
+            ping_response = json.loads(sys.stdin.readline())
+            assert ping_response["id"] == "server-ping"
+            assert ping_response["result"] == {}
+            print(json.dumps({
+                "jsonrpc": "2.0",
+                "id": request["id"],
+                "result": {"ok": True},
+            }), flush=True)
+        """),
+            encoding="utf-8",
+        )
+
+        transport = StdioTransport([sys.executable, str(script)])
+        try:
+            response = transport.send(MCPRequest(method="tools/list", id=17))
+            assert response.id == 17
+            assert response.result == {"ok": True}
+        finally:
+            transport.close()
+
     def test_send_notification_does_not_read_stdout(self, tmp_path):
         """Regression for #339: stdio servers don't reply to notifications.
 

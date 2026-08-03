@@ -93,6 +93,7 @@ export function deriveVoiceSnapshot(input: {
       ...DEFAULT_VOICE_SNAPSHOT,
       state: 'listening',
       microphoneState: 'on',
+      volumeLevel: clampVoiceLevel(input.volumeLevel ?? 0),
       updatedAt: now,
     };
   }

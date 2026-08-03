@@ -49,6 +49,9 @@ def _serialize(action: PendingAction) -> Dict[str, Any]:
 
 @router.get("/v1/approvals/pending")
 async def list_pending_approvals(request: Request) -> Dict[str, Any]:
+    from openjarvis.server.task_routes import _require_local
+
+    _require_local(request)
     store = _get_store()
     store.expire_stale()
     actions = [_serialize(action) for action in store.list_pending()]
@@ -76,6 +79,9 @@ async def approve_action(
         alias="Idempotency-Key",
     ),
 ) -> Dict[str, Any]:
+    from openjarvis.server.task_routes import _require_local
+
+    _require_local(request)
     task_store = getattr(request.app.state, "task_store", None)
     task_approval = (
         task_store.get_approval(action_id) if task_store is not None else None
@@ -110,6 +116,9 @@ async def deny_action(
         alias="Idempotency-Key",
     ),
 ) -> Dict[str, Any]:
+    from openjarvis.server.task_routes import _require_local
+
+    _require_local(request)
     task_store = getattr(request.app.state, "task_store", None)
     task_approval = (
         task_store.get_approval(action_id) if task_store is not None else None
@@ -161,14 +170,54 @@ async def _decide_task_approval(
             status_code=503,
             detail="Codex approval capability is disabled",
         )
+    tool_actions = getattr(request.app.state, "tool_action_service", None)
+    tool_action = (
+        tool_actions.store.get_action(approval.action_id)
+        if tool_actions is not None and approval.action_id
+        else None
+    )
     try:
-        record = await broker.decide(
-            approval.approval_id,
-            allow=allow,
-            decision_id=idempotency_key,
-            actor="local_user",
-        )
-    except ValueError as exc:
+        if tool_action is not None:
+            if allow:
+                tool_action = await tool_actions.approve(
+                    tool_action.action_id, decision_id=idempotency_key
+                )
+            else:
+                tool_action = tool_actions.deny(
+                    tool_action.action_id, decision_id=idempotency_key
+                )
+            record = service.store.get_approval(approval.approval_id)
+            if record is None:
+                raise ValueError("approval record disappeared")
+            from openjarvis.tasks.types import TaskStatus
+
+            current_task = service.get(approval.task_id)
+            if (
+                current_task is not None
+                and current_task.status is TaskStatus.WAITING_APPROVAL
+            ):
+                service.transition(
+                    approval.task_id,
+                    TaskStatus.RUNNING,
+                    component="approval_api",
+                    cause="canonical_tool_approval_decided",
+                    idempotency_key=f"tool-approval-resume:{idempotency_key}",
+                    active_thread_id=approval.thread_id,
+                    active_turn_id=approval.turn_id,
+                    payload={
+                        "action_id": tool_action.action_id,
+                        "action_status": tool_action.status.value,
+                        "decision": "allow" if allow else "deny",
+                    },
+                )
+        else:
+            record = await broker.decide(
+                approval.approval_id,
+                allow=allow,
+                decision_id=idempotency_key,
+                actor="local_user",
+            )
+    except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     event, created = service.store.append_event(
         task_id=approval.task_id,

@@ -27,7 +27,10 @@ from openjarvis.core.config import JarvisConfig  # noqa: E402
 from openjarvis.core.events import EventBus  # noqa: E402
 from openjarvis.server.app import create_app  # noqa: E402
 from openjarvis.server.approval_routes import router as approval_router  # noqa: E402
-from openjarvis.server.task_routes import router as task_router  # noqa: E402
+from openjarvis.server.task_routes import (  # noqa: E402
+    _parse_tool_proposal,
+    router as task_router,
+)
 from openjarvis.tasks.approval import PersistentApprovalBroker  # noqa: E402
 from openjarvis.tasks.orchestrator import TaskExecutionResult  # noqa: E402
 from openjarvis.tasks.service import TaskService  # noqa: E402
@@ -350,7 +353,9 @@ def test_informational_browser_question_stays_read_only_chat(api_runtime) -> Non
 
     assert response.status_code == 200
     assert response.json()["task"]["risk_level"] == 0
-    assert orchestrator.last_execute_kwargs["developer_instructions"] is None
+    instructions = orchestrator.last_execute_kwargs["developer_instructions"]
+    assert "normally be answered directly" in instructions
+    assert "Available tools:\n[]" in instructions
     timeline = client.get(
         "/v1/tasks/task-browser-explanation/timeline"
     ).json()["events"]
@@ -361,6 +366,21 @@ def test_informational_browser_question_stays_read_only_chat(api_runtime) -> Non
     )
     assert classified["payload"]["kind"] == "chat"
     assert classified["payload"]["reason"] == "informational_chat"
+
+
+def test_canonical_tool_proposal_parser_requires_one_exact_envelope() -> None:
+    assert _parse_tool_proposal(
+        '<openjarvis_tool_proposal>{"tool_id":"desktop.windows","arguments":{}}'
+        '</openjarvis_tool_proposal>'
+    ) == ("desktop.windows", {})
+    assert _parse_tool_proposal(
+        'I will do it. <openjarvis_tool_proposal>{"tool_id":"desktop.windows",'
+        '"arguments":{}}</openjarvis_tool_proposal>'
+    ) is None
+    assert _parse_tool_proposal(
+        '<openjarvis_tool_proposal>{"tool_id":"desktop.windows",'
+        '"arguments":{},"risk_level":0}</openjarvis_tool_proposal>'
+    ) is None
 
 
 def test_chat_surfaces_usage_limit_without_raw_backend_message(api_runtime) -> None:

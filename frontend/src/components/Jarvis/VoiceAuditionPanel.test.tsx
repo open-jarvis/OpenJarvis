@@ -16,6 +16,8 @@ const profile: VoiceProfileInfo = {
   seed: 104729,
   description: 'Ruhiges neuronales Stimmprofil mit eigenem natürlichem Timbre.',
   audition_ready: true,
+  audition_backend: 'chatterbox',
+  audition_fallback_used: false,
 };
 
 describe('Voice audition UI', () => {

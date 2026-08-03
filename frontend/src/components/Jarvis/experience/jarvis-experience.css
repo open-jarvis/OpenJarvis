@@ -49,389 +49,232 @@
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
 }
 
-.jarvis-avatar {
-  --movement-factor: 0.84;
+.jarvis-core {
+  --movement-factor: .84;
+  --jarvis-volume: 0;
   position: relative;
-  display: grid;
-  place-items: center;
-  width: min(100%, 1680px);
-  height: 100%;
-  max-height: 940px;
-  aspect-ratio: 16 / 9;
-  margin: 0;
-  overflow: hidden;
-  contain: layout paint style;
-  transform: translateZ(0);
+  width: min(84vw, 760px);
+  aspect-ratio: 1.38;
+  margin: 0 auto;
+  isolation: isolate;
+  filter: saturate(.82);
 }
 
-.jarvis-avatar[data-movement='very-low'] { --movement-factor: 0.28; }
-.jarvis-avatar[data-movement='low'] { --movement-factor: 0.52; }
-.jarvis-avatar[data-movement='standard'] { --movement-factor: 0.84; }
-.jarvis-avatar[data-movement='high'] { --movement-factor: 1.15; }
+.jarvis-core[data-movement='very-low'] { --movement-factor: .28; }
+.jarvis-core[data-movement='low'] { --movement-factor: .52; }
+.jarvis-core[data-movement='standard'] { --movement-factor: .84; }
+.jarvis-core[data-movement='high'] { --movement-factor: 1.15; }
 
-.jarvis-avatar--compact {
-  width: 100%;
-  height: 100%;
-  max-height: none;
-  aspect-ratio: auto;
-  opacity: 0.62;
-  filter: saturate(0.72) contrast(1.06);
+.jarvis-core--compact {
+  width: min(62vw, 430px);
+  opacity: .54;
+  filter: saturate(.55);
 }
 
-.jarvis-avatar__field,
-.jarvis-avatar__cosmos,
-.jarvis-avatar__aura,
-.jarvis-avatar__orbit,
-.jarvis-avatar__portrait,
-.jarvis-avatar__voicewave,
-.jarvis-avatar__rim {
+.jarvis-core__field,
+.jarvis-core__halo,
+.jarvis-core__sphere,
+.jarvis-core__orbit {
   position: absolute;
   inset: 0;
+  pointer-events: none;
 }
 
-.jarvis-avatar__field {
-  z-index: 2;
+.jarvis-core__field {
+  z-index: -2;
   width: 100%;
   height: 100%;
-  pointer-events: none;
-  mix-blend-mode: screen;
-  -webkit-mask-image: radial-gradient(ellipse at 50% 46%, #000 8%, rgba(0,0,0,.92) 55%, transparent 96%);
-  mask-image: radial-gradient(ellipse at 50% 46%, #000 8%, rgba(0,0,0,.92) 55%, transparent 96%);
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 14%, rgba(0,0,0,.92) 48%, transparent 82%);
+  mask-image: radial-gradient(ellipse at center, #000 14%, rgba(0,0,0,.92) 48%, transparent 82%);
 }
 
-.jarvis-avatar__cosmos {
-  inset: -8%;
-  z-index: 0;
+.jarvis-core__sphere {
+  z-index: 2;
+  inset: 15% 25%;
   overflow: hidden;
-  transform: scale(1.08);
-  -webkit-mask-image: radial-gradient(ellipse at 50% 48%, #000 0 44%, rgba(0,0,0,.82) 64%, transparent 93%);
-  mask-image: radial-gradient(ellipse at 50% 48%, #000 0 44%, rgba(0,0,0,.82) 64%, transparent 93%);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 54% 48%, rgba(255,255,255,.98) 0 1.2%, transparent 4%),
+    radial-gradient(circle at 52% 49%, rgba(224,238,246,.52) 0 8%, transparent 21%),
+    radial-gradient(circle at 48% 46%, #0b1015 0 36%, #05080b 63%, #010204 100%);
+  border: 1px solid rgba(224,237,245,.13);
+  box-shadow:
+    inset -34px -22px 66px rgba(0,0,0,.9),
+    inset 18px 9px 38px rgba(210,228,240,.05),
+    0 0 calc(34px + var(--jarvis-volume) * 48px) rgba(211,228,239,.24);
+  animation: jarvis-core-breathe calc(8.5s / var(--movement-factor)) ease-in-out infinite;
 }
 
-.jarvis-avatar__nebula,
-.jarvis-avatar__stars {
+.jarvis-core__sphere::before,
+.jarvis-core__sphere::after {
+  content: '';
   position: absolute;
-  inset: -12%;
-  will-change: transform, opacity;
-}
-
-.jarvis-avatar__nebula--outer {
-  background:
-    conic-gradient(from 220deg at 50% 48%, transparent 0 17%, rgba(211, 225, 235, 0.2) 23%, transparent 31% 57%, rgba(141, 162, 178, 0.15) 65%, transparent 76%),
-    radial-gradient(ellipse at 20% 67%, rgba(202, 218, 230, 0.19), transparent 25%),
-    radial-gradient(ellipse at 81% 31%, rgba(161, 184, 201, 0.15), transparent 24%);
-  filter: blur(31px);
-  opacity: calc(0.4 + var(--jarvis-volume) * 0.28);
-  animation: jarvis-nebula-turn calc(38s / var(--movement-factor)) linear infinite;
-}
-
-.jarvis-avatar__nebula--inner {
-  inset: 2% 9%;
-  background:
-    radial-gradient(ellipse at 50% 68%, rgba(235, 242, 247, 0.14), transparent 25%),
-    conic-gradient(from 20deg at 50% 48%, transparent, rgba(170, 190, 204, 0.16), transparent 30%, rgba(216, 228, 236, 0.1), transparent 64%);
-  filter: blur(21px);
-  opacity: calc(0.28 + var(--jarvis-volume) * 0.2);
-  animation: jarvis-nebula-breathe calc(9s / var(--movement-factor)) ease-in-out infinite;
-}
-
-.jarvis-avatar__stars {
-  background-image:
-    radial-gradient(circle, rgba(255,255,255,.78) 0 1px, transparent 1.4px),
-    radial-gradient(circle, rgba(215,226,236,.46) 0 .8px, transparent 1.25px),
-    radial-gradient(circle, rgba(255,255,255,.32) 0 .6px, transparent 1px);
-  background-size: 83px 83px, 127px 127px, 47px 47px;
-  background-position: 7px 13px, 31px 51px, 19px 5px;
-}
-
-.jarvis-avatar__stars--far {
-  opacity: calc(0.29 + var(--jarvis-volume) * 0.24);
-  animation: jarvis-stars-drift calc(31s / var(--movement-factor)) linear infinite;
-}
-
-.jarvis-avatar__stars--near {
-  inset: -4%;
-  opacity: calc(0.2 + var(--jarvis-volume) * 0.32);
-  transform: scale(1.08);
-  animation: jarvis-stars-drift-reverse calc(43s / var(--movement-factor)) linear infinite;
-}
-
-.jarvis-avatar__aura {
-  inset: 8% 18% 4%;
-  z-index: 1;
   border-radius: 50%;
-  opacity: 0.3;
-  transform: scale(calc(0.99 + var(--jarvis-volume) * 0.045));
-  background: radial-gradient(ellipse, rgba(225, 236, 244, 0.17), rgba(153, 177, 194, 0.06) 42%, transparent 70%);
-  box-shadow: 0 0 calc(90px + var(--jarvis-volume) * 80px) rgba(184, 207, 223, 0.2);
-  transition: transform 90ms linear, opacity 240ms ease, box-shadow 100ms linear;
-  animation: jarvis-aura-breathe calc(5.8s / var(--movement-factor)) ease-in-out infinite;
+  mix-blend-mode: screen;
 }
 
-.jarvis-avatar__orbit {
-  z-index: 3;
-  inset: 15% 28% 12%;
-  border: 1px solid rgba(215, 229, 238, 0.09);
-  border-radius: 50%;
-  opacity: 0.18;
-  pointer-events: none;
+.jarvis-core__sphere::before {
+  inset: 7%;
+  background:
+    radial-gradient(circle at 27% 18%, rgba(242,247,250,.72) 0 .45%, transparent .9%),
+    radial-gradient(circle at 18% 42%, rgba(218,232,241,.58) 0 .5%, transparent 1%),
+    radial-gradient(circle at 43% 74%, rgba(249,251,252,.7) 0 .42%, transparent .9%),
+    radial-gradient(circle at 76% 28%, rgba(218,232,241,.58) 0 .52%, transparent 1%),
+    radial-gradient(circle at 72% 68%, rgba(247,250,252,.7) 0 .48%, transparent 1%),
+    radial-gradient(circle at 34% 56%, rgba(199,219,232,.52) 0 .4%, transparent .85%);
+  background-size: 43px 37px, 57px 49px, 31px 41px, 61px 45px, 47px 53px, 37px 31px;
+  opacity: .62;
   transform: rotate(-8deg);
 }
 
-.jarvis-avatar__orbit::before,
-.jarvis-avatar__orbit::after {
-  content: '';
+.jarvis-core__sphere::after {
+  inset: -15%;
+  background: conic-gradient(from 220deg, transparent, rgba(226,237,244,.08), transparent 17%, rgba(202,222,235,.05), transparent 39%);
+  animation: jarvis-core-turn calc(31s / var(--movement-factor)) linear infinite;
+}
+
+.jarvis-core__dust {
   position: absolute;
-  top: 50%;
-  width: 5px;
-  height: 5px;
   border-radius: 50%;
-  background: #e4edf3;
-  box-shadow: 0 0 15px rgba(215, 233, 244, 0.82);
-}
-
-.jarvis-avatar__orbit::before { left: -2px; }
-.jarvis-avatar__orbit::after { right: -2px; }
-.jarvis-avatar__orbit--one { animation: jarvis-orbit calc(26s / var(--movement-factor)) linear infinite; }
-.jarvis-avatar__orbit--two {
-  inset: 22% 34% 17%;
-  opacity: 0.11;
-  animation: jarvis-orbit-reverse calc(18s / var(--movement-factor)) linear infinite;
-}
-
-.jarvis-avatar__portrait {
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  animation: jarvis-avatar-float calc(7.6s / var(--movement-factor)) ease-in-out infinite;
-  will-change: transform;
-}
-
-.jarvis-talk .jarvis-avatar__portrait {
-  inset: 1.5% 1.4% 4%;
-}
-
-.jarvis-talk .jarvis-avatar::after {
-  content: '';
-  position: absolute;
-  z-index: 6;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: clamp(28px, 8%, 72px);
-  pointer-events: none;
-  background: linear-gradient(to bottom, transparent, rgba(2, 3, 3, 0.92));
-}
-
-.jarvis-avatar__image {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  user-select: none;
-  pointer-events: none;
-  filter: brightness(.82) contrast(1.12);
-  -webkit-mask-image: radial-gradient(ellipse at 50% 48%, #000 0 49%, rgba(0,0,0,.96) 63%, rgba(0,0,0,.52) 78%, transparent 97%);
-  mask-image: radial-gradient(ellipse at 50% 48%, #000 0 49%, rgba(0,0,0,.96) 63%, rgba(0,0,0,.52) 78%, transparent 97%);
-  transition: filter 320ms ease;
-}
-
-.jarvis-avatar__mouth {
-  position: absolute;
-  z-index: 2;
-  left: 45.4%;
-  top: 56.8%;
-  width: 9.2%;
-  height: max(0px, var(--jarvis-mouth-open));
-  border-radius: 50%;
-  opacity: 0;
-  transform: translateY(calc(var(--jarvis-mouth-open) * .45));
-  transform-origin: center top;
-  background: rgba(0, 0, 0, 0.88);
-  box-shadow: 0 1px 2px rgba(222, 228, 233, 0.09);
-  transition: height 90ms linear, transform 90ms linear, opacity 90ms linear;
-  pointer-events: none;
-}
-
-.jarvis-avatar[data-mouth-active='true'] .jarvis-avatar__mouth { opacity: 0.82; }
-
-.jarvis-avatar__scan {
-  position: absolute;
-  z-index: 3;
-  inset: 5% 17%;
-  opacity: 0.18;
-  pointer-events: none;
-  background: linear-gradient(180deg, transparent 0 45%, rgba(225, 237, 245, 0.13) 49.5%, rgba(255,255,255,.22) 50%, transparent 52% 100%);
-  background-size: 100% 220%;
+  filter: blur(9px);
   mix-blend-mode: screen;
-  -webkit-mask-image: radial-gradient(ellipse, #000 12%, transparent 72%);
-  mask-image: radial-gradient(ellipse, #000 12%, transparent 72%);
-  animation: jarvis-scan calc(7s / var(--movement-factor)) ease-in-out infinite;
+  opacity: .55;
 }
 
-.jarvis-avatar__voicewave {
-  z-index: 5;
-  inset: auto 42% 14%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 28px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 220ms ease;
+.jarvis-core__dust--north {
+  width: 72%;
+  height: 22%;
+  left: 7%;
+  top: 5%;
+  transform: rotate(-17deg);
+  background: radial-gradient(ellipse, rgba(221,234,242,.21), transparent 68%);
 }
 
-.jarvis-avatar__voicewave i {
-  display: block;
-  width: 2px;
-  height: 7px;
-  border-radius: 999px;
-  background: rgba(226, 238, 246, 0.82);
-  box-shadow: 0 0 8px rgba(207, 229, 242, 0.48);
-  animation: jarvis-voice-bar 580ms ease-in-out infinite alternate;
+.jarvis-core__dust--west {
+  width: 36%;
+  height: 78%;
+  left: -7%;
+  top: 18%;
+  transform: rotate(13deg);
+  background: radial-gradient(ellipse, rgba(179,204,220,.16), transparent 70%);
 }
 
-.jarvis-avatar__rim {
-  z-index: 4;
-  background:
-    linear-gradient(90deg, transparent, rgba(226, 237, 244, 0.08), transparent) 50% 17% / 54% 1px no-repeat,
-    radial-gradient(ellipse at 50% 48%, transparent 39%, rgba(215, 230, 240, 0.045) 56%, transparent 69%);
-  pointer-events: none;
+.jarvis-core__dust--south {
+  width: 76%;
+  height: 25%;
+  left: 18%;
+  bottom: -2%;
+  transform: rotate(-8deg);
+  background: radial-gradient(ellipse, rgba(221,234,242,.19), transparent 69%);
 }
 
-.jarvis-avatar[data-voice-state='listening'] .jarvis-avatar__aura {
-  opacity: 0.58;
-  animation: jarvis-listen-pulse calc(1.7s / var(--movement-factor)) ease-out infinite;
+.jarvis-core__light {
+  position: absolute;
+  width: 9%;
+  aspect-ratio: 1;
+  left: 47%;
+  top: 44%;
+  border-radius: 50%;
+  background: #f7fbfd;
+  box-shadow:
+    0 0 9px #fff,
+    0 0 calc(26px + var(--jarvis-volume) * 26px) rgba(228,240,247,.93),
+    0 0 calc(76px + var(--jarvis-volume) * 66px) rgba(199,220,234,.48);
+  transform: scale(calc(.82 + var(--jarvis-volume) * .42));
+  transition: transform 75ms linear, box-shadow 75ms linear;
 }
 
-.jarvis-avatar[data-voice-state='listening'] .jarvis-avatar__orbit {
-  opacity: 0.38;
-  animation-duration: calc(8s / var(--movement-factor));
+.jarvis-core__halo {
+  z-index: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(221,234,242,.11);
 }
 
-.jarvis-avatar[data-voice-state='listening'] .jarvis-avatar__voicewave {
-  opacity: 0.42;
+.jarvis-core__halo--outer {
+  inset: 9% 17%;
+  box-shadow: 0 0 54px rgba(200,221,234,.08), inset 0 0 42px rgba(200,221,234,.05);
 }
 
-.jarvis-avatar[data-voice-state='listening'] .jarvis-avatar__voicewave i {
-  animation-duration: 980ms;
+.jarvis-core__halo--inner {
+  inset: 18% 29%;
+  border-color: rgba(239,245,248,.18);
+  filter: blur(.2px);
 }
 
-.jarvis-avatar[data-voice-state='processing'] .jarvis-avatar__nebula--outer {
-  animation-duration: calc(9s / var(--movement-factor));
-  opacity: 0.64;
+.jarvis-core__orbit {
+  z-index: 3;
+  inset: 19% 14%;
+  border: 1px solid rgba(222,235,243,.14);
+  border-radius: 50%;
+  transform: rotate(-13deg);
+  animation: jarvis-core-orbit calc(28s / var(--movement-factor)) linear infinite;
 }
 
-.jarvis-avatar[data-voice-state='processing'] .jarvis-avatar__orbit {
-  opacity: 0.58;
+.jarvis-core__orbit--two {
+  inset: 30% 8%;
+  opacity: .46;
+  transform: rotate(24deg);
+  animation-direction: reverse;
+  animation-duration: calc(39s / var(--movement-factor));
+}
+
+.jarvis-core[data-voice-state='listening'] .jarvis-core__sphere {
+  box-shadow: inset -34px -22px 66px rgba(0,0,0,.9), 0 0 calc(42px + var(--jarvis-volume) * 60px) rgba(217,233,243,.35);
+  transform: scale(calc(1 + var(--jarvis-volume) * .035));
+}
+
+.jarvis-core[data-voice-state='processing'] .jarvis-core__orbit {
   border-style: dashed;
-  animation-duration: calc(3.8s / var(--movement-factor));
+  animation-duration: calc(7s / var(--movement-factor));
+}
+.jarvis-core[data-voice-state='processing'] .jarvis-core__sphere::after {
+  animation-duration: calc(9s / var(--movement-factor));
 }
 
-.jarvis-avatar[data-voice-state='speaking'] .jarvis-avatar__aura { opacity: 0.72; }
-.jarvis-avatar[data-voice-state='speaking'] .jarvis-avatar__voicewave { opacity: 0.86; }
-.jarvis-avatar[data-voice-state='speaking'] .jarvis-avatar__portrait {
-  animation: jarvis-speaking-breath calc(1.35s / var(--movement-factor)) ease-in-out infinite;
-}
-.jarvis-avatar[data-voice-state='speaking'] .jarvis-avatar__image { filter: brightness(.92) contrast(1.14); }
-
-.jarvis-avatar[data-voice-state='interrupted'] .jarvis-avatar__aura,
-.jarvis-avatar[data-voice-state='offline'] .jarvis-avatar__aura { opacity: 0.08; }
-
-.jarvis-avatar[data-voice-state='error'] .jarvis-avatar__rim {
-  border-color: rgba(203, 168, 164, 0.2);
-  animation: jarvis-quiet-glitch 340ms ease-out 1;
+.jarvis-core[data-voice-state='speaking'] .jarvis-core__sphere {
+  transform: scale(calc(1 + var(--jarvis-volume) * .055));
 }
 
-.jarvis-avatar[data-animation-tier='2'] .jarvis-avatar__mouth,
-.jarvis-avatar[data-animation-tier='3'] .jarvis-avatar__field,
-.jarvis-avatar[data-animation-tier='3'] .jarvis-avatar__stars,
-.jarvis-avatar[data-animation-tier='3'] .jarvis-avatar__orbit--two,
-.jarvis-avatar[data-animation-tier='3'] .jarvis-avatar__mouth,
-.jarvis-avatar[data-animation-tier='4'] .jarvis-avatar__field,
-.jarvis-avatar[data-animation-tier='4'] .jarvis-avatar__stars,
-.jarvis-avatar[data-animation-tier='4'] .jarvis-avatar__nebula,
-.jarvis-avatar[data-animation-tier='4'] .jarvis-avatar__orbit,
-.jarvis-avatar[data-animation-tier='4'] .jarvis-avatar__scan,
-.jarvis-avatar[data-animation-tier='4'] .jarvis-avatar__voicewave,
-.jarvis-avatar[data-animation-tier='4'] .jarvis-avatar__mouth {
+.jarvis-core[data-voice-state='interrupted'] .jarvis-core__halo {
+  transform: scale(1.12);
+  opacity: .12;
+  transition: transform 160ms ease-out, opacity 160ms ease-out;
+}
+
+.jarvis-core[data-voice-state='error'] .jarvis-core__sphere {
+  border-color: rgba(239,168,168,.35);
+  filter: sepia(.15);
+}
+
+.jarvis-core[data-voice-state='offline'] {
+  opacity: .32;
+  filter: grayscale(.9);
+}
+
+.jarvis-core[data-animation-tier='3'] .jarvis-core__orbit--two,
+.jarvis-core[data-animation-tier='4'] .jarvis-core__field,
+.jarvis-core[data-animation-tier='4'] .jarvis-core__orbit {
   display: none;
 }
 
-.jarvis-avatar[data-animation-tier='2'] .jarvis-avatar__portrait,
-.jarvis-avatar[data-animation-tier='3'] .jarvis-avatar__portrait,
-.jarvis-avatar[data-animation-tier='4'] .jarvis-avatar__portrait,
-.jarvis-avatar[data-animation-tier='4'] .jarvis-avatar__aura {
-  animation: none;
+@keyframes jarvis-core-breathe {
+  0%, 100% { transform: scale(.992); }
+  50% { transform: scale(1.008); }
 }
 
-.jarvis-avatar[data-animation-tier='4'] .jarvis-avatar__aura { opacity: 0; }
-
-@keyframes jarvis-avatar-float {
-  0%, 100% { transform: translate3d(0, -0.7%, 0) scale(0.992); }
-  50% { transform: translate3d(0, 0.85%, 0) scale(1.008); }
+@keyframes jarvis-core-turn {
+  to { transform: rotate(360deg); }
 }
 
-@keyframes jarvis-nebula-turn {
-  to { transform: rotate(360deg) scale(1.03); }
-}
-
-@keyframes jarvis-nebula-breathe {
-  0%, 100% { transform: scale(0.96) rotate(-2deg); opacity: 0.23; }
-  50% { transform: scale(1.045) rotate(3deg); opacity: 0.5; }
-}
-
-@keyframes jarvis-stars-drift {
-  to { transform: rotate(8deg) translate3d(1.5%, -1%, 0); }
-}
-
-@keyframes jarvis-stars-drift-reverse {
-  to { transform: scale(1.08) rotate(-7deg) translate3d(-1%, 1.2%, 0); }
-}
-
-@keyframes jarvis-aura-breathe {
-  0%, 100% { opacity: .22; transform: scale(.97); }
-  50% { opacity: .42; transform: scale(1.035); }
-}
-
-@keyframes jarvis-orbit { to { transform: rotate(352deg); } }
-@keyframes jarvis-orbit-reverse { to { transform: rotate(-368deg); } }
-
-@keyframes jarvis-scan {
-  0%, 18% { background-position: 50% -80%; opacity: .04; }
-  62% { opacity: .22; }
-  100% { background-position: 50% 130%; opacity: .04; }
-}
-
-@keyframes jarvis-listen-pulse {
-  0% { transform: scale(.93); opacity: .2; }
-  55% { opacity: .62; }
-  100% { transform: scale(1.08); opacity: .08; }
-}
-
-@keyframes jarvis-speaking-breath {
-  0%, 100% { transform: translate3d(0, -.2%, 0) scale(calc(1 + var(--jarvis-volume) * .006)); }
-  50% { transform: translate3d(0, .35%, 0) scale(calc(1.006 + var(--jarvis-volume) * .018)); }
-}
-
-@keyframes jarvis-voice-bar {
-  from { transform: scaleY(.45); opacity: .35; }
-  to { transform: scaleY(calc(1.2 + var(--jarvis-volume) * 1.8)); opacity: 1; }
-}
-
-@keyframes jarvis-quiet-glitch {
-  0% { transform: translateX(0); }
-  35% { transform: translateX(-1px); }
-  70% { transform: translateX(1px); }
-  100% { transform: translateX(0); }
+@keyframes jarvis-core-orbit {
+  to { transform: rotate(347deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .jarvis-avatar *,
-  .jarvis-avatar *::before,
-  .jarvis-avatar *::after {
-    animation-duration: 0.001ms !important;
+  .jarvis-core *,
+  .jarvis-core *::before,
+  .jarvis-core *::after {
+    animation-duration: .001ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
   }
@@ -523,7 +366,7 @@
   padding: 52px 0 0;
 }
 
-.jarvis-talk__avatar {
+.jarvis-talk__core {
   display: grid;
   place-items: center;
   width: 100%;
@@ -575,6 +418,19 @@
   transform: translateX(-50%);
 }
 
+.jarvis-talk__provider {
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  bottom: 88px;
+  max-width: min(88vw, 720px);
+  transform: translateX(-50%);
+  color: rgba(223, 234, 240, .55);
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-align: center;
+}
+
 .jarvis-talk__mic,
 .jarvis-control-button {
   display: grid;
@@ -604,7 +460,7 @@
   padding: 76px 24px var(--jarvis-safe-bottom);
 }
 
-.jarvis-text__avatar {
+.jarvis-text__core {
   position: absolute;
   z-index: 0;
   top: 0;
@@ -688,6 +544,32 @@
 .jarvis-markdown table { display: block; overflow-x: auto; width: 100%; border-collapse: collapse; margin: 1rem 0; }
 .jarvis-markdown th, .jarvis-markdown td { padding: 9px 12px; text-align: left; border-bottom: 1px solid rgba(214, 224, 231, .1); }
 .jarvis-markdown blockquote { margin: 1rem 0; padding-left: 14px; color: var(--jarvis-muted); border-left: 2px solid rgba(210, 222, 231, .22); }
+
+.jarvis-tool-card {
+  max-width: 780px;
+  margin: -10px 0 30px;
+  padding: 14px 16px;
+  color: rgba(225, 232, 237, 0.84);
+  font-size: 12px;
+  border: 1px solid rgba(205, 219, 228, 0.12);
+  border-radius: 14px;
+  background: rgba(12, 16, 19, 0.72);
+}
+.jarvis-tool-card__heading { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.jarvis-tool-card__heading > span { color: var(--jarvis-muted); text-transform: uppercase; letter-spacing: .13em; font-size: 9px; }
+.jarvis-tool-card__heading > strong { overflow: hidden; flex: 1; color: #e4ebef; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.jarvis-tool-card__heading > i { padding: 3px 7px; color: #b9c9d2; font-style: normal; border-radius: 999px; background: rgba(205, 219, 228, .08); }
+.jarvis-tool-card__heading > i[data-status="completed"] { color: #bcd9c5; background: rgba(91, 151, 111, .13); }
+.jarvis-tool-card__heading > i[data-status="failed"],
+.jarvis-tool-card__heading > i[data-status="denied"] { color: #dfc2bd; background: rgba(165, 91, 80, .13); }
+.jarvis-tool-card dl { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(80px, 1fr)); gap: 10px; margin: 13px 0 0; }
+.jarvis-tool-card dl > div { min-width: 0; }
+.jarvis-tool-card dt { margin-bottom: 3px; color: var(--jarvis-muted); }
+.jarvis-tool-card dd { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
+.jarvis-tool-card details { margin-top: 12px; }
+.jarvis-tool-card summary { color: #c8d5dc; cursor: pointer; }
+.jarvis-tool-card pre { max-height: 180px; margin: 9px 0 0; padding: 10px; overflow: auto; white-space: pre-wrap; word-break: break-word; border-radius: 9px; background: rgba(0, 0, 0, .32); }
+.jarvis-tool-card > p { margin: 10px 0 0; color: #d2b7b3; }
 
 .jarvis-text__thinking { display: flex; gap: 5px; align-items: center; height: 34px; }
 .jarvis-text__thinking i { width: 5px; height: 5px; border-radius: 50%; background: #c9d4dc; animation: jarvis-thinking 1.2s ease-in-out infinite; }
@@ -860,8 +742,8 @@
   .jarvis-text { padding-inline: 12px; }
   .jarvis-text__conversation { padding-inline: 8px; }
   .jarvis-message--user { width: 92%; }
-  .jarvis-avatar { width: 100%; }
-  .jarvis-text__avatar { right: -58%; left: 16%; opacity: .48; transform: translateX(11%) scale(1.32); }
+  .jarvis-core { width: 100%; }
+  .jarvis-text__core { right: -58%; left: 16%; opacity: .48; transform: translateX(11%) scale(1.32); }
 }
 
 @media (max-height: 640px) {

@@ -28,10 +28,14 @@ class VoiceWorkerTimeout(RuntimeError):
     """Raised after an owned voice worker exceeds a bounded request deadline."""
 
 
-class LocalVoiceBackend(TTSBackend):
-    """Chatterbox-first TTS with a Piper fallback in a separate environment."""
+class VoiceWorkerCancelled(RuntimeError):
+    """Raised when an interrupted turn stops the owned synthesis worker."""
 
-    backend_id = "chatterbox+piper"
+
+class LocalVoiceBackend(TTSBackend):
+    """ElevenLabs -> Chatterbox v3 -> Piper TTS in an isolated worker."""
+
+    backend_id = "elevenlabs+chatterbox+piper"
 
     def __init__(
         self,
@@ -68,7 +72,20 @@ class LocalVoiceBackend(TTSBackend):
         self._last_error = ""
 
     def _worker_environment(self) -> dict[str, str]:
-        environment = os.environ.copy()
+        secret_markers = (
+            "KEY",
+            "TOKEN",
+            "SECRET",
+            "PASSWORD",
+            "CREDENTIAL",
+            "AUTH",
+        )
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key == "ELEVENLABS_API_KEY"
+            or not any(marker in key.upper() for marker in secret_markers)
+        }
         source_root = str(self.repo_root / "src")
         inherited_pythonpath = environment.get("PYTHONPATH", "")
         environment["PYTHONPATH"] = os.pathsep.join(
@@ -142,7 +159,11 @@ class LocalVoiceBackend(TTSBackend):
             response_queue.put(None)
 
     def _request(
-        self, payload: dict[str, Any], *, timeout_seconds: float | None = None
+        self,
+        payload: dict[str, Any],
+        *,
+        timeout_seconds: float | None = None,
+        cancellation_event: threading.Event | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             self._start()
@@ -161,18 +182,28 @@ class LocalVoiceBackend(TTSBackend):
                 float(timeout_seconds or self.synthesis_timeout_seconds), 0.01
             )
             response = None
-            for _ in range(128):
+            while True:
+                if cancellation_event is not None and cancellation_event.is_set():
+                    self._last_error = "VoiceWorkerCancelled"
+                    self._stop_worker_locked(graceful=False)
+                    raise VoiceWorkerCancelled(self._last_error)
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     self._last_error = "VoiceWorkerTimeout"
                     self._stop_worker_locked(graceful=False)
                     raise VoiceWorkerTimeout(self._last_error)
                 try:
-                    line = response_queue.get(timeout=remaining)
-                except queue.Empty as exc:
+                    line = response_queue.get(timeout=min(remaining, 0.1))
+                except queue.Empty:
+                    if cancellation_event is not None and cancellation_event.is_set():
+                        self._last_error = "VoiceWorkerCancelled"
+                        self._stop_worker_locked(graceful=False)
+                        raise VoiceWorkerCancelled(self._last_error)
+                    if time.monotonic() < deadline:
+                        continue
                     self._last_error = "VoiceWorkerTimeout"
                     self._stop_worker_locked(graceful=False)
-                    raise VoiceWorkerTimeout(self._last_error) from exc
+                    raise VoiceWorkerTimeout(self._last_error) from None
                 if line is None:
                     code = process.poll()
                     self._last_error = f"voice worker stopped ({code})"
@@ -198,24 +229,46 @@ class LocalVoiceBackend(TTSBackend):
             self._last_error = ""
             return response
 
-    def _synthesis_request(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _synthesis_request(
+        self,
+        payload: dict[str, Any],
+        *,
+        cancellation_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
         try:
             return self._request(
-                payload, timeout_seconds=self.synthesis_timeout_seconds
+                payload,
+                timeout_seconds=self.synthesis_timeout_seconds,
+                cancellation_event=cancellation_event,
             )
         except VoiceWorkerTimeout:
             voice_id = str(payload.get("voice_id", ""))
             profile = PROFILE_BY_ID.get(voice_id)
-            if profile is None or profile.backend != "chatterbox":
+            if profile is None or profile.backend == "piper":
                 raise
-            return self._request(
-                {
-                    **payload,
-                    "backend_override": "piper",
-                    "primary_error": "VoiceWorkerTimeout",
-                },
-                timeout_seconds=self.fallback_timeout_seconds,
-            )
+            fallback = "chatterbox" if profile.backend == "elevenlabs" else "piper"
+            try:
+                return self._request(
+                    {
+                        **payload,
+                        "backend_override": fallback,
+                        "primary_error": "VoiceWorkerTimeout",
+                    },
+                    timeout_seconds=self.fallback_timeout_seconds,
+                    cancellation_event=cancellation_event,
+                )
+            except VoiceWorkerTimeout:
+                if fallback == "piper":
+                    raise
+                return self._request(
+                    {
+                        **payload,
+                        "backend_override": "piper",
+                        "primary_error": "VoiceWorkerTimeout",
+                    },
+                    timeout_seconds=self.fallback_timeout_seconds,
+                    cancellation_event=cancellation_event,
+                )
 
     def synthesize(
         self,
@@ -225,9 +278,11 @@ class LocalVoiceBackend(TTSBackend):
         speed: float = 1.0,
         output_format: str = "wav",
         bypass_cache: bool = False,
+        response_id: str = "",
+        cancellation_event: threading.Event | None = None,
     ) -> TTSResult:
-        if output_format != "wav":
-            raise ValueError("local voice output format must be wav")
+        if output_format not in {"auto", "wav", "mp3"}:
+            raise ValueError("voice output format must be auto, wav, or mp3")
         clean_text = text.strip()
         if not clean_text or len(clean_text) > 4000:
             raise ValueError("speech text must contain 1 to 4000 characters")
@@ -242,14 +297,19 @@ class LocalVoiceBackend(TTSBackend):
                 "voice_id": selected,
                 "speed_multiplier": max(0.75, min(float(speed), 1.25)),
                 "bypass_cache": bool(bypass_cache or not config["cache_enabled"]),
-            }
+                "response_id": str(response_id)[:128],
+            },
+            cancellation_event=cancellation_event,
         )
         audio_path = Path(str(response["audio_path"])).resolve(strict=True)
         if not audio_path.is_relative_to(self.voice_root):
             raise RuntimeError("voice worker returned an invalid audio path")
+        audio_format = str(response.get("format") or "wav")
+        if audio_format not in {"wav", "mp3"}:
+            raise RuntimeError("voice worker returned an unsupported audio format")
         return TTSResult(
             audio=audio_path.read_bytes(),
-            format="wav",
+            format=audio_format,
             duration_seconds=float(response.get("duration_seconds", 0.0)),
             voice_id=selected,
             sample_rate=int(response.get("sample_rate", 22050)),
@@ -267,6 +327,7 @@ class LocalVoiceBackend(TTSBackend):
                     "system_cpu_percent",
                     "fallback_used",
                     "primary_error",
+                    "provider_errors",
                 )
             },
         )
@@ -280,7 +341,7 @@ class LocalVoiceBackend(TTSBackend):
                 {"command": "health"},
                 timeout_seconds=self.health_timeout_seconds,
             )
-            return bool(response.get("chatterbox") and response.get("piper"))
+            return bool(response.get("piper"))
         except Exception as exc:
             self._last_error = type(exc).__name__
             return False
@@ -310,40 +371,78 @@ class LocalVoiceBackend(TTSBackend):
     def last_error(self) -> str:
         return self._last_error
 
-    def _audition_is_current(self, voice_id: str) -> bool:
-        path = self.audition_root / f"{voice_id}.wav"
-        metadata_path = path.with_suffix(".json")
-        if not path.is_file() or not metadata_path.is_file():
-            return False
+    def _audition_metadata(self, voice_id: str) -> tuple[Path, dict[str, Any]] | None:
+        metadata_path = self.audition_root / f"{voice_id}.json"
+        if not metadata_path.is_file():
+            return None
         try:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            return False
-        return metadata.get("schema") == VOICE_CACHE_SCHEMA
+            return None
+        audio_name = str(metadata.get("audio_file") or "")
+        audio_path = (self.audition_root / audio_name).resolve(strict=False)
+        if (
+            metadata.get("schema") != VOICE_CACHE_SCHEMA
+            or not audio_name
+            or not audio_path.is_relative_to(self.audition_root.resolve())
+            or not audio_path.is_file()
+        ):
+            return None
+        return audio_path, metadata
+
+    def _audition_is_current(self, voice_id: str) -> bool:
+        return self._audition_metadata(voice_id) is not None
 
     def voice_status(self) -> dict[str, Any]:
         config = load_voice_config(self.config_path)
         worker = self._request(
             {"command": "health"}, timeout_seconds=self.health_timeout_seconds
         )
+        profiles = []
+        for profile in VOICE_PROFILES:
+            audition = self._audition_metadata(profile.voice_id)
+            audition_metadata = audition[1] if audition is not None else {}
+            audition_ready = audition is not None and not (
+                profile.backend == "elevenlabs"
+                and not worker.get("elevenlabs_configured")
+            )
+            profiles.append(
+                {
+                    **public_profile(profile),
+                    "audition_ready": audition_ready,
+                    "audition_backend": (
+                        str(audition_metadata.get("backend") or "")
+                        if audition_ready
+                        else ""
+                    ),
+                    "audition_fallback_used": (
+                        bool(audition_metadata.get("fallback_used", False))
+                        if audition_ready
+                        else False
+                    ),
+                }
+            )
         return {
             "selected_voice_id": config["selected_voice_id"],
             "primary_backend": config["primary_backend"],
-            "fallback_backend": config["fallback_backend"],
+            "local_fallback_backend": config["local_fallback_backend"],
+            "emergency_backend": config["emergency_backend"],
+            "elevenlabs_voice_id": config.get("elevenlabs_voice_id"),
+            "monthly_char_limit": config["monthly_char_limit"],
+            "per_response_char_limit": config["per_response_char_limit"],
             "language": config["language"],
             "audition_text": AUDITION_TEXT,
-            "profiles": [
-                {
-                    **public_profile(profile),
-                    "audition_ready": self._audition_is_current(profile.voice_id),
-                }
-                for profile in VOICE_PROFILES
-            ],
+            "profiles": profiles,
             "worker": {
                 key: worker.get(key)
                 for key in (
                     "chatterbox",
                     "piper",
+                    "elevenlabs",
+                    "elevenlabs_api_key_set",
+                    "elevenlabs_voice_id_set",
+                    "elevenlabs_configured",
+                    "elevenlabs_usage",
                     "cuda",
                     "device",
                     "chatterbox_loaded",
@@ -358,12 +457,64 @@ class LocalVoiceBackend(TTSBackend):
             raise ValueError("unknown voice profile")
         config = load_voice_config(self.config_path)
         config["selected_voice_id"] = voice_id
+        config["primary_backend"] = PROFILE_BY_ID[voice_id].backend
+        write_voice_config(self.config_path, config)
+        return config
+
+    def list_elevenlabs_voices(self) -> list[dict[str, Any]]:
+        response = self._request(
+            {"command": "list_elevenlabs_voices"},
+            timeout_seconds=self.health_timeout_seconds,
+        )
+        voices = response.get("voices")
+        return voices if isinstance(voices, list) else []
+
+    def select_elevenlabs_voice(self, voice_id: str) -> dict[str, Any]:
+        clean_id = voice_id.strip()
+        response = self._request(
+            {"command": "validate_elevenlabs_voice", "voice_id": clean_id},
+            timeout_seconds=self.health_timeout_seconds,
+        )
+        if str(response.get("voice_id") or "") != clean_id:
+            raise ValueError("ElevenLabs voice validation failed")
+        config = load_voice_config(self.config_path)
+        config["elevenlabs_voice_id"] = clean_id
+        write_voice_config(self.config_path, config)
+        for path in self.audition_root.glob("jarvis-elevenlabs.*"):
+            path.unlink(missing_ok=True)
+        return {"voice_id": clean_id, "name": str(response.get("name") or "")}
+
+    def update_cost_limits(
+        self, *, monthly_char_limit: int, per_response_char_limit: int
+    ) -> dict[str, Any]:
+        monthly = int(monthly_char_limit)
+        per_response = int(per_response_char_limit)
+        if monthly < 0 or per_response < 0:
+            raise ValueError("voice character limits must be non-negative")
+        config = load_voice_config(self.config_path)
+        config["monthly_char_limit"] = monthly
+        config["per_response_char_limit"] = per_response
         write_voice_config(self.config_path, config)
         return config
 
     def generate_auditions(self) -> list[dict[str, Any]]:
         results = []
+        config = load_voice_config(self.config_path)
+        elevenlabs_ready = bool(
+            os.environ.get("ELEVENLABS_API_KEY", "").strip()
+            and str(config.get("elevenlabs_voice_id") or "").strip()
+        )
         for profile in VOICE_PROFILES:
+            if profile.backend == "elevenlabs" and not elevenlabs_ready:
+                results.append(
+                    {
+                        "voice_id": profile.voice_id,
+                        "backend": "not_configured",
+                        "fallback_used": False,
+                        "skipped": True,
+                    }
+                )
+                continue
             response = self._synthesis_request(
                 {
                     "command": "synthesize",
@@ -388,10 +539,12 @@ class LocalVoiceBackend(TTSBackend):
     def audition_path(self, voice_id: str) -> Path:
         if voice_id not in PROFILE_BY_ID:
             raise ValueError("unknown voice profile")
-        if not self._audition_is_current(voice_id):
+        current = self._audition_metadata(voice_id)
+        if current is None:
             raise FileNotFoundError("current voice audition is not available")
-        path = (self.audition_root / f"{voice_id}.wav").resolve(strict=True)
-        if not path.is_relative_to(self.audition_root):
+        path, _metadata = current
+        path = path.resolve(strict=True)
+        if not path.is_relative_to(self.audition_root.resolve()):
             raise ValueError("invalid audition path")
         return path
 
@@ -436,4 +589,4 @@ class LocalVoiceBackend(TTSBackend):
             self._stderr_handle = None
 
 
-__all__ = ["LocalVoiceBackend", "VoiceWorkerTimeout"]
+__all__ = ["LocalVoiceBackend", "VoiceWorkerCancelled", "VoiceWorkerTimeout"]

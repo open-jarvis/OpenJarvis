@@ -28,6 +28,8 @@ import {
 import {
   approveAction,
   cancelCanonicalTask,
+  interruptDesktop,
+  interruptMcp,
   createMutationContext,
   denyAction,
   fetchBrowserHealth,
@@ -53,7 +55,7 @@ import type { CanonicalTask, CanonicalTaskEvent, MutationContext, PendingApprova
 import { ensureActiveTaskId, isTerminalTaskStatus, useJarvisStore } from '../lib/jarvisStore';
 import { useCanonicalTaskStream } from '../lib/useCanonicalTaskStream';
 import { useSpeech } from '../hooks/useSpeech';
-import { useLocalAudioLevel, useTextToSpeech } from '../hooks/useTextToSpeech';
+import { useAudioBackendInfo, useLocalAudioLevel, useTextToSpeech } from '../hooks/useTextToSpeech';
 import { Phase7Panel } from '../components/Jarvis/Phase7Panel';
 import { WebsiteStagingPanel } from '../components/WebsiteStagingPanel';
 import { VoiceAuditionPanel } from '../components/Jarvis/VoiceAuditionPanel';
@@ -92,6 +94,25 @@ export function canReplacePausedTaskForChat(
 ): boolean {
   if (!task || task.status !== 'paused' || task.risk_level !== 0) return false;
   return !approvals.some((approval) => !approval.task_id || approval.task_id === task.task_id);
+}
+
+export function summarizeForSpeech(value: string): string {
+  const plain = value
+    .replace(/```[\s\S]*?```/g, ' Code-Ausgabe im Textmodus. ')
+    .replace(/https?:\/\/\S+/g, ' Link im Textmodus. ')
+    .replace(/[#*_>`~\[\]]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (plain.length <= 360) return plain;
+  const firstSentence = plain.match(/[^.!?]+[.!?]+/)?.[0]?.trim();
+  const candidate = firstSentence && firstSentence.length >= 60
+    ? firstSentence
+    : plain.slice(0, 280);
+  const bounded = candidate.length <= 300
+    ? candidate
+    : `${candidate.slice(0, 296).replace(/\s+\S*$/, '')}.`;
+  const spoken = /[.!?]$/.test(bounded) ? bounded : `${bounded}.`;
+  return `${spoken} Die vollständigen Details stehen im Textmodus.`;
 }
 
 export function TurnEvidenceDetails({
@@ -360,9 +381,16 @@ export function JarvisPage() {
   const sendGuard = useRef(false);
   const sendController = useRef<AbortController | null>(null);
   const listEndRef = useRef<HTMLDivElement>(null);
-  const speech = useSpeech();
+  const submitRef = useRef<(message: string, mode: 'text' | 'voice') => Promise<void>>(
+    async () => undefined,
+  );
   const tts = useTextToSpeech();
+  const speech = useSpeech(
+    (transcript) => { void submitRef.current(transcript, 'voice'); },
+    tts.stop,
+  );
   const localAudioLevel = useLocalAudioLevel();
+  const audioBackendInfo = useAudioBackendInfo();
   const { preferences, setPreferences } = useJarvisPreferences();
 
   useCanonicalTaskStream(state.activeTaskId);
@@ -529,7 +557,7 @@ export function JarvisPage() {
             && typeof event.payload.content === 'string',
         );
         const answerText = answer?.payload.content;
-        if (typeof answerText === 'string') tts.speak(answerText);
+        if (typeof answerText === 'string') tts.speak(summarizeForSpeech(answerText));
       }
       setInputMode('text');
     } catch (error) {
@@ -545,6 +573,7 @@ export function JarvisPage() {
       sendGuard.current = false;
     }
   };
+  submitRef.current = submit;
 
   const controlTask = async (action: 'pause' | 'resume' | 'interrupt' | 'cancel') => {
     if (!state.activeTaskId) return;
@@ -571,6 +600,8 @@ export function JarvisPage() {
     speech.cancelRecording();
     tts.stop();
     sendController.current?.abort();
+    try { await interruptDesktop(); } catch { /* Desktop adapter may be disabled. */ }
+    try { await interruptMcp(); } catch { /* MCP may be disabled. */ }
     if (taskId && shouldInterrupt) {
       try {
         await interruptCanonicalTask(taskId, createMutationContext('new-conversation'));
@@ -586,6 +617,8 @@ export function JarvisPage() {
   const stopActiveOutput = async () => {
     tts.stop();
     if (speech.isRecording) speech.cancelRecording();
+    try { await interruptDesktop(); } catch { /* Voice/text stop remains available without desktop access. */ }
+    try { await interruptMcp(); } catch { /* MCP may be disabled. */ }
     if (activeTask?.status === 'running') await controlTask('interrupt');
   };
 
@@ -629,7 +662,7 @@ export function JarvisPage() {
         && typeof event.payload.content === 'string',
     );
     const content = latest?.payload.content;
-    if (typeof content === 'string') tts.speak(content);
+    if (typeof content === 'string') tts.speak(summarizeForSpeech(content));
   };
 
   const stopSpeaking = tts.stop;
@@ -669,7 +702,7 @@ export function JarvisPage() {
       sttAvailable: speech.available,
       streamStatus: state.streamStatus,
       errorMessage: state.error || speech.error,
-      volumeLevel: localAudioLevel,
+      volumeLevel: speech.isRecording ? speech.audioLevel : localAudioLevel,
     });
     return (
       <JarvisExperience
@@ -686,7 +719,9 @@ export function JarvisPage() {
         speechLanguage={state.speech.language}
         preferences={preferences}
         approvals={activeApprovals}
+        actions={state.actions}
         decisionBusy={decisionBusy}
+        audioBackendInfo={audioBackendInfo}
         onPreferencesChange={setPreferences}
         onDraftChange={(value) => { setDraft(value); if (inputMode === 'voice') setInputMode('text'); }}
         onSubmit={submit}

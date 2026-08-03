@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import threading
 import time
 from contextlib import asynccontextmanager
 from inspect import isawaitable
@@ -160,6 +161,7 @@ async def _shutdown_app_resources(app: FastAPI) -> None:
     if getattr(app.state, "shutdown_complete", False):
         return
     app.state.shutdown_complete = True
+    app.state._mcp_shutdown = True
 
     websocket_shutdown = getattr(app.state, "websocket_shutdown", None)
     if websocket_shutdown is not None:
@@ -204,6 +206,7 @@ async def _shutdown_app_resources(app: FastAPI) -> None:
             logger.debug("trace_store shutdown failed", exc_info=True)
 
     for attribute, method in (
+        ("desktop_controller", "close"),
         ("tts_backend", "close"),
         ("vault_memory_service", "close"),
         ("memory_service", "stop"),
@@ -242,6 +245,8 @@ def create_app(
     tool_action_service=None,
     website_staging_service=None,
     browser_session_service=None,
+    desktop_controller=None,
+    mcp_server_registry=None,
     phase7_learning_runtime=None,
     phase7_skill_test_runner=None,
     phase7_healthcheck_runner=None,
@@ -273,6 +278,16 @@ def create_app(
         runtime_app.state.lifecycle_started = True
         try:
             _restore_sendblue_bindings(runtime_app)
+            if getattr(runtime_app.state, "mcp_server_registry", None) is not None:
+                from openjarvis.mcp.action_bridge import discover_action_tools
+
+                threading.Thread(
+                    target=discover_action_tools,
+                    args=(runtime_app.state,),
+                    kwargs={"force": True},
+                    name="openjarvis-mcp-discovery",
+                    daemon=True,
+                ).start()
             yield
         finally:
             await _shutdown_app_resources(runtime_app)
@@ -338,6 +353,8 @@ def create_app(
     app.state.tool_action_service = tool_action_service
     app.state.website_staging_service = website_staging_service
     app.state.browser_session_service = browser_session_service
+    app.state.desktop_controller = desktop_controller
+    app.state.mcp_server_registry = mcp_server_registry
     app.state.phase7_learning_runtime = phase7_learning_runtime
     app.state.phase7_skill_test_runner = phase7_skill_test_runner
     app.state.phase7_healthcheck_runner = phase7_healthcheck_runner

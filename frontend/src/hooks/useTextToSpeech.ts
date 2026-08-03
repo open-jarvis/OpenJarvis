@@ -3,10 +3,12 @@ import { useJarvisStore } from '../lib/jarvisStore';
 import { fetchSpeechHealth } from '../lib/api';
 import type { SpeechHealth } from '../lib/api';
 import {
-  BrowserTextToSpeechProvider,
   DisabledTextToSpeechProvider,
+  LOCAL_AUDIO_CHUNK_SKIPPED_EVENT,
   LOCAL_AUDIO_END_EVENT,
+  LOCAL_AUDIO_FALLBACK_EVENT,
   LOCAL_AUDIO_LEVEL_EVENT,
+  LOCAL_AUDIO_PROVIDER_EVENT,
   LOCAL_AUDIO_START_EVENT,
   LocalTextToSpeechProvider,
 } from '../lib/speechProviders';
@@ -37,6 +39,65 @@ export function useLocalAudioLevel(): number {
   return level;
 }
 
+/** Reports which backend spoke and whether a fallback was used (visible indicator). */
+export function useAudioBackendInfo(): {
+  backend: string | null;
+  fallbackUsed: boolean;
+  cacheHit: boolean;
+  chunksSkipped: number;
+  lastError: string | null;
+} {
+  const [backend, setBackend] = useState<string | null>(null);
+  const [fallbackUsed, setFallbackUsed] = useState(false);
+  const [chunksSkipped, setChunksSkipped] = useState(0);
+  const [cacheHit, setCacheHit] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onStart = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      setBackend(detail?.backend ?? null);
+      setFallbackUsed(!!detail?.fallbackUsed);
+      setCacheHit(!!detail?.cacheHit);
+      setChunksSkipped(0);
+      setLastError(null);
+    };
+    const onFallback = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      setFallbackUsed(true);
+      setBackend(detail?.backend ?? null);
+    };
+    const onProvider = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      setBackend(detail?.backend ?? null);
+      setFallbackUsed(!!detail?.fallbackUsed);
+      setCacheHit(!!detail?.cacheHit);
+    };
+    const onSkipped = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.summary) setChunksSkipped(detail.skippedCount ?? 0);
+      if (detail?.error) setLastError(String(detail.error));
+    };
+    const onEnd = () => {
+      // Keep backend/fallback info visible until next speech starts.
+    };
+    window.addEventListener(LOCAL_AUDIO_START_EVENT, onStart);
+    window.addEventListener(LOCAL_AUDIO_FALLBACK_EVENT, onFallback);
+    window.addEventListener(LOCAL_AUDIO_PROVIDER_EVENT, onProvider);
+    window.addEventListener(LOCAL_AUDIO_CHUNK_SKIPPED_EVENT, onSkipped);
+    window.addEventListener(LOCAL_AUDIO_END_EVENT, onEnd);
+    return () => {
+      window.removeEventListener(LOCAL_AUDIO_START_EVENT, onStart);
+      window.removeEventListener(LOCAL_AUDIO_FALLBACK_EVENT, onFallback);
+      window.removeEventListener(LOCAL_AUDIO_PROVIDER_EVENT, onProvider);
+      window.removeEventListener(LOCAL_AUDIO_CHUNK_SKIPPED_EVENT, onSkipped);
+      window.removeEventListener(LOCAL_AUDIO_END_EVENT, onEnd);
+    };
+  }, []);
+
+  return { backend, fallbackUsed, cacheHit, chunksSkipped, lastError };
+}
+
 export function useTextToSpeech() {
   const providerRef = useRef<TextToSpeechProvider>(new DisabledTextToSpeechProvider());
   const speaking = useJarvisStore((state) => state.speech.speaking);
@@ -46,7 +107,6 @@ export function useTextToSpeech() {
 
   useEffect(() => {
     let disposed = false;
-    const browser = new BrowserTextToSpeechProvider();
     const configure = async () => {
       const health: SpeechHealth = await fetchSpeechHealth().catch(() => ({
         available: false,
@@ -54,8 +114,8 @@ export function useTextToSpeech() {
       }));
       if (disposed) return;
       providerRef.current = health.tts_available && health.tts_location === 'local'
-        ? new LocalTextToSpeechProvider(health.tts_provider || 'local-tts', true, browser)
-        : browser.available ? browser : new DisabledTextToSpeechProvider();
+        ? new LocalTextToSpeechProvider(health.tts_provider || 'local-tts', true)
+        : new DisabledTextToSpeechProvider();
       setProviderInfo({ available: providerRef.current.available, id: providerRef.current.id });
       setSpeech({
         ttsAvailable: providerRef.current.available,

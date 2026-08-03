@@ -19,10 +19,10 @@ def _mock_httpx_client():
         yield mock_instance
 
 
-def _make_http_response(result, *, session_id=None):
+def _make_http_response(result, *, response_id=1, session_id=None):
     """Build a mock httpx.Response with the given JSON-RPC result."""
     resp = MagicMock()
-    resp.text = json.dumps({"jsonrpc": "2.0", "id": 1, "result": result})
+    resp.text = json.dumps({"jsonrpc": "2.0", "id": response_id, "result": result})
     resp.raise_for_status = MagicMock()
     headers = {}
     if session_id is not None:
@@ -79,7 +79,9 @@ class TestStreamableHTTPTransport:
         assert transport._session_id == "sess-abc-123"
 
         # Second request — prepare new response without session header
-        mock_client.post.return_value = _make_http_response({"tools": []})
+        mock_client.post.return_value = _make_http_response(
+            {"tools": []}, response_id=2
+        )
         req2 = MCPRequest(method="tools/list", id=2)
         transport.send(req2)
 
@@ -153,16 +155,64 @@ class TestStreamableHTTPTransport:
         from openjarvis.mcp.transport import StreamableHTTPTransport
 
         mock_client = _mock_httpx_client
-        mock_client.post.return_value = _make_http_response({})
+        mock_client.post.side_effect = [
+            _make_http_response({}, response_id=response_id) for response_id in range(3)
+        ]
 
-        transport = StreamableHTTPTransport(
-            "http://localhost:9583/mcp", token="abc123"
-        )
+        transport = StreamableHTTPTransport("http://localhost:9583/mcp", token="abc123")
         for i in range(3):
             transport.send(MCPRequest(method="tools/list", id=i))
 
         for call in mock_client.post.call_args_list:
             assert call[1]["headers"]["Authorization"] == "Bearer abc123"
+
+    def test_protocol_version_header_after_negotiation(self, _mock_httpx_client):
+        from openjarvis.mcp.transport import StreamableHTTPTransport
+
+        mock_client = _mock_httpx_client
+        mock_client.post.return_value = _make_http_response({})
+        transport = StreamableHTTPTransport("http://localhost:9583/mcp")
+        transport.set_protocol_version("2025-11-25")
+        transport.send(MCPRequest(method="tools/list", id=1))
+
+        headers = mock_client.post.call_args[1]["headers"]
+        assert headers["MCP-Protocol-Version"] == "2025-11-25"
+
+    def test_sse_ignores_notifications_before_response(self, _mock_httpx_client):
+        from openjarvis.mcp.transport import StreamableHTTPTransport
+
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.headers = {"content-type": "text/event-stream"}
+        response.content = b"sse"
+        response.text = "\n".join(
+            [
+                "event: message",
+                'data: {"jsonrpc":"2.0","method":"notifications/progress"}',
+                "",
+                "event: message",
+                'data: {"jsonrpc":"2.0","id":7,"result":{"tools":[]}}',
+                "",
+                "data: [DONE]",
+                "",
+            ]
+        )
+        _mock_httpx_client.post.return_value = response
+        transport = StreamableHTTPTransport("http://localhost:9583/mcp")
+
+        result = transport.send(MCPRequest(method="tools/list", id=7))
+        assert result.id == 7
+        assert result.result == {"tools": []}
+
+    def test_rejects_invalid_session_id(self, _mock_httpx_client):
+        from openjarvis.mcp.transport import StreamableHTTPTransport
+
+        _mock_httpx_client.post.return_value = _make_http_response(
+            {}, session_id="invalid session"
+        )
+        transport = StreamableHTTPTransport("http://localhost:9583/mcp")
+        with pytest.raises(RuntimeError, match="invalid session ID"):
+            transport.send(MCPRequest(method="initialize", id=1))
 
     def test_connect_error_handling(self, _mock_httpx_client):
         """httpx.ConnectError should be wrapped in RuntimeError."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -939,6 +940,10 @@ async def reload_cloud_engine(request: Request):
     """
     import os
 
+    from openjarvis.server.task_routes import _require_local
+
+    _require_local(request)
+
     submitted_keys: dict[str, str] | None = None
     try:
         body = await request.json()
@@ -958,6 +963,16 @@ async def reload_cloud_engine(request: Request):
                 os.environ[key] = value
             else:
                 os.environ.pop(key, None)
+        mcp_key_names = {
+            key for key in submitted_keys if key.startswith("MCP_")
+        }
+        registry = getattr(request.app.state, "mcp_server_registry", None)
+        if registry is not None and mcp_key_names:
+            from openjarvis.mcp.action_bridge import disconnect_server
+
+            for record in registry.list():
+                if record.token_env in mcp_key_names:
+                    disconnect_server(request.app.state, record.server_id)
     else:
         # Compatibility fallback for non-desktop/manual configurations.
         keys_path = get_config_dir() / "cloud-keys.env"
@@ -967,6 +982,12 @@ async def reload_cloud_engine(request: Request):
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
                     os.environ[k.strip()] = v.strip()
+
+    # The isolated voice worker inherits environment variables only at start.
+    # Restart it after secure-key updates without ever returning key material.
+    tts_backend = getattr(request.app.state, "tts_backend", None)
+    if tts_backend is not None and hasattr(tts_backend, "close"):
+        await asyncio.to_thread(tts_backend.close)
 
     # Try to build a fresh CloudEngine.
     try:
@@ -980,7 +1001,11 @@ async def reload_cloud_engine(request: Request):
                 "message": "No cloud models available (check API keys)",
             }
     except Exception as exc:
-        return {"status": "error", "message": str(exc)}
+        logger.warning("Cloud key reload failed (%s)", type(exc).__name__)
+        return {
+            "status": "error",
+            "message": "Cloud provider could not be reloaded",
+        }
 
     # Locate the innermost engine, working through InstrumentedEngine layers.
     outer = request.app.state.engine

@@ -9,6 +9,7 @@ from openjarvis.core.types import ToolCall
 from openjarvis.mcp.protocol import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    MCP_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     MCPRequest,
     MCPResponse,
@@ -49,7 +50,7 @@ class MCPServer:
 
     SERVER_NAME = "openjarvis"
     SERVER_VERSION = "0.1.0"
-    PROTOCOL_VERSION = "2025-11-25"
+    PROTOCOL_VERSION = MCP_PROTOCOL_VERSION
 
     def __init__(self, tools: Optional[List[BaseTool]] = None) -> None:
         if tools is None:

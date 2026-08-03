@@ -1825,6 +1825,7 @@ const MANAGED_CLOUD_KEY_NAMES: &[&str] = &[
     "OPENROUTER_API_KEY",
     "MINIMAX_API_KEY",
     "TAVILY_API_KEY",
+    "ELEVENLABS_API_KEY",
 ];
 
 /// Legacy path used by older desktop builds. New saves never write here.
@@ -1869,11 +1870,57 @@ fn engine_api_key_name(engine: &str) -> String {
     format!("{}_API_KEY", engine_name)
 }
 
+/// Non-secret inventory needed because platform keyrings cannot enumerate keys.
+fn managed_dynamic_key_names_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(home_dir())
+        .join(".openjarvis")
+        .join("managed-key-names.json")
+}
+
+fn read_managed_dynamic_key_names() -> Vec<String> {
+    let path = managed_dynamic_key_names_path();
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Vec<String>>(&contents)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|key| key.starts_with("MCP_") && validate_cloud_key_name(key).is_ok())
+        .collect()
+}
+
+fn update_managed_dynamic_key_name(key_name: &str, present: bool) -> Result<(), String> {
+    if !key_name.starts_with("MCP_") {
+        return Ok(());
+    }
+    validate_cloud_key_name(key_name)?;
+    let path = managed_dynamic_key_names_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("Failed to prepare secure key inventory: {}", err))?;
+    }
+    let mut names = read_managed_dynamic_key_names();
+    names.retain(|value| value != key_name);
+    if present {
+        names.push(key_name.to_string());
+    }
+    names.sort();
+    names.dedup();
+    let payload = serde_json::to_vec_pretty(&names)
+        .map_err(|err| format!("Failed to encode secure key inventory: {}", err))?;
+    // The inventory contains key names only; key values stay in the platform
+    // keyring. A direct write is used because std::fs::rename does not replace
+    // an existing destination reliably on Windows.
+    std::fs::write(&path, payload)
+        .map_err(|err| format!("Failed to save secure key inventory: {}", err))
+}
+
 fn managed_cloud_key_names() -> Vec<String> {
     let mut names: Vec<String> = MANAGED_CLOUD_KEY_NAMES
         .iter()
         .map(|name| (*name).to_string())
         .collect();
+    names.extend(read_managed_dynamic_key_names());
 
     let cfg = read_inference_config();
     if matches!(&cfg.kind, SourceKind::Custom) {
@@ -1994,6 +2041,7 @@ async fn reload_cloud_keys(keys: Vec<(String, String)>) {
 async fn save_cloud_key(key_name: String, key_value: String) -> Result<(), String> {
     let key_value = key_value.trim().to_string();
     secure_store_set(&key_name, &key_value)?;
+    update_managed_dynamic_key_name(&key_name, !key_value.is_empty())?;
 
     // Tell the running server to hot-reload its cloud engine so the user
     // doesn't need to restart the app after entering an API key.

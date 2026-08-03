@@ -389,6 +389,14 @@ class ToolManifestCatalog:
         self._manifests[manifest.tool_id] = manifest
         return manifest
 
+    def replace(self, manifest: ToolManifest) -> ToolManifest:
+        """Replace an existing manifest through a trusted runtime-only path."""
+
+        if manifest.tool_id not in self._manifests:
+            raise ManifestValidationError(f"unregistered tool: {manifest.tool_id}")
+        self._manifests[manifest.tool_id] = manifest
+        return manifest
+
     def list(self) -> tuple[ToolManifest, ...]:
         return tuple(self._manifests.values())
 
@@ -400,7 +408,45 @@ def _validate_schema_value(
     path: str,
     strict: bool,
 ) -> None:
+    alternatives = schema.get("oneOf") or schema.get("anyOf")
+    if alternatives is not None:
+        if not isinstance(alternatives, list) or not alternatives:
+            raise ManifestValidationError(f"{path}: invalid schema alternatives")
+        matches = 0
+        for alternative in alternatives:
+            try:
+                _validate_schema_value(
+                    value,
+                    alternative,
+                    path=path,
+                    strict=strict,
+                )
+            except ManifestValidationError:
+                continue
+            matches += 1
+        required_matches = 1
+        if matches < required_matches or ("oneOf" in schema and matches != 1):
+            raise ManifestValidationError(
+                f"{path}: no unique schema alternative matched"
+            )
+        return
     expected = schema.get("type")
+    if isinstance(expected, list):
+        errors = 0
+        for candidate in expected:
+            try:
+                _validate_schema_value(
+                    value,
+                    {**schema, "type": candidate},
+                    path=path,
+                    strict=strict,
+                )
+            except ManifestValidationError:
+                errors += 1
+            else:
+                return
+        if errors:
+            raise ManifestValidationError(f"{path}: expected one of {expected!r}")
     valid = True
     if expected == "object":
         valid = isinstance(value, Mapping)
@@ -425,6 +471,8 @@ def _validate_schema_value(
 
     if "enum" in schema and value not in schema["enum"]:
         raise ManifestValidationError(f"{path}: value is not in enum")
+    if "const" in schema and value != schema["const"]:
+        raise ManifestValidationError(f"{path}: value differs from const")
 
     if expected == "object":
         properties = schema.get("properties", {})
@@ -432,8 +480,21 @@ def _validate_schema_value(
         for key in required:
             if key not in value:
                 raise ManifestValidationError(f"{path}.{key}: required")
-        if strict or schema.get("additionalProperties") is False:
-            unknown = set(value) - set(properties)
+        unknown = set(value) - set(properties)
+        additional = schema.get("additionalProperties")
+        if unknown and (additional is False or (strict and additional is None)):
+            raise ManifestValidationError(
+                f"{path}: unknown parameters: {', '.join(sorted(unknown))}"
+            )
+        if unknown and isinstance(additional, Mapping):
+            for key in unknown:
+                _validate_schema_value(
+                    value[key],
+                    additional,
+                    path=f"{path}.{key}",
+                    strict=strict,
+                )
+        elif unknown and additional is not True and not isinstance(additional, Mapping):
             if unknown:
                 raise ManifestValidationError(
                     f"{path}: unknown parameters: {', '.join(sorted(unknown))}"
@@ -459,6 +520,8 @@ def _validate_schema_value(
                 )
         if "maxItems" in schema and len(value) > int(schema["maxItems"]):
             raise ManifestValidationError(f"{path}: too many items")
+        if "minItems" in schema and len(value) < int(schema["minItems"]):
+            raise ManifestValidationError(f"{path}: too few items")
     elif expected == "string":
         if "minLength" in schema and len(value) < int(schema["minLength"]):
             raise ManifestValidationError(f"{path}: string is too short")
@@ -467,6 +530,11 @@ def _validate_schema_value(
         pattern_value = schema.get("pattern")
         if pattern_value and re.search(str(pattern_value), value) is None:
             raise ManifestValidationError(f"{path}: string does not match pattern")
+    elif expected in {"integer", "number"}:
+        if "minimum" in schema and value < schema["minimum"]:
+            raise ManifestValidationError(f"{path}: number is below minimum")
+        if "maximum" in schema and value > schema["maximum"]:
+            raise ManifestValidationError(f"{path}: number exceeds maximum")
 
 
 __all__ = [

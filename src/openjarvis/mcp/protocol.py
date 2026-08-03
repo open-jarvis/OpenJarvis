@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+MCP_PROTOCOL_VERSION = "2025-11-25"
+
 # Error codes per JSON-RPC 2.0 / MCP spec
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
@@ -136,6 +138,7 @@ __all__ = [
     "INTERNAL_ERROR",
     "INVALID_PARAMS",
     "INVALID_REQUEST",
+    "MCP_PROTOCOL_VERSION",
     "MCPError",
     "MCPNotification",
     "MCPRequest",

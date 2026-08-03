@@ -19,13 +19,14 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
-import type { CanonicalTaskEvent, PendingApproval } from '../../../lib/api';
+import type { CanonicalTaskEvent, PendingApproval, ToolActionInfo } from '../../../lib/api';
 import { VoiceAuditionPanel } from '../VoiceAuditionPanel';
-import { JarvisAvatar, voiceStateLabel } from './JarvisAvatar';
+import { JarvisCore, voiceStateLabel } from './JarvisCore';
 import type { JarvisMode, JarvisPreferences } from './preferences';
 import { MockVoiceAdapter } from './voiceAdapter';
 import type { JarvisVoiceState, VoiceAdapterSnapshot } from './voiceAdapter';
 import { useAnimationBudget } from './useAnimationBudget';
+import { useProcessingTone } from './useProcessingTone';
 
 export interface JarvisExperienceProps {
   sessionId: string;
@@ -41,7 +42,15 @@ export interface JarvisExperienceProps {
   speechLanguage: string;
   preferences: JarvisPreferences;
   approvals: PendingApproval[];
+  actions: ToolActionInfo[];
   decisionBusy: string | null;
+  audioBackendInfo: {
+    backend: string | null;
+    fallbackUsed: boolean;
+    cacheHit: boolean;
+    chunksSkipped: number;
+    lastError: string | null;
+  };
   onPreferencesChange: (patch: Partial<JarvisPreferences>) => void;
   onDraftChange: (draft: string) => void;
   onSubmit: (message?: string, inputMode?: 'text' | 'voice') => void | Promise<void>;
@@ -78,6 +87,48 @@ export function visibleConversation(events: CanonicalTaskEvent[]): VisibleMessag
 export function userSafeError(message: string | null): string | null {
   if (!message) return null;
   const normalized = message.toLowerCase();
+  if (normalized.includes('interrupt') || normalized.includes('aborted') || normalized.includes('canceled')) {
+    return 'Die laufende Aktion wurde unterbrochen.';
+  }
+  if (normalized.includes('timeout') || normalized.includes('timed out') || normalized.includes('zu lange')) {
+    return 'Die KI-Antwort oder Aktion hat zu lange gebraucht.';
+  }
+  if (normalized.includes('elevenlabs') && (normalized.includes('limit') || normalized.includes('character'))) {
+    return 'Das ElevenLabs-Limit wurde erreicht. Jarvis verwendet die lokale Stimme.';
+  }
+  if (normalized.includes('elevenlabs')) {
+    return 'ElevenLabs ist noch nicht eingerichtet oder nicht erreichbar.';
+  }
+  if (normalized.includes('chatterbox')) {
+    return 'Die lokale Stimme ist fehlgeschlagen. Piper wird als Notfallstimme verwendet.';
+  }
+  if (normalized.includes('piper')) {
+    return 'Piper ist als technische Notfallstimme aktiv.';
+  }
+  if (normalized.includes('chunk') || normalized.includes('abschnitt')) {
+    return 'Ein Abschnitt der Antwort konnte nicht gesprochen werden.';
+  }
+  if (normalized.includes('permission') || normalized.includes('notallowed')) {
+    return 'Das Mikrofon wurde nicht freigegeben.';
+  }
+  if (normalized.includes('no speech') || normalized.includes('keine sprache')) {
+    return 'Es wurde keine Sprache erkannt.';
+  }
+  if (normalized.includes('secure desktop') || normalized.includes('winlogon')) {
+    return 'Windows Secure Desktop kann nicht automatisiert werden.';
+  }
+  if (normalized.includes('desktop') && (normalized.includes('target') || normalized.includes('window') || normalized.includes('fenster'))) {
+    return 'Der Desktopadapter konnte das Zielfenster nicht finden.';
+  }
+  if (normalized.includes('desktop') || normalized.includes('postcondition')) {
+    return 'Die Desktopaktion konnte nicht bestätigt werden.';
+  }
+  if (normalized.includes('mcp')) {
+    return 'Der MCP-Server ist nicht erreichbar.';
+  }
+  if (normalized.includes('approval') || normalized.includes('bestätigung')) {
+    return 'Diese Aktion benötigt einmalig deine Bestätigung.';
+  }
   if (normalized.includes('microphone') || normalized.includes('speech') || normalized.includes('record')) {
     return 'Die Sprachfunktion ist gerade nicht verfügbar. Du kannst weiterhin den Textmodus verwenden.';
   }
@@ -87,7 +138,7 @@ export function userSafeError(message: string | null): string | null {
   if (normalized.includes('task') || normalized.includes('turn') || normalized.includes('session')) {
     return 'Diese Unterhaltung kann nicht fortgesetzt werden. Starte eine neue Unterhaltung.';
   }
-  return 'Jarvis konnte die Aktion nicht abschließen. Versuche es bitte erneut.';
+  return 'Die Aktion ist fehlgeschlagen. Im Statusbereich stehen weitere sichere Details.';
 }
 
 function usePanelFocus(open: boolean, onClose: () => void) {
@@ -175,7 +226,7 @@ export function MenuPanel({
             <MessageSquareText size={17} /><span>Text-Modus</span>{mode === 'text' ? <Check size={15} /> : <ChevronRight size={15} />}
           </button>
           <button type="button" onClick={() => { onOpenSettings(); onClose(); }}>
-            <SlidersHorizontal size={17} /><span>Avatar & Animationen</span><ChevronRight size={15} />
+            <SlidersHorizontal size={17} /><span>Sternkern & Animationen</span><ChevronRight size={15} />
           </button>
           <button type="button" onClick={() => { onOpenSettings(); onClose(); }}>
             <Settings2 size={17} /><span>Einstellungen</span><ChevronRight size={15} />
@@ -221,7 +272,7 @@ export function SettingsPanel({
         <div className="jarvis-panel-heading">
           <div>
             <span className="jarvis-kicker">Erscheinungsbild</span>
-            <h2 id="jarvis-settings-title">Avatar & Animationen</h2>
+            <h2 id="jarvis-settings-title">Sternkern & Animationen</h2>
           </div>
           <button type="button" className="jarvis-icon-button" onClick={onClose} aria-label="Einstellungen schließen"><X size={18} /></button>
         </div>
@@ -246,22 +297,17 @@ export function SettingsPanel({
               <option value="high">Hoch</option>
             </select>
           </label>
-          <label>
-            <span>Mundbewegung</span>
-            <select value={preferences.mouthMovement} onChange={(event) => onChange({ mouthMovement: event.target.value as JarvisPreferences['mouthMovement'] })}>
-              <option value="off">Aus</option>
-              <option value="subtle">Dezent</option>
-              <option value="normal">Normal</option>
-            </select>
-          </label>
-          <p className="jarvis-settings__hint">Für dieses Bild ist die Mundbewegung aus Qualitätsgründen standardmäßig deaktiviert. Sie verändert niemals Augen oder Stirn.</p>
           <label className="jarvis-toggle">
             <span>Reduzierte Bewegung</span>
             <input type="checkbox" checked={preferences.reducedMotion} onChange={(event) => onChange({ reducedMotion: event.target.checked })} />
           </label>
           <label className="jarvis-toggle">
-            <span>Avatar im Textmodus</span>
-            <input type="checkbox" checked={preferences.showAvatarInTextMode} onChange={(event) => onChange({ showAvatarInTextMode: event.target.checked })} />
+            <span>Sternkern im Textmodus</span>
+            <input type="checkbox" checked={preferences.showCoreInTextMode} onChange={(event) => onChange({ showCoreInTextMode: event.target.checked })} />
+          </label>
+          <label className="jarvis-toggle">
+            <span>Verarbeitungston</span>
+            <input type="checkbox" checked={preferences.processingSound} onChange={(event) => onChange({ processingSound: event.target.checked })} />
           </label>
         </section>
 
@@ -378,6 +424,7 @@ function TalkView({
   fallbackTier,
   microphoneAvailable,
   sending,
+  audioBackendInfo,
   onToggleMicrophone,
   onStop,
 }: {
@@ -386,6 +433,7 @@ function TalkView({
   fallbackTier: 1 | 2 | 3 | 4;
   microphoneAvailable: boolean;
   sending: boolean;
+  audioBackendInfo: JarvisExperienceProps['audioBackendInfo'];
   onToggleMicrophone: () => void;
   onStop: () => void;
 }) {
@@ -393,13 +441,22 @@ function TalkView({
   const active = sending || ['processing', 'speaking'].includes(voice.state);
   return (
     <main className="jarvis-talk" aria-label="Jarvis Talk-Modus">
-      <div className="jarvis-talk__avatar">
-        <JarvisAvatar voice={voice} preferences={preferences} fallbackTier={fallbackTier} />
+      <div className="jarvis-talk__core">
+        <JarvisCore voice={voice} preferences={preferences} fallbackTier={fallbackTier} />
       </div>
       <div className="jarvis-talk__state" role="status" aria-live="polite">
         <i data-state={voice.state} aria-hidden="true" />
         <span>{voiceStateLabel(voice.state)}</span>
       </div>
+      {(audioBackendInfo.backend || audioBackendInfo.lastError) && (
+        <div className="jarvis-talk__provider" role={audioBackendInfo.lastError ? 'alert' : 'status'}>
+          {audioBackendInfo.backend && <span>Stimme: {audioBackendInfo.backend}</span>}
+          {audioBackendInfo.fallbackUsed && <span> · lokaler Fallback aktiv</span>}
+          {audioBackendInfo.cacheHit && <span> · Cache</span>}
+          {audioBackendInfo.chunksSkipped > 0 && <span> · {audioBackendInfo.chunksSkipped} Abschnitt(e) übersprungen</span>}
+          {audioBackendInfo.lastError && <span> · {audioBackendInfo.lastError}</span>}
+        </div>
+      )}
       <div className="jarvis-talk__controls" aria-label="Talk-Steuerung">
         <button
           type="button"
@@ -423,6 +480,7 @@ function TalkView({
 
 function TextView({
   messages,
+  actions,
   draft,
   voice,
   preferences,
@@ -436,6 +494,7 @@ function TextView({
   onStop,
 }: {
   messages: VisibleMessage[];
+  actions: ToolActionInfo[];
   draft: string;
   voice: VoiceAdapterSnapshot;
   preferences: JarvisPreferences;
@@ -453,12 +512,12 @@ function TextView({
     // WebView2 may return a host value from scrollIntoView. Never expose that
     // value as a React effect cleanup function (StrictMode invokes it at once).
     endRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [messages.length, sending]);
+  }, [messages.length, actions.length, sending]);
   return (
     <main className="jarvis-text" aria-label="Jarvis Text-Modus">
-      {preferences.showAvatarInTextMode && (
-        <div className="jarvis-text__avatar" aria-hidden="true">
-          <JarvisAvatar voice={voice} preferences={preferences} fallbackTier={fallbackTier} compact />
+      {preferences.showCoreInTextMode && (
+        <div className="jarvis-text__core" aria-hidden="true">
+          <JarvisCore voice={voice} preferences={preferences} fallbackTier={fallbackTier} compact />
         </div>
       )}
       <div className="jarvis-text__conversation" aria-live="polite" aria-busy={sending}>
@@ -475,6 +534,31 @@ function TextView({
               <div className="jarvis-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>
             ) : <p>{message.content}</p>}
           </article>
+        ))}
+        {actions.slice(-8).map((action) => (
+          <section
+            key={action.action_id}
+            className="jarvis-tool-card"
+            aria-label={`Werkzeugaktion ${action.tool_id}`}
+          >
+            <div className="jarvis-tool-card__heading">
+              <span>Werkzeug</span>
+              <strong>{action.tool_id}</strong>
+              <i data-status={action.status}>{action.status.replace(/_/g, ' ')}</i>
+            </div>
+            <dl>
+              <div><dt>Ziel</dt><dd>{action.target || '—'}</dd></div>
+              <div><dt>Risiko</dt><dd>Stufe {action.risk_level}</dd></div>
+              <div><dt>Prüfung</dt><dd>{action.verification_status}</dd></div>
+            </dl>
+            {action.output_summary && (
+              <details>
+                <summary>Strukturiertes Ergebnis</summary>
+                <pre>{action.output_summary.slice(0, 4000)}</pre>
+              </details>
+            )}
+            {action.error && <p role="alert">Die Aktion ist sicher fehlgeschlagen; Details stehen im Statusbereich.</p>}
+          </section>
         ))}
         {sending && <div className="jarvis-text__thinking" role="status"><i /><i /><i /><span className="sr-only">Jarvis verarbeitet</span></div>}
         <div ref={endRef} />
@@ -532,12 +616,17 @@ export function JarvisExperience(props: JarvisExperienceProps) {
     ? mockSnapshot
     : props.voice;
   const animation = useAnimationBudget(props.preferences.animationQuality, props.preferences.reducedMotion);
+  const stopProcessingTone = useProcessingTone(
+    activeVoice.state === 'processing',
+    props.preferences.processingSound && animation.pageVisible,
+  );
   const messages = useMemo(() => visibleConversation(props.timeline), [props.timeline]);
   const friendlyError = userSafeError(props.error || activeVoice.errorMessage);
   const currentApproval = props.approvals[0] ?? null;
 
   const changeMode = (mode: JarvisMode) => props.onPreferencesChange({ mode });
   const newConversation = () => {
+    stopProcessingTone();
     mockAdapterRef.current?.startNewConversation();
     void props.onNewConversation();
   };
@@ -550,9 +639,27 @@ export function JarvisExperience(props: JarvisExperienceProps) {
     void props.onToggleMicrophone(props.preferences.mode === 'talk');
   };
   const stop = () => {
+    stopProcessingTone();
     mockAdapterRef.current?.interruptSpeech();
     void props.onStop();
   };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, button, [contenteditable="true"]')) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        stop();
+      } else if (event.code === 'Space' && ['speaking', 'processing'].includes(activeVoice.state)) {
+        event.preventDefault();
+        stop();
+        toggleMicrophone();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 
   return (
     <div className="jarvis-experience" data-mode={props.preferences.mode} data-page-visible={animation.pageVisible ? 'true' : 'false'}>
@@ -571,12 +678,14 @@ export function JarvisExperience(props: JarvisExperienceProps) {
           fallbackTier={animation.tier}
           microphoneAvailable={props.sttAvailable || props.preferences.mockVoiceEnabled}
           sending={props.sending}
+          audioBackendInfo={props.audioBackendInfo}
           onToggleMicrophone={toggleMicrophone}
           onStop={stop}
         />
       ) : (
         <TextView
           messages={messages}
+          actions={props.actions}
           draft={props.draft}
           voice={activeVoice}
           preferences={props.preferences}

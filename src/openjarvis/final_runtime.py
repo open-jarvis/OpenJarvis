@@ -1,6 +1,6 @@
 """Fail-closed Phase-8 product runtime and local launcher entry point.
 
-This module deliberately does not construct an Ollama, cloud, browser, MCP, or
+This module deliberately does not construct an Ollama, cloud, browser, or
 channel backend.  Conversational work is owned by the configured Codex task
 runtime; the ``InferenceEngine`` below exists only so the legacy health surface
 can report a local, offline-ready product process.
@@ -23,12 +23,19 @@ from fastapi import HTTPException, Request
 
 from openjarvis.core.config import JarvisConfig, load_config
 from openjarvis.core.events import EventBus
+from openjarvis.desktop.controller import (
+    DesktopAccessStore,
+    ProductiveDesktopController,
+    desktop_tool_runtimes,
+)
+from openjarvis.desktop.win32 import Win32SemanticBackend
 from openjarvis.engine import InferenceEngine
 from openjarvis.learning.runtime import Phase7LearningRuntime
 from openjarvis.memory.vault_service import (
     VaultMemoryService,
     build_vault_memory_service,
 )
+from openjarvis.mcp.registry import MCPServerRegistry
 from openjarvis.server.app import create_app
 from openjarvis.speech._discovery import get_speech_backend
 from openjarvis.speech.local_voice import LocalVoiceBackend
@@ -37,6 +44,7 @@ from openjarvis.tasks.policy import RiskLevel, ToolPolicyContext
 from openjarvis.tasks.runtime import CodexTaskRuntime, build_codex_task_runtime
 from openjarvis.tools.action_service import ToolActionService
 from openjarvis.tools.action_store import ActionStore
+from openjarvis.tools.actions import ParameterSource
 from openjarvis.tools.manifest import ToolManifestCatalog
 from openjarvis.traces.store import TraceStore
 from openjarvis.website import WebsiteStagingService, WebsiteWorkspaceStore
@@ -203,9 +211,9 @@ device = "cpu"
 compute_type = "int8"
 stt_runtime_path = {_toml_string(home / "speech" / "models")}
 tts_enabled = true
-tts_backend = "chatterbox"
-tts_fallback_backend = "piper"
-tts_voice_id = "jarvis-deep-calm"
+tts_backend = "local-voice"
+tts_fallback_backend = "chatterbox"
+tts_voice_id = "jarvis-elevenlabs"
 tts_runtime_path = {_toml_string(home / "voice")}
 
 [tools]
@@ -398,18 +406,43 @@ def build_final_runtime(
             strict=True
         )
         action_store = ActionStore(runtime_home / "state" / "tool-actions.sqlite3")
-        policy_context = ToolPolicyContext(
-            granted_capabilities=frozenset({"website:stage"}),
-            execution_lane=ExecutionLane.MODEL,
-            requested_risk=RiskLevel.REVERSIBLE_WORKSPACE,
-            proposal_capability="website:stage",
-            allowed_roots=(staging_root,),
-        )
         catalog = ToolManifestCatalog(())
+
+        def policy_context(proposal) -> ToolPolicyContext:
+            """Derive grants only from the code-owned registered manifest."""
+
+            manifest = catalog.get(proposal.tool_id)
+            allowed_roots = (
+                (staging_root,)
+                if manifest.capability == "website:stage"
+                else tuple(Path(value).resolve(strict=False) for value in manifest.allowed_roots)
+            )
+            untrusted_sources = {
+                ParameterSource.MEMORY,
+                ParameterSource.TOOL_OUTPUT,
+                ParameterSource.WEBSITE,
+            }
+            untrusted_risk = (
+                RiskLevel.DESTRUCTIVE_OR_SENSITIVE
+                if any(
+                    source in untrusted_sources
+                    for source in proposal.parameter_sources.values()
+                )
+                else RiskLevel.READ_ONLY
+            )
+            return ToolPolicyContext(
+                granted_capabilities=frozenset({manifest.capability}),
+                execution_lane=manifest.allowed_lanes[0],
+                requested_risk=manifest.risk_level,
+                proposal_capability=manifest.capability,
+                untrusted_risk=untrusted_risk,
+                allowed_roots=allowed_roots,
+            )
+
         action_service = ToolActionService(
             catalog=catalog,
             store=action_store,
-            context_factory=lambda _proposal: policy_context,
+            context_factory=policy_context,
             runtimes={},
             artifact_root=runtime_home / "tool-artifacts",
             task_service=tasks.service,
@@ -421,6 +454,18 @@ def build_final_runtime(
             ),
             action_service=action_service,
             task_service=tasks.service,
+        )
+        desktop_controller = ProductiveDesktopController(
+            backend=Win32SemanticBackend(),
+            access_store=DesktopAccessStore(
+                runtime_home / "state" / "desktop-access.json"
+            ),
+            artifact_root=runtime_home / "tool-artifacts" / "desktop",
+        )
+        for manifest, runtime in desktop_tool_runtimes(desktop_controller):
+            action_service.register_runtime(manifest, runtime)
+        mcp_server_registry = MCPServerRegistry(
+            runtime_home / "state" / "mcp-servers.json"
         )
         phase7 = Phase7LearningRuntime.create(
             runtime_home / "state" / "phase7.sqlite3",
@@ -449,6 +494,8 @@ def build_final_runtime(
             vault_memory_service=vault_service,
             tool_action_service=action_service,
             website_staging_service=website_service,
+            desktop_controller=desktop_controller,
+            mcp_server_registry=mcp_server_registry,
             browser_session_service=None,
             phase7_learning_runtime=phase7,
             speech_backend=speech_backend,
