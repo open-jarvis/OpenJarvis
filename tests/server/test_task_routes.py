@@ -22,6 +22,7 @@ from openjarvis.codex.store import (  # noqa: E402
 from openjarvis.codex.types import (  # noqa: E402
     ApprovalMode,
     BackendCapabilities,
+    CodexBackendError,
     CodexBackendKind,
     CodexHealth,
     SandboxMode,
@@ -43,9 +44,12 @@ from openjarvis.server.task_routes import (  # noqa: E402
     router as task_router,
 )
 from openjarvis.tasks.orchestrator import TaskExecutionResult  # noqa: E402
+from openjarvis.tasks.policy import RiskLevel  # noqa: E402
 from openjarvis.tasks.service import TaskService  # noqa: E402
 from openjarvis.tasks.store import TaskStore  # noqa: E402
 from openjarvis.tasks.types import TaskOutcome, TaskStatus  # noqa: E402
+from openjarvis.tools.actions import ActionStatus, VerificationStatus  # noqa: E402
+from openjarvis.tools.manifest import SideEffectClass  # noqa: E402
 
 _HEADERS = {
     "X-Correlation-ID": "api-correlation",
@@ -444,6 +448,140 @@ def test_canonical_tool_proposal_parser_requires_one_exact_envelope() -> None:
         )
         is None
     )
+
+
+def test_tool_followup_uses_a_fresh_turn_correlation(api_runtime) -> None:
+    client, _, service, _, orchestrator = api_runtime
+    manifest = SimpleNamespace(
+        tool_id="browser.windows",
+        enabled=True,
+        description="List browser windows",
+        input_schema={"type": "object", "properties": {}},
+        side_effect_class=SideEffectClass.LOCAL_READ,
+        risk_level=RiskLevel.READ_ONLY,
+        capability="browser:full",
+        verification_strategy="verify",
+        undo_strategy="none",
+        timeout=20.0,
+    )
+    action = SimpleNamespace(
+        action_id="action-browser-windows",
+        tool_id="browser.windows",
+        status=ActionStatus.VALIDATED,
+        verification_status=VerificationStatus.PENDING,
+        output_summary="",
+        error="",
+    )
+
+    class FakeActionService:
+        catalog = SimpleNamespace(list=lambda: (manifest,), get=lambda _tool_id: manifest)
+        store = SimpleNamespace(list_actions=lambda _task_id: [])
+
+        @staticmethod
+        def runtime_available(_tool_id):
+            return True
+
+        @staticmethod
+        def begin_task(_task_id):
+            return None
+
+        @staticmethod
+        def create(_proposal):
+            return action
+
+        @staticmethod
+        async def execute(_action_id):
+            action.status = ActionStatus.COMPLETED
+            action.verification_status = VerificationStatus.PASSED
+            action.output_summary = '{"verified":true,"windows":[]}'
+            return action
+
+    client.app.state.tool_action_service = FakeActionService()
+    calls: list[str] = []
+
+    async def execute(task_id: str, prompt: str, **kwargs):
+        del prompt
+        calls.append(kwargs["turn_correlation_id"])
+        current = service.get(task_id)
+        assert current is not None
+        if current.status is TaskStatus.PENDING:
+            current = service.transition(
+                task_id,
+                TaskStatus.RUNNING,
+                component="fake_codex",
+                cause="fake_turn_started",
+                idempotency_key="tool-loop-running",
+                active_thread_id="thread-tool-loop",
+                active_turn_id=f"turn-{len(calls)}",
+            )
+        content = (
+            '<openjarvis_tool_proposal>{"tool_id":"browser.windows",'
+            '"arguments":{}}</openjarvis_tool_proposal>'
+            if len(calls) == 1
+            else "Der Browserstatus wurde geprüft."
+        )
+        return TaskExecutionResult(
+            task=current,
+            content=content,
+            thread_id="thread-tool-loop",
+            turn_id=f"turn-{len(calls)}",
+        )
+
+    orchestrator.execute = execute
+    response = _chat(
+        client,
+        message="Prüfe meine Browserfenster.",
+        task_id="task-tool-loop",
+        correlation_id="tool-turn",
+        idempotency_key="tool-loop-once",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["content"] == "Der Browserstatus wurde geprüft."
+    assert calls == ["tool-turn", "tool-turn:tool-follow-up:1"]
+
+
+def test_backend_turn_failure_keeps_chat_task_reusable(api_runtime) -> None:
+    client, _, service, _, orchestrator = api_runtime
+
+    async def failing_execute(task_id: str, prompt: str, **kwargs):
+        del prompt, kwargs
+        service.transition(
+            task_id,
+            TaskStatus.RUNNING,
+            component="fake_codex",
+            cause="fake_turn_started",
+            idempotency_key="recoverable-running",
+            active_thread_id="thread-recoverable",
+        )
+        service.transition(
+            task_id,
+            TaskStatus.FAILED,
+            component="fake_codex",
+            cause="fake_turn_failed",
+            idempotency_key="recoverable-failed",
+            outcome=TaskOutcome.FAILED,
+            error_category="codex_backend_error",
+        )
+        raise CodexBackendError("synthetic backend failure")
+
+    orchestrator.execute = failing_execute
+    response = _chat(
+        client,
+        task_id="task-recoverable-chat",
+        correlation_id="recoverable-turn",
+        idempotency_key="recoverable-once",
+    )
+
+    assert response.status_code == 503
+    task = service.get("task-recoverable-chat")
+    assert task is not None and task.status is TaskStatus.RUNNING
+    transitions = [
+        event.status_to
+        for event in service.timeline("task-recoverable-chat")
+        if event.event_type == "task.state_changed"
+    ]
+    assert transitions[-2:] == [TaskStatus.RECOVERING, TaskStatus.RUNNING]
     assert (
         _parse_tool_proposal(
             '<openjarvis_tool_proposal>{"tool_id":"desktop.windows",'

@@ -40,6 +40,20 @@ def test_desktop_actions_are_interactive(message: str) -> None:
 @pytest.mark.parametrize(
     "message",
     [
+        "Kannst du mal den Dokumente-Ordner öffnen?",
+        "Durchsuche meine Dokumente nach der Rechnung.",
+        "Show the files in my downloads folder.",
+    ],
+)
+def test_filesystem_desktop_actions_are_detected(message: str) -> None:
+    intent = classify_assistant_intent(message)
+    assert intent.kind is AssistantIntentKind.DESKTOP
+    assert intent.risk_level is RiskLevel.EXTERNAL_PREPARATION
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
         "Research bicycle balance in the browser.",
         "Recherchiere online, wie Fahrräder balancieren.",
         "Geh auf TikTok und schreib Bashar hallo.",

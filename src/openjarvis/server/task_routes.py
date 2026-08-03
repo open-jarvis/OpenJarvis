@@ -361,7 +361,17 @@ def _pending_canonical_action_results(
         for action in action_service.store.list_actions(task_id)
         if action.action_id not in consumed
         and action.status in terminal
-        and action.tool_id.startswith(("desktop.", "mcp__"))
+        and action.tool_id.startswith(
+            (
+                "desktop.",
+                "mcp__",
+                "file.",
+                "directory.",
+                "shell.",
+                "memory.",
+                "browser.",
+            )
+        )
     )[-8:]
     if not actions:
         return (), ""
@@ -407,6 +417,42 @@ def _mark_canonical_action_results_consumed(
             thread_id=task.active_thread_id,
             turn_id=task.active_turn_id,
         )
+
+
+def _recover_chat_task_after_backend_error(
+    service,
+    *,
+    task_id: str,
+    request_id: str,
+) -> None:
+    """Keep a conversation reusable when one Codex turn fails.
+
+    A failed turn is not proof that its persistent thread is unusable. The
+    canonical orchestrator records the failure first; chat then moves the task
+    through the explicit recovery states so the owner can retry in the same
+    conversation instead of losing context.
+    """
+
+    current = service.get(task_id)
+    if current is None or current.status is not TaskStatus.FAILED:
+        return
+    try:
+        service.transition(
+            task_id,
+            TaskStatus.RECOVERING,
+            component="jarvis_chat_api",
+            cause="chat_turn_failure_recoverable",
+            idempotency_key=f"chat:{request_id}:recovering",
+        )
+        service.transition(
+            task_id,
+            TaskStatus.RUNNING,
+            component="jarvis_chat_api",
+            cause="chat_conversation_kept_open",
+            idempotency_key=f"chat:{request_id}:recovered",
+        )
+    except InvalidTaskTransition:
+        return
 
 
 async def _execute_canonical_tool_proposal(
@@ -696,9 +742,13 @@ async def canonical_chat(
 
     # An explicit owner memory command is itself the authorization in Flow.
     # Apply it atomically now instead of creating an approval candidate.
-    from openjarvis.memory.candidates import recognize_memory_request
+    from openjarvis.memory.candidates import (
+        has_memory_intent,
+        recognize_memory_request,
+    )
 
     explicit_memory = recognize_memory_request(body.message)
+    remember_completed_result = has_memory_intent(body.message) and not explicit_memory
     memory = getattr(request.app.state, "vault_memory_service", None)
     if explicit_memory and flow_authority.is_flow() and memory is not None:
         from openjarvis.memory.task_bridge import MemoryTaskContext
@@ -928,7 +978,7 @@ async def canonical_chat(
                 cwd=cwd,
                 isolated_workspace=isolated,
                 developer_instructions=developer_instructions,
-                turn_correlation_id=correlation_id,
+                turn_correlation_id=f"{correlation_id}:tool-follow-up:{step}",
                 finalize_task=False,
             )
             response_content = result.content
@@ -945,6 +995,11 @@ async def canonical_chat(
     except (ValueError, InvalidTaskTransition) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except CodexBackendError as exc:
+        _recover_chat_task_after_backend_error(
+            service,
+            task_id=task.task_id,
+            request_id=idempotency_key,
+        )
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     if not response_content.strip():
@@ -960,10 +1015,61 @@ async def canonical_chat(
             thread_id=result.thread_id,
             turn_id=result.turn_id,
         )
+        _recover_chat_task_after_backend_error(
+            service,
+            task_id=task.task_id,
+            request_id=idempotency_key,
+        )
         raise HTTPException(
             status_code=status_code,
             detail=detail,
         )
+
+    if remember_completed_result and flow_authority.is_flow() and memory is not None:
+        try:
+            from openjarvis.memory.task_bridge import MemoryTaskContext
+
+            candidate = await asyncio.to_thread(
+                memory.create_candidate,
+                MemoryTaskContext(
+                    task_id=task.task_id,
+                    session_id=task.session_id,
+                    correlation_id=task.correlation_id,
+                    thread_id=result.thread_id,
+                    turn_id=result.turn_id,
+                ),
+                body=response_content,
+                correction=False,
+                idempotency_key=f"chat-result-{idempotency_key}",
+            )
+            _append_chat_event(
+                service,
+                task_id=task.task_id,
+                source_event_id=f"chat:{idempotency_key}:result-memory-applied",
+                event_type="memory.flow_write_applied",
+                payload={
+                    "candidate_id": candidate.candidate_id,
+                    "note_id": candidate.note_id,
+                    "path": candidate.proposed_path,
+                    "source": "completed_assistant_result",
+                },
+                thread_id=result.thread_id,
+                turn_id=result.turn_id,
+            )
+            response_content = (
+                response_content.rstrip()
+                + "\n\nIch habe das Ergebnis dauerhaft gespeichert."
+            )
+        except Exception as exc:
+            _append_chat_event(
+                service,
+                task_id=task.task_id,
+                source_event_id=f"chat:{idempotency_key}:result-memory-failed",
+                event_type="memory.write_failed",
+                payload={"error_category": type(exc).__name__},
+                thread_id=result.thread_id,
+                turn_id=result.turn_id,
+            )
 
     if body.finalize_task:
         latest = service.get(task.task_id)

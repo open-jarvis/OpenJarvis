@@ -12,6 +12,7 @@ import pytest
 from openjarvis.flow import FlowSessionAuthority
 from openjarvis.memory.candidates import (
     MemoryCandidateWorkflow,
+    has_memory_intent,
     recognize_memory_request,
 )
 from openjarvis.memory.safe_write import AtomicMarkdownWriter, ConcurrentMemoryWrite
@@ -126,11 +127,31 @@ def candidate_runtime(tmp_path: Path):
         ("Merk dir, dass ich kurze Antworten mag.", "dass ich kurze Antworten mag."),
         ("Bitte merken, kurze Antworten", "kurze Antworten"),
         ("Remember that the project is Apollo", "the project is Apollo"),
+        ("Ich heiße Bashar, merk dir das.", "Ich heiße Bashar"),
+        ("Du sollst dir merken, dass ich Bashar heiße.", "dass ich Bashar heiße."),
+        ("Behalte im Gedächtnis: Ich arbeite nachts.", "Ich arbeite nachts."),
+        ("Lies ppx.at aus und merk dir alles dort.", None),
         ("Das ist nur eine normale Frage", None),
     ],
 )
 def test_remember_request_recognition(text: str, expected: str | None) -> None:
     assert recognize_memory_request(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Lies ppx.at aus und merk dir alles dort.",
+        "Ich möchte, dass du dir meine Arbeitszeiten merkst.",
+        "Das Ergebnis dauerhaft speichern.",
+    ],
+)
+def test_semantic_memory_intent_recognition(text: str) -> None:
+    assert has_memory_intent(text)
+
+
+def test_memory_retrieval_question_is_not_a_write_intent() -> None:
+    assert not has_memory_intent("Was hast du dir über mich gemerkt?")
 
 
 def test_non_flow_candidate_is_a_non_blocking_proposal(candidate_runtime) -> None:

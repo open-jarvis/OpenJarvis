@@ -14,12 +14,24 @@ from openjarvis.desktop.controller import (
     DesktopAccessStore,
     DesktopTargetGrant,
     ProductiveDesktopController,
+    _resolve_launch_executable,
     desktop_tool_runtimes,
 )
 from openjarvis.desktop.models import DesktopElement, DesktopRect, DesktopWindow
 from openjarvis.desktop.win32 import WindowsDesktopError
 from openjarvis.flow import FlowSessionAuthority
 from openjarvis.tasks.policy import RiskLevel
+
+
+def test_launch_executable_resolves_path_command(monkeypatch, tmp_path: Path) -> None:
+    executable = tmp_path / "browser.exe"
+    executable.write_bytes(b"synthetic")
+    monkeypatch.setattr(
+        "openjarvis.desktop.controller.shutil.which",
+        lambda value: str(executable) if value == "browser.exe" else None,
+    )
+
+    assert _resolve_launch_executable("browser.exe") == executable.resolve()
 
 
 class ProductiveFakeBackend:

@@ -67,6 +67,20 @@ _DESKTOP_TARGET_FIRST = re.compile(
     r"type|enter|save|öffnen|oeffnen|starten|tippen|eintragen|speichern)\b",
     re.IGNORECASE | re.DOTALL,
 )
+_FILESYSTEM_DESKTOP = re.compile(
+    r"\b(?:open|show|list|search|find|read|scan|browse|öffne|oeffne|zeige|"
+    r"liste|suche|finde|lies|lese|durchsuche)\b.{0,140}\b(?:documents?|files?|"
+    r"folders?|directories|paths?|explorer|dokumente?|dateien?|ordner|"
+    r"verzeichnisse?|pfade?|datei-?explorer)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_FILESYSTEM_TARGET_FIRST = re.compile(
+    r"\b(?:documents?|files?|folders?|directories|paths?|explorer|dokumente?|"
+    r"dateien?|ordner|verzeichnisse?|pfade?|datei-?explorer)\b.{0,140}\b(?:"
+    r"open|show|list|search|find|read|scan|browse|öffnen|oeffnen|zeigen|"
+    r"auflisten|suchen|finden|lesen|durchsuchen)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 _BROWSER = re.compile(
     r"\b(?:open|launch|browse|search|research|navigate|go\s+to|look\s+up|"
     r"öffne|oeffne|starte|suche|recherchiere|navigiere|geh(?:e)?\s+auf|"
@@ -110,7 +124,12 @@ def classify_assistant_intent(message: str) -> AssistantIntent:
             else RiskLevel.EXTERNAL_PREPARATION
         )
         return AssistantIntent(AssistantIntentKind.BROWSER, risk, "browser_action")
-    if _DESKTOP.search(text) or _DESKTOP_TARGET_FIRST.search(text):
+    if (
+        _DESKTOP.search(text)
+        or _DESKTOP_TARGET_FIRST.search(text)
+        or _FILESYSTEM_DESKTOP.search(text)
+        or _FILESYSTEM_TARGET_FIRST.search(text)
+    ):
         risk = (
             RiskLevel.DESTRUCTIVE_OR_SENSITIVE
             if _EXTERNAL_EFFECT.search(text)

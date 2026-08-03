@@ -11,6 +11,7 @@ from __future__ import annotations
 from openjarvis.memory.candidates import (
     MemoryCandidateWorkflow,
     candidate_to_dict,
+    has_memory_intent,
     recognize_memory_request,
 )
 from openjarvis.memory.extractor import FactExtractor
@@ -119,6 +120,7 @@ __all__ = [
     "build_vault_memory_service",
     "analyze_vault_migration",
     "candidate_to_dict",
+    "has_memory_intent",
     "classify_note_type",
     "create_fact_store",
     "load_memory_note",

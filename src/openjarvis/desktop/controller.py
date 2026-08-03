@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -34,6 +35,56 @@ from openjarvis.tools.manifest import (
     SideEffectClass,
     ToolManifest,
 )
+
+
+def _resolve_launch_executable(executable: str) -> Path:
+    """Resolve a full path, PATH command, or Windows App Paths alias."""
+
+    value = os.path.expandvars(executable.strip())
+    if not value:
+        raise FileNotFoundError(executable)
+    candidate = Path(value).expanduser()
+    if candidate.is_absolute() or candidate.parent != Path("."):
+        path = candidate.resolve(strict=True)
+        if path.is_file():
+            return path
+        raise FileNotFoundError(str(path))
+
+    located = shutil.which(value)
+    if located:
+        path = Path(located).resolve(strict=True)
+        if path.is_file():
+            return path
+
+    if os.name == "nt":
+        import winreg
+
+        names = [value]
+        if not value.casefold().endswith(".exe"):
+            names.append(value + ".exe")
+        views = {
+            0,
+            getattr(winreg, "KEY_WOW64_64KEY", 0),
+            getattr(winreg, "KEY_WOW64_32KEY", 0),
+        }
+        for name in names:
+            subkey = rf"Software\Microsoft\Windows\CurrentVersion\App Paths\{name}"
+            for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                for view in views:
+                    try:
+                        with winreg.OpenKey(
+                            hive,
+                            subkey,
+                            0,
+                            winreg.KEY_READ | view,
+                        ) as key:
+                            registered, _kind = winreg.QueryValueEx(key, "")
+                        path = Path(str(registered)).resolve(strict=True)
+                    except (FileNotFoundError, OSError):
+                        continue
+                    if path.is_file():
+                        return path
+    raise FileNotFoundError(executable)
 
 
 class DesktopAccessMode(str, Enum):
@@ -574,9 +625,7 @@ class ProductiveDesktopController:
         if not (self.flow_authority and self.flow_authority.is_flow()):
             raise WindowsDesktopError("application launch requires Flow mode")
         self._require_default_desktop()
-        path = Path(executable).expanduser().resolve(strict=True)
-        if not path.is_file():
-            raise FileNotFoundError(str(path))
+        path = _resolve_launch_executable(executable)
         process = subprocess.Popen(
             [str(path), *(arguments or [])],
             cwd=str(path.parent),

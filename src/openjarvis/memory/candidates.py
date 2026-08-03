@@ -33,11 +33,50 @@ from openjarvis.memory.vault_policy import WRITABLE_NOTE_TYPES
 from openjarvis.memory.vault_retrieval import VaultRetriever, normalize_query
 from openjarvis.tasks.policy import RiskLevel
 
-_REMEMBER_RE = re.compile(
-    r"^\s*(?:merk(?:e)?\s+dir|bitte\s+merken|remember(?:\s+that)?)"
-    r"\s*[:,-]?\s*(?P<body>.+?)\s*$",
+_REMEMBER_PREFIX_RE = re.compile(
+    r"^\s*(?:(?:okay|ok|also|und)\s+)*(?:"
+    r"merk(?:e)?\s+dir|bitte\s+merken|remember(?:\s+that)?|"
+    r"du\s+sollst\s+dir\s+merken|ich\s+m[öo]chte\s*,?\s*dass\s+du\s+dir\s+merkst|"
+    r"behalt(?:e)?\s+(?:das\s+)?(?:im\s+ged[aä]chtnis)?|"
+    r"speicher(?:e)?\s+(?:das\s+)?(?:als\s+erinnerung)?"
+    r")\s*[:,-]?\s*(?P<body>.+?)\s*$",
     re.IGNORECASE | re.DOTALL,
 )
+_REMEMBER_SUFFIX_RE = re.compile(
+    r"^\s*(?P<body>.+?)\s*[,;.-]?\s*(?:"
+    r"merk(?:e)?\s+dir\s+das|merk(?:e)?\s+es\s+dir|"
+    r"das\s+sollst\s+du\s+dir\s+merken|"
+    r"behalt(?:e)?\s+das\s+im\s+ged[aä]chtnis|"
+    r"remember\s+(?:that|this)"
+    r")\s*[.!]?\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+_MEMORY_INTENT_RE = re.compile(
+    r"\b(?:merk(?:e|st)?|merken|remember|behalt(?:e|en)?|ged[aä]chtnis|"
+    r"als\s+erinnerung\s+speichern|dauerhaft\s+speichern)\b",
+    re.IGNORECASE,
+)
+_COMPOSITE_ACTION_RE = re.compile(
+    r"\b(?:lies|lese|auslesen|durchsuch(?:e|en)?|such(?:e|en)?|öffne|oeffne|"
+    r"browse|research|navigate|fetch|download|webseite|website|ordner|dateien?)\b",
+    re.IGNORECASE,
+)
+
+
+def has_memory_intent(text: str) -> bool:
+    """Recognize an explicit semantic request to retain information."""
+
+    value = (text or "").strip()
+    if not value or not _MEMORY_INTENT_RE.search(value):
+        return False
+    # Questions about existing memory are retrieval requests, not writes.
+    if re.match(
+        r"^(?:was|weißt|weisst|kannst|hast|erinnerst|do\s+you|what\s+do\s+you)\b",
+        value,
+        re.IGNORECASE,
+    ) and "sollst" not in value.casefold():
+        return False
+    return True
 
 
 def _now() -> str:
@@ -45,12 +84,20 @@ def _now() -> str:
 
 
 def recognize_memory_request(text: str) -> str | None:
-    """Return candidate body for an explicit remember request, otherwise None."""
+    """Return a directly storable fact from an explicit remember request.
 
-    match = _REMEMBER_RE.match(text or "")
+    Composite requests such as "read this website and remember it" deliberately
+    return ``None``: the requested action must finish first and its verified
+    result is stored by the chat orchestrator.
+    """
+
+    value = text or ""
+    match = _REMEMBER_PREFIX_RE.match(value) or _REMEMBER_SUFFIX_RE.match(value)
     if match is None:
         return None
     body = match.group("body").strip()
+    if _COMPOSITE_ACTION_RE.search(body):
+        return None
     return body or None
 
 
@@ -706,5 +753,6 @@ def candidate_to_dict(candidate: MemoryCandidate) -> dict[str, Any]:
 __all__ = [
     "MemoryCandidateWorkflow",
     "candidate_to_dict",
+    "has_memory_intent",
     "recognize_memory_request",
 ]
