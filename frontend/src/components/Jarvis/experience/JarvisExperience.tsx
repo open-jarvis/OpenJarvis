@@ -489,7 +489,6 @@ function TalkView({
 
 function TextView({
   messages,
-  actions,
   draft,
   voice,
   preferences,
@@ -503,7 +502,6 @@ function TextView({
   onStop,
 }: {
   messages: VisibleMessage[];
-  actions: ToolActionInfo[];
   draft: string;
   voice: VoiceAdapterSnapshot;
   preferences: JarvisPreferences;
@@ -521,7 +519,7 @@ function TextView({
     // WebView2 may return a host value from scrollIntoView. Never expose that
     // value as a React effect cleanup function (StrictMode invokes it at once).
     endRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [messages.length, actions.length, sending]);
+  }, [messages.length, sending]);
   return (
     <main className="jarvis-text" aria-label="Jarvis Text-Modus">
       {preferences.showCoreInTextMode && (
@@ -543,30 +541,6 @@ function TextView({
               <div className="jarvis-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>
             ) : <p>{message.content}</p>}
           </article>
-        ))}
-        {actions.slice(-8).map((action) => (
-          <section
-            key={action.action_id}
-            className="jarvis-tool-card"
-            aria-label={`Werkzeugaktion ${action.tool_id}`}
-          >
-            <div className="jarvis-tool-card__heading">
-              <span>Werkzeug</span>
-              <strong>{action.tool_id}</strong>
-              <i data-status={action.status}>{action.status.replace(/_/g, ' ')}</i>
-            </div>
-            <dl>
-              <div><dt>Ziel</dt><dd>{action.target || '—'}</dd></div>
-              <div><dt>Prüfung</dt><dd>{action.verification_status}</dd></div>
-            </dl>
-            {action.output_summary && (
-              <details>
-                <summary>Strukturiertes Ergebnis</summary>
-                <pre>{action.output_summary.slice(0, 4000)}</pre>
-              </details>
-            )}
-            {action.error && <p role="alert">Die Aktion ist sicher fehlgeschlagen; Details stehen im Statusbereich.</p>}
-          </section>
         ))}
         {sending && <div className="jarvis-text__thinking" role="status"><i /><i /><i /><span className="sr-only">Jarvis verarbeitet</span></div>}
         <div ref={endRef} />
@@ -697,7 +671,6 @@ export function JarvisExperience(props: JarvisExperienceProps) {
       ) : (
         <TextView
           messages={messages}
-          actions={props.actions}
           draft={props.draft}
           voice={activeVoice}
           preferences={props.preferences}

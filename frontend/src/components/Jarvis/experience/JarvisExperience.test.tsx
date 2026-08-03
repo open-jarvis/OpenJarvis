@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CanonicalTaskEvent, FlowStatus } from '../../../lib/api';
+import type { CanonicalTaskEvent, FlowStatus, ToolActionInfo } from '../../../lib/api';
 import { DEFAULT_JARVIS_PREFERENCES } from './preferences';
 import {
   JarvisExperience,
@@ -40,7 +40,11 @@ const timeline = [
   event('agent.plan', 'Verborgener interner Plan', 4),
 ];
 
-function experience(mode: 'talk' | 'text', flowStatus: FlowStatus | null = null) {
+function experience(
+  mode: 'talk' | 'text',
+  flowStatus: FlowStatus | null = null,
+  actions: ToolActionInfo[] = [],
+) {
   return renderToStaticMarkup(
     <JarvisExperience
       sessionId="session-test"
@@ -55,7 +59,7 @@ function experience(mode: 'talk' | 'text', flowStatus: FlowStatus | null = null)
       ttsAvailable
       speechLanguage="de-DE"
       preferences={{ ...DEFAULT_JARVIS_PREFERENCES, mode }}
-      actions={[]}
+      actions={actions}
       flowStatus={flowStatus}
       flowBusy={false}
       audioBackendInfo={{ backend: null, fallbackUsed: false, cacheHit: false, chunksSkipped: 0, lastError: null }}
@@ -107,6 +111,37 @@ describe('Jarvis experience', () => {
     expect(html).not.toContain('private');
     expect(html).not.toContain('Verborgener interner Plan');
     expect(visibleConversation(timeline)).toHaveLength(2);
+  });
+
+  it('hides internal tool telemetry from the normal conversation', () => {
+    const html = experience('text', null, [{
+      action_id: 'action-private',
+      proposal_id: 'proposal-private',
+      task_id: 'task-1',
+      approval_id: null,
+      tool_run_id: 'run-private',
+      tool_id: 'desktop.hotkey',
+      capability: 'desktop.control',
+      risk_level: 2,
+      target: 'window:34605186',
+      expected_side_effect: 'focus change',
+      verification_plan: 'inspect focused window',
+      undo_plan: 'none',
+      status: 'denied',
+      verification_status: 'pending',
+      output_summary: '{"private":"diagnostic output"}',
+      error: 'internal failure',
+      retry_count: 0,
+      effect_known: false,
+      parameter_summary: {},
+      expected_result: 'shortcut applied',
+      updated_at: '2026-08-04T00:00:01Z',
+    }]);
+
+    expect(html).not.toContain('desktop.hotkey');
+    expect(html).not.toContain('window:34605186');
+    expect(html).not.toContain('diagnostic output');
+    expect(html).not.toContain('Strukturiertes Ergebnis');
   });
 
   it('shows an authenticated Flow grant without legacy approval controls', () => {

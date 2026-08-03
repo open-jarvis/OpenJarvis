@@ -1,231 +1,155 @@
-# Flow Mode – Implementierungsstatus
+# Flow Mode – Übergabe und tatsächlicher Implementierungsstand
 
-Stand: 3. August 2026  
-Repository: `JokerON165Hz/OpenJarvis`  
-Branch: `feature/codex-jarvis-orchestrator`  
-Hauptimplementierung: Commit `30e567741b147eda0efce849f85710167550720c`
-Fortführung: Entfernung der letzten sichtbaren Legacy-Workflows und zusätzliche Flow-Abnahmetests im aktuellen Branchstand
+Stand: 4. August 2026
+Repository: `JokerON165Hz/OpenJarvis`
+Branch: `feature/codex-jarvis-orchestrator`
 
-## Ziel der Änderung
+## Kurzfazit
 
-OpenJarvis wurde so umgebaut, dass der Flow Mode als persönlicher Operator des authentifizierten Besitzers arbeitet. Ein klarer Besitzerbefehl autorisiert im Flow Mode die logisch notwendigen Teilschritte einer Aufgabe. Der normale Ablauf soll deshalb nicht mehr durch einzelne Toolfreigaben, Ordnerfreigaben oder Allow-once-Dialoge unterbrochen werden.
+Die grundlegende Flow-Architektur, Besitzeraktivierung und direkte Autorisierung sind implementiert. Mehrere Fehler in Chat-Fortsetzung, Tool-Ketten, Programmauflösung, Datei-Intent und Memory-Erkennung wurden behoben. Der Flow Mode ist trotzdem noch **kein vollständig zuverlässiger persönlicher Operator**. Besonders Browsernavigation, komplexe Desktopbedienung und kombinierte Aufgaben funktionieren in realen Versuchen nur teilweise.
 
-Zuverlässigkeitsfunktionen wie Stop, Timeouts, Verifikation, Recovery und Undo wurden nicht absichtlich entfernt. Technisch unvermeidbare Grenzen von Windows gelten weiterhin.
+Diese Datei ist bewusst eine ehrliche Übergabe. Grüne Unit-Tests bedeuten nicht, dass alle realen Bedienabläufe funktionieren.
 
-## Umgesetzte Funktionen
+## Heute fertig und gepusht
 
-### 1. Zentrale Flow-Autorität
+### 1. Flow-Autorisierung
 
-Unter `src/openjarvis/flow/` wurde eine zentrale Autorität eingeführt. Sie verwaltet die Zustände:
+- Zentrale Zustände `locked`, `assistant` und `flow` unter `src/openjarvis/flow/`.
+- Flow wird über Windows `UserConsentVerifier` beziehungsweise Windows Hello/PIN durch den Besitzer aktiviert.
+- Das finale Windows-Startskript teilt ein pro Prozess erzeugtes `OPENJARVIS_FLOW_BRIDGE_SECRET` zwischen Backend und Tauri-Anwendung.
+- Im Flow Mode autorisiert der Besitzerauftrag die logisch notwendigen Tool-Schritte ohne einzelne Allow-once-Dialoge.
+- Der verwendete Codex-SDK-Modus wird korrekt auf `SdkSandbox.full_access` abgebildet.
+- Stop, Timeouts, Recovery und vorhandene Verifikation bleiben erhalten.
 
-- `Locked`: keine autonomen Aktionen
-- `Assistant`: eingeschränkter Assistentenbetrieb
-- `Flow`: autonome Ausführung der logisch erforderlichen Schritte
+### 2. Alte sichtbare Freigabewege
 
-Zusätzlich verwaltet sie:
+- Approval Bell und Approval-Seite aus dem normalen Jarvis-UI entfernt.
+- Alte Phase-7-/Website-Staging-Routen und -Komponenten aus dem aktiven Pfad entfernt.
+- Memory-Approve-/Reject-Endpunkte und die blockierende Memory-Freigabe entfernt.
+- Ordner-Allowlist und Read-only-Zwang blockieren den aktiven Flow-Dateipfad nicht mehr.
+- Git-, Installations- und Systemaktionen sind im Flow-Prompt nicht mehr pauschal verboten.
 
-- zufällige Sitzungs-IDs
-- Aktivierungs- und Aktivitätszeitpunkte
-- eine begrenzte Flow-Sitzungsdauer von derzeit acht Stunden
-- Flow-Fähigkeiten und Statusabfragen
-- Rückkehr in Assistant oder Locked
-- Sperren beim Erkennen einer gesperrten Windows-Sitzung
+### 3. Unterhaltung und Tool-Ketten
 
-### 2. Besitzerauthentifizierung
+- Tool-Follow-ups erhalten eindeutige Korrelations-IDs. Dadurch kollidieren mehrere Schritte nicht mehr mit demselben Modellturn.
+- Nach einem Backend-Fehler wird eine Chat-Task wieder in einen fortsetzbaren Zustand gebracht, statt die Unterhaltung grundsätzlich unbrauchbar zu machen.
+- Zwei Modellnachrichten wurden live nacheinander in derselben diagnostischen Task und demselben Thread erfolgreich ausgeführt.
+- Noch ausstehende Ergebnisse werden für Desktop-, Browser-, Datei-, Verzeichnis-, Shell-, MCP- und Memory-Tools breiter erkannt.
 
-Die Aktivierung aus der Desktopanwendung verwendet Windows `UserConsentVerifier`, beispielsweise Windows Hello, PIN oder eine andere vom Betriebssystem angebotene Bestätigung.
+### 4. Dateien, Programme und Memory
 
-Die native Tauri-Anwendung übermittelt anschließend einen signierten Aktivierungsnachweis an das Backend. Der Nachweis ist an einen pro Prozess erzeugten geheimen Wert gebunden. Eine gewöhnliche Webseite kann den Flow Mode daher nicht nur durch einen normalen HTTP-Aufruf aktivieren.
+- Datei-, Verzeichnis- und Shell-Tools sind registriert und im Flow Mode auf den Rechner des angemeldeten Benutzers ausgerichtet.
+- Semantische Datei-/Ordnerbefehle wie Öffnen, Lesen, Suchen und Durchsuchen werden besser erkannt.
+- Windows-Programme werden nicht nur über direkte Pfade, sondern auch über `PATH` und Windows App Paths aufgelöst.
+- Chrome und Edge wurden auf dem Testsystem erfolgreich auf ihre installierten EXE-Pfade aufgelöst.
+- Direkte Memory-Befehle wie „Merk dir meinen Namen: Bashar“ funktionieren; der gespeicherte Name wurde später korrekt erinnert.
+- Memory-Intent wird nicht mehr nur anhand eines exakten Satzanfangs erkannt. Kombinierte Befehle können das Ergebnis eines vorherigen Tool-Schritts als Memory-Kandidat verwenden.
 
-Die zugehörigen API-Endpunkte befinden sich in `src/openjarvis/server/flow_routes.py` und umfassen Status, Fähigkeiten, Aktivierung, Aktivitätsmeldung, Assistant-Modus und Sperren.
+### 5. Normale Chat-Oberfläche
 
-### 3. Oberfläche
+- Interne Werkzeugkarten mit Tool-ID, Ziel, Prüfung, Rohdaten und Fehlerstatus werden nicht mehr mitten in der normalen Text-Unterhaltung angezeigt.
+- Tool-Aktionen und Diagnosedaten werden im Backend nicht gelöscht. Die Änderung betrifft nur ihre störende Darstellung im normalen Chat.
+- Nutzer- und finale Jarvis-Nachrichten bleiben sichtbar.
 
-Die Jarvis-Oberfläche zeigt den aktuellen Zustand `Locked`, `Assistant` oder `Flow` an. Im Flow Mode werden unter anderem Aktivierungszeit und verbleibende Sitzungszeit angezeigt.
+## Live bestätigt
 
-Umgesetzt wurden außerdem:
+- Flow-Aktivierung über die finale Tauri-Anwendung funktioniert nach gemeinsamem Bridge-Secret.
+- Ein direkter Memory-Eintrag und späterer Recall funktionierten.
+- Zwei aufeinanderfolgende Modellturns in derselben Task funktionierten.
+- `browser.windows` konnte vorhandene Browserfenster erfassen.
+- `desktop.focus`, `desktop.launch_application`, `desktop.screenshot` und `desktop.inspect` wurden in einem realen Lauf als erfolgreich gemeldet.
+- Der finale Windows-Launcher, Backend und Tauri-Anwendung wurden nach den vorherigen Änderungen gebaut und gestartet.
 
-- native Aktivierung über die Tauri-Bridge
-- Wechsel zurück zu Assistant
-- sofortiges Stoppen und Sperren
-- Entfernung der Approval-Bell-Komponente
-- Entfernung der Approval-Seite aus der normalen Navigation
-- Entfernung alter Learning-, Skills- und Website-Staging-Seiten aus der normalen Jarvis-Navigation
-- Anpassung sichtbarer alter Freigabetexte
+## Bekannt kaputt oder nur teilweise funktionsfähig
 
-### 4. Datei- und Shell-Zugriff
+### 1. Browserautomation
 
-Im Flow Mode arbeiten Datei- und Shell-Werkzeuge nicht mehr mit der bisherigen Ordner-Allowlist oder einzelnen Toolfreigaben. Sie können innerhalb der Rechte des aktuell angemeldeten Windows-Benutzers auf das System zugreifen.
+Das ist derzeit der größte praktische Defekt.
 
-Die Shell-Ausführung wurde unterbrechbar gemacht. Laufende Prozesse können durch Stop beziehungsweise Task-Abbruch beendet werden. Timeouts bleiben erhalten.
+- `browser.open_tab` ist in realen Versuchen trotz aktivem Flow wiederholt fehlgeschlagen.
+- Zuverlässiges Navigieren, Auslesen kompletter Webseiten und anschließendes Weiterverarbeiten ist nicht end-to-end bestätigt.
+- Die dedizierte Browser-Session-Komponente meldete im finalen Runtime-Health-Status `browser=false` beziehungsweise war nicht konfiguriert.
+- Vorhandene Browserwerkzeuge arbeiten überwiegend über sichtbare Windows-/Desktopautomation. Es gibt keine vollständige robuste CDP-, Extension- oder DOM-Integration.
+- Angemeldete sichtbare Browserfenster können erkannt werden, aber komplexe Webseitenaktionen hängen von Fokus, Layout, aktiver Registerkarte und Windows-Automation ab.
 
-### 5. Desktop- und Programmsteuerung
+### 2. Desktopautomation
 
-Die Desktopsteuerung wurde deutlich erweitert. Der Flow Mode kann dynamisch vorhandene Windows-Fenster ermitteln und Programme über normale Windows-Mechanismen starten und bedienen.
+- Einfache Einzelaktionen können funktionieren, eine vollständige mehrstufige Bedienung ist aber nicht zuverlässig.
+- `desktop.hotkey` wurde in einem realen Flow-Lauf als `denied` mit ausstehender Verifikation gemeldet.
+- Fokuswechsel und Fensterauswahl können dazu führen, dass nachfolgende Schritte das falsche Ziel oder eine veraltete Window-ID verwenden.
+- Die gemeldeten Erfolge bei Screenshot oder Inspect beweisen nicht automatisch, dass das eigentliche Benutzerziel erreicht wurde.
 
-Unterstützt werden unter anderem:
+### 3. Fortsetzen einer Unterhaltung
 
-- Programme starten und Fenster schließen
-- vorhandene Fenster auflisten und auswählen
-- Fensterinhalte untersuchen
-- Text eingeben
-- Mausklicks ausführen
-- Tastenkombinationen senden
-- Zwischenablage verwenden
-- Aktionen über mehrere Programme kombinieren
+- Die häufige Meldung „Diese Unterhaltung kann nicht fortgesetzt werden“ wurde auf Code-Ebene adressiert.
+- Ein einfacher Live-Test mit zwei Modellturns war erfolgreich.
+- Mehrstufige reale Tool-Aufgaben können weiterhin scheitern und den Folgekontext unbrauchbar machen. Dieser Ablauf ist noch nicht vollständig reproduziert und behoben.
 
-Die frühere Beschränkung auf OpenJarvis-eigene Testanwendungen wurde für den Flow-Pfad entfernt.
+### 4. „Mach es mal“ und Kontextverständnis
 
-### 6. Browsersteuerung
+- Die Unterhaltung und Tool-Follow-ups werden jetzt länger im selben Thread gehalten.
+- Das konkrete Verhalten bei elliptischen Folgeanweisungen wie „mach es mal“ ist nicht zuverlässig end-to-end bestätigt.
+- Wenn der vorherige Browser- oder Desktopschritt kein brauchbares Ergebnis liefert, kann Jarvis auch nichts Sinnvolles weiterverarbeiten oder speichern.
 
-Es wurden explizite Werkzeuge für bestehende Browserfenster ergänzt:
+### 5. Kombinierte Aufgabe „Webseite auslesen und alles merken“
 
-- `browser.windows`
-- `browser.navigate`
-- `browser.open_tab`
-- `browser.close_tab`
+- Die Memory-Seite dieses Ablaufs ist implementiert: Ein brauchbares zusammengesetztes Tool-Ergebnis kann gespeichert werden.
+- Der komplette Ablauf funktioniert praktisch noch nicht zuverlässig, weil Navigation und Webseiten-Auslesen vorher scheitern können.
+- Deshalb darf dieser Punkt nicht als fertig betrachtet werden.
 
-Formulare, Uploads, Downloads und Webseiteninteraktionen können zusätzlich über die Desktopwerkzeuge bedient werden. Dadurch können bestehende angemeldete Browsersitzungen verwendet werden, ohne Cookies oder Passwörter unnötig als Klartext an das Modell zu geben.
+### 6. Dokumente und Ordner
 
-### 7. Memory
+- Tools und Intent-Erkennung sind vorhanden.
+- Reale Benutzeraufgaben zum Öffnen und Durchsuchen von Dokumenten/Ordnern wurden nach den letzten Änderungen nicht vollständig unter aktivem Flow end-to-end bestätigt.
+- Windows-Berechtigungen, ungültige Pfade, ungeklärte Zielordner oder Orchestrierungsfehler können den Ablauf weiterhin abbrechen.
 
-Explizite Besitzerbefehle wie „Merk dir ...“ und „Merke dir ...“ werden im Flow Mode direkt und atomar in Memory geschrieben. Dabei entsteht weder eine Approval Queue noch ein Allow-once-Datensatz. Der Chat bestätigt anschließend kurz den gespeicherten Inhalt, ohne für diesen eindeutigen Befehl einen zusätzlichen Modellturn auszuführen.
+### 7. Talk und kostenlose männliche Stimme
 
-Außerhalb von Flow können automatisch erkannte Inhalte weiterhin als nicht blockierende Vorschläge mit Status `proposed` erfasst werden. Sie schreiben keine Markdown-Datei und erzeugen keine Berechtigung oder Warteschlange. Der alte Memory-Approve-/Reject-API-Pfad wurde entfernt. Der aktive Flow Grant übersteuert außerdem den früheren `writable-test`-Schalter; die tatsächliche Schreibberechtigung kommt ausschließlich von der zentralen Flow-Autorität.
+- Dieser Punkt wurde auf Wunsch bewusst vertagt.
+- Lokale Speech-/TTS-Komponenten existieren, aber eine verlässlich ausgewählte kostenlose männliche Stimme, die im Talk-Modus tatsächlich antwortet, wurde nicht fertiggestellt.
 
-### 8. Task-Orchestrierung und Codex
+### 8. Administratorrechte
 
-Runtime, Orchestrator, Task-Routen, Action-Service und Codex-Anbindung verwenden die gemeinsame Flow-Autorität.
+- Flow hat die Rechte des laufenden Windows-Benutzers beziehungsweise Prozesses.
+- Es wurde keine UAC-Umgehung und kein dauerhaft privilegierter Systemdienst eingebaut.
+- Aktionen, die Windows-Administratorrechte verlangen, benötigen weiterhin einen erhöht gestarteten Prozess oder die Betriebssystemfreigabe.
 
-Der Modell-Prompt wurde so angepasst, dass JARVIS im Flow Mode:
+## Tests
 
-- das Ziel selbstständig ableitet
-- einen eigenen Plan bildet
-- logisch erforderliche Werkzeuge kombiniert
-- bei Fehlern alternative Methoden versucht
-- Aufgaben überprüft und erst anschließend berichtet
-- nicht für jeden technisch notwendigen Teilschritt erneut fragt
+Nach den jüngsten Orchestrierungsänderungen bestanden gezielt:
 
-Das alte isolierte Arbeitsbereichs-, Testbrowser- und pauschale Git-Push-Verbot wurde aus dem Flow-Prompt entfernt.
-
-### 9. Stop und Unterbrechung
-
-Der Action-Service verwaltet aktive Ausführungen pro Runtime. Task-Abbruch und Interrupt werden bis zu laufenden Werkzeugen weitergereicht. Die Safe-Shell kann laufende Unterprozesse beenden, und die Task-Schleife setzt danach nicht einfach mit weiteren Schritten fort.
-
-## Bewusst beibehaltene Schutz- und Zuverlässigkeitsfunktionen
-
-Folgende Mechanismen wurden nicht als störende Einzelgenehmigungen umgesetzt und bleiben erhalten:
-
-- Aktivierung nur durch den authentifizierten Besitzer
-- keine Rechteerweiterung durch Webseiten, Dateien, E-Mails, Memory oder Toolausgaben
-- keine unnötige Weitergabe von Passwörtern, Cookies oder Tokens im Klartext
-- sofortiger Stop laufender Aktionen
-- Timeouts und Abbruchmöglichkeiten
-- Checkpoints, Recovery und Undo, soweit vom jeweiligen Werkzeug unterstützt
-- Ergebnisprüfung durch Runtime und Orchestrator
-- ehrliche Weitergabe von Windows- und Betriebssystemfehlern
-
-## Entfernt oder aus dem normalen Flow-Pfad genommen
-
-- Approval-Bell und Approval-Seite im normalen Frontend
-- Approval-Router aus der normal gestarteten Serveranwendung
-- alte Phase-7-Approval- und Website-Staging-Komponenten, Routen, Runtime-Service und zugehörige Tests
-- Memory-Approve-/Reject-Endpunkte und die Queue-Erzeugung für Memory Candidates
-- blockierende Einzelgenehmigungen im Flow-Aktionspfad
-- Ordner-Allowlist im Flow-Dateipfad
-- Read-only-Zwang im Flow Mode
-- einzelne Memory-Freigaben im Flow Mode
-- Beschränkung der Desktopsteuerung auf eigene Testprogramme
-- alte Einschränkungen gegen Git-Push, Installationen und notwendige Systemaktionen im Flow-Prompt
-
-Einige alte Approval- und Risk-Strukturen existieren weiterhin als Kompatibilitäts- oder Legacy-Code. Sie sind im normalen Flow-UI beziehungsweise im zentralen Flow-Autorisierungspfad nicht mehr die entscheidende Freigabeinstanz.
-
-## Tests und technische Prüfung
-
-Auf dem aktuellen Branchstand erfolgreich ausgeführt wurden:
-
-- Python-Bytecodeprüfung: `python -m compileall -q src tests`
-- Ruff: `ruff check src tests`
-- gezielter finaler Flow-/Server-/Desktop-/Tool-/Memory-Satz: 99 bestanden
-- zusätzlicher breiter Regressionslauf: 617 bestanden, 2 übersprungen, 24 fehlgeschlagen
-- Frontend/Vitest: 49 Tests bestanden
-- Frontend-Produktionsbuild und `build:tauri`: bestanden
-- Rust/Tauri: 24 Tests bestanden
-- Rust/Tauri: `cargo check` bestanden
-- Git-Whitespaceprüfung: `git diff --check` bestanden
-
-Der breite Python-Lauf hat die Flow-relevanten Bereiche erfolgreich geprüft. Seine 24 Fehler liegen außerhalb der aktuellen Migration und reproduzieren vorhandene Umgebungs- oder Testreihenfolgeprobleme: fehlende native `openjarvis_rust`-Extension, ein unter Windows ungültiger SQLite-Pfad `:memory:`, veraltete MCP-Mock-Manifeste, eine nicht auffindbare synthetische Desktop-Fixture sowie Enum-Identitätsfehler nach testseitigem Modul-Reload. Die direkt geänderten Flow-, Memory-, Task-, Tool-Browser-, Action-Service-, Desktop- und Shell-Tests bestehen im isolierten finalen Lauf vollständig.
-
-## Noch fehlend oder nicht vollständig geprüft
-
-### 1. Vollständiger Testlauf
-
-Der komplette Testbestand des gesamten Repositories sollte nach Bereitstellung der nativen Rust-Python-Extension und Bereinigung der Windows-/Testreihenfolgeprobleme erneut ausgeführt werden. Dadurch werden auch Bereiche geprüft, die nicht direkt von Flow Mode betroffen sind.
-
-Empfohlener Befehl:
-
-```powershell
-python -m pytest -q
+```text
+tests/server/test_task_routes.py
+tests/memory/test_memory_candidates.py
+tests/assistant/test_intent.py
+tests/desktop/test_productive_controller.py
+tests/codex/test_sdk_lifecycle.py
 ```
 
-### 2. Administratorrechte und Windows-UAC
+Ergebnis: **85 Tests bestanden**. Ruff bestand für die geänderten Python-Dateien. Zwei echte Modellturns in derselben diagnostischen Task bestanden ebenfalls.
 
-Der Flow Mode besitzt die Rechte des Windows-Prozesses beziehungsweise des angemeldeten Benutzers. Es wurde kein dauerhaft privilegierter Windows-Systemdienst und keine UAC-Umgehung eingebaut.
+Ein danach gestarteter breiter Python-Testlauf wurde wegen sehr langer stiller Timeout-/Prozesstests manuell beendet. Er ist daher **nicht als bestanden zu werten**. Ein früherer breiter Lauf hatte 617 bestandene und 24 fehlgeschlagene Tests; diese Zahl beschreibt nicht den vollständigen aktuellen Branchstand.
 
-Aktionen, für die Windows Administratorrechte verlangt, benötigen daher weiterhin eine vom Betriebssystem erlaubte Erhöhung oder einen bereits erhöht gestarteten OpenJarvis-Prozess. Das ist eine Betriebssystemgrenze und keine interne Toolfreigabe.
+Für das Ausblenden der Tool-Karten existiert ein Frontend-Test, der sicherstellt, dass Tool-ID, Window-ID, Rohdaten und „Strukturiertes Ergebnis“ nicht in der normalen Unterhaltung gerendert werden.
 
-### 3. Reale End-to-End-Prüfung von Windows Hello
+## Relevante Commits
 
-Die Tauri- und Rust-Logik wurde kompiliert und getestet. Ein vollständiger manueller Durchlauf mit echter Windows-Hello-Abfrage, Aktivierung, Windows-Sperre und anschließender Rückkehr wurde nicht automatisiert abgeschlossen, da das Sperren der laufenden Benutzersitzung die Arbeit unterbrochen hätte.
+- `ca811318` – direkte Flow-Autorisierung und Rückbau alter Freigabewege
+- `35a126f3` – gemeinsames Flow-Bridge-Secret im finalen Windows-Launcher
+- `d43d8846` – korrekte SDK-Abbildung auf Full Access
+- `89c34ac2` – Chat-Recovery, Tool-Ketten, Programmauflösung, Datei- und Memory-Intent
+- aktueller Abschlusscommit – interne Tool-Karten aus Chat entfernt und diese Übergabe aktualisiert
 
-### 4. Browserautomation
+## Empfohlene Reihenfolge für morgen
 
-Die aktuelle Implementierung bedient bestehende Browserfenster hauptsächlich über sichtbare Desktopautomation. Sie verwendet keine vollständige direkte CDP- oder Browser-Extension-Integration.
+1. Einen reproduzierbaren Test nur für `browser.open_tab` erstellen und prüfen, ob Window-ID, Fokus oder Tastenkombination die Ursache ist.
+2. Entscheiden, ob echte Browsersteuerung über CDP/Playwright oder eine Browser-Extension ergänzt wird. Für verlässliches DOM-Auslesen ist das wahrscheinlich notwendig.
+3. Einen kleinen End-to-End-Test „Dokumente öffnen → Datei finden → Inhalt lesen → Ergebnis antworten“ unter aktivem Flow bauen.
+4. Einen End-to-End-Test „Webseite öffnen → Inhalt extrahieren → zusammenfassen → Memory speichern → in neuer Unterhaltung erinnern“ bauen.
+5. Fehlerhafte Tasks so isolieren, dass ein einzelner Toolfehler die Unterhaltung niemals zum Neustart zwingt.
+6. Danach erst Talk/TTS und die kostenlose männliche Stimme fertigstellen.
+7. Abschließend den vollständigen Testbestand ausführen und die verbleibenden Windows-/Mock-/Timeout-Fehler einzeln bereinigen.
 
-Das bedeutet:
+## Schlussstand
 
-- sie kann angemeldete sichtbare Sitzungen verwenden
-- sie gibt Cookies nicht direkt an das Modell weiter
-- ihre Zuverlässigkeit hängt bei komplexen Webseiten teilweise vom sichtbaren UI und dessen Layout ab
-- robustere DOM-basierte Browserwerkzeuge könnten später ergänzt werden
-
-### 5. Undo-Abdeckung
-
-Stop, Checkpoints und vorhandene Undo-Mechanismen bleiben erhalten. Es existiert aber noch kein universelles Undo für jede mögliche externe Aktion. Beispielsweise lassen sich bereits versendete Nachrichten, externe Käufe oder beliebige Systemänderungen nicht grundsätzlich automatisch rückgängig machen.
-
-### 6. Legacy-Code
-
-Die nicht mehr verwendeten Phase-7-/Website-Staging-Routen und UI-Komponenten sowie die Memory-Allow-once-Endpunkte wurden gelöscht. Einige Approval- und Risk-Typen bleiben weiterhin als persistierte Legacy-Schemawerte, Audit-Metadaten oder Kompatibilitätsschicht lesbar.
-
-Eine spätere Bereinigung sollte zuerst mit einer vollständigen Referenzsuche und dem kompletten Testlauf erfolgen. Entscheidend für den aktuellen Stand ist, dass diese Strukturen den zentralen Flow-Pfad nicht mehr mit Einzelgenehmigungen blockieren.
-
-### 7. Sicherheits- und Belastungstests
-
-Noch sinnvoll wären gezielte Tests für:
-
-- mehrere parallele Tasks und gleichzeitige Stop-Signale
-- Windows-Sperren, Benutzerwechsel und Ruhezustand
-- fehlende Windows-Hello-Konfiguration
-- Browser- und Desktopaktionen auf mehreren Monitoren
-
-## Lokale Entwicklungsabhängigkeiten
-
-Für die Rust/Tauri-Prüfung wurden Visual Studio Build Tools beziehungsweise die benötigte MSVC-Toolchain lokal installiert. Diese Installation ist eine Rechnerabhängigkeit und kann nicht in Git eingecheckt werden.
-
-Zusätzliche Python-Testabhängigkeiten wurden lokal installiert. Die dafür relevante Ruff-Konfiguration ist in `pyproject.toml` versioniert.
-
-## Empfohlene nächste Schritte
-
-1. Die vorhandenen plattform- und testreihenfolgeabhängigen Python-Fehler separat bereinigen und danach den vollständigen `pytest`-Lauf wiederholen.
-2. Einen manuellen Tauri-End-to-End-Test mit Windows Hello durchführen.
-3. Flow-Aktivierung, Stop und Windows-Sperre auf einem Testsystem prüfen.
-4. Eine mehrstufige reale Aufgabe mit Datei-, Browser-, Desktop- und Shell-Werkzeugen durchführen.
-5. Prüfen, ob für bestimmte Administratoraufgaben ein optionaler, klar abgegrenzter Windows-Dienst tatsächlich benötigt wird.
-6. Nur noch als Schema-/Audit-Kompatibilität benötigten Legacy-Approval-Code nach einer Datenmigration weiter reduzieren.
-7. Optional eine robustere DOM-basierte Browserintegration ergänzen.
-
-## Zusammenfassung
-
-Der aktuelle Flow Mode ist keine zusätzliche Freigabeschicht über dem alten Approval-System. Die zentrale Autorität, die native Besitzerbestätigung und die Tool-Integrationen bilden einen eigenen Ausführungspfad, in dem ein Besitzerauftrag die logisch notwendigen Teilschritte autorisiert.
-
-Die migrationsrelevanten automatisierten Tests sind grün. Offen bleiben ein vollständig grüner globaler Testlauf nach Behebung der unabhängigen Windows-/Umgebungsprobleme und ein manueller Windows-Hello-End-to-End-Test. Administratoraktionen bleiben außerdem an die tatsächlichen Windows-Rechte des laufenden Prozesses gebunden.
+Die Berechtigungsarchitektur wurde klar in Richtung eines autonomen Besitzer-Operators verschoben. Die sichtbaren alten Einzelgenehmigungen sind weitgehend aus dem Flow-Pfad entfernt, und mehrere konkrete Orchestrierungsfehler wurden behoben. Der aktuelle Stand erfüllt das praktische Abnahmekriterium aber noch nicht vollständig: Jarvis besitzt viele Werkzeuge, setzt sie bei realen Browser-, Desktop- und kombinierten Aufgaben jedoch noch nicht durchgehend zuverlässig ein.
