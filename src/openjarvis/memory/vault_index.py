@@ -1329,7 +1329,7 @@ class VaultIndex:
             self._conn.execute(
                 """
                 SELECT COUNT(*) FROM memory_candidates
-                WHERE status IN ('pending_approval', 'approved')
+                WHERE status IN ('proposed', 'pending_approval', 'approved')
                 """
             ).fetchone()[0]
         )

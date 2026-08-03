@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CanonicalTaskEvent } from '../../../lib/api';
+import type { CanonicalTaskEvent, FlowStatus } from '../../../lib/api';
 import { DEFAULT_JARVIS_PREFERENCES } from './preferences';
 import {
   JarvisExperience,
@@ -40,7 +40,7 @@ const timeline = [
   event('agent.plan', 'Verborgener interner Plan', 4),
 ];
 
-function experience(mode: 'talk' | 'text') {
+function experience(mode: 'talk' | 'text', flowStatus: FlowStatus | null = null) {
   return renderToStaticMarkup(
     <JarvisExperience
       sessionId="session-test"
@@ -56,7 +56,7 @@ function experience(mode: 'talk' | 'text') {
       speechLanguage="de-DE"
       preferences={{ ...DEFAULT_JARVIS_PREFERENCES, mode }}
       actions={[]}
-      flowStatus={null}
+      flowStatus={flowStatus}
       flowBusy={false}
       audioBackendInfo={{ backend: null, fallbackUsed: false, cacheHit: false, chunksSkipped: 0, lastError: null }}
       onPreferencesChange={() => {}}
@@ -107,6 +107,39 @@ describe('Jarvis experience', () => {
     expect(html).not.toContain('private');
     expect(html).not.toContain('Verborgener interner Plan');
     expect(visibleConversation(timeline)).toHaveLength(2);
+  });
+
+  it('shows an authenticated Flow grant without legacy approval controls', () => {
+    const html = experience('text', {
+      mode: 'flow',
+      owner_authenticated: true,
+      session_id: 'flow-session-test',
+      activated_at: '2026-08-03T14:00:00Z',
+      expires_at: '2026-08-03T22:00:00Z',
+      last_activity_at: '2026-08-03T14:01:00Z',
+      remaining_seconds: 28_740,
+      capabilities: {
+        filesystem: 'full_machine',
+        desktop: 'full',
+        browser: 'full',
+      },
+      lock_reason: '',
+    });
+
+    expect(html).toContain('FLOW-MODUS AKTIV');
+    expect(html).toContain('7h 59m verbleibend');
+    expect(html).toContain('Sperren');
+    expect(html).toContain('Assistant');
+    expect(html).not.toContain('Allow once');
+    expect(html).not.toContain('Pending approval');
+  });
+
+  it('does not persist Flow grants in browser storage code', () => {
+    const apiSource = readFileSync(resolve(process.cwd(), 'src/lib/api.ts'), 'utf8');
+    const workspaceStore = readFileSync(resolve(process.cwd(), 'src/lib/jarvisStore.ts'), 'utf8');
+
+    expect(apiSource).not.toMatch(/localStorage.{0,80}(flow|grant)/i);
+    expect(workspaceStore).not.toMatch(/flow(Status|Grant|Session)/);
   });
 
   it('exposes a closed, keyboard-labelled menu and real settings controls', () => {

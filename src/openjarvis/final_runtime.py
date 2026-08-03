@@ -1,4 +1,4 @@
-"""Fail-closed Phase-8 product runtime and local launcher entry point.
+"""Owner-authenticated Flow product runtime and local launcher entry point.
 
 This module deliberately does not construct an Ollama, cloud, browser, or
 channel backend.  Conversational work is owned by the configured Codex task
@@ -61,7 +61,6 @@ from openjarvis.tools.safe_filesystem import (
 )
 from openjarvis.tools.safe_shell import SafeShellTool, StructuredCommandPolicy
 from openjarvis.traces.store import TraceStore
-from openjarvis.website import WebsiteStagingService, WebsiteWorkspaceStore
 
 FINAL_HEALTH_MARKER = "OPENJARVIS-FINAL-RUNTIME"
 FINAL_RUNTIME_NAME = "phase8-final"
@@ -69,7 +68,6 @@ FINAL_MODEL = "codex-python-sdk"
 FINAL_CODEX_MODEL = "gpt-5.6-terra"
 FINAL_CODEX_EFFORT = "medium"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
-_PILOT_WORKSPACE_ID = "phase8-final-website-pilot"
 
 
 class FinalCodexHealthEngine(InferenceEngine):
@@ -130,7 +128,6 @@ class FinalRuntime:
     trace_store: TraceStore
     action_store: ActionStore
     phase7: Phase7LearningRuntime
-    staging_root: Path
     assistant_workspace: Path
 
 
@@ -390,7 +387,6 @@ def build_final_runtime(
     for path in (
         runtime_home / "state",
         runtime_home / "restore" / "vault",
-        runtime_home / "website-staging",
         runtime_home / "tool-artifacts",
         runtime_home / "assistant-workspace",
     ):
@@ -419,7 +415,6 @@ def build_final_runtime(
         )
         if vault_service is None:
             raise RuntimeError("vault memory was not constructed")
-        staging_root = (runtime_home / "website-staging").resolve(strict=True)
         assistant_workspace = (runtime_home / "assistant-workspace").resolve(
             strict=True
         )
@@ -430,13 +425,9 @@ def build_final_runtime(
             """Derive grants only from the code-owned registered manifest."""
 
             manifest = catalog.get(proposal.tool_id)
-            allowed_roots = (
-                (staging_root,)
-                if manifest.capability == "website:stage"
-                else tuple(
-                    Path(value).resolve(strict=False)
-                    for value in manifest.allowed_roots
-                )
+            allowed_roots = tuple(
+                Path(value).resolve(strict=False)
+                for value in manifest.allowed_roots
             )
             untrusted_sources = {
                 ParameterSource.MEMORY,
@@ -540,14 +531,6 @@ def build_final_runtime(
 
         for tool in native_tools:
             action_service.register_runtime(tool.manifest, native_runtime(tool))
-        website_service = WebsiteStagingService(
-            workspace_store=WebsiteWorkspaceStore(
-                staging_root,
-                protected_roots=(repo_root, vault_root),
-            ),
-            action_service=action_service,
-            task_service=tasks.service,
-        )
         desktop_controller = ProductiveDesktopController(
             backend=Win32SemanticBackend(),
             access_store=DesktopAccessStore(
@@ -595,7 +578,6 @@ def build_final_runtime(
             recovery_coordinator=tasks.recovery,
             vault_memory_service=vault_service,
             tool_action_service=action_service,
-            website_staging_service=website_service,
             desktop_controller=desktop_controller,
             mcp_server_registry=mcp_server_registry,
             browser_session_service=None,
@@ -631,7 +613,6 @@ def build_final_runtime(
                     "vault_memory": True,
                     "phase7": True,
                     "tools": True,
-                    "website_staging": True,
                     "local_speech_input": True,
                     "local_voice": True,
                     "analytics": False,
@@ -661,24 +642,6 @@ def build_final_runtime(
 
         app.router.routes.insert(0, app.router.routes.pop())
 
-        @app.post("/v1/final/pilot-cleanup/{workspace_id}")
-        async def final_pilot_cleanup(
-            workspace_id: str, request: Request
-        ) -> dict[str, str]:
-            peer = request.client.host if request.client else ""
-            supplied = request.headers.get("x-openjarvis-shutdown-token", "")
-            if peer not in _LOOPBACK_HOSTS or not hmac.compare_digest(
-                supplied, shutdown_token
-            ):
-                raise HTTPException(status_code=403, detail="cleanup denied")
-            if workspace_id != _PILOT_WORKSPACE_ID:
-                raise HTTPException(
-                    status_code=422, detail="invalid workspace identifier"
-                )
-            website_service.cleanup(workspace_id)
-            return {"status": "cleaned", "marker": FINAL_HEALTH_MARKER}
-
-        app.router.routes.insert(0, app.router.routes.pop())
         original_lifespan = app.router.lifespan_context
 
         @asynccontextmanager
@@ -695,7 +658,6 @@ def build_final_runtime(
         app.router.lifespan_context = final_lifespan
         app.state.final_runtime_name = FINAL_RUNTIME_NAME
         app.state.final_runtime_home = runtime_home
-        app.state.final_staging_root = staging_root
         app.state.assistant_workspace = assistant_workspace
         return FinalRuntime(
             app=app,
@@ -705,7 +667,6 @@ def build_final_runtime(
             trace_store=trace_store,
             action_store=action_store,
             phase7=phase7,
-            staging_root=staging_root,
             assistant_workspace=assistant_workspace,
         )
     except Exception:

@@ -1,12 +1,15 @@
-"""Approval-gated memory candidate tests in an isolated synthetic vault."""
+"""Flow memory writes and non-blocking proposal tests in a synthetic vault."""
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import uuid
 from pathlib import Path
 
 import pytest
 
+from openjarvis.flow import FlowSessionAuthority
 from openjarvis.memory.candidates import (
     MemoryCandidateWorkflow,
     recognize_memory_request,
@@ -18,7 +21,7 @@ from openjarvis.memory.vault_models import CandidateStatus, ConflictState
 from openjarvis.memory.vault_retrieval import VaultRetriever
 from openjarvis.memory.vault_service import VaultMemoryService
 from openjarvis.tasks.store import TaskStore
-from openjarvis.tasks.types import ApprovalKind, ApprovalStatus, ExecutionLane
+from openjarvis.tasks.types import ExecutionLane
 from openjarvis.traces.store import TraceStore
 
 
@@ -45,6 +48,23 @@ def _existing_note(
         encoding="utf-8",
     )
     return note_id
+
+
+def _activate_flow(workflow: MemoryCandidateWorkflow) -> FlowSessionAuthority:
+    secret = "f" * 64
+    now = 1_800_000_000
+    nonce = uuid.uuid4().hex
+    owner = "memory-test-owner"
+    message = f"flow-v1\n{nonce}\n{now}\n{owner}".encode()
+    authority = FlowSessionAuthority(secret, clock=lambda: now)
+    authority.activate_flow(
+        nonce=nonce,
+        authenticated_at=now,
+        signature=hmac.new(secret.encode(), message, hashlib.sha256).hexdigest(),
+        owner=owner,
+    )
+    workflow.flow_authority = authority
+    return authority
 
 
 @pytest.fixture()
@@ -78,7 +98,6 @@ def candidate_runtime(tmp_path: Path):
         retriever,
         bridge,
         writer,
-        approval_ttl_seconds=30,
     )
     service = VaultMemoryService(
         index,
@@ -104,6 +123,7 @@ def candidate_runtime(tmp_path: Path):
     ("text", "expected"),
     [
         ("Merke dir: Ich bevorzuge Python.", "Ich bevorzuge Python."),
+        ("Merk dir, dass ich kurze Antworten mag.", "dass ich kurze Antworten mag."),
         ("Bitte merken, kurze Antworten", "kurze Antworten"),
         ("Remember that the project is Apollo", "the project is Apollo"),
         ("Das ist nur eine normale Frage", None),
@@ -113,7 +133,7 @@ def test_remember_request_recognition(text: str, expected: str | None) -> None:
     assert recognize_memory_request(text) == expected
 
 
-def test_candidate_never_writes_before_approval(candidate_runtime) -> None:
+def test_non_flow_candidate_is_a_non_blocking_proposal(candidate_runtime) -> None:
     vault, workflow, _service, task_store, _trace_store, context = candidate_runtime
 
     candidate = workflow.create(
@@ -122,102 +142,62 @@ def test_candidate_never_writes_before_approval(candidate_runtime) -> None:
         note_type="preference",
         idempotency_key="candidate-1",
     )
-    approval = task_store.get_approval(candidate.approval_id or "")
-
-    assert candidate.status is CandidateStatus.PENDING_APPROVAL
+    assert candidate.status is CandidateStatus.PROPOSED
     assert candidate.risk_level == 1
     assert candidate.before_hash is None
     assert candidate.expected_version == "absent"
     assert candidate.planned_diff.startswith("--- a/")
     assert list(vault.rglob("*.md")) == []
-    assert approval is not None
-    assert approval.status is ApprovalStatus.PENDING
-    assert approval.kind is ApprovalKind.FILE_CHANGE
-    assert approval.sandbox == "workspace_write"
-    assert approval.payload["allow_once_only"] is True
+    assert candidate.approval_id is None
+    assert task_store.list_pending_approvals(task_id=context.task_id) == []
 
 
-def test_allow_once_applies_atomic_write_and_updates_index(
+def test_flow_applies_atomic_write_directly_and_updates_index(
     candidate_runtime,
 ) -> None:
     vault, workflow, _service, task_store, trace_store, context = candidate_runtime
-    candidate = workflow.create(
+    _activate_flow(workflow)
+    applied = workflow.create(
         context,
         body="Ich bevorzuge Python.",
         note_type="preference",
         correction=True,
-        idempotency_key="candidate-allow",
+        idempotency_key="candidate-flow-direct",
     )
-
-    applied = workflow.decide(
-        candidate.candidate_id,
-        allow=True,
-        decision_id="allow-once-1",
-    )
-    note = workflow.index.get_note(candidate.note_id)
+    note = workflow.index.get_note(applied.note_id)
     events = task_store.list_task_events(context.task_id)
     trace_events = trace_store.list_task_events(context.task_id)
 
     assert applied.status is CandidateStatus.APPLIED
+    assert applied.approval_id is None
     assert applied.write_operation_id is not None
-    assert (vault / candidate.proposed_path).is_file()
+    assert (vault / applied.proposed_path).is_file()
     assert note is not None
-    assert note.note_id == candidate.note_id
+    assert note.note_id == applied.note_id
     assert note.source == "user_correction"
     assert {
         "memory.write_candidate_created",
-        "memory.write_approved",
         "memory.write_applied",
         "memory.index_updated",
     } <= {event.event_type for event in events}
+    assert task_store.list_pending_approvals(task_id=context.task_id) == []
     assert any(
         event["event_type"] == "memory.write_applied" for event in trace_events
     )
 
 
-def test_deny_writes_nothing_and_records_rejection(candidate_runtime) -> None:
-    vault, workflow, _service, task_store, _trace_store, context = candidate_runtime
+def test_proposal_cannot_be_applied_without_flow(candidate_runtime) -> None:
+    vault, workflow, _service, _task_store, _trace_store, context = candidate_runtime
     candidate = workflow.create(
         context,
-        body="Do not persist without consent.",
-        idempotency_key="candidate-deny",
+        body="Do not persist outside Flow.",
+        idempotency_key="candidate-no-flow",
     )
 
-    rejected = workflow.decide(
-        candidate.candidate_id,
-        allow=False,
-        decision_id="deny-once-1",
-    )
+    with pytest.raises(PermissionError, match="active Flow"):
+        workflow.apply(candidate.candidate_id)
 
-    assert rejected.status is CandidateStatus.REJECTED
     assert not (vault / candidate.proposed_path).exists()
-    assert task_store.get_approval(candidate.approval_id or "").status is (
-        ApprovalStatus.DENIED
-    )
-    assert any(
-        event.event_type == "memory.write_rejected"
-        for event in task_store.list_task_events(context.task_id)
-    )
-
-
-def test_approval_timeout_writes_nothing(candidate_runtime) -> None:
-    vault, workflow, _service, task_store, _trace_store, context = candidate_runtime
-    candidate = workflow.create(
-        context,
-        body="Timeout candidate.",
-        idempotency_key="candidate-timeout",
-    )
-
-    expired = workflow.expire(
-        candidate.candidate_id,
-        decision_id="timeout-candidate",
-    )
-
-    assert expired.status is CandidateStatus.EXPIRED
-    assert not (vault / candidate.proposed_path).exists()
-    assert task_store.get_approval(candidate.approval_id or "").status is (
-        ApprovalStatus.EXPIRED
-    )
 
 
 def test_candidate_create_is_idempotent(candidate_runtime) -> None:
@@ -235,25 +215,21 @@ def test_candidate_create_is_idempotent(candidate_runtime) -> None:
 
     assert repeated == first
     assert len(workflow.list()) == 1
-    assert len(task_store.list_pending_approvals(task_id=context.task_id)) == 1
+    assert task_store.list_pending_approvals(task_id=context.task_id) == []
 
 
 def test_repeated_apply_does_not_execute_twice(candidate_runtime) -> None:
     _vault, workflow, _service, _task_store, _trace_store, context = (
         candidate_runtime
     )
-    candidate = workflow.create(
+    _activate_flow(workflow)
+    first = workflow.create(
         context,
         body="Exactly once.",
         idempotency_key="candidate-exact-once",
     )
-    first = workflow.decide(
-        candidate.candidate_id,
-        allow=True,
-        decision_id="allow-exact-once",
-    )
 
-    repeated = workflow.apply(candidate.candidate_id)
+    repeated = workflow.apply(first.candidate_id)
     operation_count = workflow.index.connection.execute(
         "SELECT COUNT(*) FROM memory_write_operations"
     ).fetchone()[0]
@@ -262,18 +238,16 @@ def test_repeated_apply_does_not_execute_twice(candidate_runtime) -> None:
     assert operation_count == 1
 
 
-def test_external_create_after_approval_stops_write(candidate_runtime) -> None:
-    vault, workflow, _service, task_store, _trace_store, context = candidate_runtime
+def test_external_create_before_flow_write_stops_write(candidate_runtime) -> None:
+    vault, workflow, _service, _task_store, _trace_store, context = (
+        candidate_runtime
+    )
     candidate = workflow.create(
         context,
         body="Candidate content.",
         idempotency_key="candidate-conflict",
     )
-    task_store.decide_approval(
-        candidate.approval_id or "",
-        allow=True,
-        decision_id="allow-before-external-change",
-    )
+    _activate_flow(workflow)
     target = vault / candidate.proposed_path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("external content\n", encoding="utf-8")
@@ -305,7 +279,7 @@ def test_duplicate_candidate_is_visible_and_not_automatic(candidate_runtime) -> 
     )
 
     assert candidate.conflict_state is ConflictState.DUPLICATE
-    assert candidate.status is CandidateStatus.PENDING_APPROVAL
+    assert candidate.status is CandidateStatus.PROPOSED
     assert not (vault / candidate.proposed_path).exists()
     assert workflow.list_conflicts()[0].state is ConflictState.DUPLICATE
 
@@ -353,22 +327,18 @@ def test_restore_path_removes_new_note_and_rebuilds_index(candidate_runtime) -> 
     vault, workflow, _service, _task_store, _trace_store, context = (
         candidate_runtime
     )
-    candidate = workflow.create(
+    _activate_flow(workflow)
+    applied = workflow.create(
         context,
         body="Restore-test fact.",
         idempotency_key="candidate-restore",
-    )
-    applied = workflow.decide(
-        candidate.candidate_id,
-        allow=True,
-        decision_id="allow-restore",
     )
 
     restored_hash = workflow.restore_write(applied.write_operation_id or "")
 
     assert restored_hash is None
-    assert not (vault / candidate.proposed_path).exists()
-    assert workflow.index.get_note(candidate.note_id) is None
+    assert not (vault / applied.proposed_path).exists()
+    assert workflow.index.get_note(applied.note_id) is None
     row = workflow.index.connection.execute(
         "SELECT status FROM memory_write_operations WHERE operation_id=?",
         (applied.write_operation_id,),
@@ -376,21 +346,19 @@ def test_restore_path_removes_new_note_and_rebuilds_index(candidate_runtime) -> 
     assert row["status"] == "restored"
 
 
-def test_read_only_mode_refuses_even_approved_candidate(
+def test_flow_write_is_not_blocked_by_legacy_read_only_vault_mode(
     candidate_runtime,
 ) -> None:
-    _vault, workflow, _service, task_store, _trace_store, context = candidate_runtime
+    vault, workflow, _service, _task_store, _trace_store, context = candidate_runtime
     candidate = workflow.create(
         context,
-        body="Read-only must win.",
-        idempotency_key="candidate-read-only",
-    )
-    task_store.decide_approval(
-        candidate.approval_id or "",
-        allow=True,
-        decision_id="allow-but-read-only",
+        body="Flow authority wins over the legacy vault flag.",
+        idempotency_key="candidate-flow-overrides-read-only",
     )
     workflow.index.mode = "read-only"
+    _activate_flow(workflow)
 
-    with pytest.raises(PermissionError, match="writable-test"):
-        workflow.apply(candidate.candidate_id)
+    applied = workflow.apply(candidate.candidate_id)
+
+    assert applied.status is CandidateStatus.APPLIED
+    assert (vault / candidate.proposed_path).is_file()

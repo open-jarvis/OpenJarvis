@@ -29,6 +29,12 @@ from openjarvis.codex.types import (  # noqa: E402
 from openjarvis.core.config import JarvisConfig  # noqa: E402
 from openjarvis.core.events import EventBus  # noqa: E402
 from openjarvis.flow import FlowSessionAuthority  # noqa: E402
+from openjarvis.memory.candidates import MemoryCandidateWorkflow  # noqa: E402
+from openjarvis.memory.safe_write import AtomicMarkdownWriter  # noqa: E402
+from openjarvis.memory.task_bridge import MemoryTaskBridge  # noqa: E402
+from openjarvis.memory.vault_index import VaultIndex  # noqa: E402
+from openjarvis.memory.vault_retrieval import VaultRetriever  # noqa: E402
+from openjarvis.memory.vault_service import VaultMemoryService  # noqa: E402
 from openjarvis.server.app import create_app  # noqa: E402
 from openjarvis.server.task_routes import (  # noqa: E402
     _parse_tool_proposal,
@@ -174,10 +180,35 @@ def api_runtime(tmp_path: Path):
             allow_cli_fallback=False,
         ),
     )
+    vault = tmp_path / "memory-vault"
+    vault.mkdir()
+    memory_index = VaultIndex(
+        vault,
+        tmp_path / "memory-state" / "index.sqlite3",
+        mode="read-only",
+    )
+    memory_retriever = VaultRetriever(memory_index)
+    memory_bridge = MemoryTaskBridge(store)
+    memory_workflow = MemoryCandidateWorkflow(
+        memory_index,
+        memory_retriever,
+        memory_bridge,
+        AtomicMarkdownWriter(vault, tmp_path / "memory-restore"),
+        flow_authority=authority,
+    )
+    memory_service = VaultMemoryService(
+        memory_index,
+        retriever=memory_retriever,
+        task_bridge=memory_bridge,
+        candidate_workflow=memory_workflow,
+    )
+    memory_index.rebuild()
+    app.state.vault_memory_service = memory_service
     app.include_router(task_router)
     try:
-        yield TestClient(app), store, service, None, orchestrator
+        yield TestClient(app), store, service, memory_service, orchestrator
     finally:
+        memory_service.close()
         store.close()
 
 
@@ -271,6 +302,33 @@ def test_chat_idempotency_prevents_duplicate_turn(api_runtime) -> None:
     assert replay.json()["idempotent_replay"] is True
     assert replay.json()["content"] == "fake result"
     assert orchestrator.execute_count == 1
+
+
+def test_explicit_memory_command_writes_immediately_in_flow(api_runtime) -> None:
+    client, store, _, memory_service, orchestrator = api_runtime
+
+    response = _chat(
+        client,
+        message="Merk dir, dass ich kurze Antworten bevorzuge.",
+        task_id="task-flow-memory",
+        idempotency_key="flow-memory-once",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["content"] == (
+        "Gespeichert: dass ich kurze Antworten bevorzuge."
+    )
+    assert orchestrator.execute_count == 0
+    candidates = memory_service.candidate_workflow.list()
+    assert len(candidates) == 1
+    assert candidates[0].status.value == "applied"
+    assert candidates[0].approval_id is None
+    assert (memory_service.index.vault_root / candidates[0].proposed_path).is_file()
+    assert store.list_pending_approvals(task_id="task-flow-memory") == []
+    timeline = client.get("/v1/tasks/task-flow-memory/timeline").json()["events"]
+    assert "memory.flow_write_applied" in {
+        event["event_type"] for event in timeline
+    }
 
 
 def test_text_and_voice_use_same_task_and_voice_cannot_approve(api_runtime) -> None:

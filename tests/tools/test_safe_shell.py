@@ -234,6 +234,67 @@ def test_flow_full_machine_policy_allows_executable_and_foreign_cwd(
     assert "git version" in result.content.lower()
 
 
+def test_flow_full_machine_policy_allows_local_git_commit_and_push(
+    tmp_path: Path,
+) -> None:
+    git = shutil.which("git")
+    if not git:
+        pytest.skip("git unavailable")
+    remote = tmp_path / "owner-remote.git"
+    checkout = tmp_path / "owner-checkout"
+    checkout.mkdir()
+    tool = SafeShellTool(
+        StructuredCommandPolicy(
+            allowed_executables=(),
+            path_policy=SecurePathPolicy(
+                (tmp_path,),
+                tmp_path / "restore",
+                full_machine=True,
+            ),
+            full_machine=True,
+        )
+    )
+
+    commands = (
+        (["init", "--bare", str(remote)], tmp_path),
+        (["init"], checkout),
+        (["config", "user.name", "OpenJarvis Flow Test"], checkout),
+        (["config", "user.email", "flow-test@localhost"], checkout),
+    )
+    for arguments, cwd in commands:
+        result = tool.execute(
+            executable=git,
+            arguments=arguments,
+            working_dir=str(cwd),
+        )
+        assert result.success, result.content
+
+    (checkout / "flow-proof.txt").write_text(
+        "owner-authorized Flow commit\n",
+        encoding="utf-8",
+    )
+    for arguments in (
+        ["add", "flow-proof.txt"],
+        ["commit", "-m", "test: prove Flow git write"],
+        ["remote", "add", "origin", str(remote)],
+        ["push", "-u", "origin", "HEAD:main"],
+    ):
+        result = tool.execute(
+            executable=git,
+            arguments=arguments,
+            working_dir=str(checkout),
+        )
+        assert result.success, result.content
+
+    verified = tool.execute(
+        executable=git,
+        arguments=["--git-dir", str(remote), "rev-parse", "refs/heads/main"],
+        working_dir=str(tmp_path),
+    )
+    assert verified.success
+    assert len(verified.content.strip()) == 40
+
+
 def test_output_is_bounded(shell) -> None:
     tool, workspace = shell
     result = tool.execute(

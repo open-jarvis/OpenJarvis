@@ -9,7 +9,6 @@ from typing import Annotated, Any
 
 from openjarvis.codex.redaction import redact_data
 from openjarvis.memory.candidates import candidate_to_dict
-from openjarvis.memory.safe_write import ConcurrentMemoryWrite
 from openjarvis.memory.task_bridge import MemoryTaskContext
 from openjarvis.memory.vault_models import MemoryConflict, MemoryNote
 from openjarvis.server.task_routes import _require_local, _validated_header
@@ -65,6 +64,15 @@ def _workflow(request: Request):
             detail="Memory candidate workflow is not configured",
         )
     return workflow
+
+
+def _require_flow(request: Request) -> None:
+    authority = getattr(request.app.state, "flow_authority", None)
+    if authority is None or not authority.is_flow():
+        raise HTTPException(
+            status_code=403,
+            detail="Memory writes require an active owner-authenticated Flow session",
+        )
 
 
 def _context(
@@ -329,6 +337,7 @@ async def create_memory_candidate(
     thread_id: Annotated[str | None, Header(alias="X-Thread-ID")] = None,
     turn_id: Annotated[str | None, Header(alias="X-Turn-ID")] = None,
 ) -> dict[str, Any]:
+    _require_flow(request)
     context, key = _mutation(
         request,
         task_id=task_id,
@@ -347,79 +356,6 @@ async def create_memory_candidate(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return candidate_to_dict(candidate)
-
-
-@router.post("/candidates/{candidate_id}/approve")
-async def approve_memory_candidate(
-    candidate_id: str,
-    request: Request,
-    task_id: Annotated[str, Header(alias="X-Task-ID")],
-    session_id: Annotated[str, Header(alias="X-Session-ID")],
-    correlation_id: Annotated[str, Header(alias="X-Correlation-ID")],
-    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-    thread_id: Annotated[str | None, Header(alias="X-Thread-ID")] = None,
-    turn_id: Annotated[str | None, Header(alias="X-Turn-ID")] = None,
-) -> dict[str, Any]:
-    context, key = _mutation(
-        request,
-        task_id=task_id,
-        session_id=session_id,
-        correlation_id=correlation_id,
-        idempotency_key=idempotency_key,
-        thread_id=thread_id,
-        turn_id=turn_id,
-    )
-    workflow = _workflow(request)
-    candidate = workflow.get(candidate_id)
-    if candidate is None:
-        raise HTTPException(status_code=404, detail="Memory candidate not found")
-    if candidate.task_id != context.task_id:
-        raise HTTPException(status_code=409, detail="Candidate belongs to another task")
-    if _service(request).index.mode != "writable-test":
-        raise HTTPException(
-            status_code=403,
-            detail="Memory writes are disabled outside writable-test mode",
-        )
-    try:
-        applied = workflow.decide(candidate_id, allow=True, decision_id=key)
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except (ValueError, ConcurrentMemoryWrite) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return candidate_to_dict(applied)
-
-
-@router.post("/candidates/{candidate_id}/reject")
-async def reject_memory_candidate(
-    candidate_id: str,
-    request: Request,
-    task_id: Annotated[str, Header(alias="X-Task-ID")],
-    session_id: Annotated[str, Header(alias="X-Session-ID")],
-    correlation_id: Annotated[str, Header(alias="X-Correlation-ID")],
-    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-    thread_id: Annotated[str | None, Header(alias="X-Thread-ID")] = None,
-    turn_id: Annotated[str | None, Header(alias="X-Turn-ID")] = None,
-) -> dict[str, Any]:
-    context, key = _mutation(
-        request,
-        task_id=task_id,
-        session_id=session_id,
-        correlation_id=correlation_id,
-        idempotency_key=idempotency_key,
-        thread_id=thread_id,
-        turn_id=turn_id,
-    )
-    workflow = _workflow(request)
-    candidate = workflow.get(candidate_id)
-    if candidate is None:
-        raise HTTPException(status_code=404, detail="Memory candidate not found")
-    if candidate.task_id != context.task_id:
-        raise HTTPException(status_code=409, detail="Candidate belongs to another task")
-    try:
-        rejected = workflow.decide(candidate_id, allow=False, decision_id=key)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return candidate_to_dict(rejected)
 
 
 @router.post("/conflicts/{conflict_id}/resolve")

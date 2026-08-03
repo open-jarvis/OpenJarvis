@@ -46,6 +46,9 @@ class IdentityKind(str, Enum):
 class CandidateStatus(str, Enum):
     """Lifecycle state for a proposed Markdown write."""
 
+    PROPOSED = "proposed"
+    # Legacy values remain readable so existing vault indexes can be migrated
+    # without losing their audit history. New Flow sessions do not create them.
     PENDING_APPROVAL = "pending_approval"
     APPROVED = "approved"
     REJECTED = "rejected"

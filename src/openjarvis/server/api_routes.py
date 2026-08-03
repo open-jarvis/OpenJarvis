@@ -1364,9 +1364,6 @@ def include_all_routes(app) -> None:
         router as desktop_router,  # noqa: PLC0415
     )
     from openjarvis.server.flow_routes import router as flow_router  # noqa: PLC0415
-    from openjarvis.server.learning_skill_routes import (  # noqa: PLC0415
-        router as learning_skill_router,
-    )
     from openjarvis.server.mcp_routes import router as mcp_router  # noqa: PLC0415
     from openjarvis.server.memory_vault_routes import (  # noqa: PLC0415
         router as memory_vault_router,
@@ -1378,9 +1375,6 @@ def include_all_routes(app) -> None:
     from openjarvis.server.tool_browser_routes import (  # noqa: PLC0415
         router as tool_browser_router,
     )
-    from openjarvis.server.website_staging_routes import (  # noqa: PLC0415
-        router as website_staging_router,
-    )
 
     app.include_router(desktop_router)
     app.include_router(flow_router)
@@ -1388,9 +1382,7 @@ def include_all_routes(app) -> None:
     app.include_router(task_router)
     app.include_router(system_health_router)
     app.include_router(tool_browser_router)
-    app.include_router(website_staging_router)
     app.include_router(memory_vault_router)
-    app.include_router(learning_skill_router)
     app.include_router(agents_router)
     app.include_router(memory_router)
     app.include_router(traces_router)

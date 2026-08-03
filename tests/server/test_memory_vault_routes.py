@@ -1,7 +1,9 @@
-"""Local API tests for vault search, sources, candidates, and approvals."""
+"""Local API tests for vault search, sources, and direct Flow writes."""
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import uuid
 from pathlib import Path
 
@@ -9,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from openjarvis.flow import FlowSessionAuthority
 from openjarvis.memory.candidates import MemoryCandidateWorkflow
 from openjarvis.memory.safe_write import AtomicMarkdownWriter
 from openjarvis.memory.task_bridge import MemoryTaskBridge
@@ -81,11 +84,24 @@ def api_runtime(tmp_path: Path):
     )
     retriever = VaultRetriever(index)
     bridge = MemoryTaskBridge(task_store, trace_store=trace_store)
+    secret = "f" * 64
+    now = 1_800_000_000
+    nonce = "memory-api-native-proof"
+    owner = "memory-api-owner"
+    message = f"flow-v1\n{nonce}\n{now}\n{owner}".encode()
+    authority = FlowSessionAuthority(secret, clock=lambda: now)
+    authority.activate_flow(
+        nonce=nonce,
+        authenticated_at=now,
+        signature=hmac.new(secret.encode(), message, hashlib.sha256).hexdigest(),
+        owner=owner,
+    )
     workflow = MemoryCandidateWorkflow(
         index,
         retriever,
         bridge,
         AtomicMarkdownWriter(vault, tmp_path / "restore"),
+        flow_authority=authority,
     )
     service = VaultMemoryService(
         index,
@@ -94,6 +110,7 @@ def api_runtime(tmp_path: Path):
         candidate_workflow=workflow,
     )
     app = FastAPI()
+    app.state.flow_authority = authority
     app.state.vault_memory_service = service
     app.state.task_store = task_store
     app.state.task_service = task_service
@@ -319,7 +336,7 @@ def test_reindex_is_idempotent_and_does_not_write_markdown(api_runtime) -> None:
     assert (vault / "note.md").read_bytes() == before
 
 
-def test_candidate_create_and_approve_use_allow_once(api_runtime) -> None:
+def test_candidate_create_writes_directly_in_flow(api_runtime) -> None:
     vault, _service, _workflow, _task_store, client, headers = api_runtime
     create_headers = {**headers, "Idempotency-Key": "candidate-api-create"}
 
@@ -335,35 +352,45 @@ def test_candidate_create_and_approve_use_allow_once(api_runtime) -> None:
     candidate = created.json()
 
     assert created.status_code == 201
-    assert candidate["status"] == "pending_approval"
-    assert not (vault / candidate["proposed_path"]).exists()
-
-    approved = client.post(
-        f"/v1/memory/candidates/{candidate['candidate_id']}/approve",
-        headers={**headers, "Idempotency-Key": "candidate-api-allow"},
-    )
-
-    assert approved.status_code == 200
-    assert approved.json()["status"] == "applied"
+    assert candidate["status"] == "applied"
+    assert candidate["approval_id"] is None
     assert (vault / candidate["proposed_path"]).is_file()
 
 
-def test_candidate_reject_writes_nothing(api_runtime) -> None:
-    vault, _service, _workflow, _task_store, client, headers = api_runtime
+def test_candidate_create_is_blocked_outside_flow(api_runtime) -> None:
+    vault, _service, workflow, _task_store, client, headers = api_runtime
+    client.app.state.flow_authority.activate_assistant()
+
+    response = client.post(
+        "/v1/memory/candidates",
+        headers={**headers, "Idempotency-Key": "candidate-api-assistant"},
+        json={"body": "Assistant must not write memory."},
+    )
+
+    assert response.status_code == 403
+    assert workflow.list() == []
+    assert list(vault.rglob("*.md")) == []
+
+
+def test_memory_allow_once_endpoints_are_removed(api_runtime) -> None:
+    _vault, _service, _workflow, _task_store, client, headers = api_runtime
     created = client.post(
         "/v1/memory/candidates",
         headers={**headers, "Idempotency-Key": "candidate-api-reject-create"},
-        json={"body": "Reject this synthetic memory."},
+        json={"body": "Direct Flow memory."},
     ).json()
 
+    approved = client.post(
+        f"/v1/memory/candidates/{created['candidate_id']}/approve",
+        headers={**headers, "Idempotency-Key": "obsolete-memory-approve"},
+    )
     rejected = client.post(
         f"/v1/memory/candidates/{created['candidate_id']}/reject",
-        headers={**headers, "Idempotency-Key": "candidate-api-reject"},
+        headers={**headers, "Idempotency-Key": "obsolete-memory-reject"},
     )
 
-    assert rejected.status_code == 200
-    assert rejected.json()["status"] == "rejected"
-    assert not (vault / created["proposed_path"]).exists()
+    assert approved.status_code == 404
+    assert rejected.status_code == 404
 
 
 def test_api_cannot_turn_legacy_source_type_into_a_memory_candidate(

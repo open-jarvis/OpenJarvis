@@ -122,16 +122,8 @@ async def test_factory_wires_only_bounded_runtime_and_guarded_shutdown(
     assert runtime.app.state.channel_bridge is None
     assert runtime.app.state.analytics_client is None
     assert runtime.app.state.speech_backend.backend_id == "faster-whisper"
-    assert runtime.app.state.final_staging_root.is_relative_to(home.resolve())
-    assert not runtime.app.state.final_staging_root.is_relative_to(vault.resolve())
-    assert runtime.app.state.tool_action_service.runtime_available(
+    assert not runtime.app.state.tool_action_service.runtime_available(
         "website.staging.mutate"
-    )
-    cleaned: list[str] = []
-    monkeypatch.setattr(
-        runtime.app.state.website_staging_service,
-        "cleanup",
-        lambda workspace_id: cleaned.append(workspace_id),
     )
 
     transport = httpx.ASGITransport(
@@ -152,7 +144,6 @@ async def test_factory_wires_only_bounded_runtime_and_guarded_shutdown(
                 "vault_memory": True,
                 "phase7": True,
                 "tools": True,
-                "website_staging": True,
                 "local_speech_input": True,
                 "local_voice": True,
                 "analytics": False,
@@ -162,20 +153,6 @@ async def test_factory_wires_only_bounded_runtime_and_guarded_shutdown(
             }
             denied = await client.post("/v1/final/shutdown")
             assert denied.status_code == 403
-            invalid_cleanup = await client.post(
-                "/v1/final/pilot-cleanup/bad.dot",
-                headers={"x-openjarvis-shutdown-token": "unit-test-token"},
-            )
-            assert invalid_cleanup.status_code == 422
-            cleanup = await client.post(
-                "/v1/final/pilot-cleanup/phase8-final-website-pilot",
-                headers={"x-openjarvis-shutdown-token": "unit-test-token"},
-            )
-            assert cleanup.status_code == 200
-            assert cleanup.json() == {
-                "status": "cleaned",
-                "marker": FINAL_HEALTH_MARKER,
-            }
             accepted = await client.post(
                 "/v1/final/shutdown",
                 headers={"x-openjarvis-shutdown-token": "unit-test-token"},
@@ -183,7 +160,6 @@ async def test_factory_wires_only_bounded_runtime_and_guarded_shutdown(
             assert accepted.status_code == 202
             assert accepted.json()["marker"] == FINAL_HEALTH_MARKER
     assert stopped == [True]
-    assert cleaned == ["phase8-final-website-pilot"]
 
 
 def test_runtime_home_may_not_overlap_vault(tmp_path: Path) -> None:

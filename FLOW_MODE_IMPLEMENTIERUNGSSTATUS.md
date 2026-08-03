@@ -4,6 +4,7 @@ Stand: 3. August 2026
 Repository: `JokerON165Hz/OpenJarvis`  
 Branch: `feature/codex-jarvis-orchestrator`  
 Hauptimplementierung: Commit `30e567741b147eda0efce849f85710167550720c`
+Fortführung: Entfernung der letzten sichtbaren Legacy-Workflows und zusätzliche Flow-Abnahmetests im aktuellen Branchstand
 
 ## Ziel der Änderung
 
@@ -88,7 +89,9 @@ Formulare, Uploads, Downloads und Webseiteninteraktionen können zusätzlich üb
 
 ### 7. Memory
 
-Explizite Besitzerbefehle wie „Merk dir ...“ können im Flow Mode direkt in Memory geschrieben werden. Die frühere Candidate-Approval-Stufe blockiert diesen Ablauf im Flow Mode nicht mehr. Bestehende Candidate-Abläufe werden dort automatisch angewendet.
+Explizite Besitzerbefehle wie „Merk dir ...“ und „Merke dir ...“ werden im Flow Mode direkt und atomar in Memory geschrieben. Dabei entsteht weder eine Approval Queue noch ein Allow-once-Datensatz. Der Chat bestätigt anschließend kurz den gespeicherten Inhalt, ohne für diesen eindeutigen Befehl einen zusätzlichen Modellturn auszuführen.
+
+Außerhalb von Flow können automatisch erkannte Inhalte weiterhin als nicht blockierende Vorschläge mit Status `proposed` erfasst werden. Sie schreiben keine Markdown-Datei und erzeugen keine Berechtigung oder Warteschlange. Der alte Memory-Approve-/Reject-API-Pfad wurde entfernt. Der aktive Flow Grant übersteuert außerdem den früheren `writable-test`-Schalter; die tatsächliche Schreibberechtigung kommt ausschließlich von der zentralen Flow-Autorität.
 
 ### 8. Task-Orchestrierung und Codex
 
@@ -126,6 +129,8 @@ Folgende Mechanismen wurden nicht als störende Einzelgenehmigungen umgesetzt un
 
 - Approval-Bell und Approval-Seite im normalen Frontend
 - Approval-Router aus der normal gestarteten Serveranwendung
+- alte Phase-7-Approval- und Website-Staging-Komponenten, Routen, Runtime-Service und zugehörige Tests
+- Memory-Approve-/Reject-Endpunkte und die Queue-Erzeugung für Memory Candidates
 - blockierende Einzelgenehmigungen im Flow-Aktionspfad
 - Ordner-Allowlist im Flow-Dateipfad
 - Read-only-Zwang im Flow Mode
@@ -137,24 +142,25 @@ Einige alte Approval- und Risk-Strukturen existieren weiterhin als Kompatibilit�
 
 ## Tests und technische Prüfung
 
-Erfolgreich ausgeführt wurden:
+Auf dem aktuellen Branchstand erfolgreich ausgeführt wurden:
 
 - Python-Bytecodeprüfung: `python -m compileall -q src tests`
 - Ruff: `ruff check src tests`
-- relevante Backend- und Flow-Tests: 148 bestanden, 1 übersprungen
-- Frontend: 52 Tests bestanden
-- Frontend-Produktionsbuild: bestanden
+- gezielter finaler Flow-/Server-/Desktop-/Tool-/Memory-Satz: 99 bestanden
+- zusätzlicher breiter Regressionslauf: 617 bestanden, 2 übersprungen, 24 fehlgeschlagen
+- Frontend/Vitest: 49 Tests bestanden
+- Frontend-Produktionsbuild und `build:tauri`: bestanden
 - Rust/Tauri: 24 Tests bestanden
 - Rust/Tauri: `cargo check` bestanden
 - Git-Whitespaceprüfung: `git diff --check` bestanden
 
-Der vollständige globale `pytest`-Lauf wurde nach mehr als sechs Minuten wegen der kurzfristigen Abschaltung des Entwicklungsrechners beendet. Er wurde nicht aufgrund eines gemeldeten Testfehlers beendet. Die gezielt betroffenen Flow-, Server-, Desktop-, Tool-, Task- und Codex-Testbereiche liefen erfolgreich.
+Der breite Python-Lauf hat die Flow-relevanten Bereiche erfolgreich geprüft. Seine 24 Fehler liegen außerhalb der aktuellen Migration und reproduzieren vorhandene Umgebungs- oder Testreihenfolgeprobleme: fehlende native `openjarvis_rust`-Extension, ein unter Windows ungültiger SQLite-Pfad `:memory:`, veraltete MCP-Mock-Manifeste, eine nicht auffindbare synthetische Desktop-Fixture sowie Enum-Identitätsfehler nach testseitigem Modul-Reload. Die direkt geänderten Flow-, Memory-, Task-, Tool-Browser-, Action-Service-, Desktop- und Shell-Tests bestehen im isolierten finalen Lauf vollständig.
 
 ## Noch fehlend oder nicht vollständig geprüft
 
 ### 1. Vollständiger Testlauf
 
-Der komplette Testbestand des gesamten Repositories sollte ohne Zeitdruck erneut bis zum Ende ausgeführt werden. Dadurch werden auch Bereiche geprüft, die nicht direkt von Flow Mode betroffen sind.
+Der komplette Testbestand des gesamten Repositories sollte nach Bereitstellung der nativen Rust-Python-Extension und Bereinigung der Windows-/Testreihenfolgeprobleme erneut ausgeführt werden. Dadurch werden auch Bereiche geprüft, die nicht direkt von Flow Mode betroffen sind.
 
 Empfohlener Befehl:
 
@@ -189,7 +195,7 @@ Stop, Checkpoints und vorhandene Undo-Mechanismen bleiben erhalten. Es existiert
 
 ### 6. Legacy-Code
 
-Nicht mehr gemountete Approval-, Risk- und alte Produktmodule wurden nicht vollständig aus dem Repository gelöscht, weil Teile davon noch als Datenschema, Audit-Metadaten, Tests oder Kompatibilitätsschicht verwendet werden können.
+Die nicht mehr verwendeten Phase-7-/Website-Staging-Routen und UI-Komponenten sowie die Memory-Allow-once-Endpunkte wurden gelöscht. Einige Approval- und Risk-Typen bleiben weiterhin als persistierte Legacy-Schemawerte, Audit-Metadaten oder Kompatibilitätsschicht lesbar.
 
 Eine spätere Bereinigung sollte zuerst mit einer vollständigen Referenzsuche und dem kompletten Testlauf erfolgen. Entscheidend für den aktuellen Stand ist, dass diese Strukturen den zentralen Flow-Pfad nicht mehr mit Einzelgenehmigungen blockieren.
 
@@ -197,10 +203,7 @@ Eine spätere Bereinigung sollte zuerst mit einer vollständigen Referenzsuche u
 
 Noch sinnvoll wären gezielte Tests für:
 
-- wiederholte oder manipulierte Aktivierungsnachweise
-- Prozessneustart während einer Flow-Sitzung
 - mehrere parallele Tasks und gleichzeitige Stop-Signale
-- sehr lange Shell-Prozesse mit Kindprozessen
 - Windows-Sperren, Benutzerwechsel und Ruhezustand
 - fehlende Windows-Hello-Konfiguration
 - Browser- und Desktopaktionen auf mehreren Monitoren
@@ -213,16 +216,16 @@ Zusätzliche Python-Testabhängigkeiten wurden lokal installiert. Die dafür rel
 
 ## Empfohlene nächste Schritte
 
-1. Den vollständigen `pytest`-Lauf bis zum Ende ausführen.
+1. Die vorhandenen plattform- und testreihenfolgeabhängigen Python-Fehler separat bereinigen und danach den vollständigen `pytest`-Lauf wiederholen.
 2. Einen manuellen Tauri-End-to-End-Test mit Windows Hello durchführen.
 3. Flow-Aktivierung, Stop und Windows-Sperre auf einem Testsystem prüfen.
 4. Eine mehrstufige reale Aufgabe mit Datei-, Browser-, Desktop- und Shell-Werkzeugen durchführen.
 5. Prüfen, ob für bestimmte Administratoraufgaben ein optionaler, klar abgegrenzter Windows-Dienst tatsächlich benötigt wird.
-6. Legacy-Approval-Code erst nach vollständiger Referenz- und Regressionstestprüfung weiter entfernen.
+6. Nur noch als Schema-/Audit-Kompatibilität benötigten Legacy-Approval-Code nach einer Datenmigration weiter reduzieren.
 7. Optional eine robustere DOM-basierte Browserintegration ergänzen.
 
 ## Zusammenfassung
 
 Der aktuelle Flow Mode ist keine zusätzliche Freigabeschicht über dem alten Approval-System. Die zentrale Autorität, die native Besitzerbestätigung und die Tool-Integrationen bilden einen eigenen Ausführungspfad, in dem ein Besitzerauftrag die logisch notwendigen Teilschritte autorisiert.
 
-Der wichtigste noch offene Nachweis ist ein vollständiger, ununterbrochener Gesamttestlauf zusammen mit einem manuellen Windows-End-to-End-Test. Administratoraktionen bleiben außerdem an die tatsächlichen Windows-Rechte des laufenden Prozesses gebunden.
+Die migrationsrelevanten automatisierten Tests sind grün. Offen bleiben ein vollständig grüner globaler Testlauf nach Behebung der unabhängigen Windows-/Umgebungsprobleme und ein manueller Windows-Hello-End-to-End-Test. Administratoraktionen bleiben außerdem an die tatsächlichen Windows-Rechte des laufenden Prozesses gebunden.

@@ -8,6 +8,7 @@ import pytest
 
 from openjarvis.codex.types import ApprovalMode, SandboxMode
 from openjarvis.flow import (
+    FLOW_CAPABILITIES,
     AccessMode,
     FlowAuthenticationError,
     FlowSessionAuthority,
@@ -60,12 +61,45 @@ def test_flow_requires_fresh_native_proof_and_cannot_be_replayed() -> None:
     status = authority.activate_flow(**proof)
     assert status.mode is AccessMode.FLOW
     assert status.owner_authenticated is True
-    assert status.capabilities["filesystem"] == "full_machine"
-    assert status.capabilities["memory"] == "read_write"
+    assert status.capabilities == FLOW_CAPABILITIES
 
     authority.lock("test")
     with pytest.raises(FlowAuthenticationError, match="already used"):
         authority.activate_flow(**proof)
+
+
+def test_new_process_authority_always_starts_locked() -> None:
+    now = 1_800_000_000
+    first_process = FlowSessionAuthority(SECRET, clock=lambda: now)
+    first_process.activate_flow(**_proof(now, nonce="first-process-proof"))
+
+    restarted_process = FlowSessionAuthority(SECRET, clock=lambda: now)
+
+    assert first_process.status().mode is AccessMode.FLOW
+    assert restarted_process.status().mode is AccessMode.LOCKED
+    assert restarted_process.status().session_id is None
+    assert restarted_process.status().lock_reason == "application_started"
+
+
+def test_activity_does_not_extend_the_eight_hour_hard_expiry() -> None:
+    clock = [1_800_000_000]
+    authority = FlowSessionAuthority(
+        SECRET,
+        clock=lambda: clock[0],
+        max_session_seconds=100,
+    )
+    activated = authority.activate_flow(
+        **_proof(clock[0], nonce="hard-expiry-proof")
+    )
+    expires_at = activated.expires_at
+
+    clock[0] += 90
+    active = authority.record_activity(activated.session_id)
+
+    assert active.expires_at == expires_at
+    assert active.remaining_seconds == 10
+    clock[0] += 11
+    assert authority.status().mode is AccessMode.LOCKED
 
 
 def test_flow_is_full_access_without_intermediate_approval() -> None:

@@ -169,21 +169,6 @@ class VaultMemoryService:
             raise RuntimeError("memory candidate workflow is not configured")
         return self.candidate_workflow.create(context, **kwargs)
 
-    def decide_candidate(
-        self,
-        candidate_id: str,
-        *,
-        allow: bool,
-        decision_id: str,
-    ) -> MemoryCandidate:
-        if self.candidate_workflow is None:
-            raise RuntimeError("memory candidate workflow is not configured")
-        return self.candidate_workflow.decide(
-            candidate_id,
-            allow=allow,
-            decision_id=decision_id,
-        )
-
     def close(self) -> None:
         if self.watcher is not None:
             self.watcher.stop()

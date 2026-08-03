@@ -243,7 +243,6 @@ def create_app(
     codex_orchestrator=None,
     recovery_coordinator=None,
     tool_action_service=None,
-    website_staging_service=None,
     browser_session_service=None,
     desktop_controller=None,
     mcp_server_registry=None,
@@ -363,7 +362,6 @@ def create_app(
     app.state.codex_orchestrator = codex_orchestrator
     app.state.recovery_coordinator = recovery_coordinator
     app.state.tool_action_service = tool_action_service
-    app.state.website_staging_service = website_staging_service
     app.state.browser_session_service = browser_session_service
     app.state.desktop_controller = desktop_controller
     app.state.mcp_server_registry = mcp_server_registry

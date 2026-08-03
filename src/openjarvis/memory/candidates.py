@@ -1,4 +1,4 @@
-"""Approval-gated memory candidates and controlled Markdown application."""
+"""Non-blocking memory proposals and direct Flow-mode Markdown writes."""
 
 from __future__ import annotations
 
@@ -31,11 +31,10 @@ from openjarvis.memory.vault_models import (
 )
 from openjarvis.memory.vault_policy import WRITABLE_NOTE_TYPES
 from openjarvis.memory.vault_retrieval import VaultRetriever, normalize_query
-from openjarvis.tasks.policy import CentralRiskPolicy, RiskLevel
-from openjarvis.tasks.types import ApprovalKind, ApprovalStatus
+from openjarvis.tasks.policy import RiskLevel
 
 _REMEMBER_RE = re.compile(
-    r"^\s*(?:merke\s+dir|bitte\s+merken|remember(?:\s+that)?)"
+    r"^\s*(?:merk(?:e)?\s+dir|bitte\s+merken|remember(?:\s+that)?)"
     r"\s*[:,-]?\s*(?P<body>.+?)\s*$",
     re.IGNORECASE | re.DOTALL,
 )
@@ -66,7 +65,7 @@ def _stable_id(*parts: str) -> str:
 
 
 class MemoryCandidateWorkflow:
-    """Persist proposals, request allow-once approval, and apply atomically."""
+    """Persist suggestions or atomically apply an explicit Flow memory write."""
 
     def __init__(
         self,
@@ -75,19 +74,13 @@ class MemoryCandidateWorkflow:
         task_bridge: MemoryTaskBridge,
         writer: AtomicMarkdownWriter,
         *,
-        risk_policy: CentralRiskPolicy | None = None,
         flow_authority=None,
-        approval_ttl_seconds: float = 300.0,
     ) -> None:
-        if approval_ttl_seconds <= 0:
-            raise ValueError("approval_ttl_seconds must be positive")
         self.index = index
         self.retriever = retriever
         self.task_bridge = task_bridge
         self.writer = writer
-        self.risk_policy = risk_policy or CentralRiskPolicy()
         self.flow_authority = flow_authority
-        self.approval_ttl_seconds = approval_ttl_seconds
         self._lock = threading.RLock()
 
     def create(
@@ -201,46 +194,14 @@ class MemoryCandidateWorkflow:
                     before_hash,
                     "absent",
                     risk_level,
-                    (
-                        CandidateStatus.APPROVED.value
-                        if flow_active
-                        else CandidateStatus.PENDING_APPROVAL.value
-                    ),
+                    CandidateStatus.PROPOSED.value,
                     conflict_state.value,
                     timestamp,
                     timestamp,
                     json.dumps(metadata, ensure_ascii=False, sort_keys=True),
                 ),
             )
-        approval = None
-        if not flow_active:
-            approval = self.task_bridge.task_store.queue_approval(
-                request_id=f"memory-write:{candidate_id}",
-                task_id=context.task_id,
-                thread_id=context.thread_id or f"memory:{context.task_id}",
-                turn_id=context.turn_id,
-                item_id=None,
-                action_id=candidate_id,
-                kind=ApprovalKind.FILE_CHANGE,
-                action="create memory note",
-                target=relative_path,
-                effect="Create one Markdown note with an automatic restore point.",
-                risk_level=risk_level,
-                sandbox="workspace_write",
-                cwd=str(self.index.vault_root),
-                undo="An external restore artifact is created before replace.",
-                payload={"candidate_id": candidate_id, "note_id": note_id},
-                ttl_seconds=self.approval_ttl_seconds,
-            )
         with self._lock, self.index.connection:
-            if approval is not None:
-                self.index.connection.execute(
-                    """
-                    UPDATE memory_candidates SET approval_id=?, updated_at=?
-                    WHERE candidate_id=?
-                    """,
-                    (approval.approval_id, _now(), candidate_id),
-                )
             self.index.connection.execute(
                 """
                 INSERT INTO memory_api_operations (
@@ -271,7 +232,7 @@ class MemoryCandidateWorkflow:
                 "note_id": note_id,
                 "path": relative_path,
                 "risk_level": risk_level,
-                "approval_id": approval.approval_id if approval else None,
+                "approval_id": None,
                 "flow_direct": flow_active,
                 "conflict_state": conflict_state.value,
                 "diff_digest": _stable_id(planned_diff),
@@ -281,110 +242,23 @@ class MemoryCandidateWorkflow:
         if created is None:
             raise RuntimeError("candidate could not be read back")
         return (
-            self.apply(created.candidate_id, flow_authorized=True)
+            self.apply(created.candidate_id)
             if flow_active
             else created
         )
 
-    def decide(
-        self,
-        candidate_id: str,
-        *,
-        allow: bool,
-        decision_id: str,
-    ) -> MemoryCandidate:
-        """Persist one local allow-once/deny decision and apply only on allow."""
-
-        candidate = self._require(candidate_id)
-        if candidate.status is CandidateStatus.APPLIED:
-            return candidate
-        if not candidate.approval_id:
-            raise RuntimeError("candidate has no approval request")
-        record = self.task_bridge.task_store.decide_approval(
-            candidate.approval_id,
-            allow=allow,
-            decision_id=decision_id,
-        )
-        context = self._context(candidate)
-        if not allow:
-            updated = self._set_status(candidate_id, CandidateStatus.REJECTED)
-            self.task_bridge.event(
-                context,
-                event_type="memory.write_rejected",
-                operation_id=candidate_id,
-                payload={
-                    "candidate_id": candidate_id,
-                    "approval_id": record.approval_id,
-                    "reason": "explicit_user_denial",
-                },
-            )
-            return updated
-
-        approved = self._set_status(candidate_id, CandidateStatus.APPROVED)
-        self.task_bridge.event(
-            context,
-            event_type="memory.write_approved",
-            operation_id=candidate_id,
-            payload={
-                "candidate_id": candidate_id,
-                "approval_id": record.approval_id,
-                "decision": "allow_once",
-            },
-        )
-        return self.apply(approved.candidate_id)
-
-    def expire(self, candidate_id: str, *, decision_id: str) -> MemoryCandidate:
-        candidate = self._require(candidate_id)
-        if not candidate.approval_id:
-            raise RuntimeError("candidate has no approval request")
-        self.task_bridge.task_store.expire_approval(
-            candidate.approval_id,
-            decision_id=decision_id,
-        )
-        updated = self._set_status(candidate_id, CandidateStatus.EXPIRED)
-        self.task_bridge.event(
-            self._context(updated),
-            event_type="memory.write_rejected",
-            operation_id=candidate_id,
-            payload={"candidate_id": candidate_id, "reason": "approval_timeout"},
-        )
-        return updated
-
-    def apply(
-        self, candidate_id: str, *, flow_authorized: bool = False
-    ) -> MemoryCandidate:
-        """Apply an approved candidate once and synchronize the index."""
+    def apply(self, candidate_id: str) -> MemoryCandidate:
+        """Apply a proposal once while the owner-authenticated Flow is active."""
 
         with self._lock:
             candidate = self._require(candidate_id)
             if candidate.status is CandidateStatus.APPLIED:
                 return candidate
             active_flow = bool(
-                flow_authorized
-                and self.flow_authority
-                and self.flow_authority.is_flow()
+                self.flow_authority and self.flow_authority.is_flow()
             )
-            if self.index.mode != "writable-test":
-                raise PermissionError("vault is not writable")
-            approval = (
-                self.task_bridge.task_store.get_approval(candidate.approval_id)
-                if candidate.approval_id
-                else None
-            )
-            if not active_flow and (
-                approval is None or approval.status is not ApprovalStatus.APPROVED
-            ):
-                if approval is not None and approval.status in {
-                    ApprovalStatus.DENIED,
-                    ApprovalStatus.EXPIRED,
-                }:
-                    status = (
-                        CandidateStatus.REJECTED
-                        if approval.status is ApprovalStatus.DENIED
-                        else CandidateStatus.EXPIRED
-                    )
-                    self._set_status(candidate_id, status)
-                raise PermissionError("candidate does not have allow-once approval")
+            if not active_flow:
+                raise PermissionError("memory writes require an active Flow session")
             operation_id = uuid.uuid4().hex
             context = self._context(candidate)
             try:
@@ -490,7 +364,9 @@ class MemoryCandidateWorkflow:
             rows = self.index.connection.execute(
                 """
                 SELECT * FROM memory_candidates
-                WHERE status IN ('pending_approval', 'approved', 'conflicted')
+                WHERE status IN (
+                    'proposed', 'pending_approval', 'approved', 'conflicted'
+                )
                 ORDER BY created_at DESC LIMIT ?
                 """,
                 (limit,),
