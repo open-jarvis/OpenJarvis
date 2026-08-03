@@ -20,7 +20,6 @@ import {
   Brain,
   Home,
   ListChecks,
-  ShieldCheck,
   Wrench,
   Globe2,
 } from 'lucide-react';
@@ -60,7 +59,6 @@ export function Sidebar() {
     { path: '/', icon: Home, label: 'Jarvis' },
     { path: '/chat', icon: MessageSquare, label: 'Chat' },
     { path: '/tasks', icon: ListChecks, label: 'Tasks' },
-    { path: '/approvals', icon: ShieldCheck, label: 'Approvals' },
     { path: '/tools', icon: Wrench, label: 'Tools & Actions' },
     { path: '/browser', icon: Globe2, label: 'Browser' },
     { path: '/dashboard', icon: BarChart3, label: 'Dashboard' },

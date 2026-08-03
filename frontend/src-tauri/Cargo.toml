@@ -22,6 +22,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 # Cloud API keys are stored in the OS credential store via `keyring`. keyring v3
 # enables NO backend by default — without an explicit per-platform feature it
@@ -34,6 +38,8 @@ keyring = { version = "3", features = ["apple-native"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
+windows = { version = "0.61", features = ["Foundation", "Security_Credentials_UI"] }
+windows-future = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Blocking Secret Service backend (no internal async runtime, so it is safe to

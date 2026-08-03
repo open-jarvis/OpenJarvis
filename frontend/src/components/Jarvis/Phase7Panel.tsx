@@ -125,12 +125,12 @@ export function Phase7DecisionDialog({
       </label>
       {decision && (
         <p className="mt-2 text-xs" style={{ color: 'var(--color-warning)' }}>
-          The decision is fixed by the selected button: <strong>{decision === 'allow_once' ? 'Allow once' : 'Deny'}</strong>. Text cannot change it.
+          The selected action is explicit: <strong>{decision === 'allow_once' ? 'Apply now' : 'Reject'}</strong>. Text cannot change it.
         </p>
       )}
       <div className="mt-4 flex flex-wrap gap-2">
         <button type="button" disabled={busy || !reason.trim()} onClick={() => onConfirm(reason.trim(), feedbackType, conflictDecision)} className="rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-40" style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}>
-          Confirm {decision === 'allow_once' ? 'allow once' : decision === 'deny' ? 'deny' : 'action'}
+          Confirm {decision === 'allow_once' ? 'apply now' : decision === 'deny' ? 'reject' : 'action'}
         </button>
         <button type="button" disabled={busy} onClick={onClose} className="rounded-lg px-4 py-2 text-sm" style={{ border: '1px solid var(--color-border)' }}>Cancel</button>
       </div>

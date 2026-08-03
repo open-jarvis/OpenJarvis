@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -25,22 +28,18 @@ from openjarvis.codex.types import (  # noqa: E402
 )
 from openjarvis.core.config import JarvisConfig  # noqa: E402
 from openjarvis.core.events import EventBus  # noqa: E402
+from openjarvis.flow import FlowSessionAuthority  # noqa: E402
 from openjarvis.server.app import create_app  # noqa: E402
-from openjarvis.server.approval_routes import router as approval_router  # noqa: E402
 from openjarvis.server.task_routes import (  # noqa: E402
     _parse_tool_proposal,
+)
+from openjarvis.server.task_routes import (  # noqa: E402
     router as task_router,
 )
-from openjarvis.tasks.approval import PersistentApprovalBroker  # noqa: E402
 from openjarvis.tasks.orchestrator import TaskExecutionResult  # noqa: E402
 from openjarvis.tasks.service import TaskService  # noqa: E402
 from openjarvis.tasks.store import TaskStore  # noqa: E402
-from openjarvis.tasks.types import (  # noqa: E402
-    ApprovalKind,
-    TaskOutcome,
-    TaskStatus,
-)
-from openjarvis.tools.approval_store import ApprovalStore  # noqa: E402
+from openjarvis.tasks.types import TaskOutcome, TaskStatus  # noqa: E402
 
 _HEADERS = {
     "X-Correlation-ID": "api-correlation",
@@ -143,38 +142,42 @@ class FakeOrchestrator:
 
 @pytest.fixture
 def api_runtime(tmp_path: Path):
-    import openjarvis.server.approval_routes as approval_routes
-
     store = TaskStore(tmp_path / "tasks.db")
     service = TaskService(store)
-    broker = PersistentApprovalBroker(store, service, timeout_seconds=1)
     orchestrator = FakeOrchestrator(service)
-    legacy_store = ApprovalStore(db_path=str(tmp_path / "legacy-approvals.db"))
-    original_legacy = approval_routes._store
-    approval_routes._store = legacy_store
+    secret = "f" * 64
+    authenticated_at = int(time.time())
+    nonce = "task-routes-native-proof"
+    owner = "test-owner"
+    message = f"flow-v1\n{nonce}\n{authenticated_at}\n{owner}".encode()
+    authority = FlowSessionAuthority(secret)
+    authority.activate_flow(
+        nonce=nonce,
+        authenticated_at=authenticated_at,
+        signature=hmac.new(secret.encode(), message, hashlib.sha256).hexdigest(),
+        owner=owner,
+    )
 
     app = FastAPI()
     app.state.task_store = store
     app.state.task_service = service
-    app.state.approval_broker = broker
+    app.state.flow_authority = authority
     app.state.codex_orchestrator = orchestrator
     assistant_workspace = tmp_path / "assistant-workspace"
     assistant_workspace.mkdir()
     app.state.assistant_workspace = assistant_workspace
     app.state.config = SimpleNamespace(
+        sandbox=SimpleNamespace(workspace=str(assistant_workspace)),
         codex=SimpleNamespace(
             analysis_sandbox="read_only",
             approval_mode="deny_all",
             allow_cli_fallback=False,
-        )
+        ),
     )
     app.include_router(task_router)
-    app.include_router(approval_router)
     try:
-        yield TestClient(app), store, service, broker, orchestrator
+        yield TestClient(app), store, service, None, orchestrator
     finally:
-        approval_routes._store = original_legacy
-        legacy_store.close()
         store.close()
 
 
@@ -287,9 +290,9 @@ def test_text_and_voice_use_same_task_and_voice_cannot_approve(api_runtime) -> N
     assert second.json()["task"]["task_id"] == "task-chat"
     assert orchestrator.execute_count == 2
     timeline = client.get("/v1/tasks/task-chat/timeline").json()["events"]
-    voice = [
-        event for event in timeline if event["event_type"] == "chat.user_message"
-    ][-1]
+    voice = [event for event in timeline if event["event_type"] == "chat.user_message"][
+        -1
+    ]
     assert voice["payload"]["input_mode"] == "voice"
     assert store.list_pending_approvals(task_id="task-chat") == []
 
@@ -322,11 +325,14 @@ def test_action_request_uses_trusted_workspace_and_code_owned_instructions(
 
     assert response.status_code == 200
     task = response.json()["task"]
-    assert task["risk_level"] == 1
+    assert task["risk_level"] == 0
     kwargs = orchestrator.last_execute_kwargs
-    assert kwargs["cwd"] == kwargs["isolated_workspace"]
+    assert kwargs["isolated_workspace"] is None
     assert kwargs["cwd"].name == "assistant-workspace"
-    assert "do not commit or push" in kwargs["developer_instructions"].lower()
+    assert "do not request intermediate approvals" in (
+        kwargs["developer_instructions"].lower()
+    )
+    assert "including commit or push" in kwargs["developer_instructions"].lower()
     timeline = client.get("/v1/tasks/task-programming/timeline").json()["events"]
     classified = next(
         event
@@ -337,7 +343,7 @@ def test_action_request_uses_trusted_workspace_and_code_owned_instructions(
         "authority": "code_owned",
         "kind": "programming",
         "reason": "programming_action",
-        "risk_level": 1,
+        "risk_level": 0,
     }
 
 
@@ -356,9 +362,9 @@ def test_informational_browser_question_stays_read_only_chat(api_runtime) -> Non
     instructions = orchestrator.last_execute_kwargs["developer_instructions"]
     assert "normally be answered directly" in instructions
     assert "Available tools:\n[]" in instructions
-    timeline = client.get(
-        "/v1/tasks/task-browser-explanation/timeline"
-    ).json()["events"]
+    timeline = client.get("/v1/tasks/task-browser-explanation/timeline").json()[
+        "events"
+    ]
     classified = next(
         event
         for event in timeline
@@ -371,16 +377,22 @@ def test_informational_browser_question_stays_read_only_chat(api_runtime) -> Non
 def test_canonical_tool_proposal_parser_requires_one_exact_envelope() -> None:
     assert _parse_tool_proposal(
         '<openjarvis_tool_proposal>{"tool_id":"desktop.windows","arguments":{}}'
-        '</openjarvis_tool_proposal>'
+        "</openjarvis_tool_proposal>"
     ) == ("desktop.windows", {})
-    assert _parse_tool_proposal(
-        'I will do it. <openjarvis_tool_proposal>{"tool_id":"desktop.windows",'
-        '"arguments":{}}</openjarvis_tool_proposal>'
-    ) is None
-    assert _parse_tool_proposal(
-        '<openjarvis_tool_proposal>{"tool_id":"desktop.windows",'
-        '"arguments":{},"risk_level":0}</openjarvis_tool_proposal>'
-    ) is None
+    assert (
+        _parse_tool_proposal(
+            'I will do it. <openjarvis_tool_proposal>{"tool_id":"desktop.windows",'
+            '"arguments":{}}</openjarvis_tool_proposal>'
+        )
+        is None
+    )
+    assert (
+        _parse_tool_proposal(
+            '<openjarvis_tool_proposal>{"tool_id":"desktop.windows",'
+            '"arguments":{},"risk_level":0}</openjarvis_tool_proposal>'
+        )
+        is None
+    )
 
 
 def test_chat_surfaces_usage_limit_without_raw_backend_message(api_runtime) -> None:
@@ -449,10 +461,9 @@ def test_chat_surfaces_usage_limit_without_raw_backend_message(api_runtime) -> N
     assert missing["payload"]["error_category"] == "codex_usage_limit_exceeded"
 
 
-def test_higher_risk_followup_requires_new_task_before_user_event(api_runtime) -> None:
+def test_flow_followup_continues_same_task_without_risk_gate(api_runtime) -> None:
     client, _, _, _, orchestrator = api_runtime
     assert _chat(client).status_code == 200
-    before = client.get("/v1/tasks/task-chat/timeline").json()["events"]
 
     response = _chat(
         client,
@@ -461,11 +472,14 @@ def test_higher_risk_followup_requires_new_task_before_user_event(api_runtime) -
         idempotency_key="browser-once",
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"].startswith("NEW_TASK_REQUIRED:")
+    assert response.status_code == 200
     after = client.get("/v1/tasks/task-chat/timeline").json()["events"]
-    assert after == before
-    assert orchestrator.execute_count == 1
+    assert any(
+        event["event_type"] == "chat.user_message"
+        and event["payload"].get("request_id") == "browser-once"
+        for event in after
+    )
+    assert orchestrator.execute_count == 2
 
 
 def test_create_and_resume_are_idempotent(api_runtime, tmp_path: Path) -> None:
@@ -532,87 +546,10 @@ def test_pause_and_cancel_emit_canonical_state_events(api_runtime) -> None:
     assert (TaskStatus.PAUSED, TaskStatus.CANCELED) in transitions
 
 
-def test_phase3_approval_is_visible_and_decided_once(
-    api_runtime,
-    tmp_path: Path,
-) -> None:
-    client, store, service, _, _ = api_runtime
-    task = service.create(
-        task_id="approval-task",
-        session_id="approval-session",
-        correlation_id="approval-correlation",
-        description="write in test workspace",
-        risk_level=1,
-        component="test",
-        cause="test",
-        idempotency_key="approval-task-create",
-    )
-    service.transition(
-        task.task_id,
-        TaskStatus.RUNNING,
-        component="test",
-        cause="test",
-        idempotency_key="approval-task-running",
-    )
-    store.save_thread(
-        CodexThreadRecord(
-            task_id=task.task_id,
-            session_id=task.session_id,
-            correlation_id="approval-thread-correlation",
-            thread_id="approval-thread",
-            backend=CodexBackendKind.APP_SERVER,
-            sandbox=SandboxMode.WORKSPACE_WRITE,
-            approval_mode=ApprovalMode.BROKERED,
-            cwd=str(tmp_path),
-            model_config={},
-            status="active",
-            created_at="2026-07-30T00:00:00+00:00",
-            updated_at="2026-07-30T00:00:00+00:00",
-        )
-    )
-    approval = store.queue_approval(
-        request_id="approval-request",
-        task_id=task.task_id,
-        thread_id="approval-thread",
-        turn_id=None,
-        item_id="item",
-        action_id="action",
-        kind=ApprovalKind.FILE_CHANGE,
-        action="write report",
-        target=str(tmp_path / "report.md"),
-        effect="Write one report in the isolated workspace.",
-        risk_level=1,
-        sandbox="workspace_write",
-        cwd=str(tmp_path),
-        undo="restore from diff",
-    )
-
-    pending = client.get("/v1/approvals/pending").json()["actions"]
-    phase3 = next(item for item in pending if item["id"] == approval.approval_id)
-    assert phase3["target"].endswith("report.md")
-    assert phase3["risk_level"] == 1
-    assert phase3["sandbox"] == "workspace_write"
-
-    headers = {
-        "X-Correlation-ID": "decision-correlation",
-        "Idempotency-Key": "decision-once",
-    }
-    first = client.post(
-        f"/v1/approvals/{approval.approval_id}/approve",
-        headers=headers,
-    )
-    repeated = client.post(
-        f"/v1/approvals/{approval.approval_id}/approve",
-        headers=headers,
-    )
-    assert first.json()["status"] == "approved"
-    assert repeated.json()["status"] == "approved"
-    decisions = [
-        event
-        for event in service.timeline(task.task_id)
-        if event.event_type == "approval.user_decided"
-    ]
-    assert len(decisions) == 1
+def test_approval_queue_api_is_not_mounted(api_runtime) -> None:
+    client, *_ = api_runtime
+    assert client.get("/v1/approvals/pending").status_code == 404
+    assert client.post("/v1/approvals/legacy/approve").status_code == 404
 
 
 def test_health_is_credential_safe_and_redacts_thread_by_default(api_runtime) -> None:

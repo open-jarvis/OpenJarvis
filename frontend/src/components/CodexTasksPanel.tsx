@@ -7,12 +7,9 @@ import {
   Clock,
   FileCheck2,
   Globe2,
-  Shield,
   Wrench,
 } from 'lucide-react';
 import {
-  approveToolAction,
-  denyToolAction,
   fetchActionArtifacts,
   fetchBrowserHealth,
   fetchBrowserSessions,
@@ -59,16 +56,10 @@ export function ToolActionDetails({
   action,
   tool,
   artifacts,
-  decisionPending = false,
-  onApprove,
-  onDeny,
 }: {
   action: ToolActionInfo;
   tool: ToolManifestInfo | null;
   artifacts: ToolArtifactInfo[];
-  decisionPending?: boolean;
-  onApprove?: () => void;
-  onDeny?: () => void;
 }) {
   return (
     <div
@@ -79,15 +70,12 @@ export function ToolActionDetails({
         <span className="font-mono" style={{ color: 'var(--color-text)' }}>
           {action.tool_id} · {action.status.replace('_', ' ')}
         </span>
-        <span style={{ color: action.risk_level >= 3 ? 'var(--color-error)' : 'var(--color-warning)' }}>
-          Risk {action.risk_level} · {action.capability}
-        </span>
+        <span style={{ color: 'var(--color-text-secondary)' }}>{action.capability}</span>
       </div>
       <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1" style={{ color: 'var(--color-text-secondary)' }}>
         <span>Target: {action.target}</span>
         <span>Expected effect: {action.expected_side_effect}</span>
         <span>Verification: {action.verification_status}</span>
-        <span>Approval: {action.approval_id || 'not required'}</span>
         <span>Root: {tool?.allowed_roots.join(', ') || 'runtime-scoped'}</span>
         <span>Undo: {action.undo_plan}</span>
       </div>
@@ -99,33 +87,6 @@ export function ToolActionDetails({
       </div>
       {action.error && (
         <div className="mt-2" style={{ color: 'var(--color-error)' }}>Error: {action.error}</div>
-      )}
-      {action.status === 'waiting_approval' && (
-        <div className="mt-3 rounded-md p-2" style={{ border: '1px solid var(--color-warning)' }}>
-          <div style={{ color: 'var(--color-warning)' }}>
-            Review this exact action. Approval applies once; there is no “always allow”.
-          </div>
-          <div className="flex gap-2 mt-2">
-            <button
-              type="button"
-              disabled={decisionPending}
-              onClick={onApprove}
-              className="px-2 py-1 rounded cursor-pointer disabled:opacity-50"
-              style={{ background: 'var(--color-accent)', color: 'white' }}
-            >
-              Allow once
-            </button>
-            <button
-              type="button"
-              disabled={decisionPending}
-              onClick={onDeny}
-              className="px-2 py-1 rounded cursor-pointer disabled:opacity-50"
-              style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-            >
-              Deny
-            </button>
-          </div>
-        </div>
       )}
       {artifacts.length > 0 && (
         <div className="mt-3 space-y-1">
@@ -157,7 +118,6 @@ export function CodexTasksPanel() {
   const [browserSessions, setBrowserSessions] = useState<BrowserSessionInfo[]>([]);
   const [actions, setActions] = useState<ToolActionInfo[]>([]);
   const [artifacts, setArtifacts] = useState<ToolArtifactInfo[]>([]);
-  const [decisionPending, setDecisionPending] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -250,19 +210,6 @@ export function CodexTasksPanel() {
     .reverse()
     .find(event => event.event_type.startsWith('tool.') || event.event_type.startsWith('browser.'));
 
-  const decide = async (allow: boolean) => {
-    if (!currentAction) return;
-    setDecisionPending(true);
-    try {
-      const updated = allow
-        ? await approveToolAction(currentAction.action_id)
-        : await denyToolAction(currentAction.action_id);
-      setActions(current => current.map(action => action.action_id === updated.action_id ? updated : action));
-    } finally {
-      setDecisionPending(false);
-    }
-  };
-
   return (
     <section
       className="mb-6 rounded-xl overflow-hidden"
@@ -294,15 +241,6 @@ export function CodexTasksPanel() {
             {health.degraded ? <AlertTriangle size={11} /> : <CheckCircle size={11} />}
             {health.active_backend || 'No backend'}
           </span>
-          <span className="flex items-center gap-1" style={{ color: 'var(--color-text-secondary)' }}>
-            <Shield size={11} />
-            {health.sandbox} · {health.approval_mode}
-          </span>
-          {health.open_approvals > 0 && (
-            <span style={{ color: 'var(--color-warning)' }}>
-              {health.open_approvals} approval{health.open_approvals === 1 ? '' : 's'}
-            </span>
-          )}
           {toolHealth && (
             <span className="flex items-center gap-1" style={{ color: toolHealth.healthy ? 'var(--color-success)' : 'var(--color-warning)' }}>
               <Wrench size={11} />
@@ -343,7 +281,7 @@ export function CodexTasksPanel() {
                       {task.description}
                     </span>
                     <span className="block text-[10px] mt-1" style={{ color }}>
-                      {task.status.replace('_', ' ')} · risk {task.risk_level}
+                      {task.status.replace('_', ' ')}
                     </span>
                   </span>
                   <ChevronRight size={12} style={{ color: 'var(--color-text-tertiary)' }} />
@@ -382,9 +320,6 @@ export function CodexTasksPanel() {
                 action={currentAction}
                 tool={currentTool}
                 artifacts={artifacts}
-                decisionPending={decisionPending}
-                onApprove={() => void decide(true)}
-                onDeny={() => void decide(false)}
               />
             )}
             {currentBrowser && (

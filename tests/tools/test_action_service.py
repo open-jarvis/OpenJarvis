@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from openjarvis.flow import FlowSessionAuthority
 from openjarvis.tasks import ExecutionLane, TaskService, TaskStore
 from openjarvis.tasks.policy import RiskLevel, ToolPolicyContext
 from openjarvis.tools.action_service import (
@@ -105,8 +110,10 @@ def _service(
     *,
     handler=None,
     verifier=None,
+    interrupt=None,
     context_changes=None,
     inline_limit: int = 16_384,
+    flow_active: bool = True,
 ) -> tuple[ToolActionService, TaskService, ActionStore, TaskStore]:
     task_store = TaskStore(tmp_path / "tasks.db")
     tasks = TaskService(task_store)
@@ -131,6 +138,19 @@ def _service(
     if context_changes:
         context = replace(context, **context_changes)
     actions = ActionStore(tmp_path / "actions.db")
+    secret = "a" * 64
+    authority = FlowSessionAuthority(secret)
+    if flow_active:
+        authenticated_at = int(time.time())
+        nonce = "test-action-service-native-proof"
+        owner = "test-owner"
+        message = f"flow-v1\n{nonce}\n{authenticated_at}\n{owner}".encode()
+        authority.activate_flow(
+            nonce=nonce,
+            authenticated_at=authenticated_at,
+            signature=hmac.new(secret.encode(), message, hashlib.sha256).hexdigest(),
+            owner=owner,
+        )
     service = ToolActionService(
         catalog=ToolManifestCatalog((manifest,)),
         store=actions,
@@ -146,11 +166,13 @@ def _service(
                         expected_state=proposal.arguments["value"],
                     )
                 ),
+                interrupt=interrupt,
             )
         },
         artifact_root=tmp_path / "artifacts",
         task_service=tasks,
         inline_output_limit=inline_limit,
+        flow_authority=authority,
     )
     return service, tasks, actions, task_store
 
@@ -206,7 +228,9 @@ def test_unknown_parameter_is_denied_before_handler(tmp_path: Path) -> None:
     task_store.close()
 
 
-def test_model_capability_cannot_create_a_grant(tmp_path: Path) -> None:
+def test_flow_authority_does_not_depend_on_model_capability_claims(
+    tmp_path: Path,
+) -> None:
     manifest = _manifest()
     service, _, actions, task_store = _service(
         tmp_path,
@@ -214,13 +238,12 @@ def test_model_capability_cannot_create_a_grant(tmp_path: Path) -> None:
         context_changes={"granted_capabilities": frozenset()},
     )
     action = service.create(_proposal(manifest))
-    assert action.status is ActionStatus.DENIED
-    assert "not granted" in action.error
+    assert action.status is ActionStatus.VALIDATED
     actions.close()
     task_store.close()
 
 
-def test_untrusted_input_can_raise_risk_and_force_approval(tmp_path: Path) -> None:
+def test_untrusted_input_cannot_create_an_approval_gate_in_flow(tmp_path: Path) -> None:
     manifest = _manifest()
     service, _, actions, task_store = _service(
         tmp_path,
@@ -231,13 +254,13 @@ def test_untrusted_input_can_raise_risk_and_force_approval(tmp_path: Path) -> No
     )
     action = service.create(_proposal(manifest))
     assert action.risk_level is RiskLevel.DESTRUCTIVE_OR_SENSITIVE
-    assert action.status is ActionStatus.WAITING_APPROVAL
+    assert action.status is ActionStatus.VALIDATED
     actions.close()
     task_store.close()
 
 
 @pytest.mark.asyncio
-async def test_allow_once_is_exact_and_executes(tmp_path: Path) -> None:
+async def test_high_risk_action_executes_directly_in_flow(tmp_path: Path) -> None:
     manifest = _manifest(
         risk=RiskLevel.DESTRUCTIVE_OR_SENSITIVE,
         approval=True,
@@ -245,18 +268,46 @@ async def test_allow_once_is_exact_and_executes(tmp_path: Path) -> None:
     )
     service, _, actions, task_store = _service(tmp_path, manifest)
     action = service.create(_proposal(manifest))
-    assert action.status is ActionStatus.WAITING_APPROVAL
-    with pytest.raises(ToolActionError, match="allow-once"):
-        await service.execute(action.action_id)
-    completed = await service.approve(action.action_id, decision_id="allow-once-1")
+    assert action.status is ActionStatus.VALIDATED
+    completed = await service.execute(action.action_id)
     assert completed.status is ActionStatus.COMPLETED
-    repeated = await service.approve(action.action_id, decision_id="allow-once-1")
+    repeated = await service.execute(action.action_id)
     assert repeated == completed
     actions.close()
     task_store.close()
 
 
-def test_deny_is_idempotent_and_never_executes(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_owner_stop_interrupts_active_tool_chain(tmp_path: Path) -> None:
+    manifest = _manifest()
+    started = threading.Event()
+    release = threading.Event()
+
+    def handler(arguments):
+        started.set()
+        release.wait(timeout=5)
+        return {"value": arguments["value"]}
+
+    service, _, actions, task_store = _service(
+        tmp_path,
+        manifest,
+        handler=handler,
+        interrupt=release.set,
+    )
+    action = service.create(_proposal(manifest))
+    running = asyncio.create_task(service.execute(action.action_id))
+    assert await asyncio.to_thread(started.wait, 1)
+
+    assert service.interrupt_task("task-1") == 1
+    stopped = await running
+
+    assert stopped.status is ActionStatus.CANCELED
+    assert "owner" in (stopped.error or "")
+    actions.close()
+    task_store.close()
+
+
+def test_locked_mode_denies_and_never_executes(tmp_path: Path) -> None:
     manifest = _manifest(
         risk=RiskLevel.DESTRUCTIVE_OR_SENSITIVE,
         approval=True,
@@ -268,10 +319,14 @@ def test_deny_is_idempotent_and_never_executes(tmp_path: Path) -> None:
         nonlocal called
         called = True
 
-    service, _, actions, task_store = _service(tmp_path, manifest, handler=handler)
+    service, _, actions, task_store = _service(
+        tmp_path,
+        manifest,
+        handler=handler,
+        flow_active=False,
+    )
     action = service.create(_proposal(manifest))
-    denied = service.deny(action.action_id, decision_id="deny-1")
-    assert service.deny(action.action_id, decision_id="deny-1") == denied
+    assert action.status is ActionStatus.DENIED
     assert called is False
     actions.close()
     task_store.close()
@@ -287,6 +342,7 @@ async def test_failed_verification_never_reports_success(tmp_path: Path) -> None
             observed_state="wrong",
             expected_state="synthetic",
         )
+
     service, _, actions, task_store = _service(
         tmp_path,
         manifest,
@@ -313,6 +369,7 @@ async def test_large_redacted_output_is_an_artifact(tmp_path: Path) -> None:
             observed_state="bounded artifact",
             expected_state="bounded artifact",
         )
+
     service, tasks, actions, task_store = _service(
         tmp_path,
         manifest,

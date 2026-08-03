@@ -81,18 +81,18 @@ describe('isolated website staging UI', () => {
     const html = renderToStaticMarkup(<WebsiteStagingSummary workspace={workspace} />);
     expect(html).toContain('Preview diff');
     expect(html).toContain('Planned files');
-    expect(html).toContain('Risk level 1');
+    expect(html).toContain('Checkpoint ready');
     expect(html).toContain('Apply result');
     expect(html).toContain('Verification');
     expect(html).toContain('Artifacts');
-    expect(html).toContain('Rollback with Allow once');
+    expect(html).toContain('Rollback now');
     expect(html).not.toContain('Always allow');
   });
 
-  it('offers only allow-once or deny before apply', () => {
+  it('uses direct apply and reject language', () => {
     const previewOnly = { ...workspace, execution: undefined, verification: undefined, artifact_manifest: undefined };
     const html = renderToStaticMarkup(<WebsiteStagingSummary workspace={previewOnly} />);
-    expect(html).toContain('Allow once');
+    expect(html).toContain('Apply now');
     expect(html).toContain('Deny');
     expect(html).not.toContain('Always allow');
   });

@@ -98,7 +98,13 @@ def _is_reparse(path: Path) -> bool:
 class SecurePathPolicy:
     """Canonical path, root, secret, and reparse-point enforcement."""
 
-    def __init__(self, roots: tuple[str | Path, ...], restore_root: str | Path) -> None:
+    def __init__(
+        self,
+        roots: tuple[str | Path, ...],
+        restore_root: str | Path,
+        *,
+        full_machine: bool = False,
+    ) -> None:
         if not roots:
             raise ValueError("at least one filesystem root is required")
         self.roots = tuple(
@@ -107,8 +113,11 @@ class SecurePathPolicy:
         if any(not root.is_dir() for root in self.roots):
             raise ValueError("every filesystem root must be a directory")
         self.restore_root = Path(restore_root).expanduser().resolve(strict=False)
+        self.full_machine = full_machine
         self.restore_root.mkdir(parents=True, exist_ok=True)
-        if any(_is_under(self.restore_root, root) for root in self.roots):
+        if not full_machine and any(
+            _is_under(self.restore_root, root) for root in self.roots
+        ):
             raise ValueError("restore_root must be outside writable roots")
 
     def resolve(
@@ -127,9 +136,10 @@ class SecurePathPolicy:
             raise FilesystemPolicyError("parent traversal is blocked")
         lexical = supplied if supplied.is_absolute() else self.roots[0] / supplied
         lexical = Path(os.path.abspath(str(lexical)))
-        matching_root = next(
-            (root for root in self.roots if _is_under(lexical, root)),
-            None,
+        matching_root = (
+            lexical.anchor and Path(lexical.anchor)
+            if self.full_machine
+            else next((root for root in self.roots if _is_under(lexical, root)), None)
         )
         if matching_root is None:
             raise FilesystemPolicyError("path is outside allowed roots")
@@ -170,7 +180,9 @@ class SecurePathPolicy:
             )
             if value
         )
-        if any(_is_under(path, blocked) for blocked in blocked_roots):
+        if not self.full_machine and any(
+            _is_under(path, blocked) for blocked in blocked_roots
+        ):
             raise FilesystemPolicyError("system path blocked")
 
     def prepare_restore(self, target: Path) -> Path:

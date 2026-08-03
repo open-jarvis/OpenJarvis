@@ -30,22 +30,36 @@ from openjarvis.desktop.controller import (
 )
 from openjarvis.desktop.win32 import Win32SemanticBackend
 from openjarvis.engine import InferenceEngine
+from openjarvis.flow import FlowSessionAuthority
 from openjarvis.learning.runtime import Phase7LearningRuntime
+from openjarvis.mcp.registry import MCPServerRegistry
 from openjarvis.memory.vault_service import (
     VaultMemoryService,
     build_vault_memory_service,
 )
-from openjarvis.mcp.registry import MCPServerRegistry
 from openjarvis.server.app import create_app
 from openjarvis.speech._discovery import get_speech_backend
 from openjarvis.speech.local_voice import LocalVoiceBackend
-from openjarvis.tasks import ExecutionLane
 from openjarvis.tasks.policy import RiskLevel, ToolPolicyContext
 from openjarvis.tasks.runtime import CodexTaskRuntime, build_codex_task_runtime
 from openjarvis.tools.action_service import ToolActionService
 from openjarvis.tools.action_store import ActionStore
-from openjarvis.tools.actions import ParameterSource
+from openjarvis.tools.actions import ParameterSource, VerificationResult
 from openjarvis.tools.manifest import ToolManifestCatalog
+from openjarvis.tools.safe_filesystem import (
+    SafeDirectoryCreateTool,
+    SafeFileCopyTool,
+    SafeFileDeleteTool,
+    SafeFileListTool,
+    SafeFileMoveTool,
+    SafeFilePatchTool,
+    SafeFileReadTool,
+    SafeFileSearchTool,
+    SafeFileStatTool,
+    SafeFileWriteTool,
+    SecurePathPolicy,
+)
+from openjarvis.tools.safe_shell import SafeShellTool, StructuredCommandPolicy
 from openjarvis.traces.store import TraceStore
 from openjarvis.website import WebsiteStagingService, WebsiteWorkspaceStore
 
@@ -199,7 +213,7 @@ enabled = false
 vault_path = {_toml_string(vault)}
 vault_index_path = {_toml_string(state / "vault-index.sqlite3")}
 vault_restore_path = {_toml_string(home / "restore" / "vault")}
-vault_mode = "read-only"
+vault_mode = "writable-test"
 vault_embeddings_enabled = false
 vault_watch_enabled = false
 
@@ -298,11 +312,8 @@ def _validate_loaded_config(config: JarvisConfig, *, home: Path, vault: Path) ->
         raise ValueError("server host is not loopback-bound")
     if not config.codex.enabled or config.codex.primary_backend != "python_sdk":
         raise ValueError("final runtime requires the Python Codex SDK backend")
-    if (
-        config.codex.approval_mode != "deny_all"
-        or config.codex.analysis_sandbox != "read_only"
-    ):
-        raise ValueError("final Codex policy must be deny_all/read_only")
+    if config.codex.approval_mode != "deny_all":
+        raise ValueError("final Codex policy must suppress intermediate approvals")
     if (
         config.codex.model != FINAL_CODEX_MODEL
         or config.codex.reasoning_effort != FINAL_CODEX_EFFORT
@@ -392,12 +403,19 @@ def build_final_runtime(
     action_store: ActionStore | None = None
     try:
         trace_store = TraceStore(config.traces.db_path)
-        tasks = build_codex_task_runtime(config.codex, bus=bus, trace_store=trace_store)
+        flow_authority = FlowSessionAuthority.from_environment()
+        tasks = build_codex_task_runtime(
+            config.codex,
+            bus=bus,
+            trace_store=trace_store,
+            flow_authority=flow_authority,
+        )
         vault_service = build_vault_memory_service(
             config,
             task_store=tasks.store,
             trace_store=trace_store,
             initial_index=initial_index,
+            flow_authority=flow_authority,
         )
         if vault_service is None:
             raise RuntimeError("vault memory was not constructed")
@@ -415,7 +433,10 @@ def build_final_runtime(
             allowed_roots = (
                 (staging_root,)
                 if manifest.capability == "website:stage"
-                else tuple(Path(value).resolve(strict=False) for value in manifest.allowed_roots)
+                else tuple(
+                    Path(value).resolve(strict=False)
+                    for value in manifest.allowed_roots
+                )
             )
             untrusted_sources = {
                 ParameterSource.MEMORY,
@@ -446,7 +467,79 @@ def build_final_runtime(
             runtimes={},
             artifact_root=runtime_home / "tool-artifacts",
             task_service=tasks.service,
+            flow_authority=flow_authority,
         )
+        filesystem_policy = SecurePathPolicy(
+            (Path.home().resolve(strict=True),),
+            runtime_home / "restore" / "filesystem",
+            full_machine=True,
+        )
+        native_tools = [
+            SafeFileReadTool(filesystem_policy),
+            SafeFileListTool(filesystem_policy),
+            SafeFileStatTool(filesystem_policy),
+            SafeFileSearchTool(filesystem_policy),
+            SafeFileWriteTool(filesystem_policy),
+            SafeFilePatchTool(filesystem_policy),
+            SafeFileCopyTool(filesystem_policy),
+            SafeFileMoveTool(filesystem_policy),
+            SafeFileDeleteTool(filesystem_policy),
+            SafeDirectoryCreateTool(filesystem_policy),
+            SafeShellTool(
+                StructuredCommandPolicy(
+                    allowed_executables=(),
+                    path_policy=filesystem_policy,
+                    allowed_environment=frozenset(
+                        {
+                            "CI",
+                            "LANG",
+                            "LC_ALL",
+                            "PATH",
+                            "SYSTEMROOT",
+                            "TEMP",
+                            "TMP",
+                            "TZ",
+                            "WINDIR",
+                        }
+                    ),
+                    full_machine=True,
+                )
+            ),
+        ]
+
+        def native_runtime(tool):
+            def execute(arguments):
+                result = tool.execute(**dict(arguments))
+                return {
+                    "success": bool(result.success),
+                    "content": result.content,
+                    "metadata": dict(result.metadata),
+                }
+
+            def verify(_proposal, output):
+                passed = (
+                    bool(output.get("success"))
+                    and output.get("metadata", {}).get("verified", True) is not False
+                )
+                return VerificationResult(
+                    passed=passed,
+                    observed_state="tool result and postcondition verified"
+                    if passed
+                    else "tool failed",
+                    expected_state="successful native operation",
+                )
+
+            from openjarvis.tools.action_service import RegisteredToolRuntime
+
+            interrupt = getattr(tool, "interrupt", None)
+            return RegisteredToolRuntime(
+                handler=execute,
+                verifier=verify,
+                interrupt=interrupt if callable(interrupt) else None,
+            )
+
+        for tool in native_tools:
+            action_service.register_runtime(tool.manifest, native_runtime(tool))
         website_service = WebsiteStagingService(
             workspace_store=WebsiteWorkspaceStore(
                 staging_root,
@@ -461,8 +554,17 @@ def build_final_runtime(
                 runtime_home / "state" / "desktop-access.json"
             ),
             artifact_root=runtime_home / "tool-artifacts" / "desktop",
+            flow_authority=flow_authority,
         )
         for manifest, runtime in desktop_tool_runtimes(desktop_controller):
+            if runtime.interrupt is None:
+                from openjarvis.tools.action_service import RegisteredToolRuntime
+
+                runtime = RegisteredToolRuntime(
+                    handler=runtime.handler,
+                    verifier=runtime.verifier,
+                    interrupt=desktop_controller.interrupt,
+                )
             action_service.register_runtime(manifest, runtime)
         mcp_server_registry = MCPServerRegistry(
             runtime_home / "state" / "mcp-servers.json"
@@ -500,6 +602,7 @@ def build_final_runtime(
             phase7_learning_runtime=phase7,
             speech_backend=speech_backend,
             tts_backend=tts_backend,
+            flow_authority=flow_authority,
             owns_task_runtime=True,
             api_key="",
             cors_origins=[
@@ -519,7 +622,10 @@ def build_final_runtime(
                 "model": FINAL_CODEX_MODEL,
                 "reasoning_effort": FINAL_CODEX_EFFORT,
                 "model_confirmation_required": True,
-                "policy": {"approval": "deny_all", "sandbox": "read_only"},
+                "policy": {
+                    "authority": "flow_session",
+                    "mode": flow_authority.mode.value,
+                },
                 "components": {
                     "codex_tasks": True,
                     "vault_memory": True,
@@ -645,9 +751,7 @@ def _serve(args: argparse.Namespace) -> int:
     os.environ["OPENJARVIS_TOOL_ARTIFACT_ROOT"] = str(
         (runtime_home / "tool-artifacts" / "assistant").resolve(strict=False)
     )
-    Path(os.environ["OPENJARVIS_TOOL_ARTIFACT_ROOT"]).mkdir(
-        parents=True, exist_ok=True
-    )
+    Path(os.environ["OPENJARVIS_TOOL_ARTIFACT_ROOT"]).mkdir(parents=True, exist_ok=True)
     server: uvicorn.Server | None = None
 
     def request_shutdown() -> None:

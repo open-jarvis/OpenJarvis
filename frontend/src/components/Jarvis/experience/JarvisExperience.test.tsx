@@ -55,9 +55,9 @@ function experience(mode: 'talk' | 'text') {
       ttsAvailable
       speechLanguage="de-DE"
       preferences={{ ...DEFAULT_JARVIS_PREFERENCES, mode }}
-      approvals={[]}
       actions={[]}
-      decisionBusy={null}
+      flowStatus={null}
+      flowBusy={false}
       audioBackendInfo={{ backend: null, fallbackUsed: false, cacheHit: false, chunksSkipped: 0, lastError: null }}
       onPreferencesChange={() => {}}
       onDraftChange={() => {}}
@@ -66,7 +66,7 @@ function experience(mode: 'talk' | 'text') {
       onStop={() => {}}
       onNewConversation={() => {}}
       onLanguageChange={() => {}}
-      onApprovalDecision={() => {}}
+      onAccessModeChange={() => {}}
     />,
   );
 }

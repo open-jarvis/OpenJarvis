@@ -10,10 +10,8 @@ from openjarvis.codex.cli_backend import CodexCliFallbackBackend
 from openjarvis.codex.router import CodexBackendRouter
 from openjarvis.codex.sdk_backend import CodexPythonSdkBackend
 from openjarvis.codex.types import CodexModelConfig
-from openjarvis.tasks.approval import PersistentApprovalBroker
 from openjarvis.tasks.budget import BudgetLimits
 from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
-from openjarvis.tasks.policy import CentralRiskPolicy
 from openjarvis.tasks.projection import CodexTaskEventProjector
 from openjarvis.tasks.recovery import RecoveryCoordinator
 from openjarvis.tasks.service import TaskService
@@ -31,7 +29,7 @@ class CodexTaskRuntime:
 
     store: TaskStore
     service: TaskService
-    approval_broker: PersistentApprovalBroker
+    approval_broker: None
     orchestrator: CodexTaskOrchestrator
     recovery: RecoveryCoordinator
 
@@ -41,26 +39,24 @@ def build_codex_task_runtime(
     *,
     bus: EventBus,
     trace_store: TraceStore | None,
+    flow_authority=None,
 ) -> CodexTaskRuntime:
     """Build one credential-safe runtime for both CLI and library entrypoints."""
 
     store = TaskStore(config.state_db_path)
     try:
         service = TaskService(store, bus=bus)
-        risk_policy = CentralRiskPolicy()
-        approval_broker = PersistentApprovalBroker(
-            store,
-            service,
-            risk_policy=risk_policy,
-            timeout_seconds=config.default_timeout_seconds,
-        )
+        if flow_authority is None:
+            from openjarvis.flow import FlowSessionAuthority
+
+            flow_authority = FlowSessionAuthority.from_environment()
         sdk_backend = CodexPythonSdkBackend(
             store=store,
             require_model_confirmation=config.require_model_confirmation,
         )
         app_backend = CodexAppServerBackend(
             codex_bin=config.app_server_binary or None,
-            approval_broker=approval_broker,
+            approval_broker=None,
             store=store,
             request_timeout=config.default_timeout_seconds,
         )
@@ -84,7 +80,7 @@ def build_codex_task_runtime(
             router,
             service,
             projector,
-            risk_policy=risk_policy,
+            flow_authority=flow_authority,
             default_timeout_seconds=config.default_timeout_seconds,
             default_step_limit=config.default_step_limit,
             default_token_limit=(config.default_token_limit or None),
@@ -108,7 +104,7 @@ def build_codex_task_runtime(
         return CodexTaskRuntime(
             store=store,
             service=service,
-            approval_broker=approval_broker,
+            approval_broker=None,
             orchestrator=orchestrator,
             recovery=recovery,
         )

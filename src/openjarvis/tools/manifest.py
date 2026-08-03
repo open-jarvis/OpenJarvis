@@ -127,14 +127,6 @@ class ToolManifest(BaseModel):
             raise ValueError("at least one allowed lane is required")
         if not self.supported_platforms:
             raise ValueError("at least one supported platform is required")
-        if self.risk_level is RiskLevel.FINANCIAL_OR_SECURITY_CRITICAL:
-            if self.enabled:
-                raise ValueError("level-4 tools must be disabled in Phase 5")
-            if not self.required_approval:
-                raise ValueError("level-4 tools must require approval")
-        if self.risk_level >= RiskLevel.DESTRUCTIVE_OR_SENSITIVE:
-            if not self.required_approval:
-                raise ValueError("level-3/4 tools must require approval")
         if not self.enabled and not self.degraded_reason:
             raise ValueError("disabled tools require degraded_reason")
         return self
@@ -301,7 +293,7 @@ def manifest_from_spec(tool_id: str, spec: Any) -> ToolManifest:
         else NetworkPolicy.DENY
     )
     retryable = risk is RiskLevel.READ_ONLY
-    enabled = risk is not RiskLevel.FINANCIAL_OR_SECURITY_CRITICAL
+    enabled = True
     return ToolManifest(
         tool_id=str(tool_id),
         name=name,
@@ -341,18 +333,15 @@ def manifest_from_spec(tool_id: str, spec: Any) -> ToolManifest:
             if risk is RiskLevel.READ_ONLY
             else "manual_or_tool_specific"
         ),
-        required_approval=(
-            bool(spec.requires_confirmation)
-            or risk >= RiskLevel.DESTRUCTIVE_OR_SENSITIVE
-        ),
+        # Retained in the serialized compatibility schema only.  FlowSessionAuthority,
+        # not a per-tool approval bit, owns execution permission.
+        required_approval=False,
         allowed_roots=(),
         network_policy=network,
         secret_policy=SecretPolicy.REJECT,
         log_redaction_policy="credentials_and_sensitive_values",
         enabled=enabled,
-        degraded_reason=(
-            "level-4 execution disabled in Phase 5" if not enabled else ""
-        ),
+        degraded_reason="",
     )
 
 

@@ -312,18 +312,17 @@ export function MemoryVaultPanel() {
 
       <div className="grid lg:grid-cols-2 gap-4">
         <section className="rounded-xl p-4" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
-          <h2 className="text-sm font-semibold mb-3">Memory candidates</h2>
+          <h2 className="text-sm font-semibold mb-3">Recent memory writes</h2>
           {candidates.length === 0 ? (
             <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No candidates.</p>
           ) : candidates.map(candidate => (
             <details key={candidate.candidate_id} className="mb-2 rounded-lg p-3" style={{ background: 'var(--color-bg-tertiary)' }}>
               <summary className="cursor-pointer text-sm">
-                {candidate.note_type} · {candidate.status} · risk {candidate.risk_level}
+                {candidate.note_type} · {candidate.status}
               </summary>
               <div className="mt-2 text-xs space-y-1" style={{ color: 'var(--color-text-secondary)' }}>
                 <div>Note {shortId(candidate.note_id)}</div>
                 <div>{candidate.proposed_path}</div>
-                <div>Approval {candidate.approval_id ? shortId(candidate.approval_id) : 'not requested'}</div>
                 <div>Conflict {candidate.conflict_state}</div>
               </div>
               <pre className="mt-3 p-2 rounded overflow-auto text-[11px] max-h-56" style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)' }}>

@@ -1039,7 +1039,9 @@ async def synthesize_speech(
                     await synthesis
                 except Exception:
                     pass
-                raise HTTPException(status_code=499, detail="Speech synthesis cancelled")
+                raise HTTPException(
+                    status_code=499, detail="Speech synthesis cancelled"
+                )
         result = await synthesis
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1228,8 +1230,7 @@ async def speech_health(request: Request):
 
     try:
         tts_available = bool(
-            tts_backend is not None
-            and await asyncio.to_thread(tts_backend.health)
+            tts_backend is not None and await asyncio.to_thread(tts_backend.health)
         )
         tts_error = None
     except Exception as exc:
@@ -1359,14 +1360,14 @@ async def start_optimize_run(req: OptimizeRunRequest, request: Request):
 
 def include_all_routes(app) -> None:
     """Include all extended API routers in a FastAPI app."""
-    from openjarvis.server.approval_routes import (
-        router as approval_router,  # noqa: PLC0415
+    from openjarvis.server.desktop_routes import (
+        router as desktop_router,  # noqa: PLC0415
     )
-    from openjarvis.server.desktop_routes import router as desktop_router  # noqa: PLC0415
-    from openjarvis.server.mcp_routes import router as mcp_router  # noqa: PLC0415
+    from openjarvis.server.flow_routes import router as flow_router  # noqa: PLC0415
     from openjarvis.server.learning_skill_routes import (  # noqa: PLC0415
         router as learning_skill_router,
     )
+    from openjarvis.server.mcp_routes import router as mcp_router  # noqa: PLC0415
     from openjarvis.server.memory_vault_routes import (  # noqa: PLC0415
         router as memory_vault_router,
     )
@@ -1381,8 +1382,8 @@ def include_all_routes(app) -> None:
         router as website_staging_router,
     )
 
-    app.include_router(approval_router)
     app.include_router(desktop_router)
+    app.include_router(flow_router)
     app.include_router(mcp_router)
     app.include_router(task_router)
     app.include_router(system_health_router)

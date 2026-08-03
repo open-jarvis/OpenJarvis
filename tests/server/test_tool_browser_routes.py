@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import time
 from pathlib import Path
 
 import pytest
@@ -16,6 +19,7 @@ from openjarvis.browser.models import (  # noqa: E402
     BrowserSession,
     BrowserSessionStatus,
 )
+from openjarvis.flow import FlowSessionAuthority  # noqa: E402
 from openjarvis.server.auth_middleware import AuthMiddleware  # noqa: E402
 from openjarvis.server.tool_browser_routes import router  # noqa: E402
 from openjarvis.tasks import ExecutionLane, TaskService, TaskStore  # noqa: E402
@@ -193,6 +197,18 @@ def api(tmp_path: Path):
         idempotency_key="create-api-task",
     )
     action_store = ActionStore(tmp_path / "actions.db")
+    secret = "f" * 64
+    authenticated_at = int(time.time())
+    nonce = "tool-browser-native-proof"
+    owner = "test-owner"
+    message = f"flow-v1\n{nonce}\n{authenticated_at}\n{owner}".encode()
+    authority = FlowSessionAuthority(secret)
+    authority.activate_flow(
+        nonce=nonce,
+        authenticated_at=authenticated_at,
+        signature=hmac.new(secret.encode(), message, hashlib.sha256).hexdigest(),
+        owner=owner,
+    )
 
     def context(proposal):
         manifest = manifests[proposal.tool_id]
@@ -221,9 +237,11 @@ def api(tmp_path: Path):
         context_factory=context,
         runtimes={tool_id: runtime for tool_id in manifests},
         artifact_root=tmp_path / "artifacts",
+        flow_authority=authority,
         task_service=tasks,
     )
     app = FastAPI()
+    app.state.flow_authority = authority
     app.state.tool_action_service = actions
     app.state.browser_session_service = FakeBrowserService(tmp_path)
     app.add_middleware(AuthMiddleware, api_key="oj_sk_phase5")
@@ -275,7 +293,7 @@ def test_action_creation_is_idempotent_and_schema_validated(api) -> None:
     assert listed["count"] == 1
 
 
-def test_sensitive_action_requires_allow_once(api) -> None:
+def test_sensitive_action_executes_directly_in_flow(api) -> None:
     client, _, sensitive = api
     proposal = _proposal(sensitive, idempotency_key="sensitive-once")
     created = client.post(
@@ -284,14 +302,13 @@ def test_sensitive_action_requires_allow_once(api) -> None:
         headers=_headers("sensitive-once"),
     )
     assert created.status_code == 201
-    assert created.json()["status"] == "waiting_approval"
+    assert created.json()["status"] == "completed"
     action_id = created.json()["action_id"]
-    approved = client.post(
+    removed_approval_endpoint = client.post(
         f"/v1/actions/{action_id}/approve",
         headers=_headers("approval-once"),
     )
-    assert approved.status_code == 200
-    assert approved.json()["status"] == "completed"
+    assert removed_approval_endpoint.status_code == 404
 
 
 def test_mutations_require_headers_and_matching_identity(api) -> None:

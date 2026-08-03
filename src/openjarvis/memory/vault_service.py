@@ -196,6 +196,7 @@ def build_vault_memory_service(
     task_store: TaskStore | None,
     trace_store: TraceStore | None = None,
     initial_index: bool = True,
+    flow_authority=None,
 ) -> VaultMemoryService | None:
     """Build configured vault memory without inventing or creating a vault.
 
@@ -238,7 +239,13 @@ def build_vault_memory_service(
         retriever = VaultRetriever(index)
         bridge = MemoryTaskBridge(task_store, trace_store=trace_store)
         writer = AtomicMarkdownWriter(vault_root, restore_path)
-        workflow = MemoryCandidateWorkflow(index, retriever, bridge, writer)
+        workflow = MemoryCandidateWorkflow(
+            index,
+            retriever,
+            bridge,
+            writer,
+            flow_authority=flow_authority,
+        )
         service = VaultMemoryService(
             index,
             retriever=retriever,

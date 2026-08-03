@@ -468,10 +468,10 @@ function DesktopAccessSettings() {
 
 const PERSONAL_KEY = 'openjarvis-personal-preferences-v1';
 function PersonalPreferences() {
-  const empty = { name: '', address: '', answerLength: '', role: '', applications: '', folders: '', tools: '', voiceId: '', desktopMode: '', approvalLimits: '' };
+  const empty = { name: '', address: '', answerLength: '', role: '', applications: '', folders: '', tools: '', voiceId: '', desktopMode: '' };
   const [value, setValue] = useState<typeof empty>(() => { try { return { ...empty, ...JSON.parse(localStorage.getItem(PERSONAL_KEY) || '{}') }; } catch { return empty; } });
   const [saved, setSaved] = useState(false);
-  const fields: Array<[keyof typeof empty, string]> = [['name', 'Name'], ['address', 'Bevorzugte Ansprache'], ['answerLength', 'Antwortlänge'], ['role', 'Persönliche/berufliche Rolle'], ['applications', 'Wichtige Anwendungen'], ['folders', 'Häufig genutzte Ordner'], ['tools', 'Bevorzugte Tools und Dienste'], ['voiceId', 'Gewünschte Voice-ID'], ['desktopMode', 'Desktop-Zugriffsmodus'], ['approvalLimits', 'Freigabegrenzen']];
+  const fields: Array<[keyof typeof empty, string]> = [['name', 'Name'], ['address', 'Bevorzugte Ansprache'], ['answerLength', 'Antwortlänge'], ['role', 'Persönliche/berufliche Rolle'], ['applications', 'Wichtige Anwendungen'], ['folders', 'Häufig genutzte Ordner'], ['tools', 'Bevorzugte Tools und Dienste'], ['voiceId', 'Gewünschte Voice-ID'], ['desktopMode', 'Desktop-Zugriffsmodus']];
   return <div className="space-y-2"><div className="grid grid-cols-2 gap-2">{fields.map(([key, label]) => <input key={key} value={value[key]} onChange={(e) => setValue((current) => ({ ...current, [key]: e.target.value }))} placeholder={label} className="px-2 py-1 rounded text-xs" style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg)' }} />)}</div>
     <button type="button" onClick={() => { localStorage.setItem(PERSONAL_KEY, JSON.stringify(value)); setSaved(true); setTimeout(() => setSaved(false), 1500); }} className="px-3 py-1.5 rounded text-xs" style={{ border: '1px solid var(--color-border)' }}>Freiwillige Angaben speichern</button>{saved && <span className="text-xs ml-2" style={{ color: 'var(--color-success)' }}>Gespeichert</span>}
     <div className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>Alle Felder dürfen leer bleiben. Diese Angaben werden lokal gespeichert und erteilen allein keine Tool- oder Memory-Freigabe.</div>

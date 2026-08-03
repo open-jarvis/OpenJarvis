@@ -131,6 +131,50 @@ export const apiFetch = (
   return fetch(`${getBase()}${path}`, { ...init, headers });
 };
 
+export type FlowMode = 'locked' | 'assistant' | 'flow';
+
+export interface FlowStatus {
+  mode: FlowMode;
+  owner_authenticated: boolean;
+  session_id: string | null;
+  activated_at: string | null;
+  expires_at: string | null;
+  last_activity_at: string | null;
+  remaining_seconds: number;
+  capabilities: Record<string, string>;
+  lock_reason: string;
+}
+
+export async function fetchFlowStatus(): Promise<FlowStatus> {
+  return apiJson<FlowStatus>('/v1/flow/status');
+}
+
+export async function activateFlowMode(): Promise<FlowStatus> {
+  if (!isTauri()) {
+    throw new Error('Flow Mode kann nur in der nativen Desktop-App aktiviert werden.');
+  }
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<FlowStatus>('activate_flow_mode');
+}
+
+export async function activateAssistantMode(): Promise<FlowStatus> {
+  return apiJson<FlowStatus>('/v1/flow/assistant', { method: 'POST' });
+}
+
+export async function lockFlowMode(reason = 'user_locked'): Promise<FlowStatus> {
+  return apiJson<FlowStatus>(`/v1/flow/lock?reason=${encodeURIComponent(reason)}`, {
+    method: 'POST',
+  });
+}
+
+export async function recordFlowActivity(sessionId?: string | null): Promise<FlowStatus> {
+  return apiJson<FlowStatus>('/v1/flow/activity', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId ?? null }),
+  });
+}
+
 export type ApiErrorCategory =
   | 'aborted'
   | 'timeout'
@@ -1525,60 +1569,6 @@ export async function fetchVaultMemoryLinks(noteId: string): Promise<VaultMemory
 }
 
 // ---------------------------------------------------------------------------
-// Approvals
-// ---------------------------------------------------------------------------
-
-export interface PendingApproval {
-  id: string;
-  source?: 'codex_task';
-  task_id?: string;
-  action_type: string;
-  description: string;
-  action?: string;
-  target?: string;
-  effect?: string;
-  risk_level?: number;
-  sandbox?: string;
-  cwd?: string;
-  undo?: string;
-  payload: Record<string, unknown>;
-  permission_key: string;
-  tier: 'trivial' | 'low' | 'medium' | 'high';
-  status: string;
-  created_at: string;
-  expires_at: string;
-}
-
-export async function fetchPendingApprovals(): Promise<PendingApproval[]> {
-  const res = await apiFetch(`/v1/approvals/pending`);
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
-  const data = await res.json();
-  return data.actions || [];
-}
-
-export async function approveAction(actionId: string): Promise<void> {
-  const res = await apiFetch(`/v1/approvals/${actionId}/approve`, {
-    method: 'POST',
-    headers: {
-      'X-Correlation-ID': `ui-approval-${actionId}`,
-      'Idempotency-Key': `ui-approval-${actionId}-allow`,
-    },
-  });
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
-}
-
-export async function denyAction(actionId: string): Promise<void> {
-  const res = await apiFetch(`/v1/approvals/${actionId}/deny`, {
-    method: 'POST',
-    headers: {
-      'X-Correlation-ID': `ui-approval-${actionId}`,
-      'Idempotency-Key': `ui-approval-${actionId}-deny`,
-    },
-  });
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
-}
-
-// ---------------------------------------------------------------------------
 // Canonical Codex tasks
 // ---------------------------------------------------------------------------
 
@@ -2346,30 +2336,6 @@ export async function fetchBrowserHealth(): Promise<BrowserHealthInfo[]> {
 
 export async function fetchSystemHealth(signal?: AbortSignal): Promise<SystemHealth> {
   return apiJson<SystemHealth>('/v1/system/health', {}, { signal });
-}
-
-export async function approveToolAction(actionId: string): Promise<ToolActionInfo> {
-  const res = await apiFetch(`/v1/actions/${encodeURIComponent(actionId)}/approve`, {
-    method: 'POST',
-    headers: {
-      'X-Correlation-ID': `ui-tool-${actionId}`,
-      'Idempotency-Key': `ui-tool-${actionId}-allow-once`,
-    },
-  });
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
-  return res.json();
-}
-
-export async function denyToolAction(actionId: string): Promise<ToolActionInfo> {
-  const res = await apiFetch(`/v1/actions/${encodeURIComponent(actionId)}/deny`, {
-    method: 'POST',
-    headers: {
-      'X-Correlation-ID': `ui-tool-${actionId}`,
-      'Idempotency-Key': `ui-tool-${actionId}-deny`,
-    },
-  });
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
-  return res.json();
 }
 
 // ---------------------------------------------------------------------------

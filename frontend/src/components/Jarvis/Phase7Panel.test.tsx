@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { Phase7DecisionDialog, Phase7Panel } from './Phase7Panel';
 
 describe('Phase-7 Jarvis UI', () => {
-  it('keeps allow-once and deny decisions structural', () => {
+  it('uses direct apply and reject decisions', () => {
     const allow = renderToStaticMarkup(
       <Phase7DecisionDialog
         title="promotion decision"
@@ -24,8 +24,8 @@ describe('Phase-7 Jarvis UI', () => {
     );
 
     expect(allow).toContain('aria-modal="true"');
-    expect(allow).toContain('Allow once');
-    expect(deny).toContain('Deny');
+    expect(allow).toContain('Apply now');
+    expect(deny).toContain('Reject');
     expect(`${allow}${deny}`).not.toContain('Always allow');
     expect(`${allow}${deny}`).not.toContain('Approve all');
   });

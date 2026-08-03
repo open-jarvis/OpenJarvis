@@ -19,23 +19,22 @@ import {
   Plus,
   RefreshCw,
   Send,
-  ShieldAlert,
   Square,
   Volume2,
   VolumeX,
   Wrench,
 } from 'lucide-react';
 import {
-  approveAction,
+  activateAssistantMode,
+  activateFlowMode,
   cancelCanonicalTask,
   interruptDesktop,
   interruptMcp,
   createMutationContext,
-  denyAction,
   fetchBrowserHealth,
+  fetchFlowStatus,
   fetchCanonicalTasks,
   fetchCodexRuntimeHealth,
-  fetchPendingApprovals,
   fetchRegisteredTools,
   fetchSessions,
   fetchSystemHealth,
@@ -48,22 +47,22 @@ import {
   interruptCanonicalTask,
   JarvisApiError,
   pauseCanonicalTask,
+  lockFlowMode,
+  recordFlowActivity,
   resumeCanonicalTask,
   sendCanonicalChat,
 } from '../lib/api';
-import type { CanonicalTask, CanonicalTaskEvent, MutationContext, PendingApproval, TurnModelEvidence } from '../lib/api';
+import type { CanonicalTask, CanonicalTaskEvent, FlowStatus, MutationContext, TurnModelEvidence } from '../lib/api';
 import { ensureActiveTaskId, isTerminalTaskStatus, useJarvisStore } from '../lib/jarvisStore';
 import { useCanonicalTaskStream } from '../lib/useCanonicalTaskStream';
 import { useSpeech } from '../hooks/useSpeech';
 import { useAudioBackendInfo, useLocalAudioLevel, useTextToSpeech } from '../hooks/useTextToSpeech';
-import { Phase7Panel } from '../components/Jarvis/Phase7Panel';
-import { WebsiteStagingPanel } from '../components/WebsiteStagingPanel';
 import { VoiceAuditionPanel } from '../components/Jarvis/VoiceAuditionPanel';
 import { JarvisExperience } from '../components/Jarvis/experience/JarvisExperience';
 import { useJarvisPreferences } from '../components/Jarvis/experience/preferences';
 import { deriveVoiceSnapshot } from '../components/Jarvis/experience/voiceAdapter';
 
-type WorkspaceFocus = 'chat' | 'tasks' | 'approvals' | 'tools' | 'browser' | 'website-staging' | 'learning' | 'skills' | 'voice' | 'overview';
+type WorkspaceFocus = 'chat' | 'tasks' | 'tools' | 'browser' | 'voice' | 'overview';
 
 export const TASK_REFRESH_INTERVAL_MS = 15_000;
 
@@ -82,18 +81,10 @@ export async function attemptCanonicalChat(
   }
 }
 
-export function requiresFreshTask(error: unknown): boolean {
-  return error instanceof JarvisApiError
-    && error.category === 'conflict'
-    && error.message.startsWith('NEW_TASK_REQUIRED:');
-}
-
 export function canReplacePausedTaskForChat(
   task: CanonicalTask | null,
-  approvals: PendingApproval[],
 ): boolean {
-  if (!task || task.status !== 'paused' || task.risk_level !== 0) return false;
-  return !approvals.some((approval) => !approval.task_id || approval.task_id === task.task_id);
+  return !!task && task.status === 'paused';
 }
 
 export function summarizeForSpeech(value: string): string {
@@ -166,7 +157,6 @@ const EVENT_LABELS: Record<string, string> = {
   'memory.retrieval_failed': 'Memory retrieval unavailable',
   'tool.proposed': 'Tool proposed',
   'tool.validated': 'Tool validated',
-  'tool.waiting_approval': 'Tool waiting for approval',
   'tool.started': 'Tool started',
   'tool.output': 'Tool output recorded',
   'tool.verification_started': 'Verification started',
@@ -174,8 +164,6 @@ const EVENT_LABELS: Record<string, string> = {
   'tool.verification_failed': 'Tool verification failed',
   'tool.completed': 'Tool completed',
   'tool.failed': 'Tool failed',
-  'approval.requested': 'Approval requested',
-  'approval.user_decided': 'Approval decided',
   'browser.recovery_started': 'Browser recovery started',
   'browser.reconnected': 'Browser reconnected',
   'browser.recovery_failed': 'Browser recovery failed',
@@ -206,12 +194,8 @@ const EVENT_LABELS: Record<string, string> = {
 
 function focusForPath(path: string): WorkspaceFocus {
   if (path.startsWith('/tasks')) return 'tasks';
-  if (path.startsWith('/approvals')) return 'approvals';
   if (path.startsWith('/tools')) return 'tools';
   if (path.startsWith('/browser')) return 'browser';
-  if (path.startsWith('/website-staging')) return 'website-staging';
-  if (path.startsWith('/learning')) return 'learning';
-  if (path.startsWith('/skills')) return 'skills';
   if (path.startsWith('/voice')) return 'voice';
   if (path.startsWith('/chat')) return 'chat';
   return 'overview';
@@ -238,7 +222,7 @@ function readableEvent(event: CanonicalTaskEvent): string {
 function eventTone(event: CanonicalTaskEvent): 'normal' | 'warning' | 'error' | 'success' {
   const eventType = typeof event.event_type === 'string' ? event.event_type : '';
   if (eventType.includes('failed') || eventType.includes('error')) return 'error';
-  if (eventType.includes('insufficient') || eventType.includes('approval')) return 'warning';
+  if (eventType.includes('insufficient')) return 'warning';
   if (eventType.includes('verified') || event.status_to === 'done') return 'success';
   return 'normal';
 }
@@ -313,71 +297,14 @@ export function EventCard({ event }: { event: CanonicalTaskEvent }) {
   );
 }
 
-export function ApprovalCard({
-  approval,
-  busy,
-  onDecision,
-}: {
-  approval: PendingApproval;
-  busy: boolean;
-  onDecision: (allow: boolean) => void;
-}) {
-  return (
-    <article
-      className="rounded-xl p-4"
-      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-warning)' }}
-      aria-labelledby={`approval-${approval.id}`}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 id={`approval-${approval.id}`} className="font-semibold text-sm">
-          {approval.action || approval.action_type}
-        </h3>
-        <span className="text-xs" style={{ color: 'var(--color-warning)' }}>
-          Risk {approval.risk_level ?? approval.tier} · expires {new Date(approval.expires_at).toLocaleTimeString()}
-        </span>
-      </div>
-      <dl className="grid sm:grid-cols-[9rem_1fr] gap-x-3 gap-y-1 mt-3 text-xs">
-        <dt>Tool/action</dt><dd>{approval.action || approval.action_type}</dd>
-        <dt>Target</dt><dd className="break-all">{approval.target || 'Not specified'}</dd>
-        <dt>Expected effect</dt><dd>{approval.effect || approval.description}</dd>
-        <dt>Sandbox/root</dt><dd>{approval.sandbox || approval.cwd || 'Runtime scoped'}</dd>
-        <dt>Undo</dt><dd>{approval.undo || 'No automatic undo available'}</dd>
-        <dt>Task</dt><dd className="font-mono break-all">{approval.task_id || 'Legacy proactive action'}</dd>
-      </dl>
-      <p className="mt-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-        Parameters: {JSON.stringify(approval.payload || {})}
-      </p>
-      <div className="mt-4 flex flex-col sm:flex-row gap-3">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onDecision(true)}
-          className="rounded-lg px-4 py-2 font-semibold disabled:opacity-50 focus-visible:outline-2"
-          style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
-        >
-          Allow once
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onDecision(false)}
-          className="rounded-lg px-4 py-2 font-semibold disabled:opacity-50 focus-visible:outline-2"
-          style={{ border: '2px solid var(--color-error)', color: 'var(--color-error)' }}
-        >
-          Deny
-        </button>
-      </div>
-    </article>
-  );
-}
-
 export function JarvisPage() {
   const location = useLocation();
   const focus = focusForPath(location.pathname);
   const state = useJarvisStore();
   const [draft, setDraft] = useState('');
   const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
-  const [decisionBusy, setDecisionBusy] = useState<string | null>(null);
+  const [flowStatus, setFlowStatus] = useState<FlowStatus | null>(null);
+  const [flowBusy, setFlowBusy] = useState(false);
   const sendGuard = useRef(false);
   const sendController = useRef<AbortController | null>(null);
   const listEndRef = useRef<HTMLDivElement>(null);
@@ -405,21 +332,12 @@ export function JarvisPage() {
     : healthMatchesActive
       ? state.codexHealth?.turn_model_evidence ?? null
       : null;
-  const activeApprovals = state.approvals.filter(
-    (item) => !item.task_id || item.task_id === state.activeTaskId,
-  );
-  const replacePausedTaskOnSend = canReplacePausedTaskForChat(activeTask, activeApprovals);
+  const replacePausedTaskOnSend = canReplacePausedTaskForChat(activeTask);
   const chatTurnBlocked = !!activeTask
     && !isTerminalTaskStatus(activeTask.status)
     && !['pending', 'running'].includes(activeTask.status)
     && !replacePausedTaskOnSend;
   const persistedTaskPending = !!state.activeTaskId && !state.tasksLoaded;
-  const latestAnswer = [...state.timeline].reverse().find(
-    (event) => event.event_type === 'chat.assistant_message',
-  );
-  const latestAnswerDigest = typeof latestAnswer?.payload.sha256 === 'string'
-    ? latestAnswer.payload.sha256
-    : null;
 
   const refreshGlobal = useCallback(async (signal?: AbortSignal) => {
     state.setLoading(true);
@@ -427,25 +345,50 @@ export function JarvisPage() {
       fetchCanonicalTasks(),
       fetchSessions(signal),
       fetchCodexRuntimeHealth(),
-      fetchPendingApprovals(),
       fetchRegisteredTools(),
       fetchToolHealth(),
       fetchBrowserHealth(),
       fetchSystemHealth(signal),
+      fetchFlowStatus(),
     ]);
     if (results[0].status === 'fulfilled') state.setTasks(results[0].value);
     if (results[1].status === 'fulfilled') state.setSessions(results[1].value);
     if (results[2].status === 'fulfilled') state.setHealth({ codexHealth: results[2].value });
-    if (results[3].status === 'fulfilled') state.setApprovals(results[3].value);
-    if (results[4].status === 'fulfilled') state.setTools(results[4].value);
-    if (results[5].status === 'fulfilled') state.setHealth({ toolHealth: results[5].value });
-    if (results[6].status === 'fulfilled') state.setHealth({ browserHealth: results[6].value });
-    if (results[7].status === 'fulfilled') state.setHealth({ systemHealth: results[7].value });
+    if (results[3].status === 'fulfilled') state.setTools(results[3].value);
+    if (results[4].status === 'fulfilled') state.setHealth({ toolHealth: results[4].value });
+    if (results[5].status === 'fulfilled') state.setHealth({ browserHealth: results[5].value });
+    if (results[6].status === 'fulfilled') state.setHealth({ systemHealth: results[6].value });
+    if (results[7].status === 'fulfilled') setFlowStatus(results[7].value);
     if (results.every((item) => item.status === 'rejected')) {
       state.setError('OpenJarvis server is not reachable. Check the local server and retry.');
     }
     state.setLoading(false);
   }, []); // Store actions are stable Zustand references.
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void fetchFlowStatus().then(setFlowStatus).catch(() => undefined);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const changeAccessMode = async (mode: 'locked' | 'assistant' | 'flow') => {
+    if (flowBusy) return;
+    setFlowBusy(true);
+    state.setError(null);
+    try {
+      const status = mode === 'flow'
+        ? await activateFlowMode()
+        : mode === 'assistant'
+          ? await activateAssistantMode()
+          : await lockFlowMode();
+      setFlowStatus(status);
+    } catch (error) {
+      state.setError(error instanceof Error ? error.message : 'Betriebsmodus konnte nicht geändert werden.');
+    } finally {
+      setFlowBusy(false);
+    }
+  };
 
   const refreshTask = useCallback(async (taskId: string, signal?: AbortSignal) => {
     const results = await Promise.allSettled([
@@ -509,14 +452,17 @@ export function JarvisPage() {
     state.setSending(true);
     state.setError(null);
     if (replacePausedTaskOnSend) state.startNewTask();
-    let taskId = ensureActiveTaskId();
+    const taskId = ensureActiveTaskId();
     const mutation = createMutationContext('jarvis-chat');
     const controller = new AbortController();
     sendController.current = controller;
     if (messageOverride === undefined) setDraft('');
     const failedDraft = submittedDraft;
     try {
-      let attempt = await attemptCanonicalChat(
+      if (flowStatus?.mode === 'flow') {
+        setFlowStatus(await recordFlowActivity(flowStatus.session_id));
+      }
+      const attempt = await attemptCanonicalChat(
         {
           message,
           session_id: state.sessionId,
@@ -527,23 +473,6 @@ export function JarvisPage() {
         mutation,
         controller.signal,
       );
-      if (!attempt.ok && requiresFreshTask(attempt.error)) {
-        // The rejected request has not appended a user event or started Codex.
-        // Retry exactly once under a new immutable permission boundary.
-        state.startNewTask();
-        taskId = ensureActiveTaskId();
-        attempt = await attemptCanonicalChat(
-          {
-            message,
-            session_id: state.sessionId,
-            task_id: taskId,
-            input_mode: selectedInputMode,
-            use_memory: true,
-          },
-          mutation,
-          controller.signal,
-        );
-      }
       if (!attempt.ok) {
         throw attempt.error;
       }
@@ -622,21 +551,6 @@ export function JarvisPage() {
     if (activeTask?.status === 'running') await controlTask('interrupt');
   };
 
-  const decide = async (approval: PendingApproval, allow: boolean) => {
-    if (decisionBusy) return;
-    setDecisionBusy(approval.id);
-    try {
-      if (allow) await approveAction(approval.id);
-      else await denyAction(approval.id);
-      await refreshGlobal();
-      if (state.activeTaskId) await refreshTask(state.activeTaskId);
-    } catch (error) {
-      state.setError(error instanceof Error ? error.message : 'Approval decision failed.');
-    } finally {
-      setDecisionBusy(null);
-    }
-  };
-
   const toggleRecording = async (submitTranscript = false) => {
     tts.stop();
     if (speech.isRecording) {
@@ -682,12 +596,8 @@ export function JarvisPage() {
     ['/', 'Jarvis'],
     ['/chat', 'Chat'],
     ['/tasks', 'Tasks'],
-    ['/approvals', 'Approvals'],
     ['/tools', 'Tools & actions'],
     ['/browser', 'Browser'],
-    ['/website-staging', 'Website staging'],
-    ['/learning', 'Learning'],
-    ['/skills', 'Skills'],
     ['/voice', 'Voice'],
   ] as const;
 
@@ -718,9 +628,9 @@ export function JarvisPage() {
         ttsAvailable={tts.available}
         speechLanguage={state.speech.language}
         preferences={preferences}
-        approvals={activeApprovals}
         actions={state.actions}
-        decisionBusy={decisionBusy}
+        flowStatus={flowStatus}
+        flowBusy={flowBusy}
         audioBackendInfo={audioBackendInfo}
         onPreferencesChange={setPreferences}
         onDraftChange={(value) => { setDraft(value); if (inputMode === 'voice') setInputMode('text'); }}
@@ -729,7 +639,7 @@ export function JarvisPage() {
         onStop={stopActiveOutput}
         onNewConversation={startNewConversation}
         onLanguageChange={(language) => state.setSpeech({ language })}
-        onApprovalDecision={(approval, allow) => decide(approval, allow)}
+        onAccessModeChange={changeAccessMode}
       />
     );
   }
@@ -913,21 +823,6 @@ export function JarvisPage() {
               </section>
             )}
 
-            {(focus === 'overview' || focus === 'approvals') && (
-              <section className="hud-panel p-4" aria-labelledby="approvals-heading">
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <h2 id="approvals-heading" className="font-semibold">Approvals</h2>
-                  <span className="text-xs">{activeApprovals.length} open</span>
-                </div>
-                <div className="space-y-3">
-                  {activeApprovals.map((approval) => (
-                    <ApprovalCard key={approval.id} approval={approval} busy={decisionBusy === approval.id} onDecision={(allow) => void decide(approval, allow)} />
-                  ))}
-                  {activeApprovals.length === 0 && <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>No approval is waiting. Approvals can only be decided with the explicit buttons here.</p>}
-                </div>
-              </section>
-            )}
-
             {shouldShowTimeline && focus !== 'chat' && (
               <section className="hud-panel p-4" aria-labelledby="timeline-heading">
                 <h2 id="timeline-heading" className="font-semibold mb-3">Task timeline</h2>
@@ -973,7 +868,11 @@ export function JarvisPage() {
               <section className="hud-panel p-4" aria-labelledby="browser-heading">
                 <h2 id="browser-heading" className="font-semibold mb-3"><Globe2 size={15} className="inline mr-2" />Owned browser sessions</h2>
                 {state.browserHealth.length === 0 ? (
-                  <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>No temporary OpenJarvis browser session is running.</p>
+                  <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                    {flowStatus?.mode === 'flow'
+                      ? 'Flow can operate your existing signed-in browser windows directly.'
+                      : 'Assistant mode uses read-only browser access.'}
+                  </p>
                 ) : state.browserHealth.map((session) => (
                   <article key={session.session_id} className="rounded-xl p-3 mb-3 text-sm" style={{ background: 'var(--color-bg-secondary)' }}>
                     <strong>{session.healthy ? 'Healthy' : 'Degraded'} owned session</strong>
@@ -987,20 +886,6 @@ export function JarvisPage() {
               </section>
             )}
 
-            {(focus === 'learning' || focus === 'skills') && (
-              <Phase7Panel
-                mode={focus}
-                taskId={state.activeTaskId}
-                sessionId={state.sessionId}
-                answerId={latestAnswer?.event_id || null}
-                answerDigest={latestAnswerDigest}
-                onChanged={() => {
-                  if (state.activeTaskId) void refreshTask(state.activeTaskId);
-                }}
-              />
-            )}
-
-            {focus === 'website-staging' && <WebsiteStagingPanel />}
             {focus === 'voice' && <VoiceAuditionPanel />}
           </main>
 
@@ -1023,8 +908,7 @@ export function JarvisPage() {
                     fallbackRuntimeVersion={state.codexHealth?.runtime_version || null}
                     fallbackThreadId={activeTask.active_thread_id}
                   />
-                  <dt>Sandbox</dt><dd>{state.codexHealth?.sandbox || 'unknown'}</dd>
-                  <dt>Risk level</dt><dd>{activeTask.risk_level}</dd>
+                  <dt>Access mode</dt><dd>{flowStatus?.mode || 'locked'}</dd>
                 </dl>
               )}
               <div className="mt-4 grid grid-cols-2 gap-2">
@@ -1055,13 +939,12 @@ export function JarvisPage() {
               <ul className="mt-3 space-y-2 text-xs" aria-live="polite">
                 <li><CheckCircle2 size={13} className="inline mr-2" />System {state.loading ? 'checking' : state.systemHealth?.status || 'unavailable'} · {state.systemHealth?.version || 'unknown version'}</li>
                 <li><Bot size={13} className="inline mr-2" />Codex {state.codexHealth?.active_backend || 'unavailable'} · ChatGPT {state.codexHealth?.chatgpt_authenticated ? 'signed in' : 'not signed in'}</li>
-                <li><ShieldAlert size={13} className="inline mr-2" />{state.codexHealth?.sandbox || 'unknown sandbox'} · {state.codexHealth?.approval_mode || 'unknown approval mode'}</li>
+                <li><Activity size={13} className="inline mr-2" />Access {flowStatus?.mode || 'locked'} · {flowStatus?.remaining_seconds || 0}s remaining</li>
                 <li><Wrench size={13} className="inline mr-2" />Tools {state.toolHealth ? `${state.toolHealth.available}/${state.toolHealth.registered}` : 'unavailable'}</li>
                 <li><Globe2 size={13} className="inline mr-2" />Browser {state.browserHealth.length ? state.browserHealth.every((item) => item.healthy) ? 'healthy' : 'degraded' : 'not running'}</li>
                 <li><Mic size={13} className="inline mr-2" />STT {speech.providerId} · TTS {tts.providerId}</li>
                 <li><Database size={13} className="inline mr-2" />Memory {state.systemHealth?.components.memory?.status || 'unavailable'} · FTS5 {state.systemHealth?.components.memory?.fts5_available === true ? 'ready' : 'unavailable'}</li>
                 <li><Activity size={13} className="inline mr-2" />Task store {state.systemHealth?.components.task_store?.status || 'unavailable'} · Trace store {state.systemHealth?.components.trace_store?.status || 'unavailable'}</li>
-                <li><ShieldAlert size={13} className="inline mr-2" />{state.systemHealth?.pending_approvals ?? activeApprovals.length} approval(s) waiting</li>
                 <li><Activity size={13} className="inline mr-2" />{state.systemHealth?.open_tasks ?? 0} open task(s) · last error {state.systemHealth?.last_error_category || 'none'}</li>
               </ul>
             </section>

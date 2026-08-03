@@ -39,7 +39,11 @@ export function VoiceProfileCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-semibold">{profile.number}. {profile.label}</h3>
-          <p className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{profile.description}</p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+            {profile.backend === 'piper'
+              ? 'CPU-Notfallprofil für schnelle, kontrollierte Sprachausgabe.'
+              : 'Ruhiges Stimmprofil, ein eigenes neuronales Timbre.'}
+          </p>
         </div>
         <span className="rounded-full px-2 py-1 text-xs" style={{ background: 'var(--color-bg-tertiary)' }}>
           {BACKEND_LABELS[profile.backend] ?? profile.backend}
@@ -48,6 +52,8 @@ export function VoiceProfileCard({
       <dl className="mt-3 grid grid-cols-[7rem_1fr] gap-x-2 gap-y-1 text-xs">
         <dt>Engine</dt><dd>{BACKEND_LABELS[profile.backend] ?? profile.backend}</dd>
         <dt>Tempo</dt><dd>{profile.speed.toFixed(2)}×</dd>
+        <dt>Seed</dt><dd>{profile.backend === 'piper' ? 'n/a' : profile.seed}</dd>
+        <dt>Ausdruck</dt><dd>{profile.backend === 'piper' ? 'n/a' : profile.exaggeration.toFixed(2)}</dd>
       </dl>
       {audioUrl ? (
         <>

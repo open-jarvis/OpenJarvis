@@ -138,9 +138,6 @@ class CodexRunContext:
 
         if self.approval_mode is ApprovalMode.AUTO_REVIEW:
             raise CodexPolicyError("automatic approval review is prohibited")
-        if self.sandbox is SandboxMode.FULL_ACCESS:
-            raise CodexPolicyError("full_access is prohibited")
-
         if self.sandbox is SandboxMode.WORKSPACE_WRITE:
             if self.isolated_workspace is None:
                 raise CodexPolicyError(

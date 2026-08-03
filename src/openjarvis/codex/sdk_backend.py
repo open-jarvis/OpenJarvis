@@ -135,9 +135,7 @@ class CodexPythonSdkBackend:
         )
         self._threads: dict[str, Any] = {}
         self._thread_contexts: dict[str, CodexRunContext] = {}
-        self._thread_evidence: dict[
-            str, tuple[str | None, str | None, str]
-        ] = {}
+        self._thread_evidence: dict[str, tuple[str | None, str | None, str]] = {}
         self._turns: dict[str, _ActiveTurn] = {}
 
     @property
@@ -243,12 +241,8 @@ class CodexPythonSdkBackend:
         effort = getattr(effort, "value", effort)
         if thread_id:
             self._thread_evidence[str(thread_id)] = (
-                model.strip()
-                if isinstance(model, str) and model.strip()
-                else None,
-                effort.strip()
-                if isinstance(effort, str) and effort.strip()
-                else None,
+                model.strip() if isinstance(model, str) and model.strip() else None,
+                effort.strip() if isinstance(effort, str) and effort.strip() else None,
                 source,
             )
 
@@ -315,9 +309,7 @@ class CodexPythonSdkBackend:
                 approval_mode=self._sdk_approval_mode(context.approval_mode),
                 config=self._sdk_model_config(context.model),
                 cwd=str(context.cwd.resolve(strict=False)),
-                developer_instructions=redact_text(
-                    context.developer_instructions or ""
-                )
+                developer_instructions=redact_text(context.developer_instructions or "")
                 or None,
                 ephemeral=False,
                 model=context.model.model,
@@ -328,8 +320,8 @@ class CodexPythonSdkBackend:
             raise CodexBackendError(safe_error_message(exc)) from exc
 
         thread_id = self._required_id(thread, "thread")
-        actual_model, actual_effort, evidence_source = (
-            self._thread_evidence.pop(thread_id, (None, None, "unknown"))
+        actual_model, actual_effort, evidence_source = self._thread_evidence.pop(
+            thread_id, (None, None, "unknown")
         )
         self._verify_model_evidence(context.model, actual_model, actual_effort)
         now = self._now()
@@ -386,9 +378,7 @@ class CodexPythonSdkBackend:
                 approval_mode=self._sdk_approval_mode(context.approval_mode),
                 config=self._sdk_model_config(context.model),
                 cwd=str(context.cwd.resolve(strict=False)),
-                developer_instructions=redact_text(
-                    context.developer_instructions or ""
-                )
+                developer_instructions=redact_text(context.developer_instructions or "")
                 or None,
                 model=context.model.model,
                 sandbox=self._sdk_sandbox(context.sandbox),
@@ -398,8 +388,8 @@ class CodexPythonSdkBackend:
             raise CodexBackendError(safe_error_message(exc)) from exc
 
         actual_id = self._required_id(thread, "thread")
-        actual_model, actual_effort, evidence_source = (
-            self._thread_evidence.pop(actual_id, (None, None, "unknown"))
+        actual_model, actual_effort, evidence_source = self._thread_evidence.pop(
+            actual_id, (None, None, "unknown")
         )
         self._verify_model_evidence(context.model, actual_model, actual_effort)
         now = self._now()
@@ -455,9 +445,7 @@ class CodexPythonSdkBackend:
                 approval_mode=self._sdk_approval_mode(context.approval_mode),
                 config=self._sdk_model_config(context.model),
                 cwd=str(context.cwd.resolve(strict=False)),
-                developer_instructions=redact_text(
-                    context.developer_instructions or ""
-                )
+                developer_instructions=redact_text(context.developer_instructions or "")
                 or None,
                 ephemeral=False,
                 model=context.model.model,
@@ -528,9 +516,7 @@ class CodexPythonSdkBackend:
         thread = self._threads.get(request.thread_id)
         if thread is None:
             thread = await self._resume_handle(request.thread_id, context)
-            thread_record = (
-                store.get_thread_by_id(request.thread_id) or thread_record
-            )
+            thread_record = store.get_thread_by_id(request.thread_id) or thread_record
         try:
             handle = await thread.turn(
                 request.prompt,
@@ -752,9 +738,7 @@ class CodexPythonSdkBackend:
                 approval_mode=self._sdk_approval_mode(context.approval_mode),
                 config=self._sdk_model_config(context.model),
                 cwd=str(context.cwd.resolve(strict=False)),
-                developer_instructions=redact_text(
-                    context.developer_instructions or ""
-                )
+                developer_instructions=redact_text(context.developer_instructions or "")
                 or None,
                 model=context.model.model,
                 sandbox=self._sdk_sandbox(context.sandbox),
@@ -762,8 +746,8 @@ class CodexPythonSdkBackend:
             )
         except Exception as exc:
             raise CodexBackendError(safe_error_message(exc)) from exc
-        actual_model, actual_effort, evidence_source = (
-            self._thread_evidence.pop(thread_id, (None, None, "unknown"))
+        actual_model, actual_effort, evidence_source = self._thread_evidence.pop(
+            thread_id, (None, None, "unknown")
         )
         self._verify_model_evidence(context.model, actual_model, actual_effort)
         self._get_store().update_thread_model_evidence(
@@ -785,9 +769,7 @@ class CodexPythonSdkBackend:
         if not self._require_model_confirmation:
             return
         if not requested.model:
-            raise CodexPolicyError(
-                "A product Codex turn requires an explicit model"
-            )
+            raise CodexPolicyError("A product Codex turn requires an explicit model")
         if actual_model != requested.model:
             resolved = actual_model or "unconfirmed"
             raise CodexCapabilityError(
@@ -877,7 +859,9 @@ class CodexPythonSdkBackend:
             return SdkSandbox.read_only
         if mode is SandboxMode.WORKSPACE_WRITE:
             return SdkSandbox.workspace_write
-        raise CodexPolicyError("full_access is prohibited")
+        if mode is SandboxMode.FULL_ACCESS:
+            return SdkSandbox.danger_full_access
+        raise CodexPolicyError("unsupported sandbox mode")
 
     @staticmethod
     def _required_id(value: Any, kind: str) -> str:

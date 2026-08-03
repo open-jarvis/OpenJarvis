@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -18,6 +19,7 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from openjarvis.desktop.models import DesktopArtifact, DesktopRect, DesktopWindow
 from openjarvis.desktop.win32 import Win32SemanticBackend, WindowsDesktopError
@@ -65,7 +67,9 @@ class DesktopAccessStore:
             try:
                 payload = json.loads(self.path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
-                raise WindowsDesktopError("desktop access configuration is invalid") from exc
+                raise WindowsDesktopError(
+                    "desktop access configuration is invalid"
+                ) from exc
             targets: list[DesktopTargetGrant] = []
             for item in payload.get("targets", []):
                 if not isinstance(item, dict):
@@ -75,11 +79,18 @@ class DesktopAccessStore:
                         DesktopTargetGrant(
                             target_id=str(item["target_id"]),
                             label=str(item["label"])[:160],
-                            executable=str(Path(str(item["executable"])).resolve(strict=False)),
+                            executable=str(
+                                Path(str(item["executable"])).resolve(strict=False)
+                            ),
                             title_contains=str(item["title_contains"])[:256],
                             mode=DesktopAccessMode(str(item.get("mode", "off"))),
                             capabilities=tuple(
-                                sorted({str(value) for value in item.get("capabilities", [])})
+                                sorted(
+                                    {
+                                        str(value)
+                                        for value in item.get("capabilities", [])
+                                    }
+                                )
                             ),
                         )
                     )
@@ -120,7 +131,9 @@ class DesktopAccessStore:
                     "schema_version": 1,
                     "targets": [
                         {**asdict(item), "mode": item.mode.value}
-                        for item in sorted(current.values(), key=lambda value: value.target_id)
+                        for item in sorted(
+                            current.values(), key=lambda value: value.target_id
+                        )
                     ],
                 }
             )
@@ -151,12 +164,14 @@ class ProductiveDesktopController:
         access_store: DesktopAccessStore,
         artifact_root: str | Path,
         event_sink=None,
+        flow_authority=None,
     ) -> None:
         self.backend = backend
         self.access_store = access_store
         self.artifact_root = Path(artifact_root).resolve(strict=False)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
         self.event_sink = event_sink or (lambda _name, _payload: None)
+        self.flow_authority = flow_authority
         self._windows: dict[str, DesktopWindow] = {}
         self._lock = threading.RLock()
         self._interrupted = threading.Event()
@@ -191,7 +206,9 @@ class ProductiveDesktopController:
                 target_monitor = ""
         return {
             "available": os.name == "nt",
-            "mode": "configured" if any(item.mode is not DesktopAccessMode.OFF for item in grants) else "off",
+            "mode": "configured"
+            if any(item.mode is not DesktopAccessMode.OFF for item in grants)
+            else "off",
             "secure_desktop": secure_boundary,
             "secure_desktop_blocked": secure_boundary != "Default",
             "interrupt_requested": self._interrupted.is_set(),
@@ -227,14 +244,20 @@ class ProductiveDesktopController:
     def connect(self, target_id: str) -> DesktopWindow:
         grant = self._grant(target_id, "inspect")
         self._require_default_desktop()
-        expected_executable = str(Path(grant.executable).resolve(strict=False)).casefold()
+        if target_id.startswith("window:") and target_id in self._windows:
+            return self.backend.refresh_window(self._windows[target_id])
+        expected_executable = str(
+            Path(grant.executable).resolve(strict=False)
+        ).casefold()
         matches = []
         for window in self.backend.visible_windows():
             if grant.title_contains.casefold() not in window.title.casefold():
                 continue
             try:
                 executable = str(
-                    Path(self.backend.process_executable(window.process_id)).resolve(strict=False)
+                    Path(self.backend.process_executable(window.process_id)).resolve(
+                        strict=False
+                    )
                 ).casefold()
             except WindowsDesktopError:
                 continue
@@ -246,7 +269,9 @@ class ProductiveDesktopController:
             )
         self._windows[target_id] = matches[0]
         self._interrupted.clear()
-        self._emit("desktop.connected", target_id, {"process_id": matches[0].process_id})
+        self._emit(
+            "desktop.connected", target_id, {"process_id": matches[0].process_id}
+        )
         self._record("connect", target_id, True, {"process_id": matches[0].process_id})
         return matches[0]
 
@@ -278,6 +303,7 @@ class ProductiveDesktopController:
                 executable = "unavailable"
             windows.append(
                 {
+                    "target_id": f"window:{item.handle}",
                     "title": item.title[:256],
                     "process_id": item.process_id,
                     "executable": executable,
@@ -286,7 +312,78 @@ class ProductiveDesktopController:
                     "scale": item.dpi / 96.0,
                 }
             )
+            self._windows[f"window:{item.handle}"] = item
         return {"verified": True, "windows": windows}
+
+    def list_browser_windows(self) -> dict[str, Any]:
+        """Return existing owner browser windows without opening a new profile."""
+
+        observed = self.list_windows()
+        browser_names = {"brave", "chrome", "firefox", "msedge", "opera", "vivaldi"}
+        windows = [
+            item
+            for item in observed["windows"]
+            if Path(str(item["executable"])).stem.casefold() in browser_names
+        ]
+        return {"verified": True, "windows": windows}
+
+    def browser_navigate(
+        self,
+        target_id: str,
+        url: str,
+        *,
+        new_tab: bool = False,
+    ) -> dict[str, Any]:
+        """Navigate an existing browser window while preserving its signed-in profile."""
+
+        parsed = urlsplit(url.strip())
+        if parsed.scheme.casefold() not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("browser URL must be an absolute HTTP(S) URL")
+        if len(url) > 8192:
+            raise ValueError("browser URL exceeds 8192 characters")
+        window = self._window(target_id)
+        self._focus(window)
+        before = self.screenshot(target_id)
+        previous_clipboard: str | None
+        try:
+            previous_clipboard = self.backend.clipboard_read()
+        except WindowsDesktopError:
+            previous_clipboard = None
+        try:
+            if new_tab:
+                self.backend.send_hotkey(window, "ctrl+t")
+            self.backend.send_hotkey(window, "ctrl+l")
+            self.backend.clipboard_write(url)
+            self.backend.send_hotkey(window, "ctrl+v")
+        finally:
+            if previous_clipboard is not None:
+                self.backend.clipboard_write(previous_clipboard)
+        self.backend.send_hotkey(window, "enter")
+        time.sleep(0.35)
+        after_window = self.backend.refresh_window(window)
+        after = self.screenshot(target_id)
+        verified = (
+            after_window.process_id == window.process_id
+            and self.backend.is_focused(after_window)
+            and before.sha256 != after.sha256
+        )
+        self._record(
+            "browser_navigate",
+            target_id,
+            verified,
+            {"artifact_id": after.artifact_id, "new_tab": new_tab},
+        )
+        return {
+            "target_id": target_id,
+            "artifact_id": after.artifact_id,
+            "new_tab": new_tab,
+            "verified": verified,
+        }
+
+    def browser_close_tab(self, target_id: str) -> dict[str, Any]:
+        """Close the active tab in an existing browser window."""
+
+        return self.hotkey(target_id, "ctrl+w")
 
     def active_window(self) -> dict[str, Any]:
         self._require_global_access("inspect")
@@ -403,7 +500,9 @@ class ProductiveDesktopController:
         observed = self.backend.move_window(window, requested)
         self._windows[target_id] = observed
         verified = observed.bounds == requested
-        self._record("move_window", target_id, verified, {"bounds": asdict(observed.bounds)})
+        self._record(
+            "move_window", target_id, verified, {"bounds": asdict(observed.bounds)}
+        )
         return {
             "target_id": target_id,
             "bounds": asdict(observed.bounds),
@@ -448,10 +547,14 @@ class ProductiveDesktopController:
             self._check_interrupt()
             try:
                 window = self.connect(target_id)
-                verified = window.process_id == process.pid or self.backend.process_executable(
-                    window.process_id
-                ).casefold() == str(executable).casefold()
-                self._record("launch", target_id, verified, {"process_id": window.process_id})
+                verified = (
+                    window.process_id == process.pid
+                    or self.backend.process_executable(window.process_id).casefold()
+                    == str(executable).casefold()
+                )
+                self._record(
+                    "launch", target_id, verified, {"process_id": window.process_id}
+                )
                 return {
                     "target_id": target_id,
                     "process_id": window.process_id,
@@ -461,16 +564,67 @@ class ProductiveDesktopController:
             except WindowsDesktopError as exc:
                 last_error = exc
                 time.sleep(0.15)
-        raise WindowsDesktopError("launched application did not expose the granted window") from last_error
+        raise WindowsDesktopError(
+            "launched application did not expose the granted window"
+        ) from last_error
 
-    def set_text(self, target_id: str, automation_id: int, role: str, value: str) -> dict[str, Any]:
+    def launch_application(
+        self, executable: str, arguments: list[str] | None = None
+    ) -> dict[str, Any]:
+        if not (self.flow_authority and self.flow_authority.is_flow()):
+            raise WindowsDesktopError("application launch requires Flow mode")
+        self._require_default_desktop()
+        path = Path(executable).expanduser().resolve(strict=True)
+        if not path.is_file():
+            raise FileNotFoundError(str(path))
+        process = subprocess.Popen(
+            [str(path), *(arguments or [])],
+            cwd=str(path.parent),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        )
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline:
+            self._check_interrupt()
+            for window in self.backend.visible_windows():
+                if window.process_id == process.pid:
+                    target_id = f"window:{window.handle}"
+                    self._windows[target_id] = window
+                    return {
+                        "target_id": target_id,
+                        "process_id": process.pid,
+                        "window_title": window.title[:256],
+                        "verified": True,
+                    }
+            time.sleep(0.15)
+        return {
+            "target_id": None,
+            "process_id": process.pid,
+            "window_title": "",
+            "verified": process.poll() is None,
+        }
+
+    def close_window(self, target_id: str) -> dict[str, Any]:
+        self._grant(target_id, "window", require_interact=True)
+        window = self._window(target_id)
+        self.backend.close(window)
+        self._windows.pop(target_id, None)
+        return {"target_id": target_id, "verified": True}
+
+    def set_text(
+        self, target_id: str, automation_id: int, role: str, value: str
+    ) -> dict[str, Any]:
         self._grant(target_id, "type", require_interact=True)
         if len(value) > 4000:
             raise ValueError("desktop text exceeds 4000 characters")
         with self._lock:
             window = self._window(target_id)
             self._focus(window)
-            element = self.backend.find_element(window, automation_id=automation_id, role=role)
+            element = self.backend.find_element(
+                window, automation_id=automation_id, role=role
+            )
             if self.backend.is_password_element(window, element):
                 raise WindowsDesktopError("protected password fields are not permitted")
             observed = self.backend.set_text(window, element, value)
@@ -478,7 +632,11 @@ class ProductiveDesktopController:
             self._emit(
                 "desktop.action_verified",
                 target_id,
-                {"kind": "semantic_text", "automation_id": automation_id, "verified": verified},
+                {
+                    "kind": "semantic_text",
+                    "automation_id": automation_id,
+                    "verified": verified,
+                },
             )
             self._record(
                 "semantic_text",
@@ -507,7 +665,9 @@ class ProductiveDesktopController:
             window = self._window(target_id)
             self._focus(window)
             before = self.screenshot(target_id)
-            element = self.backend.find_element(window, automation_id=automation_id, role=role)
+            element = self.backend.find_element(
+                window, automation_id=automation_id, role=role
+            )
             sensitive_markers = {
                 "buy",
                 "delete",
@@ -524,8 +684,10 @@ class ProductiveDesktopController:
                 "veröffentlichen",
             }
             element_name = element.name.casefold()
-            if not sensitive and any(
-                marker in element_name for marker in sensitive_markers
+            if (
+                not (self.flow_authority and self.flow_authority.is_flow())
+                and not sensitive
+                and any(marker in element_name for marker in sensitive_markers)
             ):
                 raise WindowsDesktopError(
                     "sensitive control requires the approval-scoped desktop tool"
@@ -582,21 +744,41 @@ class ProductiveDesktopController:
             "ctrl+a",
             "ctrl+c",
             "ctrl+f",
+            "ctrl+l",
+            "ctrl+n",
+            "ctrl+o",
+            "ctrl+p",
+            "ctrl+r",
+            "ctrl+s",
+            "ctrl+t",
             "ctrl+v",
+            "ctrl+w",
             "ctrl+x",
             "ctrl+y",
             "ctrl+z",
+            "alt+f4",
+            "alt+left",
+            "alt+right",
+            "enter",
+            "esc",
             "shift+tab",
             "tab",
         }
-        if chord.casefold() not in allowed:
+        if (
+            not (self.flow_authority and self.flow_authority.is_flow())
+            and chord.casefold() not in allowed
+        ):
             raise WindowsDesktopError("hotkey is not allowlisted")
+        if not re.fullmatch(r"[a-z0-9+_-]{1,40}", chord.casefold()):
+            raise WindowsDesktopError("hotkey syntax is invalid")
         window = self._window(target_id)
         self._focus(window)
         before = self.backend.refresh_window(window)
         self.backend.send_hotkey(window, chord)
         after = self.backend.refresh_window(window)
-        verified = before.process_id == after.process_id and self.backend.is_focused(after)
+        verified = before.process_id == after.process_id and self.backend.is_focused(
+            after
+        )
         self._record("hotkey", target_id, verified, {"chord": chord.casefold()})
         return {"target_id": target_id, "chord": chord.casefold(), "verified": verified}
 
@@ -625,7 +807,10 @@ class ProductiveDesktopController:
         self._focus(window)
         display = self.backend.display_context(window)
         before = self.screenshot(target_id)
-        if not window.bounds.left <= x < window.bounds.right or not window.bounds.top <= y < window.bounds.bottom:
+        if (
+            not window.bounds.left <= x < window.bounds.right
+            or not window.bounds.top <= y < window.bounds.bottom
+        ):
             raise WindowsDesktopError("visual click escaped the current window bounds")
         self._check_interrupt()
         self.backend.coordinate_click(window, x, y)
@@ -670,8 +855,14 @@ class ProductiveDesktopController:
         window = self._windows.get(target_id)
         if window is None:
             window = self.connect(target_id)
-        expected = str(Path(self._grant(target_id, "inspect").executable).resolve(strict=False))
-        observed = str(Path(self.backend.process_executable(window.process_id)).resolve(strict=False))
+        expected = str(
+            Path(self._grant(target_id, "inspect").executable).resolve(strict=False)
+        )
+        observed = str(
+            Path(self.backend.process_executable(window.process_id)).resolve(
+                strict=False
+            )
+        )
         if expected.casefold() != observed.casefold():
             self._windows.pop(target_id, None)
             raise WindowsDesktopError("desktop process identity changed")
@@ -684,18 +875,74 @@ class ProductiveDesktopController:
             (item for item in self.access_store.list() if item.target_id == target_id),
             None,
         )
+        if self.flow_authority and self.flow_authority.is_flow():
+            if grant is not None:
+                return DesktopTargetGrant(
+                    target_id=grant.target_id,
+                    label=grant.label,
+                    executable=grant.executable,
+                    title_contains=grant.title_contains,
+                    mode=DesktopAccessMode.INTERACT,
+                    capabilities=(
+                        "inspect",
+                        "screenshot",
+                        "focus",
+                        "window",
+                        "launch",
+                        "type",
+                        "click",
+                        "hotkey",
+                        "scroll",
+                        "visual_click",
+                        "clipboard",
+                    ),
+                )
+            if target_id.startswith("window:"):
+                try:
+                    handle = int(target_id.split(":", 1)[1])
+                    window = next(
+                        item
+                        for item in self.backend.visible_windows()
+                        if item.handle == handle
+                    )
+                except (ValueError, StopIteration) as exc:
+                    raise WindowsDesktopError("desktop window is unavailable") from exc
+                self._windows[target_id] = window
+                return DesktopTargetGrant(
+                    target_id=target_id,
+                    label=window.title[:160],
+                    executable=self.backend.process_executable(window.process_id),
+                    title_contains=window.title[:256],
+                    mode=DesktopAccessMode.INTERACT,
+                    capabilities=(
+                        "inspect",
+                        "screenshot",
+                        "focus",
+                        "window",
+                        "launch",
+                        "type",
+                        "click",
+                        "hotkey",
+                        "scroll",
+                        "visual_click",
+                        "clipboard",
+                    ),
+                )
         if grant is None or grant.mode is DesktopAccessMode.OFF:
             raise WindowsDesktopError("desktop target is not enabled")
         if require_interact and grant.mode is not DesktopAccessMode.INTERACT:
             raise WindowsDesktopError("desktop target is observe-only")
         if capability not in grant.capabilities:
-            raise WindowsDesktopError(f"desktop capability is not granted: {capability}")
+            raise WindowsDesktopError(
+                f"desktop capability is not granted: {capability}"
+            )
         return grant
 
     def _require_global_access(self, capability: str) -> None:
+        if self.flow_authority and self.flow_authority.is_flow():
+            return
         if not any(
-            item.mode is not DesktopAccessMode.OFF
-            and capability in item.capabilities
+            item.mode is not DesktopAccessMode.OFF and capability in item.capabilities
             for item in self.access_store.list()
         ):
             raise WindowsDesktopError(
@@ -778,7 +1025,9 @@ def desktop_tool_runtimes(
         description="Inspect semantic controls in one explicitly granted existing Windows application.",
         input_schema={
             "type": "object",
-            "properties": {"target_id": {"type": "string", "minLength": 1, "maxLength": 80}},
+            "properties": {
+                "target_id": {"type": "string", "minLength": 1, "maxLength": 80}
+            },
             "required": ["target_id"],
         },
         output_schema={"type": "object"},
@@ -859,7 +1108,6 @@ def desktop_tool_runtimes(
         capability: str,
         risk: RiskLevel,
         side_effect: SideEffectClass,
-        approval: bool = False,
     ) -> ToolManifest:
         return ToolManifest(
             tool_id=tool_id,
@@ -881,7 +1129,7 @@ def desktop_tool_runtimes(
                 if risk is RiskLevel.READ_ONLY
                 else "manual_or_tool_specific"
             ),
-            required_approval=approval,
+            required_approval=False,
             **common,
         )
 
@@ -931,12 +1179,62 @@ def desktop_tool_runtimes(
                     risk=RiskLevel.READ_ONLY,
                     side_effect=SideEffectClass.LOCAL_READ,
                 ),
-                RegisteredToolRuntime(handler=lambda _args, call=handler: call(), verifier=verify),
+                RegisteredToolRuntime(
+                    handler=lambda _args, call=handler: call(), verifier=verify
+                ),
             )
         )
 
     extra.extend(
         [
+            (
+                make_manifest(
+                    "desktop.launch_application",
+                    "Launch any installed application in Flow mode and return its window target.",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "executable": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 4096,
+                            },
+                            "arguments": {
+                                "type": "array",
+                                "items": {"type": "string", "maxLength": 4096},
+                                "maxItems": 128,
+                            },
+                        },
+                        "required": ["executable"],
+                    },
+                    capability="desktop:launch",
+                    risk=RiskLevel.EXTERNAL_PREPARATION,
+                    side_effect=SideEffectClass.VISIBLE_PREPARATION,
+                ),
+                RegisteredToolRuntime(
+                    handler=lambda args: controller.launch_application(
+                        str(args["executable"]),
+                        [str(value) for value in args.get("arguments", [])],
+                    ),
+                    verifier=verify,
+                ),
+            ),
+            (
+                make_manifest(
+                    "desktop.close_window",
+                    "Close a visible application window in Flow mode.",
+                    target_schema,
+                    capability="desktop:interact",
+                    risk=RiskLevel.REVERSIBLE_WORKSPACE,
+                    side_effect=SideEffectClass.REVERSIBLE_LOCAL_WRITE,
+                ),
+                RegisteredToolRuntime(
+                    handler=lambda args: controller.close_window(
+                        str(args["target_id"])
+                    ),
+                    verifier=verify,
+                ),
+            ),
             (
                 make_manifest(
                     "desktop.screenshot",
@@ -974,8 +1272,15 @@ def desktop_tool_runtimes(
                     {
                         "type": "object",
                         "properties": {
-                            "target_id": {"type": "string", "minLength": 1, "maxLength": 80},
-                            "state": {"type": "string", "enum": ["minimized", "maximized", "restored"]},
+                            "target_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                            },
+                            "state": {
+                                "type": "string",
+                                "enum": ["minimized", "maximized", "restored"],
+                            },
                         },
                         "required": ["target_id", "state"],
                     },
@@ -997,7 +1302,11 @@ def desktop_tool_runtimes(
                     {
                         "type": "object",
                         "properties": {
-                            "target_id": {"type": "string", "minLength": 1, "maxLength": 80},
+                            "target_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                            },
                             "left": {"type": "integer"},
                             "top": {"type": "integer"},
                             "width": {"type": "integer"},
@@ -1044,7 +1353,9 @@ def desktop_tool_runtimes(
                     side_effect=SideEffectClass.LOCAL_READ,
                 ),
                 RegisteredToolRuntime(
-                    handler=lambda args: controller.clipboard_read(str(args["target_id"])),
+                    handler=lambda args: controller.clipboard_read(
+                        str(args["target_id"])
+                    ),
                     verifier=verify,
                 ),
             ),
@@ -1055,7 +1366,11 @@ def desktop_tool_runtimes(
                     {
                         "type": "object",
                         "properties": {
-                            "target_id": {"type": "string", "minLength": 1, "maxLength": 80},
+                            "target_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                            },
                             "value": {"type": "string", "maxLength": 16384},
                         },
                         "required": ["target_id", "value"],
@@ -1078,8 +1393,25 @@ def desktop_tool_runtimes(
                     {
                         "type": "object",
                         "properties": {
-                            "target_id": {"type": "string", "minLength": 1, "maxLength": 80},
-                            "chord": {"type": "string", "enum": ["ctrl+a", "ctrl+c", "ctrl+f", "ctrl+v", "ctrl+x", "ctrl+y", "ctrl+z", "shift+tab", "tab"]},
+                            "target_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                            },
+                            "chord": {
+                                "type": "string",
+                                "enum": [
+                                    "ctrl+a",
+                                    "ctrl+c",
+                                    "ctrl+f",
+                                    "ctrl+v",
+                                    "ctrl+x",
+                                    "ctrl+y",
+                                    "ctrl+z",
+                                    "shift+tab",
+                                    "tab",
+                                ],
+                            },
                         },
                         "required": ["target_id", "chord"],
                     },
@@ -1101,7 +1433,11 @@ def desktop_tool_runtimes(
                     {
                         "type": "object",
                         "properties": {
-                            "target_id": {"type": "string", "minLength": 1, "maxLength": 80},
+                            "target_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                            },
                             "delta": {"type": "integer"},
                         },
                         "required": ["target_id", "delta"],
@@ -1120,12 +1456,14 @@ def desktop_tool_runtimes(
             (
                 make_manifest(
                     "desktop.sensitive_click",
-                    "Click a semantic control whose label implies sending, publishing, deleting, uploading or purchasing.",
+                    (
+                        "Click a semantic control whose label implies sending, "
+                        "publishing, deleting, uploading or purchasing."
+                    ),
                     click_manifest.input_schema,
                     capability="desktop:sensitive",
                     risk=RiskLevel.DESTRUCTIVE_OR_SENSITIVE,
                     side_effect=SideEffectClass.EXTERNAL_WRITE,
-                    approval=True,
                 ),
                 RegisteredToolRuntime(
                     handler=lambda args: controller.click(
@@ -1144,7 +1482,11 @@ def desktop_tool_runtimes(
                     {
                         "type": "object",
                         "properties": {
-                            "target_id": {"type": "string", "minLength": 1, "maxLength": 80},
+                            "target_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                            },
                             "x": {"type": "integer"},
                             "y": {"type": "integer"},
                         },
@@ -1153,13 +1495,90 @@ def desktop_tool_runtimes(
                     capability="desktop:sensitive",
                     risk=RiskLevel.DESTRUCTIVE_OR_SENSITIVE,
                     side_effect=SideEffectClass.EXTERNAL_WRITE,
-                    approval=True,
                 ),
                 RegisteredToolRuntime(
                     handler=lambda args: controller.visual_click(
                         str(args["target_id"]), int(args["x"]), int(args["y"])
                     ),
                     verifier=verify,
+                ),
+            ),
+        ]
+    )
+    browser_target_schema = {
+        "type": "object",
+        "properties": {
+            "target_id": {"type": "string", "minLength": 1, "maxLength": 80},
+            "url": {"type": "string", "minLength": 1, "maxLength": 8192},
+        },
+        "required": ["target_id", "url"],
+    }
+    extra.extend(
+        [
+            (
+                make_manifest(
+                    "browser.windows",
+                    "List the owner's existing signed-in browser windows in Flow mode.",
+                    empty_schema,
+                    capability="browser:full",
+                    risk=RiskLevel.READ_ONLY,
+                    side_effect=SideEffectClass.LOCAL_READ,
+                ),
+                RegisteredToolRuntime(
+                    handler=lambda _args: controller.list_browser_windows(),
+                    verifier=verify,
+                    interrupt=controller.interrupt,
+                ),
+            ),
+            (
+                make_manifest(
+                    "browser.navigate",
+                    "Navigate the active tab of an existing signed-in browser window.",
+                    browser_target_schema,
+                    capability="browser:full",
+                    risk=RiskLevel.EXTERNAL_PREPARATION,
+                    side_effect=SideEffectClass.VISIBLE_PREPARATION,
+                ),
+                RegisteredToolRuntime(
+                    handler=lambda args: controller.browser_navigate(
+                        str(args["target_id"]), str(args["url"])
+                    ),
+                    verifier=verify,
+                    interrupt=controller.interrupt,
+                ),
+            ),
+            (
+                make_manifest(
+                    "browser.open_tab",
+                    "Open a URL in a new tab of an existing signed-in browser window.",
+                    browser_target_schema,
+                    capability="browser:full",
+                    risk=RiskLevel.EXTERNAL_PREPARATION,
+                    side_effect=SideEffectClass.VISIBLE_PREPARATION,
+                ),
+                RegisteredToolRuntime(
+                    handler=lambda args: controller.browser_navigate(
+                        str(args["target_id"]), str(args["url"]), new_tab=True
+                    ),
+                    verifier=verify,
+                    interrupt=controller.interrupt,
+                ),
+            ),
+            (
+                make_manifest(
+                    "browser.close_tab",
+                    "Close the active tab in an existing signed-in browser window.",
+                    target_schema,
+                    capability="browser:full",
+                    risk=RiskLevel.REVERSIBLE_WORKSPACE,
+                    side_effect=SideEffectClass.REVERSIBLE_LOCAL_WRITE,
+                ),
+                RegisteredToolRuntime(
+                    handler=lambda args: controller.browser_close_tab(
+                        str(args["target_id"])
+                    ),
+                    verifier=verify,
+                    interrupt=controller.interrupt,
                 ),
             ),
         ]

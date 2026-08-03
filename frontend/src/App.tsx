@@ -196,12 +196,8 @@ function LegacyApp() {
           <Route index element={<JarvisPage />} />
           <Route path="chat" element={<JarvisPage />} />
           <Route path="tasks" element={<JarvisPage />} />
-          <Route path="approvals" element={<JarvisPage />} />
           <Route path="tools" element={<JarvisPage />} />
           <Route path="browser" element={<JarvisPage />} />
-          <Route path="website-staging" element={<JarvisPage />} />
-          <Route path="learning" element={<JarvisPage />} />
-          <Route path="skills" element={<JarvisPage />} />
           <Route path="voice" element={<JarvisPage />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="settings" element={<SettingsPage />} />

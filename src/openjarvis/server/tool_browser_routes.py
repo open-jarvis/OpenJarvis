@@ -89,9 +89,7 @@ def _manifest_payload(manifest: ToolManifest, *, runtime: bool) -> dict[str, Any
 def _action_payload(action: ToolAction, service=None) -> dict[str, Any]:
     payload = action.model_dump(mode="json")
     proposal = (
-        service.store.get_proposal(action.proposal_id)
-        if service is not None
-        else None
+        service.store.get_proposal(action.proposal_id) if service is not None else None
     )
     payload["parameter_summary"] = proposal.arguments if proposal else {}
     payload["expected_result"] = proposal.expected_result if proposal else ""
@@ -200,6 +198,7 @@ async def create_task_action(
         raise HTTPException(status_code=409, detail="Idempotency-Key mismatch")
     service = _actions(request)
     try:
+        service.begin_task(task_id)
         action = service.create(proposal)
         if body.execute and action.status.value == "validated":
             action = await service.execute(action.action_id)
@@ -229,45 +228,6 @@ async def get_action_artifacts(action_id: str, request: Request) -> dict[str, An
         "artifacts": [_artifact_payload(artifact) for artifact in artifacts],
         "count": len(artifacts),
     }
-
-
-async def _approval_action(
-    action_id: str,
-    request: Request,
-    mutation: tuple[str, str],
-    *,
-    allow: bool,
-) -> dict[str, Any]:
-    _correlation_id, decision_id = mutation
-    try:
-        if allow:
-            action = await _actions(request).approve(
-                action_id,
-                decision_id=decision_id,
-            )
-        else:
-            action = _actions(request).deny(action_id, decision_id=decision_id)
-    except ToolActionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return _action_payload(action, _actions(request))
-
-
-@router.post("/actions/{action_id}/approve")
-async def approve_action(
-    action_id: str,
-    request: Request,
-    mutation: Annotated[tuple[str, str], Depends(_mutation_context)],
-) -> dict[str, Any]:
-    return await _approval_action(action_id, request, mutation, allow=True)
-
-
-@router.post("/actions/{action_id}/deny")
-async def deny_action(
-    action_id: str,
-    request: Request,
-    mutation: Annotated[tuple[str, str], Depends(_mutation_context)],
-) -> dict[str, Any]:
-    return await _approval_action(action_id, request, mutation, allow=False)
 
 
 @router.post("/actions/{action_id}/cancel")
@@ -313,8 +273,7 @@ async def browser_health(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {
         "sessions": [
-            redact_data(asdict(item)) | {"healthy": item.healthy}
-            for item in health
+            redact_data(asdict(item)) | {"healthy": item.healthy} for item in health
         ],
         "count": len(health),
         "healthy": all(item.healthy for item in health),

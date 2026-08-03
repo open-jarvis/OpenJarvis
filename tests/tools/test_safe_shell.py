@@ -6,6 +6,8 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -84,6 +86,35 @@ def test_timeout_terminates_owned_process(shell) -> None:
     assert result.success is False
     assert result.metadata["timed_out"] is True
     assert result.metadata["process_tree_terminated"] is True
+
+
+def test_owner_stop_terminates_active_shell_process(shell) -> None:
+    tool, workspace = shell
+    holder = []
+    worker = threading.Thread(
+        target=lambda: holder.append(
+            tool.execute(
+                executable=sys.executable,
+                arguments=["-c", "import time; time.sleep(30)"],
+                working_dir=str(workspace),
+                timeout=30,
+            )
+        )
+    )
+    worker.start()
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        with tool._process_lock:
+            if tool._active_processes:
+                break
+        time.sleep(0.01)
+
+    assert tool.interrupt() == 1
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert holder[0].success is False
+    assert holder[0].metadata["interrupted"] is True
 
 
 def _process_is_running(pid: int) -> bool:
@@ -168,6 +199,39 @@ def test_git_push_force_reset_and_clean_are_blocked(tmp_path: Path) -> None:
         )
         assert result.success is False
         assert "blocked" in result.content
+
+
+def test_flow_full_machine_policy_allows_executable_and_foreign_cwd(
+    tmp_path: Path,
+) -> None:
+    git = shutil.which("git")
+    if not git:
+        pytest.skip("git unavailable")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "owner-selected"
+    outside.mkdir()
+    path_policy = SecurePathPolicy(
+        (workspace,),
+        tmp_path / "restore",
+        full_machine=True,
+    )
+    tool = SafeShellTool(
+        StructuredCommandPolicy(
+            allowed_executables=(),
+            path_policy=path_policy,
+            full_machine=True,
+        )
+    )
+
+    result = tool.execute(
+        executable=git,
+        arguments=["--version"],
+        working_dir=str(outside),
+    )
+
+    assert result.success is True
+    assert "git version" in result.content.lower()
 
 
 def test_output_is_bounded(shell) -> None:

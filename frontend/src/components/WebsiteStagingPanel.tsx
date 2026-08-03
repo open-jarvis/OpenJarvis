@@ -35,7 +35,7 @@ export function WebsiteStagingSummary({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold">Preview diff</h3>
           <span className="rounded-full px-2 py-1 text-xs" style={{ background: 'var(--color-accent-subtle)' }}>
-            Risk level {plan.risk_level}
+            Checkpoint ready
           </span>
         </div>
         <p className="mt-1 break-all text-xs" style={{ color: 'var(--color-text-secondary)' }}>
@@ -84,7 +84,7 @@ export function WebsiteStagingSummary({
         <div className="flex flex-wrap gap-2">
           <button type="button" disabled={busy} onClick={onApply} className="rounded-lg px-3 py-2 text-sm font-semibold disabled:opacity-40" style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}>
             {busy ? <Loader2 size={14} className="mr-2 inline animate-spin" /> : <ShieldCheck size={14} className="mr-2 inline" />}
-            Allow once
+            Apply now
           </button>
           <button type="button" disabled={busy} onClick={onDeny} className="rounded-lg px-3 py-2 text-sm disabled:opacity-40" style={{ border: '1px solid var(--color-border)' }}>
             Deny
@@ -125,7 +125,7 @@ export function WebsiteStagingSummary({
             <ShieldCheck size={14} className="mr-2 inline" />Validate
           </button>
           <button type="button" disabled={busy} onClick={onRollback} className="rounded-lg px-3 py-2 text-sm disabled:opacity-40" style={{ border: '1px solid var(--color-border)' }}>
-            <RotateCcw size={14} className="mr-2 inline" />Rollback with Allow once
+            <RotateCcw size={14} className="mr-2 inline" />Rollback now
           </button>
         </div>
       )}

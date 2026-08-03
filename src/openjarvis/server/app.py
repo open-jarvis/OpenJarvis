@@ -250,6 +250,7 @@ def create_app(
     phase7_learning_runtime=None,
     phase7_skill_test_runner=None,
     phase7_healthcheck_runner=None,
+    flow_authority=None,
     owns_task_runtime: bool = False,
     api_key: str = "",
     webhook_config: dict | None = None,
@@ -276,7 +277,16 @@ def create_app(
     @asynccontextmanager
     async def lifespan(runtime_app: FastAPI):
         runtime_app.state.lifecycle_started = True
+        flow_monitor = None
         try:
+            from openjarvis.flow import WindowsSessionLockMonitor
+
+            authority = runtime_app.state.flow_authority
+            flow_monitor = WindowsSessionLockMonitor(
+                authority.lock,
+                is_flow=authority.is_flow,
+            )
+            flow_monitor.start()
             _restore_sendblue_bindings(runtime_app)
             if getattr(runtime_app.state, "mcp_server_registry", None) is not None:
                 from openjarvis.mcp.action_bridge import discover_action_tools
@@ -290,6 +300,8 @@ def create_app(
                 ).start()
             yield
         finally:
+            if flow_monitor is not None:
+                flow_monitor.stop()
             await _shutdown_app_resources(runtime_app)
 
     app = FastAPI(
@@ -358,6 +370,11 @@ def create_app(
     app.state.phase7_learning_runtime = phase7_learning_runtime
     app.state.phase7_skill_test_runner = phase7_skill_test_runner
     app.state.phase7_healthcheck_runner = phase7_healthcheck_runner
+    if flow_authority is None:
+        from openjarvis.flow import FlowSessionAuthority
+
+        flow_authority = FlowSessionAuthority.from_environment()
+    app.state.flow_authority = flow_authority
     app.state.owns_task_runtime = owns_task_runtime
     app.state.shutdown_complete = False
     app.state.session_start = time.time()

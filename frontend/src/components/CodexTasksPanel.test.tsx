@@ -64,12 +64,12 @@ const artifact: ToolArtifactInfo = {
 };
 
 describe('ToolActionDetails', () => {
-  it('shows exact effect, risk, capability, target, undo, and artifacts', () => {
+  it('shows exact effect, capability, target, undo, and artifacts', () => {
     const html = renderToStaticMarkup(
       <ToolActionDetails action={action} tool={tool} artifacts={[artifact]} />,
     );
 
-    expect(html).toContain('Risk 3');
+    expect(html).not.toContain('Risk 3');
     expect(html).toContain('browser:prepare');
     expect(html).toContain('loopback synthetic form');
     expect(html).toContain('external_write');
@@ -78,13 +78,12 @@ describe('ToolActionDetails', () => {
     expect(html).toContain('fake@example.invalid');
   });
 
-  it('offers only one-shot approval and deny controls', () => {
+  it('does not expose an approval decision control', () => {
     const html = renderToStaticMarkup(
       <ToolActionDetails action={action} tool={tool} artifacts={[]} />,
     );
 
-    expect(html).toContain('Allow once');
-    expect(html).toContain('Deny');
-    expect(html).not.toContain('>Always allow<');
+    expect(html).not.toContain('Allow once');
+    expect(html).not.toContain('>Deny<');
   });
 });

@@ -7,6 +7,7 @@ import re
 import shutil
 import signal
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -99,8 +100,9 @@ class StructuredCommandPolicy:
         allowed_executables: tuple[str | Path, ...],
         path_policy: SecurePathPolicy,
         allowed_environment: frozenset[str] = frozenset(),
+        full_machine: bool = False,
     ) -> None:
-        if not allowed_executables:
+        if not allowed_executables and not full_machine:
             raise ValueError("at least one executable must be allowed")
         self.allowed_executables = frozenset(
             os.path.normcase(str(_resolved_executable(str(value))))
@@ -108,6 +110,7 @@ class StructuredCommandPolicy:
         )
         self.path_policy = path_policy
         self.allowed_environment = allowed_environment
+        self.full_machine = full_machine
 
     def validate(
         self,
@@ -118,16 +121,17 @@ class StructuredCommandPolicy:
     ) -> tuple[Path, Path, dict[str, str], tuple[str, ...]]:
         resolved = _resolved_executable(executable)
         normalised = os.path.normcase(str(resolved))
-        if normalised not in self.allowed_executables:
+        if not self.full_machine and normalised not in self.allowed_executables:
             raise ShellPolicyError("executable is not allowlisted")
         name = resolved.name.casefold()
-        if name in _SHELL_HOSTS:
+        if not self.full_machine and name in _SHELL_HOSTS:
             raise ShellPolicyError("shell hosts are not available through shell.exec")
-        if name in _PACKAGE_MANAGERS:
+        if not self.full_machine and name in _PACKAGE_MANAGERS:
             raise ShellPolicyError("software installation is disabled")
-        if name in _SYSTEM_EXECUTABLES:
+        if not self.full_machine and name in _SYSTEM_EXECUTABLES:
             raise ShellPolicyError("system administration command is disabled")
-        self._validate_git(name, arguments)
+        if not self.full_machine:
+            self._validate_git(name, arguments)
 
         cwd = self.path_policy.resolve(working_dir, must_exist=True)
         if not cwd.is_dir():
@@ -273,6 +277,19 @@ class SafeShellTool(BaseTool):
 
     def __init__(self, policy: StructuredCommandPolicy) -> None:
         self.policy = policy
+        self._process_lock = threading.RLock()
+        self._active_processes: dict[int, subprocess.Popen[bytes]] = {}
+        self._interrupted_processes: set[int] = set()
+
+    def interrupt(self) -> int:
+        """Terminate every command currently owned by this tool instance."""
+
+        with self._process_lock:
+            processes = tuple(self._active_processes.values())
+            self._interrupted_processes.update(process.pid for process in processes)
+        for process in processes:
+            _terminate_owned_tree(process)
+        return len(processes)
 
     @property
     def spec(self) -> ToolSpec:
@@ -359,14 +376,22 @@ class SafeShellTool(BaseTool):
                 creationflags=creationflags,
                 **popen_extra,
             )
+            with self._process_lock:
+                self._active_processes[process.pid] = process
             try:
-                stdout_bytes, stderr_bytes = process.communicate(timeout=timeout)
-                timed_out = False
-                tree_terminated = False
-            except subprocess.TimeoutExpired:
-                tree_terminated = _terminate_owned_tree(process)
-                stdout_bytes, stderr_bytes = process.communicate()
-                timed_out = True
+                try:
+                    stdout_bytes, stderr_bytes = process.communicate(timeout=timeout)
+                    timed_out = False
+                    tree_terminated = False
+                except subprocess.TimeoutExpired:
+                    tree_terminated = _terminate_owned_tree(process)
+                    stdout_bytes, stderr_bytes = process.communicate()
+                    timed_out = True
+            finally:
+                with self._process_lock:
+                    self._active_processes.pop(process.pid, None)
+                    interrupted = process.pid in self._interrupted_processes
+                    self._interrupted_processes.discard(process.pid)
             values = tuple(extra_env.values())
             stdout = _redact(
                 stdout_bytes[:_OUTPUT_LIMIT].decode("utf-8", errors="replace"),
@@ -376,13 +401,17 @@ class SafeShellTool(BaseTool):
                 stderr_bytes[:_OUTPUT_LIMIT].decode("utf-8", errors="replace"),
                 values,
             )
-            success = not timed_out and process.returncode in expected
+            success = (
+                not timed_out and not interrupted and process.returncode in expected
+            )
             content = (
                 "\n".join(part for part in (stdout.rstrip(), stderr.rstrip()) if part)
                 or "(no output)"
             )
             if timed_out:
                 content = f"Command timed out after {timeout} seconds.\n{content}"
+            elif interrupted:
+                content = f"Command stopped by owner.\n{content}"
             return ToolResult(
                 tool_name=self.tool_id,
                 content=content,
@@ -391,6 +420,7 @@ class SafeShellTool(BaseTool):
                     "returncode": process.returncode,
                     "timeout_used": timeout,
                     "timed_out": timed_out,
+                    "interrupted": interrupted,
                     "process_tree_terminated": tree_terminated,
                     "working_dir": str(cwd),
                     "executable": command[0],

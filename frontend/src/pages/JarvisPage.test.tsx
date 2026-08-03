@@ -4,19 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   CanonicalTask,
   CanonicalTaskEvent,
-  PendingApproval,
   ToolActionInfo,
 } from '../lib/api';
-import { JarvisApiError } from '../lib/api';
 import { dedupeEvents, ensureActiveTaskId, isTerminalTaskStatus, useJarvisStore } from '../lib/jarvisStore';
 import { MAX_RECONNECTS } from '../lib/useCanonicalTaskStream';
 import {
-  ApprovalCard,
   attemptCanonicalChat,
   canReplacePausedTaskForChat,
   EventCard,
   JarvisPage,
-  requiresFreshTask,
   TASK_REFRESH_INTERVAL_MS,
   TurnEvidenceDetails,
 } from './JarvisPage';
@@ -40,27 +36,6 @@ function event(sequence: number, eventId = `event-${sequence}`): CanonicalTaskEv
   };
 }
 
-const approval: PendingApproval = {
-  id: 'approval-test',
-  source: 'codex_task',
-  task_id: 'task-test',
-  action_type: 'command',
-  action: 'synthetic.read',
-  description: 'Read one synthetic file',
-  effect: 'Read-only inspection',
-  target: 'C:\\synthetic\\file.txt',
-  risk_level: 1,
-  sandbox: 'read_only',
-  cwd: 'C:\\synthetic',
-  undo: 'No mutation',
-  payload: { path: 'redacted/file.txt' },
-  permission_key: '',
-  tier: 'low',
-  status: 'pending',
-  created_at: '2026-07-30T00:00:00Z',
-  expires_at: '2026-07-30T00:05:00Z',
-};
-
 function task(status: string, taskId = 'task-terminal'): CanonicalTask {
   return {
     task_id: taskId,
@@ -82,20 +57,6 @@ function task(status: string, taskId = 'task-terminal'): CanonicalTask {
 }
 
 describe('Jarvis canonical workspace', () => {
-  it('retries only an explicit higher-risk task-boundary conflict', () => {
-    expect(requiresFreshTask(new JarvisApiError(
-      'NEW_TASK_REQUIRED: assistant action needs a higher risk boundary',
-      'conflict',
-      409,
-    ))).toBe(true);
-    expect(requiresFreshTask(new JarvisApiError(
-      'terminal task cannot accept another chat turn',
-      'conflict',
-      409,
-    ))).toBe(false);
-    expect(requiresFreshTask(new Error('NEW_TASK_REQUIRED: forged'))).toBe(false);
-  });
-
   beforeEach(() => {
     useJarvisStore.setState({
       sessionId: 'session-test',
@@ -103,7 +64,6 @@ describe('Jarvis canonical workspace', () => {
       tasks: [],
       tasksLoaded: true,
       timeline: [event(1), event(2)],
-      approvals: [approval],
       sources: [],
       actions: [],
       artifacts: [],
@@ -226,9 +186,8 @@ describe('Jarvis canonical workspace', () => {
   it('lets a harmless question replace a paused task without resuming it', () => {
     const paused = task('paused', 'task-paused');
 
-    expect(canReplacePausedTaskForChat(paused, [])).toBe(true);
-    expect(canReplacePausedTaskForChat({ ...paused, risk_level: 1 }, [])).toBe(false);
-    expect(canReplacePausedTaskForChat(paused, [{ ...approval, task_id: 'task-paused' }])).toBe(false);
+    expect(canReplacePausedTaskForChat(paused)).toBe(true);
+    expect(canReplacePausedTaskForChat({ ...paused, risk_level: 4 })).toBe(true);
   });
 
   it('fails closed until a persisted task has been refreshed after restart', () => {
@@ -286,9 +245,9 @@ describe('Jarvis canonical workspace', () => {
     expect(useJarvisStore.getState().timeline).toEqual([]);
   });
 
-  it('exposes keyboard and screen-reader controls without remembered approval', () => {
+  it('exposes keyboard and screen-reader controls without approval UI', () => {
     const html = renderToStaticMarkup(
-      <MemoryRouter initialEntries={['/approvals']}>
+      <MemoryRouter initialEntries={['/tasks']}>
         <JarvisPage />
       </MemoryRouter>,
     );
@@ -302,13 +261,8 @@ describe('Jarvis canonical workspace', () => {
     );
     expect(chatHtml).toContain('Neue Unterhaltung');
     expect(chatHtml).toContain('Jarvis-Menü öffnen');
-    const approvalHtml = renderToStaticMarkup(
-      <ApprovalCard approval={approval} busy={false} onDecision={() => {}} />,
-    );
-    expect(approvalHtml).toContain('Allow once');
-    expect(approvalHtml).toContain('Deny');
-    expect(approvalHtml).not.toContain('Always allow');
-    expect(approvalHtml).not.toContain('Approve all');
+    expect(html).not.toContain('Allow once');
+    expect(html).not.toContain('Approvals');
   });
 
   it('renders Arabic responses with RTL direction', () => {
@@ -316,14 +270,14 @@ describe('Jarvis canonical workspace', () => {
     expect(html).toContain('dir="rtl"');
     expect(html).toContain('مرحبا من جارفس');
   });
-  it('integrates Learning and Skills into the existing Jarvis navigation', () => {
+  it('removes legacy approval-driven Learning and Skills navigation', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter initialEntries={['/learning']}>
         <JarvisPage />
       </MemoryRouter>,
     );
-    expect(html).toContain('href="/learning"');
-    expect(html).toContain('href="/skills"');
-    expect(html).toContain('Select or create a canonical task');
+    expect(html).not.toContain('href="/learning"');
+    expect(html).not.toContain('href="/skills"');
+    expect(html).not.toContain('Allow once');
   });
 });

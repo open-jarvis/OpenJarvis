@@ -19,7 +19,7 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
-import type { CanonicalTaskEvent, PendingApproval, ToolActionInfo } from '../../../lib/api';
+import type { CanonicalTaskEvent, FlowStatus, ToolActionInfo } from '../../../lib/api';
 import { VoiceAuditionPanel } from '../VoiceAuditionPanel';
 import { JarvisCore, voiceStateLabel } from './JarvisCore';
 import type { JarvisMode, JarvisPreferences } from './preferences';
@@ -41,9 +41,9 @@ export interface JarvisExperienceProps {
   ttsAvailable: boolean;
   speechLanguage: string;
   preferences: JarvisPreferences;
-  approvals: PendingApproval[];
   actions: ToolActionInfo[];
-  decisionBusy: string | null;
+  flowStatus: FlowStatus | null;
+  flowBusy: boolean;
   audioBackendInfo: {
     backend: string | null;
     fallbackUsed: boolean;
@@ -58,7 +58,7 @@ export interface JarvisExperienceProps {
   onStop: () => void | Promise<void>;
   onNewConversation: () => void | Promise<void>;
   onLanguageChange: (language: string) => void;
-  onApprovalDecision: (approval: PendingApproval, allow: boolean) => void | Promise<void>;
+  onAccessModeChange: (mode: 'locked' | 'assistant' | 'flow') => void | Promise<void>;
 }
 
 export interface VisibleMessage {
@@ -125,9 +125,6 @@ export function userSafeError(message: string | null): string | null {
   }
   if (normalized.includes('mcp')) {
     return 'Der MCP-Server ist nicht erreichbar.';
-  }
-  if (normalized.includes('approval') || normalized.includes('bestätigung')) {
-    return 'Diese Aktion benötigt einmalig deine Bestätigung.';
   }
   if (normalized.includes('microphone') || normalized.includes('speech') || normalized.includes('record')) {
     return 'Die Sprachfunktion ist gerade nicht verfügbar. Du kannst weiterhin den Textmodus verwenden.';
@@ -396,23 +393,35 @@ function DeveloperPanel({
   );
 }
 
-function ApprovalPrompt({
-  approval,
+function FlowControlBar({
+  status,
   busy,
-  onDecision,
+  onChange,
 }: {
-  approval: PendingApproval;
+  status: FlowStatus | null;
   busy: boolean;
-  onDecision: (allow: boolean) => void;
+  onChange: (mode: 'locked' | 'assistant' | 'flow') => void;
 }) {
+  const mode = status?.mode ?? 'locked';
+  const remaining = Math.max(0, status?.remaining_seconds ?? 0);
+  const hours = Math.floor(remaining / 3600);
+  const minutes = Math.floor((remaining % 3600) / 60);
   return (
-    <section className="jarvis-approval" role="dialog" aria-modal="true" aria-labelledby={`approval-title-${approval.id}`}>
-      <span className="jarvis-kicker">Deine Entscheidung</span>
-      <h2 id={`approval-title-${approval.id}`}>Jarvis benötigt eine Freigabe</h2>
-      <p>{approval.effect || approval.description || 'Die nächste Aktion kann Auswirkungen außerhalb der Unterhaltung haben.'}</p>
-      <div className="jarvis-approval__actions">
-        <button type="button" disabled={busy} onClick={() => onDecision(false)}>Ablehnen</button>
-        <button type="button" className="jarvis-primary-button" disabled={busy} onClick={() => onDecision(true)}>Einmal erlauben</button>
+    <section className={`jarvis-flow-status jarvis-flow-status--${mode}`} aria-live="polite">
+      <div>
+        <strong>{mode === 'flow' ? 'FLOW-MODUS AKTIV' : mode === 'assistant' ? 'ASSISTANT' : 'LOCKED'}</strong>
+        <span>
+          {mode === 'flow'
+            ? `Besitzer bestätigt · ${hours}h ${minutes}m verbleibend`
+            : mode === 'assistant'
+              ? 'Persönlich, nur lesend'
+              : 'Keine persönlichen Daten oder Werkzeuge'}
+        </span>
+      </div>
+      <div className="jarvis-flow-status__actions">
+        {mode !== 'locked' && <button type="button" disabled={busy} onClick={() => onChange('locked')}>Sperren</button>}
+        {mode !== 'assistant' && <button type="button" disabled={busy} onClick={() => onChange('assistant')}>Assistant</button>}
+        {mode !== 'flow' && <button type="button" className="jarvis-primary-button" disabled={busy} onClick={() => onChange('flow')}>Flow aktivieren</button>}
       </div>
     </section>
   );
@@ -548,7 +557,6 @@ function TextView({
             </div>
             <dl>
               <div><dt>Ziel</dt><dd>{action.target || '—'}</dd></div>
-              <div><dt>Risiko</dt><dd>Stufe {action.risk_level}</dd></div>
               <div><dt>Prüfung</dt><dd>{action.verification_status}</dd></div>
             </dl>
             {action.output_summary && (
@@ -622,7 +630,6 @@ export function JarvisExperience(props: JarvisExperienceProps) {
   );
   const messages = useMemo(() => visibleConversation(props.timeline), [props.timeline]);
   const friendlyError = userSafeError(props.error || activeVoice.errorMessage);
-  const currentApproval = props.approvals[0] ?? null;
 
   const changeMode = (mode: JarvisMode) => props.onPreferencesChange({ mode });
   const newConversation = () => {
@@ -669,6 +676,11 @@ export function JarvisExperience(props: JarvisExperienceProps) {
         <span className="jarvis-wordmark">JARVIS</span>
         <ModeSwitcher mode={props.preferences.mode} onChange={changeMode} />
       </div>
+      <FlowControlBar
+        status={props.flowStatus}
+        busy={props.flowBusy}
+        onChange={(mode) => void props.onAccessModeChange(mode)}
+      />
       <button type="button" className="jarvis-new-chat" onClick={newConversation} aria-label="Neue Unterhaltung"><Plus size={18} /><span>Neu</span></button>
 
       {props.preferences.mode === 'talk' ? (
@@ -701,14 +713,6 @@ export function JarvisExperience(props: JarvisExperienceProps) {
       )}
 
       {friendlyError && <div className="jarvis-friendly-error" role="alert">{friendlyError}</div>}
-      {currentApproval && (
-        <ApprovalPrompt
-          approval={currentApproval}
-          busy={props.decisionBusy === currentApproval.id}
-          onDecision={(allow) => void props.onApprovalDecision(currentApproval, allow)}
-        />
-      )}
-
       <MenuPanel
         open={menuOpen}
         mode={props.preferences.mode}

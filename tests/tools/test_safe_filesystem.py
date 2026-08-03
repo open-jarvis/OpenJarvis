@@ -40,6 +40,27 @@ def test_root_escape_and_parent_traversal_blocked(roots) -> None:
         policy.resolve(str(workspace.parent / "outside.txt"))
 
 
+def test_flow_full_machine_policy_writes_outside_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "owner-selected" / "note.txt"
+    outside.parent.mkdir()
+    policy = SecurePathPolicy(
+        (workspace,),
+        tmp_path / "restore",
+        full_machine=True,
+    )
+
+    result = SafeFileWriteTool(policy).execute(
+        path=str(outside),
+        content="flow access",
+    )
+
+    assert result.success is True
+    assert outside.read_text(encoding="utf-8") == "flow access"
+    assert result.metadata["restore_path"]
+
+
 def test_windows_path_comparison_is_case_insensitive(roots) -> None:
     workspace, _, policy = roots
     child = workspace / "Case.txt"

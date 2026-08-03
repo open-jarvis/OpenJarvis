@@ -217,6 +217,7 @@ markers = [
 [tool.ruff]
 target-version = "py310"
 src = ["src", "tests"]
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]

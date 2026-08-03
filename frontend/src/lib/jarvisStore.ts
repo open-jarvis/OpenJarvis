@@ -5,7 +5,6 @@ import type {
   CanonicalTaskEvent,
   CanonicalTaskSource,
   CodexRuntimeHealth,
-  PendingApproval,
   SessionSummary,
   SystemHealth,
   TaskArtifactInfo,
@@ -40,7 +39,6 @@ interface JarvisWorkspaceState {
   sessions: SessionSummary[];
   timeline: CanonicalTaskEvent[];
   sources: CanonicalTaskSource[];
-  approvals: PendingApproval[];
   actions: ToolActionInfo[];
   artifacts: TaskArtifactInfo[];
   tools: ToolManifestInfo[];
@@ -65,7 +63,6 @@ interface JarvisWorkspaceState {
   setTimeline: (events: CanonicalTaskEvent[]) => void;
   mergeTimeline: (events: CanonicalTaskEvent[]) => void;
   setSources: (sources: CanonicalTaskSource[]) => void;
-  setApprovals: (approvals: PendingApproval[]) => void;
   setActions: (actions: ToolActionInfo[]) => void;
   setArtifacts: (artifacts: TaskArtifactInfo[]) => void;
   setTools: (tools: ToolManifestInfo[]) => void;
@@ -129,7 +126,6 @@ export const useJarvisStore = create<JarvisWorkspaceState>((set) => ({
   sessions: [],
   timeline: [],
   sources: [],
-  approvals: [],
   actions: [],
   artifacts: [],
   tools: [],
@@ -215,7 +211,6 @@ export const useJarvisStore = create<JarvisWorkspaceState>((set) => ({
     return { timeline, lastSequence: timeline[timeline.length - 1]?.sequence ?? state.lastSequence };
   }),
   setSources: (sources) => set({ sources }),
-  setApprovals: (approvals) => set({ approvals }),
   setActions: (actions) => set({ actions }),
   setArtifacts: (artifacts) => set({ artifacts }),
   setTools: (tools) => set({ tools }),

@@ -713,23 +713,29 @@
 .jarvis-developer__states button[aria-pressed='true'] { color: #071014; background: #d8e1e7; }
 .jarvis-developer__states button:disabled { opacity: .3; cursor: not-allowed; }
 
-.jarvis-approval {
+.jarvis-flow-status {
   position: absolute;
-  z-index: 32;
+  z-index: 24;
   left: 50%;
-  bottom: 28px;
-  width: min(calc(100% - 36px), 520px);
-  padding: 20px;
+  top: 70px;
+  width: min(calc(100% - 36px), 760px);
+  padding: 12px 14px;
   border: 1px solid rgba(219, 226, 232, 0.18);
-  border-radius: 18px;
-  background: rgba(10, 13, 15, 0.96);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.58);
+  border-radius: 14px;
+  background: rgba(10, 13, 15, 0.84);
+  box-shadow: 0 12px 42px rgba(0, 0, 0, 0.32);
   transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
-.jarvis-approval h2 { margin: 7px 0 8px; font-size: 18px; font-weight: 540; }
-.jarvis-approval p { margin: 0; color: var(--jarvis-muted); font-size: 13px; line-height: 1.55; }
-.jarvis-approval__actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
-.jarvis-approval__actions button { padding: 9px 13px; color: #dce3e8; border: 1px solid rgba(216, 225, 232, 0.14); border-radius: 10px; background: transparent; cursor: pointer; }
+.jarvis-flow-status--flow { border-color: rgba(73, 235, 165, 0.48); background: rgba(7, 33, 24, 0.9); }
+.jarvis-flow-status strong { display: block; color: #eef5f2; font-size: 12px; letter-spacing: .14em; }
+.jarvis-flow-status span { display: block; margin-top: 3px; color: var(--jarvis-muted); font-size: 11px; }
+.jarvis-flow-status__actions { display: flex; gap: 8px; flex-shrink: 0; }
+.jarvis-flow-status__actions button { padding: 7px 10px; color: #dce3e8; border: 1px solid rgba(216, 225, 232, 0.14); border-radius: 9px; background: transparent; cursor: pointer; }
+.jarvis-flow-status__actions button:disabled { opacity: .45; cursor: wait; }
 
 @keyframes jarvis-message-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes jarvis-thinking { 0%, 100% { opacity: .25; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-3px); } }

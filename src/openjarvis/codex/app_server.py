@@ -485,11 +485,7 @@ class CodexAppServerBackend:
                 runtime_version=self._runtime_version(),
                 backend=CodexBackendKind.APP_SERVER,
                 capabilities=self.capabilities,
-                detail=(
-                    None
-                    if authenticated
-                    else "A ChatGPT Codex login is required"
-                ),
+                detail=(None if authenticated else "A ChatGPT Codex login is required"),
             )
         except Exception as exc:
             return CodexHealth(
@@ -672,10 +668,7 @@ class CodexAppServerBackend:
         thread = store.get_thread_by_id(request.thread_id)
         if thread is None:
             raise CodexCapabilityError("thread is not managed by OpenJarvis")
-        if (
-            thread.task_id != context.task_id
-            or thread.session_id != context.session_id
-        ):
+        if thread.task_id != context.task_id or thread.session_id != context.session_id:
             raise CodexPolicyError("turn context does not own the requested thread")
         transport = await self._require_chatgpt()
         result = await transport.request(
@@ -890,9 +883,7 @@ class CodexAppServerBackend:
             ),
             "approvalsReviewer": "user",
             "cwd": str(context.cwd.resolve(strict=False)),
-            "developerInstructions": redact_text(
-                context.developer_instructions or ""
-            )
+            "developerInstructions": redact_text(context.developer_instructions or "")
             or None,
             "model": context.model.model,
             "sandbox": CodexAppServerBackend._thread_sandbox(context.sandbox),
@@ -908,7 +899,9 @@ class CodexAppServerBackend:
             return "read-only"
         if mode is SandboxMode.WORKSPACE_WRITE:
             return "workspace-write"
-        raise CodexPolicyError("full_access is prohibited")
+        if mode is SandboxMode.FULL_ACCESS:
+            return "danger-full-access"
+        raise CodexPolicyError("unsupported sandbox mode")
 
     @staticmethod
     def _approval_policy(mode: ApprovalMode) -> str:
@@ -932,7 +925,9 @@ class CodexAppServerBackend:
                 "excludeSlashTmp": False,
                 "excludeTmpdirEnvVar": False,
             }
-        raise CodexPolicyError("full_access is prohibited")
+        if context.sandbox is SandboxMode.FULL_ACCESS:
+            return {"type": "dangerFullAccess"}
+        raise CodexPolicyError("unsupported sandbox mode")
 
     @staticmethod
     def _response_id(result: Any, kind: str) -> str:

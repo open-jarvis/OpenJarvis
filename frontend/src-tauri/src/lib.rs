@@ -5,11 +5,14 @@ use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 use tokio::sync::Mutex;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 
 const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8000;
 const FINAL_HEALTH_MARKER: &str = "OPENJARVIS-FINAL-RUNTIME";
 const FINAL_RUNTIME_NAME: &str = "phase8-final";
+const FLOW_BRIDGE_SECRET_ENV: &str = "OPENJARVIS_FLOW_BRIDGE_SECRET";
 const FINAL_ATTACH_ERROR: &str = "OpenJarvis Codex Runtime ist nicht erreichbar.";
 const FINAL_ATTACH_SERVICE_WORKER_RECOVERY: &str = r#"
 (() => {
@@ -453,6 +456,9 @@ impl Default for SetupStatus {
 
 type SharedStatus = Arc<Mutex<SetupStatus>>;
 
+#[derive(Clone)]
+struct FlowBridgeSecret(String);
+
 fn final_attach_only() -> bool {
     final_attach_only_value(std::env::var("OPENJARVIS_FINAL_ATTACH_ONLY").ok().as_deref())
 }
@@ -818,7 +824,11 @@ fn format_uv_sync_spawn_error(root: &std::path::Path, uv_bin: &str, err: &str) -
 // Backend boot sequence (runs in background after app launch)
 // ---------------------------------------------------------------------------
 
-async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
+async fn boot_backend(
+    backend: SharedBackend,
+    status: SharedStatus,
+    flow_bridge_secret: String,
+) {
     if final_attach_only() {
         {
             let mut current = status.lock().await;
@@ -1295,6 +1305,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .current_dir(root);
+    cmd.env(FLOW_BRIDGE_SECRET_ENV, &flow_bridge_secret);
     // Avoid LD_LIBRARY_PATH leak when running inside an AppImage (#455) —
     // do this BEFORE cmd.env() calls below so our explicit cloud-key env
     // additions aren't accidentally stripped.
@@ -1445,10 +1456,11 @@ fn get_api_base() -> String {
 async fn start_backend(
     backend: tauri::State<'_, SharedBackend>,
     status: tauri::State<'_, SharedStatus>,
+    flow_bridge: tauri::State<'_, FlowBridgeSecret>,
 ) -> Result<(), String> {
     let b = backend.inner().clone();
     let s = status.inner().clone();
-    tauri::async_runtime::spawn(boot_backend(b, s));
+    tauri::async_runtime::spawn(boot_backend(b, s, flow_bridge.0.clone()));
     Ok(())
 }
 
@@ -1456,6 +1468,69 @@ async fn start_backend(
 async fn stop_backend(backend: tauri::State<'_, SharedBackend>) -> Result<(), String> {
     backend.lock().await.stop_all().await;
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+async fn native_owner_verification() -> Result<String, String> {
+    use windows::core::HSTRING;
+    use windows::Security::Credentials::UI::{
+        UserConsentVerificationResult, UserConsentVerifier,
+    };
+
+    let operation = UserConsentVerifier::RequestVerificationAsync(&HSTRING::from(
+        "OpenJarvis Flow Mode aktivieren",
+    ))
+    .map_err(|error| format!("Windows Hello konnte nicht gestartet werden: {error}"))?;
+    let result = operation
+        .await
+        .map_err(|error| format!("Windows Hello ist fehlgeschlagen: {error}"))?;
+    if result != UserConsentVerificationResult::Verified {
+        return Err(format!("Windows-Anmeldung wurde nicht bestätigt: {result:?}"));
+    }
+    Ok(std::env::var("USERNAME").unwrap_or_else(|_| "windows-owner".into()))
+}
+
+#[cfg(not(target_os = "windows"))]
+async fn native_owner_verification() -> Result<String, String> {
+    Err("Flow-Aktivierung ist derzeit nur unter Windows verfügbar".into())
+}
+
+#[tauri::command]
+async fn activate_flow_mode(
+    flow_bridge: tauri::State<'_, FlowBridgeSecret>,
+) -> Result<serde_json::Value, String> {
+    let owner = native_owner_verification().await?;
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let authenticated_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_secs();
+    let message = format!("flow-v1\n{nonce}\n{authenticated_at}\n{owner}");
+    let mut mac = Hmac::<Sha256>::new_from_slice(flow_bridge.0.as_bytes())
+        .map_err(|_| "native Flow bridge secret is invalid".to_string())?;
+    mac.update(message.as_bytes());
+    let signature = hex::encode(mac.finalize().into_bytes());
+    let response = reqwest::Client::new()
+        .post(format!("{}/v1/flow/activate", api_base()))
+        .header("X-OpenJarvis-Native-Bridge", "tauri")
+        .json(&serde_json::json!({
+            "nonce": nonce,
+            "authenticated_at": authenticated_at,
+            "signature": signature,
+            "owner": owner,
+        }))
+        .send()
+        .await
+        .map_err(|error| format!("Flow backend is unavailable: {error}"))?;
+    let status = response.status();
+    let payload = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| format!("Invalid Flow response: {error}"))?;
+    if !status.is_success() {
+        return Err(payload.get("detail").and_then(|v| v.as_str()).unwrap_or("Flow activation failed").to_string());
+    }
+    Ok(payload)
 }
 
 #[tauri::command]
@@ -2651,13 +2726,20 @@ async fn hide_overlay() -> Result<(), String> {
 pub fn run() {
     let backend: SharedBackend = Arc::new(Mutex::new(BackendManager::default()));
     let status: SharedStatus = Arc::new(Mutex::new(initial_setup_status()));
+    let flow_bridge = FlowBridgeSecret(format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    ));
 
     let boot_backend_ref = backend.clone();
     let boot_status_ref = status.clone();
+    let boot_flow_secret = flow_bridge.0.clone();
 
     tauri::Builder::default()
         .manage(backend.clone())
         .manage(status.clone())
+        .manage(flow_bridge)
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
@@ -2746,7 +2828,11 @@ pub fn run() {
             }
 
             // Auto-start backend services on launch
-            tauri::async_runtime::spawn(boot_backend(boot_backend_ref, boot_status_ref));
+            tauri::async_runtime::spawn(boot_backend(
+                boot_backend_ref,
+                boot_status_ref,
+                boot_flow_secret,
+            ));
 
             Ok(())
         })
@@ -2755,6 +2841,7 @@ pub fn run() {
             get_api_base,
             start_backend,
             stop_backend,
+            activate_flow_mode,
             check_health,
             fetch_energy,
             fetch_telemetry,

@@ -367,7 +367,9 @@ class Win32SemanticBackend:
         dpi = int(
             getattr(ctypes.windll.user32, "GetDpiForWindow", lambda _h: 96)(handle)
         )
-        return DesktopWindow(handle, _pid(handle), _text(handle), _rect(handle), dpi or 96)
+        return DesktopWindow(
+            handle, _pid(handle), _text(handle), _rect(handle), dpi or 96
+        )
 
     def refresh_window(self, window: DesktopWindow) -> DesktopWindow:
         self._assert_owned(window.handle, window.process_id)
@@ -459,16 +461,20 @@ class Win32SemanticBackend:
                     )
                 except (KeyError, TypeError, ValueError):
                     continue
-                digest = int.from_bytes(
-                    hashlib.sha256(runtime_id.encode("utf-8")).digest()[:4],
-                    "big",
-                ) & 0x7FFFFFFF
+                digest = (
+                    int.from_bytes(
+                        hashlib.sha256(runtime_id.encode("utf-8")).digest()[:4],
+                        "big",
+                    )
+                    & 0x7FFFFFFF
+                )
                 semantic_id = -(digest or 1)
                 while (
-                    (window.handle, semantic_id) in self._uia_runtime_ids
-                    and self._uia_runtime_ids[(window.handle, semantic_id)]
-                    != runtime_id
-                ):
+                    window.handle,
+                    semantic_id,
+                ) in self._uia_runtime_ids and self._uia_runtime_ids[
+                    (window.handle, semantic_id)
+                ] != runtime_id:
                     semantic_id -= 1
                 key = (window.handle, semantic_id)
                 self._uia_runtime_ids[key] = runtime_id
@@ -544,9 +550,7 @@ class Win32SemanticBackend:
                 raise WindowsDesktopError(
                     "semantic text input requires an editable control"
                 )
-        runtime_id = self._uia_runtime_ids.get(
-            (window.handle, element.automation_id)
-        )
+        runtime_id = self._uia_runtime_ids.get((window.handle, element.automation_id))
         if runtime_id is not None:
             try:
                 return self._uia.set_value(window.handle, runtime_id, value)
@@ -581,9 +585,7 @@ class Win32SemanticBackend:
         }
         if element.role not in allowed_roles:
             raise WindowsDesktopError("semantic click requires an actionable control")
-        runtime_id = self._uia_runtime_ids.get(
-            (window.handle, element.automation_id)
-        )
+        runtime_id = self._uia_runtime_ids.get((window.handle, element.automation_id))
         if runtime_id is not None:
             try:
                 self._uia.invoke(window.handle, runtime_id)
@@ -613,9 +615,7 @@ class Win32SemanticBackend:
         target_thread = int(user32.GetWindowThreadProcessId(window.handle, None))
         foreground = int(user32.GetForegroundWindow())
         foreground_thread = (
-            int(user32.GetWindowThreadProcessId(foreground, None))
-            if foreground
-            else 0
+            int(user32.GetWindowThreadProcessId(foreground, None)) if foreground else 0
         )
         attached: list[int] = []
         try:
@@ -736,7 +736,28 @@ class Win32SemanticBackend:
             "y": 0x59,
             "z": 0x5A,
             "tab": 0x09,
+            "enter": 0x0D,
+            "esc": 0x1B,
+            "space": 0x20,
+            "delete": 0x2E,
+            "home": 0x24,
+            "end": 0x23,
+            "pageup": 0x21,
+            "pagedown": 0x22,
+            "left": 0x25,
+            "up": 0x26,
+            "right": 0x27,
+            "down": 0x28,
+            "n": 0x4E,
+            "o": 0x4F,
+            "p": 0x50,
+            "r": 0x52,
+            "s": 0x53,
+            "w": 0x57,
+            "l": 0x4C,
+            "f4": 0x73,
         }
+        keys.update({str(value): 0x30 + value for value in range(10)})
         parts = chord.casefold().split("+")
         try:
             virtual_keys = [keys[part] for part in parts]
@@ -860,9 +881,7 @@ class Win32SemanticBackend:
         user32, gdi32 = _configure_win32()
         screen_dc = user32.GetDC(0)
         memory_dc = gdi32.CreateCompatibleDC(screen_dc)
-        bitmap = gdi32.CreateCompatibleBitmap(
-            screen_dc, bounds.width, bounds.height
-        )
+        bitmap = gdi32.CreateCompatibleBitmap(screen_dc, bounds.width, bounds.height)
         old = gdi32.SelectObject(memory_dc, bitmap)
         try:
             if not gdi32.BitBlt(
@@ -897,22 +916,24 @@ class Win32SemanticBackend:
                 0,
             ):
                 raise WindowsDesktopError("screen capture encoding failed")
-            return struct.pack(
-                "<2sIHHI", b"BM", 54 + pixel_size, 0, 0, 54
-            ) + struct.pack(
-                "<IiiHHIIiiII",
-                40,
-                bounds.width,
-                -bounds.height,
-                1,
-                32,
-                0,
-                pixel_size,
-                0,
-                0,
-                0,
-                0,
-            ) + pixels.raw
+            return (
+                struct.pack("<2sIHHI", b"BM", 54 + pixel_size, 0, 0, 54)
+                + struct.pack(
+                    "<IiiHHIIiiII",
+                    40,
+                    bounds.width,
+                    -bounds.height,
+                    1,
+                    32,
+                    0,
+                    pixel_size,
+                    0,
+                    0,
+                    0,
+                    0,
+                )
+                + pixels.raw
+            )
         finally:
             gdi32.SelectObject(memory_dc, old)
             gdi32.DeleteObject(bitmap)

@@ -27,6 +27,7 @@ from openjarvis.server.models import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _to_messages(chat_messages) -> list[Message]:

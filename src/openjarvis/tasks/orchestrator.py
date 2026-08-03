@@ -23,7 +23,6 @@ from openjarvis.codex.types import (
 )
 from openjarvis.tasks.budget import BudgetController, BudgetLimits
 from openjarvis.tasks.lanes import ExecutionLaneScheduler
-from openjarvis.tasks.policy import CentralRiskPolicy
 from openjarvis.tasks.projection import CodexTaskEventProjector
 from openjarvis.tasks.service import TaskService
 from openjarvis.tasks.types import (
@@ -79,7 +78,7 @@ class CodexTaskOrchestrator:
         task_service: TaskService,
         projector: CodexTaskEventProjector,
         *,
-        risk_policy: CentralRiskPolicy | None = None,
+        flow_authority=None,
         default_timeout_seconds: float = 300.0,
         default_step_limit: int = 100,
         default_token_limit: int | None = None,
@@ -94,7 +93,11 @@ class CodexTaskOrchestrator:
         self._router = router
         self._tasks = task_service
         self._projector = projector
-        self._risk_policy = risk_policy or CentralRiskPolicy()
+        if flow_authority is None:
+            from openjarvis.flow import FlowSessionAuthority
+
+            flow_authority = FlowSessionAuthority.from_environment()
+        self._flow_authority = flow_authority
         self._token_limit = default_token_limit
         self._lanes = lane_scheduler or ExecutionLaneScheduler()
         self._budget = BudgetController(task_service.store, budget_limits)
@@ -137,11 +140,7 @@ class CodexTaskOrchestrator:
         task = self._tasks.get(task_id)
         if task is None:
             raise KeyError(f"unknown task: {task_id}")
-        policy = self._risk_policy.derive_turn_policy(
-            risk_level=task.risk_level,
-            cwd=cwd,
-            isolated_workspace=isolated_workspace,
-        )
+        policy = self._flow_authority.derive_turn_policy(cwd=cwd)
         if not _lane_acquired:
             return await self._lanes.run(
                 policy.execution_lane,
@@ -176,8 +175,7 @@ class CodexTaskOrchestrator:
             task_id=task.task_id,
             session_id=task.session_id,
             correlation_id=(
-                turn_correlation_id
-                or f"{task.correlation_id}:turn:{uuid.uuid4().hex}"
+                turn_correlation_id or f"{task.correlation_id}:turn:{uuid.uuid4().hex}"
             ),
             cwd=cwd,
             sandbox=policy.sandbox,
@@ -191,9 +189,7 @@ class CodexTaskOrchestrator:
         ).validated()
         try:
             backend = await self._router.select(
-                require_interactive_approvals=(
-                    policy.approval_mode.value == "brokered"
-                )
+                require_interactive_approvals=(policy.approval_mode.value == "brokered")
             )
             persisted = self._tasks.store.get_thread(
                 task.task_id,

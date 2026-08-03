@@ -57,14 +57,18 @@ def test_brokered_approval_mode_is_validated(tmp_path: Path) -> None:
         _context(
             tmp_path,
             approval_mode=ApprovalMode.BROKERED,
-        ).validated().approval_mode
+        )
+        .validated()
+        .approval_mode
         is ApprovalMode.BROKERED
     )
 
 
-def test_full_access_is_rejected(tmp_path: Path) -> None:
-    with pytest.raises(CodexPolicyError, match="full_access"):
-        _context(tmp_path, sandbox=SandboxMode.FULL_ACCESS).validated()
+def test_full_access_is_valid_for_flow_policy(tmp_path: Path) -> None:
+    context = _context(tmp_path, sandbox=SandboxMode.FULL_ACCESS)
+
+    assert context.validated() is context
+    assert context.sandbox is SandboxMode.FULL_ACCESS
 
 
 def test_workspace_write_requires_isolated_workspace(tmp_path: Path) -> None:
