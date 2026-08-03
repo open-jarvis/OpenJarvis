@@ -467,6 +467,14 @@ fn final_attach_only_value(value: Option<&str>) -> bool {
     value == Some("1")
 }
 
+fn inherited_flow_bridge_secret(
+    attach_only: bool,
+    value: Option<&str>,
+) -> Option<String> {
+    let secret = value.unwrap_or_default().trim();
+    (attach_only && secret.len() >= 32).then(|| secret.to_owned())
+}
+
 fn initial_setup_status() -> SetupStatus {
     let mut status = SetupStatus::default();
     if final_attach_only() {
@@ -2726,11 +2734,19 @@ async fn hide_overlay() -> Result<(), String> {
 pub fn run() {
     let backend: SharedBackend = Arc::new(Mutex::new(BackendManager::default()));
     let status: SharedStatus = Arc::new(Mutex::new(initial_setup_status()));
-    let flow_bridge = FlowBridgeSecret(format!(
-        "{}{}",
-        uuid::Uuid::new_v4().simple(),
-        uuid::Uuid::new_v4().simple()
-    ));
+    let flow_bridge = FlowBridgeSecret(
+        inherited_flow_bridge_secret(
+            final_attach_only(),
+            std::env::var(FLOW_BRIDGE_SECRET_ENV).ok().as_deref(),
+        )
+        .unwrap_or_else(|| {
+            format!(
+                "{}{}",
+                uuid::Uuid::new_v4().simple(),
+                uuid::Uuid::new_v4().simple()
+            )
+        }),
+    );
 
     let boot_backend_ref = backend.clone();
     let boot_status_ref = status.clone();
@@ -2887,9 +2903,10 @@ pub fn run() {
 mod tests {
     use super::{
         boot_plan, default_local_model, format_uv_sync_failure, format_uv_sync_spawn_error,
-        final_attach_only_value, normalize_host, parse_inference_config, upsert_engine_host,
-        uv_sync_stderr_tail, valid_final_health, InferenceConfig, SourceKind, FINAL_ATTACH_ERROR,
-        FINAL_HEALTH_MARKER, FINAL_RUNTIME_NAME,
+        final_attach_only_value, inherited_flow_bridge_secret, normalize_host,
+        parse_inference_config, upsert_engine_host, uv_sync_stderr_tail, valid_final_health,
+        InferenceConfig, SourceKind, FINAL_ATTACH_ERROR, FINAL_HEALTH_MARKER,
+        FINAL_RUNTIME_NAME,
     };
     use std::path::Path;
 
@@ -2920,6 +2937,20 @@ mod tests {
         assert_eq!(
             FINAL_ATTACH_ERROR,
             "OpenJarvis Codex Runtime ist nicht erreichbar."
+        );
+    }
+
+    #[test]
+    fn final_attach_reuses_only_a_valid_inherited_flow_bridge_secret() {
+        let secret = "f".repeat(64);
+        assert_eq!(
+            inherited_flow_bridge_secret(true, Some(&secret)),
+            Some(secret)
+        );
+        assert_eq!(inherited_flow_bridge_secret(true, Some("short")), None);
+        assert_eq!(
+            inherited_flow_bridge_secret(false, Some(&"f".repeat(64))),
+            None
         );
     }
 

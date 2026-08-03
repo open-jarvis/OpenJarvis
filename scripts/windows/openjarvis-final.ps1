@@ -295,6 +295,7 @@ function Start-FinalRuntime {
     if (Test-Path -LiteralPath $StatePath) { throw 'Managed state already exists; run Status/Stop first.' }
     Write-LocalConfig
     $token = [Guid]::NewGuid().ToString('N')
+    $flowBridgeSecret = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
     [IO.File]::WriteAllText($TokenPath, $token, [Text.UTF8Encoding]::new($false))
     & icacls.exe $TokenPath /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
     if ($LASTEXITCODE -ne 0) {
@@ -307,9 +308,11 @@ function Start-FinalRuntime {
     try {
         $priorHome = $env:OPENJARVIS_HOME
         $priorToken = $env:OPENJARVIS_SHUTDOWN_TOKEN
+        $priorFlowBridge = $env:OPENJARVIS_FLOW_BRIDGE_SECRET
         try {
             $env:OPENJARVIS_HOME = $RuntimeRoot
             $env:OPENJARVIS_SHUTDOWN_TOKEN = $token
+            $env:OPENJARVIS_FLOW_BRIDGE_SECRET = $flowBridgeSecret
             $server = Start-Process -FilePath $Python -ArgumentList @(
                 '-m', 'openjarvis.final_runtime', 'serve',
                 '--home', ('"' + $RuntimeRoot + '"'),
@@ -321,6 +324,7 @@ function Start-FinalRuntime {
         } finally {
             $env:OPENJARVIS_HOME = $priorHome
             $env:OPENJARVIS_SHUTDOWN_TOKEN = $priorToken
+            $env:OPENJARVIS_FLOW_BRIDGE_SECRET = $priorFlowBridge
         }
         $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
         $health = $null
@@ -347,8 +351,10 @@ function Start-FinalRuntime {
         $desktop = [IO.Path]::GetFullPath($DesktopExecutable)
         if (-not (Test-Path -LiteralPath $desktop -PathType Leaf)) { throw 'Desktop executable is missing.' }
         $priorAttach = $env:OPENJARVIS_FINAL_ATTACH_ONLY
+        $priorUiFlowBridge = $env:OPENJARVIS_FLOW_BRIDGE_SECRET
         try {
             $env:OPENJARVIS_FINAL_ATTACH_ONLY = '1'
+            $env:OPENJARVIS_FLOW_BRIDGE_SECRET = $flowBridgeSecret
             $ui = Start-Process -FilePath $desktop -WorkingDirectory (Split-Path $desktop) -PassThru
             Start-Sleep -Milliseconds 500
             $ui.Refresh()
@@ -360,6 +366,7 @@ function Start-FinalRuntime {
             )
         } finally {
             $env:OPENJARVIS_FINAL_ATTACH_ONLY = $priorAttach
+            $env:OPENJARVIS_FLOW_BRIDGE_SECRET = $priorUiFlowBridge
         }
         [pscustomobject]@{
             schema = 1
@@ -409,6 +416,7 @@ function Start-FinalRuntime {
         throw $originalError
     } finally {
         $token = $null
+        $flowBridgeSecret = $null
     }
 }
 
