@@ -65,6 +65,13 @@ def test_writes_seed_files_if_absent(tmp_openjarvis_home: Path) -> None:
     assert (tmp_openjarvis_home / "MEMORY.md").exists()
     assert (tmp_openjarvis_home / "USER.md").exists()
     assert (tmp_openjarvis_home / "skills").is_dir()
+    soul = (tmp_openjarvis_home / "SOUL.md").read_text(encoding="utf-8")
+    memory = (tmp_openjarvis_home / "MEMORY.md").read_text(encoding="utf-8")
+    assert "independent thinking partner" in soul
+    assert "performative opposition" in soul
+    assert "[[Jarvis/Protocols/Idea Review]]" in memory
+    assert (tmp_openjarvis_home / "Jarvis/Protocols/Idea Review.md").exists()
+    assert (tmp_openjarvis_home / "Jarvis/Decisions/Decision Template.md").exists()
 
 
 def test_does_not_overwrite_existing_seeds(tmp_openjarvis_home: Path) -> None:
@@ -73,6 +80,36 @@ def test_does_not_overwrite_existing_seeds(tmp_openjarvis_home: Path) -> None:
     hw = HardwareInfo(platform="linux", cpu_brand="x", cpu_count=1, ram_gb=4.0)
     _bootstrap.write_initial_config(hardware=hw, engine="ollama", model="qwen3.5:2b")
     assert soul.read_text() == "custom user content\n"
+
+
+def test_does_not_overwrite_existing_graph_notes(tmp_openjarvis_home: Path) -> None:
+    note = tmp_openjarvis_home / "Jarvis/Context/Goals.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("my real goals\n", encoding="utf-8")
+    hw = HardwareInfo(platform="linux", cpu_brand="x", cpu_count=1, ram_gb=4.0)
+    _bootstrap.write_initial_config(hardware=hw, engine="ollama", model="qwen3.5:2b")
+    assert note.read_text(encoding="utf-8") == "my real goals\n"
+
+
+def test_upgrades_only_untouched_legacy_placeholders(
+    tmp_openjarvis_home: Path,
+) -> None:
+    soul = tmp_openjarvis_home / "SOUL.md"
+    memory = tmp_openjarvis_home / "MEMORY.md"
+    user = tmp_openjarvis_home / "USER.md"
+    soul.write_text(
+        "# Agent Persona\n\nYou are Jarvis, a helpful personal AI assistant.\n",
+        encoding="utf-8",
+    )
+    memory.write_text("# Agent Memory\n\n", encoding="utf-8")
+    user.write_text("# User Profile\n\ncustomized", encoding="utf-8")
+
+    hw = HardwareInfo(platform="linux", cpu_brand="x", cpu_count=1, ram_gb=4.0)
+    _bootstrap.write_initial_config(hardware=hw, engine="ollama", model="qwen3.5:2b")
+
+    assert "independent thinking partner" in soul.read_text(encoding="utf-8")
+    assert "[[Jarvis/Protocols/Idea Review]]" in memory.read_text(encoding="utf-8")
+    assert user.read_text(encoding="utf-8") == "# User Profile\n\ncustomized"
 
 
 def test_overwrites_existing_config_toml(tmp_openjarvis_home: Path) -> None:

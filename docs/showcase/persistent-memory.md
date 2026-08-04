@@ -20,6 +20,15 @@ That's not magic. The trick is that Jarvis writes to three plain markdown files 
 
 Every new conversation starts by reading those three files. I can open them in any text editor. I can delete a line and the memory is gone. The whole thing is `~6 KB` of markdown. No vector DB, no embedding cache, no opaque "personalization layer."
 
+New installations also seed an Obsidian-compatible `Jarvis/` knowledge graph
+next to those files. `SOUL.md` contains a compact, always-loaded constitution
+for independent and proportionate criticism. `MEMORY.md` is the hub that links
+to goals, values, priorities, constraints, blind spots, an idea-review protocol,
+decision records, and feedback. Open the OpenJarvis config directory as an
+Obsidian vault (or place/configure these files in your existing vault) to browse
+the links and backlinks. Customized notes are never overwritten; only exact,
+untouched legacy placeholders are upgraded to the new scaffold.
+
 ## Why it's nice
 
 - **It's auditable.** I can read what Jarvis "knows" about me in 30 seconds. Most personal-AI products literally can't tell you.

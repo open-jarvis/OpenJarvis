@@ -16,6 +16,7 @@ from typing import Optional
 import click
 
 import openjarvis
+from openjarvis.cli.persona_scaffold import seed_persona_scaffold
 from openjarvis.core import config as _cfg
 from openjarvis.core.config import (
     HardwareInfo,
@@ -70,11 +71,6 @@ def detect_cloud_keys() -> Optional[CloudProvider]:
 # ---------------------------------------------------------------------------
 # Initial config writer
 # ---------------------------------------------------------------------------
-
-_DEFAULT_SOUL = "# Agent Persona\n\nYou are Jarvis, a helpful personal AI assistant.\n"
-_DEFAULT_MEMORY = "# Agent Memory\n\n"
-_DEFAULT_USER = "# User Profile\n\n"
-
 
 def _toml_quote(value: str) -> str:
     """Escape a runtime value for use inside TOML "..." double-quoted string.
@@ -168,15 +164,8 @@ def write_initial_config(
 
 
 def _seed_memory_files() -> None:
-    """Create SOUL.md / MEMORY.md / USER.md / skills/ if absent."""
-    home = _cfg.DEFAULT_CONFIG_DIR
-    if not (home / "SOUL.md").exists():
-        (home / "SOUL.md").write_text(_DEFAULT_SOUL)
-    if not (home / "MEMORY.md").exists():
-        (home / "MEMORY.md").write_text(_DEFAULT_MEMORY)
-    if not (home / "USER.md").exists():
-        (home / "USER.md").write_text(_DEFAULT_USER)
-    (home / "skills").mkdir(exist_ok=True)
+    """Create the persona and Obsidian-compatible knowledge graph if absent."""
+    seed_persona_scaffold(_cfg.DEFAULT_CONFIG_DIR)
 
 
 # ---------------------------------------------------------------------------
