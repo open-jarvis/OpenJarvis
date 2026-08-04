@@ -12,9 +12,18 @@ import os
 import platform
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from openjarvis.core.paths import (
     ConfigurationError,
@@ -1714,6 +1723,11 @@ def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
     for dataclass fields annotated as ``str`` and for backward-compat
     property setters that expect string input.
     """
+    try:
+        type_hints = get_type_hints(type(target)) if is_dataclass(target) else {}
+    except (NameError, TypeError):
+        type_hints = {}
+
     for key, value in section.items():
         if hasattr(target, key):
             if isinstance(value, dict):
@@ -1727,6 +1741,21 @@ def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
                 # Covers both real dataclass fields and backward-compat
                 # property setters (e.g. reward_weights, default_tools).
                 if isinstance(value, list):
+                    field_type = type_hints.get(key)
+                    if get_origin(field_type) is list:
+                        args = get_args(field_type)
+                        item_type = args[0] if len(args) == 1 else None
+
+                        if isinstance(item_type, type) and is_dataclass(item_type):
+                            value = [
+                                item
+                                if isinstance(item, item_type)
+                                else item_type(**item)
+                                if isinstance(item, dict)
+                                else item
+                                for item in value
+                            ]
+
                     is_str_field = False
                     if hasattr(target, "__dataclass_fields__"):
                         field_obj = target.__dataclass_fields__.get(key)
