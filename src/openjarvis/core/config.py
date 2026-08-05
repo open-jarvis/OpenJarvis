@@ -12,9 +12,18 @@ import os
 import platform
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from openjarvis.core.paths import (
     ConfigurationError,
@@ -1710,10 +1719,16 @@ def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
     """Overlay TOML key/value pairs onto a dataclass instance.
 
     Recursively handles nested dicts when the target attribute is itself
-    a dataclass.  Normalises TOML arrays to comma-separated strings — both
-    for dataclass fields annotated as ``str`` and for backward-compat
-    property setters that expect string input.
+    a dataclass, including dict entries in lists of dataclasses.  Normalises
+    TOML arrays to comma-separated strings — both for dataclass fields annotated
+    as ``str`` and for backward-compat property setters that expect string input.
     """
+    try:
+        type_hints = get_type_hints(type(target))
+    except (NameError, TypeError):
+        # Some config types contain optional runtime-only forward references.
+        type_hints = {}
+
     for key, value in section.items():
         if hasattr(target, key):
             if isinstance(value, dict):
@@ -1728,14 +1743,35 @@ def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
                 # property setters (e.g. reward_weights, default_tools).
                 if isinstance(value, list):
                     is_str_field = False
+                    item_dataclass = None
                     if hasattr(target, "__dataclass_fields__"):
                         field_obj = target.__dataclass_fields__.get(key)
-                        if field_obj is not None and field_obj.type in ("str", str):
-                            is_str_field = True
-                        elif field_obj is None:
+                        if field_obj is not None:
+                            field_type = type_hints.get(key, field_obj.type)
+                            type_args = get_args(field_type)
+                            if (
+                                get_origin(field_type) is list
+                                and len(type_args) == 1
+                                and is_dataclass(type_args[0])
+                            ):
+                                item_dataclass = type_args[0]
+                            elif field_obj.type in ("str", str):
+                                is_str_field = True
+                        else:
                             # Property, not a real field — normalise to string
                             is_str_field = True
-                    if is_str_field:
+
+                    if item_dataclass is not None:
+                        converted = []
+                        for item in value:
+                            if isinstance(item, dict):
+                                nested = item_dataclass()
+                                _apply_toml_section(nested, item)
+                                converted.append(nested)
+                            else:
+                                converted.append(item)
+                        value = converted
+                    elif is_str_field:
                         value = ",".join(str(v) for v in value)
                 setattr(target, key, value)
 
