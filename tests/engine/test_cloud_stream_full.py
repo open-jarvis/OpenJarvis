@@ -506,12 +506,12 @@ async def test_stream_full_google_preserves_tool_calls(monkeypatch: pytest.Monke
     tool_call = result[0].tool_calls[0]
     assert tool_call == {
         "index": 0,
-        "id": "google_get_weather",
+        "id": "google_get_weather_0",
         "type": "function",
         "function": {"name": "get_weather", "arguments": '{"city": "Berlin"}'},
         "thought_signature": b"sig",
     }
-    assert engine._thought_sigs["google_get_weather"] == b"sig"
+    assert engine._thought_sigs["google_get_weather_0"] == b"sig"
     assert result[-1].finish_reason == "tool_calls"
     config = client.models.generate_content_stream.call_args.kwargs["config"]
     assert config.tools == [
@@ -545,7 +545,7 @@ async def test_stream_full_google_preserves_mixed_and_multiple_calls(
     client.models.generate_content_stream.return_value = iter(
         [
             _google_stream_chunk(text_part, weather_part),
-            _google_stream_chunk(weather_part, calendar_part),
+            _google_stream_chunk(calendar_part),
         ]
     )
     engine = _make_cloud_engine(google_client=client)
@@ -566,7 +566,7 @@ async def test_stream_full_google_preserves_mixed_and_multiple_calls(
     assert result[1].tool_calls == [
         {
             "index": 0,
-            "id": "google_get_weather",
+            "id": "google_get_weather_0",
             "type": "function",
             "function": {
                 "name": "get_weather",
@@ -576,17 +576,8 @@ async def test_stream_full_google_preserves_mixed_and_multiple_calls(
     ]
     assert result[2].tool_calls == [
         {
-            "index": 0,
-            "id": "google_get_weather",
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "arguments": '{"city": "Berlin"}',
-            },
-        },
-        {
             "index": 1,
-            "id": "google_get_calendar",
+            "id": "google_get_calendar_1",
             "type": "function",
             "function": {
                 "name": "get_calendar",
@@ -595,6 +586,94 @@ async def test_stream_full_google_preserves_mixed_and_multiple_calls(
         },
     ]
     assert result[-1].finish_reason == "tool_calls"
+
+
+@pytest.mark.asyncio
+async def test_stream_full_google_keeps_parallel_same_name_calls_distinct(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Parallel invocations of one function receive unique indexes and IDs."""
+    paris = SimpleNamespace(name="get_weather", args={"city": "Paris"})
+    london = SimpleNamespace(name="get_weather", args={"city": "London"})
+    parts = [
+        SimpleNamespace(function_call=paris, text=None, thought_signature=b"sig"),
+        SimpleNamespace(function_call=london, text=None, thought_signature=None),
+    ]
+    client = MagicMock()
+    client.models.generate_content_stream.return_value = iter(
+        [_google_stream_chunk(*parts)]
+    )
+    engine = _make_cloud_engine(google_client=client)
+    engine._thought_sigs = {}
+
+    with monkeypatch.context() as patch:
+        for name, module in _google_types_modules().items():
+            patch.setitem(sys.modules, name, module)
+        result = [
+            chunk
+            async for chunk in engine.stream_full(
+                [Message(role=Role.USER, content="Weather in Paris and London")],
+                model="gemini-3-flash-preview",
+            )
+        ]
+
+    calls = result[0].tool_calls
+    assert [(call["index"], call["id"]) for call in calls] == [
+        (0, "google_get_weather_0"),
+        (1, "google_get_weather_1"),
+    ]
+    assert [call["function"]["arguments"] for call in calls] == [
+        '{"city": "Paris"}',
+        '{"city": "London"}',
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stream_full_google_replays_signature_on_part(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A saved Gemini signature is replayed beside, not inside, function_call."""
+    client = MagicMock()
+    client.models.generate_content_stream.return_value = iter([])
+    engine = _make_cloud_engine(google_client=client)
+    engine._thought_sigs = {"google_get_weather_0": b"sig"}
+    messages = [
+        Message(role=Role.USER, content="weather"),
+        Message(
+            role=Role.ASSISTANT,
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="google_get_weather_0",
+                    name="get_weather",
+                    arguments='{"city": "Berlin"}',
+                )
+            ],
+        ),
+        Message(role=Role.TOOL, name="get_weather", content='{"temp": 20}'),
+    ]
+
+    with monkeypatch.context() as patch:
+        for name, module in _google_types_modules().items():
+            patch.setitem(sys.modules, name, module)
+        result = [
+            chunk
+            async for chunk in engine.stream_full(
+                messages, model="gemini-3-flash-preview"
+            )
+        ]
+
+    contents = client.models.generate_content_stream.call_args.kwargs["contents"]
+    assert contents[1]["parts"] == [
+        {
+            "function_call": {
+                "name": "get_weather",
+                "args": {"city": "Berlin"},
+            },
+            "thought_signature": b"sig",
+        }
+    ]
+    assert result[-1].finish_reason == "stop"
 
 
 # ---------------------------------------------------------------------------

@@ -1350,14 +1350,16 @@ class CloudEngine(InferenceEngine):
                             args = json.loads(args)
                         except (json.JSONDecodeError, TypeError):
                             args = {"input": args}
-                    function_call: Dict[str, Any] = {
-                        "name": tool_call.name,
-                        "args": args if isinstance(args, dict) else {},
+                    function_call_part: Dict[str, Any] = {
+                        "function_call": {
+                            "name": tool_call.name,
+                            "args": args if isinstance(args, dict) else {},
+                        }
                     }
                     signature = self._thought_sigs.get(tool_call.id)
                     if signature is not None:
-                        function_call["thought_signature"] = signature
-                    parts.append({"function_call": function_call})
+                        function_call_part["thought_signature"] = signature
+                    parts.append(function_call_part)
                 contents.append({"role": "model", "parts": parts})
             elif message.role.value == "assistant":
                 contents.append({"role": "model", "parts": [{"text": message.content}]})
@@ -1377,7 +1379,7 @@ class CloudEngine(InferenceEngine):
         if tools:
             config.tools = [{"function_declarations": _convert_tools_to_google(tools)}]
 
-        tool_ids: Dict[str, int] = {}
+        tool_call_count = 0
         for chunk in self._google_client.models.generate_content_stream(
             model=model,
             contents=contents,
@@ -1402,8 +1404,12 @@ class CloudEngine(InferenceEngine):
                         name = getattr(function_call, "name", "")
                         raw_args = getattr(function_call, "args", {})
                         args = dict(raw_args) if hasattr(raw_args, "items") else {}
-                        tool_id = f"google_{name}"
-                        tool_index = tool_ids.setdefault(tool_id, len(tool_ids))
+                        # Gemini emits complete function-call parts, so each part is
+                        # a distinct invocation. The same function may legitimately
+                        # be called more than once in a parallel response.
+                        tool_index = tool_call_count
+                        tool_id = f"google_{name}_{tool_index}"
+                        tool_call_count += 1
                         tool_call = {
                             "index": tool_index,
                             "id": tool_id,
@@ -1430,7 +1436,7 @@ class CloudEngine(InferenceEngine):
             if text:
                 yield StreamChunk(content=text)
 
-        yield StreamChunk(finish_reason="tool_calls" if tool_ids else "stop")
+        yield StreamChunk(finish_reason="tool_calls" if tool_call_count else "stop")
 
     async def _stream_openrouter(
         self,
