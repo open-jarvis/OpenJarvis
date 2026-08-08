@@ -84,7 +84,13 @@ class TestEnsureRunner:
             with pytest.raises(RuntimeError, match="Node.js"):
                 agent._ensure_runner()
 
-    def test_creates_runner_dir(self, tmp_path):
+    def test_creates_runner_dir(self, tmp_path, monkeypatch):
+        # get_config_dir() checks $OPENJARVIS_HOME/$XDG_DATA_HOME before
+        # Path.home(); a dev machine with either set would otherwise ignore
+        # the patched home below and hit its real, already-built runner dir.
+        monkeypatch.delenv("OPENJARVIS_HOME", raising=False)
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(engine, "test-model")
@@ -108,7 +114,10 @@ class TestEnsureRunner:
             assert install_args[:2] == ["npm", "install"]
             assert build_args[:2] == ["npm", "run"]
 
-    def test_skips_npm_install_when_node_modules_exists(self, tmp_path):
+    def test_skips_npm_install_when_node_modules_exists(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("OPENJARVIS_HOME", raising=False)
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(engine, "test-model")
@@ -130,11 +139,16 @@ class TestEnsureRunner:
             call_args = mock_run.call_args[0][0]
             assert call_args[:2] == ["npm", "run"]
 
-    def test_reinstalls_when_node_modules_older_than_package_json(self, tmp_path):
+    def test_reinstalls_when_node_modules_older_than_package_json(
+        self, tmp_path, monkeypatch
+    ):
         """Regression test: a node_modules installed against an older
         package.json (missing a since-added devDependency, e.g. typescript)
         must not be treated as fresh just because the directory exists.
         """
+        monkeypatch.delenv("OPENJARVIS_HOME", raising=False)
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(engine, "test-model")
@@ -145,7 +159,14 @@ class TestEnsureRunner:
         node_modules.mkdir(parents=True)
         # Force node_modules to look older than the package.json that's
         # about to be copied in (copy2 preserves the real source's mtime).
-        past = node_modules.stat().st_mtime - 3600
+        # Must be backdated relative to that *source* file's actual mtime,
+        # not "now" -- on a checkout where package.json hasn't been touched
+        # recently, "now - 1h" can still be newer than the source, which
+        # silently skips the reinstall this test exists to catch.
+        from openjarvis.agents.claude_code import _RUNNER_SRC
+
+        src_mtime = (_RUNNER_SRC / "package.json").stat().st_mtime
+        past = src_mtime - 3600
         os.utime(node_modules, (past, past))
 
         with (
@@ -160,7 +181,10 @@ class TestEnsureRunner:
             assert install_args[:2] == ["npm", "install"]
             assert build_args[:2] == ["npm", "run"]
 
-    def test_skips_everything_when_dist_is_up_to_date(self, tmp_path):
+    def test_skips_everything_when_dist_is_up_to_date(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("OPENJARVIS_HOME", raising=False)
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(engine, "test-model")
