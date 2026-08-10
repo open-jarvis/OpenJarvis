@@ -199,9 +199,9 @@ class TestDaemonDetachment:
             "server must be in its own process group so Ctrl-C in the parent "
             "console does not propagate to it"
         )
-        assert not kwargs.get(
-            "start_new_session"
-        ), "start_new_session is ignored on Windows; it must not be relied on"
+        assert not kwargs.get("start_new_session"), (
+            "start_new_session is ignored on Windows; it must not be relied on"
+        )
 
     def test_posix_spawn_still_uses_start_new_session(self) -> None:
         kwargs = self._spawn_kwargs("linux")
