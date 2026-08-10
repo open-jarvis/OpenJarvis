@@ -7,6 +7,7 @@ import {
   type SetupStatus,
 } from '../lib/api';
 import { useAppStore } from '../lib/store';
+import { isEmbedOnlyModel } from '../lib/model-capabilities';
 
 const STEPS = [
   { key: 'ollama_ready', label: 'Inference Engine', icon: Cpu, detail: 'Starting Ollama...' },
@@ -91,12 +92,14 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
           fetchRecommendedModel().catch(() => ({ model: '', reason: '' })),
         ]);
         const store = useAppStore.getState();
+        const hadSelection = !!store.selectedModel;
         store.setModels(models);
         store.setModelsLoading(false);
-        const recommended = rec.model && models.some((m) => m.id === rec.model)
+        const chatModels = models.filter((m) => !isEmbedOnlyModel(m.id));
+        const recommended = rec.model && chatModels.some((m) => m.id === rec.model)
           ? rec.model
-          : models[0]?.id || '';
-        if (recommended && !store.selectedModel) {
+          : chatModels[0]?.id || '';
+        if (recommended && !hadSelection) {
           store.setSelectedModel(recommended);
         }
       } catch {

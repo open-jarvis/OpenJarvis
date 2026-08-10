@@ -15,6 +15,7 @@ import type {
   TokenUsage,
 } from '../types';
 import type { ManagedAgent } from './api';
+import { isEmbedOnlyModel } from './model-capabilities';
 
 export interface CachedConnector {
   connector_id: string;
@@ -449,19 +450,17 @@ export const useAppStore = create<AppState>((set, get) => {
         // same list as chat models. Auto-picking models[0] selected the
         // embedder and every chat failed with HTTP 400 "does not support
         // chat". Prefer a real chat model for selection / fallback.
-        const isEmbedOnly = (id: string) =>
-          /embed/i.test(id) || /nomic-embed/i.test(id);
-        const chatModels = models.filter((m) => !isEmbedOnly(m.id));
+        const chatModels = models.filter((m) => !isEmbedOnlyModel(m.id));
         const preferred =
           (state.settings.defaultModel &&
             chatModels.some((m) => m.id === state.settings.defaultModel) &&
             state.settings.defaultModel) ||
           chatModels[0]?.id ||
-          models.find((m) => !isEmbedOnly(m.id))?.id ||
+          models.find((m) => !isEmbedOnlyModel(m.id))?.id ||
           '';
 
         const currentIsBad =
-          !!state.selectedModel && isEmbedOnly(state.selectedModel);
+          !!state.selectedModel && isEmbedOnlyModel(state.selectedModel);
         const currentMissing =
           !!state.selectedModel &&
           !models.some((m) => m.id === state.selectedModel);
@@ -471,7 +470,7 @@ export const useAppStore = create<AppState>((set, get) => {
           // selection rather than keeping an embed-only id that 400s on chat.
           return {
             models,
-            selectedModel: preferred || (currentIsBad ? '' : state.selectedModel),
+            selectedModel: preferred,
           };
         }
         return { models };

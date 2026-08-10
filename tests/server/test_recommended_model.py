@@ -80,10 +80,12 @@ def test_recommended_model_embed_only_returns_empty():
 
 @pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
 def test_is_embed_only_model():
-    from openjarvis.server.agent_manager_routes import _is_embed_only_model
+    from openjarvis.server.model_capabilities import is_embed_only_model
 
-    assert _is_embed_only_model("nomic-embed-text")
-    assert _is_embed_only_model("mxbai-embed-large")
-    assert _is_embed_only_model("text-embedding-3-small")
-    assert not _is_embed_only_model("qwen3.5:4b")
-    assert not _is_embed_only_model("codegemma:7b")
+    assert is_embed_only_model("nomic-embed-text")
+    assert is_embed_only_model("mxbai-embed-large")
+    assert is_embed_only_model("text-embedding-3-small")
+    assert is_embed_only_model("all-minilm:latest")
+    assert is_embed_only_model("hf.co/BAAI/bge-m3:latest")
+    assert not is_embed_only_model("qwen3.5:4b")
+    assert not is_embed_only_model("codegemma:7b")

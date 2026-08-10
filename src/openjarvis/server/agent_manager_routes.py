@@ -20,6 +20,7 @@ from openjarvis.agents.tool_resolver import (
 from openjarvis.agents.tool_resolver import (
     ensure_registries_populated as _ensure_registries_populated,
 )
+from openjarvis.server.model_capabilities import is_embed_only_model
 
 try:
     from fastapi import APIRouter, HTTPException, Request
@@ -329,12 +330,6 @@ def _parse_param_count(model_name: str) -> float:
 _CLOUD_PREFIXES = ("gpt-", "claude-", "gemini-", "o1-", "o3-", "o4-")
 
 
-def _is_embed_only_model(model_name: str) -> bool:
-    """True for embedding-only models that cannot serve chat completions."""
-    name = (model_name or "").lower()
-    return "embed" in name or name.startswith("nomic-embed")
-
-
 def _pick_recommended_model(
     model_ids: list[str],
 ) -> dict[str, str]:
@@ -347,11 +342,11 @@ def _pick_recommended_model(
         m
         for m in model_ids
         if not any(m.startswith(p) for p in _CLOUD_PREFIXES)
-        and not _is_embed_only_model(m)
+        and not is_embed_only_model(m)
     ]
     if not local:
         # Fall back to any non-cloud model, still skipping embedders.
-        local = [m for m in model_ids if not _is_embed_only_model(m)]
+        local = [m for m in model_ids if not is_embed_only_model(m)]
     if not local:
         # Never recommend an embed-only model — chat would 400.
         return {
