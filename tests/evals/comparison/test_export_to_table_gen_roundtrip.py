@@ -14,6 +14,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip(
+    "polars",
+    reason="framework-comparison extra not installed",
+)
+
 from openjarvis.evals.comparison.table_gen import (
     _build_t1,
     load_results,

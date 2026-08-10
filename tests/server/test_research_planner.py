@@ -7,6 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
+pytest.importorskip(
+    "fastapi",
+    reason="server extra not installed",
+)
+
 from openjarvis.agents.research_loop import DEFAULT_PLANNER_MODEL
 from openjarvis.core.config import JarvisConfig
 from openjarvis.server import research_router
