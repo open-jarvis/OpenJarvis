@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from openjarvis.tools.file_read import FileReadTool
 
 
@@ -84,6 +86,30 @@ class TestFileReadTool:
         f.write_text('{"token": "abc"}', encoding="utf-8")
         tool = FileReadTool()
         result = tool.execute(path=str(f))
+        assert result.success is False
+        assert "sensitive" in result.content.lower()
+
+    def test_blocks_sensitive_target_through_safe_named_alias(
+        self, tmp_path, monkeypatch
+    ):
+        target = tmp_path / ".env"
+        target.write_text("SECRET=value", encoding="utf-8")
+        alias = tmp_path / "notes.txt"
+        try:
+            alias.symlink_to(target)
+        except (NotImplementedError, OSError):
+            alias.write_text("alias content", encoding="utf-8")
+            original_resolve = Path.resolve
+
+            def resolve_alias(self, strict=False):
+                if self == alias:
+                    return target
+                return original_resolve(self, strict=strict)
+
+            monkeypatch.setattr(Path, "resolve", resolve_alias)
+
+        result = FileReadTool().execute(path=str(alias))
+
         assert result.success is False
         assert "sensitive" in result.content.lower()
 

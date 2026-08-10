@@ -30,17 +30,34 @@ DEFAULT_SENSITIVE_PATTERNS: frozenset[str] = frozenset(
 def is_sensitive_file(path: Union[str, Path]) -> bool:
     """Return ``True`` if *path* matches a sensitive file pattern.
 
-    Checks both the filename and the full name against
-    ``DEFAULT_SENSITIVE_PATTERNS`` using :func:`fnmatch.fnmatch`.
-    Uses the Rust implementation when available, falls back to Python.
+    Checks both the lexical path and its resolved target. Resolution failures
+    are denied because the target cannot be established safely. Uses the Rust
+    implementation when available and falls back to Python.
     """
+    candidates = _path_candidates(Path(path))
+    if candidates is None:
+        return True
+
     try:
         from openjarvis._rust_bridge import get_rust_module
 
         _rust = get_rust_module()
-        return _rust.is_sensitive_file(str(path))
+        matcher = _rust.is_sensitive_file
     except ImportError:
-        return _is_sensitive_file_py(str(path))
+        matcher = _is_sensitive_file_py
+
+    return any(matcher(str(candidate)) for candidate in candidates)
+
+
+def _path_candidates(path: Path) -> tuple[Path, ...] | None:
+    """Return lexical and resolved policy candidates, or ``None`` on failure."""
+    try:
+        resolved = path.resolve(strict=False)
+    except (OSError, RuntimeError):
+        return None
+    if resolved == path:
+        return (path,)
+    return path, resolved
 
 
 def _is_sensitive_file_py(path_str: str) -> bool:
@@ -48,9 +65,13 @@ def _is_sensitive_file_py(path_str: str) -> bool:
     import fnmatch
 
     p = Path(path_str)
-    name = p.name
+    name = p.name.casefold()
+    full_path = str(p).casefold()
     for pattern in DEFAULT_SENSITIVE_PATTERNS:
-        if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(str(p), pattern):
+        folded_pattern = pattern.casefold()
+        if fnmatch.fnmatchcase(name, folded_pattern) or fnmatch.fnmatchcase(
+            full_path, folded_pattern
+        ):
             return True
     return False
 

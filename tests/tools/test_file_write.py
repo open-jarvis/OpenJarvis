@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from openjarvis.tools.file_write import FileWriteTool
 
 
@@ -82,6 +84,33 @@ class TestFileWriteTool:
         result = tool.execute(path=str(f), content='{"token": "abc"}')
         assert result.success is False
         assert "sensitive" in result.content.lower()
+
+    def test_blocks_sensitive_target_through_safe_named_alias(
+        self, tmp_path, monkeypatch
+    ):
+        target = tmp_path / ".env"
+        target.write_text("SECRET=value", encoding="utf-8")
+        alias = tmp_path / "notes.txt"
+        try:
+            alias.symlink_to(target)
+        except (NotImplementedError, OSError):
+            alias.write_text("alias content", encoding="utf-8")
+            original_resolve = Path.resolve
+
+            def resolve_alias(self, strict=False):
+                if self == alias:
+                    return target
+                return original_resolve(self, strict=strict)
+
+            monkeypatch.setattr(Path, "resolve", resolve_alias)
+        alias_before = alias.read_text(encoding="utf-8")
+
+        result = FileWriteTool().execute(path=str(alias), content="replacement")
+
+        assert result.success is False
+        assert "sensitive" in result.content.lower()
+        assert target.read_text(encoding="utf-8") == "SECRET=value"
+        assert alias.read_text(encoding="utf-8") == alias_before
 
     def test_allowed_dirs_blocks(self, tmp_path):
         f = tmp_path / "test.txt"

@@ -1,9 +1,9 @@
 //! File read/write tools.
 
 use crate::traits::BaseTool;
+use once_cell::sync::Lazy;
 use openjarvis_core::{OpenJarvisError, ToolResult, ToolSpec};
 use openjarvis_security::file_policy::is_sensitive_file;
-use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
@@ -129,9 +129,7 @@ mod tests {
     #[test]
     fn test_file_read_sensitive_blocked() {
         let tool = FileReadTool;
-        let result = tool
-            .execute(&serde_json::json!({"path": ".env"}))
-            .unwrap();
+        let result = tool.execute(&serde_json::json!({"path": ".env"})).unwrap();
         assert!(!result.success);
         assert!(result.content.contains("sensitive"));
     }
@@ -143,5 +141,32 @@ mod tests {
             .execute(&serde_json::json!({"path": "id_rsa", "content": "secret"}))
             .unwrap();
         assert!(!result.success);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_file_tools_block_sensitive_target_through_safe_named_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("temporary directory should be created");
+        let target = temp.path().join(".env");
+        let alias = temp.path().join("notes.txt");
+        std::fs::write(&target, "SECRET=value").expect("target should be written");
+        symlink(&target, &alias).expect("symlink should be created");
+
+        let read_result = FileReadTool
+            .execute(&serde_json::json!({"path": alias}))
+            .expect("file_read should return a result");
+        assert!(!read_result.success);
+        assert!(read_result.content.contains("sensitive"));
+
+        let write_result = FileWriteTool
+            .execute(&serde_json::json!({"path": alias, "content": "replacement"}))
+            .expect("file_write should return a result");
+        assert!(!write_result.success);
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("target should remain readable"),
+            "SECRET=value"
+        );
     }
 }

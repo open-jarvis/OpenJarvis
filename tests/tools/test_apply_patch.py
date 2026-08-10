@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from openjarvis.tools.apply_patch import ApplyPatchTool
 
 
@@ -132,6 +134,37 @@ class TestApplyPatchTool:
         result = tool.execute(patch=patch, path=str(f))
         assert result.success is False
         assert "sensitive" in result.content.lower()
+
+    def test_blocks_sensitive_target_through_safe_named_alias(
+        self, tmp_path, monkeypatch
+    ):
+        target = tmp_path / ".env"
+        target.write_text("SECRET=value\n", encoding="utf-8")
+        alias = tmp_path / "notes.txt"
+        try:
+            alias.symlink_to(target)
+        except (NotImplementedError, OSError):
+            alias.write_text("SECRET=value\n", encoding="utf-8")
+            original_resolve = Path.resolve
+
+            def resolve_alias(self, strict=False):
+                if self == alias:
+                    return target
+                return original_resolve(self, strict=strict)
+
+            monkeypatch.setattr(Path, "resolve", resolve_alias)
+        patch = "@@ -1 +1 @@\n-SECRET=value\n+SECRET=changed\n"
+
+        result = ApplyPatchTool().execute(
+            path=str(alias),
+            patch=patch,
+            backup=False,
+        )
+
+        assert result.success is False
+        assert "sensitive" in result.content.lower()
+        assert target.read_text(encoding="utf-8") == "SECRET=value\n"
+        assert alias.read_text(encoding="utf-8") == "SECRET=value\n"
 
     def test_auto_detect_path_from_patch_header(self, tmp_path):
         f = tmp_path / "auto.txt"

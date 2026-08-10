@@ -4,7 +4,32 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openjarvis.security.file_policy import filter_sensitive_paths, is_sensitive_file
+import pytest
+
+from openjarvis.security.file_policy import (
+    _is_sensitive_file_py,
+    filter_sensitive_paths,
+    is_sensitive_file,
+)
+
+
+def _symlink_or_mock_resolution(
+    link: Path,
+    target: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        link.symlink_to(target)
+    except (NotImplementedError, OSError):
+        link.write_bytes(target.read_bytes())
+        original_resolve = Path.resolve
+
+        def resolve_alias(self: Path, strict: bool = False) -> Path:
+            if self == link:
+                return target
+            return original_resolve(self, strict=strict)
+
+        monkeypatch.setattr(Path, "resolve", resolve_alias)
 
 
 class TestIsSensitiveFile:
@@ -68,6 +93,48 @@ class TestIsSensitiveFile:
     def test_path_object(self) -> None:
         assert is_sensitive_file(Path("server.pem")) is True
         assert is_sensitive_file(Path("main.py")) is False
+
+    def test_sensitive_target_is_blocked_through_safe_named_alias(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        target = tmp_path / ".env"
+        target.write_text("SECRET=value", encoding="utf-8")
+        alias = tmp_path / "notes.txt"
+        _symlink_or_mock_resolution(alias, target, monkeypatch)
+
+        assert is_sensitive_file(alias) is True
+
+    def test_safe_target_remains_allowed_through_alias(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        target = tmp_path / "notes.txt"
+        target.write_text("safe", encoding="utf-8")
+        alias = tmp_path / "alias.txt"
+        _symlink_or_mock_resolution(alias, target, monkeypatch)
+
+        assert is_sensitive_file(alias) is False
+
+    def test_resolution_failure_is_denied(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        def fail_resolution(self: Path, strict: bool = False) -> Path:
+            raise RuntimeError("symlink loop")
+
+        monkeypatch.setattr(Path, "resolve", fail_resolution)
+
+        assert is_sensitive_file(tmp_path / "ordinary.txt") is True
+
+    @pytest.mark.parametrize(
+        "name",
+        [".ENV", "Credentials.JSON", "PRIVATE.KEY", "ID_RSA"],
+    )
+    def test_python_matcher_is_case_insensitive(
+        self,
+        name: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("fnmatch.os.path.normcase", lambda value: value)
+        assert _is_sensitive_file_py(name) is True
 
 
 class TestFilterSensitivePaths:
