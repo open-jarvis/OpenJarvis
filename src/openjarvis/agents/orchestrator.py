@@ -57,6 +57,7 @@ class OrchestratorAgent(ToolUsingAgent):
         max_tokens: Optional[int] = None,
         mode: str = "function_calling",
         system_prompt: Optional[str] = None,
+        prompt_builder: Optional[Any] = None,
         parallel_tools: bool = True,
         interactive: bool = False,
         confirm_callback=None,
@@ -71,6 +72,7 @@ class OrchestratorAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            prompt_builder=prompt_builder,
         )
         self._mode = mode
         self._system_prompt = system_prompt
@@ -214,7 +216,11 @@ class OrchestratorAgent(ToolUsingAgent):
         self._emit_turn_start(input)
 
         # Build initial messages
-        messages = self._build_messages(input, context)
+        messages = self._build_messages(
+            input,
+            context,
+            system_prompt=self._system_prompt,
+        )
 
         # Get OpenAI-format tool definitions
         openai_tools = self._executor.get_openai_tools() if self._tools else []

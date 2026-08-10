@@ -57,6 +57,10 @@ class BaseAgent(ABC):
 
     agent_id: str
     accepts_tools: bool = False
+    # Plain conversational agents may opt into the managed runtime's generic
+    # function-calling loop.  Specialized agents keep their own execution
+    # class even when process-wide MCP tools are available.
+    supports_managed_tool_fallback: bool = False
 
     def __init__(
         self,

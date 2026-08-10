@@ -4,9 +4,22 @@ from __future__ import annotations
 
 import logging
 import re as _re
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 from openjarvis.agents.manager import AgentManager
+from openjarvis.agents.tool_resolver import (
+    BROWSER_SUB_TOOLS as _BROWSER_SUB_TOOLS,
+)
+from openjarvis.agents.tool_resolver import (
+    build_deep_research_tools,
+    instantiate_registered_tool,
+    resolve_agent_tools,
+    resolve_tool_specs,
+)
+from openjarvis.agents.tool_resolver import (
+    ensure_registries_populated as _ensure_registries_populated,
+)
 
 try:
     from fastapi import APIRouter, HTTPException, Request
@@ -16,6 +29,44 @@ except ImportError:
     raise ImportError("fastapi and pydantic are required for server routes")
 
 logger = logging.getLogger("openjarvis.server.agent_manager")
+_MEMORY_BACKEND_LOCK_SETUP = threading.Lock()
+_MCP_LOCK_SETUP = threading.Lock()
+
+
+def _start_managed_worker(app_state: Any, target: Any, *, name: str) -> Any:
+    """Start and track a managed-agent worker for orderly app shutdown."""
+
+    lock = getattr(app_state, "_managed_worker_lock", None)
+    if lock is None:
+        lock = threading.Lock()
+        app_state._managed_worker_lock = lock
+    workers = getattr(app_state, "_managed_workers", None)
+    if workers is None:
+        workers = set()
+        app_state._managed_workers = workers
+
+    thread: threading.Thread
+
+    def _run() -> None:
+        try:
+            target()
+        finally:
+            with lock:
+                workers.discard(thread)
+
+    with lock:
+        if getattr(app_state, "_managed_runtime_stopping", False):
+            raise RuntimeError("managed-agent runtime is shutting down")
+        thread = threading.Thread(target=_run, daemon=True, name=name)
+        workers.add(thread)
+        try:
+            # Shutdown must never snapshot an added-but-not-started thread,
+            # because joining such a thread raises instead of draining it.
+            thread.start()
+        except Exception:
+            workers.discard(thread)
+            raise
+    return thread
 
 
 class CreateAgentRequest(BaseModel):
@@ -59,24 +110,15 @@ class FeedbackRequest(BaseModel):
     reason: Optional[str] = None
 
 
-_BROWSER_SUB_TOOLS = {
-    "browser_navigate",
-    "browser_click",
-    "browser_type",
-    "browser_screenshot",
-    "browser_extract",
-    "browser_axtree",
-}
-
-
 def _resolve_memory_backend(config: Any) -> Any:
     """Instantiate the configured memory backend, or None if unavailable.
 
-    Mirrors serve.py's setup so an agent tick that runs through the server
-    can actually use its memory_* tools. Returns None (so the tools degrade
-    gracefully) when memory context is disabled or the backend can't load.
+    Memory storage is a tool dependency, independent of whether retrieved
+    context is injected into prompts.  ``context_from_memory`` controls only
+    that prompt enrichment; explicitly configured ``memory_*`` tools still
+    need a backend when it is false.
     """
-    if config is None or not getattr(config.agent, "context_from_memory", False):
+    if config is None:
         return None
     try:
         import openjarvis.tools.storage  # noqa: F401
@@ -90,26 +132,141 @@ def _resolve_memory_backend(config: Any) -> Any:
     return None
 
 
+def _memory_backend_lock(app_state: Any) -> threading.Lock:
+    """Return the per-runtime lock, creating it safely for lightweight tests."""
+
+    lock = getattr(app_state, "_memory_backend_lock", None)
+    if lock is not None:
+        return lock
+    with _MEMORY_BACKEND_LOCK_SETUP:
+        lock = getattr(app_state, "_memory_backend_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            app_state._memory_backend_lock = lock
+    return lock
+
+
+def _get_or_create_memory_backend(app_state: Any, config: Any = None) -> Any:
+    """Return one runtime-owned memory backend, even under concurrent ticks."""
+
+    if app_state is None:
+        return None
+    backend = getattr(app_state, "memory_backend", None)
+    if backend is not None:
+        return backend
+
+    lock = _memory_backend_lock(app_state)
+    with lock:
+        backend = getattr(app_state, "memory_backend", None)
+        if backend is not None:
+            return backend
+        if getattr(app_state, "_managed_runtime_stopping", False):
+            return None
+        backend = _resolve_memory_backend(
+            config if config is not None else getattr(app_state, "config", None)
+        )
+        if backend is not None:
+            app_state.memory_backend = backend
+            app_state._owns_memory_backend = True
+        return backend
+
+
+def _mcp_state_lock(app_state: Any, attr: str) -> threading.Lock:
+    """Return a named per-runtime MCP lock, creating it atomically."""
+
+    lock = getattr(app_state, attr, None)
+    if lock is not None:
+        return lock
+    with _MCP_LOCK_SETUP:
+        lock = getattr(app_state, attr, None)
+        if lock is None:
+            lock = threading.Lock()
+            setattr(app_state, attr, lock)
+    return lock
+
+
+def _register_mcp_client(app_state: Any, client: Any) -> bool:
+    """Publish a client before blocking I/O so shutdown can interrupt it."""
+
+    lock = _mcp_state_lock(app_state, "_mcp_clients_lock")
+    with lock:
+        if getattr(app_state, "_managed_runtime_stopping", False):
+            return False
+        clients = getattr(app_state, "_mcp_clients", None)
+        if not isinstance(clients, list):
+            clients = list(clients or [])
+            app_state._mcp_clients = clients
+        clients.append(client)
+        return True
+
+
+def _unregister_mcp_client(app_state: Any, client: Any) -> None:
+    """Remove a client that failed discovery or exposed no usable tools."""
+
+    lock = _mcp_state_lock(app_state, "_mcp_clients_lock")
+    with lock:
+        clients = getattr(app_state, "_mcp_clients", None)
+        if isinstance(clients, list):
+            try:
+                clients.remove(client)
+            except ValueError:
+                pass
+
+
 class _LightweightSystem:
     """Minimal system facade for the executor — avoids rebuilding the
     full JarvisSystem (which picks a random model from Ollama)."""
 
-    def __init__(self, engine: Any, model: str, config: Any = None):
+    def __init__(
+        self,
+        engine: Any,
+        model: str,
+        config: Any = None,
+        runtime: Any = None,
+    ):
         self.engine = engine
         self.model = model
         self.config = config
+        self._runtime = runtime
         # Wire the configured memory backend so an agent's memory_store /
         # memory_retrieve tools work when the tick runs through the server.
         # The executor injects system.memory_backend into those tools; this
         # facade previously left it None, so they reported "No memory backend
         # configured" even though the backend was configured and active.
-        self.memory_backend = _resolve_memory_backend(config)
+        self.memory_backend = _get_or_create_memory_backend(runtime, config)
+        self.channel_backend = None
+        self.mcp_tools: list[Any] = []
+        self._mcp_clients: list[Any] = []
+        self.knowledge_db_path = None
+        if runtime is not None:
+            self.channel_backend = getattr(runtime, "channel_backend", None) or getattr(
+                runtime, "channel_bridge", None
+            )
+            self.knowledge_db_path = getattr(runtime, "knowledge_db_path", None)
+
+    def get_managed_agent_mcp_tools(self) -> tuple[list[Any], list[Any]]:
+        """Lazily discover MCP tools only after the agent allows them."""
+
+        if self.mcp_tools:
+            return self.mcp_tools, self._mcp_clients
+        if self._runtime is None:
+            return [], []
+
+        runtime_tools = list(getattr(self._runtime, "mcp_tools", []) or [])
+        if runtime_tools:
+            self.mcp_tools = runtime_tools
+        else:
+            _, adapters = _get_mcp_tools(self._runtime)
+            self.mcp_tools = list(adapters.values())
+        self._mcp_clients = list(getattr(self._runtime, "_mcp_clients", []) or [])
+        return self.mcp_tools, self._mcp_clients
 
 
 def _make_lightweight_system(
     engine: Any,
     model: str,
     config: Any = None,
+    runtime: Any = None,
 ) -> _LightweightSystem:
     """Build a minimal system with a fresh inference engine.
 
@@ -154,10 +311,10 @@ def _make_lightweight_system(
             )
         except Exception:
             pass  # telemetry is optional
-        return _LightweightSystem(plain_engine, model, cfg)
+        return _LightweightSystem(plain_engine, model, cfg, runtime)
     except Exception:
         pass
-    return _LightweightSystem(engine, model, config)
+    return _LightweightSystem(engine, model, config, runtime)
 
 
 def _parse_param_count(model_name: str) -> float:
@@ -193,73 +350,6 @@ def _pick_recommended_model(
     }
 
 
-def _ensure_registries_populated() -> None:
-    """Ensure ToolRegistry and ChannelRegistry are populated.
-
-    If the registries are empty (e.g. cleared by test fixtures) but the
-    modules are already cached in sys.modules, reload the individual
-    submodules to re-execute their @register decorators.
-    """
-    import importlib
-    import sys
-
-    from openjarvis.core.registry import ChannelRegistry, ToolRegistry
-
-    # First, try a normal import (works if modules haven't been imported yet)
-    try:
-        import openjarvis.channels  # noqa: F401
-    except Exception:
-        pass
-
-    try:
-        import openjarvis.tools  # noqa: F401
-    except Exception:
-        pass
-
-    # Also try to import browser tools (not included in openjarvis.tools.__init__)
-    for _browser_mod in ("openjarvis.tools.browser", "openjarvis.tools.browser_axtree"):
-        try:
-            importlib.import_module(_browser_mod)
-        except Exception:
-            pass
-
-    # If registries are still empty, reload individual submodules from sys.modules
-    if not ChannelRegistry.keys():
-        for mod_name in list(sys.modules):
-            if mod_name.startswith("openjarvis.channels.") and not mod_name.endswith(
-                "_stubs"
-            ):
-                try:
-                    importlib.reload(sys.modules[mod_name])
-                except Exception:
-                    pass
-
-    if not ToolRegistry.keys():
-        for mod_name in list(sys.modules):
-            if (
-                mod_name.startswith("openjarvis.tools.")
-                and not mod_name.endswith("_stubs")
-                and not mod_name.endswith("agent_tools")
-            ):
-                try:
-                    importlib.reload(sys.modules[mod_name])
-                except Exception:
-                    pass
-
-    # After reloading tools, also try browser tools if still not registered
-    if not any(ToolRegistry.contains(n) for n in _BROWSER_SUB_TOOLS):
-        for _browser_mod in (
-            "openjarvis.tools.browser",
-            "openjarvis.tools.browser_axtree",
-        ):
-            mod = sys.modules.get(_browser_mod)
-            if mod is not None:
-                try:
-                    importlib.reload(mod)
-                except Exception:
-                    pass
-
-
 def build_tools_list() -> List[Dict[str, Any]]:
     """Build unified tools list from ToolRegistry + ChannelRegistry."""
     import os
@@ -285,16 +375,17 @@ def build_tools_list() -> List[Dict[str, Any]]:
             logger.debug("Could not instantiate tool %s: %s", name, exc)
             spec = None
         cred_keys = TOOL_CREDENTIALS.get(name, [])
+        has_fallback = bool(spec and spec.metadata.get("fallback"))
         items.append(
             {
                 "name": name,
                 "description": spec.description if spec else "",
                 "category": spec.category if spec else "",
                 "source": "tool",
-                "requires_credentials": len(cred_keys) > 0,
+                "requires_credentials": len(cred_keys) > 0 and not has_fallback,
                 "credential_keys": cred_keys,
                 "configured": (
-                    all(bool(os.environ.get(k)) for k in cred_keys)
+                    has_fallback or all(bool(os.environ.get(k)) for k in cred_keys)
                     if cred_keys
                     else True
                 ),
@@ -346,93 +437,10 @@ def build_tools_list() -> List[Dict[str, Any]]:
     return items
 
 
-def _resolve_tool_specs(
-    tool_config: Any,
-) -> List[Dict[str, Any]]:
-    """Convert a template's ``tools`` config into OpenAI-format function specs.
+def _resolve_tool_specs(tool_config: Any) -> List[Dict[str, Any]]:
+    """Compatibility wrapper for callers of the former route-local helper."""
 
-    The template TOML stores tools as a list of string names (e.g.
-    ``["file_read", "shell_exec"]``). Engines expect OpenAI-shaped dicts:
-    ``{"type": "function", "function": {"name, description, parameters"}}``.
-
-    Special handling:
-      * Dict entries pass through as-is (allows advanced configs to
-        supply fully-formed specs).
-      * ``browser`` is a synthetic display-only meta-tool that expands
-        to the 6 real browser sub-tools (browser_navigate, click, …).
-      * Channel names (``slack``, ``gmail``, …) come from the
-        ``ChannelRegistry`` and are not directly callable by the LLM —
-        they're destinations for ``channel_send``. Silently skip them.
-      * Unknown tool names are dropped with a warning.
-    """
-    if not tool_config:
-        return []
-
-    from openjarvis.core.registry import ChannelRegistry, ToolRegistry
-
-    _ensure_registries_populated()
-
-    def _spec_dict_for(name: str) -> Optional[Dict[str, Any]]:
-        try:
-            spec = ToolRegistry.get(name)().spec
-        except Exception as exc:
-            logger.warning(
-                "Could not build spec for tool '%s' (%s) — dropping",
-                name,
-                exc,
-            )
-            return None
-        return {
-            "type": "function",
-            "function": {
-                "name": spec.name,
-                "description": spec.description,
-                "parameters": spec.parameters,
-            },
-        }
-
-    resolved: List[Dict[str, Any]] = []
-    seen: set = set()
-
-    for entry in tool_config:
-        if isinstance(entry, dict):
-            resolved.append(entry)
-            continue
-        if not isinstance(entry, str):
-            continue
-
-        # Expand the synthetic "browser" meta-tool into its sub-tools.
-        if entry == "browser":
-            for sub in _BROWSER_SUB_TOOLS:
-                if sub in seen or not ToolRegistry.contains(sub):
-                    continue
-                spec_dict = _spec_dict_for(sub)
-                if spec_dict:
-                    resolved.append(spec_dict)
-                    seen.add(sub)
-            continue
-
-        # Channels (slack, gmail, …) live in ChannelRegistry and aren't
-        # callable by the LLM. Skip silently — the agent talks to them
-        # through the `channel_send` tool with a `channel` argument.
-        if ChannelRegistry.contains(entry):
-            continue
-
-        if not ToolRegistry.contains(entry):
-            logger.warning(
-                "Tool '%s' referenced in agent config but not in ToolRegistry",
-                entry,
-            )
-            continue
-
-        if entry in seen:
-            continue
-        spec_dict = _spec_dict_for(entry)
-        if spec_dict:
-            resolved.append(spec_dict)
-            seen.add(entry)
-
-    return resolved
+    return resolve_tool_specs(tool_config)
 
 
 # Per-agent sampler params forwarded to the engine when present in config.
@@ -546,82 +554,35 @@ def _instantiate_managed_tool(
     model: str,
     app_state: Any,
 ) -> Any:
-    """Instantiate a tool with the same dependency injection as the canonical
-    ``cli/ask.py`` path, so ``memory_*`` / ``channel_*`` / ``llm`` tools work
-    instead of silently failing with "No backend configured" (#395).
-    """
-    try:
-        from openjarvis.cli.ask import (
-            _CHANNEL_TOOLS,
-            _MEMORY_TOOLS,
-            _get_memory_backend,
-        )
-    except Exception:  # pragma: no cover - cli import should always succeed
-        _MEMORY_TOOLS = frozenset()
-        _CHANNEL_TOOLS = frozenset()
-        _get_memory_backend = None
+    """Compatibility adapter for tests and non-managed route callers."""
 
-    if name in _MEMORY_TOOLS:
-        backend = getattr(app_state, "memory_backend", None) if app_state else None
-        if backend is None and app_state is not None and _get_memory_backend:
-            cfg = getattr(app_state, "config", None)
-            if cfg is not None:
-                backend = _get_memory_backend(cfg)
-        if backend is None:
-            logger.warning(
-                "Memory tool %r instantiated without a backend — calls will "
-                "return no results.",
-                name,
-            )
-        return tool_cls(backend=backend)
-    if name in _CHANNEL_TOOLS:
-        channel = getattr(app_state, "channel_bridge", None) if app_state else None
-        if channel is None:
-            logger.warning(
-                "Channel tool %r instantiated without a channel — calls will "
-                "fail with 'No channel backend configured'.",
-                name,
-            )
-        return tool_cls(channel=channel)
-    if name == "llm":
-        return tool_cls(engine=engine, model=model)
-    return tool_cls()
+    memory_backend = _get_or_create_memory_backend(
+        app_state,
+        getattr(app_state, "config", None) if app_state is not None else None,
+    )
+    channel_backend = None
+    if app_state is not None:
+        channel_backend = getattr(app_state, "channel_backend", None) or getattr(
+            app_state, "channel_bridge", None
+        )
+    return instantiate_registered_tool(
+        tool_cls,
+        name,
+        engine=engine,
+        model=model,
+        memory_backend=memory_backend,
+        channel_backend=channel_backend,
+    )
 
 
 def _build_deep_research_tools(
     engine: Any,
     model: str,
     knowledge_db_path: str = "",
-) -> list:
-    """Build the 4 DeepResearch tools from a KnowledgeStore.
+) -> list[Any]:
+    """Compatibility wrapper for existing channel and server integrations."""
 
-    Returns an empty list if the knowledge DB does not exist.
-    """
-    from pathlib import Path
-
-    if not knowledge_db_path:
-        from openjarvis.core.config import DEFAULT_CONFIG_DIR
-
-        knowledge_db_path = str(DEFAULT_CONFIG_DIR / "knowledge.db")
-
-    if not Path(knowledge_db_path).exists():
-        return []
-
-    from openjarvis.connectors.retriever import TwoStageRetriever
-    from openjarvis.connectors.store import KnowledgeStore
-    from openjarvis.tools.knowledge_search import KnowledgeSearchTool
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
-    from openjarvis.tools.scan_chunks import ScanChunksTool
-    from openjarvis.tools.think import ThinkTool
-
-    store = KnowledgeStore(knowledge_db_path)
-    retriever = TwoStageRetriever(store)
-    return [
-        KnowledgeSearchTool(retriever=retriever),
-        KnowledgeSQLTool(store=store),
-        ScanChunksTool(store=store, engine=engine, model=model),
-        ThinkTool(),
-    ]
+    return build_deep_research_tools(engine, model, knowledge_db_path)
 
 
 def _merge_tool_call_fragments(
@@ -658,9 +619,43 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
     Lazily discovers MCP tools from config and caches them on ``app_state``
     so that subsequent requests reuse the same connections.
     """
+    lock = _mcp_state_lock(app_state, "_mcp_discovery_lock")
+    with lock:
+        return _get_mcp_tools_locked(app_state)
+
+
+def _get_mcp_tools_locked(
+    app_state: Any,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Discover MCP tools while the runtime's discovery lock is held."""
+
+    if getattr(app_state, "_managed_runtime_stopping", False):
+        return [], {}
+
     cached = getattr(app_state, "_mcp_tools_cache", None)
     if cached is not None:
         return cached
+
+    preloaded = list(getattr(app_state, "mcp_tools", []) or [])
+    if preloaded:
+        adapters_by_name: Dict[str, Any] = {}
+        for tool in preloaded:
+            spec = getattr(tool, "spec", None)
+            if spec is not None and spec.name not in adapters_by_name:
+                adapters_by_name[spec.name] = tool
+        openai_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.spec.name,
+                    "description": tool.spec.description,
+                    "parameters": tool.spec.parameters,
+                },
+            }
+            for tool in adapters_by_name.values()
+        ]
+        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+        return app_state._mcp_tools_cache
 
     import json as _json
 
@@ -682,9 +677,6 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
     from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
     from openjarvis.tools.mcp_adapter import MCPToolProvider
 
-    # Keep clients alive so transports persist for tool calls at runtime
-    mcp_clients: list = getattr(app_state, "_mcp_clients", [])
-
     try:
         server_list = _json.loads(app_config.tools.mcp.servers)
     except (_json.JSONDecodeError, TypeError) as exc:
@@ -703,6 +695,7 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
         command = cfg.get("command", "")
         args = cfg.get("args", [])
 
+        client = None
         try:
             if url:
                 transport = StreamableHTTPTransport(url=url, token=token)
@@ -716,8 +709,11 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
                 continue
 
             client = MCPClient(transport)
+            if not _register_mcp_client(app_state, client):
+                client.close()
+                client = None
+                break
             client.initialize()
-            mcp_clients.append(client)
 
             provider = MCPToolProvider(client)
             discovered = provider.discover()
@@ -730,8 +726,16 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
             if exclude_tools:
                 discovered = [t for t in discovered if t.spec.name not in exclude_tools]
 
+            staged: list[tuple[Any, Any]] = []
+            staged_names = set(adapters_by_name)
             for adapter in discovered:
                 spec = adapter.spec
+                if spec.name in staged_names:
+                    continue
+                staged.append((adapter, spec))
+                staged_names.add(spec.name)
+
+            for adapter, spec in staged:
                 openai_tools.append(
                     {
                         "type": "function",
@@ -744,22 +748,37 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
                 )
                 adapters_by_name[spec.name] = adapter
 
+            if not staged:
+                client.close()
+                _unregister_mcp_client(app_state, client)
+            client = None
+
             logger.info(
                 "Discovered %d MCP tools from server '%s'",
-                len(discovered),
+                len(staged),
                 name,
             )
         except Exception as exc:
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    logger.debug("Failed to close unusable MCP client", exc_info=True)
+                else:
+                    _unregister_mcp_client(app_state, client)
             logger.warning(
                 "Failed to discover MCP tools from '%s': %s",
                 name,
                 exc,
             )
 
-    app_state._mcp_clients = mcp_clients
     if openai_tools:
-        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
-    return openai_tools, adapters_by_name
+        clients_lock = _mcp_state_lock(app_state, "_mcp_clients_lock")
+        with clients_lock:
+            if not getattr(app_state, "_managed_runtime_stopping", False):
+                app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+                return openai_tools, adapters_by_name
+    return [], {}
 
 
 def _sse_chunk(chunk_id: str, model: str, content: str) -> str:
@@ -823,6 +842,8 @@ async def _stream_managed_agent(
     import json
     import uuid
 
+    from starlette.background import BackgroundTask
+
     from openjarvis.core.types import Message, Role
 
     agent_id = agent_record["id"]
@@ -860,16 +881,36 @@ async def _stream_managed_agent(
             Message(role=Role.SYSTEM, content=final_system_prompt.strip())
         )
 
-    # Resolve agent type and class for DeepResearch tool wiring
+    # Resolve one live toolkit for every managed-agent path.  The same
+    # instances are advertised to the model and used for execution below.
     agent_type = agent_record.get("agent_type", "")
-    if agent_type == "deep_research":
-        dr_tools = _build_deep_research_tools(
-            engine=engine,
-            model=model,
-        )
-        # Store on app_state so streaming loop can access them
-        if app_state is not None and dr_tools:
-            app_state._dr_tools = dr_tools
+    mcp_adapters: Dict[str, Any] = {}
+    mcp_clients: list[Any] = []
+    if app_state is not None and config.get("mcp_tools", True) is not False:
+        try:
+            _, mcp_adapters = _get_mcp_tools(app_state)
+            mcp_clients = list(getattr(app_state, "_mcp_clients", []))
+        except Exception as exc:
+            logger.warning(
+                "Failed to get MCP tools for managed agent: %s",
+                exc,
+                exc_info=True,
+            )
+
+    memory_backend = _get_or_create_memory_backend(app_state, app_config)
+    channel_backend = getattr(app_state, "channel_backend", None) or getattr(
+        app_state, "channel_bridge", None
+    )
+    resolved_toolkit = resolve_agent_tools(
+        agent_record,
+        engine=engine,
+        model=model,
+        memory_backend=memory_backend,
+        channel_backend=channel_backend,
+        mcp_tools=mcp_adapters.values(),
+        mcp_clients=mcp_clients,
+        knowledge_db_path=getattr(app_state, "knowledge_db_path", None),
+    )
 
     # Load prior conversation context (DESC order, reverse for chronological).
     # Replaying recorded tool_calls (assistant tool-use + tool results) keeps
@@ -886,15 +927,14 @@ async def _stream_managed_agent(
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
     # For deep_research agents: run the full agent loop, not raw streaming
-    if agent_type == "deep_research" and app_state is not None:
-        dr_tools = getattr(app_state, "_dr_tools", None)
+    if agent_type == "deep_research":
+        dr_tools = resolved_toolkit.instances
         if dr_tools:
 
             async def generate_deep_research():
                 """Run DeepResearchAgent in thread, stream progress + result."""
                 import asyncio
                 import queue
-                import threading
                 import time as _dr_time
 
                 from openjarvis.agents.deep_research import DeepResearchAgent
@@ -926,6 +966,8 @@ async def _stream_managed_agent(
                     interactive=True,
                     confirm_callback=lambda _prompt: True,
                 )
+                if resolved_toolkit.mcp_clients:
+                    dr_agent._mcp_clients = resolved_toolkit.mcp_clients
 
                 # Wrap the executor to capture tool calls
                 original_execute = dr_agent._executor.execute
@@ -996,6 +1038,8 @@ async def _stream_managed_agent(
                         agent_metadata = result.metadata or {}
                     except Exception as exc:
                         content = f"Error: {exc}"
+                    finally:
+                        resolved_toolkit.close()
 
                     elapsed = _dr_time.time() - _dr_start
 
@@ -1027,8 +1071,22 @@ async def _stream_managed_agent(
                         }
                     )
 
-                thread = threading.Thread(target=_run_agent, daemon=True)
-                thread.start()
+                try:
+                    _start_managed_worker(
+                        app_state,
+                        _run_agent,
+                        name=f"managed-agent-deep-research-{agent_id}",
+                    )
+                except Exception as exc:
+                    resolved_toolkit.close()
+                    progress_q.put(
+                        {
+                            "type": "error",
+                            "content": f"Error: {exc}",
+                            "metadata": {},
+                            "elapsed": _dr_time.time() - _dr_start,
+                        }
+                    )
 
                 # Collect tool calls from deep-research so we can persist them
                 # alongside the final response (and the UI can re-render them
@@ -1162,34 +1220,25 @@ async def _stream_managed_agent(
                 },
             )
 
-    # Build extra kwargs for stream_full (e.g. tools from config).
-    # Template stores tool names as strings; convert to OpenAI function specs
-    # so the engine can actually bind them to the model.
+    # The canonical resolver exposes the same live instances as OpenAI specs
+    # for engines that run the generic streaming loop.
     stream_kwargs: Dict[str, Any] = {}
-    resolved_tools = _resolve_tool_specs(config.get("tools"))
-    if resolved_tools:
-        stream_kwargs["tools"] = resolved_tools
+    if resolved_toolkit.openai_specs:
+        stream_kwargs["tools"] = resolved_toolkit.openai_specs
+
+    from openjarvis.tools._stubs import ToolExecutor
+
+    resolved_by_name = resolved_toolkit.by_name
+    stream_tool_executor = ToolExecutor(
+        tools=resolved_toolkit.instances,
+        bus=bus,
+        interactive=True,
+        confirm_callback=lambda _prompt: True,
+    )
 
     # Forward any per-agent sampler params (repetition_penalty, top_p, …) so
     # locally-hosted models can be tuned per agent (#386).
     stream_kwargs.update(_sampler_kwargs(config))
-
-    # Discover MCP tools and merge into stream_kwargs
-    mcp_adapters: Dict[str, Any] = {}
-    if app_state is not None:
-        try:
-            mcp_openai_tools, mcp_adapters = _get_mcp_tools(app_state)
-            if mcp_openai_tools:
-                existing_tools = stream_kwargs.get("tools", [])
-                stream_kwargs["tools"] = existing_tools + mcp_openai_tools
-                logger.info(
-                    "Added %d MCP tools to streaming request",
-                    len(mcp_openai_tools),
-                )
-        except Exception as exc:
-            logger.warning(
-                "Failed to get MCP tools for streaming: %s", exc, exc_info=True
-            )
 
     # Shared state between the generator and the BackgroundTask that
     # runs after the SSE response completes (or the client disconnects
@@ -1232,6 +1281,12 @@ async def _stream_managed_agent(
             )
         except Exception as _qc_exc:
             logger.warning("Log query_complete failed: %s", _qc_exc)
+
+    def _finalize_stream() -> None:
+        try:
+            _persist_final()
+        finally:
+            resolved_toolkit.close()
 
     async def generate():
         """Async generator yielding SSE-formatted chunks with real token streaming."""
@@ -1368,66 +1423,21 @@ async def _stream_managed_agent(
                     tool_start_ms = _time.monotonic() * 1000
 
                     try:
-                        # Try MCP adapter first (external tools)
-                        mcp_adapter = mcp_adapters.get(tool_name)
-                        if mcp_adapter is not None:
-                            try:
-                                parsed_args = json.loads(tool_args) if tool_args else {}
-                            except (json.JSONDecodeError, TypeError):
-                                parsed_args = {}
-                            result = mcp_adapter.execute(**parsed_args)
+                        if tool_name in resolved_by_name:
+                            result = stream_tool_executor.execute(
+                                MsgToolCall(
+                                    id=tc["id"],
+                                    name=tool_name,
+                                    arguments=tool_args,
+                                )
+                            )
                             tool_result_content = result.content
+                            tool_succeeded = bool(result.success)
                         else:
-                            # Try to use ToolExecutor if tools are configured
-                            from openjarvis.core.registry import ToolRegistry
-                            from openjarvis.tools._stubs import (
-                                ToolCall as StubToolCall,
+                            logger.warning(
+                                "Tool '%s' was not included in the resolved toolkit",
+                                tool_name,
                             )
-                            from openjarvis.tools._stubs import (
-                                ToolExecutor,
-                            )
-
-                            tool_cls = ToolRegistry.get(tool_name)
-                            if tool_cls is not None:
-                                # Inject backend / channel / engine the same
-                                # way cli/ask.py does, else memory_* / channel_*
-                                # / llm tools fail with "No backend configured"
-                                # on every call (#395).
-                                tool_instance = _instantiate_managed_tool(
-                                    tool_cls,
-                                    tool_name,
-                                    engine=engine,
-                                    model=model,
-                                    app_state=app_state,
-                                )
-                                # Tools the user explicitly added to this
-                                # agent's toolkit are considered pre-approved —
-                                # selecting them in the wizard is the
-                                # confirmation. Without this, tools that have
-                                # `requires_confirmation=True` (shell_exec,
-                                # apply_patch) would fail with "requires
-                                # confirmation but no callback available" on
-                                # every call.
-                                executor = ToolExecutor(
-                                    tools=[tool_instance],
-                                    bus=bus,
-                                    interactive=True,
-                                    confirm_callback=lambda _prompt: True,
-                                )
-                                result = executor.execute(
-                                    StubToolCall(
-                                        id=tc["id"],
-                                        name=tool_name,
-                                        arguments=tool_args,
-                                    ),
-                                )
-                                tool_result_content = result.content
-                            else:
-                                logger.warning(
-                                    "Tool '%s' not found in registry or MCP adapters",
-                                    tool_name,
-                                )
-                        tool_succeeded = True
                     except Exception as tool_exc:
                         logger.error(
                             "Tool execution error for %s: %s",
@@ -1515,13 +1525,11 @@ async def _stream_managed_agent(
         yield f"data: {json.dumps(final_data)}\n\n"
         yield "data: [DONE]\n\n"
 
-    from starlette.background import BackgroundTask
-
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-        background=BackgroundTask(_persist_final),
+        background=BackgroundTask(_finalize_stream),
     )
 
 
@@ -1604,8 +1612,6 @@ def create_agent_manager_router(
 
     @agents_router.post("/{agent_id}/run")
     async def run_agent(agent_id: str, request: Request):
-        import threading
-
         agent = manager.get_agent(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
@@ -1643,6 +1649,7 @@ def create_agent_manager_router(
                     server_engine,
                     server_model,
                     server_config,
+                    request.app.state,
                 )
                 executor.set_system(system)
                 # The route handler above already called start_tick() to
@@ -1667,7 +1674,18 @@ def create_agent_manager_router(
                     f"ERROR: {exc}",
                 )
 
-        threading.Thread(target=_run_tick, daemon=True).start()
+        try:
+            _start_managed_worker(
+                request.app.state,
+                _run_tick,
+                name=f"managed-agent-run-{agent_id}",
+            )
+        except RuntimeError as exc:
+            try:
+                manager.end_tick(agent_id)
+            except Exception:
+                pass
+            raise HTTPException(status_code=503, detail=str(exc))
         return {"status": "running", "agent_id": agent_id}
 
     # ── Recover ──────────────────────────────────────────────
@@ -1752,10 +1770,6 @@ def create_agent_manager_router(
 
                         engine = getattr(request.app.state, "engine", None)
                         if engine:
-                            from openjarvis.server.agent_manager_routes import (
-                                _build_deep_research_tools,
-                            )
-
                             tools = _build_deep_research_tools(engine=engine, model="")
                             if tools:
                                 from openjarvis.agents.deep_research import (
@@ -1824,11 +1838,7 @@ def create_agent_manager_router(
                         engine = getattr(request.app.state, "engine", None)
                         dr_agent = None
                         if engine:
-                            from openjarvis.server.agent_manager_routes import (
-                                _build_deep_research_tools as _bdr,
-                            )
-
-                            tools = _bdr(engine=engine, model="")
+                            tools = _build_deep_research_tools(engine=engine, model="")
                             if tools:
                                 from openjarvis.agents.deep_research import (
                                     DeepResearchAgent,
@@ -1970,7 +1980,6 @@ def create_agent_manager_router(
             # Non-streaming immediate: trigger a background tick so the
             # agent processes the message, then return the stored msg.
             # Re-use the server's existing system (correct model/engine).
-            import threading
             import time as _time
 
             from openjarvis.agents.executor import AgentExecutor
@@ -1998,6 +2007,7 @@ def create_agent_manager_router(
                         _srv_engine,
                         _srv_model,
                         _srv_config,
+                        request.app.state,
                     )
                     executor.set_system(system)
                     logger.info(
@@ -2029,10 +2039,14 @@ def create_agent_manager_router(
                         f"ERROR: {exc}",
                     )
 
-            threading.Thread(
-                target=_immediate_tick,
-                daemon=True,
-            ).start()
+            try:
+                _start_managed_worker(
+                    request.app.state,
+                    _immediate_tick,
+                    name=f"managed-agent-immediate-{agent_id}",
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=503, detail=str(exc))
             return msg
 
         # --- Streaming mode: run agent and return SSE response ---
@@ -2237,6 +2251,13 @@ def create_agent_manager_router(
             save_credential(tool_name, key, value)
             saved.append(key)
         return {"saved": saved}
+
+    @tools_router.delete("/{tool_name}/credentials/{key}")
+    def remove_tool_credential(tool_name: str, key: str):
+        from openjarvis.core.credentials import delete_credential
+
+        delete_credential(tool_name, key)
+        return {"deleted": key}
 
     @tools_router.get("/{tool_name}/credentials/status")
     def credential_status(tool_name: str):

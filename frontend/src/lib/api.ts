@@ -218,9 +218,9 @@ export async function deleteModel(modelName: string): Promise<void> {
 
 const _CLOUD_PREFIXES = ['gpt-', 'o1-', 'o3-', 'o4-', 'claude-', 'gemini-', 'openrouter/'];
 
-export async function preloadModel(modelName: string): Promise<void> {
+export async function preloadModel(modelName: string, owner?: string): Promise<void> {
   // Cloud models don't need Ollama preloading
-  if (_CLOUD_PREFIXES.some(p => modelName.startsWith(p))) {
+  if (owner === 'litellm' || _CLOUD_PREFIXES.some(p => modelName.startsWith(p))) {
     return;
   }
   // Trigger Ollama to load the model into memory (empty prompt, no generation).
@@ -882,6 +882,25 @@ export async function saveToolCredentials(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(credentials),
   });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
+
+export async function fetchToolCredentialStatus(
+  toolName: string,
+): Promise<Record<string, boolean>> {
+  const res = await apiFetch(`/v1/tools/${toolName}/credentials/status`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function deleteToolCredential(
+  toolName: string,
+  keyName: string,
+): Promise<void> {
+  const res = await apiFetch(
+    `/v1/tools/${encodeURIComponent(toolName)}/credentials/${encodeURIComponent(keyName)}`,
+    { method: 'DELETE' },
+  );
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 

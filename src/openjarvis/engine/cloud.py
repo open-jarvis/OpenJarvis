@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Dict, List, Tuple
 
@@ -1305,6 +1306,160 @@ class CloudEngine(InferenceEngine):
             if chunk.text:
                 yield chunk.text
 
+    async def _stream_full_google(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[StreamChunk]:
+        """Stream Google text and function-call parts as full chunks."""
+        if self._google_client is None:
+            raise EngineConnectionError("Google client not available")
+
+        system_text = ""
+        contents: List[Dict[str, Any]] = []
+        for message in messages:
+            if message.role.value == "system":
+                system_text = message.content
+            elif message.role.value == "tool":
+                function_response = {
+                    "function_response": {
+                        "name": message.name or "unknown",
+                        "response": {"result": message.content},
+                    }
+                }
+                if (
+                    contents
+                    and contents[-1]["role"] == "user"
+                    and contents[-1]["parts"]
+                    and "function_response" in contents[-1]["parts"][-1]
+                ):
+                    contents[-1]["parts"].append(function_response)
+                else:
+                    contents.append({"role": "user", "parts": [function_response]})
+            elif message.role.value == "assistant" and message.tool_calls:
+                parts: List[Dict[str, Any]] = []
+                if message.content:
+                    parts.append({"text": message.content})
+                for tool_call in message.tool_calls:
+                    args = tool_call.arguments
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except (json.JSONDecodeError, TypeError):
+                            args = {"input": args}
+                    function_call_part: Dict[str, Any] = {
+                        "function_call": {
+                            "name": tool_call.name,
+                            "args": args if isinstance(args, dict) else {},
+                        }
+                    }
+                    signature = self._thought_sigs.get(tool_call.id)
+                    if signature is not None:
+                        function_call_part["thought_signature"] = signature
+                    parts.append(function_call_part)
+                contents.append({"role": "model", "parts": parts})
+            elif message.role.value == "assistant":
+                contents.append({"role": "model", "parts": [{"text": message.content}]})
+            else:
+                contents.append({"role": "user", "parts": [{"text": message.content}]})
+
+        from google.genai import types as genai_types
+
+        config = genai_types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+        )
+        if system_text:
+            config.system_instruction = system_text
+
+        tools = kwargs.pop("tools", None)
+        if tools:
+            config.tools = [{"function_declarations": _convert_tools_to_google(tools)}]
+
+        tool_call_count = 0
+        stream_id = uuid.uuid4().hex
+        final_usage: Dict[str, Any] | None = None
+        for chunk in self._google_client.models.generate_content_stream(
+            model=model,
+            contents=contents,
+            config=config,
+        ):
+            usage_metadata = getattr(chunk, "usage_metadata", None)
+            if usage_metadata is not None:
+                prompt_tokens = getattr(usage_metadata, "prompt_token_count", 0) or 0
+                completion_tokens = (
+                    getattr(usage_metadata, "candidates_token_count", 0) or 0
+                )
+                final_usage = {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                }
+
+            candidates = getattr(chunk, "candidates", None)
+            parts = []
+            if candidates:
+                parts = getattr(candidates[0].content, "parts", []) or []
+
+            if parts:
+                text_found = False
+                calls: List[Dict[str, Any]] = []
+                for part in parts:
+                    text = getattr(part, "text", None)
+                    if text:
+                        text_found = True
+                        yield StreamChunk(content=text)
+
+                    function_call = getattr(part, "function_call", None)
+                    if function_call:
+                        name = getattr(function_call, "name", "")
+                        raw_args = getattr(function_call, "args", {})
+                        args = dict(raw_args) if hasattr(raw_args, "items") else {}
+                        # Gemini emits complete function-call parts, so each part is
+                        # a distinct invocation. The same function may legitimately
+                        # be called more than once in a parallel response.
+                        tool_index = tool_call_count
+                        # The engine is shared across server requests, and saved
+                        # thought signatures are keyed by tool-call ID. Include a
+                        # per-stream nonce so concurrent conversations cannot
+                        # overwrite each other's signatures.
+                        tool_id = f"google_{stream_id}_{tool_index}"
+                        tool_call_count += 1
+                        tool_call = {
+                            "index": tool_index,
+                            "id": tool_id,
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": json.dumps(args),
+                            },
+                        }
+                        calls.append(tool_call)
+                        signature = getattr(part, "thought_signature", None)
+                        if signature is not None:
+                            tool_call["thought_signature"] = signature
+                            self._thought_sigs[tool_id] = signature
+                if calls:
+                    yield StreamChunk(tool_calls=calls)
+                if text_found:
+                    continue
+
+            try:
+                text = chunk.text
+            except (AttributeError, ValueError):
+                text = None
+            if text:
+                yield StreamChunk(content=text)
+
+        yield StreamChunk(
+            finish_reason="tool_calls" if tool_call_count else "stop",
+            usage=final_usage,
+        )
+
     async def _stream_openrouter(
         self,
         messages: Sequence[Message],
@@ -1600,7 +1755,7 @@ class CloudEngine(InferenceEngine):
             async for chunk in self._stream_full_anthropic(messages, **kw):
                 yield chunk
         elif _is_google_model(model):
-            async for chunk in super().stream_full(messages, **kw):
+            async for chunk in self._stream_full_google(messages, **kw):
                 yield chunk
         else:
             async for chunk in self._stream_full_openai(messages, **kw):

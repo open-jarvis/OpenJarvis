@@ -18,40 +18,47 @@ _LOG_FILE = DEFAULT_CONFIG_DIR / "server.log"
 
 
 def _pid_alive(pid: int) -> bool:
-    """Return True if a process with ``pid`` is currently running.
-
-    Cross-platform and side-effect free. ``os.kill(pid, 0)`` is NOT a valid
-    liveness probe on Windows: signal ``0`` equals ``CTRL_C_EVENT`` there, so
-    the call routes to ``GenerateConsoleCtrlEvent`` and raises
-    ``OSError`` (WinError 87, "The parameter is incorrect") for any pid that is
-    not a live console process-group leader — including dead pids and normally
-    detached daemons. On Windows we query the process handle directly; on POSIX
-    the standard signal-0 probe is correct.
-    """
+    """Return whether *pid* identifies a running process without signaling it."""
     if pid <= 0:
         return False
+
     if os.name == "nt":
         import ctypes
+        from ctypes import wintypes
 
-        SYNCHRONIZE = 0x00100000
-        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        WAIT_TIMEOUT = 0x00000102
-        kernel32 = ctypes.windll.kernel32
-        handle = kernel32.OpenProcess(
-            SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-        )
+        error_invalid_parameter = 87
+        synchronize = 0x00100000
+        wait_object_0 = 0x00000000
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        handle = kernel32.OpenProcess(synchronize, False, pid)
         if not handle:
-            return False  # no such process (or access denied)
+            # OpenProcess reports ERROR_INVALID_PARAMETER when the PID does not
+            # exist. For access-denied and other inconclusive failures, retain
+            # the PID file rather than declaring a potentially live daemon dead.
+            return ctypes.get_last_error() != error_invalid_parameter
+
         try:
-            return kernel32.WaitForSingleObject(handle, 0) == WAIT_TIMEOUT
+            wait_result = kernel32.WaitForSingleObject(handle, 0)
+            # WAIT_OBJECT_0 proves the process exited. WAIT_TIMEOUT proves it
+            # is live; unexpected failures are inconclusive, so retain the PID.
+            return wait_result != wait_object_0
         finally:
             kernel32.CloseHandle(handle)
+
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True  # process exists, we just can't signal it
+        return True
     return True
 
 
@@ -61,7 +68,7 @@ def _read_pid() -> int | None:
         return None
     try:
         pid = int(_PID_FILE.read_text().strip())
-    except ValueError:
+    except (OSError, ValueError):
         _PID_FILE.unlink(missing_ok=True)
         return None
     if not _pid_alive(pid):
@@ -120,14 +127,28 @@ def start(
     if agent_name:
         cmd.extend(["--agent", agent_name])
 
-    # Start as background process
+    # Start as background process, fully detached from the launching terminal.
+    #
+    # ``start_new_session`` is POSIX-only: CPython's Windows ``_execute_child``
+    # names the parameter ``unused_start_new_session`` and ignores it. Relying
+    # on it there leaves the server sharing its parent's console, so closing
+    # that console — or logging off — delivers CTRL_CLOSE_EVENT and kills the
+    # daemon. DETACHED_PROCESS gives it no console at all; the new process
+    # group additionally stops a Ctrl-C in the parent reaching it.
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     log_fh = open(_LOG_FILE, "a")  # noqa: SIM115
+    spawn_kwargs: dict = {}
+    if sys.platform == "win32":
+        spawn_kwargs["creationflags"] = (
+            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+    else:
+        spawn_kwargs["start_new_session"] = True
     proc = subprocess.Popen(
         cmd,
         stdout=log_fh,
         stderr=log_fh,
-        start_new_session=True,
+        **spawn_kwargs,
     )
     _write_pid(proc.pid)
 
@@ -155,8 +176,8 @@ def stop() -> None:
             if not _pid_alive(pid):
                 break
         else:
-            # Force kill if still running (SIGKILL is POSIX-only; on Windows
-            # SIGTERM already maps to TerminateProcess).
+            # SIGKILL is POSIX-only. On Windows SIGTERM already maps to
+            # TerminateProcess, so repeating it is the available escalation.
             try:
                 os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
             except OSError:
