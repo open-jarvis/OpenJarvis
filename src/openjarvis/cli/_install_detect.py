@@ -70,9 +70,7 @@ def detect_install() -> InstallInfo:
         if (candidate / ".git").exists() and (candidate / "pyproject.toml").exists():
             return InstallInfo(
                 kind="editable-git",
-                upgrade_command=(
-                    f"cd {candidate} && git pull && uv sync --inexact"
-                ),
+                upgrade_command=(f"cd {candidate} && git pull && uv sync --inexact"),
                 repo_root=candidate,
             )
         if candidate.parent == candidate:
