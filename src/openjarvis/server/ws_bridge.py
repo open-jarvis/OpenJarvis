@@ -79,33 +79,41 @@ def create_ws_router(event_bus: EventBus) -> Any:
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
         loop = asyncio.get_running_loop()
         clients[websocket] = (queue, loop)
+        recv: asyncio.Task | None = None
+        payload: asyncio.Task | None = None
+        disconnected = False
         try:
+            recv = asyncio.create_task(websocket.receive())
+            payload = asyncio.create_task(queue.get())
             while True:
-                recv = asyncio.create_task(websocket.receive())
-                payload = asyncio.create_task(queue.get())
                 done, _ = await asyncio.wait(
                     {recv, payload}, return_when=asyncio.FIRST_COMPLETED
                 )
-                for task in (recv, payload):
-                    if task not in done:
-                        task.cancel()
                 if recv in done:
-                    # A completed receive surfaces the client's disconnect —
-                    # Starlette delivers it as a message (or raises
-                    # WebSocketDisconnect for a clean close frame) only when
-                    # the app actually reads from the socket. Without this the
-                    # handler never learns the client left, its task stays
-                    # open forever, and uvicorn's graceful shutdown blocks on
-                    # it until systemd SIGKILLs the unit (TimeoutStopSec).
+                    # Starlette surfaces a disconnect message only when the app
+                    # reads from the socket. Without this receive, the handler
+                    # can stay parked on queue.get() after the client leaves.
                     message = await recv
                     if message.get("type") == "websocket.disconnect":
+                        disconnected = True
                         break
-                else:
+                    recv = asyncio.create_task(websocket.receive())
+                if payload in done:
                     await websocket.send_json(payload.result())
+                    payload = asyncio.create_task(queue.get())
         except WebSocketDisconnect:
-            pass
+            disconnected = True
         finally:
             clients.pop(websocket, None)
+            pending = [task for task in (recv, payload) if task is not None]
+            for task in pending:
+                task.cancel()
+            cleanup = asyncio.gather(*pending, return_exceptions=True)
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                if not disconnected:
+                    raise
 
     return router
 
