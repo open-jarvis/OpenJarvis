@@ -574,7 +574,7 @@ function ToolsPicker({
           </div>
           {/* Live description strip */}
           <div
-            className="flex items-center gap-2 px-2.5 py-1.5"
+            className="flex items-start gap-2 px-2.5 py-1.5"
             style={{
               borderTop: '1px solid var(--color-border)',
               background: 'var(--color-bg)',
@@ -608,10 +608,11 @@ function ToolsPicker({
               </span>
             )}
             <span
-              className="truncate"
+              className="min-w-0 whitespace-normal break-words"
               style={{
                 flex: 1,
                 color: 'var(--color-text-tertiary)',
+                lineHeight: 1.4,
               }}
             >
               {hovered ? `— ${hint}` : hint}

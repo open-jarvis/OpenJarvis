@@ -336,6 +336,34 @@ def _remember_exchange(
     )
 
 
+def _engine_key_for_model(engine: Any, model: str) -> str | None:
+    """Resolve the engine that advertised *model* through wrapper layers."""
+    from openjarvis.engine.multi import MultiEngine
+    from openjarvis.security.guardrails import GuardrailsEngine
+    from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+
+    current = engine
+    while current is not None:
+        if isinstance(current, MultiEngine):
+            return current.engine_key_for(model)
+        if isinstance(current, InstrumentedEngine):
+            current = current._inner
+            continue
+        if isinstance(current, GuardrailsEngine):
+            current = current._engine
+            continue
+        engine_id = getattr(current, "engine_id", None)
+        return engine_id if isinstance(engine_id, str) else None
+    return None
+
+
+def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
+    """Whether *model* should bypass the configured engine for direct cloud."""
+    from openjarvis.server.cloud_router import is_cloud_model
+
+    return is_cloud_model(model) and _engine_key_for_model(engine, model) != "litellm"
+
+
 def _handle_direct(
     engine,
     model: str,
@@ -541,12 +569,13 @@ async def _handle_stream_tools(
     tool_calls) — identical to the prior plain-stream behaviour, so this never
     regresses non-tool-capable engines.
     """
-    from openjarvis.server.cloud_router import is_cloud_model
-
     messages = _to_messages(req.messages)
     messages = _ensure_identity_prompt(messages, app_config)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-    use_cloud = is_cloud_model(model)
+    use_cloud = _uses_direct_cloud_router(engine, model)
+    telemetry_engine = (
+        "cloud" if use_cloud else (_engine_key_for_model(engine, model) or "ollama")
+    )
     query_text = ""
     for _m in reversed(req.messages):
         if _m.role == "user" and _m.content:
@@ -626,7 +655,7 @@ async def _handle_stream_tools(
         # Tag the finish chunk with the engine label, matching _handle_stream
         # so UI/telemetry consumers see the same field on the tools path.
         finish_dict.setdefault("telemetry", {})
-        finish_dict["telemetry"]["engine"] = "cloud" if use_cloud else "ollama"
+        finish_dict["telemetry"]["engine"] = telemetry_engine
         if complexity_info is not None:
             finish_dict["complexity"] = complexity_info.model_dump()
         yield f"data: {_json.dumps(finish_dict)}\n\n"
@@ -668,11 +697,7 @@ async def _handle_stream(
     """
     import time
 
-    from openjarvis.server.cloud_router import (
-        is_cloud_model,
-        stream_cloud,
-        stream_local,
-    )
+    from openjarvis.server.cloud_router import stream_cloud, stream_local
 
     messages = _to_messages(req.messages)
     messages = _ensure_identity_prompt(messages, app_config)
@@ -687,7 +712,10 @@ async def _handle_stream(
 
     # Route directly to the right backend — bypasses engine routing entirely
     # so broken MultiEngine state can never misdirect requests.
-    use_cloud = is_cloud_model(model)
+    use_cloud = _uses_direct_cloud_router(engine, model)
+    telemetry_engine = (
+        "cloud" if use_cloud else (_engine_key_for_model(engine, model) or "ollama")
+    )
 
     async def generate():
         started_at = time.time()
@@ -792,7 +820,7 @@ async def _handle_stream(
                 query=query_text,
                 result=full_content,
                 model=model,
-                engine="cloud" if use_cloud else "ollama",
+                engine=telemetry_engine,
                 started_at=started_at,
                 ended_at=time.time(),
             )
@@ -825,7 +853,7 @@ async def _handle_stream(
         # We use the routing decision (use_cloud) directly rather than
         # unwrapping the engine chain, which can be in a broken state.
         finish_dict.setdefault("telemetry", {})
-        finish_dict["telemetry"]["engine"] = "cloud" if use_cloud else "ollama"
+        finish_dict["telemetry"]["engine"] = telemetry_engine
 
         if complexity_info is not None:
             finish_dict["complexity"] = complexity_info.model_dump()
@@ -842,24 +870,40 @@ async def _handle_stream(
 
 @router.get("/v1/models")
 async def list_models(request: Request) -> ModelListResponse:
-    """List locally installed models (Ollama).
+    """List selectable engine models for the installed-model picker.
 
-    Cloud models are not included here — they live in the Cloud Models tab
-    of the UI and are selected there, not from this endpoint.
+    Direct cloud models live in the Cloud Models tab. Models advertised by a
+    configured LiteLLM engine remain here because LiteLLM owns their routing
+    and may use provider-qualified IDs that resemble OpenRouter IDs.
     """
     from openjarvis.server.cloud_router import is_cloud_model, list_local_models
 
     # Prefer engine.list_models() so mock engines work in tests.
-    # Filter out any cloud model IDs that may appear via MultiEngine.
+    # Filter out direct-cloud model IDs that may appear via MultiEngine, but
+    # retain provider-qualified IDs owned by the configured LiteLLM engine.
     # Fall back to direct Ollama query only when the engine returns nothing.
     engine = request.app.state.engine
     all_ids = await asyncio.to_thread(engine.list_models)
-    model_ids = [m for m in all_ids if not is_cloud_model(m)]
+    model_ids = [
+        m
+        for m in all_ids
+        if not is_cloud_model(m) or _engine_key_for_model(engine, m) == "litellm"
+    ]
     if not model_ids:
         model_ids = await list_local_models()
 
     return ModelListResponse(
-        data=[ModelObject(id=mid) for mid in model_ids],
+        data=[
+            ModelObject(
+                id=mid,
+                owned_by=(
+                    "litellm"
+                    if _engine_key_for_model(engine, mid) == "litellm"
+                    else "openjarvis"
+                ),
+            )
+            for mid in model_ids
+        ],
     )
 
 
