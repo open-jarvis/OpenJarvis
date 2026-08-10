@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -882,6 +882,64 @@ class TestModelsEndpoint:
         resp = client.get("/v1/models")
         data = resp.json()
         assert len(data["data"]) == 3
+
+    def test_configured_litellm_model_is_listed(self):
+        """Regression for #713: LiteLLM models must reach the Web UI."""
+        model = "groq/llama-3.3-70b-versatile"
+        engine = _make_engine(models=[model])
+        engine.engine_id = "litellm"
+        app = create_app(
+            engine,
+            model,
+            engine_name="litellm",
+            config=_test_config(),
+        )
+
+        with patch(
+            "openjarvis.server.cloud_router.list_local_models",
+            new_callable=AsyncMock,
+        ) as list_local_models:
+            list_local_models.return_value = []
+            client = TestClient(app)
+            resp = client.get("/v1/models")
+
+        assert resp.status_code == 200
+        assert [item["id"] for item in resp.json()["data"]] == [model]
+        assert resp.json()["data"][0]["owned_by"] == "litellm"
+
+    def test_litellm_provider_model_streams_through_active_engine(self):
+        """A LiteLLM ``provider/model`` ID must not bypass its engine."""
+        model = "groq/llama-3.3-70b-versatile"
+        engine = _make_engine(models=[model])
+        engine.engine_id = "litellm"
+        app = create_app(
+            engine,
+            model,
+            engine_name="litellm",
+            config=_test_config(),
+        )
+
+        async def direct_cloud_tokens():
+            yield "wrong backend"
+
+        with patch(
+            "openjarvis.server.cloud_router.stream_cloud",
+            return_value=direct_cloud_tokens(),
+        ) as stream_cloud:
+            client = TestClient(app)
+            resp = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "stream": True,
+                },
+            )
+
+        assert resp.status_code == 200
+        stream_cloud.assert_not_called()
+        assert "Hello" in resp.text
+        assert '"engine": "litellm"' in resp.text
 
 
 # ---------------------------------------------------------------------------
