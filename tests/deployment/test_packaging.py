@@ -63,6 +63,17 @@ def test_windows_installer_syncs_the_native_group() -> None:
 
 
 def test_quickstart_installs_web_search_dependencies() -> None:
-    quickstart = QUICKSTART_SH.read_text()
+    quickstart = QUICKSTART_SH.read_text(encoding="utf-8")
     assert "--extra tools-search" in quickstart
     assert "already running on port 8000" in quickstart
+
+
+def test_quickstart_records_native_extension_in_install_profile() -> None:
+    quickstart = QUICKSTART_SH.read_text(encoding="utf-8")
+    assert quickstart.count("--group desktop-native") >= 2, (
+        "quickstart must select and record desktop-native so exact self-updates "
+        "retain openjarvis-rust"
+    )
+    assert "maturin develop" not in quickstart, (
+        "desktop-native should build the extension without a redundant second build"
+    )

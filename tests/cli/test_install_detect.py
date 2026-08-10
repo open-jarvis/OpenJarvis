@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from openjarvis.cli._install_detect import InstallInfo, detect_install
+from openjarvis.cli._install_profile import write_install_profile
 
 
 def _patch_pkg_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -31,12 +33,70 @@ def test_editable_git_install_detected(tmp_path, monkeypatch):
     (repo / "pyproject.toml").write_text("[project]\nname='openjarvis'\n")
     src = repo / "src"
     _patch_pkg_file(src, monkeypatch)
+    monkeypatch.setattr(sys, "prefix", str(repo / ".venv"))
 
     info = detect_install()
     assert info.kind == "editable-git"
-    assert "git pull" in info.upgrade_command
+    assert "pull --ff-only" in info.upgrade_command
     assert "uv sync" in info.upgrade_command
     assert info.repo_root == repo
+    assert info.editable_mode == "project-venv"
+
+
+def test_project_venv_uses_recorded_profile(tmp_path, monkeypatch):
+    repo = tmp_path / "repo with spaces"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text("[project]\nname='openjarvis'\n")
+    _patch_pkg_file(repo / "src", monkeypatch)
+    write_install_profile(
+        repo,
+        extras=["desktop"],
+        groups=["desktop-native"],
+    )
+    monkeypatch.setattr(sys, "prefix", str(repo / ".venv"))
+
+    info = detect_install()
+
+    assert info.editable_mode == "project-venv"
+    assert info.sync_args == (
+        "--extra",
+        "desktop",
+        "--group",
+        "desktop-native",
+    )
+    assert info.warning is None
+
+
+def test_project_venv_without_profile_preserves_packages(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text("[project]\nname='openjarvis'\n")
+    _patch_pkg_file(repo / "src", monkeypatch)
+    monkeypatch.setattr(sys, "prefix", str(repo / ".venv"))
+
+    info = detect_install()
+
+    assert info.editable_mode == "project-venv"
+    assert info.sync_args == ("--inexact",)
+    assert "optional dependencies" in (info.warning or "").lower()
+
+
+def test_external_venv_targets_running_python(tmp_path, monkeypatch):
+    repo = tmp_path / "repo with spaces"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text("[project]\nname='openjarvis'\n")
+    _patch_pkg_file(repo / "src", monkeypatch)
+    external = tmp_path / "installed env"
+    executable = external / "Scripts" / "python.exe"
+    monkeypatch.setattr(sys, "prefix", str(external))
+    monkeypatch.setattr(sys, "executable", str(executable))
+
+    info = detect_install()
+
+    assert info.editable_mode == "external-venv"
+    assert info.python_executable == executable
+    assert "uv pip install" in info.upgrade_command
+    assert '"' in info.upgrade_command
 
 
 def test_uv_tool_install_detected(tmp_path, monkeypatch):

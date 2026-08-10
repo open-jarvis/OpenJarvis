@@ -9,6 +9,27 @@ jarvis --version   # Print the OpenJarvis version
 jarvis --help      # Show top-level help with all subcommands
 ```
 
+## `jarvis self-update`
+
+Upgrade OpenJarvis using the active installation method:
+
+```bash
+jarvis self-update --check  # Preview the detected command
+jarvis self-update          # Confirm, then update
+jarvis self-update --yes    # Update without prompting
+```
+
+PyPI and `uv tool` installs use their normal upgrade commands. Editable Git
+installs pull the checkout with a fast-forward-only update, then update the
+environment that is currently running OpenJarvis.
+
+Official project-local installers record their uv extras and dependency groups
+in a local, ignored install-profile file. Self-update reuses that exact feature
+set. If an older project-local checkout has no valid profile, self-update uses
+`uv sync --inexact` and prints a warning so optional packages are preserved.
+Editable installs in an external virtual environment are refreshed with
+`uv pip install --python <active-python> -e <checkout>`.
+
 ## `jarvis init`
 
 Detect local hardware (CPU, GPU, RAM) and generate a configuration file at `~/.openjarvis/config.toml`.

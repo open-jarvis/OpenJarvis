@@ -289,6 +289,11 @@ try {
     if ($LASTEXITCODE -ne 0) {
         Write-Fail "uv sync failed with exit code $LASTEXITCODE. Check the output above."
     }
+    & $uvExe run --no-sync python -m openjarvis.cli._install_profile record `
+        --extra desktop --group desktop-native
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "Failed to record the editable install profile."
+    }
 } finally {
     Pop-Location
 }

@@ -130,3 +130,6 @@ learning.db
 minion_logs/
 *.oj-debug.json
 oj-debug.*.json
+
+# Local editable-install feature profile (written by official installers)
+/.openjarvis-install-profile.json

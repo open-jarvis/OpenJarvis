@@ -148,15 +148,11 @@ fi
 
 # ── 7. Install Python dependencies ──────────────────────────────────
 info "Installing Python dependencies..."
-uv sync --extra desktop --extra tools-search --quiet 2>/dev/null \
-  || uv sync --extra desktop --extra tools-search
+uv sync --extra desktop --extra tools-search --group desktop-native --quiet 2>/dev/null \
+  || uv sync --extra desktop --extra tools-search --group desktop-native
+uv run --no-sync python -m openjarvis.cli._install_profile record \
+  --extra desktop --extra tools-search --group desktop-native
 ok "Python dependencies installed"
-
-# ── 7b. Build Rust extension ──────────────────────────────────────
-info "Building Rust extension..."
-uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml --quiet 2>/dev/null \
-  || uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
-ok "Rust extension built"
 
 # ── 8. Install frontend dependencies ────────────────────────────────
 info "Installing frontend dependencies..."
