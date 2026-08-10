@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Dict, List, Tuple
 
@@ -1380,11 +1381,25 @@ class CloudEngine(InferenceEngine):
             config.tools = [{"function_declarations": _convert_tools_to_google(tools)}]
 
         tool_call_count = 0
+        stream_id = uuid.uuid4().hex
+        final_usage: Dict[str, Any] | None = None
         for chunk in self._google_client.models.generate_content_stream(
             model=model,
             contents=contents,
             config=config,
         ):
+            usage_metadata = getattr(chunk, "usage_metadata", None)
+            if usage_metadata is not None:
+                prompt_tokens = getattr(usage_metadata, "prompt_token_count", 0) or 0
+                completion_tokens = (
+                    getattr(usage_metadata, "candidates_token_count", 0) or 0
+                )
+                final_usage = {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                }
+
             candidates = getattr(chunk, "candidates", None)
             parts = []
             if candidates:
@@ -1408,7 +1423,11 @@ class CloudEngine(InferenceEngine):
                         # a distinct invocation. The same function may legitimately
                         # be called more than once in a parallel response.
                         tool_index = tool_call_count
-                        tool_id = f"google_{name}_{tool_index}"
+                        # The engine is shared across server requests, and saved
+                        # thought signatures are keyed by tool-call ID. Include a
+                        # per-stream nonce so concurrent conversations cannot
+                        # overwrite each other's signatures.
+                        tool_id = f"google_{stream_id}_{tool_index}"
                         tool_call_count += 1
                         tool_call = {
                             "index": tool_index,
@@ -1436,7 +1455,10 @@ class CloudEngine(InferenceEngine):
             if text:
                 yield StreamChunk(content=text)
 
-        yield StreamChunk(finish_reason="tool_calls" if tool_call_count else "stop")
+        yield StreamChunk(
+            finish_reason="tool_calls" if tool_call_count else "stop",
+            usage=final_usage,
+        )
 
     async def _stream_openrouter(
         self,

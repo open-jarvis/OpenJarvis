@@ -70,11 +70,19 @@ class _GoogleConfig:
         self.__dict__.update(kwargs)
 
 
-def _google_stream_chunk(*parts: Any, text: str | None = None) -> Any:
+def _google_stream_chunk(
+    *parts: Any,
+    text: str | None = None,
+    usage_metadata: Any = None,
+) -> Any:
     candidates = []
     if parts:
         candidates = [SimpleNamespace(content=SimpleNamespace(parts=list(parts)))]
-    return SimpleNamespace(text=text, candidates=candidates, usage_metadata=None)
+    return SimpleNamespace(
+        text=text,
+        candidates=candidates,
+        usage_metadata=usage_metadata,
+    )
 
 
 def _google_types_modules() -> dict[str, ModuleType]:
@@ -504,14 +512,15 @@ async def test_stream_full_google_preserves_tool_calls(monkeypatch: pytest.Monke
         ]
 
     tool_call = result[0].tool_calls[0]
-    assert tool_call == {
-        "index": 0,
-        "id": "google_get_weather_0",
-        "type": "function",
-        "function": {"name": "get_weather", "arguments": '{"city": "Berlin"}'},
-        "thought_signature": b"sig",
+    assert tool_call["index"] == 0
+    assert tool_call["id"].startswith("google_")
+    assert tool_call["type"] == "function"
+    assert tool_call["function"] == {
+        "name": "get_weather",
+        "arguments": '{"city": "Berlin"}',
     }
-    assert engine._thought_sigs["google_get_weather_0"] == b"sig"
+    assert tool_call["thought_signature"] == b"sig"
+    assert engine._thought_sigs[tool_call["id"]] == b"sig"
     assert result[-1].finish_reason == "tool_calls"
     config = client.models.generate_content_stream.call_args.kwargs["config"]
     assert config.tools == [
@@ -531,7 +540,7 @@ async def test_stream_full_google_preserves_tool_calls(monkeypatch: pytest.Monke
 async def test_stream_full_google_preserves_mixed_and_multiple_calls(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Google streams retain mixed text and multiple deterministic tool calls."""
+    """Google streams retain mixed text and multiple tool calls."""
     weather = SimpleNamespace(name="get_weather", args={"city": "Berlin"})
     calendar = SimpleNamespace(name="get_calendar", args={"day": "Monday"})
     text_part = SimpleNamespace(text="I'll check.", function_call=None)
@@ -563,28 +572,19 @@ async def test_stream_full_google_preserves_mixed_and_multiple_calls(
         ]
 
     assert result[0].content == "I'll check."
-    assert result[1].tool_calls == [
-        {
-            "index": 0,
-            "id": "google_get_weather_0",
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "arguments": '{"city": "Berlin"}',
-            },
-        }
-    ]
-    assert result[2].tool_calls == [
-        {
-            "index": 1,
-            "id": "google_get_calendar_1",
-            "type": "function",
-            "function": {
-                "name": "get_calendar",
-                "arguments": '{"day": "Monday"}',
-            },
-        },
-    ]
+    weather_call = result[1].tool_calls[0]
+    calendar_call = result[2].tool_calls[0]
+    assert weather_call["index"] == 0
+    assert weather_call["function"] == {
+        "name": "get_weather",
+        "arguments": '{"city": "Berlin"}',
+    }
+    assert calendar_call["index"] == 1
+    assert calendar_call["function"] == {
+        "name": "get_calendar",
+        "arguments": '{"day": "Monday"}',
+    }
+    assert weather_call["id"] != calendar_call["id"]
     assert result[-1].finish_reason == "tool_calls"
 
 
@@ -618,14 +618,93 @@ async def test_stream_full_google_keeps_parallel_same_name_calls_distinct(
         ]
 
     calls = result[0].tool_calls
-    assert [(call["index"], call["id"]) for call in calls] == [
-        (0, "google_get_weather_0"),
-        (1, "google_get_weather_1"),
-    ]
+    assert [call["index"] for call in calls] == [0, 1]
+    assert calls[0]["id"] != calls[1]["id"]
     assert [call["function"]["arguments"] for call in calls] == [
         '{"city": "Paris"}',
         '{"city": "London"}',
     ]
+
+
+@pytest.mark.asyncio
+async def test_stream_full_google_ids_are_unique_across_requests(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Shared engines keep signatures isolated between conversations."""
+    first_part = SimpleNamespace(
+        function_call=SimpleNamespace(name="get_weather", args={"city": "Paris"}),
+        text=None,
+        thought_signature=b"paris-sig",
+    )
+    second_part = SimpleNamespace(
+        function_call=SimpleNamespace(name="get_weather", args={"city": "London"}),
+        text=None,
+        thought_signature=b"london-sig",
+    )
+    client = MagicMock()
+    client.models.generate_content_stream.side_effect = [
+        iter([_google_stream_chunk(first_part)]),
+        iter([_google_stream_chunk(second_part)]),
+    ]
+    engine = _make_cloud_engine(google_client=client)
+    engine._thought_sigs = {}
+
+    with monkeypatch.context() as patch:
+        for name, module in _google_types_modules().items():
+            patch.setitem(sys.modules, name, module)
+        first = [
+            chunk
+            async for chunk in engine.stream_full(
+                [Message(role=Role.USER, content="Weather in Paris")],
+                model="gemini-3-flash-preview",
+            )
+        ]
+        second = [
+            chunk
+            async for chunk in engine.stream_full(
+                [Message(role=Role.USER, content="Weather in London")],
+                model="gemini-3-flash-preview",
+            )
+        ]
+
+    first_id = first[0].tool_calls[0]["id"]
+    second_id = second[0].tool_calls[0]["id"]
+    assert first_id != second_id
+    assert engine._thought_sigs[first_id] == b"paris-sig"
+    assert engine._thought_sigs[second_id] == b"london-sig"
+
+
+@pytest.mark.asyncio
+async def test_stream_full_google_emits_final_usage(monkeypatch: pytest.MonkeyPatch):
+    """Google's final usage metadata is normalized onto the terminal chunk."""
+    usage = SimpleNamespace(prompt_token_count=12, candidates_token_count=5)
+    client = MagicMock()
+    client.models.generate_content_stream.return_value = iter(
+        [
+            _google_stream_chunk(text="Hello"),
+            _google_stream_chunk(usage_metadata=usage),
+        ]
+    )
+    engine = _make_cloud_engine(google_client=client)
+    engine._thought_sigs = {}
+
+    with monkeypatch.context() as patch:
+        for name, module in _google_types_modules().items():
+            patch.setitem(sys.modules, name, module)
+        result = [
+            chunk
+            async for chunk in engine.stream_full(
+                [Message(role=Role.USER, content="hi")],
+                model="gemini-2.5-flash",
+            )
+        ]
+
+    assert result[-1].finish_reason == "stop"
+    assert result[-1].usage == {
+        "prompt_tokens": 12,
+        "completion_tokens": 5,
+        "total_tokens": 17,
+    }
 
 
 @pytest.mark.asyncio
