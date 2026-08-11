@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 
@@ -194,21 +195,26 @@ def find_model_spec(model_name: str):
 
 
 def hf_download(repo: str, filename: str | None, console: Console) -> bool:
-    """Download from HuggingFace via huggingface-cli. Returns True on success."""
-    cmd = ["huggingface-cli", "download", repo]
+    """Download from HuggingFace via hf CLI (or legacy huggingface-cli).
+
+    Returns True on success.
+    """
+    # Prefer the modern `hf` CLI; fall back to legacy `huggingface-cli`
+    hf_bin = shutil.which("hf") or shutil.which("huggingface-cli")
+    if not hf_bin:
+        console.print(
+            "[red]hf CLI not found.[/red]\n"
+            "Install it: [cyan]pip install huggingface_hub[/cyan]\n"
+            f"Or download manually: https://huggingface.co/{repo}"
+        )
+        return False
+    cmd = [hf_bin, "download", repo]
     if filename:
         cmd.append(filename)
     try:
         subprocess.run(cmd, check=True)
         console.print("[green]Download complete.[/green]")
         return True
-    except FileNotFoundError:
-        console.print(
-            "[red]huggingface-cli not found.[/red]\n"
-            "Install it: [cyan]pip install huggingface_hub[/cyan]\n"
-            f"Or download manually: https://huggingface.co/{repo}"
-        )
-        return False
     except subprocess.CalledProcessError:
         console.print("[red]Download failed.[/red]")
         return False
@@ -258,6 +264,14 @@ def pull(model_name: str, engine: str | None) -> None:
             f"[cyan]{model_name}[/cyan] will download automatically when "
             f"{engine} starts serving it."
         )
+    elif engine == "ovms":
+        spec = find_model_spec(model_name)
+        repo = spec.metadata.get("hf_repo", "") if spec else ""
+        if not repo:
+            repo = model_name  # Assume model_name is the HF repo ID
+        console.print(f"Downloading [cyan]{repo}[/cyan] from HuggingFace for OVMS...")
+        if not hf_download(repo, None, console):
+            sys.exit(1)
     else:
         console.print(
             f"Manual download required for engine [cyan]{engine}[/cyan].\n"

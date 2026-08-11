@@ -42,6 +42,9 @@ enabled = true
 [engine]
 default = "vllm"
 
+[engine.ovms]
+host = "http://localhost:8001"            # OVMS serving port
+
 [engine.vllm]
 host = "http://localhost:8001"            # vLLM serving port
 

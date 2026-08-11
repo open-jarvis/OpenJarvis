@@ -97,6 +97,32 @@ class TestReadInput:
 
 
 class TestChatAgents:
+    def test_ovms_priority_list_picks_first_reachable_model(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.return_value = {"content": "engine fallback"}
+        config = JarvisConfig()
+        config.intelligence.default_model = ""
+        config.intelligence.fallback_model = "gemma-4-26b-a4b-it-int4-ov"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("ovms", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch("openjarvis.engine.discover_engines", return_value={"ovms": engine}),
+            patch(
+                "openjarvis.engine.discover_models",
+                return_value={
+                    "ovms": ["gemma-4-26b-a4b-it-int4-ov", "Qwen3.5-4B-int4-ov"]
+                },
+            ),
+        ):
+            result = CliRunner().invoke(chat, [], input="hello\n/quit\n")
+
+        assert result.exit_code == 0
+        engine.generate.assert_called()
+        assert engine.generate.call_args.kwargs["model"] == "gemma-4-26b-a4b-it-int4-ov"
+
     def test_simple_agent_does_not_receive_tool_only_kwargs(self) -> None:
         engine = MagicMock()
         engine.engine_id = "mock"

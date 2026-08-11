@@ -313,6 +313,50 @@ BUILTIN_MODELS: List[ModelSpec] = [
             "mlx_repo": "mlx-community/Qwen3.5-4B-OptiQ-4bit",
         },
     ),
+    # -----------------------------------------------------------------------
+    # Local models — OpenVINO / OVMS
+    # -----------------------------------------------------------------------
+    ModelSpec(
+        model_id="Qwen3.6-35B-A3B-int4-ov",
+        name="Qwen3.6 35B A3B (OpenVINO int4)",
+        parameter_count_b=35.0,
+        active_parameter_count_b=3.0,
+        context_length=131072,
+        quantization=Quantization.INT4,
+        supported_engines=("ovms",),
+        provider="openvino",
+        metadata={
+            "architecture": "moe",
+            "hf_repo": "OpenVINO/Qwen3.6-35B-A3B-int4-ov",
+        },
+    ),
+    ModelSpec(
+        model_id="gemma-4-26b-a4b-it-int4-ov",
+        name="Gemma 4 26B A4B IT (OpenVINO int4)",
+        parameter_count_b=26.0,
+        active_parameter_count_b=4.0,
+        context_length=131072,
+        quantization=Quantization.INT4,
+        supported_engines=("ovms",),
+        provider="openvino",
+        metadata={
+            "architecture": "moe",
+            "hf_repo": "OpenVINO/gemma-4-26b-a4b-it-int4-ov",
+        },
+    ),
+    ModelSpec(
+        model_id="qwen25-7b-int4-ov",
+        name="Qwen2.5 7B (OpenVINO int4)",
+        parameter_count_b=7.0,
+        context_length=131072,
+        quantization=Quantization.INT4,
+        supported_engines=("ovms",),
+        provider="openvino",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "OpenVINO/qwen25-7b-int4-ov",
+        },
+    ),
     ModelSpec(
         model_id="qwen3.5:35b-a3b",
         name="Qwen3.5 35B A3B",

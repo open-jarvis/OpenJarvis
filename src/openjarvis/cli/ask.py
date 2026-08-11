@@ -832,7 +832,7 @@ def ask(
     for ek, model_ids in all_models.items():
         merge_discovered_models(ek, model_ids)
 
-    # Resolve model via config fallback chain
+    # Resolve model via config fallback chain.
     if model_name is None:
         model_name = config.intelligence.default_model
     if not model_name:
@@ -941,6 +941,7 @@ def ask(
         "sglang",
         "exo",
         "nexa",
+        "ovms",
         "uzu",
         "apple_fm",
         "gemma_cpp",

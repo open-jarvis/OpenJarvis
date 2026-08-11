@@ -120,6 +120,21 @@ class TestRecommendModelEdgeCases:
         # available = (4 - 4) * 0.8 = 0 → nothing
         assert result == ""
 
+    def test_ovms_8gb_picks_qwen25_7b_int4(self) -> None:
+        hw = HardwareInfo(platform="linux", ram_gb=8.0, gpu=None)
+        result = recommend_model(hw, "ovms")
+        assert result == "qwen25-7b-int4-ov"
+
+    def test_ovms_23gb_picks_gemma_26b_int4(self) -> None:
+        hw = HardwareInfo(platform="linux", ram_gb=23.0, gpu=None)
+        result = recommend_model(hw, "ovms")
+        assert result == "gemma-4-26b-a4b-it-int4-ov"
+
+    def test_ovms_32gb_picks_qwen36_35b_int4(self) -> None:
+        hw = HardwareInfo(platform="linux", ram_gb=32.0, gpu=None)
+        result = recommend_model(hw, "ovms")
+        assert result == "Qwen3.6-35B-A3B-int4-ov"
+
 
 class TestRecommendModelMlx:
     """Apple Silicon (MLX) model recommendation."""

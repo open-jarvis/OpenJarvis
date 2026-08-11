@@ -357,6 +357,7 @@ class TestDefaultSearchSpace:
             "lmstudio",
             "exo",
             "nexa",
+            "ovms",
             "uzu",
             "apple_fm",
         }
