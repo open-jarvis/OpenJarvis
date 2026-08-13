@@ -114,12 +114,14 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     memory_backend = getattr(request.app.state, "memory_backend", None)
     if (
         config is not None
-        and memory_backend is not None
         and config.agent.context_from_memory
         and request_body.messages
     ):
         try:
             from openjarvis.tools.storage.context import ContextConfig, inject_context
+
+            memory_service = getattr(request.app.state, "memory_service", None)
+            facts = memory_service.list_facts() if memory_service is not None else []
 
             # Extract query from the last user message
             query_text = ""
@@ -140,6 +142,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                     messages,
                     memory_backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
                 # Rebuild request messages from enriched Message objects
                 if len(enriched) > len(messages):

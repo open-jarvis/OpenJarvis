@@ -194,6 +194,15 @@ def chat(
         console.print(f"[yellow]Memory service unavailable: {exc}[/yellow]")
         memory_service = None
 
+    # The document backend and automatic fact store are separate persistence
+    # mechanisms. Context injection combines both at read time so facts from
+    # previous sessions are immediately available without a manual index step.
+    memory_backend = None
+    if config.agent.context_from_memory:
+        from openjarvis.cli.ask import _get_memory_backend
+
+        memory_backend = _get_memory_backend(config)
+
     # Conversation state
     if not system_prompt:
         from openjarvis.prompt.builder import SystemPromptBuilder
@@ -264,13 +273,44 @@ def chat(
 
         # Generate response
         try:
+            generation_history = history
+            if config.agent.context_from_memory:
+                from openjarvis.memory import load_configured_facts
+                from openjarvis.tools.storage.context import (
+                    ContextConfig,
+                    inject_context,
+                )
+
+                if memory_service is not None and hasattr(memory_service, "list_facts"):
+                    facts = memory_service.list_facts()
+                else:
+                    facts = load_configured_facts(config)
+                ctx_cfg = ContextConfig(
+                    top_k=config.memory.context_top_k,
+                    min_score=config.memory.context_min_score,
+                    max_context_tokens=config.memory.context_max_tokens,
+                )
+                generation_history = inject_context(
+                    user_input,
+                    history,
+                    memory_backend,
+                    config=ctx_cfg,
+                    facts=facts,
+                )
+
             if agent is not None:
-                response = agent.run(user_input)
+                agent_context = None
+                if len(generation_history) > len(history):
+                    from openjarvis.agents._stubs import AgentContext
+
+                    agent_context = AgentContext()
+                    agent_context.conversation.add(generation_history[0])
+                response = agent.run(user_input, context=agent_context)
                 content = (
                     response.content if hasattr(response, "content") else str(response)
                 )
             else:
-                result = engine.generate(history, model=model)
+                result = engine.generate(generation_history, model=model)
                 content = (
                     result.get("content", "")
                     if isinstance(result, dict)

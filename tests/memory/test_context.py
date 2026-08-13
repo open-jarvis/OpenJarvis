@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
+from openjarvis.memory.store import Fact
 from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
 from openjarvis.tools.storage.context import (
     ContextConfig,
@@ -165,6 +166,37 @@ def test_inject_context_no_results_returns_original():
     messages = [Message(role=Role.USER, content="hello")]
     augmented = inject_context("query", messages, backend)
     assert augmented is messages
+
+
+def test_inject_context_adds_auto_memory_facts_without_backend():
+    messages = [Message(role=Role.USER, content="What is my favorite color?")]
+    facts = [Fact(text="The user's favorite color is blue", source="auto")]
+
+    augmented = inject_context("favorite color", messages, None, facts=facts)
+
+    assert len(augmented) == 2
+    assert augmented[0].role == Role.SYSTEM
+    assert "remembered from prior conversations" in augmented[0].content
+    assert "favorite color is blue" in augmented[0].content
+
+
+def test_inject_context_prioritizes_newest_facts_within_token_budget():
+    messages = [Message(role=Role.USER, content="What do you remember?")]
+    facts = [
+        Fact(text="old fact uses four tokens"),
+        Fact(text="new fact uses four tokens"),
+    ]
+
+    augmented = inject_context(
+        "remember",
+        messages,
+        None,
+        config=ContextConfig(max_context_tokens=5),
+        facts=facts,
+    )
+
+    assert "new fact uses four tokens" in augmented[0].content
+    assert "old fact uses four tokens" not in augmented[0].content
 
 
 def test_inject_context_publishes_event():
