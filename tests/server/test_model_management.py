@@ -213,6 +213,7 @@ class TestStreamingResilience:
         engine = _make_engine()
         agent = MagicMock()
         agent.agent_id = "simple"
+        agent._tools = []
         agent.run.return_value = AgentResult(
             content="agent response",
             turns=1,

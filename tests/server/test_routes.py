@@ -534,6 +534,94 @@ class TestChatCompletions:
                     content += delta_content
         assert content == "Hello world"
 
+    def test_streaming_without_client_tools_uses_configured_agent(self):
+        """Server-side tools remain available to streaming web clients (#735)."""
+        from openjarvis.agents.orchestrator import OrchestratorAgent
+        from openjarvis.core.types import ToolResult
+        from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+        executions: list[str] = []
+
+        class _FileReadTool(BaseTool):
+            @property
+            def spec(self):
+                return ToolSpec(
+                    name="file_read",
+                    description="Read a file",
+                    parameters={
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                    },
+                )
+
+            def execute(self, **params):
+                executions.append(params["path"])
+                return ToolResult(
+                    tool_name="file_read",
+                    content="README fixture contents",
+                    success=True,
+                )
+
+        engine = _make_engine(content="ENGINE BYPASS")
+        engine.generate.side_effect = [
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "name": "file_read",
+                        "arguments": '{"path": "README.md"}',
+                    }
+                ],
+                "usage": {},
+            },
+            {
+                "content": "README fixture contents",
+                "finish_reason": "stop",
+                "usage": {},
+            },
+        ]
+        agent = OrchestratorAgent(
+            engine,
+            "test-model",
+            tools=[_FileReadTool()],
+            bus=EventBus(),
+            max_turns=3,
+            temperature=0.7,
+            max_tokens=128,
+            system_prompt="Use the configured tools.",
+        )
+        app = create_app(
+            engine,
+            "test-model",
+            agent=agent,
+            bus=EventBus(),
+            config=_test_config(),
+        )
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Read README.md"}],
+                "stream": True,
+            },
+        )
+
+        assert resp.status_code == 200
+        content = ""
+        for line in resp.text.strip().split("\n"):
+            if not line.startswith("data:") or "[DONE]" in line:
+                continue
+            data = json.loads(line[5:].strip())
+            delta = data.get("choices", [{}])[0].get("delta", {})
+            content += delta.get("content") or ""
+
+        assert content == "README fixture contents"
+        assert executions == ["README.md"]
+        assert engine.generate.call_count == 2
+
     def test_streaming_with_tools_emits_tool_calls_and_bypasses_agent(self):
         """Regression for the streaming analog of #414.
 

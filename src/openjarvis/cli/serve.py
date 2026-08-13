@@ -120,7 +120,7 @@ def _resolve_server_model(
     "--agent",
     "agent_name",
     default=None,
-    help="Agent for non-streaming requests (simple, orchestrator, react, openhands).",
+    help="Agent for chat requests (simple, orchestrator, react, openhands).",
 )
 @click.pass_context
 def serve(

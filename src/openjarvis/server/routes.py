@@ -200,12 +200,14 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         # When the client passes `tools`, stream the model's raw
         # OpenAI-compat function-calling decision directly from the engine
         # (bypassing the agent) — the streaming mirror of the non-streaming
-        # #454 fix.  Routing tools through the agent stream bridge ignored
-        # `request_body.tools`, ran the agent's own tool loop, and
-        # word-split generic filler content into fake token deltas, so the
-        # caller's tool_calls were dropped entirely (the streaming analog of
-        # #414).  For plain chat (no tools), stream token-by-token directly
-        # from the engine for true real-time output.
+        # #454 fix. Routing client-supplied tools through a server-side agent
+        # would execute the agent's different tool set and drop the raw tool
+        # call the caller expects (#414).
+        #
+        # Without client-supplied tools, keep streaming requests on the
+        # configured server agent so its server-side tool loop is available
+        # to the desktop UI and other stream:true clients (#735). Fall back to
+        # direct token streaming when no tool-bearing agent is configured.
         if request_body.tools:
             return await _handle_stream_tools(
                 engine,
@@ -213,6 +215,16 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                 request_body,
                 complexity_info,
                 app_config=config,
+                bus=getattr(request.app.state, "bus", None),
+                memory_service=getattr(request.app.state, "memory_service", None),
+            )
+        if agent is not None and getattr(agent, "_tools", None):
+            return await _handle_agent_stream(
+                agent,
+                model,
+                request_body,
+                complexity_info,
+                trace_store=getattr(request.app.state, "trace_store", None),
                 bus=getattr(request.app.state, "bus", None),
                 memory_service=getattr(request.app.state, "memory_service", None),
             )
@@ -547,6 +559,114 @@ def _handle_agent(
     )
 
 
+async def _handle_agent_stream(
+    agent,
+    model: str,
+    req: ChatCompletionRequest,
+    complexity_info=None,
+    *,
+    trace_store=None,
+    bus=None,
+    memory_service=None,
+):
+    """Run the configured agent and return its result as an SSE response.
+
+    Agents own the tool-execution loop, which is synchronous today.  Run that
+    loop in a worker thread and stream its final answer once complete.  This
+    keeps ``stream:true`` clients (including the desktop UI) on the same agent
+    and configured toolkit as non-streaming requests instead of bypassing the
+    agent and silently dropping server-side tools.
+
+    Requests that explicitly supply OpenAI ``tools`` continue to use
+    ``_handle_stream_tools`` so their raw tool-call deltas are preserved.
+    """
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    query_text = ""
+    for message in reversed(req.messages):
+        if message.role == "user" and message.content:
+            query_text = message.content
+            break
+
+    async def generate():
+        first_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[StreamChoice(delta=DeltaMessage(role="assistant"))],
+        )
+        yield f"data: {first_chunk.model_dump_json()}\n\n"
+
+        try:
+            response = await asyncio.to_thread(
+                _handle_agent,
+                agent,
+                model,
+                req,
+                complexity_info,
+                trace_store=trace_store,
+                bus=bus,
+            )
+        except Exception as exc:
+            logging.getLogger("openjarvis.server").error(
+                "Agent stream error: %s",
+                exc,
+                exc_info=True,
+            )
+            error_chunk = ChatCompletionChunk(
+                id=chunk_id,
+                model=model,
+                choices=[
+                    StreamChoice(
+                        delta=DeltaMessage(
+                            content=f"Sorry, an error occurred: {exc}",
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+            )
+            yield f"data: {error_chunk.model_dump_json()}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        content = _response_content(response)
+        if content:
+            content_chunk = ChatCompletionChunk(
+                id=chunk_id,
+                model=model,
+                choices=[StreamChoice(delta=DeltaMessage(content=content))],
+            )
+            yield f"data: {content_chunk.model_dump_json()}\n\n"
+
+        import json as _json
+
+        finish_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[
+                StreamChoice(delta=DeltaMessage(), finish_reason="stop"),
+            ],
+        )
+        finish_data = _json.loads(finish_chunk.model_dump_json())
+        finish_data["usage"] = response.usage.model_dump()
+        if complexity_info is not None:
+            finish_data["complexity"] = complexity_info.model_dump()
+        yield f"data: {_json.dumps(finish_data)}\n\n"
+
+        _record_completed_exchange(
+            memory_service,
+            query_text,
+            content,
+            bus=bus,
+            source="server.chat.stream",
+        )
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
 async def _handle_stream_tools(
     engine,
     model: str,
@@ -690,11 +810,10 @@ async def _handle_stream(
 ):
     """Stream response using SSE format.
 
-    This path streams straight from the engine, bypassing the agent /
+    This no-agent fallback streams straight from the engine, bypassing the
     ``TraceCollector``. When *trace_store* is set we accumulate the streamed
     tokens and record a minimal ``Trace`` once the stream completes
-    successfully — otherwise streamed chats (the desktop GUI's main path)
-    would never populate ``traces.db``.
+    successfully.
     """
     import time
 
