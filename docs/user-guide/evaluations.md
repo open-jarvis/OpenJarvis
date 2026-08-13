@@ -35,7 +35,7 @@ TauBench additionally requires Python 3.12 or newer and the upstream `tau2`
 package. Install the pinned revision explicitly before running that benchmark:
 
 ```bash
-uv pip install "tau2 @ git+https://github.com/sierra-research/tau2-bench.git@b711c1ead46f55111bf765cf44d5da8bacc2d28c"
+uv pip install "tau2 @ git+https://github.com/sierra-research/tau2-bench.git@fc0055dc4e0a316c3f83133267fbd6faaa770992"
 ```
 
 OpenJarvis does not install third-party packages automatically when an
