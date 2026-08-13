@@ -758,6 +758,63 @@ class TestIdentityPromptInjection:
         assert len(system_msgs) == 1
         assert system_msgs[0].content == "Be terse."
 
+    def test_stream_uses_persona_in_single_active_inference(self, tmp_path):
+        """Regression for #734: web streaming must use the grounded prompt.
+
+        The obsolete agent stream bridge ran a grounded agent inference and
+        then replayed the raw request through the engine, so the browser saw
+        an ungrounded second answer.  The active endpoint must instead make a
+        single streaming call whose messages already include the configured
+        persona, even when an agent and event bus are registered.
+        """
+        from openjarvis.core.config import MemoryFilesConfig
+        from openjarvis.core.events import EventBus
+
+        soul = tmp_path / "SOUL.md"
+        soul.write_text("Always introduce yourself as Jarvis Prime.")
+
+        captured: list = []
+        engine = _make_capturing_engine(captured)
+        agent = _make_agent(content="grounded agent result")
+        cfg = _identity_config()
+        cfg.memory_files = MemoryFilesConfig(
+            soul_path=str(soul), memory_path="", user_path=""
+        )
+        client = TestClient(
+            create_app(
+                engine,
+                "test-model",
+                agent=agent,
+                bus=EventBus(),
+                config=cfg,
+            )
+        )
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "who are you?"}],
+                "stream": True,
+            },
+        )
+
+        assert resp.status_code == 200
+        streamed_content = ""
+        for line in resp.text.splitlines():
+            if not line.startswith("data: {"):
+                continue
+            payload = json.loads(line.removeprefix("data: "))
+            choices = payload.get("choices", [])
+            if choices and choices[0]["delta"].get("content"):
+                streamed_content += choices[0]["delta"]["content"]
+        assert streamed_content == "Hello world"
+        assert len(captured) == 1
+        assert captured[0][0].role.value == "system"
+        assert "OpenJarvis" in captured[0][0].content
+        assert "Jarvis Prime" in captured[0][0].content
+        agent.run.assert_not_called()
+
     def test_direct_injects_identity_when_absent(self):
         captured: list = []
         engine = _make_capturing_engine(captured)

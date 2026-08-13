@@ -1411,8 +1411,7 @@ async def _stream_managed_agent(
 
                 # Execute each tool call and append results. Emit
                 # tool_call_start/tool_call_end around each call so the UI
-                # can render them live (same event names as the main chat
-                # in stream_bridge.py).
+                # can render them live.
                 import time as _time
 
                 for tc in sorted_tcs:
