@@ -67,7 +67,11 @@ def build_context_message(
             " where applicable:\n\n" + format_context(results)
         )
     content = "\n\n".join(sections)
-    return Message(role=Role.SYSTEM, content=content)
+    return Message(
+        role=Role.SYSTEM,
+        content=content,
+        metadata={"memory_context": True},
+    )
 
 
 def _merge_context_message(

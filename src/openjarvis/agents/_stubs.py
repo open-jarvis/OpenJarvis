@@ -182,7 +182,9 @@ class BaseAgent(ABC):
             context_system_text = "\n\n".join(
                 message.text
                 for message in context_messages
-                if message.role == Role.SYSTEM and message.text
+                if message.role == Role.SYSTEM
+                and message.metadata.get("memory_context")
+                and message.text
             )
             if context_system_text:
                 effective_system_prompt = (
@@ -191,7 +193,10 @@ class BaseAgent(ABC):
                 context_messages = [
                     message
                     for message in context_messages
-                    if message.role != Role.SYSTEM
+                    if not (
+                        message.role == Role.SYSTEM
+                        and message.metadata.get("memory_context")
+                    )
                 ]
             messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
         if context_messages:
