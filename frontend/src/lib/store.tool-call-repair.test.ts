@@ -74,4 +74,49 @@ describe('persisted tool calls', () => {
       repaired.conversations['conversation-1'].messages[0].toolCalls[0].arguments,
     ).toBe('{"query":"python"}');
   });
+
+  it('keeps repaired conversations in memory when writeback fails', async () => {
+    localStorage.setItem(
+      CONVERSATIONS_KEY,
+      JSON.stringify({
+        version: 1,
+        activeId: 'conversation-1',
+        conversations: {
+          'conversation-1': {
+            id: 'conversation-1',
+            title: 'Readable chat',
+            createdAt: 1,
+            updatedAt: 1,
+            model: 'test-model',
+            messages: [
+              {
+                id: 'assistant-1',
+                role: 'assistant',
+                content: '',
+                timestamp: 1,
+                toolCalls: [
+                  {
+                    id: 'call-1',
+                    tool: 'web_search',
+                    arguments: { query: 'python' },
+                    status: 'success',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
+    });
+
+    const { useAppStore } = await import('./store');
+
+    expect(useAppStore.getState().messages).toHaveLength(1);
+    expect(useAppStore.getState().messages[0].toolCalls?.[0].arguments).toBe(
+      '{"query":"python"}',
+    );
+  });
 });

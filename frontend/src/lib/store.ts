@@ -69,7 +69,15 @@ function loadConversations(): ConversationStore {
           }
         }
       }
-      if (repaired) localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(parsed));
+      if (repaired) {
+        try {
+          localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(parsed));
+        } catch {
+          // Keep the repaired conversations usable in memory when storage is
+          // read-only or full. A failed best-effort writeback must not make
+          // otherwise readable conversation history disappear from the UI.
+        }
+      }
       return parsed;
     }
     return { version: 1, conversations: {}, activeId: null };
