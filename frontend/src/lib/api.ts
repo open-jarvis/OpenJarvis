@@ -1,5 +1,6 @@
 import type { ModelInfo, SavingsData, ServerInfo } from '../types';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
+import { serializeToolCallArguments } from './tool-call';
 
 // ---------------------------------------------------------------------------
 // Supabase config
@@ -741,7 +742,7 @@ export async function sendAgentMessage(
               const parsed = JSON.parse(data);
               callbacks?.onToolCallStart?.({
                 tool: parsed.tool,
-                arguments: parsed.arguments ?? '',
+                arguments: serializeToolCallArguments(parsed.arguments),
               });
             } catch {
               /* skip */
