@@ -10,11 +10,8 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
-import sys
 from typing import Iterable, List, Optional
 
-from openjarvis.core.paths import get_cache_dir
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.splits import apply_split
 from openjarvis.evals.core.types import EvalRecord
@@ -22,48 +19,24 @@ from openjarvis.evals.core.types import EvalRecord
 LOGGER = logging.getLogger(__name__)
 
 TAU2_REPO = "https://github.com/sierra-research/tau2-bench.git"
-CACHE_DIR = get_cache_dir() / "tau2-bench"
+# v1.0.1. Keep the full commit SHA here (rather than a movable tag) so every
+# TauBench setup uses the same third-party code.
+TAU2_REVISION = "b711c1ead46f55111bf765cf44d5da8bacc2d28c"
+TAU2_INSTALL_SPEC = f"tau2 @ git+{TAU2_REPO}@{TAU2_REVISION}"
 
 DOMAINS = ("airline", "retail", "telecom")
 
 
 def _ensure_tau2() -> None:
-    """Ensure tau2 package is importable; install from cache if needed."""
+    """Ensure the explicitly installed, pinned tau2 package is importable."""
     try:
         import tau2  # noqa: F401
-    except ImportError:
-        # Clone and install from source
-        if not CACHE_DIR.exists():
-            LOGGER.info("Cloning tau2-bench from %s ...", TAU2_REPO)
-            CACHE_DIR.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
-                ["git", "clone", "--depth", "1", TAU2_REPO, str(CACHE_DIR)],
-                check=True,
-                capture_output=True,
-            )
-        LOGGER.info("Installing tau2-bench ...")
-        # Try `python -m pip` first; fall back to `uv pip` for uv-managed venvs
-        # which don't ship pip by default.
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-e", str(CACHE_DIR)],
-                check=True,
-                capture_output=True,
-            )
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            subprocess.run(
-                [
-                    "uv",
-                    "pip",
-                    "install",
-                    "--python",
-                    sys.executable,
-                    "-e",
-                    str(CACHE_DIR),
-                ],
-                check=True,
-                capture_output=True,
-            )
+    except ImportError as exc:
+        raise ImportError(
+            "TauBench requires tau2, which OpenJarvis does not install at "
+            "runtime. Install the pinned dependency explicitly (Python >=3.12): "
+            f'uv pip install "{TAU2_INSTALL_SPEC}"'
+        ) from exc
 
 
 class TauBenchDataset(DatasetProvider):
