@@ -199,6 +199,44 @@ def test_inject_context_prioritizes_newest_facts_within_token_budget():
     assert "old fact uses four tokens" not in augmented[0].content
 
 
+def test_inject_context_merges_with_existing_system_message():
+    messages = [
+        Message(role=Role.SYSTEM, content="You are OpenJarvis."),
+        Message(role=Role.USER, content="What is my favorite color?"),
+    ]
+    facts = [Fact(text="The user's favorite color is blue")]
+
+    augmented = inject_context("favorite color", messages, None, facts=facts)
+
+    system_messages = [m for m in augmented if m.role == Role.SYSTEM]
+    assert len(system_messages) == 1
+    assert "You are OpenJarvis." in system_messages[0].content
+    assert "favorite color is blue" in system_messages[0].content
+    assert messages[0].content == "You are OpenJarvis."
+
+
+def test_inject_context_reserves_budget_for_retrieved_documents():
+    backend = _FakeMemory(
+        [RetrievalResult(content="d1 d2 d3 d4 d5", score=1.0, source="doc")]
+    )
+    facts = [
+        Fact(text="old1 old2 old3 old4 old5"),
+        Fact(text="new1 new2 new3 new4 new5"),
+    ]
+
+    augmented = inject_context(
+        "query",
+        [Message(role=Role.USER, content="query")],
+        backend,
+        config=ContextConfig(max_context_tokens=10),
+        facts=facts,
+    )
+
+    assert "new1 new2 new3 new4 new5" in augmented[0].content
+    assert "d1 d2 d3 d4 d5" in augmented[0].content
+    assert "old1 old2 old3 old4 old5" not in augmented[0].content
+
+
 def test_inject_context_publishes_event():
     bus = EventBus(record_history=True)
     results = [

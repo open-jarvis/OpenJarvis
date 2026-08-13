@@ -132,6 +132,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
             if query_text:
                 messages = _to_messages(request_body.messages)
+                messages = _ensure_identity_prompt(messages, config)
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -144,21 +145,21 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                     config=ctx_cfg,
                     facts=facts,
                 )
-                # Rebuild request messages from enriched Message objects
-                if len(enriched) > len(messages):
-                    from openjarvis.server.models import ChatMessage
+                # Rebuild after identity/context merging so downstream engine
+                # adapters always receive exactly one system message.
+                from openjarvis.server.models import ChatMessage
 
-                    new_msgs = []
-                    for msg in enriched:
-                        new_msgs.append(
-                            ChatMessage(
-                                role=msg.role.value,
-                                content=msg.content,
-                                name=msg.name,
-                                tool_call_id=getattr(msg, "tool_call_id", None),
-                            )
+                new_msgs = []
+                for msg in enriched:
+                    new_msgs.append(
+                        ChatMessage(
+                            role=msg.role.value,
+                            content=msg.content,
+                            name=msg.name,
+                            tool_call_id=getattr(msg, "tool_call_id", None),
                         )
-                    request_body.messages = new_msgs
+                    )
+                request_body.messages = new_msgs
         except Exception:
             logging.getLogger("openjarvis.server").debug(
                 "Memory context injection failed",

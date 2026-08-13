@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from openjarvis.core.events import EventType, get_event_bus
@@ -70,6 +70,22 @@ def build_context_message(
     return Message(role=Role.SYSTEM, content=content)
 
 
+def _merge_context_message(
+    messages: List[Message],
+    context_message: Message,
+) -> List[Message]:
+    """Return a copy with context folded into the existing system prompt."""
+    merged = list(messages)
+    for index, message in enumerate(merged):
+        if message.role == Role.SYSTEM:
+            content = "\n\n".join(
+                part for part in (message.text, context_message.text) if part
+            )
+            merged[index] = replace(message, content=content)
+            return merged
+    return [context_message, *merged]
+
+
 def inject_context(
     query: str,
     messages: List[Message],
@@ -108,13 +124,17 @@ def inject_context(
     # Filter by minimum score
     results = [r for r in results if r.score >= cfg.min_score]
 
-    # Spend the context budget on durable facts first. Newest facts win if the
-    # store grows beyond the configured prompt budget.
+    # When both sources have data, cap facts at half the total budget so they
+    # cannot starve query-specific document retrieval. Unused fact budget is
+    # still available to documents. Newest facts win within the fact budget.
+    fact_budget = cfg.max_context_tokens
+    if results:
+        fact_budget //= 2
     selected_facts: List[Fact] = []
     total_tokens = 0
     for fact in reversed(facts):
         tokens = _count_tokens(fact.text)
-        if total_tokens + tokens > cfg.max_context_tokens:
+        if total_tokens + tokens > fact_budget:
             continue
         selected_facts.append(fact)
         total_tokens += tokens
@@ -146,7 +166,7 @@ def inject_context(
 
     # Build context message and prepend
     ctx_msg = build_context_message(truncated, selected_facts)
-    return [ctx_msg] + list(messages)
+    return _merge_context_message(messages, ctx_msg)
 
 
 __all__ = [

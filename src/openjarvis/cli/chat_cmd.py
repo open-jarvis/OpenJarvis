@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from typing import List, Optional
 
@@ -14,6 +15,8 @@ from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
 from openjarvis.memory import publish_completed_exchange
+
+logger = logging.getLogger(__name__)
 
 
 def _read_input(prompt: str = "You> ") -> Optional[str]:
@@ -271,10 +274,10 @@ def chat(
         # Add user message
         history.append(Message(role=Role.USER, content=user_input))
 
-        # Generate response
-        try:
-            generation_history = history
-            if config.agent.context_from_memory:
+        generation_history = history
+        agent_context_message = None
+        if config.agent.context_from_memory:
+            try:
                 from openjarvis.memory import load_configured_facts
                 from openjarvis.tools.storage.context import (
                     ContextConfig,
@@ -290,21 +293,30 @@ def chat(
                     min_score=config.memory.context_min_score,
                     max_context_tokens=config.memory.context_max_tokens,
                 )
-                generation_history = inject_context(
+                context_messages = inject_context(
                     user_input,
-                    history,
+                    [] if agent is not None else history,
                     memory_backend,
                     config=ctx_cfg,
                     facts=facts,
                 )
+                if agent is not None:
+                    if context_messages:
+                        agent_context_message = context_messages[0]
+                else:
+                    generation_history = context_messages
+            except Exception:
+                logger.debug("Failed to inject memory context", exc_info=True)
 
+        # Generate response even when optional memory context is unavailable.
+        try:
             if agent is not None:
                 agent_context = None
-                if len(generation_history) > len(history):
+                if agent_context_message is not None:
                     from openjarvis.agents._stubs import AgentContext
 
                     agent_context = AgentContext()
-                    agent_context.conversation.add(generation_history[0])
+                    agent_context.conversation.add(agent_context_message)
                 response = agent.run(user_input, context=agent_context)
                 content = (
                     response.content if hasattr(response, "content") else str(response)
