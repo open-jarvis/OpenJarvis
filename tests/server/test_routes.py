@@ -834,6 +834,66 @@ class TestIdentityPromptInjection:
         assert "OpenJarvis" in system_messages[0].content
         assert "favorite color is blue" in system_messages[0].content
 
+    def test_memory_context_preserves_assistant_tool_calls(self):
+        from openjarvis.memory.store import Fact
+
+        class _MemoryService:
+            def list_facts(self):
+                return [Fact(text="User likes jazz")]
+
+        captured: list = []
+        engine = _make_capturing_engine(captured)
+        cfg = _identity_config()
+        cfg.agent.context_from_memory = True
+        client = TestClient(
+            create_app(
+                engine,
+                "test-model",
+                config=cfg,
+                memory_service=_MemoryService(),
+            )
+        )
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [
+                    {"role": "user", "content": "Run the lookup"},
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "lookup",
+                                    "arguments": '{"query":"jazz"}',
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "content": "result",
+                        "tool_call_id": "call_1",
+                    },
+                    {"role": "user", "content": "What did it find?"},
+                ],
+            },
+        )
+
+        assert resp.status_code == 200
+        messages = engine.generate.call_args.args[0]
+        assistant = next(
+            message for message in messages if message.role == Role.ASSISTANT
+        )
+        assert assistant.tool_calls is not None
+        assert assistant.tool_calls[0].id == "call_1"
+        assert assistant.tool_calls[0].name == "lookup"
+        assert assistant.tool_calls[0].arguments == '{"query":"jazz"}'
+
     def test_direct_injects_soul_persona_when_present(self, tmp_path):
         """Regression: /v1/chat/completions previously injected only the bare
         ``default_system_prompt`` blurb via a hand-rolled lookup, bypassing

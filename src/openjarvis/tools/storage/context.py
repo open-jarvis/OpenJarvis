@@ -75,15 +75,29 @@ def _merge_context_message(
     context_message: Message,
 ) -> List[Message]:
     """Return a copy with context folded into the existing system prompt."""
-    merged = list(messages)
-    for index, message in enumerate(merged):
+    system_messages = [message for message in messages if message.role == Role.SYSTEM]
+    if not system_messages:
+        return [context_message, *messages]
+
+    content = "\n\n".join(
+        part
+        for part in (
+            *(message.text for message in system_messages),
+            context_message.text,
+        )
+        if part
+    )
+    combined = replace(system_messages[0], content=content)
+    merged: List[Message] = []
+    inserted = False
+    for message in messages:
         if message.role == Role.SYSTEM:
-            content = "\n\n".join(
-                part for part in (message.text, context_message.text) if part
-            )
-            merged[index] = replace(message, content=content)
-            return merged
-    return [context_message, *merged]
+            if not inserted:
+                merged.append(combined)
+                inserted = True
+            continue
+        merged.append(message)
+    return merged
 
 
 def inject_context(
@@ -143,6 +157,15 @@ def inject_context(
     truncated: List[RetrievalResult] = []
     for r in results:
         tokens = _count_tokens(r.content)
+        if total_tokens + tokens > cfg.max_context_tokens:
+            # A large top result should not disappear solely because facts
+            # consumed their reserved share. Prefer that result when it fits
+            # the total budget on its own.
+            if not truncated and selected_facts and tokens <= cfg.max_context_tokens:
+                selected_facts = []
+                total_tokens = 0
+            else:
+                break
         if total_tokens + tokens > cfg.max_context_tokens:
             break
         truncated.append(r)

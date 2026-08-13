@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from openjarvis.core.paths import get_config_dir
-from openjarvis.core.types import Message, Role
+from openjarvis.core.types import Message, Role, ToolCall
 from openjarvis.server.model_capabilities import is_embed_only_model
 from openjarvis.server.models import (
     ChatCompletionChunk,
@@ -40,6 +40,15 @@ def _to_messages(chat_messages) -> list[Message]:
                 role=role,
                 content=m.content or "",
                 name=m.name,
+                tool_calls=[
+                    ToolCall(
+                        id=tool_call.get("id", ""),
+                        name=tool_call.get("function", {}).get("name", ""),
+                        arguments=tool_call.get("function", {}).get("arguments", "{}"),
+                    )
+                    for tool_call in (m.tool_calls or [])
+                ]
+                or None,
                 tool_call_id=m.tool_call_id,
             )
         )
@@ -156,6 +165,18 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                             role=msg.role.value,
                             content=msg.content,
                             name=msg.name,
+                            tool_calls=[
+                                {
+                                    "id": tool_call.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tool_call.name,
+                                        "arguments": tool_call.arguments,
+                                    },
+                                }
+                                for tool_call in (msg.tool_calls or [])
+                            ]
+                            or None,
                             tool_call_id=getattr(msg, "tool_call_id", None),
                         )
                     )
