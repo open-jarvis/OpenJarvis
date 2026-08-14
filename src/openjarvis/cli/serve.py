@@ -25,6 +25,30 @@ from openjarvis.intelligence import (
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_TOOLS = frozenset({"think", "calculator", "web_search"})
+
+
+def _resolve_allowed_tools(config: object) -> tuple[set[str], bool]:
+    """Return configured tool names and whether the selection was explicit.
+
+    ``tools.enabled`` is the canonical setting used by ``SystemBuilder`` and
+    the interactive CLI.  ``agent.tools`` remains as a backward-compatible
+    fallback, followed by the server's default tool set when neither is set.
+    """
+    configured = config.tools.enabled or config.agent.tools
+    if not configured:
+        return set(_DEFAULT_TOOLS), False
+
+    if isinstance(configured, list):
+        allowed = {
+            tool.strip()
+            for tool in configured
+            if isinstance(tool, str) and tool.strip()
+        }
+    else:
+        allowed = {tool.strip() for tool in configured.split(",") if tool.strip()}
+    return allowed, True
+
 
 def _unique_model_ids(model_ids: list[str]) -> list[str]:
     """Return model ids in first-seen order without duplicates."""
@@ -96,7 +120,7 @@ def _resolve_server_model(
     "--agent",
     "agent_name",
     default=None,
-    help="Agent for non-streaming requests (simple, orchestrator, react, openhands).",
+    help="Agent for chat requests (simple, orchestrator, react, openhands).",
 )
 @click.pass_context
 def serve(
@@ -305,21 +329,7 @@ def serve(
                     from openjarvis.core.registry import ToolRegistry
                     from openjarvis.tools._stubs import BaseTool
 
-                    _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
-                    configured = config.agent.tools
-                    if configured:
-                        if isinstance(configured, list):
-                            allowed = {
-                                t.strip()
-                                for t in configured
-                                if isinstance(t, str) and t.strip()
-                            }
-                        else:
-                            allowed = {
-                                t.strip() for t in configured.split(",") if t.strip()
-                            }
-                    else:
-                        allowed = _DEFAULT_TOOLS
+                    allowed, tools_configured = _resolve_allowed_tools(config)
 
                     tools = []
                     for name in ToolRegistry.keys():
@@ -336,7 +346,7 @@ def serve(
                     # MCP server tools from config.tools.mcp.servers
                     # (#461 — these were silently dropped).
                     mcp_tools = managed_mcp_tools
-                    if configured:
+                    if tools_configured:
                         mcp_tools = [
                             tool
                             for tool in managed_mcp_tools
@@ -406,23 +416,7 @@ def serve(
                         from openjarvis.core.registry import ToolRegistry
                         from openjarvis.tools._stubs import BaseTool
 
-                        _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
-                        configured = config.agent.tools
-                        if configured:
-                            if isinstance(configured, list):
-                                _allowed = {
-                                    t.strip()
-                                    for t in configured
-                                    if isinstance(t, str) and t.strip()
-                                }
-                            else:
-                                _allowed = {
-                                    t.strip()
-                                    for t in configured.split(",")
-                                    if t.strip()
-                                }
-                        else:
-                            _allowed = _DEFAULT_TOOLS
+                        _allowed, _tools_configured = _resolve_allowed_tools(config)
 
                         for _tname in ToolRegistry.keys():
                             if _tname not in _allowed:
@@ -436,7 +430,7 @@ def serve(
                         # Reuse the process-owned MCP pool so channels do not
                         # open a second transport to every configured server.
                         _ch_mcp_tools = managed_mcp_tools
-                        if configured:
+                        if _tools_configured:
                             _ch_mcp_tools = [
                                 tool
                                 for tool in managed_mcp_tools

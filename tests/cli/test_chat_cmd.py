@@ -18,6 +18,7 @@ from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.core.registry import AgentRegistry, ToolRegistry
 from openjarvis.core.types import ToolCall, ToolResult
+from openjarvis.memory.store import LocalFactStore
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 
@@ -97,6 +98,79 @@ class TestReadInput:
 
 
 class TestChatAgents:
+    def test_direct_chat_injects_auto_memory_facts(self, tmp_path) -> None:
+        facts_path = tmp_path / "facts.jsonl"
+        LocalFactStore(facts_path).add(
+            "The user's favorite color is blue",
+            source="auto",
+        )
+
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.return_value = {"content": "Blue."}
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        config.memory.enabled = True
+        config.memory.facts_path = str(facts_path)
+        config.agent.context_from_memory = True
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch("openjarvis.memory.build_memory_service", return_value=None),
+            patch("openjarvis.cli.ask._get_memory_backend", return_value=None),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="What is my favorite color?\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        messages = engine.generate.call_args.args[0]
+        assert messages[0].role.value == "system"
+        assert "favorite color is blue" in messages[0].content
+
+    def test_chat_generation_survives_fact_store_failure(self) -> None:
+        class _FailingMemoryService:
+            def start(self) -> None:
+                pass
+
+            def stop(self, timeout: float = 2.0) -> None:
+                pass
+
+            def list_facts(self):
+                raise OSError("fact store unavailable")
+
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.return_value = {"content": "Still working."}
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        config.memory.enabled = True
+        config.agent.context_from_memory = True
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.memory.build_memory_service",
+                return_value=_FailingMemoryService(),
+            ),
+            patch("openjarvis.cli.ask._get_memory_backend", return_value=None),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="hello\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Still working." in result.output
+        engine.generate.assert_called_once()
+
     def test_simple_agent_does_not_receive_tool_only_kwargs(self) -> None:
         engine = MagicMock()
         engine.engine_id = "mock"

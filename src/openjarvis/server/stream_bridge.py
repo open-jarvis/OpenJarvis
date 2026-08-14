@@ -110,6 +110,12 @@ class AgentStreamBridge:
 
     def _format_named_event(self, name: str, data: dict) -> str:
         """Format an SSE event with an explicit ``event:`` field."""
+        if name == "tool_call_start" and not isinstance(data.get("arguments"), str):
+            # The in-process event bus uses parsed arguments for trace/eval
+            # consumers, while the web SSE contract expects their JSON text.
+            # Copy before normalizing so other subscribers keep the object.
+            data = dict(data)
+            data["arguments"] = json.dumps(data.get("arguments"))
         return f"event: {name}\ndata: {json.dumps(data)}\n\n"
 
     def _run_agent(self) -> object:

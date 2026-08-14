@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from typing import List, Optional
 
@@ -14,6 +15,8 @@ from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
 from openjarvis.memory import publish_completed_exchange
+
+logger = logging.getLogger(__name__)
 
 
 def _read_input(prompt: str = "You> ") -> Optional[str]:
@@ -194,6 +197,15 @@ def chat(
         console.print(f"[yellow]Memory service unavailable: {exc}[/yellow]")
         memory_service = None
 
+    # The document backend and automatic fact store are separate persistence
+    # mechanisms. Context injection combines both at read time so facts from
+    # previous sessions are immediately available without a manual index step.
+    memory_backend = None
+    if config.agent.context_from_memory:
+        from openjarvis.cli.ask import _get_memory_backend
+
+        memory_backend = _get_memory_backend(config)
+
     # Conversation state
     if not system_prompt:
         from openjarvis.prompt.builder import SystemPromptBuilder
@@ -262,15 +274,55 @@ def chat(
         # Add user message
         history.append(Message(role=Role.USER, content=user_input))
 
-        # Generate response
+        generation_history = history
+        agent_context_message = None
+        if config.agent.context_from_memory:
+            try:
+                from openjarvis.memory import load_configured_facts
+                from openjarvis.tools.storage.context import (
+                    ContextConfig,
+                    inject_context,
+                )
+
+                if memory_service is not None and hasattr(memory_service, "list_facts"):
+                    facts = memory_service.list_facts()
+                else:
+                    facts = load_configured_facts(config)
+                ctx_cfg = ContextConfig(
+                    top_k=config.memory.context_top_k,
+                    min_score=config.memory.context_min_score,
+                    max_context_tokens=config.memory.context_max_tokens,
+                )
+                context_messages = inject_context(
+                    user_input,
+                    [] if agent is not None else history,
+                    memory_backend,
+                    config=ctx_cfg,
+                    facts=facts,
+                )
+                if agent is not None:
+                    if context_messages:
+                        agent_context_message = context_messages[0]
+                else:
+                    generation_history = context_messages
+            except Exception:
+                logger.debug("Failed to inject memory context", exc_info=True)
+
+        # Generate response even when optional memory context is unavailable.
         try:
             if agent is not None:
-                response = agent.run(user_input)
+                agent_context = None
+                if agent_context_message is not None:
+                    from openjarvis.agents._stubs import AgentContext
+
+                    agent_context = AgentContext()
+                    agent_context.conversation.add(agent_context_message)
+                response = agent.run(user_input, context=agent_context)
                 content = (
                     response.content if hasattr(response, "content") else str(response)
                 )
             else:
-                result = engine.generate(history, model=model)
+                result = engine.generate(generation_history, model=model)
                 content = (
                     result.get("content", "")
                     if isinstance(result, dict)

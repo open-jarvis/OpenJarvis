@@ -16,6 +16,7 @@ import type {
 } from '../types';
 import type { ManagedAgent } from './api';
 import { isEmbedOnlyModel } from './model-capabilities';
+import { serializeToolCallArguments } from './tool-call';
 
 export interface CachedConnector {
   connector_id: string;
@@ -55,7 +56,30 @@ function loadConversations(): ConversationStore {
     const raw = localStorage.getItem(CONVERSATIONS_KEY);
     if (!raw) return { version: 1, conversations: {}, activeId: null };
     const parsed = JSON.parse(raw);
-    if (parsed.version === 1) return parsed;
+    if (parsed.version === 1) {
+      let repaired = false;
+      for (const conversation of Object.values(parsed.conversations ?? {}) as Conversation[]) {
+        for (const message of conversation.messages ?? []) {
+          for (const toolCall of message.toolCalls ?? []) {
+            const argumentsText = serializeToolCallArguments(toolCall.arguments);
+            if (argumentsText !== toolCall.arguments) {
+              toolCall.arguments = argumentsText;
+              repaired = true;
+            }
+          }
+        }
+      }
+      if (repaired) {
+        try {
+          localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(parsed));
+        } catch {
+          // Keep the repaired conversations usable in memory when storage is
+          // read-only or full. A failed best-effort writeback must not make
+          // otherwise readable conversation history disappear from the UI.
+        }
+      }
+      return parsed;
+    }
     return { version: 1, conversations: {}, activeId: null };
   } catch {
     return { version: 1, conversations: {}, activeId: null };

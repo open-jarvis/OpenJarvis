@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from openjarvis.core.paths import get_config_dir
-from openjarvis.core.types import Message, Role
+from openjarvis.core.types import Message, Role, ToolCall
 from openjarvis.server.model_capabilities import is_embed_only_model
 from openjarvis.server.models import (
     ChatCompletionChunk,
@@ -40,6 +40,15 @@ def _to_messages(chat_messages) -> list[Message]:
                 role=role,
                 content=m.content or "",
                 name=m.name,
+                tool_calls=[
+                    ToolCall(
+                        id=tool_call.get("id", ""),
+                        name=tool_call.get("function", {}).get("name", ""),
+                        arguments=tool_call.get("function", {}).get("arguments", "{}"),
+                    )
+                    for tool_call in (m.tool_calls or [])
+                ]
+                or None,
                 tool_call_id=m.tool_call_id,
             )
         )
@@ -114,12 +123,14 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     memory_backend = getattr(request.app.state, "memory_backend", None)
     if (
         config is not None
-        and memory_backend is not None
         and config.agent.context_from_memory
         and request_body.messages
     ):
         try:
             from openjarvis.tools.storage.context import ContextConfig, inject_context
+
+            memory_service = getattr(request.app.state, "memory_service", None)
+            facts = memory_service.list_facts() if memory_service is not None else []
 
             # Extract query from the last user message
             query_text = ""
@@ -130,6 +141,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
             if query_text:
                 messages = _to_messages(request_body.messages)
+                messages = _ensure_identity_prompt(messages, config)
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -140,22 +152,35 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                     messages,
                     memory_backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
-                # Rebuild request messages from enriched Message objects
-                if len(enriched) > len(messages):
-                    from openjarvis.server.models import ChatMessage
+                # Rebuild after identity/context merging so downstream engine
+                # adapters always receive exactly one system message.
+                from openjarvis.server.models import ChatMessage
 
-                    new_msgs = []
-                    for msg in enriched:
-                        new_msgs.append(
-                            ChatMessage(
-                                role=msg.role.value,
-                                content=msg.content,
-                                name=msg.name,
-                                tool_call_id=getattr(msg, "tool_call_id", None),
-                            )
+                new_msgs = []
+                for msg in enriched:
+                    new_msgs.append(
+                        ChatMessage(
+                            role=msg.role.value,
+                            content=msg.content,
+                            name=msg.name,
+                            tool_calls=[
+                                {
+                                    "id": tool_call.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tool_call.name,
+                                        "arguments": tool_call.arguments,
+                                    },
+                                }
+                                for tool_call in (msg.tool_calls or [])
+                            ]
+                            or None,
+                            tool_call_id=getattr(msg, "tool_call_id", None),
                         )
-                    request_body.messages = new_msgs
+                    )
+                request_body.messages = new_msgs
         except Exception:
             logging.getLogger("openjarvis.server").debug(
                 "Memory context injection failed",
@@ -200,12 +225,14 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         # When the client passes `tools`, stream the model's raw
         # OpenAI-compat function-calling decision directly from the engine
         # (bypassing the agent) — the streaming mirror of the non-streaming
-        # #454 fix.  Routing tools through the agent stream bridge ignored
-        # `request_body.tools`, ran the agent's own tool loop, and
-        # word-split generic filler content into fake token deltas, so the
-        # caller's tool_calls were dropped entirely (the streaming analog of
-        # #414).  For plain chat (no tools), stream token-by-token directly
-        # from the engine for true real-time output.
+        # #454 fix. Routing client-supplied tools through a server-side agent
+        # would execute the agent's different tool set and drop the raw tool
+        # call the caller expects (#414).
+        #
+        # Without client-supplied tools, keep streaming requests on the
+        # configured server agent so its server-side tool loop is available
+        # to the desktop UI and other stream:true clients (#735). Fall back to
+        # direct token streaming when no tool-bearing agent is configured.
         if request_body.tools:
             return await _handle_stream_tools(
                 engine,
@@ -213,6 +240,16 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                 request_body,
                 complexity_info,
                 app_config=config,
+                bus=getattr(request.app.state, "bus", None),
+                memory_service=getattr(request.app.state, "memory_service", None),
+            )
+        if agent is not None and getattr(agent, "_tools", None):
+            return await _handle_agent_stream(
+                agent,
+                model,
+                request_body,
+                complexity_info,
+                trace_store=getattr(request.app.state, "trace_store", None),
                 bus=getattr(request.app.state, "bus", None),
                 memory_service=getattr(request.app.state, "memory_service", None),
             )
@@ -547,6 +584,114 @@ def _handle_agent(
     )
 
 
+async def _handle_agent_stream(
+    agent,
+    model: str,
+    req: ChatCompletionRequest,
+    complexity_info=None,
+    *,
+    trace_store=None,
+    bus=None,
+    memory_service=None,
+):
+    """Run the configured agent and return its result as an SSE response.
+
+    Agents own the tool-execution loop, which is synchronous today.  Run that
+    loop in a worker thread and stream its final answer once complete.  This
+    keeps ``stream:true`` clients (including the desktop UI) on the same agent
+    and configured toolkit as non-streaming requests instead of bypassing the
+    agent and silently dropping server-side tools.
+
+    Requests that explicitly supply OpenAI ``tools`` continue to use
+    ``_handle_stream_tools`` so their raw tool-call deltas are preserved.
+    """
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    query_text = ""
+    for message in reversed(req.messages):
+        if message.role == "user" and message.content:
+            query_text = message.content
+            break
+
+    async def generate():
+        first_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[StreamChoice(delta=DeltaMessage(role="assistant"))],
+        )
+        yield f"data: {first_chunk.model_dump_json()}\n\n"
+
+        try:
+            response = await asyncio.to_thread(
+                _handle_agent,
+                agent,
+                model,
+                req,
+                complexity_info,
+                trace_store=trace_store,
+                bus=bus,
+            )
+        except Exception as exc:
+            logging.getLogger("openjarvis.server").error(
+                "Agent stream error: %s",
+                exc,
+                exc_info=True,
+            )
+            error_chunk = ChatCompletionChunk(
+                id=chunk_id,
+                model=model,
+                choices=[
+                    StreamChoice(
+                        delta=DeltaMessage(
+                            content=f"Sorry, an error occurred: {exc}",
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+            )
+            yield f"data: {error_chunk.model_dump_json()}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        content = _response_content(response)
+        if content:
+            content_chunk = ChatCompletionChunk(
+                id=chunk_id,
+                model=model,
+                choices=[StreamChoice(delta=DeltaMessage(content=content))],
+            )
+            yield f"data: {content_chunk.model_dump_json()}\n\n"
+
+        import json as _json
+
+        finish_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[
+                StreamChoice(delta=DeltaMessage(), finish_reason="stop"),
+            ],
+        )
+        finish_data = _json.loads(finish_chunk.model_dump_json())
+        finish_data["usage"] = response.usage.model_dump()
+        if complexity_info is not None:
+            finish_data["complexity"] = complexity_info.model_dump()
+        yield f"data: {_json.dumps(finish_data)}\n\n"
+
+        _record_completed_exchange(
+            memory_service,
+            query_text,
+            content,
+            bus=bus,
+            source="server.chat.stream",
+        )
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
 async def _handle_stream_tools(
     engine,
     model: str,
@@ -690,11 +835,10 @@ async def _handle_stream(
 ):
     """Stream response using SSE format.
 
-    This path streams straight from the engine, bypassing the agent /
+    This no-agent fallback streams straight from the engine, bypassing the
     ``TraceCollector``. When *trace_store* is set we accumulate the streamed
     tokens and record a minimal ``Trace`` once the stream completes
-    successfully — otherwise streamed chats (the desktop GUI's main path)
-    would never populate ``traces.db``.
+    successfully.
     """
     import time
 

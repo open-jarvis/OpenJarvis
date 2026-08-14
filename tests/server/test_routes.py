@@ -11,6 +11,7 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from openjarvis.core.events import EventBus, EventType  # noqa: E402
+from openjarvis.core.types import Role  # noqa: E402
 from openjarvis.server.app import create_app  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -534,6 +535,94 @@ class TestChatCompletions:
                     content += delta_content
         assert content == "Hello world"
 
+    def test_streaming_without_client_tools_uses_configured_agent(self):
+        """Server-side tools remain available to streaming web clients (#735)."""
+        from openjarvis.agents.orchestrator import OrchestratorAgent
+        from openjarvis.core.types import ToolResult
+        from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+        executions: list[str] = []
+
+        class _FileReadTool(BaseTool):
+            @property
+            def spec(self):
+                return ToolSpec(
+                    name="file_read",
+                    description="Read a file",
+                    parameters={
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                    },
+                )
+
+            def execute(self, **params):
+                executions.append(params["path"])
+                return ToolResult(
+                    tool_name="file_read",
+                    content="README fixture contents",
+                    success=True,
+                )
+
+        engine = _make_engine(content="ENGINE BYPASS")
+        engine.generate.side_effect = [
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "name": "file_read",
+                        "arguments": '{"path": "README.md"}',
+                    }
+                ],
+                "usage": {},
+            },
+            {
+                "content": "README fixture contents",
+                "finish_reason": "stop",
+                "usage": {},
+            },
+        ]
+        agent = OrchestratorAgent(
+            engine,
+            "test-model",
+            tools=[_FileReadTool()],
+            bus=EventBus(),
+            max_turns=3,
+            temperature=0.7,
+            max_tokens=128,
+            system_prompt="Use the configured tools.",
+        )
+        app = create_app(
+            engine,
+            "test-model",
+            agent=agent,
+            bus=EventBus(),
+            config=_test_config(),
+        )
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Read README.md"}],
+                "stream": True,
+            },
+        )
+
+        assert resp.status_code == 200
+        content = ""
+        for line in resp.text.strip().split("\n"):
+            if not line.startswith("data:") or "[DONE]" in line:
+                continue
+            data = json.loads(line[5:].strip())
+            delta = data.get("choices", [{}])[0].get("delta", {})
+            content += delta.get("content") or ""
+
+        assert content == "README fixture contents"
+        assert executions == ["README.md"]
+        assert engine.generate.call_count == 2
+
     def test_streaming_with_tools_emits_tool_calls_and_bypasses_agent(self):
         """Regression for the streaming analog of #414.
 
@@ -758,35 +847,22 @@ class TestIdentityPromptInjection:
         assert len(system_msgs) == 1
         assert system_msgs[0].content == "Be terse."
 
-    def test_stream_uses_persona_in_single_active_inference(self, tmp_path):
-        """Regression for #734: web streaming must use the grounded prompt.
-
-        The obsolete agent stream bridge ran a grounded agent inference and
-        then replayed the raw request through the engine, so the browser saw
-        an ungrounded second answer.  The active endpoint must instead make a
-        single streaming call whose messages already include the configured
-        persona, even when an agent and event bus are registered.
-        """
-        from openjarvis.core.config import MemoryFilesConfig
+    def test_stream_uses_grounded_agent_result_without_replay(self):
+        """Regression for #734: web streaming emits the agent's final answer."""
         from openjarvis.core.events import EventBus
-
-        soul = tmp_path / "SOUL.md"
-        soul.write_text("Always introduce yourself as Jarvis Prime.")
 
         captured: list = []
         engine = _make_capturing_engine(captured)
-        agent = _make_agent(content="grounded agent result")
-        cfg = _identity_config()
-        cfg.memory_files = MemoryFilesConfig(
-            soul_path=str(soul), memory_path="", user_path=""
-        )
+        agent = _make_agent(content="My name is Jarvis Prime.")
+        agent._tools = [object()]
+        agent._engine = engine
         client = TestClient(
             create_app(
                 engine,
                 "test-model",
                 agent=agent,
                 bus=EventBus(),
-                config=cfg,
+                config=_identity_config(),
             )
         )
 
@@ -808,12 +884,9 @@ class TestIdentityPromptInjection:
             choices = payload.get("choices", [])
             if choices and choices[0]["delta"].get("content"):
                 streamed_content += choices[0]["delta"]["content"]
-        assert streamed_content == "Hello world"
-        assert len(captured) == 1
-        assert captured[0][0].role.value == "system"
-        assert "OpenJarvis" in captured[0][0].content
-        assert "Jarvis Prime" in captured[0][0].content
-        agent.run.assert_not_called()
+        assert streamed_content == "My name is Jarvis Prime."
+        assert captured == []
+        agent.run.assert_called_once()
 
     def test_direct_injects_identity_when_absent(self):
         captured: list = []
@@ -854,6 +927,101 @@ class TestIdentityPromptInjection:
         system_msgs = [m for m in msgs if m.role.value == "system"]
         assert len(system_msgs) == 1
         assert system_msgs[0].content == "Be terse."
+
+    def test_direct_merges_identity_and_auto_memory_into_one_system_message(self):
+        from openjarvis.memory.store import Fact
+
+        class _MemoryService:
+            def list_facts(self):
+                return [Fact(text="The user's favorite color is blue")]
+
+        captured: list = []
+        engine = _make_capturing_engine(captured)
+        cfg = _identity_config()
+        cfg.agent.context_from_memory = True
+        client = TestClient(
+            create_app(
+                engine,
+                "test-model",
+                config=cfg,
+                memory_service=_MemoryService(),
+            )
+        )
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "What is my favorite color?"}],
+            },
+        )
+
+        assert resp.status_code == 200
+        messages = engine.generate.call_args.args[0]
+        system_messages = [m for m in messages if m.role == Role.SYSTEM]
+        assert len(system_messages) == 1
+        assert "OpenJarvis" in system_messages[0].content
+        assert "favorite color is blue" in system_messages[0].content
+
+    def test_memory_context_preserves_assistant_tool_calls(self):
+        from openjarvis.memory.store import Fact
+
+        class _MemoryService:
+            def list_facts(self):
+                return [Fact(text="User likes jazz")]
+
+        captured: list = []
+        engine = _make_capturing_engine(captured)
+        cfg = _identity_config()
+        cfg.agent.context_from_memory = True
+        client = TestClient(
+            create_app(
+                engine,
+                "test-model",
+                config=cfg,
+                memory_service=_MemoryService(),
+            )
+        )
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [
+                    {"role": "user", "content": "Run the lookup"},
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "lookup",
+                                    "arguments": '{"query":"jazz"}',
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "content": "result",
+                        "tool_call_id": "call_1",
+                    },
+                    {"role": "user", "content": "What did it find?"},
+                ],
+            },
+        )
+
+        assert resp.status_code == 200
+        messages = engine.generate.call_args.args[0]
+        assistant = next(
+            message for message in messages if message.role == Role.ASSISTANT
+        )
+        assert assistant.tool_calls is not None
+        assert assistant.tool_calls[0].id == "call_1"
+        assert assistant.tool_calls[0].name == "lookup"
+        assert assistant.tool_calls[0].arguments == '{"query":"jazz"}'
 
     def test_direct_injects_soul_persona_when_present(self, tmp_path):
         """Regression: /v1/chat/completions previously injected only the bare

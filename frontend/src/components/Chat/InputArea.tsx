@@ -5,6 +5,7 @@ import { useAppStore, generateId } from '../../lib/store';
 import { streamChat, streamResearch } from '../../lib/sse';
 import { fetchSavings, getBase } from '../../lib/api';
 import { listConnectors, getSyncStatus } from '../../lib/connectors-api';
+import { serializeToolCallArguments } from '../../lib/tool-call';
 import { MicButton } from './MicButton';
 import { useSpeech } from '../../hooks/useSpeech';
 import type {
@@ -389,7 +390,7 @@ export function InputArea() {
             const tc: ToolCallInfo = {
               id: generateId(),
               tool: data.tool,
-              arguments: data.arguments || '',
+              arguments: serializeToolCallArguments(data.arguments),
               status: 'running',
             };
             toolCalls.push(tc);
@@ -400,7 +401,7 @@ export function InputArea() {
             updateLastAssistant(convId, accumulatedContent, [...toolCalls]);
             useAppStore.getState().addLogEntry({
               timestamp: Date.now(), level: 'info', category: 'tool',
-              message: `Calling ${data.tool}(${data.arguments || ''})`,
+              message: `Calling ${data.tool}(${serializeToolCallArguments(data.arguments)})`,
             });
           } catch {}
         } else if (eventName === 'tool_call_end') {
