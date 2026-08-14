@@ -1,0 +1,42 @@
+{
+  "name": "NORA AI",
+  "description": "Your Personal AI Assistant",
+  "version": "1.0.0",
+  "author": "User",
+  "colors": {
+    "primary": "#6366f1",
+    "secondary": "#ec4899",
+    "accent": "#f59e0b",
+    "success": "#10b981",
+    "danger": "#ef4444",
+    "warning": "#f97316",
+    "neutral": "#64748b",
+    "background": "#0f172a",
+    "surface": "#1e293b",
+    "text_primary": "#f1f5f9",
+    "text_secondary": "#cbd5e1"
+  },
+  "logo": {
+    "path": "",
+    "url": "",
+    "format": "png",
+    "size_px": 256
+  },
+  "ui_text": {
+    "app_name": "NORA AI",
+    "tagline": "Intelligent AI Agent",
+    "welcome_message": "Hello! I'm NORA AI. How can I assist you?",
+    "thinking_indicator": "NORA is thinking...",
+    "ready_indicator": "NORA is ready",
+    "offline_indicator": "Running offline",
+    "online_indicator": "Connected online",
+    "permission_request_prefix": "I'd like to",
+    "error_message": "I encountered an issue"
+  },
+  "homepage": "https://github.com/Demola3223/OpenJarvis",
+  "documentation_url": "https://github.com/Demola3223/OpenJarvis",
+  "support_email": "",
+  "show_branding": true,
+  "brand_prefix": true,
+  "enable_analytics": false
+}
