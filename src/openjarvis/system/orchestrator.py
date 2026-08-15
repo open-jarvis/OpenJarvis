@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from openjarvis.core.types import Message, Role
+from openjarvis.system.agent_construction import construct_registered_agent
 from openjarvis.tools._stubs import BaseTool
 
 if TYPE_CHECKING:
@@ -196,13 +197,18 @@ class QueryOrchestrator:
             existing = agent_kwargs.get("tools", [])
             agent_kwargs["tools"] = digest_tools + list(existing)
 
-        try:
-            ag = agent_cls(s.engine, s.model, **agent_kwargs)
-        except TypeError:
-            try:
-                ag = agent_cls(s.engine, s.model)
-            except TypeError:
-                ag = agent_cls()
+        # Forward only what this agent's __init__ declares. The previous
+        # ``except TypeError: agent_cls(s.engine, s.model)`` fallback rebuilt
+        # the agent with no tools, no bus and no max_turns whenever one keyword
+        # did not fit -- and it fired on any agent lacking capability_policy or
+        # skill_few_shot_examples, i.e. exactly when a policy or a Skill was in
+        # play. AgentExecutor already filters up front; do the same here.
+        ag = construct_registered_agent(
+            agent_name=agent_name,
+            engine=s.engine,
+            model=s.model,
+            extra_kwargs=agent_kwargs,
+        )
 
         telemetry_events: List[Dict[str, Any]] = []
 
