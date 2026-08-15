@@ -77,12 +77,9 @@ class TestRouterWithNewModels:
         router = HeuristicRouter(
             available_models=NEW_LOCAL_MODELS,
         )
-        ctx = RoutingContext(
-            query="solve the integral of x^2 dx",
-            query_length=29,
-            has_math=True,
-            complexity_score=0.3,
-        )
+        ctx = build_routing_context("solve the integral of x^2 dx")
+        assert ctx.has_math is True
+        assert ctx.complexity_score > 0.20
         selected = router.select_model(ctx)
         assert selected == "gpt-oss:120b"
 
