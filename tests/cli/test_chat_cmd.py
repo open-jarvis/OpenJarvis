@@ -195,6 +195,48 @@ class TestChatAgents:
         assert "simple ok" in result.output
         assert "failed" not in result.output.lower()
 
+    def test_agent_receives_prior_turn_history(self) -> None:
+        """Multi-turn chat must pass prior turns to agent.run() via AgentContext."""
+
+        captured_contexts: list[AgentContext | None] = []
+
+        class _CapturingAgent(BaseAgent):
+            agent_id = "capturing_chat_agent"
+
+            def run(self, input, context: AgentContext | None = None, **kwargs):
+                captured_contexts.append(context)
+                return AgentResult(content=f"reply-{len(captured_contexts)}", turns=1)
+
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        AgentRegistry.register_value("capturing_chat_agent", _CapturingAgent)
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--agent", "capturing_chat_agent", "--model", "test-model"],
+                input="first turn\nsecond turn\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert len(captured_contexts) == 2
+
+        first_turn_context, second_turn_context = captured_contexts
+        assert first_turn_context is not None
+        assert first_turn_context.conversation.messages == []
+
+        assert second_turn_context is not None
+        prior_texts = [m.content for m in second_turn_context.conversation.messages]
+        assert "first turn" in prior_texts
+        assert "reply-1" in prior_texts
+
     def test_memory_service_started_fed_and_stopped(self) -> None:
         """The REPL starts memory, publishes each turn, and stops it."""
 

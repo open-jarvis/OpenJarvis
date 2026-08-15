@@ -311,11 +311,13 @@ def chat(
         # Generate response even when optional memory context is unavailable.
         try:
             if agent is not None:
-                agent_context = None
-                if agent_context_message is not None:
-                    from openjarvis.agents._stubs import AgentContext
+                from openjarvis.agents._stubs import AgentContext
 
-                    agent_context = AgentContext()
+                agent_context = AgentContext()
+                for msg in history[:-1]:
+                    if msg.role != Role.SYSTEM:
+                        agent_context.conversation.add(msg)
+                if agent_context_message is not None:
                     agent_context.conversation.add(agent_context_message)
                 response = agent.run(user_input, context=agent_context)
                 content = (
