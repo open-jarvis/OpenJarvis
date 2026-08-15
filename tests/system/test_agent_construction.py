@@ -24,6 +24,7 @@ import inspect
 
 import pytest
 
+from openjarvis.agents._stubs import BaseAgent
 from openjarvis.agents.orchestrator import OrchestratorAgent
 from openjarvis.agents.simple import SimpleAgent
 from openjarvis.core.config import AgentConfig
@@ -34,12 +35,29 @@ from openjarvis.system.agent_construction import (
 )
 
 
+class _KwargsAgentNoTools(BaseAgent):
+    """Fixture mirroring e.g. LocalCloudAgent: accepts_tools=False but its
+    ``__init__`` declares ``**kwargs``, so the signature check alone would
+    let ``tools`` through -- the ``accepts_tools`` gate must catch it."""
+
+    agent_id = "kwargs_no_tools"
+    accepts_tools = False
+
+    def __init__(self, engine, model, **kwargs):
+        super().__init__(engine, model)
+        self.received_kwargs = kwargs
+
+    def run(self, input, context=None, **kwargs):
+        raise NotImplementedError
+
+
 @pytest.fixture(autouse=True)
 def _registered_agents():
     """conftest clears every registry per test, and the module-level
     ``@AgentRegistry.register`` decorators only ran on first import."""
     AgentRegistry.register_value("orchestrator", OrchestratorAgent)
     AgentRegistry.register_value("simple", SimpleAgent)
+    AgentRegistry.register_value("kwargs_no_tools", _KwargsAgentNoTools)
 
 
 class _FakeEngine:
@@ -106,6 +124,42 @@ def test_tools_withheld_from_agents_that_reject_them():
         tools=[_FakeTool()],
     )
     assert not getattr(agent, "_tools", [])
+
+
+def test_tools_via_extra_kwargs_dropped_for_kwargs_target_that_rejects_tools():
+    """The ``accepts_tools`` gate must hold for the ``extra_kwargs`` path too,
+    not just the named ``tools=`` argument -- otherwise a target with
+    ``**kwargs`` and ``accepts_tools=False`` bypasses the signature check and
+    either crashes on an unexpected keyword or (worse) silently gets tools it
+    declared it does not accept."""
+    agent = construct_registered_agent(
+        agent_name="kwargs_no_tools",
+        engine=_FakeEngine(),
+        model="test-model",
+        extra_kwargs={"tools": [_FakeTool()]},
+    )
+    assert "tools" not in agent.received_kwargs
+
+
+def test_tools_still_delivered_to_accepting_agents_via_both_paths():
+    """Unchanged behaviour: an ``accepts_tools=True`` agent still gets its
+    tools whether they arrive via the named ``tools=`` kwarg or via
+    ``extra_kwargs``."""
+    via_named = construct_registered_agent(
+        agent_name="orchestrator",
+        engine=_FakeEngine(),
+        model="test-model",
+        tools=[_FakeTool()],
+    )
+    assert len(via_named._tools) == 1
+
+    via_extra = construct_registered_agent(
+        agent_name="orchestrator",
+        engine=_FakeEngine(),
+        model="test-model",
+        extra_kwargs={"tools": [_FakeTool()]},
+    )
+    assert len(via_extra._tools) == 1
 
 
 def test_inline_system_prompt_wins_over_path(tmp_path):

@@ -98,7 +98,9 @@ def construct_registered_agent(
         {
             name: value
             for name, value in (extra_kwargs or {}).items()
-            if value is not None and (accepts_kwargs or name in signature.parameters)
+            if value is not None
+            and (accepts_kwargs or name in signature.parameters)
+            and (name != "tools" or getattr(agent_cls, "accepts_tools", False))
         }
     )
 
