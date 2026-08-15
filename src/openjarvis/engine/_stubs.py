@@ -19,8 +19,8 @@ class StreamChunk:
     """A single chunk from a streaming LLM response.
 
     Used by ``stream_full()`` to yield rich streaming data including
-    tool_calls fragments and finish_reason, unlike ``stream()`` which
-    only yields plain content strings.
+    semantically separate private reasoning, tool_calls fragments, and
+    finish_reason, unlike ``stream()`` which only yields plain content strings.
 
     ``content_blocks`` and ``tool_results`` are aggregate fields emitted
     once at end-of-stream so streaming callers reach parity with the
@@ -33,6 +33,7 @@ class StreamChunk:
     usage: Optional[Dict[str, Any]] = None
     content_blocks: Optional[List[Dict[str, Any]]] = None
     tool_results: Optional[List[Dict[str, Any]]] = None
+    reasoning_content: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -130,6 +131,11 @@ class InferenceEngine(ABC):
         """
         return True
 
+    def supports_semantic_reasoning_stream(self, model: str) -> bool:
+        """Whether streamed visible content is separate from private reasoning."""
+        del model
+        return False
+
     def close(self) -> None:
         """Release resources (HTTP clients, connections, threads, etc.)."""
 
@@ -137,4 +143,43 @@ class InferenceEngine(ABC):
         """Optional warm-up hook called before the first request."""
 
 
-__all__ = ["InferenceEngine", "ResponseFormat", "StreamChunk"]
+def merge_tool_call_fragments(
+    accumulated: Dict[int, Dict[str, Any]],
+    fragments: List[Dict[str, Any]],
+) -> None:
+    """Merge streamed tool-call fragments into accumulated calls, in place.
+
+    Engines disagree on how a tool call arrives. OpenAI-compatible APIs split
+    one call across many fragments keyed by ``index``, each carrying a slice of
+    the name and of the JSON arguments, so the slices must be concatenated.
+    Ollama sends one complete fragment per call, and some engines put ``name``
+    and ``arguments`` at the top level instead of under ``function``.
+
+    Both shapes accumulate into the OpenAI wire form, which is the superset:
+    ``{"id", "type", "function": {"name", "arguments"}}``.
+
+    Fragments with no ``index`` fall back to their position in the batch, not
+    to ``0`` — sharing a key would merge two distinct calls into one corrupt
+    call whose arguments are the concatenation of both.
+    """
+    for position, fragment in enumerate(fragments):
+        index = int(fragment.get("index", position))
+        entry = accumulated.setdefault(
+            index,
+            {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
+        )
+        if fragment.get("id"):
+            entry["id"] = fragment["id"]
+        function = fragment.get("function")
+        if not isinstance(function, dict):
+            function = fragment
+        entry["function"]["name"] += function.get("name", "") or ""
+        entry["function"]["arguments"] += function.get("arguments", "") or ""
+
+
+__all__ = [
+    "InferenceEngine",
+    "ResponseFormat",
+    "StreamChunk",
+    "merge_tool_call_fragments",
+]

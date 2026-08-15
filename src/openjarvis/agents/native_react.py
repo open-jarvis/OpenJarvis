@@ -75,6 +75,7 @@ class NativeReActAgent(ToolUsingAgent):
         interactive: bool = False,
         confirm_callback=None,
         skill_few_shot_examples: Optional[List[str]] = None,
+        capability_policy: Any = None,
     ) -> None:
         super().__init__(
             engine,
@@ -87,6 +88,7 @@ class NativeReActAgent(ToolUsingAgent):
             interactive=interactive,
             confirm_callback=confirm_callback,
             skill_few_shot_examples=skill_few_shot_examples,
+            capability_policy=capability_policy,
         )
 
     def _parse_response(self, text: str) -> dict:
@@ -132,6 +134,7 @@ class NativeReActAgent(ToolUsingAgent):
         **kwargs: Any,
     ) -> AgentResult:
         self._emit_turn_start(input)
+        loop_guard = self._new_loop_guard()
 
         # Build system prompt with rich tool descriptions
         tool_desc = build_tool_descriptions(self._tools)
@@ -179,8 +182,8 @@ class NativeReActAgent(ToolUsingAgent):
         for _turn in range(self._max_turns):
             turns += 1
 
-            if self._loop_guard:
-                messages = self._loop_guard.compress_context(messages)
+            if loop_guard:
+                messages = loop_guard.compress_context(messages)
 
             result = self._generate(messages)
             usage = result.get("usage", {})
@@ -222,10 +225,11 @@ class NativeReActAgent(ToolUsingAgent):
             )
 
             # Loop guard check before execution
-            if self._loop_guard:
-                verdict = self._loop_guard.check_call(
+            if loop_guard:
+                verdict = loop_guard.check_call(
                     tool_call.name,
                     tool_call.arguments,
+                    polling=self._tool_is_polling(tool_call.name),
                 )
                 if verdict.blocked:
                     tool_result = ToolResult(

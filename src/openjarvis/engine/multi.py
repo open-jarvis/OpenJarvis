@@ -35,8 +35,15 @@ class MultiEngine(InferenceEngine):
         for key, engine in self._engines:
             try:
                 for model_id in engine.list_models():
-                    self._model_map[model_id] = engine
-                    self._model_key_map[model_id] = key
+                    # First engine to advertise a model keeps ownership: the
+                    # engine list is in priority order, and a later engine
+                    # listing the same name must not take it over. Both maps
+                    # are filled under the same guard — if they disagreed,
+                    # engine_key_for() would name a different engine than
+                    # _engine_for() returns.
+                    if model_id not in self._model_map:
+                        self._model_map[model_id] = engine
+                        self._model_key_map[model_id] = key
             except Exception as exc:
                 logger.debug("Failed to list models for %s: %s", key, exc)
 
@@ -115,6 +122,9 @@ class MultiEngine(InferenceEngine):
         engine = self._engine_for(model)
         async for chunk in engine.stream_full(messages, model=model, **kwargs):
             yield chunk
+
+    def supports_semantic_reasoning_stream(self, model: str) -> bool:
+        return self._engine_for(model).supports_semantic_reasoning_stream(model)
 
     def list_models(self) -> List[str]:
         self._refresh_map()

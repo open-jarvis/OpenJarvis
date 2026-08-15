@@ -5,6 +5,8 @@ OpenAI, Anthropic, Google, MiniMax, and DeepSeek API backends.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import logging
 import os
@@ -90,6 +92,7 @@ _MINIMAX_MODELS = [
     "MiniMax-M2.5-highspeed",
 ]
 _DEEPSEEK_MODELS = [
+    "deepseek-chat",
     "deepseek-v4-flash",
     "deepseek-v4-pro",
 ]
@@ -317,13 +320,21 @@ class CloudEngine(InferenceEngine):
     engine_id = "cloud"
     is_cloud = True
 
+    def supports_semantic_reasoning_stream(self, model: str) -> bool:
+        return _is_deepseek_model(model)
+
     def __init__(self) -> None:
         self._openai_client: Any = None
+        self._openai_async_client: Any = None
         self._anthropic_client: Any = None
+        self._anthropic_async_client: Any = None
         self._google_client: Any = None
         self._openrouter_client: Any = None
+        self._openrouter_async_client: Any = None
         self._minimax_client: Any = None
+        self._minimax_async_client: Any = None
         self._deepseek_client: Any = None
+        self._deepseek_async_client: Any = None
         self._codex_client: Any = None
         # Gemini thought_signatures: tool_call_id -> signature bytes
         self._thought_sigs: Dict[str, bytes] = {}
@@ -335,6 +346,7 @@ class CloudEngine(InferenceEngine):
                 import openai
 
                 self._openai_client = openai.OpenAI()
+                self._openai_async_client = openai.AsyncOpenAI()
             except ImportError:
                 pass
         if os.environ.get("ANTHROPIC_API_KEY"):
@@ -342,6 +354,7 @@ class CloudEngine(InferenceEngine):
                 import anthropic
 
                 self._anthropic_client = anthropic.Anthropic()
+                self._anthropic_async_client = anthropic.AsyncAnthropic()
             except ImportError:
                 pass
         gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get(
@@ -363,6 +376,10 @@ class CloudEngine(InferenceEngine):
                     base_url="https://openrouter.ai/api/v1",
                     api_key=openrouter_key,
                 )
+                self._openrouter_async_client = openai.AsyncOpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=openrouter_key,
+                )
             except ImportError:
                 pass
         minimax_key = os.environ.get("MINIMAX_API_KEY")
@@ -374,6 +391,10 @@ class CloudEngine(InferenceEngine):
                     base_url="https://api.minimax.io/v1",
                     api_key=minimax_key,
                 )
+                self._minimax_async_client = openai.AsyncOpenAI(
+                    base_url="https://api.minimax.io/v1",
+                    api_key=minimax_key,
+                )
             except ImportError:
                 pass
         deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
@@ -382,6 +403,10 @@ class CloudEngine(InferenceEngine):
                 import openai
 
                 self._deepseek_client = openai.OpenAI(
+                    base_url="https://api.deepseek.com/v1",
+                    api_key=deepseek_key,
+                )
+                self._deepseek_async_client = openai.AsyncOpenAI(
                     base_url="https://api.deepseek.com/v1",
                     api_key=deepseek_key,
                 )
@@ -1527,7 +1552,8 @@ class CloudEngine(InferenceEngine):
         max_tokens: int,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        if self._deepseek_client is None:
+        client = getattr(self, "_deepseek_async_client", None)
+        if client is None:
             raise EngineConnectionError("DeepSeek client not available")
         create_kwargs: Dict[str, Any] = {
             "model": model,
@@ -1536,8 +1562,8 @@ class CloudEngine(InferenceEngine):
             "temperature": temperature,
             "stream": True,
         }
-        resp = self._deepseek_client.chat.completions.create(**create_kwargs)
-        for chunk in resp:
+        resp = await client.chat.completions.create(**create_kwargs)
+        async for chunk in resp:
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta and delta.content:
                 yield delta.content
@@ -1569,7 +1595,7 @@ class CloudEngine(InferenceEngine):
                 yield chunk
             return
         if _is_openrouter_model(model):
-            client = self._openrouter_client
+            client = self._openrouter_async_client
             if client is None:
                 raise EngineConnectionError("OpenRouter client not available")
             actual_model = model.removeprefix("openrouter/")
@@ -1582,7 +1608,7 @@ class CloudEngine(InferenceEngine):
                 **kwargs,
             }
         elif _is_minimax_model(model):
-            client = self._minimax_client
+            client = self._minimax_async_client
             if client is None:
                 raise EngineConnectionError("MiniMax client not available")
             temperature = max(temperature, 0.01)
@@ -1596,7 +1622,7 @@ class CloudEngine(InferenceEngine):
                 **kwargs,
             }
         elif _is_deepseek_model(model):
-            client = self._deepseek_client
+            client = self._deepseek_async_client
             if client is None:
                 raise EngineConnectionError("DeepSeek client not available")
             create_kwargs = {
@@ -1608,7 +1634,7 @@ class CloudEngine(InferenceEngine):
                 **kwargs,
             }
         else:
-            client = self._openai_client
+            client = self._openai_async_client
             if client is None:
                 raise EngineConnectionError("OpenAI client not available")
             create_kwargs = {
@@ -1620,35 +1646,46 @@ class CloudEngine(InferenceEngine):
             }
             if not _is_openai_reasoning_model(model):
                 create_kwargs["temperature"] = temperature
-        resp = client.chat.completions.create(**create_kwargs)
-        for chunk in resp:
-            choice = chunk.choices[0] if chunk.choices else None
-            if not choice:
-                continue
-            delta = choice.delta
-            content = delta.content if delta else None
-            tool_calls = None
-            if delta and delta.tool_calls:
-                tool_calls = [
-                    {
-                        "index": tc.index,
-                        "id": tc.id or "",
-                        "function": {
-                            "name": (tc.function.name or "") if tc.function else "",
-                            "arguments": (
-                                (tc.function.arguments or "") if tc.function else ""
-                            ),
-                        },
-                    }
-                    for tc in delta.tool_calls
-                ]
-            finish = choice.finish_reason
-            if content or tool_calls or finish:
-                yield StreamChunk(
-                    content=content,
-                    tool_calls=tool_calls,
-                    finish_reason=finish,
+        resp = await client.chat.completions.create(**create_kwargs)
+        try:
+            async for chunk in resp:
+                choice = chunk.choices[0] if chunk.choices else None
+                if not choice:
+                    continue
+                delta = choice.delta
+                content = delta.content if delta else None
+                reasoning_content = (
+                    getattr(delta, "reasoning_content", None) if delta else None
                 )
+                tool_calls = None
+                if delta and delta.tool_calls:
+                    tool_calls = [
+                        {
+                            "index": tc.index,
+                            "id": tc.id or "",
+                            "function": {
+                                "name": (tc.function.name or "") if tc.function else "",
+                                "arguments": (
+                                    (tc.function.arguments or "") if tc.function else ""
+                                ),
+                            },
+                        }
+                        for tc in delta.tool_calls
+                    ]
+                finish = choice.finish_reason
+                if content or reasoning_content or tool_calls or finish:
+                    yield StreamChunk(
+                        content=content,
+                        reasoning_content=reasoning_content,
+                        tool_calls=tool_calls,
+                        finish_reason=finish,
+                    )
+        finally:
+            close = getattr(resp, "close", None)
+            if callable(close):
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
 
     async def _stream_full_anthropic(
         self,
@@ -1660,7 +1697,7 @@ class CloudEngine(InferenceEngine):
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
         """Yield StreamChunks from an Anthropic streaming response."""
-        if self._anthropic_client is None:
+        if self._anthropic_async_client is None:
             raise EngineConnectionError("Anthropic client not available")
         system_text, chat_msgs = self._prepare_anthropic_messages(messages)
         create_kwargs: Dict[str, Any] = {
@@ -1676,9 +1713,11 @@ class CloudEngine(InferenceEngine):
             create_kwargs["tools"] = _convert_tools_to_anthropic(raw_tools)
         kwargs.pop("tool_choice", None)
 
-        with self._anthropic_client.messages.stream(**create_kwargs) as stream:
+        async with self._anthropic_async_client.messages.stream(
+            **create_kwargs
+        ) as stream:
             tool_index = -1
-            for event in stream:
+            async for event in stream:
                 if event.type == "content_block_start":
                     block = event.content_block
                     if block.type == "tool_use":
@@ -1717,6 +1756,8 @@ class CloudEngine(InferenceEngine):
             # see.
             try:
                 final_msg = stream.get_final_message()
+                if inspect.isawaitable(final_msg):
+                    final_msg = await final_msg
             except Exception as exc:  # noqa: BLE001 — SDK shape varies
                 logger.debug("Anthropic stream.get_final_message() failed: %s", exc)
                 final_msg = None
@@ -1734,6 +1775,46 @@ class CloudEngine(InferenceEngine):
                         content_blocks=content_blocks or None,
                         tool_results=tool_results or None,
                     )
+
+    async def _stream_full_google(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[StreamChunk]:
+        if self._google_client is None:
+            raise EngineConnectionError("Google client not available")
+        del kwargs
+        system_text = ""
+        contents: List[Dict[str, Any]] = []
+        for message in messages:
+            if message.role.value == "system":
+                system_text = message.content
+            elif message.role.value == "assistant":
+                contents.append({"role": "model", "parts": [{"text": message.content}]})
+            else:
+                contents.append({"role": "user", "parts": [{"text": message.content}]})
+
+        from google.genai import types as genai_types
+
+        config = genai_types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+        )
+        if system_text:
+            config.system_instruction = system_text
+        stream = await self._google_client.aio.models.generate_content_stream(
+            model=model,
+            contents=contents,
+            config=config,
+        )
+        async for chunk in stream:
+            if chunk.text:
+                yield StreamChunk(content=chunk.text)
+        yield StreamChunk(finish_reason="stop")
 
     async def stream_full(
         self,
@@ -1773,7 +1854,10 @@ class CloudEngine(InferenceEngine):
             models.extend(_OPENROUTER_POPULAR)
         if self._minimax_client is not None:
             models.extend(_MINIMAX_MODELS)
-        if self._deepseek_client is not None:
+        if (
+            self._deepseek_client is not None
+            or getattr(self, "_deepseek_async_client", None) is not None
+        ):
             models.extend(_DEEPSEEK_MODELS)
         if self._codex_client is not None:
             models.extend(_CODEX_MODELS)
@@ -1799,7 +1883,9 @@ class CloudEngine(InferenceEngine):
         if _is_minimax_model(model):
             return self._minimax_client
         if _is_deepseek_model(model):
-            return self._deepseek_client
+            return self._deepseek_client or getattr(
+                self, "_deepseek_async_client", None
+            )
         if _is_anthropic_model(model):
             return self._anthropic_client
         if _is_google_model(model):
@@ -1829,6 +1915,7 @@ class CloudEngine(InferenceEngine):
             or self._openrouter_client is not None
             or self._minimax_client is not None
             or self._deepseek_client is not None
+            or getattr(self, "_deepseek_async_client", None) is not None
             or self._codex_client is not None
         )
 
@@ -1851,6 +1938,31 @@ class CloudEngine(InferenceEngine):
             if hasattr(self._minimax_client, "close"):
                 self._minimax_client.close()
             self._minimax_client = None
+        if self._deepseek_client is not None:
+            if hasattr(self._deepseek_client, "close"):
+                self._deepseek_client.close()
+            self._deepseek_client = None
+        for attribute in (
+            "_openai_async_client",
+            "_anthropic_async_client",
+            "_openrouter_async_client",
+            "_minimax_async_client",
+            "_deepseek_async_client",
+        ):
+            client = getattr(self, attribute, None)
+            if client is None:
+                continue
+            close = getattr(client, "close", None) or getattr(client, "aclose", None)
+            if callable(close):
+                result = close()
+                if inspect.isawaitable(result):
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        asyncio.run(result)
+                    else:
+                        loop.create_task(result)
+            setattr(self, attribute, None)
         if self._codex_client is not None:
             self._codex_client = None
 

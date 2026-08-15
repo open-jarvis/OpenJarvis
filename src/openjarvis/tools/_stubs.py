@@ -8,6 +8,8 @@ Each tool is registered via ``@ToolRegistry.register("name")`` and implements
 from __future__ import annotations
 
 import concurrent.futures
+import contextvars
+import functools
 import json
 import time
 from abc import ABC, abstractmethod
@@ -244,7 +246,13 @@ class ToolExecutor:
         t0 = time.time()
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(tool.execute, **params)
+                # A raw pool thread starts with an empty context, which would
+                # hide the caller's Agent worker lease from the tool (and with
+                # it, cooperative cancellation of long MCP calls).
+                context = contextvars.copy_context()
+                future = pool.submit(
+                    context.run, functools.partial(tool.execute, **params)
+                )
                 result = future.result(timeout=timeout)
         except concurrent.futures.TimeoutError:
             if self._bus:

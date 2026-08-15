@@ -8,8 +8,12 @@ base for agents that accept tools.
 
 from __future__ import annotations
 
+import asyncio
 import re
+import threading
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator, Callable
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -17,6 +21,171 @@ from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Conversation, Message, Role, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
+
+_RUN_MODEL: ContextVar[str | None] = ContextVar("openjarvis_run_model", default=None)
+_RUN_WORKER_LEASE: ContextVar[AgentWorkerLease | None]
+
+
+def _noop() -> None:
+    """No-op unregister for callbacks that were never retained."""
+
+
+def _invoke_quietly(callback: Callable[[], None]) -> None:
+    """Run a cancellation callback without letting it break lease settlement."""
+    try:
+        callback()
+    except Exception:  # noqa: BLE001 — best-effort cooperative cancellation
+        pass
+
+
+class AgentWorkerLease:
+    """Retain caller ownership until every task-local sync worker settles."""
+
+    def __init__(self) -> None:
+        self._pending: set[asyncio.Task[Any]] = set()
+        self._settled_callbacks: list[Callable[[], None]] = []
+        # Registration happens on the ``to_thread`` worker, signaling on the
+        # event-loop thread, so this state needs a real lock.
+        self._cancel_lock = threading.Lock()
+        self._cancel_callbacks: list[Callable[[], None]] = []
+        self._cancelled = False
+
+    @property
+    def has_pending_workers(self) -> bool:
+        """Return whether a sync child is still running outside the event loop."""
+        return bool(self._pending)
+
+    async def run_sync(self, function: Callable[..., Any], /, *args: Any) -> Any:
+        """Run one sync child while keeping its completion attached to this lease."""
+        task = asyncio.create_task(asyncio.to_thread(function, *args))
+        self._pending.add(task)
+        task.add_done_callback(self._worker_settled)
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # The caller walked away. Tell the retained worker so it can drop
+            # its own blocking child (an in-flight MCP request); the worker
+            # itself stays retained until it actually settles.
+            self._signal_cancelled()
+            raise
+
+    def register_cancellation(
+        self, callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Register ``callback`` for caller cancellation; return an unregister."""
+        with self._cancel_lock:
+            if not self._cancelled:
+                self._cancel_callbacks.append(callback)
+
+                def unregister() -> None:
+                    with self._cancel_lock:
+                        if callback in self._cancel_callbacks:
+                            self._cancel_callbacks.remove(callback)
+
+                return unregister
+        # Already cancelled while this worker was starting up — fire now.
+        _invoke_quietly(callback)
+        return _noop
+
+    def _signal_cancelled(self) -> None:
+        with self._cancel_lock:
+            if self._cancelled:
+                return
+            self._cancelled = True
+            callbacks, self._cancel_callbacks = self._cancel_callbacks, []
+        for callback in callbacks:
+            _invoke_quietly(callback)
+
+    def when_settled(self, callback: Callable[[], None]) -> None:
+        """Call ``callback`` now or after the final retained worker exits."""
+        if not self._pending:
+            callback()
+            return
+        self._settled_callbacks.append(callback)
+
+    def _worker_settled(self, task: asyncio.Task[Any]) -> None:
+        self._pending.discard(task)
+        if not task.cancelled():
+            task.exception()
+        if self._pending:
+            return
+        callbacks = self._settled_callbacks
+        self._settled_callbacks = []
+        for callback in callbacks:
+            callback()
+
+
+_RUN_WORKER_LEASE = ContextVar("openjarvis_run_worker_lease", default=None)
+
+
+async def run_agent_sync_worker(
+    function: Callable[..., Any], /, *args: Any
+) -> Any:
+    """Run sync Agent work under the active runtime lease when one exists."""
+    lease = _RUN_WORKER_LEASE.get()
+    if lease is None:
+        return await asyncio.to_thread(function, *args)
+    return await lease.run_sync(function, *args)
+
+
+def register_agent_worker_cancellation(
+    callback: Callable[[], None],
+) -> Callable[[], None]:
+    """Register for active lease cancellation; return an unregister callback.
+
+    Sync Agent work that blocks on a cancellable child (an in-flight MCP
+    ``tools/call``) uses this so a walked-away caller drops that child instead
+    of waiting out its full timeout. Outside a runtime lease this is a no-op.
+    """
+    lease = _RUN_WORKER_LEASE.get()
+    if lease is None:
+        return _noop
+    return lease.register_cancellation(callback)
+
+
+class AgentPersistenceStaging:
+    """Hold answer-derived writes until the caller confirms the turn landed."""
+
+    def __init__(self) -> None:
+        self._staged: list[Callable[[], None]] = []
+
+    @property
+    def has_staged_writes(self) -> bool:
+        """Return whether any answer-derived write is still uncommitted."""
+        return bool(self._staged)
+
+    def stage(self, write: Callable[[], None]) -> None:
+        """Retain ``write`` until :meth:`commit` or :meth:`discard` decides it."""
+        self._staged.append(write)
+
+    def commit(self) -> None:
+        """Apply every retained write in the order it was staged."""
+        staged, self._staged = self._staged, []
+        for write in staged:
+            write()
+
+    def discard(self) -> None:
+        """Drop every retained write, leaving the durable stores untouched."""
+        self._staged = []
+
+
+_RUN_PERSISTENCE: ContextVar[AgentPersistenceStaging | None] = ContextVar(
+    "openjarvis_run_persistence", default=None
+)
+
+
+def stage_agent_persistence(write: Callable[[], None]) -> None:
+    """Defer an answer-derived write when the active run stages persistence.
+
+    Runs ``write`` immediately outside a staged run, so Agents used without
+    :class:`~openjarvis.agents.runtime.NativeAgentRuntime` keep persisting
+    exactly as before.
+    """
+    staging = _RUN_PERSISTENCE.get()
+    if staging is None:
+        write()
+        return
+    staging.stage(write)
 
 
 @dataclass(slots=True)
@@ -37,6 +206,40 @@ class AgentResult:
     tool_results: List[ToolResult] = field(default_factory=list)
     turns: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AgentTextDelta:
+    """A text delta emitted while an agent run is streaming."""
+
+    content: str
+
+
+@dataclass(frozen=True)
+class AgentRunCompleted:
+    """The terminal event emitted after an agent run completes."""
+
+    result: AgentResult
+
+
+@dataclass(frozen=True)
+class AgentToolStarted:
+    """Emitted just before a tool call is executed during a streaming run."""
+
+    tool_name: str
+
+
+@dataclass(frozen=True)
+class AgentToolFinished:
+    """Emitted after a tool call returns, successful or not."""
+
+    tool_name: str
+    ok: bool
+
+
+AgentStreamEvent = (
+    AgentTextDelta | AgentRunCompleted | AgentToolStarted | AgentToolFinished
+)
 
 
 class BaseAgent(ABC):
@@ -204,6 +407,9 @@ class BaseAgent(ABC):
         messages.append(Message(role=Role.USER, content=input))
         return messages
 
+    def _effective_model(self) -> str:
+        return _RUN_MODEL.get() or self._model
+
     def _generate(self, messages: list[Message], **extra_kwargs: Any) -> dict:
         """Call ``engine.generate()`` with stored defaults.
 
@@ -211,18 +417,20 @@ class BaseAgent(ABC):
         Publishes INFERENCE_START/END events on the bus when the engine
         does not publish its own (i.e. non-instrumented engines).
         """
+        model = self._effective_model()
         if self._bus and not getattr(self._engine, "_publishes_events", False):
             engine_id = getattr(self._engine, "engine_id", "")
             self._bus.publish(
                 EventType.INFERENCE_START,
-                {"model": self._model, "engine": engine_id},
+                {"model": model, "engine": engine_id},
             )
 
+        max_tokens = extra_kwargs.pop("max_tokens", self._max_tokens)
         result = self._engine.generate(
             messages,
-            model=self._model,
+            model=model,
             temperature=self._temperature,
-            max_tokens=self._max_tokens,
+            max_tokens=max_tokens,
             **extra_kwargs,
         )
 
@@ -231,7 +439,7 @@ class BaseAgent(ABC):
             self._bus.publish(
                 EventType.INFERENCE_END,
                 {
-                    "model": self._model,
+                    "model": model,
                     "usage": usage,
                     "content": result.get("content", ""),
                     "tool_calls": result.get("tool_calls", []),
@@ -240,6 +448,19 @@ class BaseAgent(ABC):
             )
 
         return result
+
+    def _run_with_model(
+        self,
+        input: str,
+        context: AgentContext | None,
+        model: str | None,
+        kwargs: dict[str, Any],
+    ) -> AgentResult:
+        token = _RUN_MODEL.set(model or None)
+        try:
+            return self.run(input, context, **kwargs)
+        finally:
+            _RUN_MODEL.reset(token)
 
     def _max_turns_result(
         self,
@@ -324,6 +545,22 @@ class BaseAgent(ABC):
     ) -> AgentResult:
         """Execute the agent on *input* and return an ``AgentResult``."""
 
+    async def run_stream(
+        self, input: str, context: AgentContext | None = None, **kwargs: Any
+    ) -> AsyncIterator[AgentStreamEvent]:
+        """Stream the completed run through the compatibility event contract."""
+        model = kwargs.pop("model", None)
+        result = await run_agent_sync_worker(
+            self._run_with_model,
+            input,
+            context,
+            model,
+            kwargs,
+        )
+        if not bool(result.metadata.get("pending_approval")) and result.content.strip():
+            yield AgentTextDelta(result.content.strip())
+        yield AgentRunCompleted(result)
+
 
 class ToolUsingAgent(BaseAgent):
     """Intermediate base for agents that accept and use tools.
@@ -385,19 +622,48 @@ class ToolUsingAgent(BaseAgent):
             except Exception:
                 self._max_turns = getattr(self, "_default_max_turns", 10)
 
-        # Loop guard
-        self._loop_guard = None
+        # LoopGuard configuration belongs to the shared Agent; mutable call
+        # counters belong to one top-level run and are created on demand.
+        self._loop_guard_config = None
         try:
-            from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig
+            from openjarvis.agents.loop_guard import LoopGuardConfig
 
             if loop_guard_config is None:
                 loop_guard_config = LoopGuardConfig()
             elif isinstance(loop_guard_config, dict):
                 loop_guard_config = LoopGuardConfig(**loop_guard_config)
             if loop_guard_config.enabled:
-                self._loop_guard = LoopGuard(loop_guard_config, bus=bus)
+                self._loop_guard_config = loop_guard_config
         except ImportError:
             pass
 
+    def _new_loop_guard(self) -> Any | None:
+        """Create independent mutable guard state for one top-level run."""
+        if self._loop_guard_config is None:
+            return None
+        from openjarvis.agents.loop_guard import LoopGuard
 
-__all__ = ["AgentContext", "AgentResult", "BaseAgent", "ToolUsingAgent"]
+        return LoopGuard(self._loop_guard_config, bus=self._bus)
+
+    def _tool_is_polling(self, tool_name: str) -> bool:
+        """Return the explicit polling classification for one configured tool."""
+        return any(
+            tool.spec.name == tool_name
+            and bool(tool.spec.metadata.get("polling", False))
+            for tool in self._tools
+        )
+
+
+__all__ = [
+    "AgentContext",
+    "AgentResult",
+    "AgentTextDelta",
+    "AgentRunCompleted",
+    "AgentStreamEvent",
+    "AgentToolFinished",
+    "AgentToolStarted",
+    "BaseAgent",
+    "ToolUsingAgent",
+    "register_agent_worker_cancellation",
+    "run_agent_sync_worker",
+]

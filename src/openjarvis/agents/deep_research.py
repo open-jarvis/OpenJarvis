@@ -219,6 +219,7 @@ class DeepResearchAgent(ToolUsingAgent):
         **kwargs: Any,
     ) -> AgentResult:
         self._emit_turn_start(input)
+        loop_guard = self._new_loop_guard()
 
         # Build system prompt with current date/time injected
         system_prompt = (
@@ -246,8 +247,8 @@ class DeepResearchAgent(ToolUsingAgent):
         for _turn in range(self._max_turns):
             turns += 1
 
-            if self._loop_guard:
-                messages = self._loop_guard.compress_context(messages)
+            if loop_guard:
+                messages = loop_guard.compress_context(messages)
 
             # Pass tools to engine for native function calling
             result = self._generate(messages, tools=tools_openai)
@@ -317,8 +318,12 @@ class DeepResearchAgent(ToolUsingAgent):
                 )
 
                 # Loop guard check before execution
-                if self._loop_guard:
-                    verdict = self._loop_guard.check_call(tc.name, tc.arguments)
+                if loop_guard:
+                    verdict = loop_guard.check_call(
+                        tc.name,
+                        tc.arguments,
+                        polling=self._tool_is_polling(tc.name),
+                    )
                     if verdict.blocked:
                         tool_result = ToolResult(
                             tool_name=tc.name,

@@ -514,6 +514,7 @@ class TestCloudEngineCanServe:
     def test_deepseek_only_serves_deepseek_models(self) -> None:
         """The DeepSeek client serves deepseek-* models (and only those)."""
         eng = self._engine(_deepseek_client=object())
+        assert eng.can_serve("deepseek-chat") is True
         assert eng.can_serve("deepseek-v4-flash") is True
         assert eng.can_serve("deepseek-v4-pro") is True
         assert eng.can_serve("DeepSeek-V4-Pro") is True  # case-insensitive
@@ -575,6 +576,7 @@ class TestCloudEngineDeepSeek:
 
         assert engine.health() is True
         models = engine.list_models()
+        assert "deepseek-chat" in models
         assert "deepseek-v4-flash" in models
         assert "deepseek-v4-pro" in models
         # can_serve must agree with list_models (regression for the missing
@@ -625,3 +627,31 @@ class TestCloudEngineDeepSeek:
             engine.generate(
                 [Message(role=Role.USER, content="Hi")], model="deepseek-v4-pro"
             )
+
+    @pytest.mark.asyncio
+    async def test_stream_uses_async_deepseek_client(self) -> None:
+        async def response():
+            for text in ("Ha Noi ", "dang mua."):
+                yield SimpleNamespace(
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content=text))]
+                )
+
+        completions = mock.MagicMock()
+        completions.create = mock.AsyncMock(return_value=response())
+        client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+        engine = CloudEngine.__new__(CloudEngine)
+        engine._deepseek_client = mock.MagicMock()
+        engine._deepseek_async_client = client
+
+        chunks = [
+            chunk
+            async for chunk in engine._stream_deepseek(
+                [Message(role=Role.USER, content="Thoi tiet?")],
+                model="deepseek-chat",
+                temperature=0.7,
+                max_tokens=100,
+            )
+        ]
+
+        assert chunks == ["Ha Noi ", "dang mua."]
+        completions.create.assert_awaited_once()

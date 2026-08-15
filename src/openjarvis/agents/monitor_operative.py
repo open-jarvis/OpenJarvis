@@ -16,10 +16,17 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
+import time
 from typing import Any, List, Optional
 
-from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
+from openjarvis.agents._stubs import (
+    AgentContext,
+    AgentResult,
+    ToolUsingAgent,
+    stage_agent_persistence,
+)
 from openjarvis.agents.prompt_loader import (
     load_few_shot_exemplars,
     load_system_prompt_override,
@@ -127,6 +134,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
         memory_backend: Optional[Any] = None,
         interactive: bool = False,
         confirm_callback=None,
+        capability_policy: Any = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -140,6 +148,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
             interactive=interactive,
             confirm_callback=confirm_callback,
             prompt_builder=kwargs.get("prompt_builder"),
+            capability_policy=capability_policy,
         )
         # Validate strategies
         if memory_extraction not in VALID_MEMORY_EXTRACTION:
@@ -185,6 +194,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
     ) -> AgentResult:
         """Execute the agent on *input* with the configured strategies."""
         self._emit_turn_start(input)
+        loop_guard = self._new_loop_guard()
 
         # 1. Build system prompt with state context
         #    Priority: constructor arg > file override > hardcoded default
@@ -295,6 +305,18 @@ class MonitorOperativeAgent(ToolUsingAgent):
                     )
                     tool_result = self._executor.execute(tc)
                     all_tool_results.append(tool_result)
+                    if tc.name == "memory_store" and self._operator_id:
+                        try:
+                            args = json.loads(tc.arguments)
+                            state_key = f"{self.agent_id}:{self._operator_id}:state"
+                            if args.get("source", "") == state_key:
+                                state_stored_by_tool = True
+                        except (json.JSONDecodeError, TypeError) as exc:
+                            logger.debug(
+                                "Failed to parse tool call arguments"
+                                " for state tracking: %s",
+                                exc,
+                            )
                     observation_content = self._compress_observation(
                         tool_result.content
                     )
@@ -315,10 +337,11 @@ class MonitorOperativeAgent(ToolUsingAgent):
             tool_calls_to_exec = tool_calls
             for tc in tool_calls_to_exec:
                 # Loop guard check
-                if self._loop_guard:
-                    verdict = self._loop_guard.check_call(
+                if loop_guard:
+                    verdict = loop_guard.check_call(
                         tc.name,
                         tc.arguments,
+                        polling=self._tool_is_polling(tc.name),
                     )
                     if verdict.blocked:
                         tool_result = ToolResult(
@@ -344,8 +367,8 @@ class MonitorOperativeAgent(ToolUsingAgent):
                 if tc.name == "memory_store" and self._operator_id:
                     try:
                         args = json.loads(tc.arguments)
-                        state_key = f"monitor_operative:{self._operator_id}:state"
-                        if args.get("key", "") == state_key:
+                        state_key = f"{self.agent_id}:{self._operator_id}:state"
+                        if args.get("source", "") == state_key:
                             state_stored_by_tool = True
                     except (json.JSONDecodeError, TypeError) as exc:
                         logger.debug(
@@ -617,7 +640,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
                         key = f"{operator_prefix}:causality:{rel['cause'][:50]}"
                         value = json.dumps(rel)
                         try:
-                            self._memory_backend.store(key, value)
+                            self._memory_backend.store(value, source=key)
                         except Exception as exc:
                             logger.debug(
                                 "Failed to store causality relation in memory: %s",
@@ -642,7 +665,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
         # Truncate long content
         snippet = content[:1000] if len(content) > 1000 else content
         try:
-            self._memory_backend.store(key, snippet)
+            self._memory_backend.store(snippet, source=key)
         except Exception:
             logger.debug("Could not store scratchpad for tool %s", tool_name)
 
@@ -658,12 +681,12 @@ class MonitorOperativeAgent(ToolUsingAgent):
         try:
             data = json.loads(content)
             key = f"{operator_prefix}:structured:{tool_name}"
-            self._memory_backend.store(key, json.dumps(data))
+            self._memory_backend.store(json.dumps(data), source=key)
         except (json.JSONDecodeError, TypeError):
             # Not JSON -- store as plain text truncated
             key = f"{operator_prefix}:structured:{tool_name}"
             try:
-                self._memory_backend.store(key, content[:1000])
+                self._memory_backend.store(content[:1000], source=key)
             except Exception as exc:
                 logger.debug(
                     "Failed to store structured data for tool %s: %s",
@@ -679,75 +702,83 @@ class MonitorOperativeAgent(ToolUsingAgent):
         """Retrieve previous state from memory backend."""
         if not self._memory_backend or not self._operator_id:
             return ""
-        state_key = f"monitor_operative:{self._operator_id}:state"
-        try:
-            result = self._memory_backend.retrieve(state_key)
-            if result:
-                return result if isinstance(result, str) else str(result)
-        except Exception:
-            logger.debug(
-                "No previous state for monitor_operative %s",
-                self._operator_id,
-            )
-        return ""
+        state_key = f"{self.agent_id}:{self._operator_id}:state"
+        results = self._memory_backend.retrieve(state_key, top_k=20)
+        matching = [
+            result
+            for result in results
+            if result.source == state_key
+            or result.metadata.get("state_key") == state_key
+        ]
+        if not matching:
+            return ""
+
+        def _updated_at(result: Any) -> float:
+            try:
+                timestamp = float(
+                    result.metadata.get("updated_at", float("-inf"))
+                )
+            except (TypeError, ValueError):
+                return float("-inf")
+            return timestamp if math.isfinite(timestamp) else float("-inf")
+
+        newest = max(
+            matching,
+            key=_updated_at,
+        )
+        return newest.content
 
     def _load_session(self) -> list[Message]:
         """Load recent session history for this operator."""
         if not self._session_store or not self._operator_id:
             return []
-        session_id = f"monitor_operative:{self._operator_id}"
-        try:
-            session = self._session_store.get_or_create(session_id)
-            if hasattr(session, "messages") and session.messages:
-                recent = session.messages[-10:]
-                return [
-                    Message(
-                        role=Role(m.get("role", "user")),
-                        content=m.get("content", ""),
-                    )
-                    for m in recent
-                    if isinstance(m, dict)
-                ]
-        except Exception:
-            logger.debug(
-                "Could not load session for monitor_operative %s",
-                self._operator_id,
-            )
-        return []
+        session = self._session_store.get_or_create(
+            f"{self.agent_id}:{self._operator_id}"
+        )
+        return [
+            Message(role=Role(message.role), content=message.content)
+            for message in session.messages[-10:]
+        ]
 
     def _save_session(self, input_text: str, response: str) -> None:
-        """Save the tick's prompt and response to the session store."""
+        """Save the tick's prompt and response to the session store.
+
+        The prompt is durable as soon as it is asked; the answer is staged, so
+        a turn the caller never accepts leaves no assistant message behind.
+        """
         if not self._session_store or not self._operator_id:
             return
-        session_id = f"monitor_operative:{self._operator_id}"
-        try:
-            self._session_store.save_message(
-                session_id,
-                {"role": "user", "content": input_text},
+        session = self._session_store.get_or_create(
+            f"{self.agent_id}:{self._operator_id}"
+        )
+        self._session_store.save_message(
+            session.session_id, "user", input_text, channel="agent"
+        )
+        stage_agent_persistence(
+            lambda: self._session_store.save_message(
+                session.session_id, "assistant", response, channel="agent"
             )
-            self._session_store.save_message(
-                session_id,
-                {"role": "assistant", "content": response},
-            )
-        except Exception:
-            logger.debug(
-                "Could not save session for monitor_operative %s",
-                self._operator_id,
-            )
+        )
 
     def _auto_persist_state(self, content: str) -> None:
         """Auto-persist a state summary if agent didn't store explicitly."""
-        if not self._memory_backend or not self._operator_id:
+        if not self._memory_backend or not self._operator_id or not content.strip():
             return
-        state_key = f"monitor_operative:{self._operator_id}:state"
-        try:
-            summary = content[:1000] if content else ""
-            self._memory_backend.store(state_key, summary)
-        except Exception:
-            logger.debug(
-                "Could not auto-persist state for monitor_operative %s",
-                self._operator_id,
+        state_key = f"{self.agent_id}:{self._operator_id}:state"
+        # Stamped now rather than at commit, so recall orders states by when
+        # the answer was produced.
+        updated_at = time.time()
+        stage_agent_persistence(
+            lambda: self._memory_backend.store(
+                content[:1000],
+                source=state_key,
+                metadata={
+                    "state_key": state_key,
+                    "operator_id": self._operator_id,
+                    "updated_at": updated_at,
+                },
             )
+        )
 
 
 __all__ = ["MonitorOperativeAgent", "MONITOR_OPERATIVE_SYSTEM_PROMPT"]

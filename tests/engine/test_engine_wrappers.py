@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from openjarvis.core.events import EventBus
+from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._stubs import InferenceEngine, StreamChunk
 from openjarvis.engine.multi import MultiEngine
@@ -44,6 +44,9 @@ class _FakeStreamFullEngine(InferenceEngine):
     def health(self) -> bool:
         return True
 
+    def supports_semantic_reasoning_stream(self, model: str) -> bool:
+        return model == "semantic-model"
+
 
 # ---------------------------------------------------------------------------
 # InstrumentedEngine.stream_full delegation
@@ -73,6 +76,28 @@ async def test_instrumented_delegates_stream_full():
     assert result[0].content == "Hello"
     assert result[1].content == " world"
     assert result[2].finish_reason == "stop"
+    event_types = [event.event_type for event in bus.history]
+    assert event_types.count(EventType.INFERENCE_START) == 1
+    assert event_types.count(EventType.INFERENCE_END) == 1
+    assert event_types.count(EventType.TELEMETRY_RECORD) == 1
+    record = next(
+        event.data["record"]
+        for event in bus.history
+        if event.event_type == EventType.TELEMETRY_RECORD
+    )
+    assert record.model_id == "fake-model"
+    assert record.completion_tokens == 2
+    assert record.is_streaming is True
+
+
+def test_instrumented_delegates_semantic_reasoning_capability():
+    engine = InstrumentedEngine(
+        _FakeStreamFullEngine([]),
+        EventBus(record_history=True),
+    )
+
+    assert engine.supports_semantic_reasoning_stream("semantic-model") is True
+    assert engine.supports_semantic_reasoning_stream("legacy-model") is False
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +125,13 @@ async def test_guardrails_delegates_stream_full():
     assert len(result) == 2
     assert result[0].content == "safe output"
     assert result[1].finish_reason == "stop"
+
+
+def test_guardrails_delegates_semantic_reasoning_capability():
+    engine = GuardrailsEngine(_FakeStreamFullEngine([]), scanners=[])
+
+    assert engine.supports_semantic_reasoning_stream("semantic-model") is True
+    assert engine.supports_semantic_reasoning_stream("legacy-model") is False
 
 
 # ---------------------------------------------------------------------------
@@ -143,3 +175,28 @@ async def test_multi_routes_stream_full_by_model():
         result_b.append(chunk)
 
     assert result_b[0].content == "from B"
+
+
+def test_multi_routes_semantic_reasoning_capability_by_model():
+    engine = _FakeStreamFullEngine([])
+    engine.list_models = lambda: ["semantic-model", "legacy-model"]
+    multi = MultiEngine([("fake", engine)])
+
+    assert multi.supports_semantic_reasoning_stream("semantic-model") is True
+    assert multi.supports_semantic_reasoning_stream("legacy-model") is False
+
+
+def test_multi_prefers_first_engine_when_model_ids_overlap():
+    selected = _FakeStreamFullEngine([])
+    selected.list_models = lambda: ["deepseek-v4-flash"]
+    selected.generate = lambda *args, **kwargs: {"content": "cloud", "usage": {}}
+
+    discovered = _FakeStreamFullEngine([])
+    discovered.list_models = lambda: ["deepseek-v4-flash"]
+    discovered.generate = lambda *args, **kwargs: {"content": "local", "usage": {}}
+
+    multi = MultiEngine([("cloud", selected), ("vllm", discovered)])
+
+    result = multi.generate([], model="deepseek-v4-flash")
+
+    assert result["content"] == "cloud"

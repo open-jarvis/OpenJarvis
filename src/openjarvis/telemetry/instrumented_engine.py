@@ -5,6 +5,7 @@ from __future__ import annotations
 import statistics
 import time
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import Any, Dict, List, Optional, Sequence
 
 from openjarvis.core.events import EventBus, EventType
@@ -75,6 +76,10 @@ class InstrumentedEngine(InferenceEngine):
         self._gpu_monitor = gpu_monitor
         self._energy_monitor = energy_monitor
         self._publishes_events = True
+        self._publishes_stream_events = True
+
+    def supports_semantic_reasoning_stream(self, model: str) -> bool:
+        return self._inner.supports_semantic_reasoning_stream(model)
 
     def generate(
         self,
@@ -492,15 +497,174 @@ class InstrumentedEngine(InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> AsyncIterator["StreamChunk"]:
-        """Delegate to inner engine's stream_full for tool-call support."""
-        async for chunk in self._inner.stream_full(
-            messages,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs,
-        ):
-            yield chunk
+        """Stream rich chunks with the same telemetry contract as ``stream``."""
+        self._bus.publish(
+            EventType.INFERENCE_START,
+            {
+                "model": model,
+                "message_count": len(messages),
+            },
+        )
+
+        t0 = time.time()
+        token_timestamps: list[float] = []
+        observed_chunks = 0
+        usage: dict[str, Any] = {}
+        energy_sample: Optional[Any] = None
+        gpu_sample: Optional[GpuSample] = None
+        stream_error: BaseException | None = None
+
+        def observe(chunk: "StreamChunk") -> None:
+            nonlocal observed_chunks
+            if chunk.content or chunk.reasoning_content:
+                token_timestamps.append(time.time())
+                observed_chunks += 1
+            if chunk.usage:
+                usage.update(chunk.usage)
+
+        try:
+            stream = self._inner.stream_full(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs,
+            )
+            async with aclosing(stream):
+                if self._energy_monitor is not None:
+                    with self._energy_monitor.sample() as energy_sample:
+                        async for chunk in stream:
+                            observe(chunk)
+                            yield chunk
+                elif self._gpu_monitor is not None:
+                    with self._gpu_monitor.sample() as gpu_sample:
+                        async for chunk in stream:
+                            observe(chunk)
+                            yield chunk
+                else:
+                    async for chunk in stream:
+                        observe(chunk)
+                        yield chunk
+        except BaseException as exc:
+            stream_error = exc
+
+        latency = time.time() - t0
+        ttft = token_timestamps[0] - t0 if token_timestamps else 0.0
+        completion_tokens = int(usage.get("completion_tokens", observed_chunks))
+        prompt_tokens = int(usage.get("prompt_tokens", 0))
+        total_tokens = int(usage.get("total_tokens", prompt_tokens + completion_tokens))
+        throughput = completion_tokens / latency if latency > 0 else 0.0
+        itl_values_ms = [
+            (token_timestamps[index] - token_timestamps[index - 1]) * 1000
+            for index in range(1, len(token_timestamps))
+        ]
+        itl_stats = _compute_itl_stats(itl_values_ms)
+
+        energy_joules = 0.0
+        power_watts = 0.0
+        gpu_utilization_pct = 0.0
+        gpu_memory_used_gb = 0.0
+        gpu_temperature_c = 0.0
+        energy_method = ""
+        energy_vendor = ""
+        cpu_energy_joules = 0.0
+        gpu_energy_joules = 0.0
+        dram_energy_joules = 0.0
+
+        if energy_sample is not None:
+            energy_joules = energy_sample.energy_joules
+            power_watts = energy_sample.mean_power_watts
+            gpu_utilization_pct = energy_sample.mean_utilization_pct
+            gpu_memory_used_gb = energy_sample.peak_memory_used_gb
+            gpu_temperature_c = energy_sample.mean_temperature_c
+            energy_method = energy_sample.energy_method
+            energy_vendor = energy_sample.vendor
+            cpu_energy_joules = energy_sample.cpu_energy_joules
+            gpu_energy_joules = energy_sample.gpu_energy_joules
+            dram_energy_joules = energy_sample.dram_energy_joules
+        elif gpu_sample is not None:
+            energy_joules = gpu_sample.energy_joules
+            power_watts = gpu_sample.mean_power_watts
+            gpu_utilization_pct = gpu_sample.mean_utilization_pct
+            gpu_memory_used_gb = gpu_sample.peak_memory_used_gb
+            gpu_temperature_c = gpu_sample.mean_temperature_c
+            energy_method = "polling"
+            energy_vendor = "nvidia"
+
+        prefill_latency = ttft if ttft > 0 else 0.0
+        decode_latency = latency - prefill_latency if prefill_latency > 0 else 0.0
+        prefill_energy = 0.0
+        decode_energy = 0.0
+        if energy_joules > 0 and prefill_latency > 0 and latency > 0:
+            prefill_fraction = prefill_latency / latency
+            prefill_energy = energy_joules * prefill_fraction
+            decode_energy = energy_joules * (1.0 - prefill_fraction)
+
+        energy_per_output_token = (
+            energy_joules / completion_tokens if completion_tokens > 0 else 0.0
+        )
+        throughput_per_watt = throughput / power_watts if power_watts > 0 else 0.0
+        tokens_per_joule = (
+            completion_tokens / energy_joules
+            if energy_joules > 0 and completion_tokens > 0
+            else 0.0
+        )
+
+        record = TelemetryRecord(
+            timestamp=t0,
+            model_id=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            latency_seconds=latency,
+            ttft=ttft,
+            throughput_tok_per_sec=throughput,
+            energy_per_output_token_joules=energy_per_output_token,
+            throughput_per_watt=throughput_per_watt,
+            energy_joules=energy_joules,
+            power_watts=power_watts,
+            gpu_utilization_pct=gpu_utilization_pct,
+            gpu_memory_used_gb=gpu_memory_used_gb,
+            gpu_temperature_c=gpu_temperature_c,
+            prefill_latency_seconds=prefill_latency,
+            decode_latency_seconds=decode_latency,
+            prefill_energy_joules=prefill_energy,
+            decode_energy_joules=decode_energy,
+            mean_itl_ms=itl_stats["mean"],
+            median_itl_ms=itl_stats["median"],
+            p90_itl_ms=itl_stats["p90"],
+            p95_itl_ms=itl_stats["p95"],
+            p99_itl_ms=itl_stats["p99"],
+            std_itl_ms=itl_stats["std"],
+            is_streaming=True,
+            engine=getattr(self._inner, "engine_id", "unknown"),
+            energy_method=energy_method,
+            energy_vendor=energy_vendor,
+            cpu_energy_joules=cpu_energy_joules,
+            gpu_energy_joules=gpu_energy_joules,
+            dram_energy_joules=dram_energy_joules,
+            tokens_per_joule=tokens_per_joule,
+            token_counting_version=TOKEN_COUNTING_VERSION,
+        )
+        event_data = {
+            "model": model,
+            "latency": latency,
+            "ttft": ttft,
+            "throughput_tok_per_sec": throughput,
+            "completion_tokens": completion_tokens,
+            "is_streaming": True,
+            "mean_itl_ms": itl_stats["mean"],
+            "median_itl_ms": itl_stats["median"],
+            "p95_itl_ms": itl_stats["p95"],
+            "energy_joules": energy_joules,
+            "power_watts": power_watts,
+            "energy_method": energy_method,
+            "energy_vendor": energy_vendor,
+        }
+        self._bus.publish(EventType.INFERENCE_END, event_data)
+        self._bus.publish(EventType.TELEMETRY_RECORD, {"record": record})
+        if stream_error is not None:
+            raise stream_error
 
     def list_models(self) -> List[str]:
         return self._inner.list_models()

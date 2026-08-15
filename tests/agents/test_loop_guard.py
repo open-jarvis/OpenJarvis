@@ -43,13 +43,35 @@ class TestLoopGuard:
         # But detection happens after 4+ calls in sequence
 
     def test_poll_budget_exceeded(self):
-        guard, _ = self._make_guard(poll_tool_budget=3, max_identical_calls=100)
-        guard.check_call("poll", '{"a": 1}')
-        guard.check_call("poll", '{"a": 2}')
-        guard.check_call("poll", '{"a": 3}')
-        v = guard.check_call("poll", '{"a": 4}')
+        guard, _ = self._make_guard(
+            poll_tool_budget=3,
+            max_identical_calls=100,
+            ping_pong_window=100,
+        )
+        guard.check_call("poll", '{"a": 1}', polling=True)
+        guard.check_call("poll", '{"a": 2}', polling=True)
+        guard.check_call("poll", '{"a": 3}', polling=True)
+        v = guard.check_call("poll", '{"a": 4}', polling=True)
         assert v.blocked
         assert "poll budget" in v.reason.lower()
+
+    def test_non_polling_calls_do_not_spend_poll_budget(self):
+        guard, _ = self._make_guard(
+            poll_tool_budget=3,
+            max_identical_calls=100,
+            ping_pong_window=100,
+        )
+
+        verdicts = [
+            guard.check_call(
+                "browser_click",
+                f'{{"target": "button-{index}"}}',
+                polling=False,
+            )
+            for index in range(10)
+        ]
+
+        assert not any(verdict.blocked for verdict in verdicts)
 
     def test_event_emitted(self):
         guard, bus = self._make_guard(max_identical_calls=1)

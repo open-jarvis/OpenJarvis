@@ -3,10 +3,12 @@ and _prepare_anthropic_messages."""
 
 from __future__ import annotations
 
+import asyncio
 import sys
+from collections.abc import AsyncIterator
 from types import ModuleType, SimpleNamespace
 from typing import Any, List
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -28,18 +30,26 @@ def _make_cloud_engine(**overrides: Any) -> Any:
     engine._google_client = overrides.get("google_client")
     engine._openrouter_client = overrides.get("openrouter_client")
     engine._minimax_client = overrides.get("minimax_client")
+    engine._deepseek_client = overrides.get("deepseek_client")
+    engine._openai_async_client = overrides.get("openai_async_client")
+    engine._anthropic_async_client = overrides.get("anthropic_async_client")
+    engine._openrouter_async_client = overrides.get("openrouter_async_client")
+    engine._minimax_async_client = overrides.get("minimax_async_client")
+    engine._deepseek_async_client = overrides.get("deepseek_async_client")
     return engine
 
 
 def _openai_chunk(
     *,
     content: str | None = None,
+    reasoning_content: str | None = None,
     tool_calls: list | None = None,
     finish_reason: str | None = None,
 ) -> MagicMock:
     """Build a mock OpenAI streaming chunk."""
     delta = MagicMock()
     delta.content = content
+    delta.reasoning_content = reasoning_content
     delta.tool_calls = tool_calls
     choice = MagicMock()
     choice.delta = delta
@@ -47,6 +57,60 @@ def _openai_chunk(
     chunk = MagicMock()
     chunk.choices = [choice]
     return chunk
+
+
+class _AsyncChunks:
+    def __init__(self, chunks: list[MagicMock]) -> None:
+        self._chunks = iter(chunks)
+
+    def __aiter__(self) -> _AsyncChunks:
+        return self
+
+    async def __anext__(self) -> MagicMock:
+        try:
+            return next(self._chunks)
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
+
+    async def close(self) -> None:
+        return None
+
+
+def _async_openai_client(chunks: list[MagicMock]) -> MagicMock:
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(return_value=_AsyncChunks(chunks))
+    return client
+
+
+class _AsyncAnthropicStream:
+    def __init__(self, events: list[MagicMock]) -> None:
+        self._events = iter(events)
+
+    async def __aenter__(self) -> _AsyncAnthropicStream:
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+    def __aiter__(self) -> _AsyncAnthropicStream:
+        return self
+
+    async def __anext__(self) -> MagicMock:
+        try:
+            return next(self._events)
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
+
+    async def get_final_message(self) -> None:
+        return None
+
+
+def _async_anthropic_client(*event_rounds: list[MagicMock]) -> MagicMock:
+    client = MagicMock()
+    client.messages.stream.side_effect = [
+        _AsyncAnthropicStream(events) for events in event_rounds
+    ]
+    return client
 
 
 def _openai_tool_call_delta(
@@ -100,18 +164,222 @@ def _google_types_modules() -> dict[str, ModuleType]:
 # ---------------------------------------------------------------------------
 
 
+def test_only_deepseek_declares_semantic_reasoning_stream() -> None:
+    engine = _make_cloud_engine()
+
+    assert engine.supports_semantic_reasoning_stream("deepseek-v4-flash") is True
+    assert engine.supports_semantic_reasoning_stream("gpt-4o") is False
+
+
+@pytest.mark.asyncio
+async def test_deepseek_stream_full_wait_is_cooperative() -> None:
+    provider_started = asyncio.Event()
+    release_provider = asyncio.Event()
+    heartbeat_ran = asyncio.Event()
+
+    class AsyncChunks:
+        def __init__(self) -> None:
+            self._chunks = iter(
+                [
+                    _openai_chunk(content="Visible"),
+                    _openai_chunk(finish_reason="stop"),
+                ]
+            )
+
+        def __aiter__(self) -> AsyncChunks:
+            return self
+
+        async def __anext__(self) -> MagicMock:
+            try:
+                return next(self._chunks)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+        async def close(self) -> None:
+            return None
+
+    class Completions:
+        async def create(self, **_kwargs: object) -> AsyncChunks:
+            provider_started.set()
+            await release_provider.wait()
+            return AsyncChunks()
+
+    async_client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    sync_client = MagicMock()
+    sync_client.chat.completions.create.side_effect = AssertionError(
+        "synchronous provider path used"
+    )
+    engine = _make_cloud_engine(
+        deepseek_client=sync_client,
+        deepseek_async_client=async_client,
+    )
+
+    async def heartbeat() -> None:
+        await provider_started.wait()
+        heartbeat_ran.set()
+        release_provider.set()
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+    chunks = [
+        chunk
+        async for chunk in engine._stream_full_openai(
+            [Message(role=Role.USER, content="hi")],
+            model="deepseek-v4-flash",
+            temperature=0.7,
+            max_tokens=100,
+        )
+    ]
+    await heartbeat_task
+
+    assert heartbeat_ran.is_set()
+    assert [chunk.content for chunk in chunks] == ["Visible", None]
+    sync_client.chat.completions.create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_anthropic_stream_full_uses_async_provider_iteration() -> None:
+    text_delta = SimpleNamespace(type="text_delta", text="Visible")
+    stop_delta = SimpleNamespace(stop_reason="end_turn")
+    events = [
+        SimpleNamespace(type="content_block_delta", delta=text_delta),
+        SimpleNamespace(type="message_delta", delta=stop_delta),
+    ]
+
+    class Stream:
+        async def __aenter__(self) -> Stream:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        def __aiter__(self) -> AsyncIterator[object]:
+            return self
+
+        async def __anext__(self) -> object:
+            if events:
+                return events.pop(0)
+            raise StopAsyncIteration
+
+        async def get_final_message(self) -> None:
+            return None
+
+    async_client = SimpleNamespace(
+        messages=SimpleNamespace(stream=lambda **_kwargs: Stream())
+    )
+    sync_client = MagicMock()
+    sync_client.messages.stream.side_effect = AssertionError(
+        "synchronous Anthropic path used"
+    )
+    engine = _make_cloud_engine(
+        anthropic_client=sync_client,
+        anthropic_async_client=async_client,
+    )
+
+    chunks = [
+        chunk
+        async for chunk in engine._stream_full_anthropic(
+            [Message(role=Role.USER, content="hi")],
+            model="claude-sonnet-4-20250514",
+            temperature=0.7,
+            max_tokens=100,
+        )
+    ]
+
+    assert [chunk.content for chunk in chunks] == ["Visible", None]
+    assert chunks[-1].finish_reason == "stop"
+    sync_client.messages.stream.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_google_stream_full_wait_is_cooperative() -> None:
+    provider_started = asyncio.Event()
+    release_provider = asyncio.Event()
+
+    class AsyncModels:
+        async def generate_content_stream(
+            self, **_kwargs: object
+        ) -> AsyncIterator[object]:
+            provider_started.set()
+            await release_provider.wait()
+
+            async def events() -> AsyncIterator[object]:
+                yield SimpleNamespace(text="Visible")
+
+            return events()
+
+    sync_models = MagicMock()
+    sync_models.generate_content_stream.side_effect = AssertionError(
+        "synchronous Google path used"
+    )
+    client = SimpleNamespace(
+        models=sync_models,
+        aio=SimpleNamespace(models=AsyncModels()),
+    )
+    engine = _make_cloud_engine(google_client=client)
+
+    async def heartbeat() -> None:
+        await provider_started.wait()
+        release_provider.set()
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+    chunks = [
+        chunk
+        async for chunk in engine.stream_full(
+            [Message(role=Role.USER, content="hi")],
+            model="gemini-2.5-flash",
+            temperature=0.7,
+            max_tokens=100,
+        )
+    ]
+    await heartbeat_task
+
+    assert [chunk.content for chunk in chunks] == ["Visible", None]
+    assert chunks[-1].finish_reason == "stop"
+    sync_models.generate_content_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_close_releases_all_async_provider_clients() -> None:
+    closed: list[str] = []
+
+    class AsyncClient:
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        async def close(self) -> None:
+            closed.append(self._name)
+
+    engine = _make_cloud_engine(
+        openai_async_client=AsyncClient("openai"),
+        anthropic_async_client=AsyncClient("anthropic"),
+        openrouter_async_client=AsyncClient("openrouter"),
+        minimax_async_client=AsyncClient("minimax"),
+        deepseek_async_client=AsyncClient("deepseek"),
+    )
+    engine._codex_client = None
+
+    engine.close()
+    await asyncio.sleep(0)
+
+    assert closed == ["openai", "anthropic", "openrouter", "minimax", "deepseek"]
+    assert engine._openai_async_client is None
+    assert engine._anthropic_async_client is None
+    assert engine._openrouter_async_client is None
+    assert engine._minimax_async_client is None
+    assert engine._deepseek_async_client is None
+
+
 @pytest.mark.asyncio
 async def test_stream_full_openai_content():
     """Mock OpenAI streaming response with content chunks."""
-    mock_client = MagicMock()
     chunks = [
         _openai_chunk(content="Hello"),
         _openai_chunk(content=" world"),
         _openai_chunk(finish_reason="stop"),
     ]
-    mock_client.chat.completions.create.return_value = iter(chunks)
+    mock_client = _async_openai_client(chunks)
 
-    engine = _make_cloud_engine(openai_client=mock_client)
+    engine = _make_cloud_engine(openai_async_client=mock_client)
     msgs = [Message(role=Role.USER, content="hi")]
 
     result: List[StreamChunk] = []
@@ -130,9 +398,39 @@ async def test_stream_full_openai_content():
 
 
 @pytest.mark.asyncio
+async def test_stream_full_openai_separates_reasoning_content():
+    chunks = [
+        _openai_chunk(reasoning_content="private one"),
+        _openai_chunk(reasoning_content=" private two"),
+        _openai_chunk(content="Visible"),
+        _openai_chunk(finish_reason="stop"),
+    ]
+    mock_client = _async_openai_client(chunks)
+
+    engine = _make_cloud_engine(deepseek_async_client=mock_client)
+    msgs = [Message(role=Role.USER, content="hi")]
+
+    result: List[StreamChunk] = []
+    async for sc in engine._stream_full_openai(
+        msgs,
+        model="deepseek-v4-flash",
+        temperature=0.7,
+        max_tokens=100,
+    ):
+        result.append(sc)
+
+    assert [chunk.reasoning_content for chunk in result] == [
+        "private one",
+        " private two",
+        None,
+        None,
+    ]
+    assert [chunk.content for chunk in result] == [None, None, "Visible", None]
+
+
+@pytest.mark.asyncio
 async def test_stream_full_openai_tool_calls():
     """Mock response with tool_call deltas, verify StreamChunk.tool_calls format."""
-    mock_client = MagicMock()
     tc1 = _openai_tool_call_delta(index=0, tc_id="call_1", name="calc", arguments="")
     tc2 = _openai_tool_call_delta(index=0, tc_id="", name="", arguments='{"x": 1}')
     chunks = [
@@ -140,9 +438,9 @@ async def test_stream_full_openai_tool_calls():
         _openai_chunk(tool_calls=[tc2]),
         _openai_chunk(finish_reason="tool_calls"),
     ]
-    mock_client.chat.completions.create.return_value = iter(chunks)
+    mock_client = _async_openai_client(chunks)
 
-    engine = _make_cloud_engine(openai_client=mock_client)
+    engine = _make_cloud_engine(openai_async_client=mock_client)
     msgs = [Message(role=Role.USER, content="calc")]
 
     result: List[StreamChunk] = []
@@ -164,14 +462,13 @@ async def test_stream_full_openai_tool_calls():
 @pytest.mark.asyncio
 async def test_stream_full_openai_finish_reason():
     """Verify finish_reason='tool_calls' and 'stop' propagated correctly."""
-    mock_client = MagicMock()
     chunks_stop = [
         _openai_chunk(content="ok"),
         _openai_chunk(finish_reason="stop"),
     ]
-    mock_client.chat.completions.create.return_value = iter(chunks_stop)
+    mock_client = _async_openai_client(chunks_stop)
 
-    engine = _make_cloud_engine(openai_client=mock_client)
+    engine = _make_cloud_engine(openai_async_client=mock_client)
     msgs = [Message(role=Role.USER, content="hi")]
 
     result = []
@@ -191,7 +488,7 @@ async def test_stream_full_openai_finish_reason():
         _openai_chunk(tool_calls=[tc]),
         _openai_chunk(finish_reason="tool_calls"),
     ]
-    mock_client.chat.completions.create.return_value = iter(chunks_tc)
+    mock_client.chat.completions.create.return_value = _AsyncChunks(chunks_tc)
 
     result2 = []
     async for sc in engine._stream_full_openai(
@@ -241,14 +538,9 @@ async def test_stream_full_anthropic_content():
         _anthropic_event("message_delta", delta=msg_delta),
     ]
 
-    mock_stream = MagicMock()
-    mock_stream.__enter__ = MagicMock(return_value=iter(events))
-    mock_stream.__exit__ = MagicMock(return_value=False)
+    mock_anthropic = _async_anthropic_client(events)
 
-    mock_anthropic = MagicMock()
-    mock_anthropic.messages.stream.return_value = mock_stream
-
-    engine = _make_cloud_engine(anthropic_client=mock_anthropic)
+    engine = _make_cloud_engine(anthropic_async_client=mock_anthropic)
     msgs = [Message(role=Role.USER, content="hi")]
 
     result: List[StreamChunk] = []
@@ -294,14 +586,9 @@ async def test_stream_full_anthropic_tool_calls():
         _anthropic_event("message_delta", delta=msg_delta),
     ]
 
-    mock_stream = MagicMock()
-    mock_stream.__enter__ = MagicMock(return_value=iter(events))
-    mock_stream.__exit__ = MagicMock(return_value=False)
+    mock_anthropic = _async_anthropic_client(events)
 
-    mock_anthropic = MagicMock()
-    mock_anthropic.messages.stream.return_value = mock_stream
-
-    engine = _make_cloud_engine(anthropic_client=mock_anthropic)
+    engine = _make_cloud_engine(anthropic_async_client=mock_anthropic)
     msgs = [Message(role=Role.USER, content="weather?")]
 
     result: List[StreamChunk] = []
@@ -337,14 +624,10 @@ async def test_stream_full_anthropic_finish_reason():
 
     # Test tool_use -> tool_calls
     events_tool = [_anthropic_event("message_delta", delta=msg_delta_tool)]
-    mock_stream = MagicMock()
-    mock_stream.__enter__ = MagicMock(return_value=iter(events_tool))
-    mock_stream.__exit__ = MagicMock(return_value=False)
+    events_stop = [_anthropic_event("message_delta", delta=msg_delta_stop)]
+    mock_anthropic = _async_anthropic_client(events_tool, events_stop)
 
-    mock_anthropic = MagicMock()
-    mock_anthropic.messages.stream.return_value = mock_stream
-
-    engine = _make_cloud_engine(anthropic_client=mock_anthropic)
+    engine = _make_cloud_engine(anthropic_async_client=mock_anthropic)
     msgs = [Message(role=Role.USER, content="test")]
 
     result = []
@@ -358,12 +641,6 @@ async def test_stream_full_anthropic_finish_reason():
     assert result[0].finish_reason == "tool_calls"
 
     # Test end_turn -> stop
-    events_stop = [_anthropic_event("message_delta", delta=msg_delta_stop)]
-    mock_stream2 = MagicMock()
-    mock_stream2.__enter__ = MagicMock(return_value=iter(events_stop))
-    mock_stream2.__exit__ = MagicMock(return_value=False)
-    mock_anthropic.messages.stream.return_value = mock_stream2
-
     result2 = []
     async for sc in engine._stream_full_anthropic(
         msgs,
@@ -766,14 +1043,9 @@ async def test_stream_full_routes_to_anthropic():
     msg_delta = MagicMock()
     msg_delta.stop_reason = "end_turn"
     events = [_anthropic_event("message_delta", delta=msg_delta)]
-    mock_stream = MagicMock()
-    mock_stream.__enter__ = MagicMock(return_value=iter(events))
-    mock_stream.__exit__ = MagicMock(return_value=False)
+    mock_anthropic = _async_anthropic_client(events)
 
-    mock_anthropic = MagicMock()
-    mock_anthropic.messages.stream.return_value = mock_stream
-
-    engine = _make_cloud_engine(anthropic_client=mock_anthropic)
+    engine = _make_cloud_engine(anthropic_async_client=mock_anthropic)
     msgs = [Message(role=Role.USER, content="test")]
 
     result = []
@@ -788,14 +1060,13 @@ async def test_stream_full_routes_to_anthropic():
 @pytest.mark.asyncio
 async def test_stream_full_routes_to_openai():
     """model='gpt-xxx' routes to _stream_full_openai."""
-    mock_client = MagicMock()
     chunks = [
         _openai_chunk(content="hi"),
         _openai_chunk(finish_reason="stop"),
     ]
-    mock_client.chat.completions.create.return_value = iter(chunks)
+    mock_client = _async_openai_client(chunks)
 
-    engine = _make_cloud_engine(openai_client=mock_client)
+    engine = _make_cloud_engine(openai_async_client=mock_client)
     msgs = [Message(role=Role.USER, content="test")]
 
     result = []
@@ -803,6 +1074,6 @@ async def test_stream_full_routes_to_openai():
         result.append(sc)
 
     # Verify OpenAI client was used
-    mock_client.chat.completions.create.assert_called_once()
+    mock_client.chat.completions.create.assert_awaited_once()
     assert result[0].content == "hi"
     assert result[1].finish_reason == "stop"

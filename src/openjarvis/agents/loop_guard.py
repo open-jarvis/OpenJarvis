@@ -68,20 +68,38 @@ class LoopGuard:
         except Exception:
             self._rust_impl = None
 
-    def check_call(self, tool_name: str, arguments: str) -> LoopVerdict:
+    def check_call(
+        self,
+        tool_name: str,
+        arguments: str,
+        *,
+        polling: bool = False,
+    ) -> LoopVerdict:
         """Check whether a tool call should proceed or be blocked."""
         if self._rust_impl is not None:
-            rust_result = self._rust_impl.check(tool_name, arguments)
-            # Support both raw Rust return (str | None) and LoopVerdict
-            if isinstance(rust_result, LoopVerdict):
-                verdict = rust_result
-            elif rust_result is not None:
-                self._emit_triggered("rust_guard", tool_name)
-                verdict = LoopVerdict(blocked=True, reason=rust_result)
+            try:
+                rust_result = self._rust_impl.check(tool_name, arguments, polling)
+            except TypeError:
+                # An older installed extension has the two-argument API and
+                # charges every tool against the poll budget. Falling back is
+                # safer than silently retaining that incorrect behavior.
+                self._rust_impl = None
+                verdict = self._python_check(
+                    tool_name,
+                    arguments,
+                    polling=polling,
+                )
             else:
-                verdict = LoopVerdict()
+                # Support both raw Rust return (str | None) and LoopVerdict.
+                if isinstance(rust_result, LoopVerdict):
+                    verdict = rust_result
+                elif rust_result is not None:
+                    self._emit_triggered("rust_guard", tool_name)
+                    verdict = LoopVerdict(blocked=True, reason=rust_result)
+                else:
+                    verdict = LoopVerdict()
         else:
-            verdict = self._python_check(tool_name, arguments)
+            verdict = self._python_check(tool_name, arguments, polling=polling)
 
         # Wrap with warn-before-block logic
         if verdict.blocked and self._config.warn_before_block:
@@ -91,7 +109,13 @@ class LoopGuard:
                 return LoopVerdict(blocked=False, warned=True, reason=verdict.reason)
         return verdict
 
-    def _python_check(self, tool_name: str, arguments: str) -> LoopVerdict:
+    def _python_check(
+        self,
+        tool_name: str,
+        arguments: str,
+        *,
+        polling: bool = False,
+    ) -> LoopVerdict:
         """Pure-Python fallback when Rust backend is not available."""
         # 1. Hash tracking — identical calls
         call_hash = hashlib.sha256(f"{tool_name}:{arguments}".encode()).hexdigest()[:16]
@@ -108,16 +132,19 @@ class LoopGuard:
             )
 
         # 2. Per-tool budget (polling tools)
-        self._per_tool_counts[tool_name] = self._per_tool_counts.get(tool_name, 0) + 1
-        if self._per_tool_counts[tool_name] > self._config.poll_tool_budget:
-            self._emit_triggered("poll_budget", tool_name)
-            return LoopVerdict(
-                blocked=True,
-                reason=(
-                    f"Tool '{tool_name}' exceeded poll budget "
-                    f"({self._config.poll_tool_budget})."
-                ),
+        if polling:
+            self._per_tool_counts[tool_name] = (
+                self._per_tool_counts.get(tool_name, 0) + 1
             )
+            if self._per_tool_counts[tool_name] > self._config.poll_tool_budget:
+                self._emit_triggered("poll_budget", tool_name)
+                return LoopVerdict(
+                    blocked=True,
+                    reason=(
+                        f"Tool '{tool_name}' exceeded poll budget "
+                        f"({self._config.poll_tool_budget})."
+                    ),
+                )
 
         # 3. Ping-pong detection
         self._tool_sequence.append(tool_name)
