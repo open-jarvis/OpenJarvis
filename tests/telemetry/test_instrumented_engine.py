@@ -71,6 +71,17 @@ class TestInstrumentedEngine:
         assert record.prompt_tokens == 10
         assert record.completion_tokens == 5
 
+    def test_generate_records_cost(self, mock_engine, bus):
+        mock_engine.generate.return_value["cost_usd"] = 0.0015
+        ie = InstrumentedEngine(mock_engine, bus)
+        messages = [Message(role=Role.USER, content="Hi")]
+        ie.generate(messages, model="test")
+
+        event = next(
+            e for e in bus.history if e.event_type == EventType.TELEMETRY_RECORD
+        )
+        assert event.data["record"].cost_usd == pytest.approx(0.0015)
+
     def test_list_models_delegates(self, mock_engine, bus):
         ie = InstrumentedEngine(mock_engine, bus)
         assert ie.list_models() == ["test-model"]

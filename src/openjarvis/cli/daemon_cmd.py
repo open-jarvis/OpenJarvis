@@ -17,18 +17,64 @@ _PID_FILE = DEFAULT_CONFIG_DIR / "server.pid"
 _LOG_FILE = DEFAULT_CONFIG_DIR / "server.log"
 
 
+def _pid_alive(pid: int) -> bool:
+    """Return whether *pid* identifies a running process without signaling it."""
+    if pid <= 0:
+        return False
+
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        error_invalid_parameter = 87
+        synchronize = 0x00100000
+        wait_object_0 = 0x00000000
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        handle = kernel32.OpenProcess(synchronize, False, pid)
+        if not handle:
+            # OpenProcess reports ERROR_INVALID_PARAMETER when the PID does not
+            # exist. For access-denied and other inconclusive failures, retain
+            # the PID file rather than declaring a potentially live daemon dead.
+            return ctypes.get_last_error() != error_invalid_parameter
+
+        try:
+            wait_result = kernel32.WaitForSingleObject(handle, 0)
+            # WAIT_OBJECT_0 proves the process exited. WAIT_TIMEOUT proves it
+            # is live; unexpected failures are inconclusive, so retain the PID.
+            return wait_result != wait_object_0
+        finally:
+            kernel32.CloseHandle(handle)
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def _read_pid() -> int | None:
     """Read PID from pid file, return None if not found or stale."""
     if not _PID_FILE.exists():
         return None
     try:
         pid = int(_PID_FILE.read_text().strip())
-        # Check if process is still running
-        os.kill(pid, 0)
-        return pid
-    except (ValueError, OSError):
+    except (OSError, ValueError):
         _PID_FILE.unlink(missing_ok=True)
         return None
+    if not _pid_alive(pid):
+        _PID_FILE.unlink(missing_ok=True)
+        return None
+    return pid
 
 
 def _write_pid(pid: int) -> None:
@@ -127,14 +173,13 @@ def stop() -> None:
         # Wait up to 10 seconds for graceful shutdown
         for _ in range(20):
             time.sleep(0.5)
-            try:
-                os.kill(pid, 0)
-            except OSError:
+            if not _pid_alive(pid):
                 break
         else:
-            # Force kill if still running
+            # SIGKILL is POSIX-only. On Windows SIGTERM already maps to
+            # TerminateProcess, so repeating it is the available escalation.
             try:
-                os.kill(pid, signal.SIGKILL)
+                os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
             except OSError:
                 pass
     except OSError:

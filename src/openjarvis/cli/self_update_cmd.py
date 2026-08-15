@@ -4,7 +4,9 @@ Runs the right upgrade command for how the user installed OpenJarvis:
 
 - PyPI installs get ``pip install --upgrade openjarvis``.
 - uv-tool installs get ``uv tool upgrade openjarvis``.
-- Editable git checkouts get ``git pull && uv sync`` in the checkout.
+- Editable git checkouts get ``git pull && uv sync --inexact`` in the checkout.
+  The inexact sync preserves packages previously installed through extras and
+  dependency groups.
 
 The detection logic is shared with the post-command "new version
 available" hint in ``_version_check.py`` so both surfaces stay in sync.

@@ -37,6 +37,7 @@ called from your app startup:
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -55,6 +56,15 @@ from openjarvis.tools.approval_store import (
     ApprovalStore,
 )
 from openjarvis.tools.proactive_tools import get_store
+
+logger = logging.getLogger(__name__)
+
+_PROACTIVE_CRON_PROMPT = (
+    "Run the proactive agent: collect overnight data, execute approved actions, "
+    "notify pending approvals."
+)
+_PROACTIVE_TASK_KEY = "proactive-daily"
+_PROACTIVE_TASK_KEY_FIELD = "openjarvis_task_key"
 
 _SYSTEM_PROMPT = """You are a proactive personal assistant agent. You have already collected
 data from the user's connected sources (email, messages, calendar). Your job is to:
@@ -252,14 +262,31 @@ def _build_notification_channel(channel_spec: str) -> Optional[Any]:
 
         if ChannelRegistry.contains(channel_type):
             channel_cls = ChannelRegistry.get(channel_type)
-            instance = channel_cls()
+            # Load credentials from config so the channel uses bot_token from
+            # config.toml rather than falling back to a bare env var.
             try:
-                instance.connect()
+                from openjarvis.core.config import load_config
+                from openjarvis.system._channel_kwargs import build_channel_kwargs
+
+                _cfg = load_config()
+                _kwargs = build_channel_kwargs(_cfg.channel, channel_type)
             except Exception:
-                pass
+                _kwargs = {}
+            instance = channel_cls(**_kwargs)
+            # Telegram.send() is self-contained, while connect() starts a
+            # getUpdates loop.  A second loop for the same bot token conflicts
+            # with the server's main listener.  Other channel implementations
+            # may initialize resources required by send() in connect(), so keep
+            # their established lifecycle intact.
+            if channel_type != "telegram":
+                instance.connect()
             return instance
     except Exception:
-        pass
+        logger.warning(
+            "Failed to build proactive notification channel %s",
+            channel_type,
+            exc_info=True,
+        )
 
     return None
 
@@ -299,6 +326,7 @@ class ProactiveAgent(ToolUsingAgent):
             self._notification_channel_id
         )
         self._notification_channel = notification_channel
+        self._notification_destination = self._notification_channel_id.partition(":")[2]
 
         from openjarvis.tools.channel_tools import ChannelSendTool
         from openjarvis.tools.digest_collect import DigestCollectTool
@@ -484,13 +512,13 @@ class ProactiveAgent(ToolUsingAgent):
         # --- Step 5: Build and send notification ---
         notification = self._build_notification(executed_results, pending_actions)
 
-        if notification and self._notification_channel_id:
+        if notification and self._notification_destination:
             send_call = ToolCall(
                 id="proactive-notify-1",
                 name="channel_send",
                 arguments=json.dumps(
                     {
-                        "channel": self._notification_channel_id,
+                        "channel": self._notification_destination,
                         "content": notification,
                     }
                 ),
@@ -592,15 +620,74 @@ def register_cron(
         hours_back = hours_back or 24
         timezone = timezone or "America/Los_Angeles"
 
+    metadata = {
+        "notification_channel_id": notification_channel_id,
+        "hours_back": hours_back,
+        "timezone": timezone,
+        _PROACTIVE_TASK_KEY_FIELD: _PROACTIVE_TASK_KEY,
+    }
+
+    # Match the stable key for tasks created by this version and the historical
+    # agent+prompt signature so existing installations are migrated on startup.
+    existing = [
+        task
+        for task in scheduler.list_tasks()
+        if task.status in {"active", "paused"}
+        and task.agent == "proactive"
+        and (
+            task.metadata.get(_PROACTIVE_TASK_KEY_FIELD) == _PROACTIVE_TASK_KEY
+            or (task.prompt == _PROACTIVE_CRON_PROMPT and task.schedule_type == "cron")
+        )
+    ]
+
+    # A scheduler pause is an explicit user choice and must survive restart.
+    # Keep one deterministically and remove any active or paused duplicates.
+    paused = [task for task in existing if task.status == "paused"]
+    if paused:
+        keep = min(paused, key=lambda task: task.id)
+        _cancel_proactive_duplicates(scheduler, existing, keep=keep)
+        return keep
+
+    matching = [
+        task
+        for task in existing
+        if task.prompt == _PROACTIVE_CRON_PROMPT
+        and task.schedule_type == "cron"
+        and task.schedule_value == cron_expr
+        and task.context_mode == "isolated"
+        and task.metadata == metadata
+    ]
+    if matching:
+        keep = min(matching, key=lambda task: task.id)
+        _cancel_proactive_duplicates(scheduler, existing, keep=keep)
+        return keep
+
+    # Configuration changed. Replace stale active tasks so the schedule and
+    # notification settings from config.toml take effect on this startup.
+    _cancel_proactive_duplicates(scheduler, existing)
+
     return scheduler.create_task(
-        prompt="Run the proactive agent: collect overnight data, execute approved actions, notify pending approvals.",
+        prompt=_PROACTIVE_CRON_PROMPT,
         schedule_type="cron",
         schedule_value=cron_expr,
         agent="proactive",
         context_mode="isolated",
-        metadata={
-            "notification_channel_id": notification_channel_id,
-            "hours_back": hours_back,
-            "timezone": timezone,
-        },
+        metadata=metadata,
     )
+
+
+def _cancel_proactive_duplicates(
+    scheduler: Any, tasks: List[Any], *, keep: Optional[Any] = None
+) -> None:
+    """Cancel managed proactive tasks other than *keep*."""
+    for task in tasks:
+        if keep is not None and task.id == keep.id:
+            continue
+        try:
+            scheduler.cancel_task(task.id)
+        except Exception:
+            logger.warning(
+                "Failed to cancel duplicate proactive task %s",
+                task.id,
+                exc_info=True,
+            )

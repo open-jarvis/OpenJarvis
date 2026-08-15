@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
 from openjarvis.cli import cli
-from openjarvis.cli.daemon_cmd import _read_pid, _write_pid
+from openjarvis.cli.daemon_cmd import _pid_alive, _read_pid, _write_pid
 
 
 class TestDaemonCommands:
@@ -45,12 +48,12 @@ class TestDaemonCommands:
             assert _read_pid() is None
 
     def test_write_and_read_pid(self, tmp_path: Path) -> None:
-        """Write a PID, then read it back (mock os.kill to succeed)."""
+        """Write a PID, then read it back with a successful liveness probe."""
         pid_file = tmp_path / "server.pid"
         with (
             patch("openjarvis.cli.daemon_cmd._PID_FILE", pid_file),
             patch("openjarvis.cli.daemon_cmd.DEFAULT_CONFIG_DIR", tmp_path),
-            patch("os.kill", return_value=None),
+            patch("openjarvis.cli.daemon_cmd._pid_alive", return_value=True),
         ):
             _write_pid(12345)
             assert pid_file.exists()
@@ -80,6 +83,53 @@ class TestDaemonCommands:
             result = CliRunner().invoke(cli, ["start"])
         assert result.exit_code != 0
         assert "already running" in result.output
+
+
+class TestPidLiveness:
+    """Regression coverage for Windows-safe PID liveness checks."""
+
+    def test_pid_alive_current_process(self) -> None:
+        assert _pid_alive(os.getpid()) is True
+
+    def test_pid_alive_nonpositive(self) -> None:
+        assert _pid_alive(0) is False
+        assert _pid_alive(-1) is False
+
+    def test_pid_alive_dead_pid(self) -> None:
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])
+        proc.wait()
+
+        for _ in range(20):
+            if not _pid_alive(proc.pid):
+                break
+            time.sleep(0.1)
+
+        assert _pid_alive(proc.pid) is False
+
+    def test_read_pid_stale_pid_returns_none(self, tmp_path: Path) -> None:
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])
+        proc.wait()
+        pid_file = tmp_path / "server.pid"
+        pid_file.write_text(str(proc.pid))
+
+        with patch("openjarvis.cli.daemon_cmd._PID_FILE", pid_file):
+            assert _read_pid() is None
+
+        assert not pid_file.exists()
+
+    def test_read_pid_live_pid_returns_it(self, tmp_path: Path) -> None:
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+        try:
+            pid_file = tmp_path / "server.pid"
+            pid_file.write_text(str(proc.pid))
+
+            with patch("openjarvis.cli.daemon_cmd._PID_FILE", pid_file):
+                assert _read_pid() == proc.pid
+
+            assert pid_file.exists()
+        finally:
+            proc.terminate()
+            proc.wait()
 
 
 class TestDaemonDetachment:
