@@ -34,6 +34,15 @@ _MEMORY_BACKEND_LOCK_SETUP = threading.Lock()
 _MCP_LOCK_SETUP = threading.Lock()
 
 
+def _get_runtime_event_bus(runtime: Any = None) -> Any:
+    """Return the server-owned event bus, falling back outside app runtimes."""
+
+    from openjarvis.core.events import get_event_bus
+
+    bus = getattr(runtime, "bus", None)
+    return bus if bus is not None else get_event_bus()
+
+
 def _start_managed_worker(app_state: Any, target: Any, *, name: str) -> Any:
     """Start and track a managed-agent worker for orderly app shutdown."""
 
@@ -301,14 +310,13 @@ def _make_lightweight_system(
         # Wrap with InstrumentedEngine so agent ticks are recorded
         # in telemetry (FLOPs, energy, cost savings).
         try:
-            from openjarvis.core.events import get_event_bus
             from openjarvis.telemetry.instrumented_engine import (
                 InstrumentedEngine,
             )
 
             plain_engine = InstrumentedEngine(
                 plain_engine,
-                get_event_bus(),
+                _get_runtime_event_bus(runtime),
             )
         except Exception:
             pass  # telemetry is optional
@@ -1644,26 +1652,27 @@ def create_agent_manager_router(
 
         # Re-use the server's engine + model so we don't pick a
         # random model from Ollama's list.
-        server_engine = getattr(request.app.state, "engine", None)
-        server_model = getattr(request.app.state, "model", "")
-        server_config = getattr(request.app.state, "config", None)
+        app_state = request.app.state
+        server_engine = getattr(app_state, "engine", None)
+        server_model = getattr(app_state, "model", "")
+        server_config = getattr(app_state, "config", None)
+        server_bus = _get_runtime_event_bus(app_state)
 
         def _run_tick():
             try:
                 from openjarvis.agents.executor import AgentExecutor
-                from openjarvis.core.events import get_event_bus
 
-                _ts = getattr(request.app.state, "trace_store", None)
+                _ts = getattr(app_state, "trace_store", None)
                 executor = AgentExecutor(
                     manager=manager,
-                    event_bus=get_event_bus(),
+                    event_bus=server_bus,
                     trace_store=_ts,
                 )
                 system = _make_lightweight_system(
                     server_engine,
                     server_model,
                     server_config,
-                    request.app.state,
+                    app_state,
                 )
                 executor.set_system(system)
                 # The route handler above already called start_tick() to
@@ -1690,7 +1699,7 @@ def create_agent_manager_router(
 
         try:
             _start_managed_worker(
-                request.app.state,
+                app_state,
                 _run_tick,
                 name=f"managed-agent-run-{agent_id}",
             )
@@ -1997,11 +2006,12 @@ def create_agent_manager_router(
             import time as _time
 
             from openjarvis.agents.executor import AgentExecutor
-            from openjarvis.core.events import get_event_bus
 
-            _srv_engine = getattr(request.app.state, "engine", None)
-            _srv_model = getattr(request.app.state, "model", "")
-            _srv_config = getattr(request.app.state, "config", None)
+            _app_state = request.app.state
+            _srv_engine = getattr(_app_state, "engine", None)
+            _srv_model = getattr(_app_state, "model", "")
+            _srv_config = getattr(_app_state, "config", None)
+            _srv_bus = _get_runtime_event_bus(_app_state)
 
             def _immediate_tick():
                 _start = _time.time()
@@ -2011,17 +2021,17 @@ def create_agent_manager_router(
                     _srv_model,
                 )
                 try:
-                    _ts2 = getattr(request.app.state, "trace_store", None)
+                    _ts2 = getattr(_app_state, "trace_store", None)
                     executor = AgentExecutor(
                         manager=manager,
-                        event_bus=get_event_bus(),
+                        event_bus=_srv_bus,
                         trace_store=_ts2,
                     )
                     system = _make_lightweight_system(
                         _srv_engine,
                         _srv_model,
                         _srv_config,
-                        request.app.state,
+                        _app_state,
                     )
                     executor.set_system(system)
                     logger.info(
@@ -2055,7 +2065,7 @@ def create_agent_manager_router(
 
             try:
                 _start_managed_worker(
-                    request.app.state,
+                    _app_state,
                     _immediate_tick,
                     name=f"managed-agent-immediate-{agent_id}",
                 )
@@ -2106,12 +2116,12 @@ def create_agent_manager_router(
         return {"learning_log": manager.list_learning_log(agent_id)}
 
     @agents_router.post("/{agent_id}/learning/run")
-    def trigger_learning(agent_id: str):
+    def trigger_learning(agent_id: str, request: Request):
         if not manager.get_agent(agent_id):
             raise HTTPException(status_code=404, detail="Agent not found")
-        from openjarvis.core.events import EventType, get_event_bus
+        from openjarvis.core.events import EventType
 
-        bus = get_event_bus()
+        bus = _get_runtime_event_bus(request.app.state)
         bus.publish(EventType.AGENT_LEARNING_STARTED, {"agent_id": agent_id})
         return {"status": "triggered"}
 

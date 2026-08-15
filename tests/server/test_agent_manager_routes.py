@@ -605,6 +605,39 @@ class TestLightweightSystemEngineResolution:
         )
         assert captured["key"] == "llamacpp"
 
+    def test_instrumented_engine_uses_runtime_event_bus(self, monkeypatch):
+        pytest.importorskip("fastapi")
+        from openjarvis.core.events import EventBus
+        from openjarvis.server import agent_manager_routes as amr
+        from openjarvis.telemetry import instrumented_engine
+
+        resolved_engine = MagicMock()
+        wrapped_engine = MagicMock()
+        runtime_bus = EventBus()
+        runtime = SimpleNamespace(
+            bus=runtime_bus,
+            memory_backend=object(),
+            channel_backend=None,
+            channel_bridge=None,
+            knowledge_db_path=None,
+        )
+        monkeypatch.setattr(
+            "openjarvis.engine._discovery.get_engine",
+            MagicMock(return_value=("resolved", resolved_engine)),
+        )
+        instrumented = MagicMock(return_value=wrapped_engine)
+        monkeypatch.setattr(instrumented_engine, "InstrumentedEngine", instrumented)
+
+        system = amr._make_lightweight_system(
+            engine=MagicMock(),
+            model="m",
+            config=self._cfg("vllm", "ollama"),
+            runtime=runtime,
+        )
+
+        instrumented.assert_called_once_with(resolved_engine, runtime_bus)
+        assert system.engine is wrapped_engine
+
     def test_caches_tool_memory_backend_when_prompt_context_is_disabled(
         self,
         monkeypatch,
