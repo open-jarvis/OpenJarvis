@@ -65,14 +65,17 @@ def create_ws_router(event_bus: EventBus) -> Any:
 
     @router.websocket("/v1/agents/events")
     async def agent_events(websocket: WebSocket) -> None:
-        from openjarvis.server.auth_middleware import websocket_authorized
+        from openjarvis.server.auth_middleware import (
+            websocket_authorized,
+            websocket_subprotocol,
+        )
 
         expected_key = getattr(websocket.app.state, "api_key", "")
         if not websocket_authorized(websocket, expected_key):
             # 1008 = policy violation; reject before accepting the connection.
             await websocket.close(code=1008)
             return
-        await websocket.accept()
+        await websocket.accept(subprotocol=websocket_subprotocol(websocket))
         # Parse agent_id filter from query string
         agent_id = websocket.query_params.get("agent_id")
         websocket._agent_filter = agent_id  # type: ignore[attr-defined]

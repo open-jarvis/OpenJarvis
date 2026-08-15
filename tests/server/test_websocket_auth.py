@@ -34,15 +34,22 @@ class TestWebsocketAuthorizedHelper:
     def test_no_key_allows_all(self):
         assert websocket_authorized(_ws(), "") is True
 
-    def test_token_via_query(self):
-        assert websocket_authorized(_ws(query={"token": "sek"}), "sek") is True
-
     def test_token_via_bearer_header(self):
         ws = _ws(headers={"authorization": "Bearer sek"})
         assert websocket_authorized(ws, "sek") is True
 
+    def test_token_via_subprotocol(self):
+        ws = _ws(headers={"sec-websocket-protocol": "bearer, sek"})
+        assert websocket_authorized(ws, "sek") is True
+
+    def test_query_token_no_longer_accepted(self):
+        # A ?token= query param would leak the key into server access logs;
+        # only headers and Sec-WebSocket-Protocol are honored.
+        assert websocket_authorized(_ws(query={"token": "sek"}), "sek") is False
+
     def test_wrong_token_rejected(self):
-        assert websocket_authorized(_ws(query={"token": "nope"}), "sek") is False
+        ws = _ws(headers={"sec-websocket-protocol": "bearer, nope"})
+        assert websocket_authorized(ws, "sek") is False
 
     def test_missing_token_rejected_when_required(self):
         assert websocket_authorized(_ws(), "sek") is False
@@ -75,12 +82,23 @@ class TestChatStreamAuth:
     def test_rejected_with_wrong_token(self):
         client = TestClient(_make_app(api_key="secret"))
         with pytest.raises(WebSocketDisconnect):
-            with client.websocket_connect("/v1/chat/stream?token=wrong") as ws:
+            with client.websocket_connect(
+                "/v1/chat/stream", subprotocols=["bearer", "wrong"]
+            ) as ws:
+                ws.receive_text()
+
+    def test_rejected_with_query_token(self):
+        # ?token= is no longer an accepted auth channel (would leak into logs).
+        client = TestClient(_make_app(api_key="secret"))
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("/v1/chat/stream?token=secret") as ws:
                 ws.receive_text()
 
     def test_accepted_with_correct_token(self):
         client = TestClient(_make_app(api_key="secret"))
-        with client.websocket_connect("/v1/chat/stream?token=secret") as ws:
+        with client.websocket_connect(
+            "/v1/chat/stream", subprotocols=["bearer", "secret"]
+        ) as ws:
             ws.send_text(json.dumps({"message": "hi"}))
             assert ws.receive_json()["type"] in ("chunk", "done", "error")
 
@@ -110,6 +128,8 @@ class TestAgentEventsAuth:
         app.state.api_key = "secret"
         app.include_router(create_ws_router(bus))
         client = TestClient(app)
-        with client.websocket_connect("/v1/agents/events?token=secret") as ws:
+        with client.websocket_connect(
+            "/v1/agents/events", subprotocols=["bearer", "secret"]
+        ) as ws:
             bus.publish(EventType.AGENT_TICK_START, {"agent_id": "a"})
             assert ws.receive_json()["data"]["agent_id"] == "a"

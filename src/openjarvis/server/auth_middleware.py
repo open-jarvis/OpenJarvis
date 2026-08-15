@@ -87,6 +87,23 @@ def check_bind_safety(host: str, *, api_key: str) -> None:
         sys.exit(1)
 
 
+def _bearer_subprotocol_token(websocket) -> str:  # noqa: ANN001
+    """Extract a token offered via ``Sec-WebSocket-Protocol: bearer, <token>``.
+
+    Browsers can't set an ``Authorization`` header on a WebSocket handshake,
+    but they can offer subprotocols, which (unlike a ``?token=`` query
+    parameter) aren't part of the request line and so don't land in server
+    access logs or browser history.
+    """
+    offered = [
+        p.strip()
+        for p in websocket.headers.get("sec-websocket-protocol", "").split(",")
+    ]
+    if len(offered) == 2 and offered[0] == "bearer" and offered[1]:
+        return offered[1]
+    return ""
+
+
 def websocket_authorized(websocket, expected_key: str) -> bool:  # noqa: ANN001
     """Return ``True`` if a WebSocket connection presents the expected key.
 
@@ -96,18 +113,29 @@ def websocket_authorized(websocket, expected_key: str) -> bool:  # noqa: ANN001
 
     When *expected_key* is empty, authentication is disabled (the loopback /
     local-only default, matching :class:`AuthMiddleware`) and all connections
-    are allowed. The token may be supplied either as a ``?token=`` query
-    parameter — browsers cannot set headers on a WebSocket handshake — or via
-    an ``Authorization: Bearer <key>`` header for programmatic clients.
+    are allowed. The token may be supplied via an ``Authorization: Bearer
+    <key>`` header for programmatic clients, or a ``Sec-WebSocket-Protocol:
+    bearer, <key>`` offer for browser clients — never via a URL query
+    parameter, which would leak the key into logs.
     """
     if not expected_key:
         return True
-    token = websocket.query_params.get("token", "")
+    auth = websocket.headers.get("authorization", "")
+    scheme, _, value = auth.partition(" ")
+    token = value if scheme.lower() == "bearer" else ""
     if not token:
-        auth = websocket.headers.get("authorization", "")
-        scheme, _, value = auth.partition(" ")
-        if scheme.lower() == "bearer":
-            token = value
+        token = _bearer_subprotocol_token(websocket)
     if not token:
         return False
     return secrets.compare_digest(token, expected_key)
+
+
+def websocket_subprotocol(websocket) -> str | None:  # noqa: ANN001
+    """Subprotocol to echo back in ``accept()`` if auth used ``Sec-WebSocket-Protocol``.
+
+    Call after :func:`websocket_authorized` returns ``True``. Passing this
+    through to ``accept(subprotocol=...)`` completes the handshake per the
+    WebSocket spec, which expects the server to select one of the client's
+    offered subprotocols.
+    """
+    return "bearer" if _bearer_subprotocol_token(websocket) else None

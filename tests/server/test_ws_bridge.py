@@ -74,7 +74,7 @@ class TestWSBridge:
                 query_params = {}
                 headers = {}
 
-                async def accept(self):
+                async def accept(self, subprotocol=None):
                     pass
 
                 async def receive(self):
@@ -98,7 +98,7 @@ class TestWSBridge:
                     self.receive_count = 0
                     self.disconnect = asyncio.Event()
 
-                async def accept(self):
+                async def accept(self, subprotocol=None):
                     pass
 
                 async def receive(self):
@@ -136,7 +136,7 @@ class TestWSBridge:
                     self.receiving = asyncio.Event()
                     self.receive_cancelled = asyncio.Event()
 
-                async def accept(self):
+                async def accept(self, subprotocol=None):
                     pass
 
                 async def receive(self):

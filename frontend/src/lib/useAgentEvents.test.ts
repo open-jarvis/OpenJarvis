@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { buildWsUrl } from './useAgentEvents';
+import { buildWsProtocols, buildWsUrl } from './useAgentEvents';
 
 const SETTINGS_KEY = 'openjarvis-settings';
 
@@ -27,12 +27,12 @@ afterEach(() => {
 });
 
 describe('buildWsUrl', () => {
-  it('authenticates agent events with the configured API key', () => {
+  it('builds the agent-events URL without leaking the API key into it', () => {
     localStorage.setItem(
       SETTINGS_KEY,
       JSON.stringify({
         apiUrl: 'https://jarvis.example.com:8443',
-        apiKey: 'secret+/=',
+        apiKey: 'oj_sk_secret-key_1',
       }),
     );
 
@@ -41,7 +41,8 @@ describe('buildWsUrl', () => {
     expect(url.origin).toBe('wss://jarvis.example.com:8443');
     expect(url.pathname).toBe('/v1/agents/events');
     expect(url.searchParams.get('agent_id')).toBe('agent/one');
-    expect(url.searchParams.get('token')).toBe('secret+/=');
+    expect(url.searchParams.has('token')).toBe(false);
+    expect(url.toString()).not.toContain('secret-key');
   });
 
   it('normalizes a versioned API base without duplicating /v1', () => {
@@ -52,15 +53,24 @@ describe('buildWsUrl', () => {
 
     expect(buildWsUrl()).toBe('ws://192.0.2.10:8000/v1/agents/events');
   });
+});
 
-  it('omits the token for a keyless server', () => {
+describe('buildWsProtocols', () => {
+  it('offers the API key as a bearer subprotocol', () => {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ apiKey: 'oj_sk_secret-key_1' }),
+    );
+
+    expect(buildWsProtocols()).toEqual(['bearer', 'oj_sk_secret-key_1']);
+  });
+
+  it('omits protocols for a keyless server', () => {
     localStorage.setItem(
       SETTINGS_KEY,
       JSON.stringify({ apiUrl: 'http://localhost:8000' }),
     );
 
-    const url = new URL(buildWsUrl('agent-one'));
-
-    expect(url.searchParams.has('token')).toBe(false);
+    expect(buildWsProtocols()).toBeUndefined();
   });
 });

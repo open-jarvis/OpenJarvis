@@ -13,10 +13,18 @@ export function buildWsUrl(agentId?: string): string {
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 
   if (agentId) url.searchParams.set('agent_id', agentId);
-  const apiKey = getApiKey();
-  if (apiKey) url.searchParams.set('token', apiKey);
 
   return url.toString();
+}
+
+/**
+ * WebSocket subprotocols carrying the API key, if configured. Sent via
+ * `Sec-WebSocket-Protocol` instead of a URL query param so the key never
+ * lands in server access logs or browser history.
+ */
+export function buildWsProtocols(): string[] | undefined {
+  const apiKey = getApiKey();
+  return apiKey ? ['bearer', apiKey] : undefined;
 }
 
 /**
@@ -43,7 +51,7 @@ export function useAgentEvents(
     const connect = () => {
       if (closed) return;
       try {
-        ws = new WebSocket(buildWsUrl(agentId));
+        ws = new WebSocket(buildWsUrl(agentId), buildWsProtocols());
       } catch {
         schedule();
         return;
