@@ -1,4 +1,4 @@
-"""Regression tests for openrouter/-prefixed model handling."""
+"""Regression tests for OpenRouter model ID normalization."""
 
 from __future__ import annotations
 
@@ -22,10 +22,11 @@ def test_get_provider_detects_litellm_prefixed_openrouter_id():
     [
         ("anthropic/claude-haiku-4.5", "anthropic/claude-haiku-4.5"),
         ("openrouter/anthropic/claude-haiku-4.5", "anthropic/claude-haiku-4.5"),
+        ("openrouter/auto", "openrouter/auto"),
     ],
 )
 @pytest.mark.asyncio
-async def test_stream_cloud_strips_openrouter_prefix_before_forwarding(
+async def test_stream_cloud_normalizes_openrouter_model_before_forwarding(
     monkeypatch, requested_model, expected_forwarded_model
 ):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
