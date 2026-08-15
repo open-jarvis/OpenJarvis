@@ -37,7 +37,7 @@ _PATCH_HTTP = "openjarvis.mcp.transport.StreamableHTTPTransport"
 _PATCH_STDIO = "openjarvis.mcp.transport.StdioTransport"
 _PATCH_CLIENT = "openjarvis.mcp.client.MCPClient"
 _PATCH_PROVIDER = "openjarvis.tools.mcp_adapter.MCPToolProvider"
-_PATCH_LOGGER = "openjarvis.system.builder.logger"
+_PATCH_LOGGER = "openjarvis.mcp.factory.logger"
 
 
 class TestDiscoverHTTPServer:

@@ -58,6 +58,26 @@ def _as_mcp_error(exc: BaseException) -> Optional[MCPError]:
     )
 
 
+def _current_scope() -> object:
+    """Identify the caller whose cancellation should reach this request.
+
+    The agent worker lease is the natural scope: one realtime turn owns one
+    lease, and barge-in cancels that lease. Calls made outside a lease (the
+    API path, a scheduled tick) share a single default scope, which is correct
+    because nothing cancels them mid-flight.
+    """
+    try:
+        from openjarvis.agents._stubs import _RUN_WORKER_LEASE
+
+        lease = _RUN_WORKER_LEASE.get(None)
+    except Exception:
+        lease = None
+    return lease if lease is not None else _DEFAULT_SCOPE
+
+
+_DEFAULT_SCOPE = object()
+
+
 class MCPRuntime:
     """Synchronous facade over one official SDK ``ClientSession``.
 
@@ -81,7 +101,10 @@ class MCPRuntime:
 
         self._state_lock = threading.Lock()
         self._active_lock = threading.Lock()
-        self._active: Any = None
+        # One in-flight future per scope. A single slot meant a second caller
+        # overwrote the first, so a Voice barge-in cancelled whichever call
+        # started last -- possibly an API agent's, not its own.
+        self._active: dict[object, Any] = {}
 
         self._session: Any = None
         self._initialize_result: dict[str, Any] = {}
@@ -135,10 +158,16 @@ class MCPRuntime:
             lambda session: self._call_tool(session, name, arguments or {})
         )
 
-    def cancel_active_call(self) -> None:
-        """Cancel the in-flight request, if any. Safe to call when idle."""
+    def cancel_active_call(self, scope: object | None = None) -> None:
+        """Cancel the in-flight call belonging to *scope*.
+
+        ``scope=None`` means the caller's own scope, which is what a realtime
+        interruption wants. Cancelling every scope would reach into another
+        agent's call.
+        """
+        target = scope if scope is not None else _current_scope()
         with self._active_lock:
-            future = self._active
+            future = self._active.get(target)
         if future is not None:
             future.cancel()
 
@@ -230,8 +259,9 @@ class MCPRuntime:
             raise RuntimeError("MCP session is not available")
 
         future = asyncio.run_coroutine_threadsafe(make_coroutine(session), self._loop)
+        scope = _current_scope()
         with self._active_lock:
-            self._active = future
+            self._active[scope] = future
         try:
             return future.result()
         except BaseException as exc:
@@ -241,8 +271,8 @@ class MCPRuntime:
             raise
         finally:
             with self._active_lock:
-                if self._active is future:
-                    self._active = None
+                if self._active.get(scope) is future:
+                    del self._active[scope]
 
     async def _list_tools(self, session: Any) -> list[dict[str, Any]]:
         tools: list[dict[str, Any]] = []

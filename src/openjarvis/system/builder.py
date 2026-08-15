@@ -672,31 +672,15 @@ class SystemBuilder:
         """
         import json
 
-        from openjarvis.mcp.client import MCPClient
-        from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
+        from openjarvis.mcp.factory import create_mcp_client
         from openjarvis.tools.mcp_adapter import MCPToolProvider
 
         cfg = json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
         name = cfg.get("name", "<unnamed>")
-        url = cfg.get("url")
-        # Bearer token from config — needed by authenticated MCP servers
-        # like Home Assistant. None / empty string skips the header. #461.
-        token = cfg.get("token")
-        command = cfg.get("command", "")
-        args = cfg.get("args", [])
 
-        if url:
-            transport = StreamableHTTPTransport(url=url, token=token)
-        elif command:
-            transport = StdioTransport(command=[command] + args)
-        else:
-            logger.warning(
-                "MCP server '%s' has neither 'url' nor 'command' — skipping",
-                name,
-            )
+        client = create_mcp_client(cfg)
+        if client is None:
             return []
-
-        client = MCPClient(transport)
         client.initialize()
 
         self._mcp_clients.append(client)

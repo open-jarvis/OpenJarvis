@@ -73,8 +73,7 @@ def load_mcp_tools_from_config(
     # Imported lazily so that `openjarvis.mcp.loader` can be imported
     # cheaply from CLI startup paths without dragging in the heavy MCP
     # client stack until something actually wants to discover tools.
-    from openjarvis.mcp.client import MCPClient
-    from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
+    from openjarvis.mcp.factory import create_mcp_client
     from openjarvis.tools.mcp_adapter import MCPToolProvider
 
     tools: list["BaseTool"] = []
@@ -84,23 +83,10 @@ def load_mcp_tools_from_config(
         try:
             cfg = json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
             name = cfg.get("name", "<unnamed>")
-            url = cfg.get("url")
-            token = cfg.get("token")
-            command = cfg.get("command", "")
-            args = cfg.get("args", [])
 
-            if url:
-                transport = StreamableHTTPTransport(url=url, token=token)
-            elif command:
-                transport = StdioTransport(command=[command] + args)
-            else:
-                logger.warning(
-                    "MCP server '%s' has neither 'url' nor 'command' — skipping",
-                    name,
-                )
+            client = create_mcp_client(cfg)
+            if client is None:
                 continue
-
-            client = MCPClient(transport)
             client.initialize()
             clients.append(client)
 

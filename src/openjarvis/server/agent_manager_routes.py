@@ -687,8 +687,6 @@ def _get_mcp_tools_locked(
     if not app_config.tools.mcp.enabled or not app_config.tools.mcp.servers:
         return openai_tools, adapters_by_name
 
-    from openjarvis.mcp.client import MCPClient
-    from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
     from openjarvis.tools.mcp_adapter import MCPToolProvider
 
     try:
@@ -703,26 +701,14 @@ def _get_mcp_tools_locked(
     for server_cfg in server_list:
         cfg = _json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
         name = cfg.get("name", "<unnamed>")
-        url = cfg.get("url")
-        # Bearer token from config — mirrors the builder.py fix for #461.
-        token = cfg.get("token")
-        command = cfg.get("command", "")
-        args = cfg.get("args", [])
 
         client = None
         try:
-            if url:
-                transport = StreamableHTTPTransport(url=url, token=token)
-            elif command:
-                transport = StdioTransport(command=[command] + args)
-            else:
-                logger.warning(
-                    "MCP server '%s' has neither 'url' nor 'command' — skipping",
-                    name,
-                )
-                continue
+            from openjarvis.mcp.factory import create_mcp_client
 
-            client = MCPClient(transport)
+            client = create_mcp_client(cfg)
+            if client is None:
+                continue
             if not _register_mcp_client(app_state, client):
                 client.close()
                 client = None
