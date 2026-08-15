@@ -38,6 +38,7 @@ class SystemBuilder:
         self._engine_instance_key: Optional[str] = None
         self._model: Optional[str] = None
         self._agent_name: Optional[str] = None
+        self._operators: bool = False
         self._tool_names: Optional[List[str]] = None
         self._telemetry: Optional[bool] = None
         self._traces: Optional[bool] = None
@@ -66,6 +67,11 @@ class SystemBuilder:
         """
         self._engine_instance = engine
         self._engine_instance_key = key
+        return self
+
+    def operators(self, enabled: bool = True) -> SystemBuilder:
+        """Attach an ``OperatorManager`` bound to the built system."""
+        self._operators = enabled
         return self
 
     def model(self, name: str) -> SystemBuilder:
@@ -210,7 +216,14 @@ class SystemBuilder:
             memory_backend,
             channel_backend,
         )
-        tool_executor = ToolExecutor(tool_list, bus) if tool_list else None
+        # The policy has to travel with the executor: ToolExecutor.execute()
+        # consults it before dispatch, and a None policy silently disables the
+        # capability check for every tool routed through this executor.
+        tool_executor = (
+            ToolExecutor(tool_list, bus, capability_policy=sec.capability_policy)
+            if tool_list
+            else None
+        )
 
         skill_manager = None
         skill_few_shot_examples: List[str] = []
@@ -235,7 +248,9 @@ class SystemBuilder:
                 )
                 tool_list.extend(skill_tools)
                 if tool_list:
-                    tool_executor = ToolExecutor(tool_list, bus)
+                    tool_executor = ToolExecutor(
+                        tool_list, bus, capability_policy=sec.capability_policy
+                    )
                 skill_few_shot_examples = skill_manager.get_few_shot_examples()
             except Exception as exc:
                 logger.warning("Failed to initialize skills: %s", exc)
@@ -344,6 +359,13 @@ class SystemBuilder:
         system._mcp_clients = list(getattr(self, "_mcp_clients", []))
         if system.agent_executor is not None:
             system.agent_executor.set_system(system)
+        if self._operators:
+            try:
+                from openjarvis.operators.manager import OperatorManager
+
+                system.operator_manager = OperatorManager(system)
+            except Exception as exc:
+                logger.warning("Failed to initialize operator manager: %s", exc)
         return system
 
     def _resolve_engine(self, config: JarvisConfig):

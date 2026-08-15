@@ -199,3 +199,40 @@ def test_run_agent_uses_the_shared_seam():
     import openjarvis.system.orchestrator as orchestrator_module
 
     assert "construct_registered_agent(" in inspect.getsource(orchestrator_module)
+
+
+def test_parallel_tools_false_reaches_the_agent():
+    """False is a meaningful value and must survive the None filter."""
+    assert AgentConfig().parallel_tools is True
+    agent = _build(parallel_tools=False)
+    assert agent._parallel_tools is False
+
+
+def test_builder_arms_tool_executor_with_capability_policy():
+    """A None policy silently disables the check for every tool it routes."""
+    import openjarvis.system.builder as builder_module
+
+    tree = ast.parse(inspect.getsource(builder_module))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "ToolExecutor"
+    ]
+    assert calls, "expected SystemBuilder to construct a ToolExecutor"
+    for call in calls:
+        assert any(kw.arg == "capability_policy" for kw in call.keywords)
+
+
+def test_builder_exposes_operators_seam():
+    from openjarvis.system import SystemBuilder
+
+    builder = SystemBuilder.__new__(SystemBuilder)
+    builder._operators = False
+
+    assert builder.operators(True) is builder
+    assert builder._operators is True
+
+    # Realtime lifecycle deliberately stays out of the builder: who holds an
+    # agent for how long is the caller's concern, not the composition root's.
+    assert not hasattr(SystemBuilder, "persistent_agent")

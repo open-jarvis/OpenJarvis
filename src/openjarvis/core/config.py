@@ -993,6 +993,7 @@ class AgentConfig:
     default_agent: str = "simple"
     max_turns: int = 10
     tools: str = ""  # comma-separated tool names
+    parallel_tools: bool = True  # False runs a turn's tool calls one at a time
     objective: str = ""  # concise purpose for routing/learning/docs
     system_prompt: str = ""  # inline system prompt (takes precedence if set)
     system_prompt_path: str = ""  # path to system prompt file (.txt, .md)
