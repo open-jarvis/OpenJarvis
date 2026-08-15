@@ -17,7 +17,7 @@ from openjarvis.cli.chat_cmd import _read_input, chat
 from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.core.registry import AgentRegistry, ToolRegistry
-from openjarvis.core.types import ToolCall, ToolResult
+from openjarvis.core.types import Role, ToolCall, ToolResult
 from openjarvis.memory.store import LocalFactStore
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
@@ -236,6 +236,64 @@ class TestChatAgents:
         prior_texts = [m.content for m in second_turn_context.conversation.messages]
         assert "first turn" in prior_texts
         assert "reply-1" in prior_texts
+
+    def test_agent_memory_context_precedes_prior_turn_history(self, tmp_path) -> None:
+        """Memory system context must remain ahead of prior conversation turns."""
+
+        captured_contexts: list[AgentContext | None] = []
+
+        class _CapturingAgent(BaseAgent):
+            agent_id = "capturing_memory_chat_agent"
+
+            def run(self, input, context: AgentContext | None = None, **kwargs):
+                captured_contexts.append(context)
+                return AgentResult(content=f"reply-{len(captured_contexts)}", turns=1)
+
+        facts_path = tmp_path / "facts.jsonl"
+        LocalFactStore(facts_path).add("The user likes jazz", source="auto")
+
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        config.memory.enabled = True
+        config.memory.facts_path = str(facts_path)
+        config.agent.context_from_memory = True
+
+        AgentRegistry.register_value(
+            "capturing_memory_chat_agent",
+            _CapturingAgent,
+        )
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch("openjarvis.memory.build_memory_service", return_value=None),
+            patch("openjarvis.cli.ask._get_memory_backend", return_value=None),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--agent", "capturing_memory_chat_agent", "--model", "test-model"],
+                input="first turn\nsecond turn\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert len(captured_contexts) == 2
+
+        second_turn_context = captured_contexts[1]
+        assert second_turn_context is not None
+        messages = second_turn_context.conversation.messages
+        assert [message.role for message in messages] == [
+            Role.SYSTEM,
+            Role.USER,
+            Role.ASSISTANT,
+        ]
+        assert "user likes jazz" in messages[0].content
+        assert [message.content for message in messages[1:]] == [
+            "first turn",
+            "reply-1",
+        ]
 
     def test_memory_service_started_fed_and_stopped(self) -> None:
         """The REPL starts memory, publishes each turn, and stops it."""

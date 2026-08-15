@@ -314,11 +314,11 @@ def chat(
                 from openjarvis.agents._stubs import AgentContext
 
                 agent_context = AgentContext()
+                if agent_context_message is not None:
+                    agent_context.conversation.add(agent_context_message)
                 for msg in history[:-1]:
                     if msg.role != Role.SYSTEM:
                         agent_context.conversation.add(msg)
-                if agent_context_message is not None:
-                    agent_context.conversation.add(agent_context_message)
                 response = agent.run(user_input, context=agent_context)
                 content = (
                     response.content if hasattr(response, "content") else str(response)
