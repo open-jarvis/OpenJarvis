@@ -291,54 +291,6 @@ async def test_anthropic_stream_full_uses_async_provider_iteration() -> None:
 
 
 @pytest.mark.asyncio
-async def test_google_stream_full_wait_is_cooperative() -> None:
-    provider_started = asyncio.Event()
-    release_provider = asyncio.Event()
-
-    class AsyncModels:
-        async def generate_content_stream(
-            self, **_kwargs: object
-        ) -> AsyncIterator[object]:
-            provider_started.set()
-            await release_provider.wait()
-
-            async def events() -> AsyncIterator[object]:
-                yield SimpleNamespace(text="Visible")
-
-            return events()
-
-    sync_models = MagicMock()
-    sync_models.generate_content_stream.side_effect = AssertionError(
-        "synchronous Google path used"
-    )
-    client = SimpleNamespace(
-        models=sync_models,
-        aio=SimpleNamespace(models=AsyncModels()),
-    )
-    engine = _make_cloud_engine(google_client=client)
-
-    async def heartbeat() -> None:
-        await provider_started.wait()
-        release_provider.set()
-
-    heartbeat_task = asyncio.create_task(heartbeat())
-    chunks = [
-        chunk
-        async for chunk in engine.stream_full(
-            [Message(role=Role.USER, content="hi")],
-            model="gemini-2.5-flash",
-            temperature=0.7,
-            max_tokens=100,
-        )
-    ]
-    await heartbeat_task
-
-    assert [chunk.content for chunk in chunks] == ["Visible", None]
-    assert chunks[-1].finish_reason == "stop"
-    sync_models.generate_content_stream.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_close_releases_all_async_provider_clients() -> None:
     closed: list[str] = []
 

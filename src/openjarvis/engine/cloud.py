@@ -1776,46 +1776,6 @@ class CloudEngine(InferenceEngine):
                         tool_results=tool_results or None,
                     )
 
-    async def _stream_full_google(
-        self,
-        messages: Sequence[Message],
-        *,
-        model: str,
-        temperature: float,
-        max_tokens: int,
-        **kwargs: Any,
-    ) -> AsyncIterator[StreamChunk]:
-        if self._google_client is None:
-            raise EngineConnectionError("Google client not available")
-        del kwargs
-        system_text = ""
-        contents: List[Dict[str, Any]] = []
-        for message in messages:
-            if message.role.value == "system":
-                system_text = message.content
-            elif message.role.value == "assistant":
-                contents.append({"role": "model", "parts": [{"text": message.content}]})
-            else:
-                contents.append({"role": "user", "parts": [{"text": message.content}]})
-
-        from google.genai import types as genai_types
-
-        config = genai_types.GenerateContentConfig(
-            temperature=temperature,
-            max_output_tokens=max_tokens,
-        )
-        if system_text:
-            config.system_instruction = system_text
-        stream = await self._google_client.aio.models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=config,
-        )
-        async for chunk in stream:
-            if chunk.text:
-                yield StreamChunk(content=chunk.text)
-        yield StreamChunk(finish_reason="stop")
-
     async def stream_full(
         self,
         messages: Sequence[Message],
