@@ -1,0 +1,50 @@
+# Browser Agent — official Playwright MCP, accessibility-first
+#
+# The selected OpenJarvis Agent drives a real headed Chromium through the
+# official Microsoft Playwright MCP server. Text and Voice both reach the same
+# Agent. It answers directly when current browser state is unnecessary, and
+# calls browser tools only when needed; accessibility observation and explicit
+# postcondition checks are conditional on the evidence the request requires.
+#
+# Any origin is reachable — deliberate. No `--allowed-origins` is set, so the
+# Agent can browse any site you ask it to. The trade-off is explicit: page
+# content is untrusted input, and without an origin allowlist a page that
+# smuggles instructions can try to steer the browser elsewhere while your
+# profile is logged in. The Browser prompt treats page text as data, never as
+# instructions, but that is mitigation, not enforcement. Add
+# `"--allowed-origins", "https://your-site.example"` to the args below to put
+# the hard limit back.
+#
+# BEFORE FIRST USE — check `--user-data-dir` below: a dedicated profile
+# directory for this Agent, separate from your personal browser. Log in
+# manually once in the headed window; the session persists there.
+#
+# Never put credentials, cookies, tokens, or storage state in this file.
+#
+# Usage:
+#   scripts/start-openjarvis.sh
+#   OPENJARVIS_CONFIG=configs/openjarvis/examples/browser-agent-playwright-mcp.toml jarvis serve
+
+[engine]
+default = "ollama"
+
+[intelligence]
+default_model = "qwen3.5:9b"        # needs reliable function calling
+
+[agent]
+default_agent = "orchestrator"
+system_prompt_path = "configs/openjarvis/prompts/browser-agent.md"
+parallel_tools = false              # one browser action at a time, one profile
+max_turns = 20
+# Exactly the audited 21 Playwright MCP tools — no native browser tools, no
+# cookie/storage, screenshot/vision, upload, network/console, or code tools.
+tools = "browser_snapshot,browser_find,browser_navigate,browser_navigate_back,browser_tabs,browser_click,browser_type,browser_fill_form,browser_select_option,browser_hover,browser_press_key,browser_wait_for,browser_handle_dialog,browser_drag,browser_drop,browser_resize,browser_close,browser_verify_element_visible,browser_verify_text_visible,browser_verify_value,browser_verify_list_visible"
+
+[server]
+host = "127.0.0.1"
+port = 8000
+agent = "orchestrator"
+
+[tools.mcp]
+enabled = true
+servers = '''[{"name": "playwright", "command": "npx", "args": ["-y", "@playwright/mcp@0.0.79", "--browser", "chromium", "--user-data-dir", ".openjarvis/browser-agent/staff-profile", "--sandbox", "--caps=testing", "--snapshot-mode", "none"], "include_tools": ["browser_snapshot", "browser_find", "browser_navigate", "browser_navigate_back", "browser_tabs", "browser_click", "browser_type", "browser_fill_form", "browser_select_option", "browser_hover", "browser_press_key", "browser_wait_for", "browser_handle_dialog", "browser_drag", "browser_drop", "browser_resize", "browser_close", "browser_verify_element_visible", "browser_verify_text_visible", "browser_verify_value", "browser_verify_list_visible"]}]'''
