@@ -201,8 +201,12 @@ def test_run_agent_uses_the_shared_seam():
     assert "construct_registered_agent(" in inspect.getsource(orchestrator_module)
 
 
-def test_parallel_tools_false_reaches_the_agent():
-    """False is a meaningful value and must survive the None filter."""
+def test_parallel_tools_false_survives_the_construction_seam_none_filter():
+    """False is a meaningful value and must survive the None filter in
+    ``construct_registered_agent`` itself. This does not exercise the real
+    config -> ``QueryOrchestrator._run_agent`` -> seam path -- see
+    ``tests/sdk/test_system.py::test_parallel_tools_false_reaches_agent_via_ask``
+    for that."""
     assert AgentConfig().parallel_tools is True
     agent = _build(parallel_tools=False)
     assert agent._parallel_tools is False

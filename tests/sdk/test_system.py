@@ -141,6 +141,52 @@ class TestJarvisSystem:
         result = system.ask("Hi", agent="test-system-agent")
         assert result["content"] == "From test agent"
 
+    def test_parallel_tools_false_reaches_agent_via_ask(self):
+        """A config-level ``agent.parallel_tools = False`` must reach the
+        constructed agent through the real ``ask()`` ->
+        ``QueryOrchestrator._run_agent()`` -> ``construct_registered_agent()``
+        path -- not just the construction seam in isolation (see
+        ``tests/system/test_agent_construction.py``)."""
+        from openjarvis.agents._stubs import AgentResult
+        from openjarvis.core.registry import AgentRegistry
+
+        class _CapturingAgent:
+            agent_id = "test-parallel-tools-agent"
+            accepts_tools = True
+            instances: list = []
+
+            def __init__(self, eng, model, parallel_tools=True, **kwargs):
+                self._parallel_tools = parallel_tools
+                type(self).instances.append(self)
+
+            def run(self, input, context=None, **kwargs):
+                return AgentResult(content="ok", turns=1)
+
+        if not AgentRegistry.contains("test-parallel-tools-agent"):
+            AgentRegistry.register_value(
+                "test-parallel-tools-agent", _CapturingAgent
+            )
+        _CapturingAgent.instances.clear()
+
+        def ask_with(parallel_tools: bool) -> None:
+            config = JarvisConfig()
+            config.agent.parallel_tools = parallel_tools
+            system = JarvisSystem(
+                config=config,
+                bus=EventBus(),
+                engine=MagicMock(),
+                engine_key="mock",
+                model="test",
+                agent_name="",
+            )
+            system.ask("Hi", agent="test-parallel-tools-agent")
+
+        ask_with(False)
+        assert _CapturingAgent.instances[-1]._parallel_tools is False
+
+        ask_with(True)
+        assert _CapturingAgent.instances[-1]._parallel_tools is True
+
     def test_ask_unknown_agent(self):
         """Unknown agent should return an error dict."""
         engine = MagicMock()

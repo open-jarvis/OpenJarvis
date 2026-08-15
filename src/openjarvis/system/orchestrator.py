@@ -159,6 +159,7 @@ class QueryOrchestrator:
         if getattr(agent_cls, "accepts_tools", False):
             agent_kwargs["tools"] = agent_tools
             agent_kwargs["max_turns"] = s.config.agent.max_turns
+            agent_kwargs["parallel_tools"] = s.config.agent.parallel_tools
             examples = getattr(s, "_skill_few_shot_examples", None)
             if examples:
                 agent_kwargs["skill_few_shot_examples"] = examples
