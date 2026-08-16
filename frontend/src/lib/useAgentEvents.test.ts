@@ -32,7 +32,7 @@ describe('buildWsUrl', () => {
       SETTINGS_KEY,
       JSON.stringify({
         apiUrl: 'https://jarvis.example.com:8443',
-        apiKey: 'oj_sk_secret-key_1',
+        apiKey: 'secret+/=',
       }),
     );
 
@@ -42,7 +42,7 @@ describe('buildWsUrl', () => {
     expect(url.pathname).toBe('/v1/agents/events');
     expect(url.searchParams.get('agent_id')).toBe('agent/one');
     expect(url.searchParams.has('token')).toBe(false);
-    expect(url.toString()).not.toContain('secret-key');
+    expect(url.toString()).not.toContain('secret');
   });
 
   it('normalizes a versioned API base without duplicating /v1', () => {
@@ -56,13 +56,22 @@ describe('buildWsUrl', () => {
 });
 
 describe('buildWsProtocols', () => {
-  it('offers the API key as a bearer subprotocol', () => {
-    localStorage.setItem(
-      SETTINGS_KEY,
-      JSON.stringify({ apiKey: 'oj_sk_secret-key_1' }),
-    );
+  it.each([
+    ['secret+/=', 'c2VjcmV0Ky89'],
+    ['bearer', 'YmVhcmVy'],
+    ['sëcret🔑', 'c8OrY3JldPCflJE'],
+  ])('offers a browser-safe encoding of API key %j', (apiKey, encoded) => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ apiKey }));
 
-    expect(buildWsProtocols()).toEqual(['bearer', 'oj_sk_secret-key_1']);
+    const protocols = buildWsProtocols();
+
+    expect(protocols).toEqual([
+      'openjarvis.auth.v1',
+      `openjarvis.key.b64url.${encoded}`,
+    ]);
+    expect(new Set(protocols).size).toBe(protocols?.length);
+    expect(protocols?.every((value) => /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value)))
+      .toBe(true);
   });
 
   it('omits protocols for a keyless server', () => {

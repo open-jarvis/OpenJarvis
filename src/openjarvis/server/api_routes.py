@@ -667,17 +667,15 @@ async def websocket_chat_stream(websocket: WebSocket):
         {"type": "done",  "content": "..."}   -- final assembled response
         {"type": "error", "detail": "..."}    -- on failure
     """
-    from openjarvis.server.auth_middleware import (
-        websocket_authorized,
-        websocket_subprotocol,
-    )
+    from openjarvis.server.auth_middleware import authenticate_websocket
 
     expected_key = getattr(websocket.app.state, "api_key", "")
-    if not websocket_authorized(websocket, expected_key):
-        # 1008 = policy violation; reject before accepting the connection.
+    authorized, subprotocol = authenticate_websocket(websocket, expected_key)
+    if not authorized:
+        # Closing before accept rejects the HTTP upgrade request.
         await websocket.close(code=1008)
         return
-    await websocket.accept(subprotocol=websocket_subprotocol(websocket))
+    await websocket.accept(subprotocol=subprotocol)
     try:
         while True:
             raw = await websocket.receive_text()
