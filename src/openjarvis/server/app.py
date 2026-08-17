@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import pathlib
 import threading
 import time
@@ -13,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from openjarvis.server.analytics_routes import router as analytics_router
 from openjarvis.server.api_routes import include_all_routes
+from openjarvis.server.auth_middleware import is_loopback_host
 from openjarvis.server.comparison import comparison_router
 from openjarvis.server.connectors_router import create_connectors_router
 from openjarvis.server.dashboard import dashboard_router
@@ -20,6 +22,12 @@ from openjarvis.server.digest_routes import create_digest_router
 from openjarvis.server.research_router import router as research_router
 from openjarvis.server.routes import router
 from openjarvis.server.upload_router import router as upload_router
+from openjarvis.server.voice import (
+    VoiceSessionService,
+    availability_router,
+    gemini_live_poc_available,
+    voice_router,
+)
 
 logger = logging.getLogger(__name__)
 _MANAGED_SHUTDOWN_GRACE_SECONDS = 0.25
@@ -116,6 +124,80 @@ def _restore_sendblue_bindings(app: FastAPI) -> None:
         logger.debug("SendBlue binding restore skipped: %s", exc)
 
 
+def _setup_kiosk(app: FastAPI, bus, channel_bridge) -> None:
+    """Initialize and launch the kiosk main loop + vision client on startup."""
+    import asyncio
+    import os
+
+    from openjarvis.kiosk.config import KioskConfig
+    from openjarvis.kiosk.effects import KioskDependencies
+    from openjarvis.kiosk.routes import router as kiosk_router
+    from openjarvis.kiosk.runtime import kiosk_main
+    from openjarvis.kiosk.vision_client import VisionClient
+
+    config = KioskConfig(
+        approach_threshold_m=float(
+            os.environ.get("KIOSK_APPROACH_THRESHOLD_M", "1.0")
+        ),
+        approach_entry_debounce=float(
+            os.environ.get("KIOSK_APPROACH_ENTRY_DEBOUNCE", "0.4")
+        ),
+        approach_sustain_seconds=float(
+            os.environ.get("KIOSK_APPROACH_SUSTAIN_SECONDS", "2.0")
+        ),
+        leave_sustain_seconds_prompting=float(
+            os.environ.get("KIOSK_LEAVE_SUSTAIN_PROMPTING", "5.0")
+        ),
+        leave_sustain_seconds_active=float(
+            os.environ.get("KIOSK_LEAVE_SUSTAIN_ACTIVE", "10.0")
+        ),
+        session_max_seconds=float(
+            os.environ.get("KIOSK_SESSION_MINUTES", "10")
+        ) * 60,
+        session_warning_seconds=float(
+            os.environ.get("KIOSK_SESSION_MINUTES", "10")
+        ) * 60 - 60,
+        popup_timeout=float(
+            os.environ.get("KIOSK_POPUP_TIMEOUT", "30")
+        ),
+    )
+
+    vision_url = os.environ.get("KIOSK_VISION_URL", "ws://127.0.0.1:9876")
+
+    # The kiosk only watches vision and gates the microphone; everything
+    # spoken goes through the Pipecat voice pipeline, so it needs no TTS of
+    # its own.
+    deps = KioskDependencies(bus=bus)
+
+    # Launch vision client
+    client = VisionClient(vision_url)
+
+    # Register kiosk routes
+    app.include_router(kiosk_router)
+
+    # Store client reference for shutdown
+    app.state.vision_client = client
+    app.state.kiosk_running = True
+
+    # Launch on startup
+    @app.on_event("startup")
+    async def _start_kiosk():
+        asyncio.create_task(client.run())
+        asyncio.create_task(kiosk_main(client.events, deps, config=config))
+        logger.info("Kiosk subsystem started — vision=%s", vision_url)
+
+    logger.info(
+        "Kiosk configured: threshold=%.1fm, approach=%.0fs/%.0fs(debounce), "
+        "leave=%.0fs(prompt)/%.0fs(active), session=%dmin",
+        config.approach_threshold_m,
+        config.approach_sustain_seconds,
+        config.approach_entry_debounce,
+        config.leave_sustain_seconds_prompting,
+        config.leave_sustain_seconds_active,
+        int(config.session_max_seconds / 60),
+    )
+
+
 # No-cache headers applied to static file responses
 _NO_CACHE_HEADERS = {
     "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -162,6 +244,7 @@ def create_app(
     mcp_tools=None,
     mcp_clients=None,
     api_key: str = "",
+    bind_host: str | None = None,
     webhook_config: dict | None = None,
     cors_origins: list[str] | None = None,
 ) -> FastAPI:
@@ -220,6 +303,27 @@ def create_app(
     app.state.engine = engine
     app.state.model = model
     app.state.agent = agent
+    from openjarvis.agents.runtime import (
+        DataSourceConfigurationSnapshot,
+        NativeAgentRuntime,
+    )
+
+    memory = getattr(config, "memory", None)
+    data_sources = DataSourceConfigurationSnapshot(
+        enabled=bool(
+            memory_backend is not None
+            and getattr(getattr(config, "agent", None), "context_from_memory", False)
+        ),
+        backend_id=str(getattr(memory_backend, "backend_id", "")),
+        top_k=int(getattr(memory, "context_top_k", 0)),
+        min_score=float(getattr(memory, "context_min_score", 0.0)),
+        max_context_tokens=int(getattr(memory, "context_max_tokens", 0)),
+    )
+    app.state.native_agent_runtime = (
+        NativeAgentRuntime(agent, data_source_configuration=data_sources)
+        if agent is not None
+        else None
+    )
     app.state.bus = bus
     app.state.engine_name = engine_name
     app.state.agent_name = agent_name or (
@@ -245,6 +349,21 @@ def create_app(
     # Exposed so WebSocket handlers can authenticate the handshake (the HTTP
     # AuthMiddleware never sees WS upgrade requests). Empty = auth disabled.
     app.state.api_key = api_key
+    loopback_development = is_loopback_host(bind_host)
+    gemini_available, gemini_reason = gemini_live_poc_available(
+        "internal",
+        loopback_development=loopback_development,
+    )
+    if gemini_available and not api_key and not loopback_development:
+        gemini_available = False
+        gemini_reason = "poc_auth_required"
+    if gemini_available and voice_router is None:
+        gemini_available = False
+        gemini_reason = "voice_runtime_missing"
+    app.state.gemini_live_poc_enabled = gemini_available
+    app.state.gemini_live_poc_unavailable_reason = gemini_reason
+    if app.state.gemini_live_poc_enabled:
+        app.state.voice_session_service = VoiceSessionService()
 
     @app.on_event("shutdown")
     async def _shutdown_managed_runtime() -> None:
@@ -431,6 +550,14 @@ def create_app(
     app.include_router(create_connectors_router())
     app.include_router(create_digest_router())
     app.include_router(upload_router)
+    app.include_router(availability_router)
+    if app.state.gemini_live_poc_enabled:
+        app.include_router(voice_router)
+
+    # --- Kiosk subsystem (proximity-aware voice kiosk) ---
+    if os.environ.get("KIOSK_ENABLED", "").strip() in ("1", "true", "yes"):
+        _setup_kiosk(app, bus, channel_bridge)
+
     app.include_router(research_router)
     app.include_router(analytics_router)
     include_all_routes(app)

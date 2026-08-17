@@ -492,6 +492,7 @@ def serve(
         api_key=api_key,
         webhook_config=webhook_config,
         cors_origins=cors_origins,
+        bind_host=bind_host,
     )
     app.state.system = system
 

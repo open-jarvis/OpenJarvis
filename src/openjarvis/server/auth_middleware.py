@@ -64,21 +64,28 @@ def generate_api_key() -> str:
     return f"oj_sk_{secrets.token_urlsafe(32)}"
 
 
+def is_loopback_host(host: str | None) -> bool:
+    """Return whether *host* explicitly identifies a loopback interface."""
+    if not host:
+        return False
+
+    import ipaddress
+
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host == "localhost"
+
+
 def check_bind_safety(host: str, *, api_key: str) -> None:
     """Refuse to bind non-loopback without an API key.
 
     Raises ``SystemExit`` if *host* is not a loopback address and
     *api_key* is empty.
     """
-    import ipaddress
     import sys
 
-    try:
-        is_loop = ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        is_loop = host in ("localhost", "")
-
-    if not is_loop and not api_key:
+    if not is_loopback_host(host) and not api_key:
         logger.error(
             "Binding to %s requires OPENJARVIS_API_KEY to be set. "
             "Run: jarvis auth generate-key",
