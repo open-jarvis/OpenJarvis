@@ -504,15 +504,12 @@ def serve(
         f"  URL:    [cyan]http://{bind_host}:{bind_port}[/cyan]"
     )
 
-    # Warn about wildcard CORS on non-loopback
-    import ipaddress as _ipa
+    # Warn about wildcard CORS on non-loopback. An empty host binds every
+    # interface, so it is the opposite of loopback -- which is why this uses
+    # the same helper the bind-safety check does rather than its own copy.
+    from openjarvis.server.auth_middleware import is_loopback_host
 
-    try:
-        _is_loop = _ipa.ip_address(bind_host).is_loopback
-    except ValueError:
-        _is_loop = bind_host in ("localhost", "")
-
-    if not _is_loop and "*" in cors_origins:
+    if not is_loopback_host(bind_host) and "*" in cors_origins:
         console.print(
             "[yellow bold]WARNING:[/yellow bold] Wildcard CORS with credentials "
             "enabled on non-loopback interface. This allows any website to make "
