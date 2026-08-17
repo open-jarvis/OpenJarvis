@@ -122,6 +122,50 @@ class TestWSBridge:
 
         asyncio.run(exercise())
 
+    def test_kiosk_state_event_is_forwarded(self, event_bus):
+        async def exercise():
+            from openjarvis.server.ws_bridge import create_ws_router
+
+            class FakeWebSocket:
+                def __init__(self):
+                    self.app = SimpleNamespace(state=SimpleNamespace(api_key=""))
+                    self.query_params = {}
+                    self.headers = {}
+                    self.sent = []
+                    self.receive_count = 0
+                    self.disconnect = asyncio.Event()
+
+                async def accept(self):
+                    pass
+
+                async def receive(self):
+                    self.receive_count += 1
+                    if self.receive_count == 1:
+                        event_bus.publish(
+                            EventType.KIOSK_STATE_CHANGED,
+                            {"state": "prompting", "mic_enabled": False},
+                        )
+                        return {"type": "websocket.receive", "text": "client message"}
+                    await self.disconnect.wait()
+                    return {"type": "websocket.disconnect"}
+
+                async def send_json(self, payload):
+                    self.sent.append(payload)
+                    self.disconnect.set()
+
+            websocket = FakeWebSocket()
+            endpoint = create_ws_router(event_bus).routes[0].endpoint
+
+            await asyncio.wait_for(endpoint(websocket), timeout=1)
+
+            assert websocket.sent[0]["type"] == "kiosk_state_changed"
+            assert websocket.sent[0]["data"] == {
+                "state": "prompting",
+                "mic_enabled": False,
+            }
+
+        asyncio.run(exercise())
+
     def test_cancelling_handler_cleans_up_child_tasks(self, event_bus):
         async def exercise():
             from openjarvis.server.ws_bridge import create_ws_router

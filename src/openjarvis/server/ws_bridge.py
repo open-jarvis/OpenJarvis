@@ -28,6 +28,7 @@ _AGENT_EVENTS = {
     EventType.TOOL_CALL_END,
     EventType.INFERENCE_START,
     EventType.INFERENCE_END,
+    EventType.KIOSK_STATE_CHANGED,
 }
 
 
