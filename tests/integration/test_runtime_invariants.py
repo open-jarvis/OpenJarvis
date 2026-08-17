@@ -31,6 +31,19 @@ def system():
     engine = MagicMock()
     engine.health.return_value = True
     engine.list_models.return_value = [config.intelligence.default_model]
+    # Same story for `MemoryRegistry`: `_clean_registries` empties it, and
+    # `@MemoryRegistry.register("sqlite")` only fires the first time
+    # `openjarvis.tools.storage` is imported. Whether that import already
+    # happened depends on which tests ran before this module, so
+    # `_resolve_memory` finds an empty registry and degrades to None — the file
+    # passes alone and fails inside the suite. Put the real backend back.
+    from openjarvis.core.registry import MemoryRegistry
+    from openjarvis.tools.storage.sqlite import SQLiteMemory
+
+    # Guarded: when this module runs alone the decorator did fire, and
+    # re-registering the same key raises.
+    if not MemoryRegistry.contains(config.memory.default_backend):
+        MemoryRegistry.register_value(config.memory.default_backend, SQLiteMemory)
     built = (
         SystemBuilder(config)
         .engine_instance(engine, key="ollama")
