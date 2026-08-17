@@ -39,6 +39,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self._api_key = api_key or os.environ.get("OPENJARVIS_API_KEY", "")
 
     async def dispatch(self, request: Request, call_next):  # noqa: ANN001
+        # Browser CORS preflights never carry Authorization, and rejecting
+        # them here means they never reach CORSMiddleware to get
+        # Access-Control-Allow-* headers, breaking cross-origin access
+        # outright (#758). Preflights carry no credentials to protect.
+        if request.method == "OPTIONS":
+            return await call_next(request)
         if self._api_key and self._requires_auth(request.url.path):
             auth = request.headers.get("Authorization", "")
             if not auth:

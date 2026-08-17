@@ -82,3 +82,10 @@ class TestAuthMiddleware:
         resp = client.get("/v1/models")
         assert resp.status_code == 200
         assert client.get("/metrics").status_code == 200
+
+    def test_options_preflight_exempt(self, client):
+        """Regression for #758: browser preflights never carry Authorization,
+        so AuthMiddleware must not reject OPTIONS with 401 -- otherwise the
+        request never reaches CORSMiddleware and preflight fails outright."""
+        resp = client.options("/v1/models")
+        assert resp.status_code != 401
