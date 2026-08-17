@@ -260,10 +260,10 @@ class ToolExecutor:
         # Execute with timeout
         timeout = tool.spec.timeout_seconds or self._default_timeout
         t0 = time.time()
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(tool.execute, **params)
-                result = future.result(timeout=timeout)
+            future = pool.submit(tool.execute, **params)
+            result = future.result(timeout=timeout)
         except concurrent.futures.TimeoutError:
             if self._bus:
                 self._bus.publish(
@@ -281,6 +281,12 @@ class ToolExecutor:
                 content=f"Tool execution error: {exc}",
                 success=False,
             )
+        finally:
+            # wait=False so a timed-out call returns immediately instead of
+            # blocking on the still-running worker thread. cancel_futures
+            # only drops queued-but-not-started work; it cannot interrupt
+            # the thread already executing tool.execute() (see #749).
+            pool.shutdown(wait=False, cancel_futures=True)
         latency = time.time() - t0
         result.latency_seconds = latency
         result.metadata["arguments"] = params

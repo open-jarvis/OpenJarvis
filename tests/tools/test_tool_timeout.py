@@ -66,6 +66,23 @@ class TestToolTimeout:
         assert not result.success
         assert "timed out" in result.content
 
+    def test_slow_tool_times_out_promptly(self):
+        """execute() must return around the configured timeout, not wait
+        for the slow tool to actually finish (issue #749)."""
+        executor = ToolExecutor([SlowTool(delay=8.0)])
+        call = ToolCall(id="1", name="slow_tool", arguments="{}")
+
+        t0 = time.time()
+        result = executor.execute(call)
+        elapsed = time.time() - t0
+
+        assert not result.success
+        assert elapsed < 3.0, (
+            f"execute() took {elapsed:.1f}s to return; expected it to "
+            "return promptly after the 1s timeout instead of blocking "
+            "until the 8s tool finished"
+        )
+
     def test_timeout_event_emitted(self):
         bus = EventBus(record_history=True)
         executor = ToolExecutor([SlowTool(delay=5.0)], bus=bus)
