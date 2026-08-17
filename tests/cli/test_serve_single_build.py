@@ -5,10 +5,11 @@ serve.py used to construct all heavy components inline and then call
 re-discovering the engine, re-instrumenting it, re-resolving tools, re-opening
 the channel and re-creating the agent manager — ~30-40s of redundant work.
 
-These tests pin the fix:
+The fix for a double build is to build *once*, not to hand-assemble the system
+around the builder — the hand-rolled path silently dropped 10-18 of the 25
+wiring arguments. So the invariant these tests pin is exactly-once, not never:
 
-1. ``SystemBuilder.build`` is never called during ``jarvis serve`` startup
-   (the duplicate build is gone).
+1. ``SystemBuilder.build`` runs exactly one time during ``jarvis serve``.
 2. The ``AgentExecutor`` still receives a system exposing the attributes it
    actually reads: ``tool_executor``, ``session_store``, ``memory_backend``,
    plus ``engine`` / ``model`` / ``config``.
@@ -164,14 +165,27 @@ def _run_serve(tmp_path, monkeypatch, *, build_spy, set_system_spy):
         return CliRunner().invoke(cli, ["serve"], catch_exceptions=False)
 
 
-def test_serve_does_not_call_systembuilder_build(tmp_path, monkeypatch):
-    """The redundant second full build is gone (#263)."""
-    build_spy = MagicMock(
-        side_effect=AssertionError(
-            "SystemBuilder.build() must not run during `jarvis serve` startup "
-            "— it is the duplicate build #263 removed."
-        )
-    )
+def _counting_build():
+    """Return ``(calls, patch_target)`` wrapping the real ``SystemBuilder.build``.
+
+    A plain function, not a MagicMock: patched onto the class it still binds
+    ``self``, so the real build runs and the count is of real builds.
+    """
+    from openjarvis.system.builder import SystemBuilder
+
+    real_build = SystemBuilder.build
+    calls: list = []
+
+    def _build(self):
+        calls.append(self)
+        return real_build(self)
+
+    return calls, _build
+
+
+def test_serve_calls_systembuilder_build_exactly_once(tmp_path, monkeypatch):
+    """One composition root, one build — the duplicate build is gone (#263)."""
+    calls, build_spy = _counting_build()
     set_system_spy = MagicMock()
     inject_spy = MagicMock()
     monkeypatch.setattr(serve_mod, "inject_credentials", inject_spy)
@@ -184,7 +198,7 @@ def test_serve_does_not_call_systembuilder_build(tmp_path, monkeypatch):
     )
 
     assert result.exit_code == 0, result.output
-    build_spy.assert_not_called()
+    assert len(calls) == 1, f"build() ran {len(calls)}x"
     inject_spy.assert_called_once_with()
 
 
@@ -192,9 +206,9 @@ def test_executor_receives_required_system_attrs(tmp_path, monkeypatch):
     """The executor still gets a system exposing the attributes it reads.
 
     AgentExecutor reads engine/model/config/memory_backend/tool_executor/
-    session_store off ``self._system``; the de-dup must not strip any of them.
+    session_store off ``self._system``; the single build must not strip any.
     """
-    build_spy = MagicMock()
+    calls, build_spy = _counting_build()
     captured: dict = {}
 
     def _capture_set_system(self, system):  # noqa: ANN001
@@ -210,8 +224,7 @@ def test_executor_receives_required_system_attrs(tmp_path, monkeypatch):
     )
 
     assert result.exit_code == 0, result.output
-    # Built once, from the inline components — not via SystemBuilder.build().
-    build_spy.assert_not_called()
+    assert len(calls) == 1, f"build() ran {len(calls)}x"
 
     system = captured.get("system")
     assert system is not None, "executor.set_system was never called"

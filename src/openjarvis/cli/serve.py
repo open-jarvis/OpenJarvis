@@ -162,20 +162,9 @@ def serve(
     register_builtin_models()
     bus = EventBus(record_history=False)
 
-    # Set up telemetry
-    telem_store = None
-    if config.telemetry.enabled:
-        try:
-            from pathlib import Path
-
-            from openjarvis.telemetry.store import TelemetryStore
-
-            db_path = Path(config.telemetry.db_path).expanduser()
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            telem_store = TelemetryStore(str(db_path))
-            telem_store.subscribe_to_bus(bus)
-        except Exception as exc:
-            logger.debug("Telemetry store init failed: %s", exc)
+    # Telemetry, security guardrails and engine instrumentation are applied by
+    # the single SystemBuilder composition below. Doing them here as well would
+    # wrap the engine twice and put two TelemetryStores on the same bus.
 
     # Select with the model we'll actually serve so an engine that can't
     # serve it (e.g. the cloud fallback without the matching provider key) is
@@ -192,12 +181,6 @@ def serve(
         sys.exit(1)
 
     engine_name, engine = resolved
-
-    # Apply security guardrails
-    from openjarvis.security import setup_security
-
-    sec = setup_security(config, engine, bus)
-    engine = sec.engine
 
     # If cloud API keys are set, prepare a cloud engine. We build the
     # MultiEngine after local discovery so healthy local fallbacks such as
@@ -226,27 +209,6 @@ def serve(
                 )
         except Exception as exc:
             logger.debug("Cloud engine init failed: %s", exc)
-
-    # Wrap engine with InstrumentedEngine for telemetry recording
-    try:
-        from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
-
-        energy_mon = None
-        try:
-            from openjarvis.telemetry.energy_monitor import create_energy_monitor
-
-            energy_mon = create_energy_monitor()
-            if energy_mon is not None:
-                console.print(
-                    f"  Energy: [cyan]{energy_mon.vendor().value}[/cyan] "
-                    f"({energy_mon.energy_method()})"
-                )
-        except Exception as exc:
-            logger.debug("Energy monitor creation failed: %s", exc)
-
-        engine = InstrumentedEngine(engine, bus, energy_monitor=energy_mon)
-    except Exception as exc:
-        logger.debug("Engine instrumentation failed: %s", exc)
 
     # Discover models
     all_engines = discover_engines(config)
@@ -295,211 +257,131 @@ def serve(
         )
         sys.exit(1)
 
-    # Resolve agent
-    agent = None
+    # One composition root. Everything downstream -- the API path, scheduled
+    # agents, operators and the realtime voice session -- draws its engine,
+    # tools, MCP clients, memory, sessions and policy from this one system.
+    #
+    # serve.py used to assemble JarvisSystem by hand to avoid a second
+    # build() call (#263). The fix for a double build is to build once, not
+    # to hand-assemble: the manual path silently dropped scheduler,
+    # workflow_engine, skill_manager, speech_backend, audit_logger,
+    # container_runner, agent_scheduler, channel_backend, gpu_monitor and
+    # scheduler_store.
+    from openjarvis.system import SystemBuilder
+
     agent_key = agent_name or config.server.agent
-    # Tool instances resolved for the primary agent are reused below to build
-    # the scheduler's ToolExecutor — avoiding a second full SystemBuilder.build()
-    # (which would re-discover the engine, re-resolve tools, re-open the channel,
-    # etc.). See the scheduler block near the bottom of this function (#263).
-    resolved_tools: list = []
-    managed_mcp_tools: list = []
-    mcp_clients: list = []
-    try:
-        from openjarvis.mcp.loader import load_mcp_tools_from_config
-
-        managed_mcp_tools, mcp_clients = load_mcp_tools_from_config(config.tools.mcp)
-    except Exception as exc:
-        logger.warning("Managed-agent MCP tools failed to load: %s", exc)
-
+    builder = (
+        SystemBuilder(config)
+        .engine_instance(engine, key=engine_name or "openai-compat")
+        .event_bus(bus)
+        .model(model_name)
+        .scheduler(True)
+        .workflow(True)
+        .sessions(True)
+        .operators(True)
+        .telemetry(config.telemetry.enabled)
+        .traces(config.traces.enabled)
+    )
     if agent_key:
+        builder = builder.agent(agent_key)
+    # The builder resolves no tools at all when nothing is configured; the
+    # server has always served a small default set instead.
+    _allowed, _tools_configured = _resolve_allowed_tools(config)
+    if not _tools_configured:
+        builder = builder.tools(sorted(_allowed))
+
+    system = builder.build()
+
+    # From here on the system owns them.
+    engine = system.engine
+    engine_name = system.engine_key
+    model_name = system.model
+    agent_key = system.agent_name
+
+    # The server is the authoritative tick runner: on boot it holds no locks,
+    # so it (and only it) sweeps any zombie running->idle left by a crash.
+    if system.agent_manager is not None:
         try:
-            import openjarvis.agents  # noqa: F401
-            from openjarvis.core.registry import AgentRegistry
-
-            if AgentRegistry.contains(agent_key):
-                agent_cls = AgentRegistry.get(agent_key)
-                agent_kwargs = {"bus": bus}
-                if sec.capability_policy is not None:
-                    agent_kwargs["capability_policy"] = sec.capability_policy
-
-                # Load tools for agents that support them
-                if getattr(agent_cls, "accepts_tools", False):
-                    import openjarvis.tools  # noqa: F401  # trigger registration
-                    from openjarvis.core.registry import ToolRegistry
-                    from openjarvis.tools._stubs import BaseTool
-
-                    allowed, tools_configured = _resolve_allowed_tools(config)
-
-                    tools = []
-                    for name in ToolRegistry.keys():
-                        if name not in allowed:
-                            continue
-                        tool_cls = ToolRegistry.get(name)
-                        if isinstance(tool_cls, type) and issubclass(
-                            tool_cls, BaseTool
-                        ):
-                            tools.append(tool_cls())
-                        elif isinstance(tool_cls, BaseTool):
-                            tools.append(tool_cls)
-
-                    # MCP server tools from config.tools.mcp.servers
-                    # (#461 — these were silently dropped).
-                    mcp_tools = managed_mcp_tools
-                    if tools_configured:
-                        mcp_tools = [
-                            tool
-                            for tool in managed_mcp_tools
-                            if tool.spec.name in allowed
-                        ]
-                    if mcp_tools:
-                        existing = {t.spec.name for t in tools}
-                        for t in mcp_tools:
-                            if t.spec.name not in existing:
-                                tools.append(t)
-                                existing.add(t.spec.name)
-
-                    if tools:
-                        agent_kwargs["tools"] = tools
-                    # Reuse these for the scheduler's ToolExecutor (#263).
-                    resolved_tools = tools
-
-                if getattr(agent_cls, "accepts_tools", False):
-                    agent_kwargs["max_turns"] = config.agent.max_turns
-
-                agent = agent_cls(engine, model_name, **agent_kwargs)
-                # Pin MCP transports to the agent's lifetime so HTTP
-                # connections don't close mid-request (#461).
-                if mcp_clients:
-                    agent._mcp_clients = mcp_clients
+            system.agent_manager._clear_stale_running_state()
         except Exception as exc:
-            import traceback
+            logger.debug("Stale agent-state sweep failed: %s", exc)
 
-            console.print(f"[yellow]Agent '{agent_key}' failed to load: {exc}[/yellow]")
-            traceback.print_exc()
+    # The realtime voice path holds one agent across turns: it streams token
+    # deltas, keeps a binding, and cancels an in-flight tool call on barge-in.
+    # ask() constructs a fresh agent per call, which is the right lifecycle
+    # for request/response work but cannot serve a session. Build the
+    # long-lived one here, from what the system already owns.
+    import openjarvis.agents  # noqa: F401  -- trigger agent registration
+    from openjarvis.system.agent_construction import (
+        construct_registered_agent,
+        resolve_agent_system_prompt,
+    )
 
-    # Set up channel backend if enabled
-    channel_bridge = None
-    if config.channel.enabled and config.channel.default_channel:
+    agent = None
+    if system.agent_name:
         try:
-            from openjarvis.system import SystemBuilder
+            agent = construct_registered_agent(
+                agent_name=system.agent_name,
+                engine=system.engine,
+                model=system.model,
+                tools=system.tools,
+                bus=system.bus,
+                max_turns=system.config.agent.max_turns,
+                capability_policy=system.capability_policy,
+                memory_backend=system.memory_backend,
+                session_store=system.session_store,
+                system_prompt=resolve_agent_system_prompt(system.config.agent),
+                parallel_tools=system.config.agent.parallel_tools,
+                extra_kwargs={
+                    "skill_few_shot_examples": system._skill_few_shot_examples,
+                },
+            )
+            system.agent = agent
+        except Exception as exc:
+            logger.warning("Failed to construct the serving agent: %s", exc)
+            console.print(f"[yellow]Agent {agent_key!r} failed to load: {exc}[/yellow]")
 
-            # Reuse _resolve_channel logic from SystemBuilder
-            sb = SystemBuilder(config)
-            sb._bus = bus
-            channel_bridge = sb._resolve_channel(config, bus)
-            if channel_bridge is not None:
-                channel_bridge.connect()
-                console.print(
-                    f"  Channel: [cyan]{config.channel.default_channel}[/cyan]"
-                )
+    # Provenance: which implementation backs each tool name. Names only --
+    # never arguments or results.
+    def _provenance(tool) -> str:
+        mcp_meta = tool.spec.metadata.get("mcp")
+        origin = type(tool).__name__
+        if isinstance(mcp_meta, dict):
+            origin += f"@{mcp_meta.get('server', '')}"
+        return f"{tool.spec.name}[{origin}]"
+
+    logger.warning(
+        "Agent tools: %s",
+        ", ".join(_provenance(t) for t in system.tools) or "none",
+    )
+
+    # The channel backend is the system's; serve only connects it and routes
+    # inbound messages back through the same system.
+    channel_bridge = system.channel_backend
+    if channel_bridge is not None:
+        try:
+            channel_bridge.connect()
+            system.wire_channel(channel_bridge)
+            console.print(f"  Channel: [cyan]{config.channel.default_channel}[/cyan]")
         except Exception as exc:
             console.print(f"[yellow]Channel failed to start: {exc}[/yellow]")
             channel_bridge = None
 
-    # Wire channel messages → agent / engine (per-chat session isolation)
-    if channel_bridge is not None:
-        from openjarvis.system import JarvisSystem
+    if system.speech_backend is not None:
+        console.print(f"  Speech: [cyan]{system.speech_backend.backend_id}[/cyan]")
+    if system.memory_backend is not None:
+        console.print("  Memory:    [cyan]active[/cyan]")
 
-        channel_agent = config.channel.default_agent or agent_key or "simple"
-
-        _channel_tools: list = []
-        if channel_agent:
-            try:
-                import openjarvis.agents
-                from openjarvis.core.registry import AgentRegistry
-
-                if AgentRegistry.contains(channel_agent):
-                    _ch_cls = AgentRegistry.get(channel_agent)
-                    if getattr(_ch_cls, "accepts_tools", False):
-                        import openjarvis.tools
-                        from openjarvis.core.registry import ToolRegistry
-                        from openjarvis.tools._stubs import BaseTool
-
-                        _allowed, _tools_configured = _resolve_allowed_tools(config)
-
-                        for _tname in ToolRegistry.keys():
-                            if _tname not in _allowed:
-                                continue
-                            _tcls = ToolRegistry.get(_tname)
-                            if isinstance(_tcls, type) and issubclass(_tcls, BaseTool):
-                                _channel_tools.append(_tcls())
-                            elif isinstance(_tcls, BaseTool):
-                                _channel_tools.append(_tcls)
-
-                        # Reuse the process-owned MCP pool so channels do not
-                        # open a second transport to every configured server.
-                        _ch_mcp_tools = managed_mcp_tools
-                        if _tools_configured:
-                            _ch_mcp_tools = [
-                                tool
-                                for tool in managed_mcp_tools
-                                if tool.spec.name in _allowed
-                            ]
-                        if _ch_mcp_tools:
-                            _existing = {t.spec.name for t in _channel_tools}
-                            for t in _ch_mcp_tools:
-                                if t.spec.name not in _existing:
-                                    _channel_tools.append(t)
-                                    _existing.add(t.spec.name)
-            except Exception as exc:
-                logger.warning("Channel tools failed to load: %s", exc)
-
-        _wire_system = JarvisSystem(
-            config=config,
-            bus=bus,
-            engine=engine,
-            engine_key=engine_name,
-            model=model_name,
-            agent_name=channel_agent,
-            tools=_channel_tools,
-            mcp_tools=managed_mcp_tools,
-            _mcp_clients=mcp_clients,
-        )
-        _wire_system.wire_channel(channel_bridge)
-
-    # Set up speech backend
-    speech_backend = None
-    try:
-        from openjarvis.speech._discovery import get_speech_backend
-
-        speech_backend = get_speech_backend(config)
-        if speech_backend:
-            console.print(f"  Speech: [cyan]{speech_backend.backend_id}[/cyan]")
-    except Exception as exc:
-        logger.debug("Speech backend discovery failed: %s", exc)
-
-    # Create app
-    from openjarvis.server.app import create_app
-
-    # Set up the memory backend for storage tools, API routes, and optional
-    # prompt-context injection. ``context_from_memory`` controls only the last
-    # of those, so disabling it must not leave explicit memory_* tools with a
-    # null backend. Built before the scheduler so AgentExecutor can reuse it.
-    memory_backend = None
-    try:
-        import openjarvis.tools.storage  # noqa: F401
-        from openjarvis.core.registry import MemoryRegistry
-
-        mem_key = config.memory.default_backend
-        if MemoryRegistry.contains(mem_key):
-            memory_backend = MemoryRegistry.create(
-                mem_key,
-                db_path=config.memory.db_path,
-            )
-            console.print("  Memory:    [cyan]active[/cyan]")
-    except Exception as exc:
-        logger.debug("Memory backend init failed: %s", exc)
-
-    # Automatic long-term memory service (background fact extraction).
+    # Automatic long-term memory service (background fact extraction). Not part
+    # of the system dataclass -- the API layer owns its lifecycle.
     memory_service = None
     try:
         from openjarvis.memory import build_memory_service
 
         memory_service = build_memory_service(
             config,
-            engine,
-            model_name,
+            system.engine,
+            system.model,
             event_bus=bus,
         )
         if memory_service is not None:
@@ -509,113 +391,27 @@ def serve(
         logger.debug("Memory service init failed: %s", exc)
         memory_service = None
 
-    # Set up agent manager
-    agent_manager = None
-    if config.agent_manager.enabled:
+    # build() creates the scheduler; starting it and registering the cron and
+    # interval agents is the server's job.
+    if system.agent_scheduler is not None and system.agent_manager is not None:
         try:
-            from openjarvis.agents.manager import AgentManager
-
-            am_db = config.agent_manager.db_path or str(get_config_dir() / "agents.db")
-            # The server owns the scheduler and is the authoritative tick
-            # runner — on boot it holds no locks, so it (and only it) sweeps
-            # any zombie running→idle left by a previous crash.
-            agent_manager = AgentManager(db_path=am_db, clear_stale_running=True)
-        except Exception as exc:
-            logger.debug("Agent manager init failed: %s", exc)
-
-    # Set up agent scheduler for cron/interval agents
-    agent_scheduler = None
-    if agent_manager is not None:
-        try:
-            from openjarvis.agents.executor import AgentExecutor
-            from openjarvis.agents.scheduler import AgentScheduler
-
-            _trace_store = None
-            try:
-                if config.traces.enabled:
-                    from openjarvis.traces.store import TraceStore
-
-                    _trace_store = TraceStore(db_path=config.traces.db_path)
-            except Exception:
-                pass
-
-            executor = AgentExecutor(
-                manager=agent_manager,
-                event_bus=bus,
-                trace_store=_trace_store,
-            )
-            # Reuse the components already built inline above instead of a
-            # second full SystemBuilder.build() — the original double-build
-            # re-discovered the engine, re-instrumented it, re-resolved tools,
-            # re-opened the channel and re-created the agent manager, costing
-            # ~30-40s on top of an already-paid startup (#263). The executor
-            # only reads engine/model/config/memory_backend/tool_executor/
-            # session_store/channel_backend from the system (see
-            # AgentExecutor), all of which are wired here.
-            from openjarvis.sessions.session import SessionStore
-            from openjarvis.system import JarvisSystem
-            from openjarvis.tools._stubs import ToolExecutor
-
-            _sched_session_store = None
-            if config.sessions.enabled:
-                try:
-                    from pathlib import Path as _SchedPath
-
-                    _sched_session_store = SessionStore(
-                        db_path=_SchedPath(config.sessions.db_path).expanduser(),
-                        max_age_hours=config.sessions.max_age_hours,
-                        consolidation_threshold=(
-                            config.sessions.consolidation_threshold
-                        ),
-                    )
-                except Exception as exc:
-                    logger.debug("Scheduler session store init failed: %s", exc)
-
-            _sched_tool_executor = (
-                ToolExecutor(resolved_tools, bus) if resolved_tools else None
-            )
-
-            system = JarvisSystem(
-                config=config,
-                bus=bus,
-                engine=engine,
-                engine_key=engine_name,
-                model=model_name,
-                agent=agent,
-                agent_name=agent_key or "",
-                tools=resolved_tools,
-                mcp_tools=managed_mcp_tools,
-                tool_executor=_sched_tool_executor,
-                memory_backend=memory_backend,
-                telemetry_store=telem_store,
-                trace_store=_trace_store,
-                session_store=_sched_session_store,
-                capability_policy=sec.capability_policy,
-                agent_manager=agent_manager,
-                agent_executor=executor,
-                _mcp_clients=mcp_clients,
-            )
-            executor.set_system(system)
-
-            agent_scheduler = AgentScheduler(
-                manager=agent_manager,
-                executor=executor,
-                event_bus=bus,
-            )
-            for ag in agent_manager.list_agents():
+            for ag in system.agent_manager.list_agents():
                 sched_type = ag.get("config", {}).get("schedule_type", "manual")
                 if sched_type in ("cron", "interval") and ag["status"] not in (
                     "archived",
                     "error",
                 ):
-                    agent_scheduler.register_agent(ag["id"])
-            agent_scheduler.start()
+                    system.agent_scheduler.register_agent(ag["id"])
+            system.agent_scheduler.start()
             console.print("  Scheduler: [cyan]active[/cyan]")
         except Exception as exc:
-            logger.debug("Agent scheduler init failed: %s", exc)
+            logger.debug("Agent scheduler start failed: %s", exc)
 
+    # Create app
     # --- Channel Gateway: API key, sessions, ChannelBridge ---
     import os as _os
+
+    from openjarvis.server.app import create_app
 
     api_key = _os.environ.get("OPENJARVIS_API_KEY", "")
     if not api_key:
@@ -670,32 +466,34 @@ def serve(
                 session_store=session_store,
                 bus=bus,
                 system=None,
-                agent_manager=agent_manager,
+                agent_manager=system.agent_manager,
             )
         except Exception as exc:
             logger.debug("ChannelBridge init skipped: %s", exc)
 
+    cors_origins = system.config.server.cors_origins
+
     app = create_app(
-        engine,
-        model_name,
+        engine=system.engine,
+        model=system.model,
         agent=agent,
-        bus=bus,
-        engine_name=engine_name,
-        agent_name=agent_key or "",
+        bus=system.bus,
+        engine_name=system.engine_key,
+        agent_name=system.agent_name,
         channel_bridge=channel_bridge,
-        config=config,
-        memory_backend=memory_backend,
-        own_memory_backend=memory_backend is not None,
+        config=system.config,
+        memory_backend=system.memory_backend,
         memory_service=memory_service,
-        speech_backend=speech_backend,
-        agent_manager=agent_manager,
-        agent_scheduler=agent_scheduler,
-        mcp_tools=managed_mcp_tools,
-        mcp_clients=mcp_clients,
+        speech_backend=system.speech_backend,
+        agent_manager=system.agent_manager,
+        agent_scheduler=system.agent_scheduler,
+        mcp_tools=system.tools,
+        mcp_clients=system._mcp_clients,
         api_key=api_key,
         webhook_config=webhook_config,
-        cors_origins=config.server.cors_origins,
+        cors_origins=cors_origins,
     )
+    app.state.system = system
 
     console.print(
         f"[green]Starting OpenJarvis API server[/green]\n"
@@ -713,7 +511,7 @@ def serve(
     except ValueError:
         _is_loop = bind_host in ("localhost", "")
 
-    if not _is_loop and "*" in config.server.cors_origins:
+    if not _is_loop and "*" in cors_origins:
         console.print(
             "[yellow bold]WARNING:[/yellow bold] Wildcard CORS with credentials "
             "enabled on non-loopback interface. This allows any website to make "
