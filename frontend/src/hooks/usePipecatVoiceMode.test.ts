@@ -4,6 +4,8 @@ import {
   botStoppedSpeaking,
   hasAudibleSpectrum,
   voiceAvailability,
+  voiceErrorMessage,
+  voiceWebRtcRequestParams,
   voiceStatusForActivity,
   voiceStatusForError,
 } from './usePipecatVoiceMode';
@@ -20,6 +22,38 @@ describe('voiceStatusForError', () => {
     expect(voiceStatusForError({ status: 503 })).toBe('error');
     expect(voiceStatusForError(new Error('ice failed'))).toBe('error');
     expect(voiceStatusForError(undefined)).toBe('error');
+  });
+});
+
+describe('voiceWebRtcRequestParams', () => {
+  it('carries the configured API key on Pipecat offer and ICE requests', () => {
+    const previousStorage = globalThis.localStorage;
+    globalThis.localStorage = {
+      getItem: () => JSON.stringify({ apiKey: 'oj_sk_voice_test' }),
+    } as unknown as Storage;
+
+    try {
+      const request = voiceWebRtcRequestParams('thread-1', 'deepseek-v4-flash');
+      expect(request.endpoint).toBe('/api/voice/webrtc/offer');
+      expect(request.headers?.get('Authorization')).toBe('Bearer oj_sk_voice_test');
+      expect(request.requestData).toEqual({
+        chat_thread_id: 'thread-1',
+        model: 'deepseek-v4-flash',
+      });
+    } finally {
+      globalThis.localStorage = previousStorage;
+    }
+  });
+});
+
+describe('voiceErrorMessage', () => {
+  it('never renders an absent transport failure as undefined', () => {
+    expect(voiceErrorMessage(undefined)).toBe('voice_connection_failed');
+    expect(voiceErrorMessage(null)).toBe('voice_connection_failed');
+  });
+
+  it('keeps a useful transport error message', () => {
+    expect(voiceErrorMessage(new Error('HTTP 401'))).toBe('HTTP 401');
   });
 });
 

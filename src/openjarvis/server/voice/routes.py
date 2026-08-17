@@ -156,6 +156,21 @@ class WebRTCOfferRequest(BaseModel):
     requestData: VoiceOfferData = VoiceOfferData()  # noqa: N815 - the client's field name
 
 
+class IceCandidateRequest(BaseModel):
+    """One trickled browser ICE candidate."""
+
+    candidate: str
+    sdp_mid: str
+    sdp_mline_index: int
+
+
+class WebRTCPatchRequest(BaseModel):
+    """Candidates added after the initial SDP offer."""
+
+    pc_id: str
+    candidates: list[IceCandidateRequest]
+
+
 _RENDERER: Any = None
 
 
@@ -342,3 +357,22 @@ async def voice_webrtc_offer(body: WebRTCOfferRequest, request: Request):
     if answer is None:
         raise HTTPException(status_code=503, detail="webrtc_handshake_failed")
     return answer
+
+
+@router.patch("/api/voice/webrtc/offer")
+async def voice_webrtc_ice_candidate(body: WebRTCPatchRequest, request: Request):
+    """Forward trickled browser ICE candidates to the active peer."""
+    from pipecat.transports.smallwebrtc.request_handler import (
+        IceCandidate,
+        SmallWebRTCPatchRequest,
+    )
+
+    await _handler(request).handle_patch_request(
+        SmallWebRTCPatchRequest(
+            pc_id=body.pc_id,
+            candidates=[
+                IceCandidate(**candidate.model_dump()) for candidate in body.candidates
+            ],
+        )
+    )
+    return {"status": "success"}

@@ -1,14 +1,31 @@
-import { PipecatClient, RTVIEvent } from '@pipecat-ai/client-js';
+import { PipecatClient, RTVIEvent, type APIRequest } from '@pipecat-ai/client-js';
 import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { apiFetch } from '@/lib/api';
+import { apiFetch, authHeaders } from '@/lib/api';
 import { voiceActivityFromServerMessage, type VoiceActivity } from '@/hooks/voiceActivity';
 import type { LocalVoiceStatus } from '@/hooks/voiceStatus';
 import type { ChatMessage } from '@/types';
 
 /** Where the server answers an SDP offer and starts a pipeline behind it. */
 const OFFER_URL = '/api/voice/webrtc/offer';
+
+export function voiceWebRtcRequestParams(
+  chatThreadId: string,
+  model: string,
+): APIRequest {
+  return {
+    endpoint: OFFER_URL,
+    headers: new Headers(authHeaders()),
+    requestData: { chat_thread_id: chatThreadId, model },
+  };
+}
+
+export function voiceErrorMessage(failure: unknown): string {
+  if (failure instanceof Error && failure.message.trim()) return failure.message;
+  if (typeof failure === 'string' && failure.trim()) return failure;
+  return 'voice_connection_failed';
+}
 
 export type VoiceAvailability = {
   enabled: boolean;
@@ -283,10 +300,7 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
 
     const client = new PipecatClient({
       transport: new SmallWebRTCTransport({
-        webrtcRequestParams: {
-          endpoint: OFFER_URL,
-          requestData: { chat_thread_id: chatThreadId, model },
-        },
+        webrtcRequestParams: voiceWebRtcRequestParams(chatThreadId, model),
       }),
       enableMic: true,
       enableCam: false,
@@ -348,7 +362,7 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
       const next = voiceStatusForError(failure);
       setStatus(next);
       setActivityDetail(null);
-      setError(next === 'busy' ? 'voice_busy' : String(failure));
+      setError(next === 'busy' ? 'voice_busy' : voiceErrorMessage(failure));
     }
   }, [attachRemoteAudio]);
 
