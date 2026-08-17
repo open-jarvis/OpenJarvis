@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, List, Optional
@@ -73,8 +74,19 @@ class StdioTransport(MCPTransport):
             text=True,
         )
 
+    # Cap on non-matching lines skipped while hunting for a response, so a
+    # chatty or misbehaving server can't hang send() in an infinite read
+    # loop (#751).
+    _MAX_SKIPPED_LINES = 1000
+
     def send(self, request: MCPRequest) -> MCPResponse:
-        """Write request as JSON line, read response line."""
+        """Write request as JSON line, read lines until the matching response.
+
+        MCP servers may emit unsolicited notifications or stray/stale
+        replies on stdout before the real response. Skip anything that
+        isn't a well-formed JSON-RPC response carrying this request's id,
+        rather than treating the first line as gospel (#751).
+        """
         proc = self._process
         if proc is None or proc.stdin is None or proc.stdout is None:
             raise RuntimeError("Transport process is not running")
@@ -83,10 +95,35 @@ class StdioTransport(MCPTransport):
         proc.stdin.write(line)
         proc.stdin.flush()
 
-        response_line = proc.stdout.readline()
-        if not response_line:
-            raise RuntimeError("No response from subprocess")
-        return MCPResponse.from_json(response_line.strip())
+        skipped = 0
+        while True:
+            response_line = proc.stdout.readline()
+            if not response_line:
+                raise RuntimeError("No response from subprocess")
+            response_line = response_line.strip()
+            if not response_line:
+                continue
+
+            try:
+                parsed = json.loads(response_line)
+            except (json.JSONDecodeError, ValueError):
+                parsed = None
+
+            is_response = (
+                isinstance(parsed, dict)
+                and "id" in parsed
+                and ("result" in parsed or "error" in parsed)
+                and parsed["id"] == request.id
+            )
+            if is_response:
+                return MCPResponse.from_json(response_line)
+
+            skipped += 1
+            if skipped > self._MAX_SKIPPED_LINES:
+                raise RuntimeError(
+                    f"No response matching request id {request.id!r} after "
+                    f"skipping {skipped} stdout lines from the MCP server"
+                )
 
     def send_notification(self, request: MCPRequest) -> None:
         """Send a JSON-RPC notification — write only, never read.

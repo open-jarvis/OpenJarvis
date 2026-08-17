@@ -136,6 +136,121 @@ class TestStdioTransport:
         finally:
             transport.close()
 
+    def test_skips_unsolicited_notification_before_response(self, tmp_path):
+        """Regression for #751: a server-emitted notification (no ``id``)
+        arriving on stdout before the real response must not be mistaken
+        for that response.
+
+        The old ``send()`` read exactly one line and handed it straight to
+        ``MCPResponse.from_json()``. A notification has neither ``result``
+        nor ``error``, so it parsed as ``MCPResponse(result=None,
+        error=None)`` -- silently wrong instead of erroring -- and the real
+        response was left unread in the pipe, desyncing every later call.
+        """
+        script = tmp_path / "noisy_notify_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import json
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                req = json.loads(line)
+                # Unsolicited notification (no "id") before the real reply.
+                notice = {
+                    "jsonrpc": "2.0",
+                    "method": "notifications/progress",
+                    "params": {"progress": 1},
+                }
+                sys.stdout.write(json.dumps(notice) + "\\n")
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id", 0),
+                    "result": {"echo": req.get("method", "")},
+                }
+                sys.stdout.write(json.dumps(resp) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)])
+        try:
+            req = MCPRequest(method="test/echo", id=1)
+            resp = transport.send(req)
+            assert resp.error is None
+            assert resp.result == {"echo": "test/echo"}
+            assert resp.id == 1
+
+            # The stream must be back in sync for the next call too.
+            req2 = MCPRequest(method="test/echo2", id=2)
+            resp2 = transport.send(req2)
+            assert resp2.result == {"echo": "test/echo2"}
+        finally:
+            transport.close()
+
+    def test_skips_response_with_stale_id(self, tmp_path):
+        """A response line whose id doesn't match the outstanding request
+        (e.g. a stale/duplicate reply) must be skipped, not returned."""
+        script = tmp_path / "stale_id_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import json
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                req = json.loads(line)
+                stale = {"jsonrpc": "2.0", "id": 999, "result": {"stale": True}}
+                sys.stdout.write(json.dumps(stale) + "\\n")
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id", 0),
+                    "result": {"echo": req.get("method", "")},
+                }
+                sys.stdout.write(json.dumps(resp) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)])
+        try:
+            req = MCPRequest(method="test/echo", id=1)
+            resp = transport.send(req)
+            assert resp.result == {"echo": "test/echo"}
+            assert resp.id == 1
+        finally:
+            transport.close()
+
+    def test_gives_up_after_max_skipped_lines(self, tmp_path):
+        """A server that never sends a matching response must raise instead
+        of hanging send() in an infinite skip loop (#751)."""
+        script = tmp_path / "never_replies_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import json
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                # Never answers with a matching id -- just noise, forever.
+                for _ in range(2000):
+                    notice = {"jsonrpc": "2.0", "method": "notifications/progress"}
+                    sys.stdout.write(json.dumps(notice) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)])
+        try:
+            req = MCPRequest(method="test/echo", id=1)
+            with pytest.raises(RuntimeError, match="No response matching"):
+                transport.send(req)
+        finally:
+            transport.close()
+
     def test_send_notification_does_not_read_stdout(self, tmp_path):
         """Regression for #339: stdio servers don't reply to notifications.
 
