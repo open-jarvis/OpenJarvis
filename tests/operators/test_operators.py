@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from openjarvis.operators.types import OperatorManifest
+from openjarvis.sessions.session import SessionStore
+from openjarvis.tools.storage._stubs import RetrievalResult
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -38,36 +40,42 @@ class FakeEngine:
         return True
 
 
-class FakeSessionStore:
-    """Minimal session store stub."""
-
-    def __init__(self) -> None:
-        self._sessions: Dict[str, Any] = {}
-        self._messages: Dict[str, List[Dict]] = {}
-
-    def get_or_create(self, session_id: str):
-        if session_id not in self._sessions:
-            self._sessions[session_id] = MagicMock(messages=[])
-        return self._sessions[session_id]
-
-    def save_message(self, session_id: str, message: Dict) -> None:
-        self._messages.setdefault(session_id, []).append(message)
-
-
 class FakeMemoryBackend:
-    """Minimal memory backend stub."""
+    """In-memory implementation of the native MemoryBackend contract."""
 
     def __init__(self) -> None:
-        self._store: Dict[str, str] = {}
+        self._documents: Dict[str, RetrievalResult] = {}
 
-    def store(self, key: str, value: str, **kwargs) -> None:
-        self._store[key] = value
+    def store(
+        self,
+        content: str,
+        *,
+        source: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        doc_id = f"doc-{len(self._documents) + 1}"
+        self._documents[doc_id] = RetrievalResult(
+            content=content,
+            source=source,
+            metadata=dict(metadata or {}),
+        )
+        return doc_id
 
-    def retrieve(self, key: str, **kwargs) -> str:
-        return self._store.get(key, "")
+    def retrieve(
+        self, query: str, *, top_k: int = 5, **kwargs
+    ) -> List[RetrievalResult]:
+        matching = [
+            result
+            for result in self._documents.values()
+            if result.source == query or result.metadata.get("state_key") == query
+        ]
+        return matching[-top_k:]
 
-    def search(self, query: str, **kwargs):
-        return []
+    def delete(self, doc_id: str) -> bool:
+        return self._documents.pop(doc_id, None) is not None
+
+    def clear(self) -> None:
+        self._documents.clear()
 
 
 class FakeSchedulerStore:
@@ -519,52 +527,48 @@ class TestOperativeAgent:
             m.role.value == "system" and "test operator" in m.content for m in messages
         )
 
-    def test_run_loads_session(self):
+    def test_run_reloads_native_session_after_agent_reconstruction(self, tmp_path):
         from openjarvis.agents.operative import OperativeAgent
 
-        session_store = FakeSessionStore()
-        # Pre-populate session with history
-        session = session_store.get_or_create("operator:test_op")
-        session.messages = [
-            {"role": "user", "content": "Previous tick"},
-            {"role": "assistant", "content": "Previous response"},
-        ]
-
-        engine = FakeEngine([{"content": "New tick done."}])
-        agent = OperativeAgent(
-            engine,
+        db_path = tmp_path / "operative-sessions.db"
+        session_store = SessionStore(db_path)
+        first_agent = OperativeAgent(
+            FakeEngine([{"content": "First response."}]),
             "test-model",
             operator_id="test_op",
             session_store=session_store,
         )
-        result = agent.run("Execute tick")
-        assert result.content == "New tick done."
+        first_agent.run("First tick")
+        session_store.close()
 
-    def test_run_saves_session(self):
-        from openjarvis.agents.operative import OperativeAgent
-
-        session_store = FakeSessionStore()
-
-        engine = FakeEngine([{"content": "Tick response."}])
-        agent = OperativeAgent(
-            engine,
+        reopened_store = SessionStore(db_path)
+        second_engine = FakeEngine([{"content": "Second response."}])
+        reconstructed = OperativeAgent(
+            second_engine,
             "test-model",
-            operator_id="save_test",
-            session_store=session_store,
+            operator_id="test_op",
+            session_store=reopened_store,
         )
-        agent.run("Execute tick")
+        try:
+            reconstructed.run("Second tick")
+        finally:
+            reopened_store.close()
 
-        saved = session_store._messages.get("operator:save_test", [])
-        assert len(saved) == 2
-        assert saved[0]["role"] == "user"
-        assert saved[1]["role"] == "assistant"
-        assert saved[1]["content"] == "Tick response."
+        messages = second_engine.calls[0]["messages"]
+        history = [(message.role.value, message.content) for message in messages]
+        assert ("user", "First tick") in history
+        assert ("assistant", "First response.") in history
 
     def test_run_recalls_state(self):
         from openjarvis.agents.operative import OperativeAgent
 
         memory = FakeMemoryBackend()
-        memory.store("operator:recall_test:state", '{"last_run": "2024-01-01"}')
+        state_key = "operative:recall_test:state"
+        memory.store(
+            '{"last_run": "2024-01-01"}',
+            source=state_key,
+            metadata={"state_key": state_key, "updated_at": 1.0},
+        )
 
         engine = FakeEngine([{"content": "State recalled."}])
         agent = OperativeAgent(
@@ -645,8 +649,8 @@ class TestOperativeAgent:
         agent.run("Execute tick")
 
         # State should be auto-persisted
-        state = memory.retrieve("operator:persist_test:state")
-        assert "Tick complete." in state
+        state = memory.retrieve("operative:persist_test:state")
+        assert any("Tick complete." in result.content for result in state)
 
     def test_max_turns_exceeded(self):
         from openjarvis.agents.operative import OperativeAgent
