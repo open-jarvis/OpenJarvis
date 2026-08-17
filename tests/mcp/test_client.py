@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,7 +15,7 @@ import pytest
 from openjarvis.mcp.client import MCPClient
 from openjarvis.mcp.protocol import MCPError, MCPResponse
 from openjarvis.mcp.server import MCPServer
-from openjarvis.mcp.transport import InProcessTransport
+from openjarvis.mcp.transport import InProcessTransport, MCPTransport
 from openjarvis.tools._stubs import ToolSpec
 from openjarvis.tools.calculator import CalculatorTool
 from openjarvis.tools.think import ThinkTool
@@ -204,3 +207,226 @@ class TestMCPClient:
         client.close()
 
         assert transport.close.call_count == 2
+
+    def test_in_process_transport_is_not_routed_through_the_sdk(self, client):
+        assert client._external is False
+
+
+class _FakeRuntime:
+    """Stand-in for the official-SDK runtime owned by external transports."""
+
+    instances: list[_FakeRuntime] = []
+
+    def __init__(self, transport):
+        self.transport = transport
+        self.closes = 0
+        self.cancels = 0
+        self.calls: list[tuple[str, dict]] = []
+        _FakeRuntime.instances.append(self)
+
+    def cancel_active_call(self):
+        self.cancels += 1
+
+    def initialize(self):
+        return {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": "playwright-mcp", "version": "0.0.79"},
+        }
+
+    def list_tools(self):
+        return [
+            {
+                "name": "browser_snapshot",
+                "description": "Capture the accessibility tree",
+                "inputSchema": {"type": "object", "properties": {}},
+                "annotations": {"readOnlyHint": True},
+            }
+        ]
+
+    def call_tool(self, name, arguments=None):
+        self.calls.append((name, arguments or {}))
+        return {"content": [{"type": "text", "text": "button: Save"}], "isError": False}
+
+    def close(self):
+        self.closes += 1
+
+
+class TestMCPClientExternalTransport:
+    """External transports must reach the SDK runtime through the same facade."""
+
+    @pytest.fixture
+    def external_client(self, monkeypatch):
+        from openjarvis.mcp.transport import StdioTransport
+
+        _FakeRuntime.instances.clear()
+        monkeypatch.setattr("openjarvis.mcp.runtime.MCPRuntime", _FakeRuntime)
+        transport = StdioTransport(["npx", "-y", "@playwright/mcp@0.0.79"])
+        return MCPClient(transport, server_name="playwright")
+
+    def test_external_transport_is_detected(self, external_client):
+        assert external_client._external is True
+
+    def test_initialize_uses_the_sdk_runtime(self, external_client):
+        result = external_client.initialize()
+        assert result["serverInfo"]["name"] == "playwright-mcp"
+        assert external_client._initialized is True
+        assert external_client._capabilities == {"tools": {}}
+
+    def test_list_tools_keeps_toolspec_mapping(self, external_client):
+        specs = external_client.list_tools()
+        assert [spec.name for spec in specs] == ["browser_snapshot"]
+        assert specs[0].timeout_seconds == 600.0
+        assert specs[0].metadata["mcp"] == {
+            "server": "playwright",
+            "annotations": {"readOnlyHint": True},
+        }
+
+    def test_call_tool_returns_the_standard_result(self, external_client):
+        result = external_client.call_tool("browser_click", {"ref": "e17"})
+        assert result["isError"] is False
+        assert result["content"][0]["text"] == "button: Save"
+        assert _FakeRuntime.instances[-1].calls == [("browser_click", {"ref": "e17"})]
+
+    def test_one_runtime_is_shared_across_calls(self, external_client):
+        external_client.initialize()
+        external_client.list_tools()
+        external_client.call_tool("browser_snapshot")
+        assert len(_FakeRuntime.instances) == 1
+
+    def test_call_tool_registers_cancellation_for_the_active_call_only(
+        self, external_client, monkeypatch
+    ):
+        registered: list[object] = []
+        unregistered: list[object] = []
+
+        def _register(callback):
+            registered.append(callback)
+            return lambda: unregistered.append(callback)
+
+        monkeypatch.setattr(
+            "openjarvis.agents._stubs.register_agent_worker_cancellation", _register
+        )
+        external_client.list_tools()
+        assert registered == []
+
+        external_client.call_tool("browser_click", {"ref": "e17"})
+        runtime = _FakeRuntime.instances[-1]
+        assert registered == [runtime.cancel_active_call]
+        assert unregistered == registered  # released once the call returned
+
+    def test_close_is_idempotent_and_closes_the_runtime(self, external_client):
+        external_client.initialize()
+        external_client.close()
+        external_client.close()
+        assert _FakeRuntime.instances[-1].closes == 1
+
+
+class _CancellableSession:
+    """Fake SDK session whose ``call_tool`` parks until the test releases it."""
+
+    def __init__(self) -> None:
+        self.entered = threading.Event()
+        self.call_started = threading.Event()
+        self._release: asyncio.Event | None = None
+
+    async def __aenter__(self):
+        self._release = asyncio.Event()
+        self.entered.set()
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def initialize(self):
+        return SimpleNamespace(model_dump=lambda **_: {"capabilities": {}})
+
+    async def list_tools(self, cursor=None):
+        return SimpleNamespace(tools=[], nextCursor=None)
+
+    async def call_tool(self, name, arguments, read_timeout_seconds=None):
+        self.call_started.set()
+        assert self._release is not None
+        await self._release.wait()
+        return SimpleNamespace(model_dump=lambda **_: {"isError": False})
+
+
+class _SDKTransportDouble(MCPTransport):
+    """External transport: implements ``sdk_client``, never ``send``."""
+
+    def sdk_client(self):
+        @asynccontextmanager
+        async def _streams():
+            yield (None, None)
+
+        return _streams()
+
+
+def test_external_call_tool_is_cancelled_only_by_its_own_lease(monkeypatch):
+    """Barge-in on one agent must not drop another agent's in-flight tool call.
+
+    This is the seam Task 4's scoped cancellation was built for and had no
+    caller until external servers moved onto the SDK session: ``call_tool``
+    registers ``cancel_active_call`` with the *calling* worker lease, and the
+    runtime files the in-flight future under that lease's scope.
+    """
+    from openjarvis.agents._stubs import _RUN_WORKER_LEASE, AgentWorkerLease
+    from openjarvis.mcp.runtime import MCPRuntime
+
+    session = _CancellableSession()
+
+    class _RuntimeWithFakeSession(MCPRuntime):
+        def __init__(self, transport):
+            super().__init__(transport, session_factory=lambda *a, **k: session)
+
+    monkeypatch.setattr("openjarvis.mcp.runtime.MCPRuntime", _RuntimeWithFakeSession)
+
+    caller_lease = AgentWorkerLease()
+    other_lease = AgentWorkerLease()
+    client = MCPClient(_SDKTransportDouble(), server_name="playwright")
+    assert client._external is True
+
+    outcome: list[BaseException | dict] = []
+
+    def _in_lease(lease, function):
+        def _run():
+            token = _RUN_WORKER_LEASE.set(lease)
+            try:
+                function()
+            finally:
+                _RUN_WORKER_LEASE.reset(token)
+
+        return _run
+
+    def _call():
+        try:
+            outcome.append(client.call_tool("browser_click", {"ref": "e17"}))
+        except BaseException as exc:  # noqa: BLE001 — recorded, then asserted
+            outcome.append(exc)
+
+    worker = threading.Thread(target=_in_lease(caller_lease, _call), daemon=True)
+    worker.start()
+    try:
+        assert session.call_started.wait(timeout=5)
+
+        # Another agent's caller walks away. Its lease holds no callback for
+        # this call, and resolving the scope from its context finds no future.
+        other = threading.Thread(
+            target=_in_lease(other_lease, other_lease._signal_cancelled), daemon=True
+        )
+        other.start()
+        other.join(timeout=5)
+        assert not worker.join(timeout=0.2) and worker.is_alive()
+        assert outcome == []
+
+        # The owning caller barges in — this call, and only now, is dropped.
+        barge = threading.Thread(
+            target=_in_lease(caller_lease, caller_lease._signal_cancelled), daemon=True
+        )
+        barge.start()
+        barge.join(timeout=5)
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        assert isinstance(outcome[0], (asyncio.CancelledError, CancelledError))
+    finally:
+        client.close()

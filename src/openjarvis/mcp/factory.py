@@ -49,7 +49,8 @@ def _default_client(cfg: dict) -> Optional[Any]:
         )
         return None
 
-    return MCPClient(transport)
+    # server_name stamps spec.metadata["mcp"]["server"] on discovered tools.
+    return MCPClient(transport, server_name=cfg.get("name", ""))
 
 
 def create_mcp_client(cfg: dict) -> Optional[Any]:

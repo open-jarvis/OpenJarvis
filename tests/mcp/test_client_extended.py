@@ -112,6 +112,36 @@ class TestContextManager:
 
 
 class TestListTools:
+    def test_preserves_annotations_and_server_provenance(self, mock_transport):
+        mock_transport.send.return_value = MCPResponse(
+            result={
+                "tools": [
+                    {
+                        "name": "browser_snapshot",
+                        "description": "Read the current page.",
+                        "inputSchema": {"type": "object", "properties": {}},
+                        "annotations": {
+                            "readOnlyHint": True,
+                            "openWorldHint": True,
+                        },
+                    }
+                ]
+            }
+        )
+        client = MCPClient(mock_transport, server_name="playwright")
+
+        spec = client.list_tools()[0]
+
+        assert spec.metadata == {
+            "mcp": {
+                "server": "playwright",
+                "annotations": {
+                    "readOnlyHint": True,
+                    "openWorldHint": True,
+                },
+            }
+        }
+
     def test_parses_tool_specs(self, mock_transport):
         """list_tools() should return ToolSpec objects from server response."""
         mock_transport.send.return_value = MCPResponse(
