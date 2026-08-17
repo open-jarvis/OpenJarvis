@@ -103,7 +103,12 @@ def check_bind_safety(host: str, *, api_key: str) -> None:
         sys.exit(1)
 
 
-def websocket_authorized(websocket, expected_key: str) -> bool:  # noqa: ANN001
+def websocket_authorized(
+    websocket,
+    expected_key: str,
+    *,
+    allow_loopback: bool = False,
+) -> bool:  # noqa: ANN001
     """Return ``True`` if a WebSocket connection presents the expected key.
 
     ``AuthMiddleware`` is a ``BaseHTTPMiddleware`` and never sees WebSocket
@@ -117,6 +122,9 @@ def websocket_authorized(websocket, expected_key: str) -> bool:  # noqa: ANN001
     an ``Authorization: Bearer <key>`` header for programmatic clients.
     """
     if not expected_key:
+        return True
+    client = getattr(websocket, "client", None)
+    if allow_loopback and is_loopback_host(getattr(client, "host", None)):
         return True
     token = websocket.query_params.get("token", "")
     if not token:

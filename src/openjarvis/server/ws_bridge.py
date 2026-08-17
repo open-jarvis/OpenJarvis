@@ -68,7 +68,11 @@ def create_ws_router(event_bus: EventBus) -> Any:
         from openjarvis.server.auth_middleware import websocket_authorized
 
         expected_key = getattr(websocket.app.state, "api_key", "")
-        if not websocket_authorized(websocket, expected_key):
+        if not websocket_authorized(
+            websocket,
+            expected_key,
+            allow_loopback=True,
+        ):
             # 1008 = policy violation; reject before accepting the connection.
             await websocket.close(code=1008)
             return
