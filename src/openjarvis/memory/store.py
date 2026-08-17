@@ -11,20 +11,64 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import tempfile
 import threading
 import time
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable, List
+from typing import Any, Iterable, Iterator, List
 
 from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import FactStoreRegistry
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
 
 def _default_fact_path() -> Path:
     """Return the env-aware default JSONL path for automatic memory facts."""
     return get_config_dir() / "memory_facts.jsonl"
+
+
+@contextmanager
+def _cross_process_lock(lock_path: Path) -> Iterator[None]:
+    """Hold an exclusive, blocking OS-level lock on *lock_path*.
+
+    ``threading.Lock`` only serializes within one process, so it cannot
+    protect the load -> modify -> flush cycle when two separate
+    ``LocalFactStore`` instances (e.g. in different processes) touch the
+    same file (#755). This blocks until the lock is free rather than
+    failing fast, since callers want to wait their turn, not error out.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    f = open(lock_path, "a+b")
+    try:
+        if sys.platform == "win32":
+            # msvcrt locks a byte range; the file needs at least one byte
+            # for the region at offset 0 to be lockable.
+            f.seek(0, os.SEEK_END)
+            if f.tell() == 0:
+                f.write(b"\0")
+                f.flush()
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if sys.platform == "win32":
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    finally:
+        f.close()
 
 
 @dataclass(slots=True)
@@ -120,12 +164,30 @@ class LocalFactStore(FactStore):
     def _flush(self) -> None:
         """Atomically rewrite the JSONL file from the in-memory list."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
         payload = "".join(
             json.dumps(asdict(f), ensure_ascii=False) + "\n" for f in self._facts
         )
-        tmp.write_text(payload, encoding="utf-8")
-        os.replace(tmp, self._path)
+        # A fixed temp filename lets two concurrent writers interleave into
+        # the same temp file before either os.replace() runs (#755); a
+        # unique name per flush avoids that collision entirely.
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(self._path.parent),
+            prefix=self._path.name + ".",
+            suffix=".tmp",
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as tmp_f:
+                tmp_f.write(payload)
+            os.replace(tmp_name, self._path)
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+
+    def _lock_path(self) -> Path:
+        return self._path.with_suffix(self._path.suffix + ".lock")
 
     def _sync_from_disk_locked(self) -> None:
         """Refresh in-memory facts from disk while holding ``self._lock``."""
@@ -137,7 +199,7 @@ class LocalFactStore(FactStore):
         text = (text or "").strip()
         if not text:
             return False
-        with self._lock:
+        with self._lock, _cross_process_lock(self._lock_path()):
             self._sync_from_disk_locked()
             lowered = text.lower()
             if any(f.text.lower() == lowered for f in self._facts):
@@ -155,7 +217,7 @@ class LocalFactStore(FactStore):
             return list(self._facts)
 
     def clear(self) -> int:
-        with self._lock:
+        with self._lock, _cross_process_lock(self._lock_path()):
             self._sync_from_disk_locked()
             removed = len(self._facts)
             self._facts = []

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 
@@ -91,6 +92,39 @@ def test_external_clear_does_not_resurrect_stale_facts(tmp_path):
     running.add("new fact")
 
     assert [f.text for f in LocalFactStore(path).list()] == ["new fact"]
+
+
+def test_concurrent_instances_do_not_lose_writes(tmp_path):
+    """Regression for #755: independent store instances (simulating two
+    processes) racing on the same file must not lose writes.
+
+    ``threading.Lock`` only serializes within one process/instance, so it
+    does nothing to protect the read (load) -> modify -> write (flush)
+    cycle across separate ``LocalFactStore`` instances, and a fixed temp
+    filename lets concurrent flushes interleave into the same temp file
+    before either ``os.replace()`` runs. Hammer the same file from several
+    instances at once and confirm every write survives.
+    """
+    path = tmp_path / "facts.jsonl"
+    n_workers = 8
+    n_per_worker = 15
+
+    def worker(worker_id: int) -> None:
+        store = LocalFactStore(path)
+        for j in range(n_per_worker):
+            store.add(f"fact-{worker_id}-{j}")
+
+    threads = [
+        threading.Thread(target=worker, args=(i,)) for i in range(n_workers)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+        assert not t.is_alive(), "worker thread hung"
+
+    final = LocalFactStore(path)
+    assert final.count() == n_workers * n_per_worker
 
 
 def test_load_skips_malformed_lines(tmp_path):
