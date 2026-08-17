@@ -138,6 +138,9 @@ speech-deepgram = ["deepgram-sdk>=3.0"]
 voice = [
     "pipecat-ai[google,silero,webrtc]==1.7.0 ; python_full_version >= '3.11'",
     "vieneu==3.2.3",
+    # voice/text.py strips emoji and markdown before anything reaches TTS.
+    "emoji>=2.12",
+    "markdown-it-py>=4.0",
 ]
 eval-wandb = ["wandb>=0.17"]
 eval-sheets = ["gspread>=6.0", "google-auth>=2.0"]
