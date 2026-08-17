@@ -223,6 +223,48 @@ class TestStdioTransport:
         finally:
             transport.close()
 
+    def test_skips_non_json_banner_before_response(self, tmp_path):
+        """Regression for #752: a stray non-JSON line on stdout (e.g. an
+        npm warning banner from a server launched via ``npx -y`` on a cold
+        cache) must be skipped, not treated as a fatal parse error that
+        drops discovery for the whole server.
+        """
+        script = tmp_path / "npm_banner_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import json
+
+            # Simulates an npm warning banner printed before the server
+            # starts speaking JSON-RPC.
+            sys.stdout.write("npm warn deprecated some-pkg@1.0.0: use v2\\n")
+            sys.stdout.write("Fetching latest version...\\n")
+            sys.stdout.flush()
+
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                req = json.loads(line)
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id", 0),
+                    "result": {"echo": req.get("method", "")},
+                }
+                sys.stdout.write(json.dumps(resp) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)])
+        try:
+            req = MCPRequest(method="initialize", id=1)
+            resp = transport.send(req)
+            assert resp.error is None
+            assert resp.result == {"echo": "initialize"}
+        finally:
+            transport.close()
+
     def test_gives_up_after_max_skipped_lines(self, tmp_path):
         """A server that never sends a matching response must raise instead
         of hanging send() in an infinite skip loop (#751)."""
