@@ -32,6 +32,10 @@ def _make_app(api_key: str) -> FastAPI:
     async def metrics():
         return {"requests": 0}
 
+    @app.post("/api/kiosk/respond")
+    async def kiosk_respond():
+        return {"ok": True}
+
     return app
 
 
@@ -76,6 +80,27 @@ class TestAuthMiddleware:
     def test_metrics_accepts_valid_key(self, client):
         resp = client.get("/metrics", headers={"Authorization": "Bearer oj_sk_test123"})
         assert resp.status_code == 200
+
+    def test_loopback_kiosk_request_is_exempt(self):
+        client = TestClient(
+            _make_app("oj_sk_test123"),
+            client=("127.0.0.1", 50000),
+        )
+        assert client.post("/api/kiosk/respond").status_code == 200
+
+    def test_remote_kiosk_request_requires_auth(self):
+        client = TestClient(
+            _make_app("oj_sk_test123"),
+            client=("203.0.113.10", 50000),
+        )
+        assert client.post("/api/kiosk/respond").status_code == 401
+
+    def test_loopback_non_kiosk_api_still_requires_auth(self):
+        client = TestClient(
+            _make_app("oj_sk_test123"),
+            client=("127.0.0.1", 50000),
+        )
+        assert client.get("/v1/models").status_code == 401
 
     def test_no_key_configured_allows_all(self):
         client = TestClient(_make_app(""))

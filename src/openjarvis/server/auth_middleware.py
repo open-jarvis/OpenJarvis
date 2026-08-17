@@ -25,7 +25,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self._api_key = api_key or os.environ.get("OPENJARVIS_API_KEY", "")
 
     async def dispatch(self, request: Request, call_next):  # noqa: ANN001
-        if self._api_key and self._requires_auth(request.url.path):
+        client_host = request.client.host if request.client is not None else None
+        loopback_kiosk = (
+            request.url.path.startswith("/api/kiosk/")
+            and is_loopback_host(client_host)
+        )
+        if (
+            self._api_key
+            and self._requires_auth(request.url.path)
+            and not loopback_kiosk
+        ):
             auth = request.headers.get("Authorization", "")
             if not auth:
                 return JSONResponse(
