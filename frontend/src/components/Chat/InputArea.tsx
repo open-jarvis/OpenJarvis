@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Square, Paperclip, Search } from 'lucide-react';
+import { AudioLines, Send, Square, Paperclip, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat, streamResearch } from '../../lib/sse';
@@ -75,7 +75,11 @@ function useResearchCorpusSync(enabled: boolean): {
   return state;
 }
 
-export function InputArea() {
+interface InputAreaProps {
+  onOpenVoice: () => void;
+}
+
+export function InputArea({ onOpenVoice }: InputAreaProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -552,6 +556,22 @@ export function InputArea() {
     }
   };
 
+  const voiceButton = (
+    <button
+      type="button"
+      onClick={onOpenVoice}
+      aria-label="Voice"
+      title="Open voice mode (kiosk)"
+      className="voice-entry-button p-2 rounded-xl transition-colors shrink-0 cursor-pointer"
+      style={{
+        background: 'transparent',
+        color: 'var(--color-text-secondary)',
+      }}
+    >
+      <AudioLines size={16} aria-hidden />
+    </button>
+  );
+
   return (
     <div className="px-4 pb-4 pt-2" style={{ maxWidth: 'var(--chat-max-width)', margin: '0 auto', width: '100%' }}>
       <div className="mb-2 flex flex-col gap-1">
@@ -606,14 +626,17 @@ export function InputArea() {
           disabled={streamState.isStreaming || modelLoading}
         />
         {isCurrentChatStreaming ? (
-          <button
-            onClick={stopStreaming}
-            className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer"
-            style={{ background: 'var(--color-error)', color: 'var(--color-on-accent)' }}
-            title="Stop generating"
-          >
-            <Square size={16} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={stopStreaming}
+              className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer"
+              style={{ background: 'var(--color-error)', color: 'var(--color-on-accent)' }}
+              title="Stop generating"
+            >
+              <Square size={16} />
+            </button>
+            {voiceButton}
+          </div>
         ) : (
           <div className="flex items-center gap-1">
             <MicButton
@@ -622,6 +645,7 @@ export function InputArea() {
               disabled={micDisabled}
               reason={micReason}
             />
+            {voiceButton}
             <button
               onClick={sendMessage}
               disabled={streamState.isStreaming || !input.trim() || modelLoading || !selectedModel}

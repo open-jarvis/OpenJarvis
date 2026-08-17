@@ -154,6 +154,7 @@ interface AppState {
   models: ModelInfo[];
   modelsLoading: boolean;
   selectedModel: string;
+  voiceSessionActive: boolean;
   serverInfo: ServerInfo | null;
   savings: SavingsData | null;
 
@@ -206,6 +207,7 @@ interface AppState {
   setModels: (models: ModelInfo[]) => void;
   setModelsLoading: (loading: boolean) => void;
   setSelectedModel: (model: string) => void;
+  setVoiceSessionActive: (active: boolean) => void;
   setServerInfo: (info: ServerInfo | null) => void;
   setSavings: (data: SavingsData | null) => void;
   incrementSavings: (usage: TokenUsage) => void;
@@ -260,6 +262,10 @@ interface AppState {
   setModelLoading: (loading: boolean) => void;
 }
 
+export function canChangeModel(input: { voiceSessionActive: boolean }): boolean {
+  return !input.voiceSessionActive;
+}
+
 export const useAppStore = create<AppState>((set, get) => {
   const initial = loadConversations();
   const convList = Object.values(initial.conversations).sort(
@@ -278,6 +284,7 @@ export const useAppStore = create<AppState>((set, get) => {
     models: [],
     modelsLoading: true,
     selectedModel: '',
+    voiceSessionActive: false,
     serverInfo: null,
     savings: null,
 
@@ -414,6 +421,7 @@ export const useAppStore = create<AppState>((set, get) => {
       const store = loadConversations();
       const conv = store.conversations[conversationId];
       if (!conv) return;
+      if (conv.messages.some((existing) => existing.id === message.id)) return;
       conv.messages.push(message);
       conv.updatedAt = Date.now();
       if (message.role === 'user' && conv.title === 'New chat') {
@@ -508,7 +516,11 @@ export const useAppStore = create<AppState>((set, get) => {
         return { models };
       }),
     setModelsLoading: (loading: boolean) => set({ modelsLoading: loading }),
-    setSelectedModel: (model: string) => set({ selectedModel: model }),
+    setSelectedModel: (model: string) => {
+      if (!canChangeModel({ voiceSessionActive: get().voiceSessionActive })) return;
+      set({ selectedModel: model });
+    },
+    setVoiceSessionActive: (active: boolean) => set({ voiceSessionActive: active }),
     setServerInfo: (info: ServerInfo | null) => set({ serverInfo: info }),
     setSavings: (data: SavingsData | null) => set({ savings: data }),
     incrementSavings: (usage: TokenUsage) => {

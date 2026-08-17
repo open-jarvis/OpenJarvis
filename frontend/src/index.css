@@ -397,14 +397,92 @@
   }
 
   @keyframes hud-sweep {
-    0%   { background-position: -200% 0; }
-    100% { background-position: 200% 0; }
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
   }
 
   @keyframes hud-reticle {
     0%   { transform: rotate(0deg);   opacity: 0.4; }
     50%  { opacity: 0.9; }
     100% { transform: rotate(360deg); opacity: 0.4; }
+  }
+
+  @keyframes voice-wave-bounce {
+    0%, 100% { height: var(--voice-wave-min); }
+    50%      { height: var(--voice-wave-max); }
+  }
+
+  .voice-wave {
+    display: grid;
+    align-items: center;
+    justify-content: center;
+    grid-template-columns: repeat(6, 1px);
+    column-gap: 2px;
+    width: 16px;
+    height: 16px;
+  }
+
+  .voice-wave-bar {
+    display: block;
+    width: 1px;
+    min-width: 1px;
+    max-width: 1px;
+    height: var(--voice-wave-min);
+    border-radius: 0;
+    box-sizing: border-box;
+    background: currentColor;
+    transition: height 180ms ease-in-out;
+    --voice-wave-duration: 760ms;
+  }
+
+  .voice-wave-bar:nth-child(1) {
+    --voice-wave-min: 3px;
+    --voice-wave-max: 6px;
+    --voice-wave-delay: 0ms;
+  }
+
+  .voice-wave-bar:nth-child(2) {
+    --voice-wave-min: 9px;
+    --voice-wave-max: 12px;
+    --voice-wave-delay: 90ms;
+  }
+
+  .voice-wave-bar:nth-child(3) {
+    --voice-wave-min: 14px;
+    --voice-wave-max: 16px;
+    --voice-wave-delay: 180ms;
+  }
+
+  .voice-wave-bar:nth-child(4) {
+    --voice-wave-min: 6px;
+    --voice-wave-max: 9px;
+    --voice-wave-delay: 270ms;
+  }
+
+  .voice-wave-bar:nth-child(5) {
+    --voice-wave-min: 11px;
+    --voice-wave-max: 14px;
+    --voice-wave-delay: 360ms;
+  }
+
+  .voice-wave-bar:nth-child(6) {
+    --voice-wave-min: 3px;
+    --voice-wave-max: 6px;
+    --voice-wave-delay: 450ms;
+  }
+
+  .voice-entry-button:hover,
+  .voice-entry-button:focus-visible {
+    color: var(--color-accent) !important;
+  }
+
+  .voice-entry-button:hover .voice-wave-bar,
+  .voice-entry-button:focus-visible .voice-wave-bar {
+    animation-name: voice-wave-bounce;
+    animation-duration: var(--voice-wave-duration);
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    animation-delay: var(--voice-wave-delay);
   }
 
   .hud-label {
@@ -467,6 +545,24 @@
     );
     background-size: 200% 100%;
     animation: hud-sweep 2.4s linear infinite;
+  }
+
+  /* --shimmer-base / --shimmer-highlight let a caller keep its own text colour
+     (kiosk status line) — unset, it sweeps the default white → accent. */
+  .text-shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--shimmer-base, rgba(255, 255, 255, 0.45)) 0%,
+      var(--shimmer-base, rgba(255, 255, 255, 0.45)) 40%,
+      var(--shimmer-highlight, var(--color-accent)) 50%,
+      var(--shimmer-base, rgba(255, 255, 255, 0.45)) 60%,
+      var(--shimmer-base, rgba(255, 255, 255, 0.45)) 100%
+    );
+    background-size: 200% auto;
+    color: transparent;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: hud-sweep 2.5s linear infinite;
   }
 
   .hud-backdrop {
@@ -593,6 +689,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .hud-shimmer,
+    .text-shimmer,
     .hud-reticle::before,
     .hud-reticle::after,
     .hud-backdrop::before,
@@ -600,7 +697,8 @@
     .hud-heartbeat,
     .hud-caret,
     .hud-panel > h3::after,
-    .hud-panel-head::after {
+    .hud-panel-head::after,
+    .voice-entry-button .voice-wave-bar {
       animation: none !important;
     }
   }

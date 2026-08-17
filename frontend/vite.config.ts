@@ -7,6 +7,11 @@ import { VitePWA } from 'vite-plugin-pwa';
 // VITE_SUPABASE_ANON_KEY is intentionally NOT required here: a missing key
 // disables the savings leaderboard at runtime (see src/lib/supabase.ts) rather
 // than failing the build, so the package/app stays publishable without it.
+
+export function resolveApiProxyTarget(proxyTarget = process.env.OPENJARVIS_VITE_PROXY_TARGET): string {
+  return proxyTarget || process.env.VITE_API_URL || 'http://localhost:8000';
+}
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -59,12 +64,17 @@ export default defineConfig({
       // opens — no error, no close event, just silence — and every live agent
       // view sits empty in dev while working in a production build.
       '/v1': {
-        target: process.env.VITE_API_URL || 'http://localhost:8000',
+        target: resolveApiProxyTarget(),
         changeOrigin: true,
         ws: true,
       },
-      '/health': process.env.VITE_API_URL || 'http://localhost:8000',
-      '/api': process.env.VITE_API_URL || 'http://localhost:8000',
+      '/health': resolveApiProxyTarget(),
+      // ws: true on /api forwards the Local Voice Stream WebSocket upgrade.
+      '/api': {
+        target: resolveApiProxyTarget(),
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 });

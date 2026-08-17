@@ -76,7 +76,7 @@ export function ChatArea() {
   return (
     <div className="flex flex-col h-full">
       {/* Toggle bar */}
-      <div className="flex items-center justify-end px-3 py-1.5 shrink-0">
+      <div className="flex items-center justify-end gap-2 px-3 py-1.5 shrink-0">
         <button
           onClick={toggleSystemPanel}
           className="p-1.5 rounded-md transition-colors cursor-pointer"
@@ -86,7 +86,6 @@ export function ChatArea() {
           <PanelIcon size={16} />
         </button>
       </div>
-
       {/* Data sources banner */}
       {hasConnectedSources === false && !bannerDismissed && (
         <div
@@ -196,7 +195,7 @@ export function ChatArea() {
           </div>
         )}
       </div>
-      <InputArea />
+      <InputArea onOpenVoice={() => navigate('/kiosk')} />
     </div>
   );
 }

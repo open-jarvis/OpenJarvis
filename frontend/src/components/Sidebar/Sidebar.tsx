@@ -17,6 +17,7 @@ import {
   Loader2,
   ScrollText,
   Database,
+  AudioLines,
 } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { useAppStore } from '../../lib/store';
@@ -60,6 +61,7 @@ export function Sidebar() {
     { path: '/logs', icon: ScrollText, label: 'Logs' },
     { path: '/settings', icon: Settings, label: 'Settings' },
     { path: '/get-started', icon: Rocket, label: 'Get Started' },
+    { path: '/kiosk', icon: AudioLines, label: 'Voice' },
   ];
 
   return (
