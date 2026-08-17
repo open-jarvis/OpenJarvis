@@ -216,6 +216,7 @@ markers = [
     "apple: requires Apple Silicon",
     "cloud: requires cloud API keys",
     "docker: requires a working Docker daemon (no GPU required)",
+    "integration: spawns real external processes (e.g. an MCP server via npx)",
     "live: requires running inference engine",
     "macos15: requires macOS 15+ (Sequoia) for Apple FM",
     "live_channel: requires real channel credentials (env vars)",
