@@ -131,6 +131,14 @@ sandbox-docker = ["docker>=7.0"]
 dashboard = ["textual>=0.80"]
 speech = ["faster-whisper>=1.0"]
 speech-deepgram = ["deepgram-sdk>=3.0"]
+# Realtime browser voice (WebRTC mic -> Gemini Live -> speaker), used by
+# src/openjarvis/server/voice/. Without it voice_router is None and
+# /api/voice/availability reports "voice_runtime_missing" -- the API server
+# still starts, only the realtime path is absent.
+voice = [
+    "pipecat-ai[google,silero,webrtc]==1.7.0 ; python_full_version >= '3.11'",
+    "vieneu==3.2.3",
+]
 eval-wandb = ["wandb>=0.17"]
 eval-sheets = ["gspread>=6.0", "google-auth>=2.0"]
 mining-pearl-cpu = [
