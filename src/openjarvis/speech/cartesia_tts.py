@@ -58,7 +58,7 @@ class CartesiaTTSBackend(TTSBackend):
     backend_id = "cartesia"
 
     def __init__(
-        self, *, api_key: str = "", model: str = "sonic", language: str = "en"
+        self, *, api_key: str = "", model: str = "sonic-2", language: str = "en"
     ) -> None:
         self._api_key = api_key or os.environ.get("CARTESIA_API_KEY", "")
         self._model = model
