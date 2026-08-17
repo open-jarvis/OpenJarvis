@@ -166,6 +166,55 @@ class TestWSBridge:
 
         asyncio.run(exercise())
 
+    def test_app_routes_bridge_uses_injected_event_bus(self):
+        async def exercise():
+            from openjarvis.server.api_routes import include_all_routes
+
+            event_bus = EventBus()
+            app = FastAPI()
+            app.state.api_key = ""
+            app.state.bus = event_bus
+            include_all_routes(app)
+            endpoint = next(
+                route.endpoint
+                for route in app.routes
+                if getattr(route, "path", None) == "/v1/agents/events"
+            )
+
+            class FakeWebSocket:
+                def __init__(self):
+                    self.app = app
+                    self.query_params = {}
+                    self.headers = {}
+                    self.sent = []
+                    self.receive_count = 0
+                    self.disconnect = asyncio.Event()
+
+                async def accept(self):
+                    pass
+
+                async def receive(self):
+                    self.receive_count += 1
+                    if self.receive_count == 1:
+                        event_bus.publish(
+                            EventType.KIOSK_STATE_CHANGED,
+                            {"state": "prompting", "mic_enabled": False},
+                        )
+                        return {"type": "websocket.receive", "text": "client message"}
+                    await self.disconnect.wait()
+                    return {"type": "websocket.disconnect"}
+
+                async def send_json(self, payload):
+                    self.sent.append(payload)
+                    self.disconnect.set()
+
+            websocket = FakeWebSocket()
+            await asyncio.wait_for(endpoint(websocket), timeout=1)
+
+            assert websocket.sent[0]["type"] == "kiosk_state_changed"
+
+        asyncio.run(exercise())
+
     def test_cancelling_handler_cleans_up_child_tasks(self, event_bus):
         async def exercise():
             from openjarvis.server.ws_bridge import create_ws_router
