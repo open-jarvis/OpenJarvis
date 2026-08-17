@@ -230,7 +230,7 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
 )
 @click.option(
     "--config",
-    type=click.Path(exists=True),
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Path to config file to use.",
 )
 @click.option(
