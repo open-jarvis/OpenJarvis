@@ -312,6 +312,7 @@ class SystemBuilder:
                 agent_scheduler = AgentScheduler(
                     manager=agent_manager,
                     executor=agent_executor,
+                    event_bus=bus,
                 )
             except Exception:
                 logger.warning("Failed to initialize agent scheduler", exc_info=True)

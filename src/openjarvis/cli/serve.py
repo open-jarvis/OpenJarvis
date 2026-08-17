@@ -487,7 +487,7 @@ def serve(
         speech_backend=system.speech_backend,
         agent_manager=system.agent_manager,
         agent_scheduler=system.agent_scheduler,
-        mcp_tools=system.tools,
+        mcp_tools=system.mcp_tools,
         mcp_clients=system._mcp_clients,
         api_key=api_key,
         webhook_config=webhook_config,
@@ -518,4 +518,11 @@ def serve(
             "authenticated requests to your instance."
         )
 
-    uvicorn.run(app, host=bind_host, port=bind_port, log_level="info")
+    # serve owns the system it built. The app's own shutdown hook only closes
+    # what it was told it owns; everything else the builder opened -- engine,
+    # session/telemetry/trace stores, scheduler store, memory backend -- is
+    # released here. close() is tolerant of a resource the app already closed.
+    try:
+        uvicorn.run(app, host=bind_host, port=bind_port, log_level="info")
+    finally:
+        system.close()
