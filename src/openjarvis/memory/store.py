@@ -80,10 +80,15 @@ class LocalFactStore(FactStore):
         *,
         max_facts: int = 1000,
     ) -> None:
+        max_facts = int(max_facts)
+        if max_facts <= 0:
+            raise ValueError(
+                f"max_facts must be a positive integer, got {max_facts}"
+            )
         self._path = (
             Path(path).expanduser() if path is not None else _default_fact_path()
         )
-        self._max_facts = max(0, int(max_facts))
+        self._max_facts = max_facts
         self._lock = threading.Lock()
         self._facts: List[Fact] = self._load()
 
@@ -143,8 +148,11 @@ class LocalFactStore(FactStore):
             if any(f.text.lower() == lowered for f in self._facts):
                 return False  # dedupe
             self._facts.append(Fact(text=text, source=source, created_at=time.time()))
-            # Enforce the cap by evicting the oldest entries.
-            if self._max_facts and len(self._facts) > self._max_facts:
+            # Enforce the cap by evicting the oldest entries. max_facts is
+            # always positive (validated in __init__), so this slice can't
+            # hit Python's `list[-0:]` footgun, which returns the whole
+            # list instead of emptying it.
+            if len(self._facts) > self._max_facts:
                 self._facts = self._facts[-self._max_facts :]
             self._flush()
         return True

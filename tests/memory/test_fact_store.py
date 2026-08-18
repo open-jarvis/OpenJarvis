@@ -57,6 +57,24 @@ def test_max_facts_evicts_oldest(tmp_path):
     assert facts == ["second", "third"]  # oldest dropped
 
 
+def test_max_facts_zero_rejected(tmp_path):
+    """Regression for #757: max_facts=0 must not silently disable the cap.
+
+    ``self._max_facts and len(self._facts) > self._max_facts`` short-
+    circuits on 0 (falsy), so eviction never ran and the store grew
+    without bound -- the opposite of what a "cap on stored facts" should
+    do for its minimum value. Reject non-positive values outright instead
+    of accepting one that means the opposite of what it says.
+    """
+    with pytest.raises(ValueError):
+        LocalFactStore(tmp_path / "facts.jsonl", max_facts=0)
+
+
+def test_max_facts_negative_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        LocalFactStore(tmp_path / "facts.jsonl", max_facts=-5)
+
+
 def test_persistence_across_instances(tmp_path):
     path = tmp_path / "facts.jsonl"
     store = LocalFactStore(path)
