@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib
 import os
 import shlex
+import subprocess
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -277,3 +278,61 @@ class TestShellExecTool:
             result = tool.execute(command="/nonexistent_binary")
         assert result.success is False
         assert result.metadata["returncode"] == -1
+
+
+class TestSanitizedEnvWindowsKeys:
+    """Regression for #789: the Python fallback's env allowlist was
+    POSIX-focused ("PATH", "HOME", "USER", "LANG", "TERM") and omitted
+    variables Windows needs for basic process bootstrapping -- missing
+    SystemRoot breaks Winsock/DNS init for any network-touching command
+    (git, curl, pip, npm all fail with "getaddrinfo() thread failed to
+    start"), and missing LOCALAPPDATA makes the Windows Store Python
+    launcher provision a ~170MB Python\\ folder in the cwd instead of
+    finding the real interpreter.
+    """
+
+    def test_base_env_keys_include_windows_essentials(self):
+        from openjarvis.tools.shell_exec import _BASE_ENV_KEYS
+
+        for key in (
+            "SystemRoot",
+            "SystemDrive",
+            "COMSPEC",
+            "PATHEXT",
+            "TEMP",
+            "TMP",
+            "USERPROFILE",
+            "LOCALAPPDATA",
+            "APPDATA",
+        ):
+            assert key in _BASE_ENV_KEYS, f"{key} missing from _BASE_ENV_KEYS"
+
+    def test_windows_env_vars_reach_the_subprocess(self, monkeypatch):
+        """End-to-end: with the Rust backend unavailable (forcing the
+        Python sanitised-env fallback), a Windows-critical variable
+        present in the host environment must actually reach the child
+        process instead of being stripped."""
+        monkeypatch.setenv("SystemRoot", r"C:\Windows")
+        monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\tester\AppData\Local")
+
+        captured: dict = {}
+
+        def _fake_run(*args, **kwargs):
+            captured["env"] = kwargs.get("env")
+            return subprocess.CompletedProcess(args, 0, stdout="ok\n", stderr="")
+
+        tool = ShellExecTool()
+        with (
+            patch(
+                "openjarvis._rust_bridge.get_rust_module",
+                side_effect=ImportError("no rust module"),
+            ),
+            patch("subprocess.run", side_effect=_fake_run),
+        ):
+            result = tool.execute(command="echo ok")
+
+        assert result.success is True
+        env = captured["env"]
+        assert env is not None
+        assert env.get("SystemRoot") == r"C:\Windows"
+        assert env.get("LOCALAPPDATA") == r"C:\Users\tester\AppData\Local"

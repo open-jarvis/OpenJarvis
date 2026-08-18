@@ -20,8 +20,30 @@ _MAX_TIMEOUT = 300
 # Default timeout (seconds)
 _DEFAULT_TIMEOUT = 30
 
-# Environment variables always passed through
-_BASE_ENV_KEYS = ("PATH", "HOME", "USER", "LANG", "TERM")
+# Environment variables always passed through. The Windows-specific
+# entries are harmless on POSIX (os.environ.get() returns None for them
+# and they're skipped below) but essential on Windows: missing SystemRoot
+# breaks Winsock/DNS initialization for any network-touching command
+# (git, curl, pip, npm all fail with "getaddrinfo() thread failed to
+# start"), and missing LOCALAPPDATA makes the Windows Store Python
+# launcher provision a fresh ~170MB Python\ folder in the cwd instead of
+# finding the real interpreter (#789).
+_BASE_ENV_KEYS = (
+    "PATH",
+    "HOME",
+    "USER",
+    "LANG",
+    "TERM",
+    "SystemRoot",
+    "SystemDrive",
+    "COMSPEC",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "LOCALAPPDATA",
+    "APPDATA",
+)
 
 
 @ToolRegistry.register("shell_exec")
