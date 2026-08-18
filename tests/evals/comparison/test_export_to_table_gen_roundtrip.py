@@ -14,7 +14,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from openjarvis.evals.comparison.table_gen import (
+import pytest
+
+pytest.importorskip("polars")
+
+from openjarvis.evals.comparison.table_gen import (  # noqa: E402
     _build_t1,
     load_results,
 )
