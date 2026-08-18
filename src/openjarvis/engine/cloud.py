@@ -48,6 +48,9 @@ PRICING: Dict[str, tuple[float, float]] = {
     "gemini-3.1-flash-lite-preview": (0.30, 2.50),
     "gemini-3-flash-preview": (0.50, 3.00),
     "claude-haiku-4-5-20251001": (1.00, 5.00),
+    "claude-sonnet-5": (3.00, 15.00),
+    "claude-opus-5": (15.00, 75.00),
+    "claude-fable-5": (3.00, 15.00),
     "MiniMax-M2.7": (0.30, 1.20),
     "MiniMax-M2.7-highspeed": (0.60, 2.40),
     "MiniMax-M2.5": (0.30, 1.20),
@@ -73,6 +76,9 @@ _ANTHROPIC_MODELS = [
     "claude-sonnet-4-6",
     "claude-haiku-4-5",
     "claude-haiku-4-5-20251001",
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "claude-fable-5",
 ]
 _GOOGLE_MODELS = [
     "gemini-2.5-pro",
@@ -180,12 +186,16 @@ def _is_openai_reasoning_model(model: str) -> bool:
 
 
 def _is_unsupported_temperature_error(exc: Exception) -> bool:
-    """True if an OpenAI 400 says the model rejects a non-default temperature.
+    """True if a provider 400 says the model rejects a non-default temperature.
 
-    Some models (e.g. gpt-5) only accept the default temperature and return
-    ``code: unsupported_value`` for ``param: temperature`` (see #426). We
-    can't enumerate every such model up front, so detect the error and retry
-    without temperature — mirroring the tools-400 retry in the local engines.
+    Some OpenAI models (e.g. gpt-5) only accept the default temperature and
+    return ``code: unsupported_value`` for ``param: temperature`` (see #426).
+    The Claude 5 family goes further and rejects ``temperature`` outright as
+    deprecated. We can't enumerate every such model up front, so detect the
+    error and retry without temperature — mirroring the tools-400 retry in
+    the local engines. Shared across providers since the trigger (a 400
+    whose message calls out ``temperature`` specifically) and the fix
+    (retry once without it) are identical either way.
     """
     message = str(exc).lower()
     if "temperature" not in message:
@@ -195,6 +205,7 @@ def _is_unsupported_temperature_error(exc: Exception) -> bool:
         or "unsupported value" in message
         or "only the default" in message
         or "does not support" in message
+        or "deprecated" in message
     )
 
 
@@ -696,7 +707,16 @@ class CloudEngine(InferenceEngine):
                 }
 
         t0 = time.monotonic()
-        resp = self._anthropic_client.messages.create(**create_kwargs)
+        try:
+            resp = self._anthropic_client.messages.create(**create_kwargs)
+        except Exception as exc:
+            if "temperature" in create_kwargs and _is_unsupported_temperature_error(
+                exc
+            ):
+                create_kwargs.pop("temperature", None)
+                resp = self._anthropic_client.messages.create(**create_kwargs)
+            else:
+                raise
         elapsed = time.monotonic() - t0
 
         # Walk every block in resp.content. Anthropic returns several kinds:
@@ -1264,9 +1284,23 @@ class CloudEngine(InferenceEngine):
         }
         if system_text:
             create_kwargs["system"] = system_text
-        with self._anthropic_client.messages.stream(**create_kwargs) as stream:
+        try:
+            cm = self._anthropic_client.messages.stream(**create_kwargs)
+            stream = cm.__enter__()
+        except Exception as exc:
+            if "temperature" in create_kwargs and _is_unsupported_temperature_error(
+                exc
+            ):
+                create_kwargs.pop("temperature", None)
+                cm = self._anthropic_client.messages.stream(**create_kwargs)
+                stream = cm.__enter__()
+            else:
+                raise
+        try:
             for text in stream.text_stream:
                 yield text
+        finally:
+            cm.__exit__(None, None, None)
 
     async def _stream_google(
         self,
@@ -1676,7 +1710,19 @@ class CloudEngine(InferenceEngine):
             create_kwargs["tools"] = _convert_tools_to_anthropic(raw_tools)
         kwargs.pop("tool_choice", None)
 
-        with self._anthropic_client.messages.stream(**create_kwargs) as stream:
+        try:
+            cm = self._anthropic_client.messages.stream(**create_kwargs)
+            stream = cm.__enter__()
+        except Exception as exc:
+            if "temperature" in create_kwargs and _is_unsupported_temperature_error(
+                exc
+            ):
+                create_kwargs.pop("temperature", None)
+                cm = self._anthropic_client.messages.stream(**create_kwargs)
+                stream = cm.__enter__()
+            else:
+                raise
+        try:
             tool_index = -1
             for event in stream:
                 if event.type == "content_block_start":
@@ -1734,6 +1780,8 @@ class CloudEngine(InferenceEngine):
                         content_blocks=content_blocks or None,
                         tool_results=tool_results or None,
                     )
+        finally:
+            cm.__exit__(None, None, None)
 
     async def stream_full(
         self,

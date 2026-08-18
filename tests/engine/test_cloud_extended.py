@@ -208,6 +208,62 @@ class TestCloudAnthropic:
         assert _is_anthropic_model("gpt-5-mini") is False
         assert _is_anthropic_model("gemini-3-pro") is False
 
+    def test_claude_5_family_registered(self) -> None:
+        """The Claude 5 family (current as of this model's own release) must
+        be in the known-models registry.
+
+        Regression: a user configured `default_model = "claude-sonnet-5"`
+        (a real, callable model) with a valid ANTHROPIC_API_KEY, and the
+        server silently fell back to a local Ollama model instead --
+        because model resolution only trusts configured_model if it appears
+        in this static list, and the list had never been updated past the
+        4.x generation. The fallback is silent by design (so a stale model
+        name doesn't hard-fail startup), which means an out-of-date
+        registry here is indistinguishable from a real reachability
+        problem to the end user.
+        """
+        for model in ("claude-sonnet-5", "claude-opus-5", "claude-fable-5"):
+            assert model in _ANTHROPIC_MODELS, f"{model} missing from _ANTHROPIC_MODELS"
+            assert _is_anthropic_model(model) is True
+
+    def test_retries_without_temperature_when_deprecated(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The Claude 5 family rejects a non-default `temperature` outright
+        (HTTP 400: "`temperature` is deprecated for this model."), unlike
+        every prior Claude generation. A brand-new install now defaults to
+        claude-sonnet-5, so the very first prompt 400s unless the engine
+        detects this specific error and retries once without temperature --
+        mirroring the existing OpenAI unsupported-temperature retry (#426)."""
+        engine = _make_cloud_engine(monkeypatch)
+        calls: list[dict] = []
+        err = Exception(
+            "Error code: 400 - {'type': 'error', 'error': {'type': "
+            "'invalid_request_error', 'message': '`temperature` is "
+            "deprecated for this model.'}}"
+        )
+
+        def create(**kwargs):
+            calls.append(kwargs)
+            if "temperature" in kwargs:
+                raise err
+            return _fake_anthropic_response(content="ok", model="claude-sonnet-5")
+
+        fake_client = mock.MagicMock()
+        fake_client.messages.create.side_effect = create
+        engine._anthropic_client = fake_client
+
+        result = engine.generate(
+            [Message(role=Role.USER, content="Hi")],
+            model="claude-sonnet-5",
+            temperature=0.7,
+        )
+
+        assert result["content"] == "ok"
+        assert len(calls) == 2
+        assert "temperature" in calls[0]
+        assert "temperature" not in calls[1]
+
     def test_anthropic_tool_use_extraction(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -271,6 +271,67 @@ async def test_stream_full_anthropic_content():
 
 
 @pytest.mark.asyncio
+async def test_stream_full_anthropic_retries_without_temperature_when_deprecated():
+    """The Claude 5 family rejects a non-default `temperature` outright on
+    the *streaming* path too -- the retry-without-temperature fix must cover
+    the manual __enter__/__exit__ handling in _stream_full_anthropic, not
+    just the non-streaming _generate_anthropic path (see test_cloud_extended
+    .py::test_retries_without_temperature_when_deprecated for the
+    non-streaming counterpart and full regression rationale)."""
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_delta = MagicMock()
+    text_delta.type = "text_delta"
+    text_delta.text = "ok"
+    msg_delta = MagicMock()
+    msg_delta.stop_reason = "end_turn"
+    events = [
+        _anthropic_event("content_block_start", content_block=text_block),
+        _anthropic_event("content_block_delta", delta=text_delta),
+        _anthropic_event("message_delta", delta=msg_delta),
+    ]
+
+    mock_stream = MagicMock()
+    mock_stream.__enter__ = MagicMock(return_value=iter(events))
+    mock_stream.__exit__ = MagicMock(return_value=False)
+
+    calls: list[dict] = []
+    err = Exception(
+        "Error code: 400 - {'type': 'error', 'error': {'type': "
+        "'invalid_request_error', 'message': '`temperature` is "
+        "deprecated for this model.'}}"
+    )
+
+    def stream(**kwargs):
+        calls.append(kwargs)
+        if "temperature" in kwargs:
+            raise err
+        return mock_stream
+
+    mock_anthropic = MagicMock()
+    mock_anthropic.messages.stream.side_effect = stream
+
+    engine = _make_cloud_engine(anthropic_client=mock_anthropic)
+    msgs = [Message(role=Role.USER, content="hi")]
+
+    result: List[StreamChunk] = []
+    async for sc in engine._stream_full_anthropic(
+        msgs,
+        model="claude-sonnet-5",
+        temperature=0.7,
+        max_tokens=100,
+    ):
+        result.append(sc)
+
+    content_chunks = [r for r in result if r.content is not None]
+    assert len(content_chunks) >= 1
+    assert content_chunks[0].content == "ok"
+    assert len(calls) == 2
+    assert "temperature" in calls[0]
+    assert "temperature" not in calls[1]
+
+
+@pytest.mark.asyncio
 async def test_stream_full_anthropic_tool_calls():
     """Mock Anthropic tool_use events, verify OpenAI-delta-format tool_calls."""
     # content_block_start with tool_use
