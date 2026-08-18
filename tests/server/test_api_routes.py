@@ -126,6 +126,66 @@ class TestMetricsRoute:
         assert resp.status_code == 200
         assert "openjarvis" in resp.text or "No metrics" in resp.text
 
+    def test_metrics_endpoint_reports_real_stats(self, tmp_path, monkeypatch):
+        """Regression for #760: /metrics must report actual aggregated
+        stats instead of silently falling back to the placeholder text.
+
+        The handler called ``stats.get(...)`` on ``AggregatedStats``, a
+        dataclass with no ``.get()`` method -- every real request raised
+        ``AttributeError``, caught by the broad ``except Exception`` and
+        papered over as "No metrics available", even with real telemetry
+        data present in ``telemetry.db``.
+        """
+        import time
+
+        import openjarvis.core.config as config_mod
+        from openjarvis.core.types import TelemetryRecord
+        from openjarvis.telemetry.store import TelemetryStore
+
+        monkeypatch.setattr(config_mod, "DEFAULT_CONFIG_DIR", tmp_path)
+
+        db_path = tmp_path / "telemetry.db"
+        store = TelemetryStore(db_path)
+        store.record(
+            TelemetryRecord(
+                timestamp=time.time(),
+                model_id="test-model",
+                engine="ollama",
+                prompt_tokens=10,
+                completion_tokens=5,
+                total_tokens=15,
+                latency_seconds=2.0,
+                cost_usd=0.001,
+            )
+        )
+        store.close()
+
+        client = TestClient(_make_app())
+        resp = client.get("/metrics")
+        assert resp.status_code == 200
+        assert "No metrics available" not in resp.text
+        assert "openjarvis_requests_total 1" in resp.text
+        assert "openjarvis_tokens_total 15" in resp.text
+        assert "openjarvis_latency_avg_ms 2000" in resp.text
+
+    def test_metrics_endpoint_empty_db_no_division_by_zero(self, tmp_path, monkeypatch):
+        """An existing but empty telemetry.db (total_calls=0) must not
+        raise ZeroDivisionError when computing average latency."""
+        import openjarvis.core.config as config_mod
+        from openjarvis.telemetry.store import TelemetryStore
+
+        monkeypatch.setattr(config_mod, "DEFAULT_CONFIG_DIR", tmp_path)
+
+        db_path = tmp_path / "telemetry.db"
+        TelemetryStore(db_path).close()  # creates the schema, no records
+
+        client = TestClient(_make_app())
+        resp = client.get("/metrics")
+        assert resp.status_code == 200
+        assert "No metrics available" not in resp.text
+        assert "openjarvis_requests_total 0" in resp.text
+        assert "openjarvis_latency_avg_ms 0" in resp.text
+
 
 class TestSkillRoutes:
     def test_list_skills(self):

@@ -601,18 +601,27 @@ async def prometheus_metrics(request: Request):
             return PlainTextResponse("# no telemetry data\n", media_type="text/plain")
 
         agg = TelemetryAggregator(db_path)
-        stats = agg.summary()
+        try:
+            stats = agg.summary()
+        finally:
+            agg.close()
+
+        avg_latency_ms = (
+            (stats.total_latency / stats.total_calls) * 1000
+            if stats.total_calls
+            else 0.0
+        )
 
         lines = [
             "# HELP openjarvis_requests_total Total requests processed",
             "# TYPE openjarvis_requests_total counter",
-            f"openjarvis_requests_total {stats.get('total_requests', 0)}",
+            f"openjarvis_requests_total {stats.total_calls}",
             "# HELP openjarvis_tokens_total Total tokens generated",
             "# TYPE openjarvis_tokens_total counter",
-            f"openjarvis_tokens_total {stats.get('total_tokens', 0)}",
+            f"openjarvis_tokens_total {stats.total_tokens}",
             "# HELP openjarvis_latency_avg_ms Average latency in milliseconds",
             "# TYPE openjarvis_latency_avg_ms gauge",
-            f"openjarvis_latency_avg_ms {stats.get('avg_latency_ms', 0)}",
+            f"openjarvis_latency_avg_ms {avg_latency_ms}",
         ]
         from starlette.responses import PlainTextResponse
 
