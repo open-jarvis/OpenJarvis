@@ -40,6 +40,21 @@ impl SQLiteMemory {
             ))
         })?;
 
+        // A longer busy timeout plus WAL mode (#756): without WAL,
+        // memory.db runs in rollback-journal mode where any concurrent
+        // writer blocks all readers, and rusqlite's default 5s
+        // busy_timeout was too short under realistic contention. WAL is a
+        // silent no-op on in-memory databases and some filesystems (e.g.
+        // network shares) -- SQLite just keeps the existing journal mode
+        // there, which is fine.
+        conn.busy_timeout(std::time::Duration::from_secs(10))
+            .map_err(|e| {
+                OpenJarvisError::Io(std::io::Error::other(e.to_string()))
+            })?;
+        conn.execute_batch("PRAGMA journal_mode=WAL;").map_err(|e| {
+            OpenJarvisError::Io(std::io::Error::other(e.to_string()))
+        })?;
+
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS documents (
                 id TEXT PRIMARY KEY,
@@ -443,5 +458,35 @@ mod tests {
         for r in &results {
             assert!(r.score > 0.0, "score should be positive, got {}", r.score);
         }
+    }
+
+    #[test]
+    fn test_sqlite_uses_wal_journal_mode_and_longer_busy_timeout() {
+        // Regression for #756: without WAL mode, memory.db runs in
+        // rollback-journal mode where any concurrent writer blocks all
+        // readers, and rusqlite's default 5s busy_timeout was too short
+        // under realistic contention.
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("memory.db");
+        let mem = SQLiteMemory::new(&db_path).unwrap();
+
+        let conn = mem.conn.lock();
+
+        let journal_mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            journal_mode.to_lowercase(),
+            "wal",
+            "expected WAL journal mode for a file-backed database"
+        );
+
+        let busy_timeout_ms: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert!(
+            busy_timeout_ms >= 10_000,
+            "expected busy_timeout of at least 10000ms, got {busy_timeout_ms}"
+        );
     }
 }
