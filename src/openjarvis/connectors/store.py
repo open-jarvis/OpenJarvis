@@ -454,6 +454,24 @@ class KnowledgeStore(MemoryBackend):
         self._conn.commit()
         return cur.rowcount > 0
 
+    def delete_by_source(self, source: str) -> int:
+        """Delete all chunks with the given *source*. Returns the count removed.
+
+        Must be called when a connector is disconnected so a later
+        reconnect -- to the same or a different underlying data source --
+        starts clean. Without this, orphaned chunks from the old source
+        remain indexed forever, and if the new source produces a doc_id
+        that happens to collide with one of them (e.g. two vaults each
+        containing a file at the same relative path), the ingestion
+        pipeline's duplicate-doc_id dedup silently discards the new
+        content in favor of the stale orphan.
+        """
+        cur = self._conn.execute(
+            "DELETE FROM knowledge_chunks WHERE source = ?", (source,)
+        )
+        self._conn.commit()
+        return cur.rowcount
+
     def clear(self) -> None:
         """Remove all stored chunks."""
         self._conn.executescript(

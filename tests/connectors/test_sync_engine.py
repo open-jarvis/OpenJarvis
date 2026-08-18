@@ -182,3 +182,66 @@ def test_sync_multiple_connectors(
     assert len(results_b) >= 1
     for r in results_b:
         assert r.metadata.get("source") == "source_b"
+
+
+# ---------------------------------------------------------------------------
+# Test 5: reset_checkpoint clears stale state after a data-source swap
+# ---------------------------------------------------------------------------
+
+
+def test_reset_checkpoint_clears_state(engine: SyncEngine) -> None:
+    """A connector reconfigured to point at an entirely different data
+    source (e.g. a user swaps which Obsidian vault is connected) must not
+    resume from the old source's checkpoint. reset_checkpoint() clears the
+    saved cursor/items_synced/last_sync for a connector_id so the next
+    sync starts fresh."""
+    docs = [_make_doc(f"reset:doc:{i}") for i in range(5)]
+    connector = StubConnector(docs)
+
+    engine.sync(connector)
+    assert engine.get_checkpoint("stub") is not None
+
+    engine.reset_checkpoint("stub")
+
+    assert engine.get_checkpoint("stub") is None
+
+
+def test_sync_after_reset_does_not_inherit_prior_items_or_since(
+    engine: SyncEngine,
+) -> None:
+    """After reset_checkpoint, a new sync must start item counting from
+    zero and pass since=None -- not the old source's watermark, which
+    could cause new items from a freshly-connected source to be silently
+    skipped if their timestamps predate it."""
+
+    class TrackingConnector(StubConnector):
+        connector_id = "swap"
+
+        def __init__(self, docs: List[Document]) -> None:
+            super().__init__(docs)
+            self.received_since: List[Optional[datetime]] = []
+
+        def sync(
+            self,
+            *,
+            since: Optional[datetime] = None,
+            cursor: Optional[str] = None,
+        ) -> Iterator[Document]:
+            self.received_since.append(since)
+            yield from self._docs
+
+    old_docs = [_make_doc(f"old:doc:{i}") for i in range(9)]
+    engine.sync(TrackingConnector(old_docs))
+
+    engine.reset_checkpoint("swap")
+
+    new_docs = [_make_doc(f"new:doc:{i}") for i in range(1)]
+    fresh = TrackingConnector(new_docs)
+    items = engine.sync(fresh)
+
+    assert fresh.received_since == [None]
+    assert items == 1
+
+    cp = engine.get_checkpoint("swap")
+    assert cp is not None
+    assert cp["items_synced"] == 1

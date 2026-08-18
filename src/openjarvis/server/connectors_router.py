@@ -469,6 +469,44 @@ def create_connectors_router():
             instance.disconnect()
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
+
+        # Clear the sync checkpoint so a future reconnect (potentially to a
+        # different underlying data source, e.g. a different Obsidian vault)
+        # starts fresh instead of resuming from this source's cursor/
+        # watermark and inflating items_synced with stale counts.
+        try:
+            from openjarvis.connectors.pipeline import IngestionPipeline
+            from openjarvis.connectors.store import KnowledgeStore
+            from openjarvis.connectors.sync_engine import SyncEngine
+
+            SyncEngine(
+                pipeline=IngestionPipeline(store=KnowledgeStore()),
+            ).reset_checkpoint(connector_id)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to reset sync checkpoint for %s on disconnect",
+                connector_id,
+                exc_info=True,
+            )
+
+        # Purge previously-ingested content for this connector. Otherwise a
+        # later reconnect (to the same or a different underlying source)
+        # leaves orphaned chunks behind, and if the new source happens to
+        # produce a doc_id that collides with one of them (e.g. two vaults
+        # each containing a file at the same relative path), the ingestion
+        # pipeline's duplicate-doc_id dedup silently discards the new
+        # content in favor of the stale orphan.
+        try:
+            from openjarvis.connectors.store import KnowledgeStore
+
+            KnowledgeStore().delete_by_source(connector_id)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to purge indexed content for %s on disconnect",
+                connector_id,
+                exc_info=True,
+            )
+
         return {
             "connector_id": connector_id,
             "connected": False,

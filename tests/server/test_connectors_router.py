@@ -77,6 +77,71 @@ def test_disconnect(app):
     assert data["connected"] is False
 
 
+def test_disconnect_clears_stale_sync_checkpoint(app) -> None:
+    """Disconnecting a connector must reset its sync checkpoint.
+
+    Regression: a user disconnects Obsidian from one vault and reconnects
+    it to a different vault. Before this fix, the SyncEngine checkpoint
+    (items_synced, cursor, last_sync) was keyed only by connector_id and
+    survived disconnect, so the next sync resumed from the OLD vault's
+    watermark -- inflating the reported item count with stale data and
+    risking skipped items in the new vault whose timestamps predate the
+    old watermark.
+    """
+    from openjarvis.connectors.pipeline import IngestionPipeline
+    from openjarvis.connectors.store import KnowledgeStore
+    from openjarvis.connectors.sync_engine import SyncEngine
+
+    engine = SyncEngine(pipeline=IngestionPipeline(store=KnowledgeStore()))
+    engine._save_checkpoint("obsidian", 9, cursor="stale-cursor")
+    assert engine.get_checkpoint("obsidian") is not None
+
+    resp = app.post("/v1/connectors/obsidian/disconnect")
+    assert resp.status_code == 200
+
+    # A fresh SyncEngine (same default state DB) must see no checkpoint.
+    fresh_engine = SyncEngine(pipeline=IngestionPipeline(store=KnowledgeStore()))
+    assert fresh_engine.get_checkpoint("obsidian") is None
+
+
+def test_disconnect_purges_previously_ingested_content(app) -> None:
+    """Disconnecting a connector must purge its previously-ingested chunks.
+
+    Regression: reconnecting Obsidian to a different vault left the OLD
+    vault's chunks in the KnowledgeStore forever (disconnect only cleared
+    credentials, never indexed content). If the new vault contains a file
+    at the same relative path as one in the old vault (e.g. both have a
+    "Welcome.md"), the resulting doc_id collides with the orphaned old
+    chunk, and the ingestion pipeline's duplicate-doc_id dedup silently
+    discards the new content -- the user's real notes never get indexed,
+    with no error surfaced anywhere.
+    """
+    from openjarvis.connectors.store import KnowledgeStore
+
+    store = KnowledgeStore()
+    store.store(
+        content="Stale content from a previously-connected vault",
+        source="obsidian",
+        doc_type="note",
+        doc_id="obsidian:Welcome.md",
+        title="Welcome",
+        author="",
+    )
+    assert any(
+        r.metadata.get("source") == "obsidian"
+        for r in store.retrieve("stale content vault", top_k=10)
+    )
+
+    resp = app.post("/v1/connectors/obsidian/disconnect")
+    assert resp.status_code == 200
+
+    fresh_store = KnowledgeStore()
+    assert not any(
+        r.metadata.get("source") == "obsidian"
+        for r in fresh_store.retrieve("stale content vault", top_k=10)
+    )
+
+
 def test_sync_status(app):
     """GET /v1/connectors/obsidian/sync returns a response with a state field."""
     resp = app.get("/v1/connectors/obsidian/sync")

@@ -159,6 +159,21 @@ class SyncEngine:
             "error": row["error"],
         }
 
+    def reset_checkpoint(self, connector_id: str) -> None:
+        """Clear the saved checkpoint for *connector_id*.
+
+        Must be called whenever a connector is reconfigured to point at a
+        different underlying data source (e.g. disconnect/reconnect with a
+        new Obsidian vault path). Without this, the next sync would resume
+        from the old source's cursor/``since`` watermark, inflating
+        ``items_synced`` with the old source's count and potentially
+        skipping new items whose timestamps predate that watermark.
+        """
+        self._conn.execute(
+            "DELETE FROM sync_state WHERE connector_id = ?", (connector_id,)
+        )
+        self._conn.commit()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
