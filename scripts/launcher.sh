@@ -15,7 +15,7 @@
 #   LD_LIBRARY_PATH (vision)  unset -> onnxruntime silently falls back to CPU
 #                             and Vision eats ~5 cores instead of the GPU.
 #
-# Usage: scripts/stack.sh [start|stop|status] [--no-vision]
+# Usage: scripts/launcher.sh [start|stop|status] [--no-vision]
 
 set -Eeuo pipefail
 
@@ -180,4 +180,4 @@ fi
 echo
 echo "  Frontend  http://127.0.0.1:5173"
 echo "  Kiosk     http://127.0.0.1:5173/kiosk"
-echo "  Stop with: scripts/stack.sh stop"
+echo "  Stop with: scripts/launcher.sh stop"
