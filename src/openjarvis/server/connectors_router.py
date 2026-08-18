@@ -164,13 +164,23 @@ def create_connectors_router():
         )
 
         raw = (req.code or req.token or "").strip()
-        # Only the client-registration pair routes through the server flow.
-        # A raw access token (no ".apps.googleusercontent.com") is handled by
-        # the connector's handle_callback unchanged.
-        if ".apps.googleusercontent.com" not in raw or ":" not in raw:
+        provider = get_provider_for_connector(connector_id)
+
+        # Only the client-registration pair routes through the server flow;
+        # a raw access token is handled by the connector's handle_callback
+        # unchanged. Google's client IDs have a distinctive suffix, so a
+        # colon-containing string is only treated as a Google credential
+        # pair when it matches that format -- otherwise some other raw
+        # token that happens to contain a colon could be misidentified.
+        # Non-Google providers (Spotify, Strava, ...) have no such
+        # ambiguity: every non-Google OAuth connector only ever expects a
+        # client_id:client_secret pair through this path, so any
+        # colon-containing string is enough to route here.
+        is_google_pair = ".apps.googleusercontent.com" in raw
+        is_non_google_pair = provider is not None and provider.name != "google"
+        if ":" not in raw or not (is_google_pair or is_non_google_pair):
             return None
 
-        provider = get_provider_for_connector(connector_id)
         if provider is None:
             raise HTTPException(
                 status_code=400,

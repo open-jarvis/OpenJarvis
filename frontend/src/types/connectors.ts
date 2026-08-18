@@ -7,7 +7,7 @@ export interface SetupStep {
 export interface ConnectorMeta {
   connector_id: string;
   display_name: string;
-  auth_type: 'oauth' | 'local' | 'bridge' | 'filesystem';
+  auth_type: 'oauth' | 'local' | 'bridge' | 'filesystem' | 'token';
   category: 'communication' | 'documents' | 'pim' | 'other';
   icon: string;
   color: string;
@@ -22,14 +22,22 @@ export interface ConnectorMeta {
   }>;
 }
 
+export interface OAuthSetupInfo {
+  provider: string;
+  setup_url: string;
+  setup_hint: string;
+  has_credentials: boolean;
+}
+
 export interface ConnectorInfo {
   connector_id: string;
   display_name: string;
-  auth_type: "oauth" | "local" | "bridge" | "filesystem";
+  auth_type: "oauth" | "local" | "bridge" | "filesystem" | "token";
   connected: boolean;
   auth_url?: string;
   mcp_tools?: string[];
   chunks?: number;
+  oauth_setup?: OAuthSetupInfo | null;
 }
 
 export interface SyncStatus {
