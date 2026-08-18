@@ -469,10 +469,14 @@ export function InputArea() {
       }
       const totalMs = Date.now() - startTime;
       const _CLOUD_PREFIXES = ['gpt-', 'o1-', 'o3-', 'o4-', 'claude-', 'gemini-', 'openrouter/', 'MiniMax-', 'chatgpt-'];
-      const selectedOwner = useAppStore.getState().models.find((m) => m.id === selectedModel)?.owned_by;
-      const engineLabel = selectedOwner === 'litellm'
+      const appState = useAppStore.getState();
+      const selectedOwner = appState.models.find((m) => m.id === selectedModel)?.owned_by;
+      const inferredEngine = selectedOwner === 'litellm'
         ? 'litellm'
         : _CLOUD_PREFIXES.some(p => selectedModel.startsWith(p)) ? 'cloud' : 'ollama';
+      // `/v1/info` reports the engine actually configured by the server.
+      // Keep the model-name heuristic only until that request has resolved.
+      const engineLabel = appState.serverInfo?.engine || inferredEngine;
       const telemetry: MessageTelemetry = {
         engine: engineLabel,
         model_id: selectedModel,
