@@ -92,16 +92,12 @@ def _merge_context_message(
         if part
     )
     combined = replace(system_messages[0], content=content)
-    merged: List[Message] = []
-    inserted = False
-    for message in messages:
-        if message.role == Role.SYSTEM:
-            if not inserted:
-                merged.append(combined)
-                inserted = True
-            continue
-        merged.append(message)
-    return merged
+    # Always place the merged system message FIRST. Ollama (and many chat
+    # templates) reject a non-initial system message with
+    # "system message must be at the beginning", so preserving the original
+    # system position is not safe — a system message may arrive mid-list
+    # (e.g. after caller-provided history).
+    return [combined] + [m for m in messages if m.role != Role.SYSTEM]
 
 
 def inject_context(

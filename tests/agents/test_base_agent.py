@@ -237,7 +237,9 @@ class TestBuildMessages:
 
         messages = agent._build_messages("new", AgentContext(conversation=conv))
 
-        assert any(message.content == "You are helpful." for message in messages)
+        assert any(
+            "You are helpful." in message.content for message in messages
+        )
 
 
 class TestGenerate:

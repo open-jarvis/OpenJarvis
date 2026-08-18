@@ -179,12 +179,20 @@ class BaseAgent(ABC):
             except Exception:
                 effective_system_prompt = None
         if effective_system_prompt:
+            # Fold ALL in-context system messages (both auto-captured memory
+            # context and caller-supplied system messages) into the single
+            # effective system prompt, then drop them from the context list.
+            #
+            # This guarantees the assembled message list carries exactly one
+            # system message, always in the first position. Some models'
+            # chat templates (e.g. Qwen3) reject message lists where a system
+            # message appears after the first slot, or more than one system
+            # message. Folding preserves the caller's intended grounding
+            # content while keeping the list template-clean.
             context_system_text = "\n\n".join(
                 message.text
                 for message in context_messages
-                if message.role == Role.SYSTEM
-                and message.metadata.get("memory_context")
-                and message.text
+                if message.role == Role.SYSTEM and message.text
             )
             if context_system_text:
                 effective_system_prompt = (
@@ -193,10 +201,7 @@ class BaseAgent(ABC):
                 context_messages = [
                     message
                     for message in context_messages
-                    if not (
-                        message.role == Role.SYSTEM
-                        and message.metadata.get("memory_context")
-                    )
+                    if message.role != Role.SYSTEM
                 ]
             messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
         if context_messages:
