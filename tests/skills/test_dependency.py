@@ -117,6 +117,24 @@ class TestValidateDependencies:
         with pytest.raises(DependencyCycleError):
             validate_dependencies(skills)
 
+    def test_cycle_error_carries_cyclic_skill_names(self):
+        """Regression for #781: callers that want to recover from a cycle
+        (rather than just crash) need to know *which* skills are cyclic
+        without parsing the exception message string."""
+        from openjarvis.skills.dependency import (
+            DependencyCycleError,
+            validate_dependencies,
+        )
+
+        skills = {
+            "a": _manifest("a", depends=["b"]),
+            "b": _manifest("b", depends=["a"]),
+            "c": _manifest("c"),
+        }
+        with pytest.raises(DependencyCycleError) as exc_info:
+            validate_dependencies(skills)
+        assert exc_info.value.skills == {"a", "b"}
+
     def test_cycle_detection_three_nodes(self):
         from openjarvis.skills.dependency import (
             DependencyCycleError,
