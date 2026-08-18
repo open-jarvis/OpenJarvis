@@ -148,6 +148,89 @@ class TestStatus:
         assert ch.status() == ChannelStatus.ERROR
 
 
+class TestDisconnectStopsRealListener:
+    """Regression for #784: disconnect() must actually interrupt the
+    running `Application.run_polling()` call (which nothing previously
+    observed `_stop_event`), and must not report DISCONNECTED unless the
+    listener thread actually terminated -- otherwise a subsequent
+    connect() spawns a second poller against the same bot token, and
+    Telegram's getUpdates API returns 409 Conflict."""
+
+    def test_disconnect_schedules_stop_running_via_call_soon_threadsafe(self):
+        """stop_running() calls asyncio.get_running_loop().stop() internally,
+        which is only safe from within the poll loop's own thread/loop --
+        so disconnect() must schedule it via loop.call_soon_threadsafe(),
+        not call it directly."""
+        ch = TelegramChannel(bot_token="123:ABC")
+        ch._status = ChannelStatus.CONNECTED
+
+        mock_app = MagicMock()
+        mock_loop = MagicMock()
+        ch._app = mock_app
+        ch._loop = mock_loop
+
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = False
+        ch._listener_thread = mock_thread
+
+        ch.disconnect()
+
+        mock_loop.call_soon_threadsafe.assert_called_once_with(mock_app.stop_running)
+        mock_thread.join.assert_called_once()
+        assert ch._listener_thread is None
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
+    def test_disconnect_does_not_report_disconnected_if_thread_still_alive(self):
+        """If the listener thread is still running after the join timeout,
+        disconnect() must not lie about the channel being DISCONNECTED --
+        doing so would let a later connect() spawn a duplicate poller."""
+        ch = TelegramChannel(bot_token="123:ABC")
+        ch._status = ChannelStatus.CONNECTED
+
+        ch._app = MagicMock()
+        ch._loop = MagicMock()
+
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = True  # join() timed out
+        ch._listener_thread = mock_thread
+
+        ch.disconnect()
+
+        assert ch.status() != ChannelStatus.DISCONNECTED
+        # Must keep the reference so a future disconnect()/duplicate-guard
+        # can still see the thread is running.
+        assert ch._listener_thread is mock_thread
+
+    def test_disconnect_without_app_or_loop_still_works(self):
+        """Send-only mode (python-telegram-bot not installed, or connect()
+        never actually started a listener): _app/_loop are None, so
+        disconnect() must fall back to the old join-only behavior instead
+        of raising."""
+        ch = TelegramChannel(bot_token="123:ABC")
+        ch._status = ChannelStatus.CONNECTED
+
+        ch.disconnect()
+
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
+    def test_connect_guards_against_duplicate_listener(self):
+        """connect() must not spawn a second polling thread while one is
+        already running -- that's exactly what produces the 409 Conflict
+        errors described in the issue."""
+        ch = TelegramChannel(bot_token="123:ABC")
+
+        existing_thread = MagicMock()
+        existing_thread.is_alive.return_value = True
+        ch._listener_thread = existing_thread
+        ch._status = ChannelStatus.CONNECTED
+
+        with patch("threading.Thread") as mock_thread_cls:
+            ch.connect()
+
+        mock_thread_cls.assert_not_called()
+        assert ch._listener_thread is existing_thread
+
+
 class TestAllowedChatIds:
     """Tests for the allowed_chat_ids enforcement in _poll_loop."""
 

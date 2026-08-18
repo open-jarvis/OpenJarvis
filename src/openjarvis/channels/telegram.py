@@ -54,11 +54,24 @@ class TelegramChannel(BaseChannel):
         self._status = ChannelStatus.DISCONNECTED
         self._listener_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        # Published by _poll_loop while it's running so disconnect() can
+        # actually interrupt Application.run_polling() (#784).
+        self._app: Optional[Any] = None
+        self._loop: Optional[Any] = None
 
     # -- connection lifecycle ---------------------------------------------------
 
     def connect(self) -> None:
         """Start listening for incoming messages via long polling."""
+        if self._listener_thread is not None and self._listener_thread.is_alive():
+            # A poller is already running against this bot token; starting
+            # another one causes Telegram's getUpdates API to return 409
+            # Conflict for one or both pollers (#784).
+            logger.warning(
+                "Telegram channel already connected; ignoring duplicate connect()"
+            )
+            return
+
         if not self._token:
             logger.warning("No Telegram bot token configured")
             self._status = ChannelStatus.ERROR
@@ -85,11 +98,37 @@ class TelegramChannel(BaseChannel):
             self._status = ChannelStatus.CONNECTED
 
     def disconnect(self) -> None:
-        """Stop the listener thread."""
+        """Stop the listener thread.
+
+        ``app.run_polling()`` blocks the listener thread inside its own
+        event loop and never observed ``_stop_event`` (#784). Interrupt it
+        via ``Application.stop_running()`` -- which internally calls
+        ``asyncio.get_running_loop().stop()`` and so is only safe to call
+        from *within* that loop's own thread -- scheduled here with
+        ``loop.call_soon_threadsafe()``. Status is only ever reported as
+        DISCONNECTED once the thread has actually terminated; otherwise a
+        later ``connect()`` would spawn a duplicate poller.
+        """
         self._stop_event.set()
+
+        app = self._app
+        loop = self._loop
+        if app is not None and loop is not None:
+            try:
+                loop.call_soon_threadsafe(app.stop_running)
+            except RuntimeError:
+                logger.debug("Telegram poll loop's event loop already closed")
+
         if self._listener_thread is not None:
             self._listener_thread.join(timeout=5.0)
+            if self._listener_thread.is_alive():
+                logger.warning(
+                    "Telegram listener thread did not stop within timeout;"
+                    " leaving status unchanged to avoid a duplicate poller"
+                )
+                return
             self._listener_thread = None
+
         self._status = ChannelStatus.DISCONNECTED
 
     # -- send / receive --------------------------------------------------------
@@ -168,9 +207,21 @@ class TelegramChannel(BaseChannel):
     def _poll_loop(self) -> None:
         """Long-poll for updates using python-telegram-bot."""
         try:
+            import asyncio
+
             from telegram.ext import ApplicationBuilder, MessageHandler, filters
 
+            # Create and set this thread's event loop ourselves so it's
+            # available before app.run_polling() starts (it picks up the
+            # already-set loop via asyncio.get_event_loop() rather than
+            # creating its own) -- disconnect() needs a reference to
+            # schedule Application.stop_running() onto it (#784).
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._loop = loop
+
             app = ApplicationBuilder().token(self._token).build()
+            self._app = app
 
             def _handle_msg(update, context):
                 msg = update.message
@@ -217,6 +268,9 @@ class TelegramChannel(BaseChannel):
         except Exception:
             logger.debug("Telegram poll loop error", exc_info=True)
             self._status = ChannelStatus.ERROR
+        finally:
+            self._app = None
+            self._loop = None
 
     def _publish_sent(self, channel: str, content: str, conversation_id: str) -> None:
         """Publish a CHANNEL_MESSAGE_SENT event on the bus."""

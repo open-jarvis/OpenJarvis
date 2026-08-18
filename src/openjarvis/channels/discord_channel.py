@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -45,11 +46,23 @@ class DiscordChannel(BaseChannel):
         self._status = ChannelStatus.DISCONNECTED
         self._listener_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        # Published by _gateway_loop while it's running so disconnect()
+        # can actually interrupt client.start() (#784).
+        self._client: Optional[Any] = None
+        self._loop: Optional[Any] = None
 
     # -- connection lifecycle ---------------------------------------------------
 
     def connect(self) -> None:
         """Start listening for incoming messages via discord.py gateway."""
+        if self._listener_thread is not None and self._listener_thread.is_alive():
+            # A gateway connection is already running; starting another
+            # one duplicates message handling (#784).
+            logger.warning(
+                "Discord channel already connected; ignoring duplicate connect()"
+            )
+            return
+
         if not self._token:
             logger.warning("No Discord bot token configured")
             self._status = ChannelStatus.ERROR
@@ -73,11 +86,38 @@ class DiscordChannel(BaseChannel):
             self._status = ChannelStatus.CONNECTED
 
     def disconnect(self) -> None:
-        """Stop the listener thread."""
+        """Stop the listener thread.
+
+        ``client.start()`` blocks the gateway thread inside its own event
+        loop and never observed ``_stop_event`` (#784). Interrupt it by
+        scheduling the coroutine ``client.close()`` onto that loop from
+        here via ``asyncio.run_coroutine_threadsafe()`` and waiting for it
+        to actually finish. Status is only ever reported as DISCONNECTED
+        once the thread has actually terminated; otherwise a later
+        ``connect()`` would spawn a duplicate gateway connection.
+        """
         self._stop_event.set()
+
+        client = self._client
+        loop = self._loop
+        if client is not None and loop is not None:
+            try:
+                future = asyncio.run_coroutine_threadsafe(client.close(), loop)
+                future.result(timeout=5.0)
+            except Exception:
+                logger.debug("Discord client.close() failed", exc_info=True)
+
         if self._listener_thread is not None:
             self._listener_thread.join(timeout=5.0)
+            if self._listener_thread.is_alive():
+                logger.warning(
+                    "Discord listener thread did not stop within timeout;"
+                    " leaving status unchanged to avoid a duplicate"
+                    " gateway connection"
+                )
+                return
             self._listener_thread = None
+
         self._status = ChannelStatus.DISCONNECTED
 
     # -- send / receive --------------------------------------------------------
@@ -153,13 +193,12 @@ class DiscordChannel(BaseChannel):
     def _gateway_loop(self) -> None:
         """Run the discord.py client in a background thread."""
         try:
-            import asyncio
-
             import discord
 
             intents = discord.Intents.default()
             intents.message_content = True
             client = discord.Client(intents=intents)
+            self._client = client
 
             @client.event
             async def on_message(message):
@@ -190,10 +229,14 @@ class DiscordChannel(BaseChannel):
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            self._loop = loop
             loop.run_until_complete(client.start(self._token))
         except Exception:
             logger.debug("Discord gateway loop error", exc_info=True)
             self._status = ChannelStatus.ERROR
+        finally:
+            self._client = None
+            self._loop = None
 
     def _publish_sent(self, channel: str, content: str, conversation_id: str) -> None:
         """Publish a CHANNEL_MESSAGE_SENT event on the bus."""

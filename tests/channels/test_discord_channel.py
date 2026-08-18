@@ -132,6 +132,93 @@ class TestStatus:
         assert ch.status() == ChannelStatus.ERROR
 
 
+class TestDisconnectStopsRealListener:
+    """Regression for #784: disconnect() must actually interrupt the
+    running `client.start()` call (nothing previously observed
+    `_stop_event`), and must not report DISCONNECTED unless the listener
+    thread actually terminated -- otherwise a subsequent connect() spawns
+    a second gateway connection, duplicating message handling."""
+
+    def test_disconnect_schedules_close_via_run_coroutine_threadsafe(self):
+        """client.close() is a coroutine and client.start() is running on
+        the gateway thread's own event loop, so disconnect() must hand it
+        off with asyncio.run_coroutine_threadsafe(), not await it directly
+        from the disconnecting thread."""
+        ch = DiscordChannel(bot_token="my-bot-token")
+        ch._status = ChannelStatus.CONNECTED
+
+        mock_client = MagicMock()
+        mock_loop = MagicMock()
+        ch._client = mock_client
+        ch._loop = mock_loop
+
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = False
+        ch._listener_thread = mock_thread
+
+        mock_future = MagicMock()
+        with patch(
+            "asyncio.run_coroutine_threadsafe", return_value=mock_future
+        ) as mock_rct:
+            ch.disconnect()
+
+        mock_rct.assert_called_once()
+        assert mock_rct.call_args[0][1] is mock_loop
+        mock_future.result.assert_called_once()
+        mock_thread.join.assert_called_once()
+        assert ch._listener_thread is None
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
+    def test_disconnect_does_not_report_disconnected_if_thread_still_alive(self):
+        """If the listener thread is still running after the join timeout,
+        disconnect() must not lie about the channel being DISCONNECTED --
+        doing so would let a later connect() spawn a duplicate gateway
+        connection."""
+        ch = DiscordChannel(bot_token="my-bot-token")
+        ch._status = ChannelStatus.CONNECTED
+
+        ch._client = MagicMock()
+        ch._loop = MagicMock()
+
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = True  # join() timed out
+        ch._listener_thread = mock_thread
+
+        with patch("asyncio.run_coroutine_threadsafe", return_value=MagicMock()):
+            ch.disconnect()
+
+        assert ch.status() != ChannelStatus.DISCONNECTED
+        assert ch._listener_thread is mock_thread
+
+    def test_disconnect_without_client_or_loop_still_works(self):
+        """Send-only mode (discord.py not installed, or connect() never
+        actually started a listener): _client/_loop are None, so
+        disconnect() must fall back to the old join-only behavior
+        instead of raising."""
+        ch = DiscordChannel(bot_token="my-bot-token")
+        ch._status = ChannelStatus.CONNECTED
+
+        ch.disconnect()
+
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
+    def test_connect_guards_against_duplicate_listener(self):
+        """connect() must not spawn a second gateway thread while one is
+        already running."""
+        ch = DiscordChannel(bot_token="my-bot-token")
+
+        existing_thread = MagicMock()
+        existing_thread.is_alive.return_value = True
+        ch._listener_thread = existing_thread
+        ch._status = ChannelStatus.CONNECTED
+
+        with patch("threading.Thread") as mock_thread_cls:
+            ch.connect()
+
+        mock_thread_cls.assert_not_called()
+        assert ch._listener_thread is existing_thread
+
+
 class TestWireChannelEndToEnd:
     """Regression for #515/#516 — the full inbound→reply path through
     JarvisSystem.wire_channel must call the real Discord REST API with the
