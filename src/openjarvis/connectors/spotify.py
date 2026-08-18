@@ -54,7 +54,20 @@ class SpotifyConnector(BaseConnector):
         return self._load_tokens()["access_token"]
 
     def is_connected(self) -> bool:
-        return self._token_path.exists()
+        """Return ``True`` only if a real access token has been obtained.
+
+        The credentials file already exists once a Client ID / Client Secret
+        pair is registered (POST /connect), before the user has completed
+        the actual OAuth consent flow -- checking file existence alone would
+        report "connected" prematurely and short-circuit the UI's
+        popup-polling flow before an access token is ever minted.
+        """
+        if not self._token_path.exists():
+            return False
+        try:
+            return bool(self._load_tokens().get("access_token"))
+        except (json.JSONDecodeError, OSError):
+            return False
 
     def disconnect(self) -> None:
         if self._token_path.exists():

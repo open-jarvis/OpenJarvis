@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -47,6 +48,82 @@ def test_connector_detail(app):
     assert "auth_type" in data
     assert "connected" in data
     assert "mcp_tools" in data
+
+
+def test_oauth_redirect_uri_normalizes_localhost_to_loopback_ip() -> None:
+    """The redirect_uri we tell users to register (and the one we actually
+    send) must use the explicit loopback IP 127.0.0.1, never the literal
+    string "localhost".
+
+    Regression: providers increasingly reject "localhost" outright --
+    Spotify enforces this for every app created after April 2025, requiring
+    an explicit loopback IP literal like 127.0.0.1 instead (they are
+    equivalent for local traffic, but Spotify's redirect_uri validation is
+    a strict string match, not a resolution check). The server's dynamic
+    redirect_uri is built from the incoming request's own base_url, and the
+    frontend happens to reach the API via "http://localhost:8000" -- so
+    without normalization, every dynamically-built redirect_uri was
+    unregisterable with Spotify no matter what the user did.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from openjarvis.server.connectors_router import create_connectors_router
+
+    fastapi_app = FastAPI()
+    fastapi_app.include_router(create_connectors_router())
+    client = TestClient(fastapi_app, base_url="http://localhost:8000")
+
+    detail = client.get("/v1/connectors/spotify").json()
+    redirect_uri = detail["oauth_setup"]["redirect_uri"]
+    assert redirect_uri == "http://127.0.0.1:8000/v1/connectors/spotify/oauth/callback"
+
+    with patch(
+        "openjarvis.connectors.oauth.get_client_credentials",
+        return_value=("fake-client-id", "fake-secret"),
+    ):
+        start_resp = client.get(
+            "/v1/connectors/spotify/oauth/start", follow_redirects=False
+        )
+    from urllib.parse import parse_qs, urlparse
+
+    location = start_resp.headers["location"]
+    actual_redirect_uri = parse_qs(urlparse(location).query)["redirect_uri"][0]
+    assert actual_redirect_uri == redirect_uri
+
+
+def test_oauth_setup_redirect_uri_matches_actual_oauth_start(app) -> None:
+    """oauth_setup.redirect_uri must match what GET /oauth/start actually
+    sends as the redirect_uri parameter.
+
+    Regression: the setup_hint text told users to register a static,
+    hardcoded redirect URI (e.g. Spotify's "http://127.0.0.1:8888/callback")
+    that described an old, unused callback pattern. The real /oauth/start
+    endpoint builds its callback URL dynamically from the incoming
+    request's own base_url (so it works regardless of which port the
+    server is actually running on): `{base_url}/v1/connectors/{id}/oauth/
+    callback`. The two never matched, so any provider that strictly
+    validates the redirect_uri (Spotify does) rejected every real
+    authorization attempt with "redirect_uri: Not matching configuration",
+    no matter how carefully the user followed the (wrong) instructions.
+    """
+    detail = app.get("/v1/connectors/spotify").json()
+    redirect_uri = detail["oauth_setup"]["redirect_uri"]
+
+    with patch(
+        "openjarvis.connectors.oauth.get_client_credentials",
+        return_value=("fake-client-id", "fake-secret"),
+    ):
+        start_resp = app.get(
+            "/v1/connectors/spotify/oauth/start", follow_redirects=False
+        )
+    assert start_resp.status_code in (302, 307)
+    location = start_resp.headers["location"]
+
+    from urllib.parse import parse_qs, urlparse
+
+    actual_redirect_uri = parse_qs(urlparse(location).query)["redirect_uri"][0]
+    assert redirect_uri == actual_redirect_uri
 
 
 def test_connector_not_found(app):

@@ -60,6 +60,31 @@ def connector(tmp_path):
     return StravaConnector(token_path=str(token_path))
 
 
+def test_is_connected_requires_access_token(tmp_path) -> None:
+    """is_connected() must check for a real access token, not just that the
+    credentials file exists (see test_spotify.py for the full regression
+    rationale -- same bug, same fix, applies identically to Strava)."""
+    from openjarvis.connectors.strava import StravaConnector
+
+    creds_only_path = tmp_path / "creds_only.json"
+    creds_only_path.write_text(
+        '{"client_id": "abc", "client_secret": "xyz"}', encoding="utf-8"
+    )
+    creds_only = StravaConnector(token_path=str(creds_only_path))
+    assert creds_only.is_connected() is False
+
+    no_file = StravaConnector(token_path=str(tmp_path / "missing.json"))
+    assert no_file.is_connected() is False
+
+    with_token_path = tmp_path / "with_token.json"
+    with_token_path.write_text(
+        '{"client_id": "abc", "client_secret": "xyz", "access_token": "real-token"}',
+        encoding="utf-8",
+    )
+    with_token = StravaConnector(token_path=str(with_token_path))
+    assert with_token.is_connected() is True
+
+
 def test_sync_yields_activities(connector):
     with patch(
         "openjarvis.connectors.strava._strava_api_get",

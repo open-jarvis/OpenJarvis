@@ -24,8 +24,8 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
-import { listConnectors, connectSource, disconnectSource, getSyncStatus, triggerSync, startServerOAuth } from '../lib/connectors-api';
-import type { SyncStatus } from '../types/connectors';
+import { listConnectors, connectSource, disconnectSource, getConnector, getSyncStatus, triggerSync, startServerOAuth } from '../lib/connectors-api';
+import type { SyncStatus, OAuthSetupInfo } from '../types/connectors';
 
 // ---------------------------------------------------------------------------
 // Inline connect form (reused from AgentsPage pattern)
@@ -94,6 +94,139 @@ function InlineConnectForm({
       >
         Connect
       </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Generic fallback connect panel — for any backend connector that has no
+// hardcoded SOURCE_CATALOG entry (no `steps`). Without this, expanding such
+// a connector's "+ Add" card rendered nothing at all: no button, no input,
+// no explanation, just an empty box (e.g. Spotify, Strava, Oura, GitHub
+// Notifications, Google Tasks, Weather, and the Apple/News local sources).
+// Branches on auth_type using the same primitives the hardcoded catalog
+// entries already use (InlineConnectForm, oauth start+poll).
+// ---------------------------------------------------------------------------
+
+function GenericConnectPanel({
+  connectorId,
+  displayName,
+  authType,
+  loading,
+  onConnect,
+}: {
+  connectorId: string;
+  displayName: string;
+  authType: string;
+  loading: boolean;
+  onConnect: (req: ConnectRequest) => void;
+}) {
+  const [oauthSetup, setOauthSetup] = useState<OAuthSetupInfo | null>(null);
+
+  useEffect(() => {
+    if (authType !== 'oauth') return;
+    let cancelled = false;
+    getConnector(connectorId)
+      .then((info) => {
+        if (!cancelled) setOauthSetup(info.oauth_setup ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [connectorId, authType]);
+
+  if (authType === 'local') {
+    return (
+      <div>
+        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
+          {displayName} reads data directly from this device. Grant access if
+          prompted, then connect.
+        </div>
+        <button
+          onClick={() => onConnect({})}
+          disabled={loading}
+          style={{
+            width: '100%', padding: 8,
+            background: loading ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
+            color: 'var(--color-on-accent)', border: 'none',
+            borderRadius: 6, fontSize: 12, cursor: 'pointer',
+          }}
+        >
+          {loading ? 'Connecting...' : `Connect ${displayName}`}
+        </button>
+      </div>
+    );
+  }
+
+  if (authType === 'token') {
+    return (
+      <div>
+        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
+          Enter your {displayName} API token.
+        </div>
+        <InlineConnectForm
+          fields={[{ name: 'token', placeholder: `${displayName} API token`, type: 'password' }]}
+          loading={loading}
+          onSubmit={onConnect}
+        />
+      </div>
+    );
+  }
+
+  // auth_type === 'oauth' (default for anything else without a catalog entry)
+  return (
+    <div>
+      {oauthSetup && (
+        <div style={{
+          background: 'var(--color-bg)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 6, padding: 10, marginBottom: 10,
+        }}>
+          {!oauthSetup.has_credentials && (
+            <>
+              <div style={{ color: 'var(--color-accent-purple)', fontSize: 10, fontWeight: 600, marginBottom: 3 }}>
+                SETUP REQUIRED
+              </div>
+              <div style={{ fontSize: 12, marginBottom: 8 }}>{oauthSetup.setup_hint}</div>
+            </>
+          )}
+          <div style={{ color: 'var(--color-accent-purple)', fontSize: 10, fontWeight: 600, marginBottom: 3 }}>
+            REDIRECT URI
+          </div>
+          <div style={{ fontSize: 12, marginBottom: 8 }}>
+            Enter this exact value in the app's Redirect URI / Authorization
+            Callback field — it must match precisely or the provider will
+            reject the sign-in.
+          </div>
+          <code style={{
+            display: 'block', fontSize: 11, padding: '6px 8px',
+            background: 'var(--color-bg-secondary)', borderRadius: 4,
+            wordBreak: 'break-all', userSelect: 'all',
+          }}>
+            {oauthSetup.redirect_uri}
+          </code>
+          <a
+            href={oauthSetup.setup_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'var(--color-accent)', fontSize: 11, textDecoration: 'underline', marginTop: 8, display: 'inline-block' }}
+          >
+            Open developer dashboard &rarr;
+          </a>
+        </div>
+      )}
+      <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
+        Paste the Client ID and Client Secret from the app you created above.
+      </div>
+      <InlineConnectForm
+        fields={[
+          { name: 'email', placeholder: 'Client ID', type: 'text' },
+          { name: 'password', placeholder: 'Client Secret', type: 'password' },
+        ]}
+        loading={loading}
+        onSubmit={onConnect}
+      />
     </div>
   );
 }
@@ -612,6 +745,7 @@ function DataSourcesSection() {
             display_name: c.display_name,
             connected: c.connected,
             chunks: (c as any).chunks || 0,
+            auth_type: c.auth_type,
           })),
         ),
       )
@@ -682,7 +816,11 @@ function DataSourcesSection() {
       // and wait for the callback to flip the connector to connected. Without
       // this the connector would stay "pending" forever — the exact #512 bug.
       if (resp.status === 'oauth_required') {
-        setConnectStage('Opening Google sign-in...');
+        const providerName =
+          connectors.find((c) => c.connector_id === id)?.display_name ??
+          metaFor(id)?.display_name ??
+          id;
+        setConnectStage(`Opening ${providerName} sign-in...`);
         await startServerOAuth(id, resp.oauth_start);
       }
 
@@ -699,6 +837,7 @@ function DataSourcesSection() {
             display_name: c.display_name,
             connected: c.connected,
             chunks: (c as any).chunks || 0,
+            auth_type: c.auth_type,
           })));
           break;
         }
@@ -757,7 +896,7 @@ function DataSourcesSection() {
   const connected = unifiedConnectors.filter((c) => c.connected);
   const notConnectedBase = unifiedConnectors.filter((c) => !c.connected);
   // Always show the upload card in the not-connected list (it has no backend connector)
-  const uploadEntry = { connector_id: 'upload', display_name: 'Upload / Paste', connected: false, chunks: 0 };
+  const uploadEntry = { connector_id: 'upload', display_name: 'Upload / Paste', connected: false, chunks: 0, auth_type: 'local' };
   const notConnected = notConnectedBase.some((c) => c.connector_id === 'upload')
     ? notConnectedBase
     : [...notConnectedBase, uploadEntry];
@@ -988,6 +1127,28 @@ function DataSourcesSection() {
                       </div>
                     )}
                     {/* Connection error */}
+                    {connectError && connectingId === null && expandedId === c.connector_id && (
+                      <div style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 6 }}>
+                        {connectError}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {isExpanded && c.connector_id !== 'upload' && !meta?.steps && (
+                  <div style={{ borderTop: '1px solid var(--color-border)', padding: 12 }}>
+                    <GenericConnectPanel
+                      connectorId={c.connector_id}
+                      displayName={meta?.display_name ?? c.display_name}
+                      authType={c.auth_type || 'oauth'}
+                      loading={loading && connectingId === c.connector_id}
+                      onConnect={(req) => handleConnect(c.connector_id, req)}
+                    />
+                    {connectingId === c.connector_id && connectStage && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-warning)' }}>
+                        {connectStage}
+                      </div>
+                    )}
                     {connectError && connectingId === null && expandedId === c.connector_id && (
                       <div style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 6 }}>
                         {connectError}

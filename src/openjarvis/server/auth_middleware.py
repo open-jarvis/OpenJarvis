@@ -62,7 +62,22 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ``/metrics`` exposes request/token counters that should not be readable
         by unauthenticated clients, so it is gated alongside ``/v1`` and
         ``/api``. ``/health`` stays open for liveness probes.
+
+        A connector's ``oauth/start`` and ``oauth/callback`` routes are also
+        exempt: both exist specifically to be hit by a plain top-level
+        browser navigation (a popup window.open target, and the OAuth
+        provider's own redirect back) rather than an API call, and neither
+        can ever carry our Authorization header. Without this exemption,
+        every OAuth-based connector (Google Drive/Calendar/Contacts/Gmail/
+        Tasks, Spotify, Strava, ...) is permanently unreachable on any
+        server with an API key configured -- which is required for any
+        non-loopback bind (see check_bind_safety), so this isn't a narrow
+        edge case.
         """
+        if path.startswith("/v1/connectors/") and (
+            path.endswith("/oauth/start") or path.endswith("/oauth/callback")
+        ):
+            return False
         return (
             path.startswith("/v1/")
             or path.startswith("/api/")

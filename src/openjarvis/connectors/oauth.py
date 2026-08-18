@@ -101,7 +101,10 @@ OAUTH_PROVIDERS: Dict[str, OAuthProvider] = {
         token_endpoint="https://www.strava.com/oauth/token",
         scopes=["activity:read_all"],
         setup_url="https://www.strava.com/settings/api",
-        setup_hint="Create an API Application (callback domain: localhost)",
+        setup_hint=(
+            "Create an API Application, then set the Authorization Callback "
+            "Domain to the redirect URI's host below"
+        ),
         connector_ids=("strava",),
         credential_files=("strava.json",),
     ),
@@ -112,7 +115,7 @@ OAUTH_PROVIDERS: Dict[str, OAuthProvider] = {
         token_endpoint="https://accounts.spotify.com/api/token",
         scopes=["user-read-recently-played"],
         setup_url="https://developer.spotify.com/dashboard",
-        setup_hint=("Create an app, add redirect URI: http://127.0.0.1:8888/callback"),
+        setup_hint="Create an app, then add the redirect URI shown below",
         callback_port=8888,
         token_auth="basic",
         connector_ids=("spotify",),

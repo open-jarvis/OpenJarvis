@@ -118,6 +118,26 @@ def create_connectors_router():
             _instances[connector_id] = cls()
         return _instances[connector_id]
 
+    def _build_oauth_callback_url(request: Request, connector_id: str) -> str:
+        """Build this server's own OAuth callback URL for *connector_id*.
+
+        Built dynamically from the incoming request's own base_url (the
+        server's actual port isn't known statically) rather than any
+        per-provider config, so this is the single source of truth GET
+        /oauth/start and the connector-detail endpoint's oauth_setup must
+        both call -- they used to compute this independently and drifted.
+
+        Normalises a "localhost" host to the explicit loopback IP
+        127.0.0.1: providers increasingly reject "localhost" outright
+        (Spotify enforces this for every app created after April 2025,
+        requiring an explicit loopback IP literal instead) even though the
+        two are equivalent for local traffic, and the frontend happens to
+        reach this API via "http://localhost:<port>".
+        """
+        base = str(request.base_url).rstrip("/")
+        base = base.replace("://localhost", "://127.0.0.1", 1)
+        return f"{base}/v1/connectors/{connector_id}/oauth/callback"
+
     def _connector_summary(connector_id: str, instance: Any) -> Dict[str, Any]:
         """Build the dict returned by GET /connectors."""
         chunks = 0
@@ -318,7 +338,7 @@ def create_connectors_router():
         return {"connectors": results}
 
     @router.get("/{connector_id}")
-    async def connector_detail(connector_id: str):
+    async def connector_detail(connector_id: str, request: Request):
         """Return detail for a single connector."""
         _ensure_connectors_registered()
         if not ConnectorRegistry.contains(connector_id):
@@ -354,10 +374,12 @@ def create_connectors_router():
             provider = get_provider_for_connector(connector_id)
             if provider:
                 has_creds = get_client_credentials(provider) is not None
+                redirect_uri = _build_oauth_callback_url(request, connector_id)
                 oauth_setup = {
                     "provider": provider.name,
                     "setup_url": provider.setup_url,
                     "setup_hint": provider.setup_hint,
+                    "redirect_uri": redirect_uri,
                     "has_credentials": has_creds,
                 }
         except Exception:
@@ -505,9 +527,7 @@ def create_connectors_router():
             )
 
         client_id, _ = creds
-        # Build callback URL pointing to our own server
-        base_url = str(request.base_url).rstrip("/")
-        callback_url = f"{base_url}/v1/connectors/{connector_id}/oauth/callback"
+        callback_url = _build_oauth_callback_url(request, connector_id)
 
         params = {
             "client_id": client_id,
@@ -567,8 +587,7 @@ def create_connectors_router():
             raise HTTPException(400, "No client credentials configured")
 
         client_id, client_secret = creds
-        base_url = str(request.base_url).rstrip("/")
-        redirect_uri = f"{base_url}/v1/connectors/{connector_id}/oauth/callback"
+        redirect_uri = _build_oauth_callback_url(request, connector_id)
 
         try:
             tokens = _exchange_token(

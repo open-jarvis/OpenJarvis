@@ -58,6 +58,41 @@ def connector(tmp_path):
     return SpotifyConnector(token_path=str(token_path))
 
 
+def test_is_connected_requires_access_token(tmp_path) -> None:
+    """is_connected() must check for a real access token, not just that the
+    credentials file exists.
+
+    Regression: registering a Client ID / Client Secret pair (POST /connect
+    with `code: "id:secret"`) already writes the credentials file to persist
+    them across the redirect to the OAuth consent screen -- before the user
+    has actually authorized anything. If is_connected() only checks file
+    existence, the UI's post-connect polling loop (which waits for
+    `connected: true` before it stops opening/watching the consent popup)
+    resolves immediately, skipping the real OAuth flow entirely. The
+    connector then reports "Connected" with no access_token ever obtained,
+    and the next sync crashes with `KeyError: 'access_token'`.
+    """
+    from openjarvis.connectors.spotify import SpotifyConnector
+
+    creds_only_path = tmp_path / "creds_only.json"
+    creds_only_path.write_text(
+        '{"client_id": "abc", "client_secret": "xyz"}', encoding="utf-8"
+    )
+    creds_only = SpotifyConnector(token_path=str(creds_only_path))
+    assert creds_only.is_connected() is False
+
+    no_file = SpotifyConnector(token_path=str(tmp_path / "missing.json"))
+    assert no_file.is_connected() is False
+
+    with_token_path = tmp_path / "with_token.json"
+    with_token_path.write_text(
+        '{"client_id": "abc", "client_secret": "xyz", "access_token": "real-token"}',
+        encoding="utf-8",
+    )
+    with_token = SpotifyConnector(token_path=str(with_token_path))
+    assert with_token.is_connected() is True
+
+
 def test_sync_yields_tracks(connector):
     with patch(
         "openjarvis.connectors.spotify._spotify_api_get",
