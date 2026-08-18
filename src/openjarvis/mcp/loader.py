@@ -101,7 +101,14 @@ def load_mcp_tools_from_config(
                 continue
 
             client = MCPClient(transport)
-            client.initialize()
+            try:
+                client.initialize()
+            except Exception:
+                # Not yet in `clients`, so nothing else will ever close it
+                # (and the underlying subprocess/connection pool) if we
+                # don't do it here (#753).
+                client.close()
+                raise
             clients.append(client)
 
             provider = MCPToolProvider(client)
