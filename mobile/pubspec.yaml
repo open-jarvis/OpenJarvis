@@ -1,0 +1,62 @@
+name: openjarvis_mobile
+description: OpenJarvis Mobile Assistant - Personal AI on your phone
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI & State Management
+  cupertino_icons: ^1.0.2
+  provider: ^6.4.0
+  get: ^4.6.5
+  
+  # Networking & WebSocket
+  web_socket_channel: ^2.4.4
+  http: ^1.1.0
+  dio: ^5.3.1
+  
+  # Voice & Audio
+  speech_to_text: ^6.6.2
+  flutter_tts: ^7.1.0
+  record: ^5.0.2
+  audio_session: ^0.1.16
+  
+  # Local Storage
+  shared_preferences: ^2.2.2
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  
+  # Logging & Debugging
+  logger: ^2.0.2
+  flutter_dotenv: ^5.1.0
+  
+  # Utils
+  intl: ^0.19.0
+  uuid: ^4.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/audio/
+    - .env
+
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.ttf
+        - asset: assets/fonts/Roboto-Bold.ttf
+          weight: 700
