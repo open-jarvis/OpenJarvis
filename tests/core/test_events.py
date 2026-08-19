@@ -109,6 +109,26 @@ class TestAgentEventTypes:
         assert EventType.AGENT_CHECKPOINT_SAVED
 
 
+class TestVoiceEventTypes:
+    def test_voice_events_exist(self):
+        from openjarvis.core.events import EventType
+
+        assert EventType.WAKE_WORD_DETECTED
+        assert EventType.VOICE_UTTERANCE_TRANSCRIBED
+        assert EventType.VOICE_INTENT_ROUTED
+        assert EventType.VOICE_REPLY_SPOKEN
+
+    def test_voice_events_round_trip_through_bus(self):
+        from openjarvis.core.events import EventBus, EventType
+
+        bus = EventBus(record_history=True)
+        received = []
+        bus.subscribe(EventType.WAKE_WORD_DETECTED, lambda e: received.append(e))
+        bus.publish(EventType.WAKE_WORD_DETECTED, {"wake_word": "hey_jarvis"})
+        assert len(received) == 1
+        assert received[0].data["wake_word"] == "hey_jarvis"
+
+
 class TestSingleton:
     def test_get_event_bus_returns_same_instance(self) -> None:
         reset_event_bus()

@@ -152,4 +152,10 @@ try:
 except ImportError:
     pass
 
+try:
+    import openjarvis.tools.science_project_store  # noqa: F401
+    import openjarvis.tools.science_simulation  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]

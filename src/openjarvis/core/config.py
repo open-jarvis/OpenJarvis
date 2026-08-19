@@ -1459,6 +1459,28 @@ class SpeechConfig:
 
 
 @dataclass(slots=True)
+class VoiceConfig:
+    """Local wake-word voice pipeline settings (continuous mic listening).
+
+    Fully opt-in and independent of the existing push-to-talk speech
+    feature (``SpeechConfig`` / the ``audio_transcribe``/``text_to_speech``
+    tools) — this drives a background listener inside ``jarvis serve``.
+    """
+
+    enabled: bool = False
+    wake_word: str = "hey_jarvis"
+    engine: str = "openwakeword"
+    threshold: float = 0.5
+    device_index: int = -1  # -1 = system default input device
+    sample_rate: int = 16000
+    silence_timeout_s: float = 1.2
+    stt_language: str = ""  # empty = auto-detect, mirrors SpeechConfig.language
+    tts_backend: str = "cartesia"
+    voice_id: str = ""
+    voice_speed: float = 1.0
+
+
+@dataclass(slots=True)
 class OptimizeConfig:
     """Configuration optimization settings."""
 
@@ -1587,6 +1609,23 @@ class DigestConfig:
 
 
 @dataclass
+class ScienceLabConfig:
+    """Configuration for the Science Lab chemistry/materials reasoning module."""
+
+    enabled: bool = True
+    min_hypotheses: int = 2
+    max_hypotheses: int = 3
+    model: str = ""  # empty = fall back to the default agent model
+    db_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "science_lab.db")
+    )
+    safety_llm_fallback: bool = True
+    confidence_default_basis: str = (
+        "heurística interna (nº de hipóteses corroboradas por cálculo)"
+    )
+
+
+@dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
 
@@ -1620,6 +1659,8 @@ class JarvisConfig:
     skills: SkillsConfig = field(default_factory=SkillsConfig)
     digest: DigestConfig = field(default_factory=DigestConfig)
     proactive: ProactiveConfig = field(default_factory=ProactiveConfig)
+    science_lab: ScienceLabConfig = field(default_factory=ScienceLabConfig)
+    voice: VoiceConfig = field(default_factory=VoiceConfig)
     mining: Optional["MiningConfig"] = None
 
     @property
@@ -1909,6 +1950,8 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
             "system_prompt",
             "compression",
             "skills",
+            "science_lab",
+            "voice",
         )
         for section_name in top_sections:
             if section_name in data:

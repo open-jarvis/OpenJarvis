@@ -105,6 +105,10 @@ interface Settings {
   temperature: number;
   maxTokens: number;
   speechEnabled: boolean;
+  // Local wake-word voice pipeline (continuous mic listening, runs in the
+  // background `jarvis serve` process — distinct from push-to-talk
+  // `speechEnabled` above, which drives the chat MicButton).
+  wakeWordEnabled: boolean;
 }
 
 function loadSettings(): Settings {
@@ -118,6 +122,7 @@ function loadSettings(): Settings {
     temperature: 0.7,
     maxTokens: 4096,
     speechEnabled: false,
+    wakeWordEnabled: false,
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);

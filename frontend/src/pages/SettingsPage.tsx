@@ -745,6 +745,26 @@ export function SettingsPage() {
                 See the <a href="https://open-jarvis.github.io/OpenJarvis/user-guide/tools/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)' }}>documentation</a> for details.
               </div>
             )}
+            <SettingRow
+              label="Wake Word ('Jarvis')"
+              description="Continuous background listening for the wake word — runs in the background server process, not the browser tab. Requires voice.enabled = true in config.toml (jarvis config set voice.enabled true) and the speech-wakeword extra installed."
+            >
+              <button
+                onClick={() => { updateSettings({ wakeWordEnabled: !settings.wakeWordEnabled }); showSaved(); }}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: settings.wakeWordEnabled ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: settings.wakeWordEnabled ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
           </Section>
 
           {/* Data */}

@@ -530,6 +530,54 @@ def serve(
         logger.debug("Memory service init failed: %s", exc)
         memory_service = None
 
+    # Science Lab agent (chemistry/materials-science reasoning module).
+    science_lab_agent = None
+    try:
+        if config.science_lab.enabled:
+            import openjarvis.agents  # noqa: F401 — trigger registration
+            from openjarvis.core.registry import AgentRegistry
+
+            science_lab_agent = AgentRegistry.create(
+                "science_lab",
+                engine,
+                config.science_lab.model or model_name,
+                bus=bus,
+                min_hypotheses=config.science_lab.min_hypotheses,
+                max_hypotheses=config.science_lab.max_hypotheses,
+                safety_llm_fallback=config.science_lab.safety_llm_fallback,
+                db_path=config.science_lab.db_path,
+            )
+            console.print("  Science Lab: [cyan]active[/cyan]")
+    except Exception as exc:
+        logger.debug("Science Lab agent init failed: %s", exc)
+        science_lab_agent = None
+
+    # Local wake-word voice pipeline (optional — requires the `speech-wakeword`
+    # extra; returns None when disabled or when its dependencies aren't
+    # installed, never raises).
+    voice_service = None
+    try:
+        from openjarvis.speech.voice_service import build_voice_service
+
+        voice_service = build_voice_service(
+            config,
+            engine,
+            config.science_lab.model or model_name,
+            speech_backend,
+            science_lab_agent=science_lab_agent,
+            main_agent=None,
+            event_bus=bus,
+        )
+        if voice_service is not None:
+            voice_service.start()
+            console.print(
+                f"  Voice svc: [cyan]active"
+                f" (wake word: '{config.voice.wake_word}')[/cyan]"
+            )
+    except Exception as exc:
+        logger.debug("Voice service init failed: %s", exc)
+        voice_service = None
+
     # Set up agent manager
     agent_manager = None
     if config.agent_manager.enabled:
@@ -709,6 +757,8 @@ def serve(
         own_memory_backend=memory_backend is not None,
         memory_service=memory_service,
         speech_backend=speech_backend,
+        science_lab_agent=science_lab_agent,
+        voice_service=voice_service,
         agent_manager=agent_manager,
         agent_scheduler=agent_scheduler,
         mcp_tools=managed_mcp_tools,

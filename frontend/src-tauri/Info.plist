@@ -10,5 +10,7 @@
     <key>NSAllowsArbitraryLoadsInWebContent</key>
     <true/>
   </dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>OpenJarvis uses the microphone for voice input (push-to-talk) and the optional wake-word assistant.</string>
 </dict>
 </plist>

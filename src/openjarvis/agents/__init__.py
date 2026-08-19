@@ -84,6 +84,11 @@ try:
 except ImportError:
     pass
 
+try:
+    import openjarvis.science_lab.agent  # noqa: F401
+except ImportError:
+    pass
+
 # Hybrid local+cloud paradigm agents (Minions, Conductor, Archon, Advisors,
 # SkillOrchestra, ToolOrchestra). Each module registers under its own name
 # via @AgentRegistry.register(). Optional deps may make some unavailable.

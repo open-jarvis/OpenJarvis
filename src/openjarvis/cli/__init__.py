@@ -114,6 +114,7 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     from openjarvis.cli.quickstart_cmd import quickstart
     from openjarvis.cli.registry_cmd import registry
     from openjarvis.cli.scheduler_cmd import scheduler
+    from openjarvis.cli.science_lab_cmd import science_lab
     from openjarvis.cli.self_update_cmd import self_update
     from openjarvis.cli.serve import serve
     from openjarvis.cli.skill_cmd import skill
@@ -157,6 +158,7 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     cli.add_command(registry, "registry")
     cli.add_command(config, "config")
     cli.add_command(connect, "connect")
+    cli.add_command(science_lab, "science-lab")
     cli.add_command(digest, "digest")
 
     # Deep Research setup pulls the ingestion pipeline (embeddings/numpy). Guard
@@ -187,6 +189,17 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
         from openjarvis.cli.tunnel_cmd import tunnel
 
         cli.add_command(tunnel, "tunnel")
+    except ImportError:
+        pass
+
+    # Voice pipeline CLI (manual smoke-testing) pulls optional
+    # sounddevice/openwakeword deps only when its subcommands actually run,
+    # but guard the import itself too for consistency with the other
+    # optional-dependency commands above.
+    try:
+        from openjarvis.cli.voice_cmd import voice
+
+        cli.add_command(voice, "voice")
     except ImportError:
         pass
 

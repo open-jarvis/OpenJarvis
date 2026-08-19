@@ -305,6 +305,119 @@ export async function fetchTelemetry(): Promise<unknown> {
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Science Lab
+// ---------------------------------------------------------------------------
+
+export interface ScienceTargetProperty {
+  name: string;
+  target_value: string;
+  unit: string;
+  rationale: string;
+}
+
+export interface ScienceHypothesis {
+  id: string;
+  mechanism: string;
+  key_properties: Record<string, string>;
+  pros: string[];
+  cons: string[];
+}
+
+export interface ScienceSimulationResult {
+  quantity: string;
+  value: number;
+  unit: string;
+  basis: string;
+  formula: string;
+  inputs: Record<string, number>;
+}
+
+export interface ScienceComparisonRow {
+  material: string;
+  properties: Record<string, string>;
+}
+
+export interface ScienceConfidence {
+  value: number;
+  basis: string;
+  rendered?: string;
+}
+
+export interface ScienceProject {
+  name: string;
+  objective: string;
+  target_properties: ScienceTargetProperty[];
+  hypotheses: ScienceHypothesis[];
+  simulations: ScienceSimulationResult[];
+  comparison: ScienceComparisonRow[];
+  confidence: ScienceConfidence;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScienceLabResult {
+  content: string;
+  metadata: {
+    refused: boolean;
+    reasoning_summary: [string, string][];
+    confidence?: ScienceConfidence;
+    hypotheses?: ScienceHypothesis[];
+    simulations?: ScienceSimulationResult[];
+    comparison?: ScienceComparisonRow[];
+    refusal_category?: string;
+    saved_project?: string;
+  };
+}
+
+export async function analyzeScienceLabObjective(
+  description: string,
+  projectName?: string,
+): Promise<ScienceLabResult> {
+  const res = await apiFetch(`/v1/science-lab/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description, project_name: projectName || null }),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchScienceLabProjects(): Promise<ScienceProject[]> {
+  const res = await apiFetch(`/v1/science-lab/projects`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.projects ?? [];
+}
+
+export async function fetchScienceLabProject(name: string): Promise<ScienceProject> {
+  const res = await apiFetch(`/v1/science-lab/projects/${encodeURIComponent(name)}`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function saveScienceLabProject(name: string): Promise<ScienceLabResult> {
+  const res = await apiFetch(`/v1/science-lab/projects/${encodeURIComponent(name)}/save`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export interface VoiceStatus {
+  available: boolean;
+  state?: string;
+  last_utterance?: string;
+  updated_at?: number;
+}
+
+export async function fetchVoiceStatus(): Promise<VoiceStatus> {
+  const res = await apiFetch(`/v1/science-lab/voice/status`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchTraces(limit: number = 50): Promise<unknown> {
   if (isTauri()) {
     try {

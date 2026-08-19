@@ -157,6 +157,8 @@ def create_app(
     own_memory_backend: bool = False,
     memory_service=None,
     speech_backend=None,
+    science_lab_agent=None,
+    voice_service=None,
     agent_manager=None,
     agent_scheduler=None,
     mcp_tools=None,
@@ -232,6 +234,8 @@ def create_app(
     app.state._owns_memory_backend = bool(own_memory_backend)
     app.state.memory_service = memory_service
     app.state.speech_backend = speech_backend
+    app.state.science_lab_agent = science_lab_agent
+    app.state.voice_service = voice_service
     app.state.agent_manager = agent_manager
     app.state.agent_scheduler = agent_scheduler
     app.state.mcp_tools = list(mcp_tools or [])
@@ -419,6 +423,18 @@ def create_app(
         @app.on_event("shutdown")
         async def _shutdown_memory_service() -> None:
             svc = getattr(app.state, "memory_service", None)
+            if svc is not None:
+                try:
+                    svc.stop()
+                except Exception:
+                    pass
+
+    # Stop the background voice (wake-word) listener cleanly on shutdown.
+    if voice_service is not None:
+
+        @app.on_event("shutdown")
+        async def _shutdown_voice_service() -> None:
+            svc = getattr(app.state, "voice_service", None)
             if svc is not None:
                 try:
                     svc.stop()

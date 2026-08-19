@@ -78,6 +78,11 @@ class EventType(str, Enum):
     OPTIMIZE_TRIAL_END = "optimize_trial_end"
     OPTIMIZE_RUN_END = "optimize_run_end"
     FEEDBACK_RECEIVED = "feedback_received"
+    # Local wake-word voice pipeline
+    WAKE_WORD_DETECTED = "wake_word_detected"
+    VOICE_UTTERANCE_TRANSCRIBED = "voice_utterance_transcribed"
+    VOICE_INTENT_ROUTED = "voice_intent_routed"
+    VOICE_REPLY_SPOKEN = "voice_reply_spoken"
 
 
 @dataclass(slots=True)
