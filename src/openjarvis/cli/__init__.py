@@ -98,6 +98,7 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     from openjarvis.cli.config_cmd import config
     from openjarvis.cli.connect_cmd import connect
     from openjarvis.cli.daemon_cmd import restart, start, status, stop
+    from openjarvis.cli.desktop_cmd import desktop
     from openjarvis.cli.digest_cmd import digest
     from openjarvis.cli.doctor_cmd import doctor
     from openjarvis.cli.eval_cmd import eval_group
@@ -126,6 +127,7 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
     cli.add_command(ask, "ask")
     cli.add_command(chat, "chat")
     cli.add_command(serve, "serve")
+    cli.add_command(desktop, "desktop")
     cli.add_command(model, "model")
     cli.add_command(memory, "memory")
     cli.add_command(mine, "mine")
