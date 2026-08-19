@@ -91,12 +91,23 @@ class CapabilityPolicy:
         policy.deny.append(capability)
         self._rust_impl.deny(agent_id, capability)
 
+    _DEFAULT_AGENT = "_default"
+
     def check(self, agent_id: str, capability: str, resource: str = "") -> bool:
         """Check whether *agent_id* has *capability* for *resource*.
 
-        Returns True if allowed, False if denied.
+        Falls back to the ``_default`` wildcard agent's grants when
+        *agent_id* has no explicit policy of its own (or its own policy
+        denies) — this lets a baseline be granted once via
+        ``grant("_default", ...)`` instead of needing to know every
+        dynamically-created managed-agent UUID ahead of time. Returns True
+        if allowed by either check, False if denied by both.
         """
-        return self._rust_impl.check(agent_id, capability, resource)
+        if self._rust_impl.check(agent_id, capability, resource):
+            return True
+        if agent_id != self._DEFAULT_AGENT:
+            return self._rust_impl.check(self._DEFAULT_AGENT, capability, resource)
+        return False
 
     def _check_python(self, agent_id: str, capability: str, resource: str = "") -> bool:
         """Legacy Python check — kept for reference only."""

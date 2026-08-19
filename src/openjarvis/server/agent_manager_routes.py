@@ -1251,11 +1251,18 @@ async def _stream_managed_agent(
     from openjarvis.tools._stubs import ToolExecutor
 
     resolved_by_name = resolved_toolkit.by_name
+    # Previously constructed with no capability_policy/rate_limiter/agent_id
+    # at all — this is the live SSE chat path for managed agents (what
+    # Tailscale/remote exposure actually hits), so tool calls made here ran
+    # with zero RBAC gating and zero rate limiting regardless of config.
     stream_tool_executor = ToolExecutor(
         tools=resolved_toolkit.instances,
         bus=bus,
         interactive=True,
         confirm_callback=lambda _prompt: True,
+        capability_policy=getattr(app_state, "capability_policy", None),
+        rate_limiter=getattr(app_state, "rate_limiter", None),
+        agent_id=agent_id,
     )
 
     # Forward any per-agent sampler params (repetition_penalty, top_p, …) so

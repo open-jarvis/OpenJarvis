@@ -47,6 +47,7 @@ class EventType(str, Enum):
     LOOP_GUARD_TRIGGERED = "loop_guard_triggered"
     CAPABILITY_DENIED = "capability_denied"
     TAINT_VIOLATION = "taint_violation"
+    RATE_LIMITED = "rate_limited"
     # Phase 15 — Workflow, Skills, Sessions
     WORKFLOW_START = "workflow_start"
     WORKFLOW_NODE_START = "workflow_node_start"

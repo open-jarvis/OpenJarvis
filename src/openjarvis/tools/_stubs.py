@@ -107,6 +107,7 @@ class ToolExecutor:
         capability_policy: Optional[Any] = None,
         agent_id: str = "",
         boundary_guard: Optional[Any] = None,
+        rate_limiter: Optional[Any] = None,
     ) -> None:
         self._tools: Dict[str, BaseTool] = {t.spec.name: t for t in tools}
         self._bus = bus
@@ -116,6 +117,7 @@ class ToolExecutor:
         self._capability_policy = capability_policy
         self._agent_id = agent_id
         self._boundary_guard = boundary_guard
+        self._rate_limiter = rate_limiter
 
     def execute(self, tool_call: ToolCall) -> ToolResult:
         """Parse arguments, dispatch to tool, measure latency, emit events."""
@@ -145,6 +147,31 @@ class ToolExecutor:
                 ),
                 success=False,
             )
+
+        # Rate limiting — checked before any other gate so a hammering
+        # agent/skill can't burn through boundary/capability/taint checks.
+        if self._rate_limiter is not None:
+            allowed, wait_seconds = self._rate_limiter.check(
+                f"{self._agent_id}:{tool_call.name}"
+            )
+            if not allowed:
+                if self._bus:
+                    self._bus.publish(
+                        EventType.RATE_LIMITED,
+                        {
+                            "agent_id": self._agent_id,
+                            "tool": tool_call.name,
+                            "wait_seconds": wait_seconds,
+                        },
+                    )
+                return ToolResult(
+                    tool_name=tool_call.name,
+                    content=(
+                        f"Rate limit exceeded for tool '{tool_call.name}'."
+                        f" Retry after {wait_seconds:.1f}s."
+                    ),
+                    success=False,
+                )
 
         # Boundary guard: scan external tool arguments
         if self._boundary_guard is not None and not getattr(tool, "is_local", True):

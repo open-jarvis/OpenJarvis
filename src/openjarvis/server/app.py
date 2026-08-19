@@ -161,6 +161,9 @@ def create_app(
     agent_scheduler=None,
     mcp_tools=None,
     mcp_clients=None,
+    capability_policy=None,
+    rate_limiter=None,
+    audit_logger=None,
     api_key: str = "",
     webhook_config: dict | None = None,
     cors_origins: list[str] | None = None,
@@ -234,6 +237,13 @@ def create_app(
     app.state.speech_backend = speech_backend
     app.state.agent_manager = agent_manager
     app.state.agent_scheduler = agent_scheduler
+    # Security primitives for the managed-agent HTTP/SSE routes
+    # (agent_manager_routes.py). Previously never passed here at all, so
+    # every managed agent reached over the network ran with no RBAC gate,
+    # no rate limiting, and no audit trail regardless of config.
+    app.state.capability_policy = capability_policy
+    app.state.rate_limiter = rate_limiter
+    app.state.audit_logger = audit_logger
     app.state.mcp_tools = list(mcp_tools or [])
     app.state._mcp_discovery_lock = threading.Lock()
     app.state._mcp_clients_lock = threading.Lock()

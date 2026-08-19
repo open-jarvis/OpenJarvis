@@ -1275,6 +1275,7 @@ class CapabilitiesConfig:
 
     enabled: bool = False
     policy_path: str = ""
+    default_deny: bool = False
 
 
 @dataclass(slots=True)
@@ -1328,6 +1329,7 @@ _SECURITY_PROFILES: Dict[str, Dict[str, Dict[str, Any]]] = {
             "rate_limit_enabled": True,
             "local_engine_bypass": False,
             "local_tool_bypass": False,
+            "capabilities": {"enabled": True, "default_deny": True},
         },
         "server": {
             "host": "127.0.0.1",
@@ -1341,6 +1343,7 @@ _SECURITY_PROFILES: Dict[str, Dict[str, Dict[str, Any]]] = {
             "rate_limit_burst": 5,
             "local_engine_bypass": False,
             "local_tool_bypass": False,
+            "capabilities": {"enabled": True, "default_deny": True},
         },
         "server": {
             "host": "0.0.0.0",
@@ -1374,6 +1377,15 @@ def apply_security_profile(
     pdef = _SECURITY_PROFILES[profile]
 
     for key, value in pdef.get("security", {}).items():
+        if key == "capabilities" and isinstance(value, dict):
+            # A user's own [security.capabilities] TOML table wins wholesale
+            # over the profile's baseline — don't merge field-by-field.
+            if "capabilities" in _overrides:
+                continue
+            for cap_key, cap_value in value.items():
+                if hasattr(security_cfg.capabilities, cap_key):
+                    setattr(security_cfg.capabilities, cap_key, cap_value)
+            continue
         if key not in _overrides and hasattr(security_cfg, key):
             setattr(security_cfg, key, value)
 
