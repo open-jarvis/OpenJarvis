@@ -93,6 +93,7 @@ desktop = [
     "faster-whisper>=1.0",
 ]
 openhands = ["openhands-sdk>=1.0; python_version >= '3.12'"]
+app-launcher = ["pywin32>=306; sys_platform == 'win32'"]
 gpu-metrics = ["pynvml>=12.0"]
 energy-amd = ["amdsmi>=6.1"]
 energy-apple = ["zeus-ml[apple]"]
