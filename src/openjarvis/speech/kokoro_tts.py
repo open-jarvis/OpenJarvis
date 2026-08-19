@@ -30,7 +30,12 @@ class KokoroTTSBackend(TTSBackend):
         try:
             from kokoro import KPipeline
 
-            self._pipeline = KPipeline(lang_code="a")
+            # KPipeline treats device=None as "auto-detect CUDA, else CPU"
+            # (kokoro/pipeline.py) -- it does NOT understand the literal
+            # string "auto" this class defaults to, so that has to be
+            # translated here rather than passed through directly.
+            device = None if self._device in ("", "auto") else self._device
+            self._pipeline = KPipeline(lang_code="a", device=device)
         except ImportError:
             raise RuntimeError(
                 "kokoro package not installed. Install with: pip install kokoro"
