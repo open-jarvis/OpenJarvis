@@ -189,6 +189,7 @@ class DeepResearchAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            **kwargs,
         )
 
     @staticmethod

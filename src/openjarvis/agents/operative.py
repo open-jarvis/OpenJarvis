@@ -72,6 +72,7 @@ class OperativeAgent(ToolUsingAgent):
             interactive=interactive,
             confirm_callback=confirm_callback,
             prompt_builder=prompt_builder,
+            **kwargs,
         )
         self._system_prompt = system_prompt or ""
         self._operator_id = operator_id

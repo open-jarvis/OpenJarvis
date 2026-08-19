@@ -124,6 +124,9 @@ class RLMAgent(ToolUsingAgent):
         system_prompt: Optional[str] = None,
         interactive: bool = False,
         confirm_callback=None,
+        capability_policy: Optional[Any] = None,
+        agent_id: Optional[str] = None,
+        rate_limiter: Optional[Any] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -135,6 +138,9 @@ class RLMAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            capability_policy=capability_policy,
+            agent_id=agent_id,
+            rate_limiter=rate_limiter,
         )
         # Override executor: RLM only creates one if tools are provided
         if not self._tools:
