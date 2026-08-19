@@ -561,6 +561,8 @@ class DenseMemory(MemoryBackend):
         self._sources: List[str] = []
         self._metadatas: List[Dict[str, Any]] = []
         self._doc_ids: List[str] = []
+        self._active: List[bool] = []
+        self._live_count = 0
         # id -> index; lets us delete in O(1) for lookups
         self._id_to_index: Dict[str, int] = {}
         self._lock = threading.Lock()
@@ -616,15 +618,48 @@ class DenseMemory(MemoryBackend):
                 self._matrix = vectors
             else:
                 self._matrix = np.concatenate([self._matrix, vectors], axis=0)
-            for i, (c, s, m, doc_id) in enumerate(
-                zip(contents, sources, metadatas, new_ids),
-            ):
+            for c, s, m, doc_id in zip(contents, sources, metadatas, new_ids):
                 self._contents.append(c)
                 self._sources.append(s)
                 self._metadatas.append(dict(m))
                 self._doc_ids.append(doc_id)
+                self._active.append(True)
                 self._id_to_index[doc_id] = len(self._contents) - 1
+                self._live_count += 1
         return new_ids
+
+    def _compact_if_needed(self) -> None:
+        """Drop soft-deleted rows once the tombstone ratio grows too large."""
+        if self._matrix is None or not self._contents:
+            return
+        dead_count = len(self._contents) - self._live_count
+        if dead_count == 0:
+            return
+        if dead_count / len(self._contents) < 0.25:
+            return
+
+        keep = [i for i, is_live in enumerate(self._active) if is_live]
+        if not keep:
+            self._matrix = None
+            self._contents.clear()
+            self._sources.clear()
+            self._metadatas.clear()
+            self._doc_ids.clear()
+            self._active.clear()
+            self._id_to_index.clear()
+            self._live_count = 0
+            return
+
+        self._matrix = self._matrix[keep]
+        self._contents = [self._contents[i] for i in keep]
+        self._sources = [self._sources[i] for i in keep]
+        self._metadatas = [dict(self._metadatas[i]) for i in keep]
+        self._doc_ids = [self._doc_ids[i] for i in keep]
+        self._active = [True] * len(self._contents)
+        self._id_to_index = {
+            doc_id: idx for idx, doc_id in enumerate(self._doc_ids)
+        }
+        self._live_count = len(self._contents)
 
     def retrieve(
         self,
@@ -650,14 +685,20 @@ class DenseMemory(MemoryBackend):
             sources = list(self._sources)
             metadatas = [dict(m) for m in self._metadatas]
             doc_ids = list(self._doc_ids)
+            active = list(self._active)
 
         if matrix_snapshot is None or matrix_snapshot.shape[0] == 0:
             return []
 
+        live_idx = [i for i, is_live in enumerate(active) if is_live]
+        if not live_idx:
+            return []
+        active_matrix = matrix_snapshot[live_idx]
+
         emb = self._get_embedder()
         q_vec = emb.embed([query])  # shape (1, dim), normalized
-        # Single matrix-vector mult
-        scores = matrix_snapshot @ q_vec[0]  # shape (n,)
+        # Single matrix-vector mult over only active rows.
+        scores = active_matrix @ q_vec[0]  # shape (n_live,)
 
         # Top-k via argpartition then sort
         n = scores.shape[0]
@@ -674,34 +715,27 @@ class DenseMemory(MemoryBackend):
         results: List[RetrievalResult] = []
         for i in top_idx:
             i = int(i)
+            live_pos = live_idx[i]
             results.append(
                 RetrievalResult(
-                    content=contents[i],
+                    content=contents[live_pos],
                     score=float(scores[i]),
-                    source=sources[i],
-                    metadata={**metadatas[i], "doc_id": doc_ids[i]},
+                    source=sources[live_pos],
+                    metadata={**metadatas[live_pos], "doc_id": doc_ids[live_pos]},
                 )
             )
         return results
 
     def delete(self, doc_id: str) -> bool:
-        """Remove a document by id. Returns True if it existed."""
-        import numpy as np
-
+        """Soft-delete a document by id. Returns True if it existed."""
         with self._lock:
-            idx = self._id_to_index.pop(doc_id, None)
-            if idx is None:
+            idx = self._id_to_index.get(doc_id)
+            if idx is None or not self._active[idx]:
                 return False
-            # Remove row from matrix
-            self._matrix = np.delete(self._matrix, idx, axis=0)
-            self._contents.pop(idx)
-            self._sources.pop(idx)
-            self._metadatas.pop(idx)
-            self._doc_ids.pop(idx)
-            # Rebuild id -> index for entries after the removed one
-            for did, i in list(self._id_to_index.items()):
-                if i > idx:
-                    self._id_to_index[did] = i - 1
+            self._active[idx] = False
+            self._id_to_index.pop(doc_id, None)
+            self._live_count -= 1
+            self._compact_if_needed()
         return True
 
     def clear(self) -> None:
@@ -712,12 +746,14 @@ class DenseMemory(MemoryBackend):
             self._sources.clear()
             self._metadatas.clear()
             self._doc_ids.clear()
+            self._active.clear()
             self._id_to_index.clear()
+            self._live_count = 0
 
     def count(self) -> int:
         """Number of stored documents."""
         with self._lock:
-            return len(self._contents)
+            return self._live_count
 
 
 __all__ = [

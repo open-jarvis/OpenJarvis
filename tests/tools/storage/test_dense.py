@@ -225,6 +225,20 @@ def _mk(content: str, source: str) -> MdChunk:
     return MdChunk(content=f"Header\n\n{content}", source=source, breadcrumb="Header")
 
 
+class _FakeEmbedder:
+    def embed(self, texts):
+        import numpy as np
+
+        vectors = []
+        for text in texts:
+            text = text.lower().strip()
+            seed = sum(ord(ch) for ch in text) % 3
+            vec = [0.0, 0.0, 0.0]
+            vec[seed] = 1.0
+            vectors.append(vec)
+        return np.asarray(vectors, dtype=float)
+
+
 class TestDedupeChunks:
     def test_no_dedupe_when_under_threshold_files(self):
         """Two identical chunks across two files should NOT be deduped (need 3+)."""
@@ -367,6 +381,21 @@ class TestDedupeChunks:
         assert len(survivors) == 1
         assert report.removed_count == 9
         assert report.output_count + report.removed_count == report.input_count
+
+
+def test_dense_backend_delete_is_soft_and_live_count_accurate():
+    backend = DenseMemory(embedder=_FakeEmbedder())
+    doc_a = backend.store("alpha")
+    doc_b = backend.store("beta")
+
+    assert backend.count() == 2
+    assert backend.delete(doc_a) is True
+    assert backend.count() == 1
+    assert backend.delete(doc_a) is False
+
+    hits = backend.retrieve("beta", top_k=5)
+    assert hits
+    assert hits[0].metadata["doc_id"] == doc_b
 
 
 # ---------------------------------------------------------------------------
