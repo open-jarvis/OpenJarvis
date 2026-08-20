@@ -205,8 +205,7 @@ def _validate_user_token(token: str) -> None:
         raise SlackTokenError("Slack token is empty.")
     if token.startswith(_BOT_TOKEN_PREFIX):
         raise SlackTokenError(
-            "Bot tokens (xoxb-) can't read DMs. "
-            "Use a User OAuth Token (xoxp-) instead."
+            "Bot tokens (xoxb-) can't read DMs. Use a User OAuth Token (xoxp-) instead."
         )
     if not token.startswith(_USER_TOKEN_PREFIX):
         raise SlackTokenError(
@@ -436,9 +435,7 @@ class SlackConnector(BaseConnector):
         all_channels: List[Dict[str, Any]] = []
         channels_cursor = ""
         while True:
-            channels_resp = _slack_api_conversations_list(
-                token, cursor=channels_cursor
-            )
+            channels_resp = _slack_api_conversations_list(token, cursor=channels_cursor)
             if not channels_resp.get("ok", True):
                 err = str(channels_resp.get("error", "list_failed"))
                 self._last_error = f"Slack conversations.list failed: {err}"
@@ -446,8 +443,7 @@ class SlackConnector(BaseConnector):
                 return
             all_channels.extend(channels_resp.get("channels", []))
             channels_cursor = (
-                channels_resp.get("response_metadata", {}).get("next_cursor", "")
-                or ""
+                channels_resp.get("response_metadata", {}).get("next_cursor", "") or ""
             )
             if not channels_cursor:
                 break

@@ -18,9 +18,7 @@ def _make_mcp_cfg(*, enabled=True, servers):
     """Build a duck-typed MCPConfig with enabled flag + servers JSON."""
     cfg = MagicMock()
     cfg.enabled = enabled
-    cfg.servers = (
-        json.dumps(servers) if not isinstance(servers, str) else servers
-    )
+    cfg.servers = json.dumps(servers) if not isinstance(servers, str) else servers
     return cfg
 
 
@@ -33,13 +31,12 @@ def _fake_tool(name):
 @pytest.fixture
 def _mock_mcp_stack():
     """Patch MCPClient / transports / MCPToolProvider so no real I/O happens."""
-    with patch("openjarvis.mcp.client.MCPClient") as MockClient, patch(
-        "openjarvis.mcp.transport.StreamableHTTPTransport"
-    ) as MockHttp, patch(
-        "openjarvis.mcp.transport.StdioTransport"
-    ) as MockStdio, patch(
-        "openjarvis.tools.mcp_adapter.MCPToolProvider"
-    ) as MockProvider:
+    with (
+        patch("openjarvis.mcp.client.MCPClient") as MockClient,
+        patch("openjarvis.mcp.transport.StreamableHTTPTransport") as MockHttp,
+        patch("openjarvis.mcp.transport.StdioTransport") as MockStdio,
+        patch("openjarvis.tools.mcp_adapter.MCPToolProvider") as MockProvider,
+    ):
         # Default: any provider discovers no tools (per-test overrides as needed)
         MockProvider.return_value.discover.return_value = []
         MockClient.return_value.initialize.return_value = None
@@ -161,9 +158,7 @@ class TestLoaderFiltering:
         ]
         cfg = _make_mcp_cfg(
             enabled=True,
-            servers=[
-                {"name": "x", "url": "http://x", "include_tools": ["alpha"]}
-            ],
+            servers=[{"name": "x", "url": "http://x", "include_tools": ["alpha"]}],
         )
         tools, _ = load_mcp_tools_from_config(cfg)
         assert [t.spec.name for t in tools] == ["alpha"]
@@ -178,9 +173,7 @@ class TestLoaderFiltering:
         ]
         cfg = _make_mcp_cfg(
             enabled=True,
-            servers=[
-                {"name": "x", "url": "http://x", "exclude_tools": ["alpha"]}
-            ],
+            servers=[{"name": "x", "url": "http://x", "exclude_tools": ["alpha"]}],
         )
         tools, _ = load_mcp_tools_from_config(cfg)
         assert [t.spec.name for t in tools] == ["beta"]
@@ -233,3 +226,57 @@ class TestLoaderFailureIsolation:
         assert [t.spec.name for t in tools] == ["survivor"]
         assert len(clients) == 1
         assert any("broken" in r.message for r in caplog.records)
+
+    def test_failed_initialize_closes_the_client(self, _mock_mcp_stack, caplog):
+        """Regression for #753: a client whose initialize() fails must
+        still be closed.
+
+        ``client.initialize()`` was called before ``clients.append(client)``,
+        so a failed handshake left the client out of the returned list --
+        nothing the caller holds ever calls ``close()`` on it, leaking the
+        underlying StdioTransport subprocess or StreamableHTTPTransport
+        connection pool.
+        """
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        bad_client = MagicMock()
+        bad_client.initialize.side_effect = RuntimeError("handshake failed")
+        _mock_mcp_stack["client"].return_value = bad_client
+
+        cfg = _make_mcp_cfg(
+            enabled=True,
+            servers=[{"name": "broken", "url": "http://broken"}],
+        )
+        with caplog.at_level("WARNING"):
+            tools, clients = load_mcp_tools_from_config(cfg)
+
+        assert clients == []
+        bad_client.close.assert_called_once()
+
+    def test_cleanup_failure_does_not_mask_initialize_error(
+        self, _mock_mcp_stack, caplog
+    ):
+        """The handshake remains the reported discovery failure if close fails."""
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        bad_client = MagicMock()
+        bad_client.initialize.side_effect = RuntimeError("handshake failed")
+        bad_client.close.side_effect = RuntimeError("cleanup failed")
+        _mock_mcp_stack["client"].return_value = bad_client
+        cfg = _make_mcp_cfg(
+            enabled=True,
+            servers=[{"name": "broken", "url": "http://broken"}],
+        )
+
+        with caplog.at_level("WARNING"):
+            tools, clients = load_mcp_tools_from_config(cfg)
+
+        assert tools == []
+        assert clients == []
+        bad_client.close.assert_called_once()
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("cleanup failed" in message for message in messages)
+        assert any(
+            "Failed to discover MCP tools" in message and "handshake failed" in message
+            for message in messages
+        )

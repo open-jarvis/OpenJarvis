@@ -158,6 +158,9 @@ class TestLiteLLMEngineGenerate:
 
 class TestLiteLLMEngineStream:
     def test_stream(self) -> None:
+        # stream() must use the ASYNC litellm entry point (acompletion): the
+        # sync litellm.completion makes blocking network reads inside an
+        # ``async def``, stalling the event loop between tokens.
         chunk1 = SimpleNamespace(
             choices=[SimpleNamespace(delta=SimpleNamespace(content="Hel"))]
         )
@@ -168,8 +171,12 @@ class TestLiteLLMEngineStream:
             choices=[SimpleNamespace(delta=SimpleNamespace(content=None))]
         )
 
+        async def _chunks():
+            for c in (chunk1, chunk2, chunk3):
+                yield c
+
         fake_litellm = mock.MagicMock()
-        fake_litellm.completion.return_value = iter([chunk1, chunk2, chunk3])
+        fake_litellm.acompletion = mock.AsyncMock(return_value=_chunks())
 
         with mock.patch.dict("sys.modules", {"litellm": fake_litellm}):
             engine = LiteLLMEngine()
@@ -186,6 +193,8 @@ class TestLiteLLMEngineStream:
             tokens = asyncio.run(collect())
 
         assert tokens == ["Hel", "lo!"]
+        fake_litellm.acompletion.assert_awaited_once()
+        assert fake_litellm.completion.call_count == 0
 
 
 class TestLiteLLMEngineListModels:

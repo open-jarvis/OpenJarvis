@@ -210,6 +210,14 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 # ---- env ----
+# OpenJarvis keeps ALL of its state (install tree + runtime data, configs,
+# databases, caches, logs) under a single root so it never clutters $HOME
+# beyond one directory. Relocate it by exporting OPENJARVIS_HOME before
+# running the installer, e.g.:
+#     OPENJARVIS_HOME=~/apps/openjarvis curl ... | bash
+# The Python runtime honors the same override (and, when OPENJARVIS_HOME is
+# unset, $XDG_DATA_HOME/openjarvis if XDG_DATA_HOME is set). With nothing set
+# the root is ~/.openjarvis, so existing installs are untouched.
 OPENJARVIS_HOME="${OPENJARVIS_HOME:-$HOME/.openjarvis}"
 OPENJARVIS_REPO_URL="${OPENJARVIS_REPO_URL:-https://github.com/open-jarvis/OpenJarvis.git}"
 SRC_DIR="$OPENJARVIS_HOME/src"

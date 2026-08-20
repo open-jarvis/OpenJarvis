@@ -212,6 +212,7 @@ class InstrumentedEngine(InferenceEngine):
             completion_tokens=completion_tokens,
             total_tokens=prompt_tok + completion_tokens,
             latency_seconds=latency,
+            cost_usd=result.get("cost_usd", 0.0),
             ttft=ttft,
             throughput_tok_per_sec=throughput,
             energy_per_output_token_joules=energy_per_output_token,

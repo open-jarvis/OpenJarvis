@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Literal, Optional, Tuple
 
 from openjarvis.core.config import MemoryFilesConfig, SystemPromptConfig
+from openjarvis.core.paths import get_config_dir
 
 PromptCacheSegment = Literal["frozen_prefix", "dynamic_suffix"]
 
@@ -279,7 +280,7 @@ class SystemPromptBuilder:
                 f"Invalid persona name {name!r}: must be a simple "
                 "identifier (no path separators or '..')."
             )
-        base = Path.home() / ".openjarvis" / "personas" / name
+        base = get_config_dir() / "personas" / name
         return MemoryFilesConfig(
             soul_path=str(base / "SOUL.md"),
             memory_path=str(base / "MEMORY.md"),

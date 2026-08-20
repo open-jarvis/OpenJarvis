@@ -101,6 +101,7 @@ def _run_serve(tmp_path, monkeypatch, *, build_spy, set_system_spy):
     (``uvicorn.run`` is a no-op) and no real engine is contacted.
     """
     from openjarvis.core.config import JarvisConfig
+    from openjarvis.core.registry import MemoryRegistry
 
     _repopulate_registries()
 
@@ -112,6 +113,9 @@ def _run_serve(tmp_path, monkeypatch, *, build_spy, set_system_spy):
     config.sessions.enabled = True
     config.sessions.db_path = str(tmp_path / "sessions.db")
     config.memory.db_path = str(tmp_path / "memory.db")
+    # Disabling prompt-context injection must not disable the backend needed
+    # by explicitly configured memory tools in managed-agent ticks.
+    config.agent.context_from_memory = False
     config.telemetry.enabled = False
     config.traces.enabled = False
     config.channel.enabled = False
@@ -122,6 +126,16 @@ def _run_serve(tmp_path, monkeypatch, *, build_spy, set_system_spy):
     config.intelligence.default_model = "test-model"
 
     engine = _fake_engine()
+    # Keep this wiring test independent of the optional native memory runtime.
+    # The assertion is that serve resolves and passes a backend even when
+    # prompt-context injection is disabled, not that SQLite itself works.
+    memory_backend = MagicMock(name="memory_backend")
+    monkeypatch.setattr(MemoryRegistry, "contains", MagicMock(return_value=True))
+    monkeypatch.setattr(
+        MemoryRegistry,
+        "create",
+        MagicMock(return_value=memory_backend),
+    )
 
     monkeypatch.setattr(serve_mod, "load_config", lambda *a, **k: config)
     monkeypatch.setattr(serve_mod, "get_engine", lambda *a, **k: ("mock", engine))
@@ -159,6 +173,8 @@ def test_serve_does_not_call_systembuilder_build(tmp_path, monkeypatch):
         )
     )
     set_system_spy = MagicMock()
+    inject_spy = MagicMock()
+    monkeypatch.setattr(serve_mod, "inject_credentials", inject_spy)
 
     result = _run_serve(
         tmp_path,
@@ -169,6 +185,7 @@ def test_serve_does_not_call_systembuilder_build(tmp_path, monkeypatch):
 
     assert result.exit_code == 0, result.output
     build_spy.assert_not_called()
+    inject_spy.assert_called_once_with()
 
 
 def test_executor_receives_required_system_attrs(tmp_path, monkeypatch):

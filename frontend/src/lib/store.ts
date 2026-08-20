@@ -15,6 +15,8 @@ import type {
   TokenUsage,
 } from '../types';
 import type { ManagedAgent } from './api';
+import { isEmbedOnlyModel } from './model-capabilities';
+import { serializeToolCallArguments } from './tool-call';
 
 export interface CachedConnector {
   connector_id: string;
@@ -54,7 +56,30 @@ function loadConversations(): ConversationStore {
     const raw = localStorage.getItem(CONVERSATIONS_KEY);
     if (!raw) return { version: 1, conversations: {}, activeId: null };
     const parsed = JSON.parse(raw);
-    if (parsed.version === 1) return parsed;
+    if (parsed.version === 1) {
+      let repaired = false;
+      for (const conversation of Object.values(parsed.conversations ?? {}) as Conversation[]) {
+        for (const message of conversation.messages ?? []) {
+          for (const toolCall of message.toolCalls ?? []) {
+            const argumentsText = serializeToolCallArguments(toolCall.arguments);
+            if (argumentsText !== toolCall.arguments) {
+              toolCall.arguments = argumentsText;
+              repaired = true;
+            }
+          }
+        }
+      }
+      if (repaired) {
+        try {
+          localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(parsed));
+        } catch {
+          // Keep the repaired conversations usable in memory when storage is
+          // read-only or full. A failed best-effort writeback must not make
+          // otherwise readable conversation history disappear from the UI.
+        }
+      }
+      return parsed;
+    }
     return { version: 1, conversations: {}, activeId: null };
   } catch {
     return { version: 1, conversations: {}, activeId: null };
@@ -110,6 +135,7 @@ function saveSettings(settings: Settings): void {
 // ── Store ─────────────────────────────────────────────────────────────
 
 const INITIAL_STREAM: StreamState = {
+  conversationId: null,
   isStreaming: false,
   phase: '',
   elapsedMs: 0,
@@ -351,6 +377,9 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     deleteConversation: (id: string) => {
+      const streamState = get().streamState;
+      if (streamState.isStreaming && streamState.conversationId === id) return;
+
       const store = loadConversations();
       delete store.conversations[id];
       if (store.activeId === id) {
@@ -393,12 +422,14 @@ export const useAppStore = create<AppState>((set, get) => {
           (message.content.length > 50 ? '...' : '');
       }
       saveConversations(store);
-      set({
-        messages: [...conv.messages],
-        conversations: Object.values(store.conversations).sort(
-          (a, b) => b.updatedAt - a.updatedAt,
-        ),
-      });
+      const conversations = Object.values(store.conversations).sort(
+        (a, b) => b.updatedAt - a.updatedAt,
+      );
+      if (get().activeId === conversationId) {
+        set({ messages: [...conv.messages], conversations });
+      } else {
+        set({ conversations });
+      }
     },
 
     updateLastAssistant: (
@@ -425,7 +456,9 @@ export const useAppStore = create<AppState>((set, get) => {
         if (researchSources) lastMsg.researchSources = researchSources;
         conv.updatedAt = Date.now();
         saveConversations(store);
-        set({ messages: [...conv.messages] });
+        if (get().activeId === conversationId) {
+          set({ messages: [...conv.messages] });
+        }
       }
     },
 
@@ -444,11 +477,36 @@ export const useAppStore = create<AppState>((set, get) => {
     // ── Models & server ────────────────────────────────────────────
 
     setModels: (models: ModelInfo[]) =>
-      set((state) =>
-        !state.selectedModel && models.length > 0
-          ? { models, selectedModel: models[0].id }
-          : { models },
-      ),
+      set((state) => {
+        // Ollama returns embed-only models (e.g. nomic-embed-text) in the
+        // same list as chat models. Auto-picking models[0] selected the
+        // embedder and every chat failed with HTTP 400 "does not support
+        // chat". Prefer a real chat model for selection / fallback.
+        const chatModels = models.filter((m) => !isEmbedOnlyModel(m.id));
+        const preferred =
+          (state.settings.defaultModel &&
+            chatModels.some((m) => m.id === state.settings.defaultModel) &&
+            state.settings.defaultModel) ||
+          chatModels[0]?.id ||
+          models.find((m) => !isEmbedOnlyModel(m.id))?.id ||
+          '';
+
+        const currentIsBad =
+          !!state.selectedModel && isEmbedOnlyModel(state.selectedModel);
+        const currentMissing =
+          !!state.selectedModel &&
+          !models.some((m) => m.id === state.selectedModel);
+
+        if (!state.selectedModel || currentIsBad || currentMissing) {
+          // Prefer a real chat model. If none exist, clear a bad/missing
+          // selection rather than keeping an embed-only id that 400s on chat.
+          return {
+            models,
+            selectedModel: preferred,
+          };
+        }
+        return { models };
+      }),
     setModelsLoading: (loading: boolean) => set({ modelsLoading: loading }),
     setSelectedModel: (model: string) => set({ selectedModel: model }),
     setServerInfo: (info: ServerInfo | null) => set({ serverInfo: info }),

@@ -20,6 +20,7 @@ try:
     # See gpu_monitor.py for the rationale — suppress the legacy
     # `pynvml` package's deprecation FutureWarning narrowly (#389).
     import warnings
+
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",

@@ -12,9 +12,26 @@ import os
 import platform
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
+
+from openjarvis.core.paths import (
+    ConfigurationError,
+    get_cache_dir,
+    get_config_dir,
+    get_config_path,
+    get_data_dir,
+)
 
 if TYPE_CHECKING:
     # Only used by type-checkers (mypy/pyright) for the ``JarvisConfig.mining``
@@ -33,15 +50,24 @@ except ModuleNotFoundError:
 # Hardware dataclasses
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONFIG_DIR = Path.home() / ".openjarvis"
-DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.toml"
+# Legacy names, kept for the ~45 modules that import them. They are resolved
+# once at import via the env-aware resolver in ``openjarvis.core.paths`` (the
+# install-script model: ``OPENJARVIS_HOME`` / ``XDG_DATA_HOME`` are set before
+# the process starts). They are real module attributes — not computed lazily —
+# so existing tests can ``monkeypatch.setattr`` them and so dataclass-instance
+# defaults stay consistent. Code that must react to a mid-process env change
+# (or wants the override regardless of import order) should call
+# ``get_config_dir()`` / ``get_config_path()`` directly; the dataclass field
+# defaults below already do this via ``default_factory``.
+DEFAULT_CONFIG_DIR = get_config_dir()
+DEFAULT_CONFIG_PATH = get_config_path()
 
 
 def _ensure_config_dir() -> Path:
     """Ensure the config directory exists with restrictive permissions."""
     from openjarvis.security.file_utils import secure_mkdir
 
-    return secure_mkdir(DEFAULT_CONFIG_DIR)
+    return secure_mkdir(get_config_dir())
 
 
 @dataclass(slots=True)
@@ -577,6 +603,14 @@ class IntelligenceConfig:
 
 
 @dataclass(slots=True)
+class DeepResearchConfig:
+    """Planner settings for the web Deep Research endpoint."""
+
+    engine: str = ""  # Empty means use the active chat engine.
+    model: str = ""  # Empty means use the active chat model.
+
+
+@dataclass(slots=True)
 class RoutingLearningConfig:
     """Routing sub-policy config within Learning."""
 
@@ -742,7 +776,9 @@ class SkillsLearningConfig:
     optimizer: str = "dspy"  # "dspy" or "gepa"
     min_traces_per_skill: int = 20
     optimization_interval_seconds: int = 86400
-    overlay_dir: str = "~/.openjarvis/learning/skills/"
+    overlay_dir: str = field(
+        default_factory=lambda: str(get_config_dir() / "learning" / "skills")
+    )
 
 
 @dataclass(slots=True)
@@ -891,15 +927,31 @@ class LearningConfig:
 
 @dataclass(slots=True)
 class StorageConfig:
-    """Storage (memory) backend settings."""
+    """Storage (memory) backend settings.
+
+    Covers both the retrieval/document store (``default_backend``, ``db_path``,
+    chunking, context injection) and the automatic long-term memory service
+    (``enabled``, ``backend``, ``extraction_model``, ``max_facts``,
+    ``facts_path``) configured under ``[memory]`` in ``config.toml``.
+    """
 
     default_backend: str = "sqlite"
-    db_path: str = str(DEFAULT_CONFIG_DIR / "memory.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "memory.db"))
     context_top_k: int = 5
     context_min_score: float = 0.0
     context_max_tokens: int = 2048
     chunk_size: int = 512
     chunk_overlap: int = 64
+
+    # Automatic memory service — extracts durable facts from conversations in
+    # the background and persists them across sessions (see openjarvis.memory).
+    enabled: bool = False  # start the memory service with serve/chat
+    backend: str = "local"  # fact-store backend ("local" = on-disk JSONL)
+    extraction_model: str = ""  # model for fact extraction ("" = active model)
+    max_facts: int = 1000  # cap on stored facts (oldest evicted past the cap)
+    facts_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "memory_facts.jsonl")
+    )
 
 
 # Backward-compatibility alias
@@ -912,6 +964,112 @@ class MCPConfig:
 
     enabled: bool = True
     servers: str = ""  # JSON list of MCP server configs
+
+
+_MAX_EXTERNAL_JSON_BYTES = 4 * 1024 * 1024
+
+
+def resolve_json_or_file(raw: str, config_dir: Path) -> Any:
+    """Resolve a config value that is either inline JSON or a path to a JSON file.
+
+    Parameters
+    ----------
+    raw:
+        Either a JSON string (starts with '[' or '{') or a file path
+        to a .json file containing the data.
+    config_dir:
+        Directory of config.toml, used to resolve relative file paths.
+
+    Returns
+    -------
+    Parsed JSON value (dict, list, etc.), or ``None`` if *raw* is empty.
+
+    Raises
+    ------
+    ValueError: If a relative path escapes the config directory.
+    FileNotFoundError: If the referenced file does not exist.
+    json.JSONDecodeError: If the JSON content is malformed.
+    """
+    import json
+
+    if not isinstance(raw, str):
+        raise TypeError("JSON config value must be a string")
+
+    stripped = raw.strip()
+    if not stripped:
+        return None
+
+    # Inline JSON
+    if stripped.startswith("[") or stripped.startswith("{"):
+        return json.loads(stripped)
+
+    # File path reference
+    file_path = Path(stripped).expanduser()
+    was_relative = not file_path.is_absolute()
+    if was_relative:
+        file_path = config_dir / file_path
+
+    resolved = file_path.resolve()
+
+    # Security check: relative paths must not escape the config directory
+    if was_relative:
+        config_resolved = config_dir.expanduser().resolve()
+        try:
+            resolved.relative_to(config_resolved)
+        except ValueError as exc:
+            raise ValueError(
+                f"Path '{stripped}' resolves to '{resolved}' which is outside "
+                f"the config directory '{config_resolved}'"
+            ) from exc
+
+    if not resolved.exists():
+        raise FileNotFoundError(
+            f"MCP config file not found: {resolved} (from '{stripped}')"
+        )
+    if not resolved.is_file():
+        raise ValueError(f"JSON config path is not a regular file: {resolved}")
+    if resolved.stat().st_size > _MAX_EXTERNAL_JSON_BYTES:
+        raise ValueError(
+            f"JSON config file exceeds {_MAX_EXTERNAL_JSON_BYTES} bytes: {resolved}"
+        )
+
+    content = resolved.read_text(encoding="utf-8")
+    return json.loads(content)
+
+
+def resolve_mcp_servers(raw: str, config_dir: Path) -> list[dict[str, Any]]:
+    """Resolve MCP server configuration from inline JSON or an external file.
+
+    Wraps :func:`resolve_json_or_file` with MCP-specific validation:
+    a single server object ``{...}`` is automatically wrapped in a list,
+    and the result must be a ``list``.
+    """
+    import json
+
+    result = resolve_json_or_file(raw, config_dir)
+    if result is None:
+        return []
+    if isinstance(result, dict):
+        result = [result]
+    if not isinstance(result, list):
+        raise ValueError(
+            "MCP servers config must be a JSON array or object, "
+            f"got {type(result).__name__}"
+        )
+
+    servers: list[dict[str, Any]] = []
+    for index, server in enumerate(result):
+        if isinstance(server, str):
+            try:
+                server = json.loads(server)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"MCP server entry {index} is not a valid JSON object"
+                ) from exc
+        if not isinstance(server, dict):
+            raise ValueError(f"MCP server entry {index} must be a JSON object")
+        servers.append(server)
+    return servers
 
 
 @dataclass(slots=True)
@@ -946,8 +1104,10 @@ class AgentConfig:
     system_prompt_path: str = ""  # path to system prompt file (.txt, .md)
     context_from_memory: bool = True  # inject relevant memory context into prompts
     default_system_prompt: str = (
-        "You are a helpful AI assistant running locally on the user's own "
-        "hardware through OpenJarvis. You are not a cloud service. Respond "
+        "You are OpenJarvis, a helpful AI assistant running locally on the "
+        "user's own hardware. You are not a cloud service, and you are not "
+        "Claude, ChatGPT, Gemini, or any other branded assistant. If asked "
+        "who or what you are, identify yourself as OpenJarvis. Respond "
         "helpfully, concisely, and accurately."
     )
 
@@ -996,7 +1156,7 @@ class TelemetryConfig:
     """Telemetry persistence settings."""
 
     enabled: bool = True
-    db_path: str = str(DEFAULT_CONFIG_DIR / "telemetry.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "telemetry.db"))
     gpu_metrics: bool = False
     gpu_poll_interval_ms: int = 50
     energy_vendor: str = ""  # auto-detect or force "nvidia"/"amd"/"apple"/"cpu_rapl"
@@ -1021,7 +1181,7 @@ class AnalyticsConfig:
     enabled: bool = True
     host: str = "https://34.231.106.201.sslip.io"
     key: str = "phc_ysKu72QaxzYNmDpHFcesD2ZZAe68zkdWJEKoYYkc5e3n"
-    anon_id_path: str = str(DEFAULT_CONFIG_DIR / "anon_id")
+    anon_id_path: str = field(default_factory=lambda: str(get_config_dir() / "anon_id"))
     flush_interval_seconds: int = 30
     flush_at_size: int = 100
 
@@ -1031,7 +1191,7 @@ class TracesConfig:
     """Trace system settings."""
 
     enabled: bool = True
-    db_path: str = str(DEFAULT_CONFIG_DIR / "traces.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "traces.db"))
 
 
 @dataclass(slots=True)
@@ -1233,7 +1393,9 @@ class SecurityConfig:
     mode: str = "redact"  # "redact" | "warn" | "block"
     secret_scanner: bool = True
     pii_scanner: bool = True
-    audit_log_path: str = str(DEFAULT_CONFIG_DIR / "audit.db")
+    audit_log_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "audit.db")
+    )
     enforce_tool_confirmation: bool = True
     merkle_audit: bool = True
     signing_key_path: str = ""
@@ -1244,7 +1406,9 @@ class SecurityConfig:
     local_engine_bypass: bool = False
     local_tool_bypass: bool = False
     profile: str = ""
-    vault_key_path: str = str(DEFAULT_CONFIG_DIR / ".vault_key")
+    vault_key_path: str = field(
+        default_factory=lambda: str(get_config_dir() / ".vault_key")
+    )
     capabilities: CapabilitiesConfig = field(default_factory=CapabilitiesConfig)
 
 
@@ -1365,7 +1529,7 @@ class SessionConfig:
     enabled: bool = False
     max_age_hours: float = 24.0
     consolidation_threshold: int = 100
-    db_path: str = str(DEFAULT_CONFIG_DIR / "sessions.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "sessions.db"))
 
 
 @dataclass(slots=True)
@@ -1383,7 +1547,9 @@ class OperatorsConfig:
     """Operator lifecycle settings."""
 
     enabled: bool = False
-    manifests_dir: str = "~/.openjarvis/operators"
+    manifests_dir: str = field(
+        default_factory=lambda: str(get_config_dir() / "operators")
+    )
     auto_activate: str = ""  # Comma-separated operator IDs
 
 
@@ -1409,7 +1575,7 @@ class OptimizeConfig:
     benchmark: str = ""
     max_samples: int = 50
     judge_model: str = "gpt-5-mini-2025-08-07"
-    db_path: str = str(DEFAULT_CONFIG_DIR / "optimize.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "optimize.db"))
 
 
 @dataclass(slots=True)
@@ -1417,18 +1583,20 @@ class AgentManagerConfig:
     """Persistent agent manager settings."""
 
     enabled: bool = True
-    db_path: str = str(DEFAULT_CONFIG_DIR / "agents.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "agents.db"))
 
 
 @dataclass(slots=True)
 class MemoryFilesConfig:
     """Persistent memory-file paths and nudge settings."""
 
-    soul_path: str = "~/.openjarvis/SOUL.md"
-    memory_path: str = "~/.openjarvis/MEMORY.md"
-    user_path: str = "~/.openjarvis/USER.md"
+    soul_path: str = field(default_factory=lambda: str(get_config_dir() / "SOUL.md"))
+    memory_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "MEMORY.md")
+    )
+    user_path: str = field(default_factory=lambda: str(get_config_dir() / "USER.md"))
     nudge_interval: int = 10
-    persona_name: str = ""  # named persona dir under ~/.openjarvis/personas/<name>/
+    persona_name: str = ""  # named persona dir under <config-dir>/personas/<name>/
 
 
 @dataclass(slots=True)
@@ -1467,13 +1635,15 @@ class SkillsConfig:
     """Configuration for agent-authored procedural skills."""
 
     enabled: bool = True
-    skills_dir: str = "~/.openjarvis/skills/"
+    skills_dir: str = field(default_factory=lambda: str(get_config_dir() / "skills"))
     active: str = "*"
     auto_discover: bool = True
     auto_sync: bool = False
     nudge_interval: int = 15
     index_repo: str = "https://github.com/openjarvis/skill-index.git"
-    index_dir: str = "~/.openjarvis/skill-index/"
+    index_dir: str = field(
+        default_factory=lambda: str(get_config_dir() / "skill-index")
+    )
     max_depth: int = 5
     sandbox_dangerous: bool = True
     sources: List[SkillSourceConfig] = field(default_factory=list)
@@ -1531,6 +1701,7 @@ class JarvisConfig:
     hardware: HardwareInfo = field(default_factory=HardwareInfo)
     engine: EngineConfig = field(default_factory=EngineConfig)
     intelligence: IntelligenceConfig = field(default_factory=IntelligenceConfig)
+    deep_research: DeepResearchConfig = field(default_factory=DeepResearchConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
@@ -1556,6 +1727,15 @@ class JarvisConfig:
     digest: DigestConfig = field(default_factory=DigestConfig)
     proactive: ProactiveConfig = field(default_factory=ProactiveConfig)
     mining: Optional["MiningConfig"] = None
+
+    @property
+    def _config_dir(self) -> Path:
+        """Directory containing the loaded config, or the env-aware default."""
+        return self.__dict__.get("_config_source_dir", get_config_dir())
+
+    @_config_dir.setter
+    def _config_dir(self, value: Path) -> None:
+        self.__dict__["_config_source_dir"] = Path(value)
 
     @property
     def memory(self) -> StorageConfig:
@@ -1654,10 +1834,16 @@ def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
     """Overlay TOML key/value pairs onto a dataclass instance.
 
     Recursively handles nested dicts when the target attribute is itself
-    a dataclass.  Normalises TOML arrays to comma-separated strings — both
-    for dataclass fields annotated as ``str`` and for backward-compat
-    property setters that expect string input.
+    a dataclass, including dict entries in lists of dataclasses.  Normalises
+    TOML arrays to comma-separated strings — both for dataclass fields annotated
+    as ``str`` and for backward-compat property setters that expect string input.
     """
+    try:
+        type_hints = get_type_hints(type(target))
+    except (NameError, TypeError):
+        # Some config types contain optional runtime-only forward references.
+        type_hints = {}
+
     for key, value in section.items():
         if hasattr(target, key):
             if isinstance(value, dict):
@@ -1672,14 +1858,35 @@ def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
                 # property setters (e.g. reward_weights, default_tools).
                 if isinstance(value, list):
                     is_str_field = False
+                    item_dataclass = None
                     if hasattr(target, "__dataclass_fields__"):
                         field_obj = target.__dataclass_fields__.get(key)
-                        if field_obj is not None and field_obj.type in ("str", str):
-                            is_str_field = True
-                        elif field_obj is None:
+                        if field_obj is not None:
+                            field_type = type_hints.get(key, field_obj.type)
+                            type_args = get_args(field_type)
+                            if (
+                                get_origin(field_type) is list
+                                and len(type_args) == 1
+                                and is_dataclass(type_args[0])
+                            ):
+                                item_dataclass = type_args[0]
+                            elif field_obj.type in ("str", str):
+                                is_str_field = True
+                        else:
                             # Property, not a real field — normalise to string
                             is_str_field = True
-                    if is_str_field:
+
+                    if item_dataclass is not None:
+                        converted = []
+                        for item in value:
+                            if isinstance(item, dict):
+                                nested = item_dataclass()
+                                _apply_toml_section(nested, item)
+                                converted.append(nested)
+                            else:
+                                converted.append(item)
+                        value = converted
+                    elif is_str_field:
                         value = ",".join(str(v) for v in value)
                 setattr(target, key, value)
 
@@ -1775,11 +1982,12 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
     cfg.engine.default = recommend_engine(hw)
 
     if path is not None:
-        config_path = Path(path)
+        config_path = Path(path).expanduser().resolve()
     elif os.environ.get("OPENJARVIS_CONFIG"):
         config_path = Path(os.environ["OPENJARVIS_CONFIG"]).expanduser().resolve()
     else:
-        config_path = DEFAULT_CONFIG_PATH
+        config_path = get_config_path()
+    cfg._config_dir = config_path.parent
     if config_path.exists():
         with open(config_path, "rb") as fh:
             data = tomllib.load(fh)
@@ -1792,6 +2000,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         top_sections = (
             "engine",
             "intelligence",
+            "deep_research",
             "learning",
             "agent",
             "server",
@@ -1960,6 +2169,10 @@ max_tokens = 1024
 # repetition_penalty = 1.0
 # stop_sequences = ""
 
+# [deep_research]
+# engine = ""                  # empty = use [engine].default
+# model = ""                   # empty = use [intelligence].default_model
+
 [agent]
 default_agent = "simple"
 max_turns = 10
@@ -1971,6 +2184,15 @@ context_from_memory = true
 
 [tools.storage]
 default_backend = "sqlite"
+
+# Automatic long-term memory: extracts durable facts from conversations in the
+# background and persists them. Starts/stops with `jarvis serve` and
+# `jarvis chat`; manage stored facts with `jarvis memory list` / `clear`.
+[memory]
+enabled = false               # set true to enable the memory service
+backend = "local"             # fact-store backend (local = on-disk JSONL)
+extraction_model = ""         # model for fact extraction ("" = active model)
+max_facts = 1000              # cap on stored facts
 
 [tools.mcp]
 enabled = true
@@ -2117,9 +2339,15 @@ __all__ = [
     "BrowserConfig",
     "CapabilitiesConfig",
     "ChannelConfig",
+    "ConfigurationError",
     "DEFAULT_CONFIG_DIR",
     "DEFAULT_CONFIG_PATH",
     "DiscordChannelConfig",
+    "DeepResearchConfig",
+    "get_cache_dir",
+    "get_config_dir",
+    "get_config_path",
+    "get_data_dir",
     "EmailChannelConfig",
     "EngineConfig",
     "FeishuChannelConfig",

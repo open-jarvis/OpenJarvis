@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from typing import List, Optional
 
@@ -11,7 +12,11 @@ from rich.markdown import Markdown
 
 from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.core.config import load_config
+from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
+from openjarvis.memory import publish_completed_exchange
+
+logger = logging.getLogger(__name__)
 
 
 def _read_input(prompt: str = "You> ") -> Optional[str]:
@@ -57,6 +62,7 @@ def chat(
     console = Console(stderr=True)
 
     config = load_config()
+    bus = EventBus(record_history=False)
 
     import dataclasses as _dc
 
@@ -97,12 +103,11 @@ def chat(
     if agent_key and agent_key != "none":
         try:
             import openjarvis.agents  # noqa: F401 — trigger registration
-            from openjarvis.core.events import EventBus
             from openjarvis.core.registry import AgentRegistry
 
             if AgentRegistry.contains(agent_key):
                 agent_cls = AgentRegistry.get(agent_key)
-                kwargs: dict = {"bus": EventBus()}
+                kwargs: dict = {"bus": bus}
 
                 if getattr(agent_cls, "accepts_tools", False):
                     tool_names_list = resolve_tool_names(
@@ -179,6 +184,28 @@ def chat(
 
     _notifications = NotificationDispatcher(get_status())
 
+    # Automatic long-term memory — extracts durable facts in the background.
+    memory_service = None
+    try:
+        from openjarvis.memory import build_memory_service
+
+        memory_service = build_memory_service(config, engine, model, event_bus=bus)
+        if memory_service is not None:
+            memory_service.start()
+            console.print("[dim]  Memory: active[/dim]")
+    except Exception as exc:
+        console.print(f"[yellow]Memory service unavailable: {exc}[/yellow]")
+        memory_service = None
+
+    # The document backend and automatic fact store are separate persistence
+    # mechanisms. Context injection combines both at read time so facts from
+    # previous sessions are immediately available without a manual index step.
+    memory_backend = None
+    if config.agent.context_from_memory:
+        from openjarvis.cli.ask import _get_memory_backend
+
+        memory_backend = _get_memory_backend(config)
+
     # Conversation state
     if not system_prompt:
         from openjarvis.prompt.builder import SystemPromptBuilder
@@ -247,15 +274,57 @@ def chat(
         # Add user message
         history.append(Message(role=Role.USER, content=user_input))
 
-        # Generate response
+        generation_history = history
+        agent_context_message = None
+        if config.agent.context_from_memory:
+            try:
+                from openjarvis.memory import load_configured_facts
+                from openjarvis.tools.storage.context import (
+                    ContextConfig,
+                    inject_context,
+                )
+
+                if memory_service is not None and hasattr(memory_service, "list_facts"):
+                    facts = memory_service.list_facts()
+                else:
+                    facts = load_configured_facts(config)
+                ctx_cfg = ContextConfig(
+                    top_k=config.memory.context_top_k,
+                    min_score=config.memory.context_min_score,
+                    max_context_tokens=config.memory.context_max_tokens,
+                )
+                context_messages = inject_context(
+                    user_input,
+                    [] if agent is not None else history,
+                    memory_backend,
+                    config=ctx_cfg,
+                    facts=facts,
+                )
+                if agent is not None:
+                    if context_messages:
+                        agent_context_message = context_messages[0]
+                else:
+                    generation_history = context_messages
+            except Exception:
+                logger.debug("Failed to inject memory context", exc_info=True)
+
+        # Generate response even when optional memory context is unavailable.
         try:
             if agent is not None:
-                response = agent.run(user_input)
+                from openjarvis.agents._stubs import AgentContext
+
+                agent_context = AgentContext()
+                if agent_context_message is not None:
+                    agent_context.conversation.add(agent_context_message)
+                for msg in history[:-1]:
+                    if msg.role != Role.SYSTEM:
+                        agent_context.conversation.add(msg)
+                response = agent.run(user_input, context=agent_context)
                 content = (
                     response.content if hasattr(response, "content") else str(response)
                 )
             else:
-                result = engine.generate(history, model=model)
+                result = engine.generate(generation_history, model=model)
                 content = (
                     result.get("content", "")
                     if isinstance(result, dict)
@@ -266,10 +335,20 @@ def chat(
             console.print()
             console.print(Markdown(content))
             console.print()
+
+            publish_completed_exchange(
+                bus,
+                user_input,
+                content,
+                source="cli.chat",
+            )
         except KeyboardInterrupt:
             console.print("\n[dim]Generation interrupted.[/dim]")
         except Exception as exc:
             console.print(f"\n[red]Error: {exc}[/red]\n")
+
+    if memory_service is not None:
+        memory_service.stop()
 
 
 __all__ = ["chat"]

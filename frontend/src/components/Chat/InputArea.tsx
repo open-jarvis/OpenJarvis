@@ -5,6 +5,7 @@ import { useAppStore, generateId } from '../../lib/store';
 import { streamChat, streamResearch } from '../../lib/sse';
 import { fetchSavings, getBase } from '../../lib/api';
 import { listConnectors, getSyncStatus } from '../../lib/connectors-api';
+import { serializeToolCallArguments } from '../../lib/tool-call';
 import { MicButton } from './MicButton';
 import { useSpeech } from '../../hooks/useSpeech';
 import type {
@@ -96,8 +97,15 @@ export function InputArea() {
   const deepResearch = useAppStore((s) => s.deepResearch);
   const setDeepResearch = useAppStore((s) => s.setDeepResearch);
   const corpusSync = useResearchCorpusSync(deepResearch);
+  const isCurrentChatStreaming = streamState.isStreaming && streamState.conversationId === activeId;
 
-  const { state: speechState, available: speechAvailable, startRecording, stopRecording } = useSpeech();
+  const {
+    state: speechState,
+    error: speechError,
+    available: speechAvailable,
+    startRecording,
+    stopRecording,
+  } = useSpeech();
 
   // Abort in-flight stream when the user switches models mid-generation.
   // This prevents errors from trying to continue a stream with a stale model.
@@ -121,6 +129,12 @@ export function InputArea() {
     : !speechAvailable ? 'no-backend'
     : streamState.isStreaming ? 'streaming'
     : undefined;
+
+  useEffect(() => {
+    if (speechError) {
+      toast.error(speechError, { duration: 8000 });
+    }
+  }, [speechError]);
 
   const handleMicClick = useCallback(async () => {
     if (speechState === 'recording') {
@@ -214,6 +228,7 @@ export function InputArea() {
     let ttftMs: number | undefined;
 
     setStreamState({
+      conversationId: convId,
       isStreaming: true,
       phase: deepResearch ? 'Researching...' : 'Generating...',
       elapsedMs: 0,
@@ -231,7 +246,11 @@ export function InputArea() {
 
     try {
       if (deepResearch) {
-        for await (const ev of streamResearch(content, controller.signal)) {
+        for await (const ev of streamResearch(
+          content,
+          selectedModel,
+          controller.signal,
+        )) {
           if (ev.type === 'search_call') {
             const trace: ResearchSearchTrace = {
               id: generateId(),
@@ -371,7 +390,7 @@ export function InputArea() {
             const tc: ToolCallInfo = {
               id: generateId(),
               tool: data.tool,
-              arguments: data.arguments || '',
+              arguments: serializeToolCallArguments(data.arguments),
               status: 'running',
             };
             toolCalls.push(tc);
@@ -382,7 +401,7 @@ export function InputArea() {
             updateLastAssistant(convId, accumulatedContent, [...toolCalls]);
             useAppStore.getState().addLogEntry({
               timestamp: Date.now(), level: 'info', category: 'tool',
-              message: `Calling ${data.tool}(${data.arguments || ''})`,
+              message: `Calling ${data.tool}(${serializeToolCallArguments(data.arguments)})`,
             });
           } catch {}
         } else if (eventName === 'tool_call_end') {
@@ -450,7 +469,10 @@ export function InputArea() {
       }
       const totalMs = Date.now() - startTime;
       const _CLOUD_PREFIXES = ['gpt-', 'o1-', 'o3-', 'o4-', 'claude-', 'gemini-', 'openrouter/', 'MiniMax-', 'chatgpt-'];
-      const engineLabel = _CLOUD_PREFIXES.some(p => selectedModel.startsWith(p)) ? 'cloud' : 'ollama';
+      const selectedOwner = useAppStore.getState().models.find((m) => m.id === selectedModel)?.owned_by;
+      const engineLabel = selectedOwner === 'litellm'
+        ? 'litellm'
+        : _CLOUD_PREFIXES.some(p => selectedModel.startsWith(p)) ? 'cloud' : 'ollama';
       const telemetry: MessageTelemetry = {
         engine: engineLabel,
         model_id: selectedModel,
@@ -583,7 +605,7 @@ export function InputArea() {
           style={{ color: 'var(--color-text)', maxHeight: '200px' }}
           disabled={streamState.isStreaming || modelLoading}
         />
-        {streamState.isStreaming ? (
+        {isCurrentChatStreaming ? (
           <button
             onClick={stopStreaming}
             className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer"
@@ -602,7 +624,7 @@ export function InputArea() {
             />
             <button
               onClick={sendMessage}
-              disabled={!input.trim() || modelLoading || !selectedModel}
+              disabled={streamState.isStreaming || !input.trim() || modelLoading || !selectedModel}
               title={selectedModel ? 'Send message' : 'Pick a model first (⌘K)'}
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
               style={{

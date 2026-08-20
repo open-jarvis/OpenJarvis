@@ -24,13 +24,13 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; img-src 'self' data: blob:"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http: https: ws: wss:; img-src 'self' data: blob:"
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -45,7 +45,6 @@
     "macOS": {
       "entitlements": "Entitlements.plist",
       "minimumSystemVersion": "10.15",
-      "exceptionDomain": "",
       "frameworks": [],
       "providerShortName": null,
       "signingIdentity": "-"

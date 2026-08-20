@@ -85,7 +85,12 @@ class TerminalBenchV21Dataset(DatasetProvider):
                 "git binary not found. Install git to clone TerminalBench V2.1 tasks."
             )
         self._repo_dir.parent.mkdir(parents=True, exist_ok=True)
-        LOGGER.info("Cloning %s (branch %s) into %s", self._repo_url, self._branch, self._repo_dir)
+        LOGGER.info(
+            "Cloning %s (branch %s) into %s",
+            self._repo_url,
+            self._branch,
+            self._repo_dir,
+        )
         subprocess.run(
             [
                 "git",
@@ -110,9 +115,7 @@ class TerminalBenchV21Dataset(DatasetProvider):
     ) -> None:
         repo = self._ensure_repo()
         task_dirs = sorted(
-            d
-            for d in repo.iterdir()
-            if d.is_dir() and (d / "task.toml").exists()
+            d for d in repo.iterdir() if d.is_dir() and (d / "task.toml").exists()
         )
 
         if self._task_ids:

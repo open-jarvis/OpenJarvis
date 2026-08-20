@@ -3,7 +3,23 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+# ``Request`` must be importable at *module* scope so that FastAPI can resolve
+# the stringized ``request: Request`` annotations on the OAuth endpoints below.
+# Because this module uses ``from __future__ import annotations``, every
+# annotation is a string that FastAPI evaluates against the module globals; a
+# ``Request`` imported only inside ``create_connectors_router()`` is invisible
+# there, which makes FastAPI mistake ``request`` for a required *query* param
+# (HTTP 422 on /oauth/start) or inject ``None`` (AttributeError on
+# /oauth/callback). Keep this import at top level. See issue #512.
+if TYPE_CHECKING:
+    from starlette.requests import Request
+else:
+    try:
+        from starlette.requests import Request
+    except ImportError:  # starlette ships with fastapi; absent only without it
+        Request = Any  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +94,7 @@ def create_connectors_router():
     this package.
     """
     try:
-        from fastapi import APIRouter, HTTPException, Request
+        from fastapi import APIRouter, HTTPException
     except ImportError as exc:
         raise ImportError(
             "fastapi and pydantic are required for the connectors router"
@@ -123,6 +139,69 @@ def create_connectors_router():
             "auth_type": getattr(instance, "auth_type", "unknown"),
             "connected": instance.is_connected(),
             "chunks": chunks,
+        }
+
+    def _maybe_oauth_client_pair(
+        connector_id: str, req: ConnectRequest
+    ) -> Optional[Dict[str, Any]]:
+        """Handle a pasted ``client_id:client_secret`` for an OAuth connector.
+
+        Returns an ``oauth_required`` directive (and persists the client
+        credentials to every credential file for the provider) when *req*
+        carries a Google ``client_id:client_secret`` pair, so the caller can
+        return early instead of triggering the silent background OAuth flow.
+        Returns ``None`` when there is no such pair (the caller then falls
+        through to the normal ``handle_callback`` / token path).
+
+        Raises ``HTTPException(400)`` when the pair is present but malformed or
+        the connector has no OAuth provider — per the silent-failure discipline
+        in REVIEW.md, a bad credential surfaces an actionable error rather than
+        a perpetual ``pending`` state.
+        """
+        from openjarvis.connectors.oauth import (
+            get_provider_for_connector,
+            save_client_credentials,
+        )
+
+        raw = (req.code or req.token or "").strip()
+        # Only the client-registration pair routes through the server flow.
+        # A raw access token (no ".apps.googleusercontent.com") is handled by
+        # the connector's handle_callback unchanged.
+        if ".apps.googleusercontent.com" not in raw or ":" not in raw:
+            return None
+
+        provider = get_provider_for_connector(connector_id)
+        if provider is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No OAuth provider configured for '{connector_id}'",
+            )
+
+        client_id, client_secret = raw.split(":", 1)
+        client_id = client_id.strip()
+        client_secret = client_secret.strip()
+        if not client_id or not client_secret:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Malformed credentials — expected 'CLIENT_ID:CLIENT_SECRET'. "
+                    f"Create an OAuth client at: {provider.setup_url}"
+                ),
+            )
+
+        save_client_credentials(provider, client_id, client_secret)
+        # Cached instances may have resolved a stale credentials path before
+        # these client creds existed; drop them so /oauth/callback rebuilds
+        # them against the freshly written files.
+        for cid in provider.connector_ids:
+            _instances.pop(cid, None)
+
+        return {
+            "connector_id": connector_id,
+            "connected": False,
+            "status": "oauth_required",
+            "oauth_start": f"/v1/connectors/{connector_id}/oauth/start",
+            "sync_status": None,
         }
 
     # ------------------------------------------------------------------
@@ -317,6 +396,19 @@ def create_connectors_router():
                     instance._connected = Path(req.path).is_dir()
 
             elif auth_type == "oauth":
+                # A pasted ``client_id:client_secret`` pair is NOT a completed
+                # OAuth credential — it is the app registration. Persist it and
+                # hand the UI a directive to run the in-process browser consent
+                # flow (/oauth/start → /oauth/callback), which is the only path
+                # that actually exchanges a code for an access_token. Previously
+                # this routed into the connector's handle_callback, which spawned
+                # a daemon thread that popped a browser + ran its own
+                # localhost:8789 callback server; that thread fails silently in
+                # the bundled desktop context, so the connector never became
+                # connected and never appeared in Data Sources (issue #512).
+                directive = _maybe_oauth_client_pair(connector_id, req)
+                if directive is not None:
+                    return directive
                 if req.code:
                     instance.handle_callback(req.code)
                 elif req.token:
@@ -433,9 +525,9 @@ def create_connectors_router():
     @router.get("/{connector_id}/oauth/callback")
     async def oauth_callback(
         connector_id: str,
+        request: Request,
         code: str = "",
         error: str = "",
-        request: Request = None,
     ):
         """Handle OAuth callback from the provider."""
         from fastapi.responses import HTMLResponse

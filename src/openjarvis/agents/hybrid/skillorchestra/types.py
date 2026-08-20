@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 # BetaCompetence
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class BetaCompetence:
     """Bayesian competence estimate for an agent on a specific skill.
@@ -80,6 +81,7 @@ class BetaCompetence:
 # CostStats
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CostStats:
     """Execution cost statistics for an agent under a specific mode.
@@ -110,11 +112,17 @@ class CostStats:
         """Incremental running-average update."""
         n = self.total_executions
         self.avg_prompt_tokens = (self.avg_prompt_tokens * n + prompt_tokens) / (n + 1)
-        self.avg_completion_tokens = (self.avg_completion_tokens * n + completion_tokens) / (n + 1)
+        self.avg_completion_tokens = (
+            self.avg_completion_tokens * n + completion_tokens
+        ) / (n + 1)
         self.avg_latency_s = (self.avg_latency_s * n + latency_s) / (n + 1)
         self.avg_cost_usd = (self.avg_cost_usd * n + cost_usd) / (n + 1)
-        self.avg_completion_cost_usd = (self.avg_completion_cost_usd * n + completion_cost_usd) / (n + 1)
-        self.avg_prompt_cost_usd = (self.avg_prompt_cost_usd * n + prompt_cost_usd) / (n + 1)
+        self.avg_completion_cost_usd = (
+            self.avg_completion_cost_usd * n + completion_cost_usd
+        ) / (n + 1)
+        self.avg_prompt_cost_usd = (self.avg_prompt_cost_usd * n + prompt_cost_usd) / (
+            n + 1
+        )
         self.total_executions = n + 1
 
     def to_dict(self) -> Dict[str, Any]:
@@ -136,6 +144,7 @@ class CostStats:
 # ---------------------------------------------------------------------------
 # RoutingInsight
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class RoutingInsight:
@@ -164,6 +173,7 @@ class RoutingInsight:
 # ---------------------------------------------------------------------------
 # ModeMetadata
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ModeMetadata:
@@ -196,6 +206,7 @@ class ModeMetadata:
 # ---------------------------------------------------------------------------
 # Skill
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SkillProvenance:
@@ -231,7 +242,7 @@ class Skill:
     indicators: List[str] = field(default_factory=list)
     examples: List[str] = field(default_factory=list)
     mode: str = ""
-    parent_skill_id: Optional[str] = None # for hierarchical skills
+    parent_skill_id: Optional[str] = None  # for hierarchical skills
     provenance: SkillProvenance = field(default_factory=SkillProvenance)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -273,6 +284,7 @@ class Skill:
 # AgentProfile
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class AgentProfile:
     """Agent profile for skill-aware orchestration."""
@@ -309,9 +321,7 @@ class AgentProfile:
         """Update competence estimate for a skill."""
         self.get_competence_dist(skill_id).update(success)
 
-    def weighted_competence(
-        self, skill_weights: Dict[str, float]
-    ) -> float:
+    def weighted_competence(self, skill_weights: Dict[str, float]) -> float:
         """Compute weighted competence: sum w_{t,sigma} * alpha/(alpha+beta)."""
         if not skill_weights:
             return 0.5
@@ -334,9 +344,7 @@ class AgentProfile:
         ]
         return sum(scores) / len(scores) if scores else 0.0
 
-    def category_competence_for_skills(
-        self, active_skill_ids: List[str]
-    ) -> float:
+    def category_competence_for_skills(self, active_skill_ids: List[str]) -> float:
         """Category-level competence for hierarchical tie-breaking.
 
         Extracts parent categories from active_skill_ids (e.g. 'entertainment_knowledge'
@@ -349,7 +357,9 @@ class AgentProfile:
             categories.add(cat)
         if not categories:
             return 0.0
-        return sum(self.category_competence(cat) for cat in categories) / len(categories)
+        return sum(self.category_competence(cat) for cat in categories) / len(
+            categories
+        )
 
     @property
     def overall_success_rate(self) -> float:
@@ -390,8 +400,12 @@ class AgentProfile:
             "skill_scores": skill_scores,
             "skill_attempts": skill_attempts,
             "skill_successes": skill_successes,
-            "total_attempts": self.total_attempts if self.total_attempts > 0 else skill_total_attempts,
-            "total_successes": self.total_successes if self.total_attempts > 0 else skill_total_successes,
+            "total_attempts": self.total_attempts
+            if self.total_attempts > 0
+            else skill_total_attempts,
+            "total_successes": self.total_successes
+            if self.total_attempts > 0
+            else skill_total_successes,
             "cost_stats": self.cost_stats.to_dict(),
             "routing_signals": self.routing_signals,
             "strengths": self.strengths,
