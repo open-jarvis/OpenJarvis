@@ -1,4 +1,4 @@
-"""Guards for the openjarvis-rust packaging split (#584 / #615).
+"""Guards for optional and development dependency packaging.
 
 ``openjarvis_rust`` is the native PyO3 extension. It is NOT published to PyPI,
 so it must not appear in the published ``desktop`` extra — listing it there
@@ -66,3 +66,9 @@ def test_quickstart_installs_web_search_dependencies() -> None:
     quickstart = QUICKSTART_SH.read_text()
     assert "--extra tools-search" in quickstart
     assert "already running on port 8000" in quickstart
+
+
+def test_workos_auth_dependency_is_available_to_runtime_and_tests() -> None:
+    extras = _pyproject()["project"]["optional-dependencies"]
+    for extra in ("auth-workos", "dev"):
+        assert any(dep.lower().startswith("pyjwt[crypto]") for dep in extras[extra])
