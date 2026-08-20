@@ -83,40 +83,46 @@ class TestEnsureRunner:
             with pytest.raises(RuntimeError, match="Node.js"):
                 agent._ensure_runner()
 
-    def test_creates_runner_dir(self, tmp_path):
+    def test_creates_runner_dir(self, tmp_path, monkeypatch):
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(engine, "test-model")
 
+        # _ensure_runner() resolves its destination via get_config_dir(),
+        # which checks $OPENJARVIS_HOME before ever falling back to
+        # Path.home() -- so that's the env var to control here, not a
+        # Path.home() patch (which get_config_dir() never even calls once
+        # OPENJARVIS_HOME is set, e.g. by conftest.py's session-wide
+        # isolation fixture).
         home_dir = tmp_path / "home"
         home_dir.mkdir()
+        monkeypatch.setenv("OPENJARVIS_HOME", str(home_dir))
 
         with (
             patch("shutil.which", return_value="/usr/bin/node"),
-            patch("pathlib.Path.home", return_value=home_dir),
             patch("subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_proc()
-            dest = home_dir / ".openjarvis" / "claude_code_runner"
+            dest = home_dir / "claude_code_runner"
             result = agent._ensure_runner()
             assert result == dest
             mock_run.assert_called_once()
             call_args = mock_run.call_args
             assert "npm" in call_args[0][0][0]
 
-    def test_skips_npm_install_when_node_modules_exists(self, tmp_path):
+    def test_skips_npm_install_when_node_modules_exists(self, tmp_path, monkeypatch):
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(engine, "test-model")
 
         home_dir = tmp_path / "home"
-        dest = home_dir / ".openjarvis" / "claude_code_runner"
+        dest = home_dir / "claude_code_runner"
         dest.mkdir(parents=True)
         (dest / "node_modules").mkdir()
+        monkeypatch.setenv("OPENJARVIS_HOME", str(home_dir))
 
         with (
             patch("shutil.which", return_value="/usr/bin/node"),
-            patch("pathlib.Path.home", return_value=home_dir),
             patch("subprocess.run") as mock_run,
         ):
             agent._ensure_runner()

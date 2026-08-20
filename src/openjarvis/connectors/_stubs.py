@@ -74,6 +74,11 @@ class BaseConnector(ABC):
     connector_id: str
     display_name: str
     auth_type: str  # "oauth" | "local" | "bridge" | "filesystem"
+    indexed_sources: tuple[str, ...] = ()
+
+    def knowledge_sources(self) -> tuple[str, ...]:
+        """Return KnowledgeStore source values owned by this connector."""
+        return self.indexed_sources or (self.connector_id,)
 
     @abstractmethod
     def is_connected(self) -> bool:

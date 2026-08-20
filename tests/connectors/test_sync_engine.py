@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, List, Optional
@@ -225,7 +227,94 @@ def test_sync_multiple_connectors(
 
 
 # ---------------------------------------------------------------------------
-# Test 5: a failed sync must not advance last_sync (#782)
+# reset_checkpoint clears stale state after a data-source swap
+# ---------------------------------------------------------------------------
+
+
+def test_reset_checkpoint_clears_state(engine: SyncEngine) -> None:
+    """A connector reconfigured to point at an entirely different data
+    source (e.g. a user swaps which Obsidian vault is connected) must not
+    resume from the old source's checkpoint. reset_checkpoint() clears the
+    saved cursor/items_synced/last_sync for a connector_id so the next
+    sync starts fresh."""
+    docs = [_make_doc(f"reset:doc:{i}") for i in range(5)]
+    connector = StubConnector(docs)
+
+    engine.sync(connector)
+    assert engine.get_checkpoint("stub") is not None
+
+    engine.reset_checkpoint("stub")
+
+    assert engine.get_checkpoint("stub") is None
+
+
+def test_sync_after_reset_does_not_inherit_prior_items_or_since(
+    engine: SyncEngine,
+) -> None:
+    """After reset_checkpoint, a new sync must start item counting from
+    zero and pass since=None -- not the old source's watermark, which
+    could cause new items from a freshly-connected source to be silently
+    skipped if their timestamps predate it."""
+
+    class TrackingConnector(StubConnector):
+        connector_id = "swap"
+
+        def __init__(self, docs: List[Document]) -> None:
+            super().__init__(docs)
+            self.received_since: List[Optional[datetime]] = []
+
+        def sync(
+            self,
+            *,
+            since: Optional[datetime] = None,
+            cursor: Optional[str] = None,
+        ) -> Iterator[Document]:
+            self.received_since.append(since)
+            yield from self._docs
+
+    old_docs = [_make_doc(f"old:doc:{i}") for i in range(9)]
+    engine.sync(TrackingConnector(old_docs))
+
+    engine.reset_checkpoint("swap")
+
+    new_docs = [_make_doc(f"new:doc:{i}") for i in range(1)]
+    fresh = TrackingConnector(new_docs)
+    items = engine.sync(fresh)
+
+    assert fresh.received_since == [None]
+    assert items == 1
+
+    cp = engine.get_checkpoint("swap")
+    assert cp is not None
+    assert cp["items_synced"] == 1
+
+
+def test_sync_honors_cancellation_before_ingestion(
+    engine: SyncEngine,
+    store: KnowledgeStore,
+) -> None:
+    cancel_event = threading.Event()
+    cancel_event.set()
+
+    items = engine.sync(
+        StubConnector([_make_doc("cancelled:doc")]),
+        cancel_event=cancel_event,
+    )
+
+    assert items == 0
+    assert store.count() == 0
+
+
+def test_sync_engine_context_manager_closes_sqlite(pipeline: IngestionPipeline) -> None:
+    with SyncEngine(pipeline, state_db=":memory:") as scoped_engine:
+        scoped_engine.get_checkpoint("stub")
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        scoped_engine.get_checkpoint("stub")
+
+
+# ---------------------------------------------------------------------------
+# A failed or cancelled sync must not advance last_sync (#782)
 # ---------------------------------------------------------------------------
 
 
@@ -271,3 +360,30 @@ def test_retry_after_failure_does_not_skip_the_failed_window(
     assert cp is not None
     assert cp["last_sync"] is not None
     assert cp["error"] is None
+
+
+def test_cancelled_sync_does_not_advance_last_sync(
+    engine: SyncEngine,
+    store: KnowledgeStore,
+) -> None:
+    """Disconnect cancellation is incomplete work, not a successful sync."""
+    cancel_event = threading.Event()
+
+    class CancellingConnector(StubConnector):
+        connector_id = "cancel-watermark"
+
+        def sync(self, **kwargs):
+            yield _make_doc("kept")
+            cancel_event.set()
+            yield _make_doc("not-ingested")
+
+    items = engine.sync(
+        CancellingConnector([]),
+        cancel_event=cancel_event,
+    )
+
+    assert items == 0
+    assert store.count() == 0
+    cp = engine.get_checkpoint("cancel-watermark")
+    assert cp is not None
+    assert cp["last_sync"] is None

@@ -9,14 +9,24 @@ from typing import List, Optional
 import click
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape
 
+from openjarvis.cli._runtime_panel import runtime_cli_options
 from openjarvis.cli._tool_names import resolve_tool_names
+from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, read_voice_input, speak
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
 from openjarvis.memory import publish_completed_exchange
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_rich_label(value: object) -> str:
+    """Strip terminal controls and escape Rich markup in dynamic labels."""
+    from openjarvis.cli._model_switch import sanitize_model_id
+
+    return escape(sanitize_model_id(str(value)))
 
 
 def _read_input(prompt: str = "You> ") -> Optional[str]:
@@ -29,7 +39,26 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
 
 @click.command()
 @click.option("-e", "--engine", "engine_key", default=None, help="Engine backend.")
-@click.option("-m", "--model", "model_name", default=None, help="Model to use.")
+@click.option(
+    "-m",
+    "--model",
+    "model_name",
+    default=None,
+    help=(
+        "Model id. Omit or use ``smart`` for preset: [intelligence] model_chat / "
+        "model_short / model_long / model_code, then default_model."
+    ),
+)
+@click.option(
+    "--pick-model",
+    "pick_model",
+    is_flag=True,
+    default=False,
+    help=(
+        "Show the model list before chat. Bare ``jarvis`` already does this on a TTY "
+        "unless JARVIS_SKIP_MODEL_PICK=1."
+    ),
+)
 @click.option("-a", "--agent", "agent_name", default=None, help="Agent type.")
 @click.option("--tools", default=None, help="Comma-separated tool names.")
 @click.option("--system", "system_prompt", default=None, help="Custom system prompt.")
@@ -42,22 +71,44 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
         "(overrides config). Pass 'none' to disable all persona files."
     ),
 )
+@click.option(
+    "--voice",
+    "voice_mode",
+    is_flag=True,
+    default=False,
+    help="Enable voice I/O: mic input with silence detection + TTS response playback.",
+)
+@runtime_cli_options
 def chat(
     engine_key: str | None,
     model_name: str | None,
+    pick_model: bool,
     agent_name: str | None,
     tools: str | None,
     system_prompt: str | None,
     persona_name: str | None,
+    voice_mode: bool,
+    num_ctx: int | None,
+    num_gpu: int | None,
+    skip_runtime_panel: bool,
 ) -> None:
     """Start an interactive multi-turn chat session.
+
+    Model: omit ``-m`` to use ``[intelligence] model_chat`` if set, else
+    ``default_model``; ``-m smart`` is the same. Use ``--pick-model`` to open the
+    engine list first (bare ``jarvis`` does this on a TTY unless
+    ``JARVIS_SKIP_MODEL_PICK=1``).
 
     Commands during chat:
       /quit, /exit  — end session
       /clear        — clear conversation history
       /model        — show current model
+      /runtime      — Ollama context + GPU offload for this session
       /help         — show available commands
       /history      — show conversation history
+
+    Pass --voice to use microphone input (silence-detection) and hear responses
+    read back via text-to-speech (kokoro local or OpenAI TTS).
     """
     console = Console(stderr=True)
 
@@ -84,18 +135,56 @@ def chat(
         sys.exit(1)
 
     engine_name, engine = resolved
-    model = model_name or config.intelligence.default_model
-    if not model:
-        from openjarvis.engine import discover_engines, discover_models
+    from openjarvis.cli._model_switch import (
+        interactive_pick_model,
+        resolve_chat_cli_model,
+        tty_wants_model_picker,
+    )
 
-        all_engines = discover_engines(config)
-        all_models = discover_models(all_engines)
-        engine_models = all_models.get(engine_name, [])
-        if engine_models:
-            model = engine_models[0]
-        else:
-            console.print("[red]No model available.[/red]")
-            sys.exit(1)
+    model = ""
+    if tty_wants_model_picker(pick_model):
+        console.print(
+            "[dim]Pick a model below, or press Enter for config default "
+            "(intelligence presets / default_model).[/dim]\n",
+        )
+        picked = interactive_pick_model(console, engine)
+        if picked:
+            model = picked
+    if not model:
+        model = resolve_chat_cli_model(
+            console=console,
+            config=config,
+            engine=engine,
+            engine_name=engine_name,
+            cli_model=model_name,
+            chat_variant="chat",
+        )
+    if not model:
+        console.print("[red]No model available.[/red]")
+        sys.exit(1)
+
+    from openjarvis.cli._runtime_panel import (
+        ChatRuntimeOptions,
+        interactive_pick_runtime_options,
+        tty_wants_runtime_panel,
+    )
+
+    if engine_name != "ollama" and (num_ctx is not None or num_gpu is not None):
+        raise click.UsageError(
+            "--num-ctx and --num-gpu are supported only with --engine ollama"
+        )
+    if engine_name == "ollama" and tty_wants_runtime_panel(skip_runtime_panel):
+        runtime_opts = interactive_pick_runtime_options(
+            console,
+            engine_name=engine_name,
+            cli_num_ctx=num_ctx,
+            cli_num_gpu=num_gpu,
+        )
+    elif engine_name == "ollama" and (num_ctx is not None or num_gpu is not None):
+        runtime_opts = ChatRuntimeOptions(num_ctx=num_ctx, num_gpu=num_gpu)
+    else:
+        runtime_opts = ChatRuntimeOptions()
+    engine_kwargs = runtime_opts.to_engine_kwargs(engine_name=engine_name)
 
     # Resolve agent (optional)
     agent = None
@@ -160,15 +249,35 @@ def chat(
                     )
 
                 agent = agent_cls(engine, model, **kwargs)
+                if agent is not None and engine_kwargs:
+                    # Agents like NativeReActAgent do not accept engine_options
+                    # in __init__; session opts live on BaseAgent._engine_options.
+                    setattr(agent, "_engine_options", dict(engine_kwargs))
         except Exception as exc:
-            console.print(f"[yellow]Agent '{agent_key}' failed: {exc}[/yellow]")
+            console.print(
+                f"[yellow]Agent '{_safe_rich_label(agent_key)}' failed: "
+                f"{escape(str(exc))}[/yellow]"
+            )
+
+    # Keep voice state outside the core chat path so picker/runtime changes can
+    # be layered independently. Loaded speech models live for this session.
+    voice_session = VoiceSession(config) if voice_mode else None
 
     # Print banner
+    voice_hint = (
+        "  [magenta]Voice mode ON[/magenta] — type normally, or press Enter "
+        "to speak; silence stops recording.\n"
+        if voice_mode
+        else ""
+    )
     console.print(
         f"[green bold]OpenJarvis Chat[/green bold]\n"
-        f"  Engine: [cyan]{engine_name}[/cyan]  Model: [cyan]{model}[/cyan]"
-        f"  Agent: [cyan]{agent_key or 'direct'}[/cyan]\n"
-        f"  Type /help for commands, /quit to exit.\n"
+        f"  Engine: [cyan]{_safe_rich_label(engine_name)}[/cyan]  "
+        f"Model: [cyan]{_safe_rich_label(model)}[/cyan]"
+        f"  Agent: [cyan]{_safe_rich_label(agent_key or 'direct')}[/cyan]\n"
+        f"  Runtime: [cyan]{runtime_opts.summary(engine_name=engine_name)}[/cyan]\n"
+        f"{voice_hint}"
+        f"  Type /help for commands, /quit to exit.\n",
     )
 
     # Background-work status banner (disappears after first user message)
@@ -226,14 +335,23 @@ def chat(
         for note in _notifications.diff(get_status()):
             console.print(f"[dim cyan]{note}[/dim cyan]")
 
-        user_input = _read_input()
-        if user_input is None:
-            console.print("\n[dim]Goodbye![/dim]")
-            break
-
-        user_input = user_input.strip()
-        if not user_input:
-            continue
+        if voice_mode:
+            assert voice_session is not None
+            result = read_voice_input(console, voice_session)
+            if result is VOICE_EXIT:
+                console.print("\n[dim]Goodbye![/dim]")
+                break
+            if result is None:
+                continue  # nothing heard, loop again
+            user_input = result
+        else:
+            user_input = _read_input()
+            if user_input is None:
+                console.print("\n[dim]Goodbye![/dim]")
+                break
+            user_input = user_input.strip()
+            if not user_input:
+                continue
 
         # Handle slash commands
         cmd = user_input.lower()
@@ -248,8 +366,16 @@ def chat(
             continue
         elif cmd == "/model":
             console.print(
-                f"Model: [cyan]{model}[/cyan]  Engine: [cyan]{engine_name}[/cyan]"
+                f"Model: [cyan]{_safe_rich_label(model)}[/cyan]  "
+                f"Engine: [cyan]{_safe_rich_label(engine_name)}[/cyan]"
             )
+            continue
+        elif cmd == "/runtime":
+            console.print(
+                f"Runtime: [cyan]{runtime_opts.summary(engine_name=engine_name)}[/cyan]"
+            )
+            if engine_kwargs:
+                console.print(f"  engine kwargs: {engine_kwargs}")
             continue
         elif cmd == "/help":
             console.print(
@@ -257,6 +383,7 @@ def chat(
                 "  /quit, /exit  — end session\n"
                 "  /clear        — clear conversation\n"
                 "  /model        — show model info\n"
+                "  /runtime      — Ollama context + GPU offload for this session\n"
                 "  /history      — show conversation\n"
                 "  /help         — this message"
             )
@@ -324,7 +451,11 @@ def chat(
                     response.content if hasattr(response, "content") else str(response)
                 )
             else:
-                result = engine.generate(generation_history, model=model)
+                result = engine.generate(
+                    generation_history,
+                    model=model,
+                    **engine_kwargs,
+                )
                 content = (
                     result.get("content", "")
                     if isinstance(result, dict)
@@ -335,6 +466,9 @@ def chat(
             console.print()
             console.print(Markdown(content))
             console.print()
+            if voice_mode:
+                assert voice_session is not None
+                speak(content, console, voice_session)
 
             publish_completed_exchange(
                 bus,

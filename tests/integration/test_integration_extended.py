@@ -547,8 +547,11 @@ class TestAgentRoutingMatrix:
         result = agent.run("Hello", context=ctx)
         assert result.content == "Got context."
 
-        # Verify engine received system message
+        # The agent prompt and caller context are folded into one leading
+        # system message so strict chat templates (for example Qwen) accept it.
         call_args = engine.generate.call_args
         msgs = call_args[0][0]
-        # First message is ReAct system prompt, then context
-        assert any(m.content == "You are helpful." for m in msgs)
+        system_messages = [m for m in msgs if m.role == Role.SYSTEM]
+        assert system_messages == [msgs[0]]
+        assert "You are a ReAct agent." in msgs[0].content
+        assert "You are helpful." in msgs[0].content
