@@ -248,6 +248,33 @@ Show connection status for all configured channels.
 !!! note "Channel endpoints"
     Channel endpoints require `[channel] enabled = true` in your config and platform-specific credentials configured in `[channel.<platform>]` sub-sections. When not configured, `GET /v1/channels` returns an empty list and other channel endpoints return 503.
 
+### WebSocket endpoints
+
+- `WS /v1/chat/stream` streams interactive chat messages.
+- `WS /v1/agents/events` streams agent lifecycle events and accepts an optional
+  `agent_id` query parameter as a filter.
+
+When `OPENJARVIS_API_KEY` or `[server.auth].api_key` is configured,
+programmatic WebSocket clients should send the same
+`Authorization: Bearer <key>` header used by HTTP requests. Browsers cannot set
+that header on a WebSocket handshake, so browser clients must offer exactly
+these two subprotocol values:
+
+1. `openjarvis.auth.v1`
+2. `openjarvis.key.b64url.<encoded-key>`, where `<encoded-key>` is the unpadded
+   base64url encoding of the API key's UTF-8 bytes
+
+The server selects `openjarvis.auth.v1` in its handshake response. The built-in
+frontend handles this encoding automatically. Base64url is only a transport
+encoding, not encryption; use `wss://` for remote connections and treat the
+`Sec-WebSocket-Protocol` request header as credential-bearing.
+
+!!! warning "WebSocket authentication migration"
+    The former `?token=<key>` query parameter is not accepted because request
+    URLs commonly appear in access logs and browser history. Existing custom
+    WebSocket clients must migrate to `Authorization` or the browser
+    subprotocol format above.
+
 ## Streaming via SSE
 
 When `"stream": true` is set in the request, the server returns a `text/event-stream` response using Server-Sent Events (SSE). The response follows the same format as the OpenAI streaming API.
@@ -456,6 +483,11 @@ For production deployments, run OpenJarvis behind a reverse proxy like Nginx or 
 ### Nginx
 
 ```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
 server {
     listen 443 ssl;
     server_name jarvis.example.com;
@@ -469,6 +501,11 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket upgrade support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
 
         # SSE streaming support
         proxy_buffering off;

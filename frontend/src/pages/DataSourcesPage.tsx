@@ -24,7 +24,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
-import { listConnectors, connectSource, disconnectSource, getSyncStatus, triggerSync } from '../lib/connectors-api';
+import { listConnectors, connectSource, disconnectSource, getSyncStatus, triggerSync, startServerOAuth } from '../lib/connectors-api';
 import type { SyncStatus } from '../types/connectors';
 
 // ---------------------------------------------------------------------------
@@ -673,7 +673,19 @@ function DataSourcesSection() {
     setConnectStage('Connecting...');
     setConnectError('');
     try {
-      await connectSource(id, req);
+      const resp = await connectSource(id, req);
+
+      // OAuth connectors (Google Drive/Calendar/Contacts/Gmail/Tasks): pasting
+      // a Client ID / Secret only registers the app credentials. The backend
+      // returns `oauth_required` with the path to the in-process consent flow,
+      // which is the only path that actually mints an access token. Open it now
+      // and wait for the callback to flip the connector to connected. Without
+      // this the connector would stay "pending" forever — the exact #512 bug.
+      if (resp.status === 'oauth_required') {
+        setConnectStage('Opening Google sign-in...');
+        await startServerOAuth(id, resp.oauth_start);
+      }
+
       setConnectStage('Connected! Starting sync...');
 
       // Wait for connector to show as connected

@@ -171,7 +171,7 @@ class TestWebSearchTool:
         tool = WebSearchTool(api_key="test-key", max_results=3)
         tool.execute(query="test", max_results=7)
         mock_client.search.assert_called_once_with(
-            "test", max_results=7, search_depth="advanced"
+            "test", max_results=7, search_depth="advanced", include_usage=True
         )
 
     def test_to_openai_function(self):

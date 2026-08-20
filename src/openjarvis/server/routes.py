@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -9,7 +10,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from openjarvis.core.types import Message, Role
+from openjarvis.core.paths import get_config_dir
+from openjarvis.core.types import Message, Role, ToolCall
+from openjarvis.server.model_capabilities import is_embed_only_model
 from openjarvis.server.models import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -37,10 +40,81 @@ def _to_messages(chat_messages) -> list[Message]:
                 role=role,
                 content=m.content or "",
                 name=m.name,
+                tool_calls=[
+                    ToolCall(
+                        id=tool_call.get("id", ""),
+                        name=tool_call.get("function", {}).get("name", ""),
+                        arguments=tool_call.get("function", {}).get("arguments", "{}"),
+                    )
+                    for tool_call in (m.tool_calls or [])
+                ]
+                or None,
                 tool_call_id=m.tool_call_id,
             )
         )
     return messages
+
+
+def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message]:
+    """Prepend OpenJarvis's identity system prompt when the client omits one.
+
+    The desktop UI's chat backend posts only user/assistant turns to
+    ``/v1/chat/completions`` (see ``frontend/.../Chat/InputArea.tsx``), so
+    nothing grounds the model's identity. Without a system prompt the model
+    answers from its training identity (e.g. "I'm Claude", "I am Qwen"),
+    which is what #540 reported. The CLI paths inject this via
+    ``SystemPromptBuilder`` / ``BaseAgent``; the engine-direct server paths
+    did not. This mirrors the agent fallback in ``agents/_stubs.py``.
+
+    If any caller-supplied message already carries a system role, the caller
+    has supplied their own grounding and we leave the list untouched (no
+    double-prompting). Internally tagged memory context does not count as
+    caller grounding.
+
+    Resolution of the identity text: the config comes from ``app.state`` when
+    wired, otherwise ``load_config()``; the prompt itself is assembled by
+    ``SystemPromptBuilder`` from ``agent.default_system_prompt`` plus the
+    persona files (SOUL.md/MEMORY.md/USER.md), matching
+    ``_build_managed_system_prompt`` in ``agent_manager_routes.py``. Config
+    resolution is wrapped so a broken/missing config degrades to "no
+    injection" rather than crashing the endpoint, but the failure is logged
+    (per REVIEW.md — never silently swallow).
+    """
+
+    def _is_caller_system_prompt(m: Message) -> bool:
+        return m.role == Role.SYSTEM and not m.metadata.get("memory_context")
+
+    if any(_is_caller_system_prompt(m) for m in messages):
+        return messages
+
+    prompt = ""
+    try:
+        cfg = app_config
+        if cfg is None:
+            from openjarvis.core.config import load_config
+
+            cfg = load_config()
+
+        from openjarvis.prompt.builder import SystemPromptBuilder
+
+        builder = SystemPromptBuilder(
+            agent_template=cfg.agent.default_system_prompt or "",
+            memory_files_config=getattr(cfg, "memory_files", None),
+            system_prompt_config=getattr(cfg, "system_prompt", None),
+        )
+        prompt = builder.build()
+    except Exception:
+        logging.getLogger("openjarvis.server").debug(
+            "Identity system prompt resolution failed; "
+            "serving request without identity grounding",
+            exc_info=True,
+        )
+        return messages
+
+    if not prompt:
+        return messages
+
+    return [Message(role=Role.SYSTEM, content=prompt), *messages]
 
 
 @router.post("/v1/chat/completions")
@@ -55,12 +129,14 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     memory_backend = getattr(request.app.state, "memory_backend", None)
     if (
         config is not None
-        and memory_backend is not None
         and config.agent.context_from_memory
         and request_body.messages
     ):
         try:
             from openjarvis.tools.storage.context import ContextConfig, inject_context
+
+            memory_service = getattr(request.app.state, "memory_service", None)
+            facts = memory_service.list_facts() if memory_service is not None else []
 
             # Extract query from the last user message
             query_text = ""
@@ -71,6 +147,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
             if query_text:
                 messages = _to_messages(request_body.messages)
+                messages = _ensure_identity_prompt(messages, config)
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -81,22 +158,35 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                     messages,
                     memory_backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
-                # Rebuild request messages from enriched Message objects
-                if len(enriched) > len(messages):
-                    from openjarvis.server.models import ChatMessage
+                # Rebuild after identity/context merging so downstream engine
+                # adapters always receive exactly one system message.
+                from openjarvis.server.models import ChatMessage
 
-                    new_msgs = []
-                    for msg in enriched:
-                        new_msgs.append(
-                            ChatMessage(
-                                role=msg.role.value,
-                                content=msg.content,
-                                name=msg.name,
-                                tool_call_id=getattr(msg, "tool_call_id", None),
-                            )
+                new_msgs = []
+                for msg in enriched:
+                    new_msgs.append(
+                        ChatMessage(
+                            role=msg.role.value,
+                            content=msg.content,
+                            name=msg.name,
+                            tool_calls=[
+                                {
+                                    "id": tool_call.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tool_call.name,
+                                        "arguments": tool_call.arguments,
+                                    },
+                                }
+                                for tool_call in (msg.tool_calls or [])
+                            ]
+                            or None,
+                            tool_call_id=getattr(msg, "tool_call_id", None),
                         )
-                    request_body.messages = new_msgs
+                    )
+                request_body.messages = new_msgs
         except Exception:
             logging.getLogger("openjarvis.server").debug(
                 "Memory context injection failed",
@@ -141,17 +231,44 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         # When the client passes `tools`, stream the model's raw
         # OpenAI-compat function-calling decision directly from the engine
         # (bypassing the agent) — the streaming mirror of the non-streaming
-        # #454 fix.  Routing tools through the agent stream bridge ignored
-        # `request_body.tools`, ran the agent's own tool loop, and
-        # word-split generic filler content into fake token deltas, so the
-        # caller's tool_calls were dropped entirely (the streaming analog of
-        # #414).  For plain chat (no tools), stream token-by-token directly
-        # from the engine for true real-time output.
+        # #454 fix. Routing client-supplied tools through a server-side agent
+        # would execute the agent's different tool set and drop the raw tool
+        # call the caller expects (#414).
+        #
+        # Without client-supplied tools, keep streaming requests on the
+        # configured server agent so its server-side tool loop is available
+        # to the desktop UI and other stream:true clients (#735). Fall back to
+        # direct token streaming when no tool-bearing agent is configured.
         if request_body.tools:
             return await _handle_stream_tools(
-                engine, model, request_body, complexity_info
+                engine,
+                model,
+                request_body,
+                complexity_info,
+                app_config=config,
+                bus=getattr(request.app.state, "bus", None),
+                memory_service=getattr(request.app.state, "memory_service", None),
             )
-        return await _handle_stream(engine, model, request_body, complexity_info)
+        if agent is not None and getattr(agent, "_tools", None):
+            return await _handle_agent_stream(
+                agent,
+                model,
+                request_body,
+                complexity_info,
+                trace_store=getattr(request.app.state, "trace_store", None),
+                bus=getattr(request.app.state, "bus", None),
+                memory_service=getattr(request.app.state, "memory_service", None),
+            )
+        return await _handle_stream(
+            engine,
+            model,
+            request_body,
+            complexity_info,
+            trace_store=getattr(request.app.state, "trace_store", None),
+            app_config=config,
+            bus=getattr(request.app.state, "bus", None),
+            memory_service=getattr(request.app.state, "memory_service", None),
+        )
 
     # Non-streaming: use agent if available, otherwise direct engine call.
     #
@@ -169,17 +286,126 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     # tools (e.g. injecting MCP tools through this endpoint and wanting
     # the agent to execute them), add an explicit opt-in header rather
     # than removing this guard — silent re-routing is what produced #414.
+    # ``_handle_agent`` (sync ``agent.run()``) and ``_handle_direct`` (sync
+    # ``engine.generate()``) both make blocking upstream calls; run them in a
+    # worker thread so a slow/wedged non-streaming request can't stall the
+    # event loop and every other concurrent request with it.
     if agent is not None and not request_body.tools:
-        return _handle_agent(agent, model, request_body, complexity_info)
+        response = await asyncio.to_thread(
+            _handle_agent,
+            agent,
+            model,
+            request_body,
+            complexity_info,
+            trace_store=getattr(request.app.state, "trace_store", None),
+            bus=getattr(request.app.state, "bus", None),
+        )
+    else:
+        bus = getattr(request.app.state, "bus", None)
+        response = await asyncio.to_thread(
+            _handle_direct,
+            engine,
+            model,
+            request_body,
+            bus=bus,
+            complexity_info=complexity_info,
+            app_config=config,
+        )
 
-    bus = getattr(request.app.state, "bus", None)
-    return _handle_direct(
-        engine,
-        model,
-        request_body,
-        bus=bus,
-        complexity_info=complexity_info,
+    # Hand the completed exchange to the background memory service.
+    _remember_exchange(
+        getattr(request.app.state, "memory_service", None),
+        query_text_for_complexity,
+        response,
+        bus=getattr(request.app.state, "bus", None),
+        source="server.chat",
     )
+    return response
+
+
+def _response_content(response) -> str:
+    """Extract assistant text from an OpenAI-compatible response object."""
+    content = ""
+    choices = getattr(response, "choices", None)
+    if choices:
+        content = getattr(choices[0].message, "content", "") or ""
+    return content
+
+
+def _record_completed_exchange(
+    memory_service,
+    user_text: str,
+    assistant_text: str,
+    *,
+    bus=None,
+    source: str = "server.chat",
+) -> None:
+    """Publish or submit a completed exchange without blocking a reply."""
+    if not user_text:
+        return
+    try:
+        if bus is not None:
+            from openjarvis.memory import publish_completed_exchange
+
+            publish_completed_exchange(
+                bus,
+                user_text,
+                assistant_text,
+                source=source,
+            )
+        elif memory_service is not None:
+            memory_service.submit(user_text, assistant_text)
+    except Exception:  # noqa: BLE001 — memory is best-effort, never fail a reply
+        logging.getLogger("openjarvis.server").debug(
+            "Memory submit failed",
+            exc_info=True,
+        )
+
+
+def _remember_exchange(
+    memory_service,
+    user_text: str,
+    response,
+    *,
+    bus=None,
+    source: str = "server.chat",
+) -> None:
+    """Record a completed non-streaming exchange."""
+    _record_completed_exchange(
+        memory_service,
+        user_text,
+        _response_content(response),
+        bus=bus,
+        source=source,
+    )
+
+
+def _engine_key_for_model(engine: Any, model: str) -> str | None:
+    """Resolve the engine that advertised *model* through wrapper layers."""
+    from openjarvis.engine.multi import MultiEngine
+    from openjarvis.security.guardrails import GuardrailsEngine
+    from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+
+    current = engine
+    while current is not None:
+        if isinstance(current, MultiEngine):
+            return current.engine_key_for(model)
+        if isinstance(current, InstrumentedEngine):
+            current = current._inner
+            continue
+        if isinstance(current, GuardrailsEngine):
+            current = current._engine
+            continue
+        engine_id = getattr(current, "engine_id", None)
+        return engine_id if isinstance(engine_id, str) else None
+    return None
+
+
+def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
+    """Whether *model* should bypass the configured engine for direct cloud."""
+    from openjarvis.server.cloud_router import is_cloud_model
+
+    return is_cloud_model(model) and _engine_key_for_model(engine, model) != "litellm"
 
 
 def _handle_direct(
@@ -188,9 +414,11 @@ def _handle_direct(
     req: ChatCompletionRequest,
     bus=None,
     complexity_info=None,
+    app_config=None,
 ) -> ChatCompletionResponse:
     """Direct engine call without agent."""
     messages = _to_messages(req.messages)
+    messages = _ensure_identity_prompt(messages, app_config)
     kwargs: dict[str, Any] = {}
     if req.tools:
         kwargs["tools"] = req.tools
@@ -288,8 +516,19 @@ def _handle_agent(
     model: str,
     req: ChatCompletionRequest,
     complexity_info=None,
+    *,
+    trace_store=None,
+    bus=None,
 ) -> ChatCompletionResponse:
-    """Run through agent."""
+    """Run through agent.
+
+    When *trace_store* is set, the agent run is wrapped in a
+    ``TraceCollector`` (mirroring ``system/orchestrator.py``) so every
+    completion records a ``Trace`` to ``traces.db``. Previously this endpoint
+    called ``agent.run()`` raw, so the server never produced traces:
+    ``traces.db`` stayed empty and spec_search's cold-start gate
+    (``check_readiness``, min 20 traces) could never open.
+    """
     from openjarvis.agents._stubs import AgentContext
 
     # Build context from prior messages
@@ -307,7 +546,13 @@ def _handle_agent(
     if model:
         agent._model = model
     try:
-        result = agent.run(input_text, context=ctx)
+        if trace_store is not None:
+            from openjarvis.traces.collector import TraceCollector
+
+            collector = TraceCollector(agent, store=trace_store, bus=bus)
+            result = collector.run(input_text, context=ctx)
+        else:
+            result = agent.run(input_text, context=ctx)
     finally:
         agent._model = original_model
 
@@ -345,11 +590,123 @@ def _handle_agent(
     )
 
 
+async def _handle_agent_stream(
+    agent,
+    model: str,
+    req: ChatCompletionRequest,
+    complexity_info=None,
+    *,
+    trace_store=None,
+    bus=None,
+    memory_service=None,
+):
+    """Run the configured agent and return its result as an SSE response.
+
+    Agents own the tool-execution loop, which is synchronous today.  Run that
+    loop in a worker thread and stream its final answer once complete.  This
+    keeps ``stream:true`` clients (including the desktop UI) on the same agent
+    and configured toolkit as non-streaming requests instead of bypassing the
+    agent and silently dropping server-side tools.
+
+    Requests that explicitly supply OpenAI ``tools`` continue to use
+    ``_handle_stream_tools`` so their raw tool-call deltas are preserved.
+    """
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    query_text = ""
+    for message in reversed(req.messages):
+        if message.role == "user" and message.content:
+            query_text = message.content
+            break
+
+    async def generate():
+        first_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[StreamChoice(delta=DeltaMessage(role="assistant"))],
+        )
+        yield f"data: {first_chunk.model_dump_json()}\n\n"
+
+        try:
+            response = await asyncio.to_thread(
+                _handle_agent,
+                agent,
+                model,
+                req,
+                complexity_info,
+                trace_store=trace_store,
+                bus=bus,
+            )
+        except Exception as exc:
+            logging.getLogger("openjarvis.server").error(
+                "Agent stream error: %s",
+                exc,
+                exc_info=True,
+            )
+            error_chunk = ChatCompletionChunk(
+                id=chunk_id,
+                model=model,
+                choices=[
+                    StreamChoice(
+                        delta=DeltaMessage(
+                            content=f"Sorry, an error occurred: {exc}",
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+            )
+            yield f"data: {error_chunk.model_dump_json()}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        content = _response_content(response)
+        if content:
+            content_chunk = ChatCompletionChunk(
+                id=chunk_id,
+                model=model,
+                choices=[StreamChoice(delta=DeltaMessage(content=content))],
+            )
+            yield f"data: {content_chunk.model_dump_json()}\n\n"
+
+        import json as _json
+
+        finish_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[
+                StreamChoice(delta=DeltaMessage(), finish_reason="stop"),
+            ],
+        )
+        finish_data = _json.loads(finish_chunk.model_dump_json())
+        finish_data["usage"] = response.usage.model_dump()
+        if complexity_info is not None:
+            finish_data["complexity"] = complexity_info.model_dump()
+        yield f"data: {_json.dumps(finish_data)}\n\n"
+
+        _record_completed_exchange(
+            memory_service,
+            query_text,
+            content,
+            bus=bus,
+            source="server.chat.stream",
+        )
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
 async def _handle_stream_tools(
     engine,
     model: str,
     req: ChatCompletionRequest,
     complexity_info=None,
+    *,
+    app_config=None,
+    bus=None,
+    memory_service=None,
 ):
     """Stream a raw OpenAI-compat function-calling response via SSE.
 
@@ -364,13 +721,21 @@ async def _handle_stream_tools(
     tool_calls) — identical to the prior plain-stream behaviour, so this never
     regresses non-tool-capable engines.
     """
-    from openjarvis.server.cloud_router import is_cloud_model
-
     messages = _to_messages(req.messages)
+    messages = _ensure_identity_prompt(messages, app_config)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-    use_cloud = is_cloud_model(model)
+    use_cloud = _uses_direct_cloud_router(engine, model)
+    telemetry_engine = (
+        "cloud" if use_cloud else (_engine_key_for_model(engine, model) or "ollama")
+    )
+    query_text = ""
+    for _m in reversed(req.messages):
+        if _m.role == "user" and _m.content:
+            query_text = _m.content
+            break
 
     async def generate():
+        full_content = ""
         # Send the role chunk first (OpenAI convention).
         first_chunk = ChatCompletionChunk(
             id=chunk_id,
@@ -389,6 +754,7 @@ async def _handle_stream_tools(
                 tools=req.tools,
             ):
                 if sc.content:
+                    full_content += sc.content
                     content_chunk = ChatCompletionChunk(
                         id=chunk_id,
                         model=model,
@@ -441,10 +807,18 @@ async def _handle_stream_tools(
         # Tag the finish chunk with the engine label, matching _handle_stream
         # so UI/telemetry consumers see the same field on the tools path.
         finish_dict.setdefault("telemetry", {})
-        finish_dict["telemetry"]["engine"] = "cloud" if use_cloud else "ollama"
+        finish_dict["telemetry"]["engine"] = telemetry_engine
         if complexity_info is not None:
             finish_dict["complexity"] = complexity_info.model_dump()
         yield f"data: {_json.dumps(finish_dict)}\n\n"
+        if full_content:
+            _record_completed_exchange(
+                memory_service,
+                query_text,
+                full_content,
+                bus=bus,
+                source="server.chat.stream",
+            )
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(
@@ -459,22 +833,44 @@ async def _handle_stream(
     model: str,
     req: ChatCompletionRequest,
     complexity_info=None,
+    *,
+    trace_store=None,
+    app_config=None,
+    bus=None,
+    memory_service=None,
 ):
-    """Stream response using SSE format."""
-    from openjarvis.server.cloud_router import (
-        is_cloud_model,
-        stream_cloud,
-        stream_local,
-    )
+    """Stream response using SSE format.
+
+    This no-agent fallback streams straight from the engine, bypassing the
+    ``TraceCollector``. When *trace_store* is set we accumulate the streamed
+    tokens and record a minimal ``Trace`` once the stream completes
+    successfully.
+    """
+    import time
+
+    from openjarvis.server.cloud_router import stream_cloud, stream_local
 
     messages = _to_messages(req.messages)
+    messages = _ensure_identity_prompt(messages, app_config)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+
+    # Last user message — recorded as the trace query.
+    query_text = ""
+    for _m in reversed(req.messages):
+        if _m.role == "user" and _m.content:
+            query_text = _m.content
+            break
 
     # Route directly to the right backend — bypasses engine routing entirely
     # so broken MultiEngine state can never misdirect requests.
-    use_cloud = is_cloud_model(model)
+    use_cloud = _uses_direct_cloud_router(engine, model)
+    telemetry_engine = (
+        "cloud" if use_cloud else (_engine_key_for_model(engine, model) or "ollama")
+    )
 
     async def generate():
+        started_at = time.time()
+        full_content = ""
         # Send role chunk first
         first_chunk = ChatCompletionChunk(
             id=chunk_id,
@@ -527,6 +923,7 @@ async def _handle_stream(
                         max_tokens=req.max_tokens,
                     )
             async for token in token_iter:
+                full_content += token
                 chunk = ChatCompletionChunk(
                     id=chunk_id,
                     model=model,
@@ -563,6 +960,31 @@ async def _handle_stream(
             yield "data: [DONE]\n\n"
             return
 
+        # Record a trace for the completed stream (best-effort; never breaks
+        # the response). Mirrors the agent path so streamed chats also
+        # populate traces.db.
+        if trace_store is not None and full_content:
+            from openjarvis.traces.collector import record_response_trace
+
+            record_response_trace(
+                trace_store,
+                query=query_text,
+                result=full_content,
+                model=model,
+                engine=telemetry_engine,
+                started_at=started_at,
+                ended_at=time.time(),
+            )
+
+        if full_content:
+            _record_completed_exchange(
+                memory_service,
+                query_text,
+                full_content,
+                bus=bus,
+                source="server.chat.stream",
+            )
+
         # Send finish chunk with usage data if available
         import json as _json
 
@@ -582,7 +1004,7 @@ async def _handle_stream(
         # We use the routing decision (use_cloud) directly rather than
         # unwrapping the engine chain, which can be in a broken state.
         finish_dict.setdefault("telemetry", {})
-        finish_dict["telemetry"]["engine"] = "cloud" if use_cloud else "ollama"
+        finish_dict["telemetry"]["engine"] = telemetry_engine
 
         if complexity_info is not None:
             finish_dict["complexity"] = complexity_info.model_dump()
@@ -599,24 +1021,45 @@ async def _handle_stream(
 
 @router.get("/v1/models")
 async def list_models(request: Request) -> ModelListResponse:
-    """List locally installed models (Ollama).
+    """List selectable engine models for the installed-model picker.
 
-    Cloud models are not included here — they live in the Cloud Models tab
-    of the UI and are selected there, not from this endpoint.
+    Direct cloud models live in the Cloud Models tab. Models advertised by a
+    configured LiteLLM engine remain here because LiteLLM owns their routing
+    and may use provider-qualified IDs that resemble OpenRouter IDs.
     """
     from openjarvis.server.cloud_router import is_cloud_model, list_local_models
 
     # Prefer engine.list_models() so mock engines work in tests.
-    # Filter out any cloud model IDs that may appear via MultiEngine.
+    # Filter out direct-cloud model IDs that may appear via MultiEngine, but
+    # retain provider-qualified IDs owned by the configured LiteLLM engine.
     # Fall back to direct Ollama query only when the engine returns nothing.
     engine = request.app.state.engine
-    all_ids = engine.list_models()
-    model_ids = [m for m in all_ids if not is_cloud_model(m)]
+    all_ids = await asyncio.to_thread(engine.list_models)
+    model_ids = [
+        m
+        for m in all_ids
+        if not is_cloud_model(m) or _engine_key_for_model(engine, m) == "litellm"
+    ]
     if not model_ids:
         model_ids = await list_local_models()
 
+    # Keep embed-only models out of the chat model picker. They still work for
+    # memory/retrieval via the embedder path; putting them in /v1/models made
+    # the UI auto-select nomic-embed-text and fail every generation with 400.
+    model_ids = [m for m in model_ids if not is_embed_only_model(m)]
+
     return ModelListResponse(
-        data=[ModelObject(id=mid) for mid in model_ids],
+        data=[
+            ModelObject(
+                id=mid,
+                owned_by=(
+                    "litellm"
+                    if _engine_key_for_model(engine, mid) == "litellm"
+                    else "openjarvis"
+                ),
+            )
+            for mid in model_ids
+        ],
     )
 
 
@@ -640,12 +1083,12 @@ async def pull_model(request: Request):
     import httpx as _httpx
 
     host = getattr(engine, "_host", "http://localhost:11434")
-    client = _httpx.Client(base_url=host, timeout=600.0)
     try:
-        resp = client.post(
-            "/api/pull",
-            json={"name": model_name, "stream": False},
-        )
+        async with _httpx.AsyncClient(base_url=host, timeout=600.0) as client:
+            resp = await client.post(
+                "/api/pull",
+                json={"name": model_name, "stream": False},
+            )
         resp.raise_for_status()
     except (_httpx.ConnectError, _httpx.TimeoutException) as exc:
         raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
@@ -654,8 +1097,6 @@ async def pull_model(request: Request):
             status_code=exc.response.status_code,
             detail=f"Ollama error: {exc.response.text[:300]}",
         )
-    finally:
-        client.close()
 
     return {"status": "ok", "model": model_name}
 
@@ -671,13 +1112,13 @@ async def delete_model(model_name: str, request: Request):
     import httpx as _httpx
 
     host = getattr(engine, "_host", "http://localhost:11434")
-    client = _httpx.Client(base_url=host, timeout=30.0)
     try:
-        resp = client.request(
-            "DELETE",
-            "/api/delete",
-            json={"name": model_name},
-        )
+        async with _httpx.AsyncClient(base_url=host, timeout=30.0) as client:
+            resp = await client.request(
+                "DELETE",
+                "/api/delete",
+                json={"name": model_name},
+            )
         resp.raise_for_status()
     except (_httpx.ConnectError, _httpx.TimeoutException) as exc:
         raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
@@ -686,8 +1127,6 @@ async def delete_model(model_name: str, request: Request):
             status_code=exc.response.status_code,
             detail=f"Ollama error: {exc.response.text[:300]}",
         )
-    finally:
-        client.close()
 
     return {"status": "deleted", "model": model_name}
 
@@ -700,16 +1139,35 @@ async def reload_cloud_engine(request: Request):
     key so that cloud models become available without a full app restart.
     """
     import os
-    from pathlib import Path
 
-    # Re-read ~/.openjarvis/cloud-keys.env and update the running process env.
-    keys_path = Path.home() / ".openjarvis" / "cloud-keys.env"
-    if keys_path.exists():
-        for raw_line in keys_path.read_text().splitlines():
-            line = raw_line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                os.environ[k.strip()] = v.strip()
+    submitted_keys: dict[str, str] | None = None
+    try:
+        body = await request.json()
+        raw_keys = body.get("keys") if isinstance(body, dict) else None
+        if isinstance(raw_keys, dict):
+            submitted_keys = {
+                str(k): str(v)
+                for k, v in raw_keys.items()
+                if str(k).endswith("_API_KEY")
+            }
+    except Exception:
+        submitted_keys = None
+
+    if submitted_keys is not None:
+        for key, value in submitted_keys.items():
+            if value:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
+    else:
+        # Compatibility fallback for non-desktop/manual configurations.
+        keys_path = get_config_dir() / "cloud-keys.env"
+        if keys_path.exists():
+            for raw_line in keys_path.read_text().splitlines():
+                line = raw_line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ[k.strip()] = v.strip()
 
     # Try to build a fresh CloudEngine.
     try:

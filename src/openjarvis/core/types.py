@@ -63,11 +63,20 @@ class Message:
     """A single chat message (OpenAI-compatible structure)."""
 
     role: Role
-    content: str = ""
+    content: str | None = ""
     name: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = None
     tool_call_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # Base64-encoded image data for vision-capable models (e.g. gemma3,
+    # qwen2.5-vl). Forwarded to Ollama's /api/chat "images" field; None or
+    # empty for text-only messages (the common case).
+    images: Optional[List[str]] = None
+
+    @property
+    def text(self) -> str:
+        """Return message content as text, treating ``None`` as empty."""
+        return self.content or ""
 
 
 @dataclass(slots=True)

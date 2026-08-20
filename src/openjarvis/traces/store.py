@@ -106,7 +106,15 @@ class TraceStore:
         self._conn.commit()
 
     def save(self, trace: Trace) -> None:
-        """Persist a complete trace with all its steps."""
+        """Persist a complete trace with all its steps.
+
+        ``trace_id`` is a primary key: saving a second, different trace under
+        an existing id raises ``sqlite3.IntegrityError`` (the external-corpus
+        adapter relies on this to surface duplicate record ids). The server
+        avoids re-saving the same trace by keeping the ``TraceCollector`` the
+        single writer — see ``server/app.py`` — rather than swallowing
+        collisions here.
+        """
         self._conn.execute(
             _INSERT_TRACE,
             (
@@ -215,8 +223,13 @@ class TraceStore:
         rows = self._conn.execute(sql, params).fetchall()
         return [
             {
-                "trace_id": r[0], "query": r[1], "result": r[2],
-                "agent": r[3], "model": r[4], "outcome": r[5], "started_at": r[6],
+                "trace_id": r[0],
+                "query": r[1],
+                "result": r[2],
+                "agent": r[3],
+                "model": r[4],
+                "outcome": r[5],
+                "started_at": r[6],
             }
             for r in rows
         ]

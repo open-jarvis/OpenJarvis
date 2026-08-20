@@ -10,6 +10,14 @@ These tests download each dataset once to ~/.cache/huggingface and
 verify the provider loads, iterates, and honours the split kwarg.
 The ModuleNotFoundError skip branch is defensive — currently
 unreachable since all three provider modules exist.
+
+Marked ``hub``: they hit the live HuggingFace Hub, so they are excluded
+from the default CI lane (which runs ``-m "not live and not cloud and not
+hub"``) — a transient Hub outage or rate-limit must not redden ``main``.
+Run them on demand with ``pytest -m hub``. The ADP provider swallows
+per-config download errors and returns 0 records on a network failure
+(see ``adp.py``), so a Hub outage surfaces here as ``assert 1 <= 0``
+rather than an exception — another reason these can't run unguarded in CI.
 """
 
 from __future__ import annotations
@@ -17,6 +25,8 @@ from __future__ import annotations
 import importlib
 
 import pytest
+
+pytestmark = pytest.mark.hub
 
 PROVIDERS = [
     ("openjarvis.evals.datasets.adp", "ADPDataset"),

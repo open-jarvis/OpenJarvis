@@ -1,5 +1,7 @@
 """Tests for GET /v1/tools endpoint."""
 
+from unittest.mock import MagicMock
+
 import pytest
 
 try:
@@ -45,3 +47,49 @@ def test_browser_meta_group():
     names = {t["name"] for t in tools}
     assert "browser" in names
     assert "browser_navigate" not in names
+
+
+def test_web_search_available_without_tavily_key(monkeypatch):
+    """DuckDuckGo fallback keeps web search usable without Tavily."""
+    from openjarvis.server.agent_manager_routes import build_tools_list
+
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    tools = build_tools_list()
+    web_search = next(t for t in tools if t["name"] == "web_search")
+
+    assert web_search["configured"] is True
+    assert web_search["requires_credentials"] is False
+
+
+def test_tool_credentials_browser_lifecycle(tmp_path, monkeypatch):
+    """The browser API can save, report, and remove a Tavily key."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from openjarvis.server.agent_manager_routes import create_agent_manager_router
+
+    monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "openjarvis-home"))
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    app = FastAPI()
+    tools_router = create_agent_manager_router(MagicMock())[3]
+    app.include_router(tools_router)
+    client = TestClient(app)
+
+    saved = client.post(
+        "/v1/tools/web_search/credentials",
+        json={"TAVILY_API_KEY": "tvly-browser-test"},
+    )
+    assert saved.status_code == 200
+    assert saved.json() == {"saved": ["TAVILY_API_KEY"]}
+    assert client.get("/v1/tools/web_search/credentials/status").json() == {
+        "TAVILY_API_KEY": True
+    }
+
+    deleted = client.delete(
+        "/v1/tools/web_search/credentials/TAVILY_API_KEY",
+    )
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": "TAVILY_API_KEY"}
+    assert client.get("/v1/tools/web_search/credentials/status").json() == {
+        "TAVILY_API_KEY": False
+    }

@@ -49,6 +49,21 @@ def _setup(tmp_path: Path, records: list[TelemetryRecord] | None = None):
 
 
 class TestTelemetryAggregator:
+    def test_uses_wal_with_normal_synchronous_and_busy_timeout(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        agg = _setup(tmp_path)
+
+        journal_mode = agg._conn.execute("PRAGMA journal_mode").fetchone()[0]
+        synchronous = agg._conn.execute("PRAGMA synchronous").fetchone()[0]
+        busy_timeout = agg._conn.execute("PRAGMA busy_timeout").fetchone()[0]
+
+        assert journal_mode.lower() == "wal"
+        assert synchronous == 1
+        assert busy_timeout == 5000
+        agg.close()
+
     def test_empty_db_summary(self, tmp_path: Path) -> None:
         agg = _setup(tmp_path)
         s = agg.summary()

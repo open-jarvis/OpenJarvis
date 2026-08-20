@@ -102,6 +102,15 @@ class RunConfig:
     # specific records (e.g. recovering silent-fake records without
     # re-running the entire benchmark).
     record_ids: Optional[List[str]] = None
+    # terminal-bench harness budgets (terminalbench-native backend).
+    # global_agent_timeout_sec bounds each trial's agent phase — SETUP+RUN
+    # together, since terminal-bench runs installed-agent setup inside the
+    # agent budget with an infinite tmux timeout. When set it REPLACES the
+    # per-task max_agent_timeout_sec; 0 disables the bound (per-task budgets
+    # apply); None uses the backend default (1800 s).
+    global_agent_timeout_sec: Optional[float] = None
+    # Scales per-task budgets when global_agent_timeout_sec is not set.
+    global_timeout_multiplier: Optional[float] = None
 
 
 @dataclass(slots=True)
@@ -232,6 +241,9 @@ class ExecutionConfig:
     # to JarvisConfig.agent.max_turns (default 10). Bump to 30-50 for
     # thinking/reasoning models on agentic benchmarks (GAIA, LiveResearch).
     max_turns: Optional[int] = None
+    # terminal-bench harness budgets (see RunConfig for semantics).
+    global_agent_timeout_sec: Optional[float] = None
+    global_timeout_multiplier: Optional[float] = None
 
 
 @dataclass(slots=True)
@@ -265,6 +277,10 @@ class BenchmarkConfig:
     max_tokens: Optional[int] = None
     subset: Optional[str] = None
     record_ids: Optional[List[str]] = None
+    # Per-benchmark override of the terminal-bench harness budgets
+    # (see RunConfig for semantics).
+    global_agent_timeout_sec: Optional[float] = None
+    global_timeout_multiplier: Optional[float] = None
 
 
 @dataclass(slots=True)

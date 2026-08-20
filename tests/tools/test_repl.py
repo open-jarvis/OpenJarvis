@@ -17,6 +17,10 @@ class TestReplSpec:
         tool = ReplTool()
         assert tool.spec.category == "code"
 
+    def test_structured_object_text_opt_in(self):
+        tool = ReplTool()
+        assert tool.spec.metadata["structured_allow_object_text"] is True
+
     def test_spec_parameters(self):
         tool = ReplTool()
         params = tool.spec.parameters

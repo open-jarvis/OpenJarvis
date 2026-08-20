@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from openjarvis.core.types import ToolCall
 from openjarvis.notifications import alerts as alerts_mod
 from openjarvis.tools import notification_tools as nt
+from openjarvis.tools._stubs import ToolExecutor
 
 
 @pytest.fixture
@@ -69,6 +71,68 @@ def test_notify_tools_require_send_capability():
         spec = tool_cls().spec
         assert "channel:send" in spec.required_capabilities
         assert spec.category == "notification"
+        assert spec.requires_confirmation is True
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        (nt.NotifyEmailTool(), '{"subject":"Hi","message":"Body"}'),
+        (nt.NotifySmsTool(), '{"message":"Done"}'),
+        (nt.NotifyPushTool(), '{"title":"Hi","message":"Done"}'),
+        (nt.NotifyTool(), '{"title":"Hi","message":"Done"}'),
+    ],
+)
+def test_notification_send_is_blocked_when_confirmation_denied(
+    ok, monkeypatch, tool, arguments
+):
+    calls = []
+    original_execute = tool.execute
+
+    def tracked_execute(**params):
+        calls.append(params)
+        return original_execute(**params)
+
+    monkeypatch.setattr(tool, "execute", tracked_execute)
+    executor = ToolExecutor(
+        [tool],
+        interactive=True,
+        confirm_callback=lambda prompt: False,
+    )
+
+    result = executor.execute(
+        ToolCall(id="notification", name=tool.spec.name, arguments=arguments)
+    )
+
+    assert result.success is False
+    assert "denied by user" in result.content
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        (nt.NotifyEmailTool(), '{"subject":"Hi","message":"Body"}'),
+        (nt.NotifySmsTool(), '{"message":"Done"}'),
+        (nt.NotifyPushTool(), '{"title":"Hi","message":"Done"}'),
+        (nt.NotifyTool(), '{"title":"Hi","message":"Done"}'),
+    ],
+)
+def test_notification_send_runs_after_confirmation(ok, tool, arguments):
+    prompts = []
+    executor = ToolExecutor(
+        [tool],
+        interactive=True,
+        confirm_callback=lambda prompt: prompts.append(prompt) or True,
+    )
+
+    result = executor.execute(
+        ToolCall(id="notification", name=tool.spec.name, arguments=arguments)
+    )
+
+    assert result.success is True
+    assert len(prompts) == 1
+    assert tool.spec.name in prompts[0]
 
 
 def test_notify_tool_reports_failure_cleanly(monkeypatch):

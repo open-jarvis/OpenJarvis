@@ -1,0 +1,39 @@
+# Full system access: unrestricted shell and filesystem
+# Copy to ~/.openjarvis/config.toml
+#
+# WARNING: shell_exec runs arbitrary commands as your user. No command
+# allowlist, no denylist, no working-directory restriction. file_read and
+# file_write aren't restricted to any directory either. Only enable what you
+# actually want the agent to have. tools.enabled is the whole permission grant;
+# there's no second allowlist to configure.
+#
+# On macOS, this config alone does not reach TCC-protected data (Messages,
+# Mail, Photos, Safari). That requires Full Disk Access granted to the process
+# hosting the backend. See docs/user-guide/system-access.md.
+#
+# Usage:
+#   jarvis ask "What's using the most disk space in my home directory?"
+#   jarvis chat        # prompts before each shell_exec call
+
+[engine]
+default = "ollama"
+
+[intelligence]
+default_model = "qwen3.5:9b"
+
+[agent]
+default_agent = "orchestrator"
+max_turns = 10
+
+[tools]
+enabled = [
+    "shell_exec",
+    "file_read",
+    "file_write",
+    "apply_patch",
+    "code_interpreter",
+    "git_status",
+    "git_diff",
+    "think",
+    "calculator",
+]

@@ -19,6 +19,71 @@ Agents are the agentic logic layer of OpenJarvis. They determine how a query is 
 
 ---
 
+## Persistent Persona: SOUL.md, MEMORY.md, USER.md
+
+Every agent's system prompt is assembled at conversation start by the `SystemPromptBuilder`, which injects up to three optional Markdown files -- the **persistent persona**. They are plain text you own and edit, loaded at the start of each conversation. There is no vector database or embedding cache behind them.
+
+| File | What it holds | Example line |
+|------|---------------|--------------|
+| `SOUL.md` | How the agent should behave -- tone, length, what to push back on | `Be concise. Challenge weak assumptions.` |
+| `MEMORY.md` | Facts about you, your projects, your preferences | `I deploy to Postgres, never MySQL.` |
+| `USER.md` | Who you are -- role, team, context | `Backend engineer at Acme, on the payments team.` |
+
+This persona is distinct from the retrieval [memory backend](memory.md): the persona is always-on Markdown context loaded into the prompt, while the memory backend is searchable long-term storage the agent queries on demand.
+
+### Where they live
+
+By default the files are read from the config directory:
+
+```
+~/.openjarvis/SOUL.md
+~/.openjarvis/MEMORY.md
+~/.openjarvis/USER.md
+```
+
+(The config directory honors `$OPENJARVIS_HOME` / `$XDG_DATA_HOME` when set.) The paths are configurable under `[memory_files]`:
+
+```toml
+[memory_files]
+soul_path    = "~/.openjarvis/SOUL.md"
+memory_path  = "~/.openjarvis/MEMORY.md"
+user_path    = "~/.openjarvis/USER.md"
+persona_name = ""    # optional named persona -- see below
+```
+
+### How they're loaded
+
+At the start of each conversation, `SystemPromptBuilder` reads each file as UTF-8 and adds its contents as a section of the system prompt, after the agent template and before the skill catalog:
+
+- **All three are optional.** A missing or empty file is skipped, so any subset works and an install with no persona files behaves exactly as before.
+- **Edits apply to the next conversation.** The files are read once when a conversation's prompt is built, so there is no restart or re-indexing -- edit or delete a line and it takes effect the next time you start a conversation.
+- **Each section is length-capped.** Files are truncated to a per-section character budget so a large `MEMORY.md` cannot crowd out the rest of the prompt.
+
+### Named personas
+
+A single install can answer as different personas without changing global config. A named persona lives in its own directory:
+
+```
+~/.openjarvis/personas/<name>/SOUL.md
+~/.openjarvis/personas/<name>/MEMORY.md
+~/.openjarvis/personas/<name>/USER.md
+```
+
+Select one per invocation, or opt out entirely:
+
+```bash
+jarvis ask --persona work  "summarize my open PRs"
+jarvis ask --persona none  "what is 2 + 2?"     # inject no persona
+```
+
+Set `persona_name` under `[memory_files]` to make a named persona the default. `persona_name = "none"` (equivalently `--persona none`) disables persona injection for that run.
+
+### Editing them
+
+`SOUL.md`, `MEMORY.md`, and `USER.md` are plain Markdown -- open them in any editor. `MEMORY.md` and `USER.md` can also be updated by the agent itself through the `memory_manage` and `user_profile_manage` tools when those are enabled, so the agent can record a new fact mid-conversation. These tools always target the default `MEMORY.md` and `USER.md` (under `~/.openjarvis/`), never a named persona's copies -- edit those by hand.
+
+---
+
 ## BaseAgent ABC
 
 All agents extend the abstract `BaseAgent` class.

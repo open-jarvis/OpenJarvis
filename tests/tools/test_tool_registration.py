@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
 import sys
 
 from openjarvis.core.registry import ToolRegistry
@@ -63,6 +64,8 @@ EXPECTED_TOOLS = {
     "image_generate",
     # audio_tool.py
     "audio_transcribe",
+    # text_to_speech.py
+    "text_to_speech",
     # knowledge_tools.py
     "kg_add_entity",
     "kg_add_relation",
@@ -99,6 +102,10 @@ EXPECTED_TOOLS = {
     "notify_sms",
     "notify_push",
     "notify",
+    # knowledge_sql.py
+    "knowledge_sql",
+    # scan_chunks.py
+    "scan_chunks",
 }
 
 
@@ -131,3 +138,25 @@ def test_all_builtin_tools_registered():
     assert not missing, (
         f"Tools not registered (missing import in __init__.py?): {sorted(missing)}"
     )
+
+
+def test_package_import_registers_deep_research_tools():
+    """Registration must not depend on another module being imported first."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import openjarvis.tools; "
+                "from openjarvis.core.registry import ToolRegistry; "
+                "expected = {'knowledge_sql', 'scan_chunks'}; "
+                "missing = expected - set(ToolRegistry.keys()); "
+                "assert not missing, f'Missing tools: {sorted(missing)}'"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr

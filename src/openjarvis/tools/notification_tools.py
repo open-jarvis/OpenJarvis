@@ -22,8 +22,8 @@ How this connects into the backend
 
 Safety
 ------
-Sending an alert is a side effect that leaves the machine, so the *write*-style
-tools default to ``requires_confirmation`` semantics via the ``channel:send``
+Sending an alert is a side effect that leaves the machine, so every outbound
+tool explicitly requires confirmation and declares the ``channel:send``
 capability. No secret is ever placed in a tool result.
 """
 
@@ -76,6 +76,7 @@ class NotifyEmailTool(BaseTool):
                 "required": ["subject", "message"],
             },
             category="notification",
+            requires_confirmation=True,
             required_capabilities=["channel:send"],
         )
 
@@ -108,6 +109,7 @@ class NotifySmsTool(BaseTool):
                 "required": ["message"],
             },
             category="notification",
+            requires_confirmation=True,
             required_capabilities=["channel:send"],
         )
 
@@ -140,6 +142,7 @@ class NotifyPushTool(BaseTool):
                 "required": ["title", "message"],
             },
             category="notification",
+            requires_confirmation=True,
             required_capabilities=["channel:send"],
         )
 
@@ -184,6 +187,7 @@ class NotifyTool(BaseTool):
                 "required": ["title", "message"],
             },
             category="notification",
+            requires_confirmation=True,
             required_capabilities=["channel:send"],
         )
 

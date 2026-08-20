@@ -19,6 +19,7 @@ from openjarvis.agents.prompt_loader import (
 from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
+from openjarvis.engine._base import estimate_prompt_tokens
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool, build_tool_descriptions
 
@@ -116,8 +117,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         max_prompt_tokens: int = 3000,
     ) -> list[Message]:
         """Truncate messages if estimated token count exceeds limit."""
-        total_chars = sum(len(m.content) for m in messages)
-        estimated_tokens = total_chars // 4
+        estimated_tokens = estimate_prompt_tokens(messages)
         if estimated_tokens <= max_prompt_tokens:
             return messages
         # Find the last user message and truncate its content
@@ -125,7 +125,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             if messages[i].role == Role.USER:
                 excess_tokens = estimated_tokens - max_prompt_tokens
                 excess_chars = excess_tokens * 4
-                original = messages[i].content
+                original = messages[i].content or ""
                 if len(original) > excess_chars + 200:
                     truncated = original[: len(original) - excess_chars]
                     messages[i] = Message(
@@ -258,7 +258,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
                 # still emitted before re-raising.
                 self._emit_turn_end(turns=1, error=True)
                 raise
-            content = self._strip_think_tags(result.get("content", ""))
+            content = self._strip_think_tags(result.get("content") or "")
             usage = result.get("usage", {})
             self._emit_turn_end(turns=1)
             return AgentResult(
@@ -315,7 +315,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             for k in total_usage:
                 total_usage[k] += usage.get(k, 0)
 
-            content = result.get("content", "")
+            content = result.get("content") or ""
             # Strip think tags so they don't interfere with parsing
             content = self._strip_think_tags(content)
             last_content = content

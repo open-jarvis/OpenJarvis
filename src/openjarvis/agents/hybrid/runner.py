@@ -38,13 +38,14 @@ except ModuleNotFoundError:
 from openjarvis.agents._stubs import AgentContext, AgentResult
 from openjarvis.agents.hybrid._energy import EnergyCollector
 from openjarvis.agents.hybrid._prompts import format_prompt as _format_prompt
+from openjarvis.core.paths import get_config_dir
 
 PACKAGE_DIR = Path(__file__).parent
 DEFAULT_REGISTRY_DIR = PACKAGE_DIR / "registry"
 DEFAULT_EXPERIMENTS_DIR = Path(
     os.environ.get(
         "OPENJARVIS_HYBRID_EXPERIMENTS_DIR",
-        Path.home() / ".openjarvis" / "experiments" / "hybrid",
+        get_config_dir() / "experiments" / "hybrid",
     )
 )
 DEFAULT_SUBSETS_DIR = DEFAULT_EXPERIMENTS_DIR / "subsets"
@@ -122,6 +123,7 @@ def load_registry(registry_dir: Optional[Path] = None) -> Dict[str, Dict[str, An
 
 # ---------- Bench dispatch ----------
 
+
 def _load_gaia_tasks(n: Optional[int]) -> List[Dict[str, Any]]:
     """GAIA validation. Each task is a dict with `task_id` + `question`."""
     from openjarvis.evals.datasets.gaia import GAIADataset
@@ -137,12 +139,14 @@ def _load_gaia_tasks(n: Optional[int]) -> List[Dict[str, Any]]:
         # id round-trip.
         md = rec.metadata or {}
         task_id = md.get("task_id") or rec.record_id
-        out.append({
-            "task_id": task_id,
-            "question": md.get("question", rec.problem),
-            "reference": rec.reference,
-            "metadata": dict(md),
-        })
+        out.append(
+            {
+                "task_id": task_id,
+                "question": md.get("question", rec.problem),
+                "reference": rec.reference,
+                "metadata": dict(md),
+            }
+        )
     return out
 
 
@@ -155,19 +159,21 @@ def _load_swebench_tasks(n: Optional[int]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for rec in ds.iter_records():
         md = rec.metadata or {}
-        out.append({
-            "task_id": md.get("instance_id", rec.record_id),
-            "repo": md.get("repo", ""),
-            "base_commit": md.get("base_commit", ""),
-            "problem_statement": md.get("problem_statement", rec.problem),
-            "hints_text": md.get("hints_text", ""),
-            "test_patch": md.get("test_patch", ""),
-            "FAIL_TO_PASS": md.get("FAIL_TO_PASS", []),
-            "PASS_TO_PASS": md.get("PASS_TO_PASS", []),
-            "version": md.get("version"),
-            "reference": rec.reference,
-            "metadata": dict(md),
-        })
+        out.append(
+            {
+                "task_id": md.get("instance_id", rec.record_id),
+                "repo": md.get("repo", ""),
+                "base_commit": md.get("base_commit", ""),
+                "problem_statement": md.get("problem_statement", rec.problem),
+                "hints_text": md.get("hints_text", ""),
+                "test_patch": md.get("test_patch", ""),
+                "FAIL_TO_PASS": md.get("FAIL_TO_PASS", []),
+                "PASS_TO_PASS": md.get("PASS_TO_PASS", []),
+                "version": md.get("version"),
+                "reference": rec.reference,
+                "metadata": dict(md),
+            }
+        )
     return out
 
 
@@ -206,7 +212,9 @@ def _load_subset_file(subset_path: str) -> Dict[str, Any]:
                 f"subset {p.name} has no 'task_ids' field; got keys {list(data.keys())}"
             )
         return data
-    raise ValueError(f"subset {p.name} must be a list or dict; got {type(data).__name__}")
+    raise ValueError(
+        f"subset {p.name} must be a list or dict; got {type(data).__name__}"
+    )
 
 
 def _apply_subset(
@@ -332,7 +340,11 @@ def _score_swebench(
 
     patch = extract_patch(answer)
     if patch is None:
-        return {"success": False, "score": 0.0, "details": {"reason": "no_patch_extracted"}}
+        return {
+            "success": False,
+            "score": 0.0,
+            "details": {"reason": "no_patch_extracted"},
+        }
 
     record = EvalRecord(
         record_id=task["task_id"],
@@ -367,6 +379,7 @@ def score(
 
 
 # ---------- Cell run ----------
+
 
 def _cell_dir(cell_name: str, root: Path) -> Path:
     d = root / cell_name
@@ -440,8 +453,10 @@ def _error_row(task: Dict[str, Any], t0: float, error: str) -> Dict[str, Any]:
     return {
         "task_id": task["task_id"],
         "answer": "",
-        "tokens_local": 0, "tokens_cloud": 0,
-        "cost_usd": 0.0, "latency_s": time.time() - t0,
+        "tokens_local": 0,
+        "tokens_cloud": 0,
+        "cost_usd": 0.0,
+        "latency_s": time.time() - t0,
         "web_search_uses": 0,
         "tool_calls": 0,
         "n_cloud_calls": 0,
@@ -456,11 +471,13 @@ def _run_one_inner(
 ) -> Dict[str, Any]:
     """Run the agent on one task. Returns a hybrid-shape row."""
     prompt = _format_prompt(task)
-    ctx = AgentContext(metadata={
-        "task": task,
-        "task_id": task["task_id"],
-        "log_dir": log_dir,
-    })
+    ctx = AgentContext(
+        metadata={
+            "task": task,
+            "task_id": task["task_id"],
+            "log_dir": log_dir,
+        }
+    )
     t0 = time.time()
     try:
         result: AgentResult = agent.run(prompt, ctx)
@@ -534,11 +551,12 @@ def _run_one(
     if worker.is_alive():
         print(
             f"[timeout] task={task['task_id']} exceeded "
-            f"{task_timeout_s/60:.1f}m — abandoning worker, recording error row",
+            f"{task_timeout_s / 60:.1f}m — abandoning worker, recording error row",
             flush=True,
         )
         return _error_row(
-            task, t0,
+            task,
+            t0,
             f"TaskTimeout: task exceeded the {task_timeout_s:.0f}s hybrid "
             "per-task wall-clock cap (likely a hung network or Modal-harness "
             "call); worker thread abandoned, task left for resume.",
@@ -558,7 +576,7 @@ def _heartbeat(done: int, total: int, row: Dict[str, Any], t_start: float) -> No
     print(
         f"[{done}/{total}] {ok} task={row['task_id']} score={sc_str} "
         f"local={row['tokens_local']} cloud={row['tokens_cloud']} "
-        f"${row['cost_usd']:.3f} {row['latency_s']:.1f}s eta={eta/60:.1f}m",
+        f"${row['cost_usd']:.3f} {row['latency_s']:.1f}s eta={eta / 60:.1f}m",
         flush=True,
     )
 
@@ -644,9 +662,9 @@ def _write_summary(
     summary_path.write_text(json.dumps(summary, indent=2))
     print(
         f"[summary] {cell_name}: n={n_done}/{cell['n']} err={n_err} "
-        f"acc={acc:.3f} cost=${total_cost:.2f} time={wall/60:.1f}m "
-        f"energy={energy_j/1000:.1f}kJ "
-        f"(session +{elapsed/60:.1f}m +{energy_j_session/1000:.1f}kJ, "
+        f"acc={acc:.3f} cost=${total_cost:.2f} time={wall / 60:.1f}m "
+        f"energy={energy_j / 1000:.1f}kJ "
+        f"(session +{elapsed / 60:.1f}m +{energy_j_session / 1000:.1f}kJ, "
         f"processed={n_processed})",
         flush=True,
     )
@@ -664,8 +682,11 @@ def run_cell(
     out_dir = _cell_dir(cell_name, out_root)
     with _cell_lock(out_dir, cell_name):
         _run_cell_locked(
-            cell_name, cell, out_dir,
-            do_score=do_score, resume=resume,
+            cell_name,
+            cell,
+            out_dir,
+            do_score=do_score,
+            resume=resume,
         )
 
 
@@ -727,7 +748,7 @@ def _run_cell_locked(
     mcfg = cell.get("method_cfg") or {}
     task_timeout_s = float(mcfg.get("task_timeout_s", DEFAULT_TASK_TIMEOUT_S))
     if task_timeout_s > 0:
-        print(f"[task-timeout] {task_timeout_s/60:.1f}m per task", flush=True)
+        print(f"[task-timeout] {task_timeout_s / 60:.1f}m per task", flush=True)
 
     agent = _build_agent(cell)
 
@@ -739,18 +760,25 @@ def _run_cell_locked(
 
     def _process(task: Dict[str, Any]) -> None:
         row = _run_one(
-            agent, cell["bench"], task, log_dir,
+            agent,
+            cell["bench"],
+            task,
+            log_dir,
             task_timeout_s=task_timeout_s,
         )
         scored: Optional[Dict[str, Any]] = None
         if do_score and row.get("error") is None:
             try:
                 scored = score(
-                    cell["bench"], task, row["answer"], cell_name=cell_name,
+                    cell["bench"],
+                    task,
+                    row["answer"],
+                    cell_name=cell_name,
                 )
             except Exception as e:
                 scored = {
-                    "success": False, "score": 0.0,
+                    "success": False,
+                    "score": 0.0,
                     "details": {"score_error": str(e)},
                 }
         full_row = {**row, "score": scored}
@@ -789,9 +817,7 @@ def _run_cell_locked(
         while not watchdog_stop.wait(60.0):
             try:
                 cur = (
-                    results_path.stat().st_mtime
-                    if results_path.exists()
-                    else last_seen
+                    results_path.stat().st_mtime if results_path.exists() else last_seen
                 )
             except Exception:
                 cur = last_seen
@@ -830,13 +856,18 @@ def _run_cell_locked(
     watchdog_stop.set()
 
     _write_summary(
-        out_dir, cell_name, cell, tasks, t_start,
+        out_dir,
+        cell_name,
+        cell,
+        tasks,
+        t_start,
         n_processed=len(pending),
         energy_j_session=energy.energy_j_total,
     )
 
 
 # ---------- CLI ----------
+
 
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(
@@ -855,13 +886,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Override experiments output root.",
     )
     p.add_argument("--no-score", action="store_true", help="Skip scoring.")
-    p.add_argument("--no-resume", action="store_true", help="Don't resume from results.jsonl.")
+    p.add_argument(
+        "--no-resume", action="store_true", help="Don't resume from results.jsonl."
+    )
     args = p.parse_args(argv)
 
     reg_dir = Path(args.registry_dir) if args.registry_dir else None
     cells = load_registry(reg_dir)
     if not cells:
-        print(f"[error] no cells found in {reg_dir or DEFAULT_REGISTRY_DIR}", file=sys.stderr)
+        print(
+            f"[error] no cells found in {reg_dir or DEFAULT_REGISTRY_DIR}",
+            file=sys.stderr,
+        )
         return 2
     if args.cell not in cells:
         print(
@@ -871,7 +907,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
     root = Path(args.root) if args.root else None
     run_cell(
-        args.cell, cells[args.cell],
+        args.cell,
+        cells[args.cell],
         do_score=not args.no_score,
         resume=not args.no_resume,
         root=root,

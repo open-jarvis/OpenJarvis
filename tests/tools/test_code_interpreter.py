@@ -127,6 +127,10 @@ class TestCodeInterpreterTool:
         tool = CodeInterpreterTool()
         assert tool.tool_id == "code_interpreter"
 
+    def test_structured_object_text_opt_in(self):
+        tool = CodeInterpreterTool()
+        assert tool.spec.metadata["structured_allow_object_text"] is True
+
     def test_registry_registration(self):
         ToolRegistry.register_value("code_interpreter", CodeInterpreterTool)
         assert ToolRegistry.contains("code_interpreter")

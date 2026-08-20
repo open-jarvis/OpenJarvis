@@ -60,7 +60,27 @@ class BaseChannel(ABC):
         conversation_id: str = "",
         metadata: Dict[str, Any] | None = None,
     ) -> bool:
-        """Send a message to a specific channel. Returns True on success."""
+        """Send a message to a specific channel. Returns True on success.
+
+        Canonical send contract shared by **every** channel adapter:
+
+        ``channel``
+            The DESTINATION identifier — the per-adapter native id of the
+            place the message goes (Discord/Slack channel id, Telegram chat
+            id, email recipient address, ...).  This is *not* the channel
+            TYPE label.  An incoming :class:`ChannelMessage` carries that
+            destination in its ``conversation_id`` field (``channel`` there
+            is only the type label such as ``"discord"``), so dispatch code
+            replying to a message must pass ``cm.conversation_id`` here.
+        ``conversation_id``
+            An optional reply/thread reference — the native id of the
+            message being replied to (Discord ``message_reference``, Slack
+            ``thread_ts``, Telegram ``reply_to_message_id``, email
+            ``In-Reply-To``, ...).  When replying to an inbound message this
+            should be ``cm.message_id``, never the channel id.  Passing a
+            channel id here yields broken references (e.g. Discord
+            ``MESSAGE_REFERENCE_UNKNOWN_MESSAGE``).
+        """
 
     @abstractmethod
     def status(self) -> ChannelStatus:
