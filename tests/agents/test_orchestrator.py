@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from unittest.mock import MagicMock
 
 from openjarvis.agents._stubs import AgentContext
@@ -568,7 +570,6 @@ class TestOrchestratorParallelTools:
 
     def test_parallel_tool_execution(self):
         """Multiple tool calls execute in parallel and return in correct order."""
-        import time
 
         class _SlowTool(BaseTool):
             tool_id = "slow"
@@ -812,3 +813,105 @@ class TestOrchestratorGovernanceHook:
         assert len(result.tool_results) == 1
         assert result.tool_results[0].success is False
         assert "[Governance]" in result.tool_results[0].content
+
+    def test_hook_exception_fails_closed_without_aborting_agent(self):
+        """A broken policy integration denies the call instead of crashing."""
+        executed = []
+
+        class _TrackedCalculator(_CalculatorStub):
+            def execute(self, **params) -> ToolResult:
+                executed.append(params)
+                return super().execute(**params)
+
+        def _broken_hook(name: str, args: dict) -> bool:
+            raise RuntimeError("policy service unavailable")
+
+        agent = OrchestratorAgent(
+            _make_engine_with_tool_call(),
+            "test-model",
+            tools=[_TrackedCalculator()],
+            before_tool_call=_broken_hook,
+        )
+
+        result = agent.run("What is 2+2?")
+
+        assert result.content == "The answer is 4."
+        assert executed == []
+        assert result.tool_results[0].success is False
+        assert "governance check failed" in result.tool_results[0].content
+
+    def test_parallel_hook_callbacks_are_serialized(self):
+        """Policy callbacks run deterministically before parallel tool work."""
+        state_lock = threading.Lock()
+        active_callbacks = 0
+        overlapped = False
+        callback_threads: list[int] = []
+        caller_thread = threading.get_ident()
+
+        def _stateful_hook(name: str, args: dict) -> bool:
+            nonlocal active_callbacks, overlapped
+            with state_lock:
+                active_callbacks += 1
+                overlapped = overlapped or active_callbacks > 1
+                callback_threads.append(threading.get_ident())
+            time.sleep(0.03)
+            with state_lock:
+                active_callbacks -= 1
+            return True
+
+        agent = OrchestratorAgent(
+            _make_engine_multi_tool(),
+            "test-model",
+            tools=[_CalculatorStub(), _ThinkStub()],
+            parallel_tools=True,
+            before_tool_call=_stateful_hook,
+        )
+
+        result = agent.run("Think and calculate.")
+
+        assert all(tool_result.success for tool_result in result.tool_results)
+        assert overlapped is False
+        assert callback_threads == [caller_thread, caller_thread]
+
+    def test_parallel_hook_failure_denies_only_that_call(self):
+        """One failed decision cannot abort other calls in the same batch."""
+
+        def _partially_broken_hook(name: str, args: dict) -> bool:
+            if name == "calculator":
+                raise RuntimeError("policy service unavailable")
+            return True
+
+        agent = OrchestratorAgent(
+            _make_engine_multi_tool(),
+            "test-model",
+            tools=[_CalculatorStub(), _ThinkStub()],
+            parallel_tools=True,
+            before_tool_call=_partially_broken_hook,
+        )
+
+        result = agent.run("Think and calculate.")
+
+        assert result.tool_results[0].success is False
+        assert "governance check failed" in result.tool_results[0].content
+        assert result.tool_results[1].success is True
+
+    def test_non_object_arguments_fail_closed(self):
+        """The documented dict callback never receives a list or scalar."""
+        calls = []
+
+        def _hook(name: str, args: dict) -> bool:
+            calls.append((name, args))
+            return True
+
+        agent = OrchestratorAgent(
+            _make_engine_with_tool_call(arguments='["2+2"]'),
+            "test-model",
+            tools=[_CalculatorStub()],
+            before_tool_call=_hook,
+        )
+
+        result = agent.run("What is 2+2?")
+
+        assert calls == []
+        assert result.tool_results[0].success is False
+        assert "not an object" in result.tool_results[0].content
