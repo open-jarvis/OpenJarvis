@@ -83,6 +83,7 @@ class GmailIMAPConnector(BaseConnector):
     connector_id = "gmail_imap"
     display_name = "Gmail (IMAP)"
     auth_type = "oauth"  # Reuses credential storage pattern
+    indexed_sources = ("gmail",)
     _default_imap_host = "imap.gmail.com"
 
     def __init__(

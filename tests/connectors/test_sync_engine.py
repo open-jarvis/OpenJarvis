@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, List, Optional
@@ -245,3 +247,27 @@ def test_sync_after_reset_does_not_inherit_prior_items_or_since(
     cp = engine.get_checkpoint("swap")
     assert cp is not None
     assert cp["items_synced"] == 1
+
+
+def test_sync_honors_cancellation_before_ingestion(
+    engine: SyncEngine,
+    store: KnowledgeStore,
+) -> None:
+    cancel_event = threading.Event()
+    cancel_event.set()
+
+    items = engine.sync(
+        StubConnector([_make_doc("cancelled:doc")]),
+        cancel_event=cancel_event,
+    )
+
+    assert items == 0
+    assert store.count() == 0
+
+
+def test_sync_engine_context_manager_closes_sqlite(pipeline: IngestionPipeline) -> None:
+    with SyncEngine(pipeline, state_db=":memory:") as scoped_engine:
+        scoped_engine.get_checkpoint("stub")
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        scoped_engine.get_checkpoint("stub")

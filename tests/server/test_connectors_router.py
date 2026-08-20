@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -92,16 +93,18 @@ def test_disconnect_clears_stale_sync_checkpoint(app) -> None:
     from openjarvis.connectors.store import KnowledgeStore
     from openjarvis.connectors.sync_engine import SyncEngine
 
-    engine = SyncEngine(pipeline=IngestionPipeline(store=KnowledgeStore()))
-    engine._save_checkpoint("obsidian", 9, cursor="stale-cursor")
-    assert engine.get_checkpoint("obsidian") is not None
+    with KnowledgeStore() as store:
+        with SyncEngine(pipeline=IngestionPipeline(store=store)) as engine:
+            engine._save_checkpoint("obsidian", 9, cursor="stale-cursor")
+            assert engine.get_checkpoint("obsidian") is not None
 
     resp = app.post("/v1/connectors/obsidian/disconnect")
     assert resp.status_code == 200
 
     # A fresh SyncEngine (same default state DB) must see no checkpoint.
-    fresh_engine = SyncEngine(pipeline=IngestionPipeline(store=KnowledgeStore()))
-    assert fresh_engine.get_checkpoint("obsidian") is None
+    with KnowledgeStore() as store:
+        with SyncEngine(pipeline=IngestionPipeline(store=store)) as fresh_engine:
+            assert fresh_engine.get_checkpoint("obsidian") is None
 
 
 def test_disconnect_purges_previously_ingested_content(app) -> None:
@@ -118,28 +121,158 @@ def test_disconnect_purges_previously_ingested_content(app) -> None:
     """
     from openjarvis.connectors.store import KnowledgeStore
 
-    store = KnowledgeStore()
-    store.store(
-        content="Stale content from a previously-connected vault",
-        source="obsidian",
-        doc_type="note",
-        doc_id="obsidian:Welcome.md",
-        title="Welcome",
-        author="",
-    )
-    assert any(
-        r.metadata.get("source") == "obsidian"
-        for r in store.retrieve("stale content vault", top_k=10)
-    )
+    with KnowledgeStore() as store:
+        store.store(
+            content="Stale content from a previously-connected vault",
+            source="obsidian",
+            doc_type="note",
+            doc_id="obsidian:Welcome.md",
+            title="Welcome",
+            author="",
+        )
+        assert any(
+            r.metadata.get("source") == "obsidian"
+            for r in store.retrieve("stale content vault", top_k=10)
+        )
 
     resp = app.post("/v1/connectors/obsidian/disconnect")
     assert resp.status_code == 200
 
-    fresh_store = KnowledgeStore()
-    assert not any(
-        r.metadata.get("source") == "obsidian"
-        for r in fresh_store.retrieve("stale content vault", top_k=10)
-    )
+    with KnowledgeStore() as fresh_store:
+        assert not any(
+            r.metadata.get("source") == "obsidian"
+            for r in fresh_store.retrieve("stale content vault", top_k=10)
+        )
+
+
+def test_disconnect_cancels_inflight_sync_before_purge(app) -> None:
+    from openjarvis.connectors._stubs import Document, SyncStatus
+    from openjarvis.connectors.store import KnowledgeStore
+    from openjarvis.server.connectors_router import _instances
+
+    started = threading.Event()
+    released = threading.Event()
+
+    class BlockingConnector:
+        connector_id = "obsidian"
+        indexed_sources = ("obsidian",)
+
+        def is_connected(self):
+            return True
+
+        def sync(self, **kwargs):
+            started.set()
+            released.wait(timeout=2)
+            yield Document(
+                doc_id="obsidian:late-write",
+                source="obsidian",
+                doc_type="note",
+                content="must not survive disconnect",
+            )
+
+        def disconnect(self):
+            released.set()
+
+        def sync_status(self):
+            return SyncStatus()
+
+    _instances["obsidian"] = BlockingConnector()
+    try:
+        assert app.post("/v1/connectors/obsidian/sync").status_code == 200
+        assert started.wait(timeout=2)
+        response = app.post("/v1/connectors/obsidian/disconnect")
+        assert response.status_code == 200
+        with KnowledgeStore() as store:
+            assert not any(
+                result.metadata.get("doc_id") == "obsidian:late-write"
+                for result in store.retrieve("must survive disconnect", top_k=10)
+            )
+    finally:
+        released.set()
+        _instances.pop("obsidian", None)
+
+
+def test_disconnect_preserves_source_owned_by_connected_peer(app) -> None:
+    from openjarvis.connectors._stubs import SyncStatus
+    from openjarvis.connectors.store import KnowledgeStore
+    from openjarvis.server.connectors_router import _instances
+
+    class FakeConnector:
+        def __init__(self, connector_id, indexed_sources=()):
+            self.connector_id = connector_id
+            self.indexed_sources = indexed_sources
+            self.connected = True
+
+        def is_connected(self):
+            return self.connected
+
+        def disconnect(self):
+            self.connected = False
+
+        def sync_status(self):
+            return SyncStatus()
+
+    _instances["gmail"] = FakeConnector("gmail")
+    _instances["gmail_imap"] = FakeConnector("gmail_imap", ("gmail",))
+    try:
+        with KnowledgeStore() as store:
+            store.store(
+                content="shared gmail ownership sentinel",
+                source="gmail",
+                doc_type="email",
+                doc_id="gmail:shared-owner",
+            )
+
+        response = app.post("/v1/connectors/gmail_imap/disconnect")
+        assert response.status_code == 200
+
+        with KnowledgeStore() as store:
+            assert any(
+                result.metadata.get("doc_id") == "gmail:shared-owner"
+                for result in store.retrieve("ownership sentinel", top_k=10)
+            )
+            store.delete_by_source("gmail")
+    finally:
+        _instances.pop("gmail", None)
+        _instances.pop("gmail_imap", None)
+
+
+def test_disconnect_restores_checkpoint_when_purge_fails(app, monkeypatch) -> None:
+    from openjarvis.connectors.pipeline import IngestionPipeline
+    from openjarvis.connectors.store import KnowledgeStore
+    from openjarvis.connectors.sync_engine import SyncEngine
+    from openjarvis.server.connectors_router import _instances
+
+    class FakeObsidian:
+        indexed_sources = ("obsidian",)
+
+        def is_connected(self):
+            return True
+
+        def disconnect(self):
+            pass
+
+    with KnowledgeStore() as store:
+        with SyncEngine(pipeline=IngestionPipeline(store=store)) as engine:
+            engine._save_checkpoint("obsidian", 17, cursor="keep-me")
+
+    def fail_purge(self, sources):
+        raise RuntimeError("simulated purge failure")
+
+    monkeypatch.setattr(KnowledgeStore, "delete_by_sources", fail_purge)
+    _instances["obsidian"] = FakeObsidian()
+    try:
+        response = app.post("/v1/connectors/obsidian/disconnect")
+        assert response.status_code == 500
+        with KnowledgeStore() as store:
+            with SyncEngine(pipeline=IngestionPipeline(store=store)) as engine:
+                checkpoint = engine.get_checkpoint("obsidian")
+                assert checkpoint is not None
+                assert checkpoint["items_synced"] == 17
+                assert checkpoint["cursor"] == "keep-me"
+                engine.reset_checkpoint("obsidian")
+    finally:
+        _instances.pop("obsidian", None)
 
 
 def test_sync_status(app):

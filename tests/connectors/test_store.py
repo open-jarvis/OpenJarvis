@@ -243,6 +243,17 @@ def test_delete_by_source(ks: KnowledgeStore) -> None:
     assert ks.delete_by_source("nonexistent_source") == 0
 
 
+def test_delete_by_sources_removes_all_owned_sources_atomically(
+    ks: KnowledgeStore,
+) -> None:
+    _store(ks, content="first owned source", source="owned_a")
+    _store(ks, content="second owned source", source="owned_b")
+    _store(ks, content="unrelated source", source="other")
+
+    assert ks.delete_by_sources(("owned_a", "owned_b")) == 2
+    assert ks.distinct_sources() == ["other"]
+
+
 def test_clear(ks: KnowledgeStore) -> None:
     """clear() removes all stored documents."""
     _store(ks, content="Document one about research")

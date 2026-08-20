@@ -15,7 +15,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 from openjarvis.core.events import EventType, get_event_bus
 from openjarvis.core.registry import MemoryRegistry
@@ -466,10 +466,23 @@ class KnowledgeStore(MemoryBackend):
         pipeline's duplicate-doc_id dedup silently discards the new
         content in favor of the stale orphan.
         """
-        cur = self._conn.execute(
-            "DELETE FROM knowledge_chunks WHERE source = ?", (source,)
-        )
-        self._conn.commit()
+        return self.delete_by_sources((source,))
+
+    def delete_by_sources(self, sources: Iterable[str]) -> int:
+        """Atomically delete chunks belonging to any of *sources*."""
+        unique_sources = tuple(dict.fromkeys(sources))
+        if not unique_sources:
+            return 0
+        placeholders = ", ".join("?" for _ in unique_sources)
+        try:
+            cur = self._conn.execute(
+                f"DELETE FROM knowledge_chunks WHERE source IN ({placeholders})",
+                unique_sources,
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
         return cur.rowcount
 
     def clear(self) -> None:
