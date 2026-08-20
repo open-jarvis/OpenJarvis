@@ -130,6 +130,7 @@ class TestMetricsRoute:
         import openjarvis.core.config as config_mod
 
         monkeypatch.setattr(config_mod, "DEFAULT_CONFIG_DIR", tmp_path)
+
         client = TestClient(_make_app())
         resp = client.get("/metrics")
         assert resp.status_code == 200
