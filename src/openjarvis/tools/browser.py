@@ -284,9 +284,7 @@ class BrowserClickTool(BaseTool):
         import re
 
         words = [w for w in re.split(r"\W+", selector.lower()) if w]
-        ordinal = next(
-            (self._ORDINALS[w] for w in words if w in self._ORDINALS), None
-        )
+        ordinal = next((self._ORDINALS[w] for w in words if w in self._ORDINALS), None)
 
         def candidates(frame: Any) -> list:
             cands = []
