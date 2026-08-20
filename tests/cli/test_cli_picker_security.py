@@ -39,7 +39,7 @@ class TestSanitizeModelId:
 class TestRuntimePanelSecurity:
     def test_num_ctx_capped_at_max(self) -> None:
         opts = ChatRuntimeOptions(num_ctx=MAX_NUM_CTX + 50_000)
-        assert opts.to_engine_kwargs()["num_ctx"] == MAX_NUM_CTX
+        assert opts.to_engine_kwargs(engine_name="ollama")["num_ctx"] == MAX_NUM_CTX
 
     def test_parse_int_rejects_non_numeric(self) -> None:
         assert _parse_int("12abc", default=None) is None
@@ -48,21 +48,26 @@ class TestRuntimePanelSecurity:
 
     def test_engine_kwargs_only_expected_keys(self) -> None:
         opts = ChatRuntimeOptions(num_ctx=4096, num_gpu=10)
-        assert set(opts.to_engine_kwargs().keys()) <= {"num_ctx", "num_gpu"}
+        assert set(opts.to_engine_kwargs(engine_name="ollama").keys()) <= {
+            "num_ctx",
+            "num_gpu",
+        }
 
     def test_negative_num_ctx_not_forwarded(self) -> None:
         opts = ChatRuntimeOptions(num_ctx=-1)
-        assert "num_ctx" not in opts.to_engine_kwargs()
+        assert "num_ctx" not in opts.to_engine_kwargs(engine_name="ollama")
 
     def test_num_gpu_all_layers_maps_to_bounded_value(self) -> None:
         opts = ChatRuntimeOptions(num_gpu=-1)
-        assert opts.to_engine_kwargs()["num_gpu"] == 999
+        assert opts.to_engine_kwargs(engine_name="ollama")["num_gpu"] == 999
 
     def test_extreme_num_gpu_capped(self) -> None:
         from openjarvis.cli._runtime_panel import MAX_NUM_GPU_LAYERS
 
         opts = ChatRuntimeOptions(num_gpu=10**9)
-        assert opts.to_engine_kwargs()["num_gpu"] == MAX_NUM_GPU_LAYERS
+        assert (
+            opts.to_engine_kwargs(engine_name="ollama")["num_gpu"] == MAX_NUM_GPU_LAYERS
+        )
 
 
 class TestModelPickerSecurity:

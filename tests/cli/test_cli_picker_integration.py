@@ -114,12 +114,12 @@ class TestRuntimePanelBranches:
         assert opts.num_ctx == 65536
         assert opts.num_gpu == 0
 
-    def test_interactive_runtime_non_ollama_ctx_only(self) -> None:
+    def test_interactive_runtime_non_ollama_does_not_prompt(self) -> None:
         console = MagicMock()
-        with patch("builtins.input", side_effect=["8192", "99"]):
+        with patch("builtins.input") as read_input:
             opts = interactive_pick_runtime_options(console, engine_name="vllm")
-        assert opts.num_ctx == 8192
-        assert opts.num_gpu is None
+        assert opts == ChatRuntimeOptions()
+        read_input.assert_not_called()
 
     def test_interactive_runtime_ctx_interrupt(self) -> None:
         with patch("builtins.input", side_effect=KeyboardInterrupt):
@@ -139,7 +139,10 @@ class TestRuntimePanelBranches:
             cli_num_ctx=32_000,
             cli_num_gpu=-1,
         )
-        assert opts.to_engine_kwargs() == {"num_ctx": 32000, "num_gpu": 999}
+        assert opts.to_engine_kwargs(engine_name="ollama") == {
+            "num_ctx": 32000,
+            "num_gpu": 999,
+        }
 
     def test_runtime_cli_options_attached(self) -> None:
         import click
@@ -156,6 +159,57 @@ class TestRuntimePanelBranches:
 
 
 class TestChatPickerIntegration:
+    def test_cloud_chat_never_receives_ollama_runtime_kwargs(self) -> None:
+        engine = MagicMock()
+        engine.generate.return_value = {"content": "ok"}
+        cfg = JarvisConfig()
+        cfg.intelligence.default_model = "gpt-4o-mini"
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=cfg),
+            patch("openjarvis.engine.get_engine", return_value=("cloud", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.cli._model_switch.tty_wants_model_picker",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.cli._runtime_panel.tty_wants_runtime_panel",
+                return_value=True,
+            ) as wants_panel,
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--agent", "none"],
+                input="hello\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        wants_panel.assert_not_called()
+        engine.generate.assert_called_once()
+        assert engine.generate.call_args.kwargs == {"model": "gpt-4o-mini"}
+
+    def test_cloud_chat_rejects_ollama_runtime_flags(self) -> None:
+        engine = MagicMock()
+        cfg = JarvisConfig()
+        cfg.intelligence.default_model = "gpt-4o-mini"
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=cfg),
+            patch("openjarvis.engine.get_engine", return_value=("cloud", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.cli._model_switch.tty_wants_model_picker",
+                return_value=False,
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--agent", "none", "--num-ctx", "4096"],
+            )
+
+        assert result.exit_code == 2
+        assert "supported only with --engine ollama" in result.output
+        engine.generate.assert_not_called()
+
     def test_rich_markup_in_runtime_labels_is_rendered_literally(self) -> None:
         engine = MagicMock()
         engine.generate.return_value = {"content": "ok"}

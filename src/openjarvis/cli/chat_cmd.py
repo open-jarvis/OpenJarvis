@@ -94,7 +94,7 @@ def chat(
       /quit, /exit  — end session
       /clear        — clear conversation history
       /model        — show current model
-      /runtime      — context + GPU offload for this session
+      /runtime      — Ollama context + GPU offload for this session
       /help         — show available commands
       /history      — show conversation history
     """
@@ -157,18 +157,22 @@ def chat(
         tty_wants_runtime_panel,
     )
 
-    if tty_wants_runtime_panel(skip_runtime_panel):
+    if engine_name != "ollama" and (num_ctx is not None or num_gpu is not None):
+        raise click.UsageError(
+            "--num-ctx and --num-gpu are supported only with --engine ollama"
+        )
+    if engine_name == "ollama" and tty_wants_runtime_panel(skip_runtime_panel):
         runtime_opts = interactive_pick_runtime_options(
             console,
             engine_name=engine_name,
             cli_num_ctx=num_ctx,
             cli_num_gpu=num_gpu,
         )
-    elif num_ctx is not None or num_gpu is not None:
+    elif engine_name == "ollama" and (num_ctx is not None or num_gpu is not None):
         runtime_opts = ChatRuntimeOptions(num_ctx=num_ctx, num_gpu=num_gpu)
     else:
         runtime_opts = ChatRuntimeOptions()
-    engine_kwargs = runtime_opts.to_engine_kwargs()
+    engine_kwargs = runtime_opts.to_engine_kwargs(engine_name=engine_name)
 
     # Resolve agent (optional)
     agent = None
@@ -347,7 +351,7 @@ def chat(
                 "  /quit, /exit  — end session\n"
                 "  /clear        — clear conversation\n"
                 "  /model        — show model info\n"
-                "  /runtime      — context + GPU offload for this session\n"
+                "  /runtime      — Ollama context + GPU offload for this session\n"
                 "  /history      — show conversation\n"
                 "  /help         — this message"
             )

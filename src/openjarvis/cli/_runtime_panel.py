@@ -17,8 +17,10 @@ class ChatRuntimeOptions:
     num_ctx: Optional[int] = None
     num_gpu: Optional[int] = None
 
-    def to_engine_kwargs(self) -> dict[str, Any]:
-        """Kwargs forwarded to ``InferenceEngine.generate()``."""
+    def to_engine_kwargs(self, *, engine_name: str) -> dict[str, Any]:
+        """Return only options implemented by the selected engine."""
+        if engine_name != "ollama":
+            return {}
         out: dict[str, Any] = {}
         if self.num_ctx is not None and self.num_ctx > 0:
             out["num_ctx"] = min(int(self.num_ctx), MAX_NUM_CTX)
@@ -31,6 +33,8 @@ class ChatRuntimeOptions:
         return out
 
     def summary(self, *, engine_name: str) -> str:
+        if engine_name != "ollama":
+            return "engine defaults (runtime controls require Ollama)"
         parts: list[str] = []
         if self.num_ctx is not None and self.num_ctx > 0:
             parts.append(f"ctx={self.num_ctx:,}")
@@ -80,6 +84,11 @@ def interactive_pick_runtime_options(
     cli_num_gpu: Optional[int] = None,
 ) -> ChatRuntimeOptions:
     """Prompt for context size and GPU offload after model selection."""
+    # These option names and semantics are Ollama-specific. In particular,
+    # forwarding them to OpenAI-compatible engines becomes an invalid API
+    # request rather than a harmless no-op.
+    if engine_name != "ollama":
+        return ChatRuntimeOptions()
     if cli_num_ctx is not None or cli_num_gpu is not None:
         return ChatRuntimeOptions(num_ctx=cli_num_ctx, num_gpu=cli_num_gpu)
 
@@ -87,17 +96,11 @@ def interactive_pick_runtime_options(
         "\n[bold]Runtime[/bold] "
         "[dim](Enter = engine default; applies this session)[/dim]",
     )
-    if engine_name == "ollama":
-        console.print(
-            "  [dim]num_ctx[/dim] — context window (tokens, max "
-            f"{MAX_NUM_CTX:,}). [dim]num_gpu[/dim] — layers on GPU "
-            "(-1 = all, 0 = CPU only).",
-        )
-    else:
-        console.print(
-            f"  [dim]num_ctx[/dim] only "
-            f"([cyan]{engine_name}[/cyan] ignores GPU offload).",
-        )
+    console.print(
+        "  [dim]num_ctx[/dim] — context window (tokens, max "
+        f"{MAX_NUM_CTX:,}). [dim]num_gpu[/dim] — layers on GPU "
+        "(-1 = all, 0 = CPU only).",
+    )
 
     try:
         raw_ctx = input(
@@ -114,16 +117,15 @@ def interactive_pick_runtime_options(
             num_ctx = min(num_ctx, MAX_NUM_CTX)
 
     num_gpu: Optional[int] = None
-    if engine_name == "ollama":
-        try:
-            raw_gpu = input(
-                "GPU layer offload [-1=all, 0=CPU, N=layers, Enter=default]: ",
-            )
-        except (EOFError, KeyboardInterrupt):
-            return ChatRuntimeOptions(num_ctx=num_ctx)
-        parsed = _parse_int(raw_gpu, default=None)
-        if parsed is not None:
-            num_gpu = parsed
+    try:
+        raw_gpu = input(
+            "GPU layer offload [-1=all, 0=CPU, N=layers, Enter=default]: ",
+        )
+    except (EOFError, KeyboardInterrupt):
+        return ChatRuntimeOptions(num_ctx=num_ctx)
+    parsed = _parse_int(raw_gpu, default=None)
+    if parsed is not None:
+        num_gpu = parsed
 
     opts = ChatRuntimeOptions(num_ctx=num_ctx, num_gpu=num_gpu)
     console.print(f"[dim]Runtime: {opts.summary(engine_name=engine_name)}[/dim]\n")

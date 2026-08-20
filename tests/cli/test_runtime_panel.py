@@ -15,7 +15,7 @@ def test_parse_int_underscores() -> None:
 
 def test_chat_runtime_options_engine_kwargs() -> None:
     opts = ChatRuntimeOptions(num_ctx=65536, num_gpu=-1)
-    kw = opts.to_engine_kwargs()
+    kw = opts.to_engine_kwargs(engine_name="ollama")
     assert kw["num_ctx"] == 65536
     assert kw["num_gpu"] == 999
 
@@ -33,7 +33,13 @@ def test_max_num_ctx_constant() -> None:
 
 def test_zero_ctx_treated_as_default() -> None:
     opts = ChatRuntimeOptions(num_ctx=0)
-    assert "num_ctx" not in opts.to_engine_kwargs()
+    assert "num_ctx" not in opts.to_engine_kwargs(engine_name="ollama")
+
+
+def test_non_ollama_engine_gets_no_runtime_kwargs() -> None:
+    opts = ChatRuntimeOptions(num_ctx=65536, num_gpu=12)
+
+    assert opts.to_engine_kwargs(engine_name="cloud") == {}
 
 
 def test_parse_int_commas() -> None:
