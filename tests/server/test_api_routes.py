@@ -120,11 +120,12 @@ class TestBudgetRoutes:
 
 
 class TestMetricsRoute:
-    def test_metrics_endpoint(self):
+    def test_metrics_endpoint(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("openjarvis.core.config.DEFAULT_CONFIG_DIR", tmp_path)
         client = TestClient(_make_app())
         resp = client.get("/metrics")
         assert resp.status_code == 200
-        assert "openjarvis" in resp.text or "No metrics" in resp.text
+        assert resp.text == "# no telemetry data\n"
 
 
 class TestSkillRoutes:
