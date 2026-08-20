@@ -509,7 +509,8 @@ mod tests {
 
         let outcome = std::thread::scope(|scope| {
             let (tx, rx) = std::sync::mpsc::channel();
-            scope.spawn(|| {
+            let reader = &reader;
+            scope.spawn(move || {
                 let result = reader
                     .retrieve("baseline", 5)
                     .map(|results| results.len())
@@ -537,8 +538,9 @@ mod tests {
 
         let outcome = std::thread::scope(|scope| {
             let (tx, rx) = std::sync::mpsc::channel();
-            scope.spawn(|| {
-                let result = second
+            let second_worker = &second;
+            scope.spawn(move || {
+                let result = second_worker
                     .store("concurrent write", "test", None)
                     .map(|_| ())
                     .map_err(|error| error.to_string());
