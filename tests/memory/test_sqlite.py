@@ -78,6 +78,19 @@ def test_retrieve_no_results(tmp_path: Path):
     backend.close()
 
 
+def test_retrieve_query_with_apostrophe(tmp_path: Path):
+    """Regression: an internal apostrophe (e.g. "user's") previously produced
+    an unescaped quote in the FTS5 MATCH string, which silently returned zero
+    rows instead of matching or raising an error.
+    """
+    backend = _make_backend(tmp_path)
+    backend.store("The user's name is Trev.", source="identity.md")
+    results = backend.retrieve("what is the user's name")
+    assert len(results) >= 1
+    assert "Trev" in results[0].content
+    backend.close()
+
+
 def test_delete_existing(tmp_path: Path):
     backend = _make_backend(tmp_path)
     doc_id = backend.store("deletable content")

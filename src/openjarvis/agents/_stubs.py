@@ -57,6 +57,10 @@ class BaseAgent(ABC):
 
     agent_id: str
     accepts_tools: bool = False
+    # Plain conversational agents may opt into the managed runtime's generic
+    # function-calling loop.  Specialized agents keep their own execution
+    # class even when process-wide MCP tools are available.
+    supports_managed_tool_fallback: bool = False
 
     def __init__(
         self,
@@ -151,6 +155,9 @@ class BaseAgent(ABC):
         conversation messages, and finally the user input.
         """
         messages: list[Message] = []
+        context_messages = (
+            list(context.conversation.messages) if context is not None else []
+        )
         # Check if the context already supplies a system message
         _context_has_system = (
             context
@@ -172,9 +179,28 @@ class BaseAgent(ABC):
             except Exception:
                 effective_system_prompt = None
         if effective_system_prompt:
+            context_system_text = "\n\n".join(
+                message.text
+                for message in context_messages
+                if message.role == Role.SYSTEM
+                and message.metadata.get("memory_context")
+                and message.text
+            )
+            if context_system_text:
+                effective_system_prompt = (
+                    f"{effective_system_prompt}\n\n{context_system_text}"
+                )
+                context_messages = [
+                    message
+                    for message in context_messages
+                    if not (
+                        message.role == Role.SYSTEM
+                        and message.metadata.get("memory_context")
+                    )
+                ]
             messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
-        if context and context.conversation.messages:
-            messages.extend(context.conversation.messages)
+        if context_messages:
+            messages.extend(context_messages)
         messages.append(Message(role=Role.USER, content=input))
         return messages
 

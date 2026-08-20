@@ -1,11 +1,10 @@
 import type { ModelInfo, SavingsData, ServerInfo } from '../types';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
+import { serializeToolCallArguments } from './tool-call';
 
 // ---------------------------------------------------------------------------
-// Supabase config — safe to embed (RLS protects writes)
+// Supabase config
 // ---------------------------------------------------------------------------
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://mtbtgpwzrbostweaanpr.supabase.co';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10YnRncHd6cmJvc3R3ZWFhbnByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxODk0OTQsImV4cCI6MjA4ODc2NTQ5NH0._xMlqCfljtXpwPj54H-ghxfLFO-jiq4W2WhpU8vVL1c';
 
 declare global {
   interface Window {
@@ -14,6 +13,31 @@ declare global {
 }
 
 export const isTauri = () => typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
+
+export type CloudKeyStatus = Record<string, boolean>;
+
+export async function getCloudKeyStatus(): Promise<CloudKeyStatus> {
+  if (!isTauri()) return {};
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const rows = await invoke<Array<{ key: string; set: boolean }>>('get_cloud_key_status');
+    return Object.fromEntries(rows.map((row) => [row.key, row.set]));
+  } catch (e: any) {
+    throw new Error(e?.message ?? e ?? 'Failed to read cloud key status');
+  }
+}
+
+export async function saveCloudKey(keyName: string, keyValue: string): Promise<void> {
+  if (!isTauri()) {
+    throw new Error('Cloud API keys can be saved in the desktop app only.');
+  }
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('save_cloud_key', { keyName, keyValue });
+  } catch (e: any) {
+    throw new Error(e?.message ?? e ?? 'Failed to save cloud key');
+  }
+}
 
 // Cached API base URL fetched from the Tauri backend at startup.
 // This avoids hardcoding the port — the Rust backend is the single
@@ -195,9 +219,9 @@ export async function deleteModel(modelName: string): Promise<void> {
 
 const _CLOUD_PREFIXES = ['gpt-', 'o1-', 'o3-', 'o4-', 'claude-', 'gemini-', 'openrouter/'];
 
-export async function preloadModel(modelName: string): Promise<void> {
+export async function preloadModel(modelName: string, owner?: string): Promise<void> {
   // Cloud models don't need Ollama preloading
-  if (_CLOUD_PREFIXES.some(p => modelName.startsWith(p))) {
+  if (owner === 'litellm' || _CLOUD_PREFIXES.some(p => modelName.startsWith(p))) {
     return;
   }
   // Trigger Ollama to load the model into memory (empty prompt, no generation).
@@ -317,8 +341,9 @@ export async function transcribeAudio(audioBlob: Blob, filename = 'recording.web
         audioData: Array.from(new Uint8Array(buffer)),
         filename,
       });
-    } catch {
-      // Fall through to fetch
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(msg || 'Transcription failed');
     }
   }
   const formData = new FormData();
@@ -327,7 +352,16 @@ export async function transcribeAudio(audioBlob: Blob, filename = 'recording.web
     method: 'POST',
     body: formData,
   });
-  if (!res.ok) throw new Error(`Transcription failed: ${res.status}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = typeof body.detail === 'string' ? body.detail : "";
+    } catch {
+      // Keep the status-only message below when the body is not JSON.
+    }
+    throw new Error(detail || `Transcription failed: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -708,7 +742,7 @@ export async function sendAgentMessage(
               const parsed = JSON.parse(data);
               callbacks?.onToolCallStart?.({
                 tool: parsed.tool,
-                arguments: parsed.arguments ?? '',
+                arguments: serializeToolCallArguments(parsed.arguments),
               });
             } catch {
               /* skip */
@@ -852,6 +886,25 @@ export async function saveToolCredentials(
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
+export async function fetchToolCredentialStatus(
+  toolName: string,
+): Promise<Record<string, boolean>> {
+  const res = await apiFetch(`/v1/tools/${toolName}/credentials/status`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function deleteToolCredential(
+  toolName: string,
+  keyName: string,
+): Promise<void> {
+  const res = await apiFetch(
+    `/v1/tools/${encodeURIComponent(toolName)}/credentials/${encodeURIComponent(keyName)}`,
+    { method: 'DELETE' },
+  );
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
+
 export interface AgentTraceDetail {
   id: string;
   agent: string;
@@ -948,10 +1001,29 @@ export interface MemoryStats {
 
 export interface MemoryConfig {
   backend: string;
+  // Set by the server when the native `openjarvis_rust` extension is missing,
+  // so the UI can show the real cause instead of a healthy-looking config.
+  available?: boolean;
+  detail?: string | null;
   context_from_memory: boolean;
   context_top_k: number;
   context_min_score: number;
   context_max_tokens: number;
+}
+
+/**
+ * Extract the server's `detail` message from a failed JSON response so the UI
+ * surfaces the real cause (e.g. "openjarvis_rust extension is not installed")
+ * instead of a blanket fallback string (#502).
+ */
+async function memoryErrorDetail(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.json();
+    if (data && typeof data.detail === 'string' && data.detail) return data.detail;
+  } catch {
+    // Non-JSON body — fall through to the generic message below.
+  }
+  return fallback;
 }
 
 export async function getMemoryStats(): Promise<MemoryStats> {
@@ -977,16 +1049,16 @@ export async function storeMemory(content: string, metadata?: Record<string, unk
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content, metadata }),
   });
-  if (!res.ok) throw new Error('Failed to store memory');
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to store memory'));
 }
 
-export async function indexMemoryPath(path: string): Promise<{ chunks_indexed: number }> {
+export async function indexMemoryPath(path: string): Promise<{ chunks_indexed: number; note?: string }> {
   const res = await apiFetch(`/v1/memory/index`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
   });
-  if (!res.ok) throw new Error('Failed to index path');
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to index path'));
   return res.json();
 }
 

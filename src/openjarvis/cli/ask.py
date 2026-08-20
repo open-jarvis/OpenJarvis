@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json as json_mod
 import logging
 import sys
@@ -19,6 +20,7 @@ from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
 from openjarvis.engine import (
     EngineConnectionError,
+    EngineContextLengthError,
     discover_engines,
     discover_models,
     get_engine,
@@ -151,9 +153,7 @@ def _run_research(
             trace.print(f"  [dim]↳ Found {n} {label}[/dim]")
         elif etype == "clarify_call":
             q = event.get("question", "") or ""
-            trace.print(
-                f"  [dim]↳ Clarifying:[/dim] [dim italic]{q}[/dim italic]"
-            )
+            trace.print(f"  [dim]↳ Clarifying:[/dim] [dim italic]{q}[/dim italic]")
         # final_answer and clarify_response are handled outside the loop.
 
     agent = ResearchAgent(
@@ -248,6 +248,17 @@ def _get_memory_backend(config):
         return None
 
 
+def _get_memory_facts(config):
+    """Load facts captured by the automatic memory service."""
+    try:
+        from openjarvis.memory import load_configured_facts
+
+        return load_configured_facts(config)
+    except Exception as exc:
+        logger.debug("Automatic memory facts unavailable (optional): %s", exc)
+        return []
+
+
 _MEMORY_TOOLS = frozenset(
     {"retrieval", "memory_store", "memory_search", "memory_index", "memory_retrieve"}
 )
@@ -326,6 +337,7 @@ def _run_agent(
     temperature: float,
     max_tokens: int,
     capability_policy=None,
+    memory_files_config=None,
 ):
     """Instantiate and run an agent, returning the AgentResult."""
     # Import agents to trigger registration
@@ -340,13 +352,35 @@ def _run_agent(
 
     agent_cls = AgentRegistry.get(agent_name)
 
-    # Build tools
+    # Build tools — local registry tools + MCP server tools from config
+    # (#461 — MCP tools were silently dropped because ask.py only used
+    # ToolRegistry).
     tools = []
     if tool_names:
         # Trigger tool registration
         import openjarvis.tools  # noqa: F401
 
         tools = _build_tools(tool_names, config, engine, model_name)
+
+    # MCP tools from config.tools.mcp.servers. Loaded regardless of
+    # tool_names — if the caller passed --tools, the loader filters MCP
+    # tools to those names; otherwise every MCP tool is included.
+    from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+    mcp_tools, mcp_clients = load_mcp_tools_from_config(
+        config.tools.mcp,
+        allowed_names=set(tool_names) if tool_names else None,
+    )
+    if mcp_tools:
+        # Dedup against registry tools by spec.name — first occurrence wins
+        # so a registry tool always takes precedence over an MCP tool with
+        # the same name (avoids the "two tools with the same name" footgun
+        # the verdict flagged).
+        existing = {t.spec.name for t in tools}
+        for t in mcp_tools:
+            if t.spec.name not in existing:
+                tools.append(t)
+                existing.add(t.spec.name)
 
     # Build agent with appropriate kwargs
     agent_kwargs = {
@@ -364,9 +398,8 @@ def _run_agent(
 
     # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md persona
     # files actually reach the model. Only passed to agents whose __init__
-    # accepts a `prompt_builder` kwarg (BaseAgent does; agents that override
-    # __init__ without forwarding it, e.g. OrchestratorAgent, opt out
-    # automatically and keep their existing system-prompt machinery).
+    # explicitly accepts a `prompt_builder` kwarg. Agents with specialized
+    # prompt machinery opt in by naming and forwarding the parameter.
     import inspect as _inspect
 
     if "prompt_builder" in _inspect.signature(agent_cls.__init__).parameters:
@@ -374,11 +407,17 @@ def _run_agent(
 
         agent_kwargs["prompt_builder"] = SystemPromptBuilder(
             agent_template=config.agent.default_system_prompt or "",
-            memory_files_config=config.memory_files,
+            memory_files_config=memory_files_config or config.memory_files,
             system_prompt_config=config.system_prompt,
         )
 
     agent = agent_cls(engine, model_name, **agent_kwargs)
+    # Hold MCP transports alive for the agent's lifetime — without this
+    # reference they'd be garbage-collected when this function returns
+    # and the underlying HTTP connections would close mid-execution (#461
+    # adversarial review caught this).
+    if mcp_clients:
+        agent._mcp_clients = mcp_clients
     ctx = AgentContext()
 
     # Inject memory context into conversation if available
@@ -387,7 +426,8 @@ def _run_agent(
             from openjarvis.tools.storage.context import ContextConfig, inject_context
 
             backend = _get_memory_backend(config)
-            if backend is not None:
+            facts = _get_memory_facts(config)
+            if backend is not None or facts:
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -398,6 +438,7 @@ def _run_agent(
                     [],
                     backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
                 for msg in context_messages:
                     ctx.conversation.add(msg)
@@ -592,6 +633,30 @@ def _print_profile(
         "(default: ~/.openjarvis/knowledge.db)."
     ),
 )
+@click.option(
+    "-i",
+    "--image",
+    "image_paths",
+    multiple=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Image file for a vision model (e.g. gemma3). Repeatable.",
+)
+@click.option(
+    "-S",
+    "--screen",
+    "capture_screen",
+    is_flag=True,
+    help="Capture the current screen and send it to the vision model.",
+)
+@click.option(
+    "--persona",
+    "persona_name",
+    default=None,
+    help=(
+        "Named persona dir under ~/.openjarvis/personas/<name>/ "
+        "(overrides config). Pass 'none' to disable all persona files."
+    ),
+)
 @click.pass_context
 def ask(
     ctx: click.Context,
@@ -608,6 +673,9 @@ def ask(
     enable_profile: bool,
     research_mode: bool,
     knowledge_db: str | None,
+    persona_name: str | None,
+    image_paths: tuple[str, ...] = (),
+    capture_screen: bool = False,
 ) -> None:
     """Ask Jarvis a question."""
     quiet = (ctx.obj or {}).get("quiet", False) or output_json
@@ -615,20 +683,65 @@ def ask(
     console = Console(stderr=True)
     query_text = " ".join(query)
 
+    # Vision: collect base64 images from --image files and/or --screen.
+    image_b64: list[str] = []
+    for _img_path in image_paths:
+        try:
+            with open(_img_path, "rb") as _fh:
+                image_b64.append(base64.b64encode(_fh.read()).decode("ascii"))
+        except OSError as exc:
+            console.print(f"[red]Could not read image {_img_path}: {exc}[/red]")
+            sys.exit(1)
+    if capture_screen:
+        try:
+            from openjarvis.cli._screen import capture_screen_to_temp
+
+            _shot = capture_screen_to_temp()
+            with open(_shot, "rb") as _fh:
+                image_b64.append(base64.b64encode(_fh.read()).decode("ascii"))
+            logger.debug("Captured screen to %s", _shot)
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[red]Screen capture failed:[/red] {exc}")
+            sys.exit(1)
+
     wall_start = time.monotonic() if enable_profile else None
 
     # Load config
     config = load_config()
+
+    # Resolve effective MemoryFilesConfig with --persona override
+    import dataclasses as _dc
+
+    effective_mf = (
+        _dc.replace(config.memory_files, persona_name=persona_name)
+        if persona_name is not None
+        else config.memory_files
+    )
 
     # Honor `agent.default_agent` from config when --agent was not explicitly
     # passed. Pass `--agent ""` to opt out and use direct-to-engine mode.
     # Without this fallback, `[agent].default_system_prompt` and the
     # SOUL.md / MEMORY.md / USER.md persona system are silently bypassed for
     # the most common command (`jarvis ask "..."`).
+    agent_explicitly_set = agent_name is not None
     if agent_name is None:
         configured_default = (config.agent.default_agent or "").strip()
         if configured_default:
             agent_name = configured_default
+
+    # Vision flows only through direct-to-engine mode. If an image/screenshot
+    # was supplied without an explicit --agent, route to direct mode so the
+    # picture reaches the model; if an agent was explicitly requested, say
+    # plainly that the image is being skipped rather than dropping it silently.
+    if image_b64:
+        if not agent_explicitly_set:
+            agent_name = ""
+        else:
+            console.print(
+                "[yellow]Note:[/yellow] --image/--screen only works in direct "
+                "mode; the image is ignored with --agent set. Re-run with "
+                '`--agent ""` to use vision.'
+            )
 
     # Track whether the user explicitly set --max-tokens
     user_set_max_tokens = max_tokens is not None
@@ -668,7 +781,13 @@ def ask(
     register_builtin_models()
 
     effective_engine_key = engine_key or config.intelligence.preferred_engine or None
-    resolved = get_engine(config, effective_engine_key)
+    # Pass the model we intend to run so engine selection can skip an engine
+    # that can't actually serve it (e.g. the cloud fallback when the local
+    # engine is down but only a non-OpenAI key is set — see #532). This is the
+    # -m flag or the configured default; when neither is set we leave it None
+    # and a model is chosen per-engine below.
+    selection_model = model_name or config.intelligence.default_model or None
+    resolved = get_engine(config, effective_engine_key, model=selection_model)
     if resolved is None:
         console.print(
             "[red bold]No inference engine available.[/red bold]\n\n"
@@ -773,7 +892,13 @@ def ask(
                 temperature,
                 max_tokens,
                 capability_policy=sec.capability_policy,
+                memory_files_config=effective_mf,
             )
+        except EngineContextLengthError as exc:
+            # Not a reachability problem — pointing the user at server/host
+            # config (hint_no_engine) would be misleading here.
+            console.print(f"[red]{exc}[/red]")
+            sys.exit(1)
         except EngineConnectionError as exc:
             console.print(f"[red]Engine error:[/red] {exc}")
             console.print(hint_no_engine())
@@ -818,6 +943,27 @@ def ask(
         return
 
     # Direct-to-engine mode (no agent)
+    # Privacy guard: a screenshot/image is sensitive, and OpenJarvis is
+    # local-first. If the active engine isn't local, warn before the image
+    # leaves the machine rather than silently uploading it to a third party.
+    _LOCAL_ENGINES = {
+        "ollama",
+        "llamacpp",
+        "vllm",
+        "sglang",
+        "exo",
+        "nexa",
+        "uzu",
+        "apple_fm",
+        "gemma_cpp",
+    }
+    if image_b64 and engine_name not in _LOCAL_ENGINES:
+        console.print(
+            f"[yellow]Privacy warning:[/yellow] sending {len(image_b64)} "
+            f"image(s) to a non-local engine ('{engine_name}'). The image will "
+            "leave this machine. Use a local engine (e.g. ollama) to keep "
+            "vision on-device."
+        )
     messages = [Message(role=Role.USER, content=query_text)]
 
     # Memory-augmented context injection
@@ -829,7 +975,8 @@ def ask(
             )
 
             backend = _get_memory_backend(config)
-            if backend is not None:
+            facts = _get_memory_facts(config)
+            if backend is not None or facts:
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -840,9 +987,19 @@ def ask(
                     messages,
                     backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
         except Exception as exc:
             logger.debug("Failed to inject memory context: %s", exc)
+
+    # Vision: attach images to the final user message *after* any context
+    # injection (which may rebuild the list). messages_to_dicts() forwards
+    # the "images" field to Ollama's /api/chat.
+    if image_b64:
+        for _m in reversed(messages):
+            if _m.role == Role.USER:
+                _m.images = image_b64
+                break
 
     # Generate (InstrumentedEngine handles telemetry + energy recording)
     try:
@@ -853,6 +1010,11 @@ def ask(
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
+    except EngineContextLengthError as exc:
+        # Not a reachability problem — pointing the user at server/host
+        # config (hint_no_engine) would be misleading here.
+        console.print(f"[red]{exc}[/red]")
+        sys.exit(1)
     except EngineConnectionError as exc:
         console.print(f"[red]Engine error:[/red] {exc}")
         console.print(hint_no_engine())

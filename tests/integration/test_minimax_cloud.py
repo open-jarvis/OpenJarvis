@@ -60,3 +60,5 @@ class TestMiniMaxCloudIntegration:
         assert "MiniMax-M3" in models
         assert "MiniMax-M2.7" in models
         assert "MiniMax-M2.7-highspeed" in models
+        assert "MiniMax-M2.5" in models
+        assert "MiniMax-M2.5-highspeed" in models

@@ -109,7 +109,7 @@ If you prefer to run each step yourself:
     ```bash
     git clone https://github.com/open-jarvis/OpenJarvis.git
     cd OpenJarvis
-    uv sync --extra server
+    uv sync --extra desktop
     cd frontend && npm install && cd ..
     ```
 

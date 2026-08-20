@@ -32,8 +32,14 @@ from typing import Any, Dict, List, Optional, Tuple
 STAGE_ALIASES: Dict[str, List[str]] = {
     "search": ["search-1", "search-2", "search-3"],
     "reasoning": ["reasoner-1", "reasoner-2", "reasoner-3"],
-    "answer": ["answer-1", "answer-2", "answer-3", "answer-4",
-               "answer-math-1", "answer-math-2"],
+    "answer": [
+        "answer-1",
+        "answer-2",
+        "answer-3",
+        "answer-4",
+        "answer-math-1",
+        "answer-math-2",
+    ],
 }
 
 # Every alias the orchestrator can emit, flat.
@@ -42,9 +48,13 @@ ALL_ALIASES: List[str] = [a for aliases in STAGE_ALIASES.values() for a in alias
 # Default tier: which aliases collapse onto the cloud model vs the local
 # model. Dearer ``-1``/``-2`` (+ answer-math-1) -> cloud; cheaper -> local.
 _CLOUD_ALIASES = {
-    "search-1", "search-2",
-    "reasoner-1", "reasoner-2",
-    "answer-1", "answer-2", "answer-math-1",
+    "search-1",
+    "search-2",
+    "reasoner-1",
+    "reasoner-2",
+    "answer-1",
+    "answer-2",
+    "answer-math-1",
 }
 
 
@@ -54,8 +64,8 @@ class ModelSpec:
 
     alias: str
     model: str
-    endpoint: str          # "anthropic" | "openai" | "gemini" | "http://..."
-    kind: str              # "cloud" | "local"
+    endpoint: str  # "anthropic" | "openai" | "gemini" | "http://..."
+    kind: str  # "cloud" | "local"
 
     @property
     def is_local(self) -> bool:
@@ -87,7 +97,10 @@ def build_pool(
             pool[alias] = ModelSpec(alias, cloud_model, cloud_endpoint, "cloud")
         else:
             pool[alias] = ModelSpec(
-                alias, local_model, local_endpoint, "local"  # type: ignore[arg-type]
+                alias,
+                local_model,
+                local_endpoint,
+                "local",  # type: ignore[arg-type]
             )
 
     for alias, spec in (overrides or {}).items():
@@ -133,18 +146,30 @@ def call_alias(
     ep = spec.endpoint.lower()
     if ep == "anthropic":
         text, p, c, _ = agent._call_anthropic(
-            spec.model, user=user, system=system,
-            max_tokens=max_tokens, temperature=temperature, trace_role="cloud",
+            spec.model,
+            user=user,
+            system=system,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            trace_role="cloud",
         )
     elif ep == "openai":
         text, p, c = agent._call_openai(
-            spec.model, user=user, system=system,
-            max_tokens=max_tokens, temperature=temperature, trace_role="cloud",
+            spec.model,
+            user=user,
+            system=system,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            trace_role="cloud",
         )
     elif ep == "gemini":
         text, p, c = agent._call_gemini(
-            spec.model, user=user, system=system,
-            max_tokens=max_tokens, temperature=temperature, trace_role="cloud",
+            spec.model,
+            user=user,
+            system=system,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            trace_role="cloud",
         )
     else:
         raise ValueError(f"unsupported pool endpoint: {spec.endpoint!r}")

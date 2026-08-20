@@ -327,9 +327,7 @@ class OpenCodeAgent(BaseAgent):
             self._ensure_server()
         except RuntimeError as exc:
             self._emit_turn_end(turns=1, error=True)
-            return AgentResult(
-                content=str(exc), turns=1, metadata={"error": True}
-            )
+            return AgentResult(content=str(exc), turns=1, metadata={"error": True})
 
         data: dict = {}
         turn_parts: List[dict] = []

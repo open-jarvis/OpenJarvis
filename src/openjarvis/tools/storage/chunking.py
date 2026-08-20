@@ -135,10 +135,17 @@ def chunk_text(
         current_tokens.extend(para_tokens)
         current_offset += len(para_tokens)
 
-    # Flush remaining tokens
+    # Flush remaining tokens.
+    #
+    # ``min_chunk_size`` exists to discard tiny *trailing* fragments once a
+    # document has already produced at least one chunk. It must NOT silently
+    # drop an entire short document: indexing a folder of short notes would
+    # otherwise report success while storing nothing (#502 follow-up). So if no
+    # chunk has been emitted yet, keep the remaining content regardless of the
+    # floor.
     if current_tokens:
         chunk_content = " ".join(current_tokens)
-        if _count_tokens(chunk_content) >= cfg.min_chunk_size:
+        if not chunks or _count_tokens(chunk_content) >= cfg.min_chunk_size:
             chunks.append(
                 Chunk(
                     content=chunk_content,

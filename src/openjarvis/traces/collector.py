@@ -154,7 +154,8 @@ class TraceCollector:
                     "completion_tokens": usage.get("completion_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
                     "tokens": usage.get(
-                        "total_tokens", data.get("total_tokens", 0),
+                        "total_tokens",
+                        data.get("total_tokens", 0),
                     ),
                     "content": data.get("content", ""),
                     "tool_calls": data.get("tool_calls", []),
@@ -168,10 +169,12 @@ class TraceCollector:
                     "energy_joules": data.get("energy_joules", 0.0),
                     "power_watts": data.get("power_watts", 0.0),
                     "gpu_utilization_pct": data.get(
-                        "gpu_utilization_pct", 0.0,
+                        "gpu_utilization_pct",
+                        0.0,
                     ),
                     "throughput_tok_per_sec": data.get(
-                        "throughput_tok_per_sec", 0.0,
+                        "throughput_tok_per_sec",
+                        0.0,
                     ),
                 },
             )
@@ -193,7 +196,8 @@ class TraceCollector:
                 step_type=StepType.TOOL_CALL,
                 timestamp=start,
                 duration_seconds=event.data.get(
-                    "latency", event.timestamp - start,
+                    "latency",
+                    event.timestamp - start,
                 ),
                 input={
                     "tool": event.data.get("tool", ""),
@@ -221,4 +225,59 @@ class TraceCollector:
         )
 
 
-__all__ = ["TraceCollector"]
+def record_response_trace(
+    store: Optional[TraceStore],
+    *,
+    query: str,
+    result: str,
+    model: str = "",
+    engine: str = "",
+    agent: str = "server",
+    started_at: float,
+    ended_at: float,
+) -> Optional[Trace]:
+    """Persist a minimal single-step ``Trace`` for a non-agent response.
+
+    The streaming SSE and WebSocket chat paths stream straight from the
+    engine, bypassing the agent (and therefore ``TraceCollector``). They call
+    this so those interactions still land in ``traces.db`` — otherwise streamed
+    chats, which are the desktop GUI's main path, would never produce traces.
+
+    Best-effort: returns the saved ``Trace`` or ``None`` (when *store* is
+    ``None`` or persistence raised), and never propagates an exception into the
+    caller's response path.
+    """
+    if store is None:
+        return None
+    try:
+        duration = max(0.0, ended_at - started_at)
+        trace = Trace(
+            query=query,
+            agent=agent,
+            model=model,
+            engine=engine,
+            result=result,
+            started_at=started_at,
+            ended_at=ended_at,
+            steps=[
+                TraceStep(
+                    step_type=StepType.RESPOND,
+                    timestamp=ended_at,
+                    duration_seconds=duration,
+                    output={"content": result},
+                )
+            ],
+        )
+        trace.total_latency_seconds = duration
+        store.save(trace)
+        return trace
+    except Exception:
+        import logging
+
+        logging.getLogger("openjarvis.traces").debug(
+            "record_response_trace failed", exc_info=True
+        )
+        return None
+
+
+__all__ = ["TraceCollector", "record_response_trace"]

@@ -61,6 +61,12 @@ KNOWN_BENCHMARKS = {
 KNOWN_BACKENDS = {
     "jarvis-direct": "Engine-level inference (local or cloud)",
     "jarvis-agent": "Agent-level inference with tool calling",
+    "hermes": "Real Hermes Agent (Nous Research) via subprocess",
+    "openclaw": "Real OpenClaw via Node subprocess",
+    "terminalbench-native": (
+        "TerminalBench V2.1 via terminal-bench Harness "
+        "(selected with -b terminalbench-native)"
+    ),
 }
 
 
@@ -146,7 +152,9 @@ def eval_list() -> None:
     "base_url",
     default=None,
     help=(
-        "OpenAI-compat endpoint URL for hermes/openclaw backends "
+        "OpenAI-compatible endpoint for the model under eval. Required for "
+        "hermes/openclaw; for jarvis-direct/jarvis-agent/terminalbench-native "
+        "it bypasses engine discovery and targets this URL directly "
         "(env: JARVIS_BACKEND_BASE_URL)."
     ),
 )
@@ -154,7 +162,11 @@ def eval_list() -> None:
     "--api-key",
     "api_key",
     default=None,
-    help=("API key for the hermes/openclaw endpoint (env: JARVIS_BACKEND_API_KEY)."),
+    help=(
+        "API key for the --base-url endpoint, sent as a Bearer token. "
+        "Required for hermes/openclaw; optional for first-party backends "
+        "(env: JARVIS_BACKEND_API_KEY)."
+    ),
 )
 @click.option(
     "--agent",
@@ -347,7 +359,7 @@ def eval_run(
                 f"{rc.benchmark} / {rc.model}"
             )
             try:
-                summary = _run_single(rc, console=console)
+                summary = _run_single(rc, console=console, suite_mode=True)
                 console.print(
                     f"  [green]{summary.accuracy:.4f}[/green] "
                     f"({summary.correct}/{summary.scored_samples})"
@@ -399,8 +411,10 @@ def eval_run(
         sheets_spreadsheet_id=sheets_spreadsheet_id,
         sheets_worksheet=sheets_worksheet,
         sheets_credentials_path=sheets_credentials_path,
-        # Spec §6.2 — for hermes/openclaw external backends. Falls back to env vars
-        # so users can also set JARVIS_BACKEND_BASE_URL/JARVIS_BACKEND_API_KEY.
+        # OpenAI-compatible endpoint for the model under eval. Required for
+        # hermes/openclaw (Spec §6.2); honored by first-party backends too on
+        # this CLI path. Falls back to env vars so users can also set
+        # JARVIS_BACKEND_BASE_URL/JARVIS_BACKEND_API_KEY.
         base_url=base_url or os.environ.get("JARVIS_BACKEND_BASE_URL"),
         api_key=api_key or os.environ.get("JARVIS_BACKEND_API_KEY"),
     )

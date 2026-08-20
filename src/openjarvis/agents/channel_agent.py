@@ -112,10 +112,15 @@ class ChannelAgent:
             friendly = (
                 f"Sorry, I ran into an error while processing your request: {exc}"
             )
+            # First positional arg is the DESTINATION (per-adapter native
+            # ID — Discord channel ID, Slack channel ID, etc.); not the
+            # channel TYPE label. The `conversation_id=` kwarg is the
+            # native message ID for reply threading (per DiscordChannel
+            # / SlackChannel / etc. send() contract — see #459).
             self._channel.send(
-                msg.channel,
+                msg.conversation_id,
                 friendly,
-                conversation_id=msg.conversation_id,
+                conversation_id=msg.message_id,
             )
             return
 
@@ -130,10 +135,11 @@ class ChannelAgent:
         else:
             reply = response_text
 
+        # Same field-mapping as the error path above (#459).
         self._channel.send(
-            msg.channel,
+            msg.conversation_id,
             reply,
-            conversation_id=msg.conversation_id,
+            conversation_id=msg.message_id,
         )
 
     # ------------------------------------------------------------------

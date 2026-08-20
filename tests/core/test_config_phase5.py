@@ -48,6 +48,7 @@ class TestConfigPhase5:
         with pytest.raises(KeyError):
             ModelRegistry.get("iso-test")
 
-    def test_load_config_default(self):
-        cfg = load_config()
+    def test_load_config_default(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "home"))
+        cfg = load_config(tmp_path / "missing-config.toml")
         assert isinstance(cfg, JarvisConfig)

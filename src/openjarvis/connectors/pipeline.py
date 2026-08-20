@@ -48,13 +48,14 @@ def _derive_source_id(doc: Document) -> str:
         return doc.source_id
     prefix = f"{doc.source}:"
     if doc.doc_id.startswith(prefix):
-        return doc.doc_id[len(prefix):]
+        return doc.doc_id[len(prefix) :]
     return doc.doc_id
 
 
 def _content_hash(text: str) -> str:
     """SHA-256 hex digest of UTF-8-encoded chunk content."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 
 if TYPE_CHECKING:
     from openjarvis.connectors.attachment_store import AttachmentStore

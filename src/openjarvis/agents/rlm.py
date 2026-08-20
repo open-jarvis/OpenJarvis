@@ -8,8 +8,9 @@ context and makes recursive sub-LM calls via ``llm_query()``/``llm_batch()``.
 
 from __future__ import annotations
 
+import json
 import re
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.agents.prompt_loader import (
@@ -35,6 +36,12 @@ RLM_SYSTEM_PROMPT = (
     "prompt and get a response.\n"
     "- `llm_batch(prompts: list[str]) -> list[str]` — Call a "
     "sub-LM with multiple prompts.\n"
+    "- `tool_call(tool_name: str, args: dict) -> str` — Execute an "
+    "OpenJarvis tool and return its textual output.\n"
+    "- `read_file(path: str, max_lines: int = 120) -> str` — Read the "
+    "first N lines of a file through the real file_read tool.\n"
+    "- `read_file_chunk(path: str, start_line: int, end_line: int) -> str` "
+    "— Read only a bounded line range from a file.\n"
     "- `FINAL(value)` — Terminate and return `value` as the "
     "final answer.\n"
     "- `FINAL_VAR(var_name: str)` — Terminate and return the "
@@ -59,6 +66,14 @@ RLM_SYSTEM_PROMPT = (
     '`FINAL(answer_value)` or `FINAL_VAR("var_name")`.\n'
     "5. If you can answer directly without code, just respond "
     "with text (no code block).\n\n"
+    "6. For file access, web access, or any external side effect, use "
+    "the injected tool helpers (for example "
+    '`file_read(path="...")` or `tool_call("file_read", {{"path": "..."}})`). '
+    "Do NOT use open(), subprocess, urllib, or direct OS access.\n\n"
+    "7. For file-analysis tasks, do NOT dump whole files. Prefer "
+    "`read_file(path, max_lines=...)` or "
+    "`read_file_chunk(path, start_line, end_line)` and summarize "
+    "incrementally.\n\n"
     "## Strategy Tips\n\n"
     "- Split long text into paragraphs or sections, summarize "
     "each with `llm_query()`.\n"
@@ -167,9 +182,12 @@ class RLMAgent(ToolUsingAgent):
                 system_prompt = prompt_template
 
         # Create REPL with sub-LM callbacks
+        self._repl_tool_results: List[ToolResult] = []
         repl = RLMRepl(
             llm_query_fn=self._make_sub_query,
             llm_batch_fn=self._make_batch_query,
+            tool_call_fn=self._execute_tool_from_repl if self._executor else None,
+            tool_arg_names=self._tool_arg_names(),
             max_output_chars=self._max_output_chars,
         )
 
@@ -177,6 +195,9 @@ class RLMAgent(ToolUsingAgent):
         ctx_text = self._resolve_context(context)
         if ctx_text:
             repl.set_variable("context", ctx_text)
+        if self._executor is not None:
+            repl.set_variable("read_file", self._repl_read_file)
+            repl.set_variable("read_file_chunk", self._repl_read_file_chunk)
 
         # Build conversation
         messages = self._build_messages(
@@ -226,6 +247,10 @@ class RLMAgent(ToolUsingAgent):
 
             # Execute code in REPL
             output = repl.execute(code)
+
+            if self._repl_tool_results:
+                all_tool_results.extend(self._repl_tool_results)
+                self._repl_tool_results = []
 
             # Record as tool result
             tool_result = ToolResult(
@@ -332,6 +357,71 @@ class RLMAgent(ToolUsingAgent):
         Called from REPL code via ``llm_batch(prompts)``.
         """
         return [self._make_sub_query(p) for p in prompts]
+
+    def _tool_arg_names(self) -> Dict[str, Optional[str]]:
+        """Build a best-effort primary-arg map for injected tool helpers."""
+        arg_names: Dict[str, Optional[str]] = {}
+        for tool in self._tools:
+            props = tool.spec.parameters.get("properties", {})
+            required = tool.spec.parameters.get("required", [])
+            primary = None
+            if required:
+                primary = required[0]
+            elif props:
+                primary = next(iter(props.keys()))
+            arg_names[tool.spec.name] = primary
+        return arg_names
+
+    def _execute_tool_from_repl(self, tool_name: str, params: Dict[str, Any]) -> str:
+        """Execute a real OpenJarvis tool from within the REPL."""
+        if self._executor is None:
+            raise RuntimeError(f"Tool '{tool_name}' is not available")
+
+        tc = ToolCall(
+            id=f"rlm_tool_{len(getattr(self, '_repl_tool_results', []))}",
+            name=tool_name,
+            arguments=json.dumps(params),
+        )
+        tr = self._executor.execute(tc)
+        getattr(self, "_repl_tool_results", []).append(tr)
+        return tr.content
+
+    def _repl_read_file(self, path: str, max_lines: int = 120) -> str:
+        """Read a bounded number of lines from a file via the real tool."""
+        params: Dict[str, Any] = {"path": path}
+        try:
+            max_lines_int = int(max_lines)
+        except (TypeError, ValueError):
+            max_lines_int = 120
+        if max_lines_int > 0:
+            params["max_lines"] = max_lines_int
+        return self._execute_tool_from_repl("file_read", params)
+
+    def _repl_read_file_chunk(
+        self,
+        path: str,
+        start_line: int,
+        end_line: int,
+    ) -> str:
+        """Read a bounded line range from a file via the file_read tool.
+
+        The underlying tool only supports a head-style max_lines cap, so this
+        helper reads up to ``end_line`` and then slices the requested range in
+        Python. This is still much cheaper than asking the model to dump the
+        entire file into the next turn.
+        """
+        try:
+            start = max(1, int(start_line))
+            end = max(start, int(end_line))
+        except (TypeError, ValueError):
+            start, end = 1, 120
+
+        content = self._execute_tool_from_repl(
+            "file_read",
+            {"path": path, "max_lines": end},
+        )
+        lines = content.splitlines(keepends=True)
+        return "".join(lines[start - 1 : end])
 
     # ------------------------------------------------------------------
     # Helpers

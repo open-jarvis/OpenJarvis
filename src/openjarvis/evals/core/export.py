@@ -26,13 +26,22 @@ def _agg_stats(values: Sequence[Optional[float]]) -> dict[str, Optional[float]]:
     }
 
 
+def _model_attributable(traces: list[QueryTrace]) -> list[QueryTrace]:
+    """Traces whose outcome is attributable to the model.
+
+    Harness errors (infra/setup failures, zero-model-contact runs) are
+    excluded so they never count as model misses in resolve-rate.
+    """
+    return [t for t in traces if t.error_kind != "harness_error"]
+
+
 def _compute_efficiency(
     traces: list[QueryTrace],
     total_gpu_energy: Optional[float],
     total_cpu_energy: Optional[float],
 ) -> dict[str, Optional[float]]:
     """Compute efficiency metrics from traces and aggregate energy."""
-    scored = [t for t in traces if t.is_resolved is not None]
+    scored = [t for t in _model_attributable(traces) if t.is_resolved is not None]
     resolved = sum(1 for t in scored if t.is_resolved is True)
     accuracy = resolved / len(scored) if scored else None
     gpu_powers = [
@@ -247,8 +256,12 @@ def export_summary_json(
             cpu_energy_values.append(sum(cpu_vals))
     total_cpu_energy = sum(cpu_energy_values) if cpu_energy_values else None
 
-    resolved = sum(1 for t in traces if t.is_resolved is True)
-    unresolved = sum(1 for t in traces if t.is_resolved is False)
+    # Harness errors (infra failures, zero-model-contact runs) are excluded
+    # from the resolve-rate denominator: they are not model misses.
+    harness_error_traces = [t for t in traces if t.error_kind == "harness_error"]
+    model_traces = _model_attributable(traces)
+    resolved = sum(1 for t in model_traces if t.is_resolved is True)
+    unresolved = sum(1 for t in model_traces if t.is_resolved is False)
 
     cost_values = [t.total_cost_usd for t in traces if t.total_cost_usd is not None]
     total_cost = sum(cost_values) if cost_values else None
@@ -345,6 +358,7 @@ def export_summary_json(
             "completed": completed,
             "resolved": resolved,
             "unresolved": unresolved,
+            "harness_errors": len(harness_error_traces),
             "accuracy": accuracy,
             "turns": total_turns,
             "tool_calls": total_tool_calls,
@@ -364,6 +378,12 @@ def export_summary_json(
         "statistics": stats,
         "efficiency": efficiency,
     }
+
+    if harness_error_traces:
+        summary["harness_error_details"] = [
+            {"query_id": t.query_id, "error": (t.error or "")[:500]}
+            for t in harness_error_traces
+        ]
 
     if action_totals:
         summary["action_energy_summary"] = action_totals
@@ -399,7 +419,7 @@ def export_summary_json(
 
     accuracy_vals: list[float] = [
         1.0 if t.is_resolved is True else 0.0
-        for t in traces
+        for t in _model_attributable(traces)
         if t.is_resolved is not None
     ]
     latency_vals = [t.total_wall_clock_s for t in traces if t.total_wall_clock_s > 0]

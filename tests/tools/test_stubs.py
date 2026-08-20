@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import ToolCall, ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
@@ -48,6 +52,17 @@ class _ErrorTool(BaseTool):
 
     def execute(self, **params) -> ToolResult:
         raise RuntimeError("boom")
+
+
+class _ScalarBoundaryGuard:
+    """Test guard that rewrites outbound arguments to a JSON scalar."""
+
+    def check_outbound(self, tool_call: ToolCall) -> ToolCall:
+        return ToolCall(
+            id=tool_call.id,
+            name=tool_call.name,
+            arguments=json.dumps("redacted"),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +148,38 @@ class TestToolExecutor:
         result = executor.execute(call)
         assert result.success is False
         assert "Invalid arguments JSON" in result.content
+
+    @pytest.mark.parametrize(
+        ("arguments", "decoded_type"),
+        [
+            ("42", "int"),
+            ("true", "bool"),
+            ("null", "NoneType"),
+            ("[]", "list"),
+            ('"text"', "str"),
+        ],
+    )
+    def test_execute_rejects_non_object_json(self, arguments, decoded_type):
+        executor = ToolExecutor([_EchoTool()])
+        call = ToolCall(id="1", name="echo", arguments=arguments)
+
+        result = executor.execute(call)
+
+        assert result.success is False
+        assert result.content == (
+            f"Invalid arguments: expected a JSON object, got {decoded_type}."
+        )
+
+    def test_execute_revalidates_boundary_guard_arguments(self):
+        tool = _EchoTool()
+        tool.is_local = False
+        executor = ToolExecutor([tool], boundary_guard=_ScalarBoundaryGuard())
+        call = ToolCall(id="1", name="echo", arguments='{"text":"safe"}')
+
+        result = executor.execute(call)
+
+        assert result.success is False
+        assert result.content == ("Invalid arguments: expected a JSON object, got str.")
 
     def test_execute_empty_arguments(self):
         executor = ToolExecutor([_EchoTool()])
