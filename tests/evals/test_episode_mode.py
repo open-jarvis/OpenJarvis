@@ -28,6 +28,7 @@ class TestDatasetProviderEpisodes:
                 return len(self._records)
 
         ds = SimpleDataset()
+        assert len(ds) == ds.size() == 2
         episodes = list(ds.iter_episodes())
         assert len(episodes) == 2
         assert len(episodes[0]) == 1

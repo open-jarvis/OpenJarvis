@@ -281,7 +281,8 @@ def discover_skills(directory: str | Path) -> list[SkillManifest]:
     for toml_file in sorted(directory.glob("*.toml")):
         try:
             manifests.append(load_skill(toml_file))
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning("Failed to load skill from %s: %s", toml_file, exc)
             continue
 
     # Walk one or two levels deep looking for skill packages
@@ -292,7 +293,8 @@ def discover_skills(directory: str | Path) -> list[SkillManifest]:
         if (child / "skill.toml").exists() or (child / "SKILL.md").exists():
             try:
                 manifests.append(load_skill_directory(child))
-            except Exception:
+            except Exception as exc:
+                LOGGER.warning("Failed to load skill from %s: %s", child, exc)
                 continue
             continue
 
@@ -305,7 +307,8 @@ def discover_skills(directory: str | Path) -> list[SkillManifest]:
             ).exists():
                 try:
                     manifests.append(load_skill_directory(grandchild))
-                except Exception:
+                except Exception as exc:
+                    LOGGER.warning("Failed to load skill from %s: %s", grandchild, exc)
                     continue
 
     return manifests

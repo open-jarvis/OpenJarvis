@@ -7,8 +7,11 @@ Each tool is registered via ``@ToolRegistry.register("name")`` and implements
 
 from __future__ import annotations
 
+import atexit
 import concurrent.futures
 import json
+import queue
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -16,6 +19,94 @@ from typing import Any, Callable, Dict, List, Optional
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import ToolCall, ToolResult
+
+_MAX_TOOL_WORKERS = 8
+_MAX_PENDING_TOOL_CALLS = 8
+_STOP_WORKER = object()
+
+
+class _BoundedToolRunner:
+    """Run tools on a process-wide, bounded set of daemon workers.
+
+    Python cannot cancel a function that is already executing in a thread. A
+    fresh ``ThreadPoolExecutor`` per call therefore leaks one non-daemon worker
+    for every timed-out tool and makes interpreter shutdown wait for all of
+    them. This runner puts a hard ceiling on both live workers and queued work.
+    Its daemon workers let the process exit even if third-party tool code never
+    returns; callers beyond the bounded capacity receive backpressure instead
+    of creating more threads.
+    """
+
+    def __init__(self, max_workers: int, max_pending: int) -> None:
+        self._max_workers = max_workers
+        self._queue: queue.Queue[object] = queue.Queue(maxsize=max_pending)
+        self._threads: list[threading.Thread] = []
+        self._start_lock = threading.Lock()
+        self._closed = False
+
+    def submit(
+        self, function: Callable[..., ToolResult], **params: Any
+    ) -> concurrent.futures.Future[ToolResult] | None:
+        self._ensure_started()
+        future: concurrent.futures.Future[ToolResult] = concurrent.futures.Future()
+        try:
+            self._queue.put_nowait((future, function, params))
+        except queue.Full:
+            return None
+        return future
+
+    def _ensure_started(self) -> None:
+        with self._start_lock:
+            if self._closed:
+                raise RuntimeError("tool runner is shut down")
+            if self._threads:
+                return
+            for index in range(self._max_workers):
+                thread = threading.Thread(
+                    target=self._worker,
+                    name=f"openjarvis-tool-{index}",
+                    daemon=True,
+                )
+                thread.start()
+                self._threads.append(thread)
+
+    def _worker(self) -> None:
+        while True:
+            item = self._queue.get()
+            try:
+                if item is _STOP_WORKER:
+                    return
+                future, function, params = item
+                if not future.set_running_or_notify_cancel():
+                    continue
+                try:
+                    future.set_result(function(**params))
+                except BaseException as exc:  # propagate tool failures to caller
+                    future.set_exception(exc)
+            finally:
+                self._queue.task_done()
+
+    def shutdown(self) -> None:
+        """Cancel queued calls without waiting for uncooperative tool code."""
+        with self._start_lock:
+            if self._closed:
+                return
+            self._closed = True
+            while True:
+                try:
+                    item = self._queue.get_nowait()
+                except queue.Empty:
+                    break
+                if item is not _STOP_WORKER:
+                    future, _, _ = item
+                    future.cancel()
+                self._queue.task_done()
+            for _ in self._threads:
+                self._queue.put_nowait(_STOP_WORKER)
+
+
+_TOOL_RUNNER = _BoundedToolRunner(_MAX_TOOL_WORKERS, _MAX_PENDING_TOOL_CALLS)
+atexit.register(_TOOL_RUNNER.shutdown)
 
 # ---------------------------------------------------------------------------
 # ToolSpec — metadata describing a tool's interface
@@ -260,11 +351,24 @@ class ToolExecutor:
         # Execute with timeout
         timeout = tool.spec.timeout_seconds or self._default_timeout
         t0 = time.time()
+        future = _TOOL_RUNNER.submit(tool.execute, **params)
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(tool.execute, **params)
+            if future is None:
+                result = ToolResult(
+                    tool_name=tool_call.name,
+                    content=(
+                        "Tool execution capacity is exhausted; previous timed-out "
+                        "tools may still be running. Try again later."
+                    ),
+                    success=False,
+                )
+            else:
                 result = future.result(timeout=timeout)
         except concurrent.futures.TimeoutError:
+            # This succeeds for queued work. Python cannot stop an already-running
+            # function, but the bounded daemon runner prevents it from spawning an
+            # unbounded number of workers or delaying interpreter shutdown.
+            future.cancel()
             if self._bus:
                 self._bus.publish(
                     EventType.TOOL_TIMEOUT,
