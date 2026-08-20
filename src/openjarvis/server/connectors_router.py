@@ -81,6 +81,10 @@ try:
         code: Optional[str] = None
         email: Optional[str] = None
         password: Optional[str] = None
+        # Connector-specific, non-secret setup values.  Keep credentials in
+        # the dedicated fields above so callers do not accidentally log them
+        # together with ordinary configuration.
+        config: Optional[Dict[str, Any]] = None
 
 except ImportError:
     ConnectRequest = None  # type: ignore[assignment,misc]
@@ -184,13 +188,23 @@ def create_connectors_router():
         )
 
         raw = (req.code or req.token or "").strip()
-        # Only the client-registration pair routes through the server flow.
-        # A raw access token (no ".apps.googleusercontent.com") is handled by
-        # the connector's handle_callback unchanged.
-        if ".apps.googleusercontent.com" not in raw or ":" not in raw:
+        provider = get_provider_for_connector(connector_id)
+
+        # Only the client-registration pair routes through the server flow;
+        # a raw access token is handled by the connector's handle_callback
+        # unchanged. Google's client IDs have a distinctive suffix, so a
+        # colon-containing string is only treated as a Google credential
+        # pair when it matches that format -- otherwise some other raw
+        # token that happens to contain a colon could be misidentified.
+        # Non-Google providers (Spotify, Strava, ...) have no such
+        # ambiguity: every non-Google OAuth connector only ever expects a
+        # client_id:client_secret pair through this path, so any
+        # colon-containing string is enough to route here.
+        is_google_pair = ".apps.googleusercontent.com" in raw
+        is_non_google_pair = provider is not None and provider.name != "google"
+        if ":" not in raw or not (is_google_pair or is_non_google_pair):
             return None
 
-        provider = get_provider_for_connector(connector_id)
         if provider is None:
             raise HTTPException(
                 status_code=400,
@@ -448,6 +462,28 @@ def create_connectors_router():
                         instance._token = req.token
                     else:
                         instance.handle_callback(req.token)
+
+            elif connector_id in {"github_notifications", "oura"}:
+                if not req.token:
+                    raise HTTPException(status_code=400, detail="A token is required")
+                # These token connectors persist their credentials themselves;
+                # they intentionally do not expose the OAuth-only ``_token``
+                # attribute or ``handle_callback`` hook.
+                instance.set_token(req.token)
+
+            elif connector_id == "weather":
+                if not req.token:
+                    raise HTTPException(status_code=400, detail="An OpenWeather API key is required")
+                location = (req.config or {}).get("location")
+                if not isinstance(location, str) or not location.strip():
+                    raise HTTPException(status_code=400, detail="A weather location is required")
+                instance.configure(api_key=req.token, location=location)
+
+            elif connector_id == "news_rss":
+                feeds = (req.config or {}).get("feeds")
+                if not isinstance(feeds, list):
+                    raise HTTPException(status_code=400, detail="At least one RSS feed URL is required")
+                instance.configure(feeds)
 
             else:
                 # Generic: try to store token or credentials if the instance

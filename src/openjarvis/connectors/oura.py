@@ -52,6 +52,14 @@ class OuraConnector(BaseConnector):
         data = json.loads(self._token_path.read_text(encoding="utf-8"))
         return data["token"]
 
+    def set_token(self, token: str) -> None:
+        """Persist an Oura personal access token supplied at connect time."""
+        token = token.strip()
+        if not token:
+            raise ValueError("An Oura personal access token is required")
+        self._token_path.parent.mkdir(parents=True, exist_ok=True)
+        self._token_path.write_text(json.dumps({"token": token}), encoding="utf-8")
+
     def is_connected(self) -> bool:
         return self._token_path.exists()
 

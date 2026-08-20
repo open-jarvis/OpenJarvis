@@ -62,6 +62,8 @@ export interface ConnectRequest {
   code?: string;
   email?: string;
   password?: string;
+  /** Non-secret connector configuration such as a weather location or RSS feeds. */
+  config?: Record<string, unknown>;
 }
 
 /** Response from POST /v1/connectors/{id}/connect.

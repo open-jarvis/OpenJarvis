@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -236,3 +237,87 @@ def test_connect_granola_invalid_key_returns_400_keeps_existing(
         assert json.loads(creds.read_text())["token"] == "grl_real_existing_key"
     finally:
         _instances.pop("granola", None)
+
+
+@pytest.mark.parametrize(
+    ("connector_id", "filename", "payload", "expected"),
+    [
+        ("github_notifications", "github.json", {"token": "ghp_test"}, {"token": "ghp_test"}),
+        ("oura", "oura.json", {"token": "oura_test"}, {"token": "oura_test"}),
+        (
+            "weather",
+            "weather.json",
+            {"token": "weather_key", "config": {"location": "Boston,US"}},
+            {"api_key": "weather_key", "location": "Boston,US"},
+        ),
+    ],
+)
+def test_connect_persists_generic_token_connector_credentials(
+    app, tmp_path: Path, connector_id: str, filename: str, payload: dict, expected: dict
+) -> None:
+    """The generic token panel must actually configure each token connector."""
+    from unittest.mock import patch
+
+    from openjarvis.connectors.github_notifications import GitHubNotificationsConnector
+    from openjarvis.connectors.oura import OuraConnector
+    from openjarvis.connectors.weather import WeatherConnector
+    from openjarvis.server.connectors_router import _instances
+
+    path = tmp_path / filename
+    constructors = {
+        "github_notifications": lambda: GitHubNotificationsConnector(token_path=str(path)),
+        "oura": lambda: OuraConnector(token_path=str(path)),
+        "weather": lambda: WeatherConnector(token_path=str(path)),
+    }
+    instance = constructors[connector_id]()
+    # The endpoint deliberately starts an asynchronous initial sync.  Replace
+    # it with an empty iterator so this endpoint test never reaches a real API.
+    instance.sync = lambda **_kwargs: iter(())
+    _instances[connector_id] = instance
+    try:
+        resp = app.post(f"/v1/connectors/{connector_id}/connect", json=payload)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["connected"] is True
+        assert json.loads(path.read_text()) == expected
+    finally:
+        _instances.pop(connector_id, None)
+
+
+def test_connect_weather_requires_location(app, tmp_path: Path) -> None:
+    """Weather must not report connected with an API key it cannot use."""
+    from openjarvis.connectors.weather import WeatherConnector
+    from openjarvis.server.connectors_router import _instances
+
+    path = tmp_path / "weather.json"
+    _instances["weather"] = WeatherConnector(token_path=str(path))
+    try:
+        resp = app.post("/v1/connectors/weather/connect", json={"token": "weather_key"})
+        assert resp.status_code == 400
+        assert "location" in resp.json()["detail"].lower()
+        assert not path.exists()
+    finally:
+        _instances.pop("weather", None)
+
+
+def test_connect_news_rss_requires_and_persists_feeds(app, tmp_path: Path) -> None:
+    """A local connector with required setup cannot claim success for ``{}``."""
+    from openjarvis.connectors.news_rss import NewsRSSConnector
+    from openjarvis.server.connectors_router import _instances
+
+    path = tmp_path / "news_rss.json"
+    instance = NewsRSSConnector(config_path=str(path))
+    instance.sync = lambda **_kwargs: iter(())
+    _instances["news_rss"] = instance
+    try:
+        assert app.post("/v1/connectors/news_rss/connect", json={}).status_code == 400
+        resp = app.post(
+            "/v1/connectors/news_rss/connect",
+            json={"config": {"feeds": [{"url": "https://example.com/feed.xml"}]}},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["connected"] is True
+        assert json.loads(path.read_text())["feeds"] == [
+            {"name": "example.com", "url": "https://example.com/feed.xml"}
+        ]
+    finally:
+        _instances.pop("news_rss", None)

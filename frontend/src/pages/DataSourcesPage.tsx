@@ -54,6 +54,7 @@ function InlineConnectForm({
       else if (f.name === 'password') req.password = inputs.password;
       else if (f.name === 'token') req.token = inputs.token;
       else if (f.name === 'path') req.path = inputs.path;
+      else req.config = { ...(req.config || {}), [f.name]: inputs[f.name] };
     }
     if (req.email && req.password) {
       req.token = `${req.email}:${req.password}`;
@@ -122,6 +123,7 @@ function GenericConnectPanel({
   onConnect: (req: ConnectRequest) => void;
 }) {
   const [oauthSetup, setOauthSetup] = useState<OAuthSetupInfo | null>(null);
+  const [feedUrls, setFeedUrls] = useState('');
 
   useEffect(() => {
     if (authType !== 'oauth') return;
@@ -137,6 +139,34 @@ function GenericConnectPanel({
   }, [connectorId, authType]);
 
   if (authType === 'local') {
+    if (connectorId === 'news_rss') {
+      const feeds = feedUrls
+        .split('\n')
+        .map((url) => url.trim())
+        .filter(Boolean)
+        .map((url) => ({ url }));
+      return (
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
+            Add one RSS or Atom feed URL per line.
+          </div>
+          <textarea
+            value={feedUrls}
+            onChange={(event) => setFeedUrls(event.target.value)}
+            placeholder={'https://example.com/feed.xml\nhttps://example.org/rss'}
+            rows={4}
+            style={{ width: '100%', padding: '7px 10px', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text)', fontSize: 12, marginBottom: 6, boxSizing: 'border-box' }}
+          />
+          <button
+            onClick={() => onConnect({ config: { feeds } })}
+            disabled={loading || feeds.length === 0}
+            style={{ width: '100%', padding: 8, background: loading || feeds.length === 0 ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)', color: 'var(--color-on-accent)', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}
+          >
+            {loading ? 'Connecting...' : 'Save feeds'}
+          </button>
+        </div>
+      );
+    }
     return (
       <div>
         <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
@@ -166,7 +196,12 @@ function GenericConnectPanel({
           Enter your {displayName} API token.
         </div>
         <InlineConnectForm
-          fields={[{ name: 'token', placeholder: `${displayName} API token`, type: 'password' }]}
+          fields={connectorId === 'weather'
+            ? [
+                { name: 'token', placeholder: 'OpenWeather API key', type: 'password' },
+                { name: 'location', placeholder: 'City, country (for example: Boston,US)', type: 'text' },
+              ]
+             : [{ name: 'token', placeholder: `${displayName} API token`, type: 'password' }]}
           loading={loading}
           onSubmit={onConnect}
         />
