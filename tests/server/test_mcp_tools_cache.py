@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -73,6 +74,36 @@ def test_returns_tools_from_mcp_server(mock_load_config: MagicMock):
     assert len(tools) == 1
     assert tools[0]["function"]["name"] == "get_weather"
     assert "get_weather" in adapters
+
+
+@patch("openjarvis.core.config.load_config")
+def test_returns_tools_from_external_mcp_file(
+    mock_load_config: MagicMock, tmp_path: Path
+):
+    """Managed-agent discovery uses the same file-backed config semantics."""
+
+    from openjarvis.server.agent_manager_routes import _get_mcp_tools
+
+    server_file = tmp_path / "mcp-servers.json"
+    server_file.write_text(
+        '[{"name": "file-server", "url": "http://localhost:9999"}]',
+        encoding="utf-8",
+    )
+    config = _make_config(servers_json=server_file.name)
+    config._config_dir = tmp_path
+    mock_load_config.return_value = config
+    mock_adapter = _make_adapter("file_tool")
+
+    with (
+        patch("openjarvis.mcp.transport.StreamableHTTPTransport"),
+        patch("openjarvis.mcp.client.MCPClient"),
+        patch("openjarvis.tools.mcp_adapter.MCPToolProvider") as provider,
+    ):
+        provider.return_value.discover.return_value = [mock_adapter]
+        tools, adapters = _get_mcp_tools(_FakeAppState())
+
+    assert tools[0]["function"]["name"] == "file_tool"
+    assert adapters == {"file_tool": mock_adapter}
 
 
 @patch("openjarvis.core.config.load_config")

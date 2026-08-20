@@ -471,27 +471,27 @@ class SystemBuilder:
 
         if config.tools.mcp.enabled and config.tools.mcp.servers:
             try:
-                import json
+                from openjarvis.core.config import resolve_mcp_servers
 
-                server_list = json.loads(config.tools.mcp.servers)
-                if isinstance(server_list, list):
-                    for server_cfg in server_list:
-                        try:
-                            external_tools = self._discover_external_mcp(server_cfg)
-                            self._mcp_tools.extend(external_tools)
-                            if tool_names:
-                                external_tools = [
-                                    t
-                                    for t in external_tools
-                                    if t.spec.name in tool_names
-                                ]
-                            tools.extend(external_tools)
-                        except Exception as exc:
-                            logger.warning(
-                                "Failed to discover external MCP tools: %s",
-                                exc,
-                            )
-            except (json.JSONDecodeError, TypeError) as exc:
+                server_list = resolve_mcp_servers(
+                    config.tools.mcp.servers,
+                    config._config_dir,
+                )
+                for server_cfg in server_list:
+                    try:
+                        external_tools = self._discover_external_mcp(server_cfg)
+                        self._mcp_tools.extend(external_tools)
+                        if tool_names:
+                            external_tools = [
+                                t for t in external_tools if t.spec.name in tool_names
+                            ]
+                        tools.extend(external_tools)
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to discover external MCP tools: %s",
+                            exc,
+                        )
+            except (OSError, UnicodeError, ValueError, TypeError) as exc:
                 logger.warning("Failed to parse MCP server config: %s", exc)
 
         return tools
@@ -675,7 +675,26 @@ class SystemBuilder:
             return []
 
         client = MCPClient(transport)
-        client.initialize()
+        try:
+            client.initialize()
+        except Exception:
+            # Not yet in self._mcp_clients, so nothing else will ever
+            # close it (and the underlying subprocess/connection pool) if
+            # we don't do it here (#753).
+            try:
+                client.close()
+            except Exception as cleanup_exc:
+                # Do not let a cleanup failure mask the original handshake
+                # error; callers need the initialize() failure to diagnose
+                # the server while operators still need the cleanup signal.
+                logger.warning(
+                    "Failed to close MCP client for '%s' after "
+                    "initialization failed: %s",
+                    name,
+                    cleanup_exc,
+                    exc_info=True,
+                )
+            raise
 
         self._mcp_clients.append(client)
 
