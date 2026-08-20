@@ -47,4 +47,4 @@ def test_release_workflow_explicitly_enables_updater_artifacts() -> None:
     workflow = DESKTOP_WORKFLOW.read_text(encoding="utf-8")
 
     assert '"createUpdaterArtifacts":true' in workflow
-    assert "includeUpdaterJson: true" in workflow
+    assert "uploadUpdaterJson: true" in workflow
