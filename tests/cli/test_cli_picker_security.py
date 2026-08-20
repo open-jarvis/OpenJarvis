@@ -105,14 +105,25 @@ class TestModelPickerSecurity:
             picked = interactive_pick_model(console, engine)
         assert picked is None
 
+    def test_catalog_labels_are_sanitized_and_rich_escaped(self) -> None:
+        engine = MagicMock()
+        engine.list_models.return_value = ["[red]safe-id[/red]\n"]
+        console = MagicMock()
+        with patch("builtins.input", return_value="1"):
+            picked = interactive_pick_model(console, engine)
+
+        assert picked == "[red]safe-id[/red]"
+        rendered = "\n".join(str(call.args[0]) for call in console.print.call_args_list)
+        assert r"\[red]safe-id\[/red]" in rendered
+
 
 class TestTtyGates:
-    def test_skip_env_disables_model_picker(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("JARVIS_SKIP_MODEL_PICK", "1")
+    def test_explicit_chat_does_not_auto_prompt_on_tty(self) -> None:
         with patch("sys.stdin.isatty", return_value=True):
             assert tty_wants_model_picker(False) is False
+
+    def test_explicit_picker_flag_is_honored(self) -> None:
+        assert tty_wants_model_picker(True) is True
 
     def test_skip_env_disables_runtime_panel(
         self, monkeypatch: pytest.MonkeyPatch

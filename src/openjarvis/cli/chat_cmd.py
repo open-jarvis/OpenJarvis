@@ -9,6 +9,7 @@ from typing import List, Optional
 import click
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape
 
 from openjarvis.cli._runtime_panel import runtime_cli_options
 from openjarvis.cli._tool_names import resolve_tool_names
@@ -18,6 +19,13 @@ from openjarvis.core.types import Message, Role
 from openjarvis.memory import publish_completed_exchange
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_rich_label(value: object) -> str:
+    """Strip terminal controls and escape Rich markup in dynamic labels."""
+    from openjarvis.cli._model_switch import sanitize_model_id
+
+    return escape(sanitize_model_id(str(value)))
 
 
 def _read_input(prompt: str = "You> ") -> Optional[str]:
@@ -230,13 +238,17 @@ def chat(
                     # in __init__; session opts live on BaseAgent._engine_options.
                     setattr(agent, "_engine_options", dict(engine_kwargs))
         except Exception as exc:
-            console.print(f"[yellow]Agent '{agent_key}' failed: {exc}[/yellow]")
+            console.print(
+                f"[yellow]Agent '{_safe_rich_label(agent_key)}' failed: "
+                f"{escape(str(exc))}[/yellow]"
+            )
 
     # Print banner
     console.print(
         f"[green bold]OpenJarvis Chat[/green bold]\n"
-        f"  Engine: [cyan]{engine_name}[/cyan]  Model: [cyan]{model}[/cyan]"
-        f"  Agent: [cyan]{agent_key or 'direct'}[/cyan]\n"
+        f"  Engine: [cyan]{_safe_rich_label(engine_name)}[/cyan]  "
+        f"Model: [cyan]{_safe_rich_label(model)}[/cyan]"
+        f"  Agent: [cyan]{_safe_rich_label(agent_key or 'direct')}[/cyan]\n"
         f"  Runtime: [cyan]{runtime_opts.summary(engine_name=engine_name)}[/cyan]\n"
         f"  Type /help for commands, /quit to exit.\n",
     )
@@ -318,7 +330,8 @@ def chat(
             continue
         elif cmd == "/model":
             console.print(
-                f"Model: [cyan]{model}[/cyan]  Engine: [cyan]{engine_name}[/cyan]"
+                f"Model: [cyan]{_safe_rich_label(model)}[/cyan]  "
+                f"Engine: [cyan]{_safe_rich_label(engine_name)}[/cyan]"
             )
             continue
         elif cmd == "/runtime":

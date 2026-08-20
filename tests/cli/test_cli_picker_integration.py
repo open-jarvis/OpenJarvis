@@ -156,6 +156,33 @@ class TestRuntimePanelBranches:
 
 
 class TestChatPickerIntegration:
+    def test_rich_markup_in_runtime_labels_is_rendered_literally(self) -> None:
+        engine = MagicMock()
+        engine.generate.return_value = {"content": "ok"}
+        cfg = JarvisConfig()
+        cfg.intelligence.default_model = "default-m"
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=cfg),
+            patch(
+                "openjarvis.engine.get_engine",
+                return_value=("[bold]engine[/bold]", engine),
+            ),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.cli._runtime_panel.tty_wants_runtime_panel",
+                return_value=False,
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--agent", "none", "--model", "[red]model[/red]"],
+                input="/model\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "[bold]engine[/bold]" in result.output
+        assert "[red]model[/red]" in result.output
+
     def test_native_react_gets_engine_options_via_setattr(self) -> None:
         """NativeReActAgent rejects engine_options kwarg; chat uses setattr."""
         import openjarvis.agents  # noqa: F401

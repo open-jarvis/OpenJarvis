@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import re
-import sys
 from typing import Any, Optional
+
+from rich.markup import escape
 
 SMART_MODEL_TOKEN = "smart"
 MAX_MODEL_ID_LEN = 512
@@ -29,15 +29,14 @@ _VARIANT_ATTR: dict[str, str] = {
 
 
 def tty_wants_model_picker(cli_flag: bool) -> bool:
-    """Show model picker on TTY unless skipped via env or ``--pick-model``."""
-    if cli_flag:
-        return True
-    skip = (os.environ.get("JARVIS_SKIP_MODEL_PICK", "") or "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-    return sys.stdin.isatty() and not skip
+    """Return whether this explicit ``chat`` invocation requested a picker.
+
+    Bare ``jarvis`` owns the TTY auto-prompt policy in ``_first_run`` and
+    passes ``pick_model=True`` when appropriate. Keeping the subcommand gate
+    flag-only prevents ``jarvis chat`` from unexpectedly reading stdin before
+    the chat loop.
+    """
+    return bool(cli_flag)
 
 
 def variant_preset_model(config: Any, chat_variant: str) -> str:
@@ -54,7 +53,11 @@ def interactive_pick_model(console: Any, engine: Any) -> Optional[str]:
     """List engine models and read user choice. Returns ``None`` if cancelled."""
     models: list[str] = []
     try:
-        models = list(engine.list_models())
+        models = [
+            model
+            for raw_model in engine.list_models()
+            if (model := sanitize_model_id(str(raw_model)))
+        ]
     except Exception:
         models = []
     if not models:
@@ -65,7 +68,7 @@ def interactive_pick_model(console: Any, engine: Any) -> Optional[str]:
         return None
     console.print("[bold]Available models[/bold] (number or exact id):")
     for i, mid in enumerate(models, 1):
-        console.print(f"  {i:2}) [cyan]{mid}[/cyan]")
+        console.print(f"  {i:2}) [cyan]{escape(mid)}[/cyan]")
     try:
         raw = input(
             "Choose model [1–%d], id, or Enter for config default: " % len(models)
@@ -107,11 +110,11 @@ def resolve_chat_cli_model(
 
     preset = variant_preset_model(config, chat_variant)
     if preset:
-        return preset
+        return sanitize_model_id(preset)
 
     dm = (getattr(config.intelligence, "default_model", None) or "").strip()
     if dm:
-        return dm
+        return sanitize_model_id(dm)
 
     from openjarvis.engine import discover_engines, discover_models
 
@@ -119,7 +122,7 @@ def resolve_chat_cli_model(
     all_models = discover_models(all_engines)
     engine_models = all_models.get(engine_name, [])
     if engine_models:
-        return engine_models[0]
+        return sanitize_model_id(str(engine_models[0]))
 
     return ""
 
