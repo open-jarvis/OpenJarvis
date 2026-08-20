@@ -12,7 +12,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -102,6 +103,23 @@ class NewsRSSConnector(BaseConnector):
         """Load feed list from disk."""
         data = json.loads(self._config_path.read_text(encoding="utf-8"))
         return data.get("feeds", [])
+
+    def configure(self, feeds: List[Dict[str, Any]]) -> None:
+        """Validate and persist RSS feed configuration from the connect UI."""
+        normalized: List[Dict[str, str]] = []
+        for feed in feeds:
+            if not isinstance(feed, dict):
+                continue
+            url = str(feed.get("url", "")).strip()
+            parsed = urlparse(url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError("Each RSS feed must be an http(s) URL")
+            name = str(feed.get("name", "")).strip() or parsed.netloc
+            normalized.append({"name": name, "url": url})
+        if not normalized:
+            raise ValueError("At least one RSS feed URL is required")
+        self._config_path.parent.mkdir(parents=True, exist_ok=True)
+        self._config_path.write_text(json.dumps({"feeds": normalized}), encoding="utf-8")
 
     def is_connected(self) -> bool:
         if not self._config_path.exists():
