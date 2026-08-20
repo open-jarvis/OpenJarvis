@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 
 # Import engine modules to trigger @EngineRegistry.register() decorators
+import openjarvis.engine.nim  # noqa: F401
 import openjarvis.engine.ollama  # noqa: F401
 import openjarvis.engine.openai_compat_engines  # noqa: F401
 from openjarvis.engine._base import (

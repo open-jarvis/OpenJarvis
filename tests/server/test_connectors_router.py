@@ -196,7 +196,7 @@ def test_disconnect_prevents_sync_start_racing_checkpoint_read(
     app,
     monkeypatch,
 ) -> None:
-    """A sync must not publish a writer after disconnect already purged."""
+    """Disconnect waits for an in-progress start decision, then purges it."""
     from openjarvis.connectors._stubs import Document, SyncStatus
     from openjarvis.connectors.sync_engine import SyncEngine
     from openjarvis.server.connectors_router import _instances
@@ -247,27 +247,47 @@ def test_disconnect_prevents_sync_start_racing_checkpoint_read(
 
     _instances["obsidian"] = RacingConnector()
     sync_response = []
+    disconnect_response = []
+    disconnect_done = threading.Event()
 
     def trigger_sync():
         sync_response.append(app.post("/v1/connectors/obsidian/sync"))
 
+    def disconnect():
+        disconnect_response.append(app.post("/v1/connectors/obsidian/disconnect"))
+        disconnect_done.set()
+
     request_thread = threading.Thread(target=trigger_sync)
+    disconnect_thread = threading.Thread(target=disconnect)
     try:
         request_thread.start()
         assert baseline_started.wait(timeout=3)
 
-        disconnect_response = app.post("/v1/connectors/obsidian/disconnect")
-        assert disconnect_response.status_code == 200
+        disconnect_thread.start()
+        # The checkpoint snapshot and thread publication are one lifecycle
+        # operation. Disconnect must not overtake it and purge too early.
+        assert not disconnect_done.wait(timeout=0.1)
 
         release_baseline.set()
         request_thread.join(timeout=3)
+        disconnect_thread.join(timeout=3)
         assert not request_thread.is_alive()
+        assert not disconnect_thread.is_alive()
         assert sync_response[0].status_code == 200
-        assert sync_response[0].json()["status"] == "cancelled"
-        assert not sync_called.wait(timeout=0.1)
+        assert sync_response[0].json()["status"] == "started"
+        assert disconnect_response[0].status_code == 200
+
+        from openjarvis.connectors.store import KnowledgeStore
+
+        with KnowledgeStore() as store:
+            assert not any(
+                result.metadata.get("doc_id") == "obsidian:post-disconnect"
+                for result in store.retrieve("must never be written", top_k=10)
+            )
     finally:
         release_baseline.set()
         request_thread.join(timeout=3)
+        disconnect_thread.join(timeout=3)
         _instances.pop("obsidian", None)
 
 

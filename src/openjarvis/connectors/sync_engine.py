@@ -112,6 +112,11 @@ class SyncEngine:
             except (ValueError, TypeError):
                 pass
 
+        # Captured before the first fetch, not at completion, so items
+        # created/modified while this sync was running are still covered
+        # by the *next* sync's `since` filter instead of being skipped.
+        sync_started_at = datetime.now(tz=timezone.utc).isoformat()
+
         items_ingested = 0
         current_cursor: Optional[str] = prior_cursor
 
@@ -127,6 +132,12 @@ class SyncEngine:
                 if len(batch) >= _BATCH_SIZE:
                     items_ingested += self._pipeline.ingest(batch)
                     batch = []
+                    # Progress checkpoint: track cursor/items so a later
+                    # retry can resume from here, but must NOT advance
+                    # last_sync -- this sync hasn't completed yet, and
+                    # advancing the watermark on a checkpoint that isn't a
+                    # successful completion would permanently skip
+                    # whatever wasn't reached if the sync then fails (#782).
                     self._save_checkpoint(
                         connector_id,
                         prior_items + items_ingested,
@@ -146,12 +157,27 @@ class SyncEngine:
             )
             raise
 
-        # Final checkpoint — clear any previous error.
+        if cancel_event is not None and cancel_event.is_set():
+            # Cancellation means the source was not exhausted. Preserve the
+            # prior successful watermark exactly as failure checkpoints do;
+            # advancing it here could make the next sync skip documents that
+            # the cancelled run never reached (#782).
+            self._save_checkpoint(
+                connector_id,
+                prior_items + items_ingested,
+                cursor=current_cursor,
+                error=None,
+            )
+            return items_ingested
+
+        # Final checkpoint on successful completion — clear any previous
+        # error and advance the watermark to when this sync started.
         self._save_checkpoint(
             connector_id,
             prior_items + items_ingested,
             cursor=current_cursor,
             error=None,
+            last_sync=sync_started_at,
         )
         return items_ingested
 
@@ -233,9 +259,16 @@ class SyncEngine:
         *,
         cursor: Optional[str] = None,
         error: Optional[str] = None,
+        last_sync: Optional[str] = None,
     ) -> None:
-        """UPSERT a checkpoint row into the state database."""
-        now = datetime.now(tz=timezone.utc).isoformat()
+        """UPSERT a checkpoint row into the state database.
+
+        ``last_sync`` only advances when the caller explicitly passes a
+        value (a successful sync completion). ``COALESCE`` preserves the
+        existing watermark on progress/error checkpoints, so a failed or
+        still-in-progress sync can never permanently skip unprocessed
+        items (#782).
+        """
         self._conn.execute(
             """
             INSERT INTO sync_state
@@ -244,10 +277,10 @@ class SyncEngine:
             ON CONFLICT(connector_id) DO UPDATE SET
                 items_synced = excluded.items_synced,
                 cursor       = excluded.cursor,
-                last_sync    = excluded.last_sync,
+                last_sync    = COALESCE(excluded.last_sync, sync_state.last_sync),
                 error        = excluded.error
             """,
-            (connector_id, items_synced, cursor, now, error),
+            (connector_id, items_synced, cursor, last_sync, error),
         )
         self._conn.commit()
 

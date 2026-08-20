@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from functools import wraps
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 # ``Request`` must be importable at *module* scope so that FastAPI can resolve
@@ -230,6 +231,39 @@ def create_connectors_router():
     _sync_state: Dict[str, Dict[str, Any]] = {}
     _sync_lock = threading.Lock()
     _sync_generations: Dict[str, int] = {}
+    # Connector lifecycle mutations are rare and touch shared credential,
+    # instance, checkpoint, and source-ownership state. Serializing them
+    # globally keeps connect/disconnect/manual-sync decisions atomic,
+    # including ownership checks for sources shared by multiple connectors.
+    _lifecycle_lock = threading.RLock()
+
+    def _serialized_async(func):
+        @wraps(func)
+        async def wrapped(*args, **kwargs):
+            with _lifecycle_lock:
+                return await func(*args, **kwargs)
+
+        return wrapped
+
+    def _serialized_sync(func):
+        @wraps(func)
+        def wrapped(*args, **kwargs):
+            with _lifecycle_lock:
+                return func(*args, **kwargs)
+
+        return wrapped
+
+    def _publish_sync_state(
+        connector_id: str,
+        generation: int,
+        state: Dict[str, Any],
+    ) -> bool:
+        """Publish worker state only while it still owns this lifecycle."""
+        with _sync_lock:
+            if _sync_generations.get(connector_id, 0) != generation:
+                return False
+            _sync_state[connector_id] = state
+            return True
 
     def _translate_sync_error(raw: str) -> str:
         """Map common backend exceptions to a short user-facing message."""
@@ -243,6 +277,7 @@ def create_connectors_router():
             return "Connection timed out."
         return raw
 
+    @_serialized_sync
     def _start_sync(connector_id: str, instance: Any) -> str:
         """Spawn a background sync; returns ``"started"`` or ``"already_syncing"``.
 
@@ -280,12 +315,6 @@ def create_connectors_router():
         except Exception:  # noqa: BLE001
             baseline_items = 0
 
-        _sync_state[connector_id] = {
-            "state": "syncing",
-            "error": None,
-            "baseline_items": baseline_items,
-        }
-
         cancel_event = threading.Event()
 
         def _run_sync() -> None:
@@ -301,39 +330,51 @@ def create_connectors_router():
                         engine.sync(instance, cancel_event=cancel_event)
                 final_state = "cancelled" if cancel_event.is_set() else "complete"
                 logger.info("Sync %s for %s", final_state, connector_id)
-                _sync_state[connector_id] = {
-                    "state": final_state,
-                    "error": None,
-                    "baseline_items": baseline_items,
-                }
-            except Exception as exc:
-                if cancel_event.is_set():
-                    _sync_state[connector_id] = {
-                        "state": "cancelled",
+                _publish_sync_state(
+                    connector_id,
+                    start_generation,
+                    {
+                        "state": final_state,
                         "error": None,
                         "baseline_items": baseline_items,
-                    }
+                    },
+                )
+            except Exception as exc:
+                if cancel_event.is_set():
+                    _publish_sync_state(
+                        connector_id,
+                        start_generation,
+                        {
+                            "state": "cancelled",
+                            "error": None,
+                            "baseline_items": baseline_items,
+                        },
+                    )
                     return
                 error_msg = _translate_sync_error(str(exc))
                 logger.error("Sync failed for %s: %s", connector_id, error_msg)
-                _sync_state[connector_id] = {
-                    "state": "error",
-                    "error": error_msg,
-                    "baseline_items": baseline_items,
-                }
+                _publish_sync_state(
+                    connector_id,
+                    start_generation,
+                    {
+                        "state": "error",
+                        "error": error_msg,
+                        "baseline_items": baseline_items,
+                    },
+                )
 
         t = threading.Thread(target=_run_sync, daemon=True)
         with _sync_lock:
             if _sync_generations.get(connector_id, 0) != start_generation:
-                _sync_state[connector_id] = {
-                    "state": "cancelled",
-                    "error": None,
-                    "baseline_items": baseline_items,
-                }
                 return "cancelled"
             existing = _sync_threads.get(connector_id)
             if existing and existing.is_alive():
                 return "already_syncing"
+            _sync_state[connector_id] = {
+                "state": "syncing",
+                "error": None,
+                "baseline_items": baseline_items,
+            }
             _sync_cancel_events[connector_id] = cancel_event
             _sync_threads[connector_id] = t
             t.start()
@@ -420,6 +461,7 @@ def create_connectors_router():
         }
 
     @router.post("/{connector_id}/connect")
+    @_serialized_async
     async def connect_connector(connector_id: str, req: ConnectRequest):
         """Connect a connector using the supplied credentials."""
         _ensure_connectors_registered()
@@ -502,6 +544,7 @@ def create_connectors_router():
         }
 
     @router.post("/{connector_id}/disconnect")
+    @_serialized_async
     async def disconnect_connector(connector_id: str):
         """Disconnect a connector and clear its credentials."""
         _ensure_connectors_registered()
@@ -578,7 +621,7 @@ def create_connectors_router():
         with _sync_lock:
             _sync_cancel_events.pop(connector_id, None)
             _sync_threads.pop(connector_id, None)
-        _sync_state.pop(connector_id, None)
+            _sync_state.pop(connector_id, None)
 
         return {
             "connector_id": connector_id,
@@ -634,6 +677,7 @@ def create_connectors_router():
         return RedirectResponse(url=auth_url)
 
     @router.get("/{connector_id}/oauth/callback")
+    @_serialized_async
     async def oauth_callback(
         connector_id: str,
         request: Request,
@@ -724,6 +768,7 @@ def create_connectors_router():
         )
 
     @router.post("/{connector_id}/sync")
+    @_serialized_sync
     def trigger_sync(connector_id: str) -> Dict[str, Any]:
         """Trigger a sync in the background and return immediately."""
         _ensure_connectors_registered()

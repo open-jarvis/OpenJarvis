@@ -50,6 +50,46 @@ class StubConnector(BaseConnector):
         return SyncStatus(state="idle", items_synced=len(self._docs))
 
 
+class RecordingConnector(BaseConnector):
+    """Replays documents, recording `since` on each call, optionally
+    raising partway through to simulate a sync that dies mid-stream."""
+
+    connector_id = "recorder"
+    display_name = "Recorder"
+    auth_type = "filesystem"
+
+    def __init__(
+        self,
+        docs: List[Document],
+        *,
+        fail_after: Optional[int] = None,
+    ) -> None:
+        self._docs = docs
+        self._fail_after = fail_after
+        self.received_since: List[Optional[datetime]] = []
+
+    def is_connected(self) -> bool:
+        return True
+
+    def disconnect(self) -> None:
+        pass
+
+    def sync(
+        self,
+        *,
+        since: Optional[datetime] = None,
+        cursor: Optional[str] = None,
+    ) -> Iterator[Document]:
+        self.received_since.append(since)
+        for i, doc in enumerate(self._docs):
+            if self._fail_after is not None and i == self._fail_after:
+                raise RuntimeError("connector exploded mid-sync")
+            yield doc
+
+    def sync_status(self) -> SyncStatus:
+        return SyncStatus(state="idle", items_synced=len(self._docs))
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -187,7 +227,7 @@ def test_sync_multiple_connectors(
 
 
 # ---------------------------------------------------------------------------
-# Test 5: reset_checkpoint clears stale state after a data-source swap
+# reset_checkpoint clears stale state after a data-source swap
 # ---------------------------------------------------------------------------
 
 
@@ -271,3 +311,79 @@ def test_sync_engine_context_manager_closes_sqlite(pipeline: IngestionPipeline) 
 
     with pytest.raises(sqlite3.ProgrammingError):
         scoped_engine.get_checkpoint("stub")
+
+
+# ---------------------------------------------------------------------------
+# A failed or cancelled sync must not advance last_sync (#782)
+# ---------------------------------------------------------------------------
+
+
+def test_failed_sync_does_not_advance_last_sync(engine: SyncEngine) -> None:
+    """A sync that dies partway through must preserve the prior watermark
+    (None here, since this is the connector's first-ever sync) instead of
+    recording the failure time as last_sync -- otherwise a retry would
+    start from the failure time and permanently skip whatever the failed
+    attempt never reached."""
+    docs = [_make_doc(f"fail:doc:{i}") for i in range(5)]
+    connector = RecordingConnector(docs, fail_after=3)
+
+    with pytest.raises(RuntimeError, match="connector exploded mid-sync"):
+        engine.sync(connector)
+
+    cp = engine.get_checkpoint("recorder")
+    assert cp is not None
+    assert cp["last_sync"] is None
+    assert cp["error"] is not None
+
+
+def test_retry_after_failure_does_not_skip_the_failed_window(
+    engine: SyncEngine,
+) -> None:
+    """End-to-end: after a failed sync, a retry must see the SAME `since`
+    as the original attempt (None, since nothing ever succeeded) -- not a
+    timestamp advanced by the failed attempt, which would silently skip
+    the entire window the failure never got to process."""
+    docs = [_make_doc(f"retry:doc:{i}") for i in range(5)]
+
+    failing = RecordingConnector(docs, fail_after=3)
+    with pytest.raises(RuntimeError):
+        engine.sync(failing)
+    assert failing.received_since == [None]
+
+    retry = RecordingConnector(docs, fail_after=None)
+    items = engine.sync(retry)
+
+    assert retry.received_since == [None]
+    assert items == 5
+
+    cp = engine.get_checkpoint("recorder")
+    assert cp is not None
+    assert cp["last_sync"] is not None
+    assert cp["error"] is None
+
+
+def test_cancelled_sync_does_not_advance_last_sync(
+    engine: SyncEngine,
+    store: KnowledgeStore,
+) -> None:
+    """Disconnect cancellation is incomplete work, not a successful sync."""
+    cancel_event = threading.Event()
+
+    class CancellingConnector(StubConnector):
+        connector_id = "cancel-watermark"
+
+        def sync(self, **kwargs):
+            yield _make_doc("kept")
+            cancel_event.set()
+            yield _make_doc("not-ingested")
+
+    items = engine.sync(
+        CancellingConnector([]),
+        cancel_event=cancel_event,
+    )
+
+    assert items == 0
+    assert store.count() == 0
+    cp = engine.get_checkpoint("cancel-watermark")
+    assert cp is not None
+    assert cp["last_sync"] is None
