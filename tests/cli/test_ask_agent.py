@@ -396,11 +396,10 @@ class TestPersonaFilesReachModel:
         assert "MEMORY_SENTINEL" in joined
         assert "USER_SENTINEL" in joined
 
-    def test_orchestrator_keeps_its_own_system_prompt(
+    def test_orchestrator_accepts_persona_prompt_builder(
         self, runner, monkeypatch, tmp_path
     ):
-        """OrchestratorAgent's __init__ doesn't accept ``prompt_builder``;
-        the wiring must skip it silently rather than crash."""
+        """Orchestrator explicitly accepts and applies persona wiring."""
         from openjarvis.core.config import JarvisConfig
 
         soul = tmp_path / "SOUL.md"
@@ -425,5 +424,6 @@ class TestPersonaFilesReachModel:
         ):
             result = runner.invoke(cli, ["ask", "--agent", "orchestrator", "Hello"])
 
-        # Pass condition: doesn't crash with TypeError on prompt_builder kwarg.
         assert result.exit_code == 0, result.output
+        messages = engine.generate.call_args.args[0]
+        assert "ORCH_PERSONA_SENTINEL" in messages[0].content

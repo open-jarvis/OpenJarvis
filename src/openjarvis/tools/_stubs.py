@@ -136,6 +136,15 @@ class ToolExecutor:
                 content=f"Invalid arguments JSON: {exc}",
                 success=False,
             )
+        if not isinstance(params, dict):
+            return ToolResult(
+                tool_name=tool_call.name,
+                content=(
+                    "Invalid arguments: expected a JSON object, "
+                    f"got {type(params).__name__}."
+                ),
+                success=False,
+            )
 
         # Boundary guard: scan external tool arguments
         if self._boundary_guard is not None and not getattr(tool, "is_local", True):
@@ -143,6 +152,15 @@ class ToolExecutor:
                 tool_call = self._boundary_guard.check_outbound(tool_call)
                 # Re-parse arguments after potential redaction
                 params = json.loads(tool_call.arguments) if tool_call.arguments else {}
+                if not isinstance(params, dict):
+                    return ToolResult(
+                        tool_name=tool_call.name,
+                        content=(
+                            "Invalid arguments: expected a JSON object, "
+                            f"got {type(params).__name__}."
+                        ),
+                        success=False,
+                    )
             except Exception as exc:
                 return ToolResult(
                     tool_name=tool_call.name,

@@ -131,7 +131,7 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
     unitLabel: 'emails',
     steps: [
       {
-        label: 'Generate an app password with your email provider (IMAP must be enabled), then enter your email address and the app password below. The server is detected from your email domain.',
+        label: 'Generate an app password with your email provider (IMAP must be enabled), then enter your email address and the app password below. Known providers are detected from the email domain.',
       },
     ],
     troubleshooting: [

@@ -89,10 +89,19 @@ class IMAPConnector(GmailIMAPConnector):
     ) -> Iterator[Document]:
         if not self._imap_host:
             tokens = load_tokens(self._credentials_path) or {}
+            email_address, _ = self._resolve_credentials()
             self._imap_host = tokens.get("imap_host", "") or resolve_imap_host(
-                tokens.get("email", "")
+                email_address
             )
+        if not self._imap_host:
+            return
         for doc in super().sync(since=since, cursor=cursor):
             doc.source = self.connector_id
             doc.doc_id = doc.doc_id.replace("gmail:", f"{self.connector_id}:", 1)
+            # A generic mailbox must not link every result to Gmail.
+            doc.url = ""
             yield doc
+
+    def mcp_tools(self) -> list:
+        """Do not expose Gmail-branded live tools for non-Gmail mailboxes."""
+        return []

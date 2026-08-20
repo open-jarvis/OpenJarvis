@@ -13,6 +13,7 @@ Supports two modes:
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import re
 from typing import Any, List, Optional
 
@@ -57,6 +58,7 @@ class OrchestratorAgent(ToolUsingAgent):
         max_tokens: Optional[int] = None,
         mode: str = "function_calling",
         system_prompt: Optional[str] = None,
+        prompt_builder: Optional[Any] = None,
         parallel_tools: bool = True,
         interactive: bool = False,
         confirm_callback=None,
@@ -71,6 +73,7 @@ class OrchestratorAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            prompt_builder=prompt_builder,
         )
         self._mode = mode
         self._system_prompt = system_prompt
@@ -140,12 +143,21 @@ class OrchestratorAgent(ToolUsingAgent):
                 tool_call = ToolCall(
                     id=f"orch_{turns}",
                     name=parsed["tool"],
-                    arguments=parsed["input"] or "{}",
+                    arguments=self._normalize_structured_tool_input(
+                        parsed["tool"],
+                        parsed["input"],
+                    ),
                 )
                 tool_result = self._executor.execute(tool_call)
                 all_tool_results.append(tool_result)
 
-                observation = f"Observation: {tool_result.content}"
+                if tool_result.success:
+                    observation = f"Observation: {tool_result.content}"
+                else:
+                    observation = (
+                        f"Observation: Tool '{tool_result.tool_name}' failed: "
+                        f"{tool_result.content}"
+                    )
                 messages.append(Message(role=Role.USER, content=observation))
                 continue
 
@@ -159,6 +171,75 @@ class OrchestratorAgent(ToolUsingAgent):
 
         # Max turns exceeded
         return self._max_turns_result(all_tool_results, turns)
+
+    def _normalize_structured_tool_input(
+        self,
+        tool_name: str,
+        raw_input: str,
+    ) -> str:
+        """Map unambiguous structured text input to a string parameter."""
+        if not raw_input:
+            return "{}"
+
+        try:
+            parsed_input = json.loads(raw_input)
+        except json.JSONDecodeError:
+            invalid_json = True
+            string_value = raw_input
+        else:
+            invalid_json = False
+            if isinstance(parsed_input, dict):
+                return raw_input
+            # INPUT is a text protocol. A non-object JSON value such as 42,
+            # true, null, or [1, 2] may still be the intended text for a tool's
+            # string parameter. Quoted JSON strings are decoded to remove only
+            # their surrounding quotes; other values retain their source text.
+            string_value = parsed_input if isinstance(parsed_input, str) else raw_input
+
+        tool_spec = None
+        for candidate in reversed(self._tools):
+            candidate_spec = candidate.spec
+            if candidate_spec.name == tool_name:
+                tool_spec = candidate_spec
+                break
+        if tool_spec is None:
+            return raw_input
+
+        parameters = tool_spec.parameters
+        parameter_container_type = parameters.get("type")
+        if parameter_container_type not in (None, "object"):
+            return raw_input
+
+        properties = parameters.get("properties", {})
+        required = parameters.get("required", [])
+        if not isinstance(properties, dict) or not isinstance(required, list):
+            return raw_input
+
+        if len(required) == 1 and required[0] in properties:
+            parameter_name = required[0]
+        elif not required and len(properties) == 1:
+            parameter_name = next(iter(properties))
+        else:
+            return raw_input
+
+        parameter_schema = properties[parameter_name]
+        if not isinstance(parameter_schema, dict):
+            return raw_input
+        parameter_type = parameter_schema.get("type")
+        accepts_string = parameter_type == "string" or (
+            isinstance(parameter_type, list) and "string" in parameter_type
+        )
+        if not accepts_string:
+            return raw_input
+
+        allow_object_text = (
+            tool_spec.metadata.get("structured_allow_object_text") is True
+        )
+        starts_like_object = raw_input.lstrip("\ufeff \t\r\n").startswith("{")
+        if invalid_json and starts_like_object and not allow_object_text:
+            return raw_input
+
+        return json.dumps({parameter_name: string_value})
 
     @staticmethod
     def _parse_structured_response(text: str) -> dict:
@@ -214,7 +295,11 @@ class OrchestratorAgent(ToolUsingAgent):
         self._emit_turn_start(input)
 
         # Build initial messages
-        messages = self._build_messages(input, context)
+        messages = self._build_messages(
+            input,
+            context,
+            system_prompt=self._system_prompt,
+        )
 
         # Get OpenAI-format tool definitions
         openai_tools = self._executor.get_openai_tools() if self._tools else []

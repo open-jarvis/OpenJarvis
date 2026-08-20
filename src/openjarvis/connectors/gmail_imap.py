@@ -153,9 +153,28 @@ class GmailIMAPConnector(BaseConnector):
         """Open an authenticated, INBOX-selected IMAP connection."""
         em, pw = self._resolve_credentials()
         imap = imaplib.IMAP4_SSL(self._imap_host)
-        imap.login(em, pw)
-        imap.select("INBOX", readonly=True)
-        return imap
+        try:
+            imap.login(em, pw)
+            status, _ = imap.select("INBOX", readonly=True)
+            if status != "OK":
+                raise IMAP4.error("Unable to select INBOX read-only")
+            return imap
+        except Exception:
+            self._close_imap(imap)
+            raise
+
+    @staticmethod
+    def _close_imap(imap: imaplib.IMAP4_SSL | None) -> None:
+        """Best-effort logout for normal, failed, and cancelled syncs."""
+        if imap is None:
+            return
+        try:
+            imap.logout()
+        except Exception:
+            try:
+                imap.shutdown()
+            except Exception:
+                pass
 
     def sync(
         self,
@@ -173,100 +192,89 @@ class GmailIMAPConnector(BaseConnector):
             logger.error("IMAP login failed: %s", exc)
             return
 
-        # Always SEARCH ALL. IMAP has no native cursor that survives a
-        # server restart, so applying the SyncEngine's ``since`` filter
-        # during a partial backfill would silently skip the older
-        # unprocessed messages. The pipeline-level dedup (_seen_doc_ids
-        # set + INSERT OR IGNORE in KnowledgeStore) makes re-scanning
-        # already-indexed messages cheap, so resume is correct as long
-        # as we keep enumerating the full inbox.
-        _, data = imap.search(None, "ALL")
-        msg_ids = data[0].split()
-        self._items_total = len(msg_ids)
-
-        # Newest-first iteration so Deep Research becomes useful while
-        # the long tail of older mail finishes indexing in the
-        # background. IMAP returns sequence numbers in arrival order
-        # (oldest -> newest), so reversing puts the most recent first.
-        ordered = list(reversed(msg_ids))
-        if self._max_messages is not None and self._max_messages > 0:
-            ordered = ordered[: self._max_messages]
         synced = 0
-
-        # A dropped TLS connection mid-backfill (e.g. "[SSL: BAD_LENGTH]") is
-        # transient. Reconnect and retry the message instead of aborting the
-        # whole sync, so a large inbox finishes without manual "Retry Sync".
-        # OSError covers ssl.SSLError and socket errors; IMAP4.abort is raised
-        # when the server drops the connection.
-        max_reconnects = 5
-        consecutive_reconnects = 0
-        index = 0
-        while index < len(ordered):
-            mid = ordered[index]
-            try:
-                _, msg_data = imap.fetch(mid, "(RFC822)")
-                raw = msg_data[0][1]
-                msg = email_lib.message_from_bytes(raw)
-            except (IMAP4.abort, OSError) as exc:
-                if consecutive_reconnects >= max_reconnects:
-                    logger.error(
-                        "IMAP sync stopping after %d reconnect attempts: %s",
-                        consecutive_reconnects,
-                        exc,
-                    )
-                    break
-                consecutive_reconnects += 1
-                logger.warning(
-                    "IMAP connection dropped (%s); reconnecting %d/%d",
-                    exc,
-                    consecutive_reconnects,
-                    max_reconnects,
-                )
-                try:
-                    imap.logout()
-                except Exception:
-                    pass
-                try:
-                    imap = self._open_imap()
-                except (IMAP4.error, OSError) as reconnect_exc:
-                    logger.error("IMAP reconnect failed: %s", reconnect_exc)
-                    break
-                continue
-            except Exception:
-                index += 1
-                continue
-
-            subject = _decode_header(msg.get("Subject", ""))
-            sender = _decode_header(msg.get("From", ""))
-            to = _decode_header(msg.get("To", ""))
-            body = _extract_text_body(msg)
-            timestamp = _parse_date(msg)
-            message_id = str(msg.get("Message-ID", mid.decode()))
-
-            synced += 1
-            index += 1
-            consecutive_reconnects = 0
-            yield Document(
-                doc_id=f"gmail:{message_id}",
-                source="gmail",
-                doc_type="email",
-                content=body,
-                title=subject,
-                author=sender,
-                participants=[a.strip() for a in (to or "").split(",") if a.strip()],
-                timestamp=timestamp,
-                thread_id=_decode_header(msg.get("In-Reply-To", "")),
-                url="https://mail.google.com/mail/u/0/#inbox",
-                metadata={
-                    "message_id": message_id,
-                },
-            )
-
         try:
-            imap.logout()
-        except Exception:
-            pass
-        self._items_synced = synced
+            # SEARCH ALL is deliberate: pipeline dedup makes a complete scan
+            # safe while avoiding gaps after an interrupted backfill.
+            status, data = imap.search(None, "ALL")
+            if status != "OK" or not data:
+                logger.error("IMAP SEARCH ALL failed: %s", status)
+                return
+            msg_ids = data[0].split()
+            self._items_total = len(msg_ids)
+            ordered = list(reversed(msg_ids))
+            if self._max_messages is not None and self._max_messages > 0:
+                ordered = ordered[: self._max_messages]
+
+            max_reconnects = 5
+            consecutive_reconnects = 0
+            index = 0
+            while index < len(ordered):
+                mid = ordered[index]
+                try:
+                    status, msg_data = imap.fetch(mid, "(RFC822)")
+                    if status != "OK" or not msg_data or not msg_data[0]:
+                        index += 1
+                        continue
+                    raw = msg_data[0][1]
+                    msg = email_lib.message_from_bytes(raw)
+                except (IMAP4.abort, OSError) as exc:
+                    if consecutive_reconnects >= max_reconnects:
+                        logger.error(
+                            "IMAP sync stopping after %d reconnect attempts: %s",
+                            consecutive_reconnects,
+                            exc,
+                        )
+                        break
+                    consecutive_reconnects += 1
+                    logger.warning(
+                        "IMAP connection dropped (%s); reconnecting %d/%d",
+                        exc,
+                        consecutive_reconnects,
+                        max_reconnects,
+                    )
+                    self._close_imap(imap)
+                    imap = None
+                    try:
+                        imap = self._open_imap()
+                    except (IMAP4.error, OSError) as reconnect_exc:
+                        logger.error("IMAP reconnect failed: %s", reconnect_exc)
+                        break
+                    continue
+                except Exception:
+                    index += 1
+                    continue
+
+                subject = _decode_header(msg.get("Subject", ""))
+                sender = _decode_header(msg.get("From", ""))
+                to = _decode_header(msg.get("To", ""))
+                body = _extract_text_body(msg)
+                timestamp = _parse_date(msg)
+                message_id = str(msg.get("Message-ID", mid.decode()))
+
+                synced += 1
+                index += 1
+                consecutive_reconnects = 0
+                yield Document(
+                    doc_id=f"gmail:{message_id}",
+                    source="gmail",
+                    doc_type="email",
+                    content=body,
+                    title=subject,
+                    author=sender,
+                    participants=[
+                        address.strip()
+                        for address in (to or "").split(",")
+                        if address.strip()
+                    ],
+                    timestamp=timestamp,
+                    thread_id=_decode_header(msg.get("In-Reply-To", "")),
+                    url="https://mail.google.com/mail/u/0/#inbox",
+                    metadata={"message_id": message_id},
+                )
+        finally:
+            self._close_imap(imap)
+            self._items_synced = synced
 
     def sync_status(self) -> SyncStatus:
         return SyncStatus(

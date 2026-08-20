@@ -4,6 +4,7 @@
   <p><i>Personal AI, On Personal Devices.</i></p>
 
   <p>
+    <a href="https://arxiv.org/abs/2605.17172"><img src="https://img.shields.io/badge/arXiv-2605.17172-b31b1b.svg" alt="arXiv"></a>
     <a href="https://openjarvis.stanford.edu/"><img src="https://img.shields.io/badge/project-OpenJarvis-blue" alt="Project"></a>
     <a href="https://open-jarvis.github.io/OpenJarvis/"><img src="https://img.shields.io/badge/docs-mkdocs-blue" alt="Docs"></a>
     <img src="https://img.shields.io/badge/python-%3E%3D3.10-blue" alt="Python">

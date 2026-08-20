@@ -121,6 +121,104 @@ jobs:
           # latest release tag (#526).
           fetch-depth: 0
 
+      # Validate Apple credentials BEFORE the expensive work. Notarization is
+      # the very last thing `tauri-action` does, so a bad credential or a
+      # lapsed account agreement previously surfaced ~10 minutes in — after the
+      # Rust toolchain, npm install, two Ollama sidecar downloads and a
+      # universal cargo build — as a single opaque line:
+      #
+      #   failed to bundle project: failed codesign application: failed to
+      #   notarize app: Error: HTTP status code: 403. ...
+      #
+      # `notarytool history` is a read-only call (it submits nothing) that
+      # exercises the identical auth path, so every credential/account failure
+      # mode reaches us here first, in seconds, with the specific cause named.
+      # `xcrun` is preinstalled on macOS runners, hence placement before the
+      # toolchain steps rather than next to "Configure Apple signing".
+      - name: Preflight Apple notarization credentials
+        if: matrix.platform == 'macos-14'
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          A_ID: ${{ secrets.APPLE_ID }}
+          A_PASS: ${{ secrets.APPLE_PASSWORD }}
+          A_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          # Mirror the skip logic in "Configure Apple signing": without a
+          # certificate the build is unsigned and never notarizes, so there is
+          # nothing to preflight. Tag builds still hard-fail there.
+          if [ -z "$CERT" ]; then
+            echo "No Apple certificate configured; skipping notarization preflight."
+            exit 0
+          fi
+
+          missing=""
+          [ -z "$A_ID" ]   && missing="$missing APPLE_ID"
+          [ -z "$A_PASS" ] && missing="$missing APPLE_PASSWORD"
+          [ -z "$A_TEAM" ] && missing="$missing APPLE_TEAM_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::APPLE_CERTIFICATE is set but notarization secrets are missing:$missing"
+            echo "::error::Signing would succeed and notarization would then fail. Set them or clear APPLE_CERTIFICATE."
+            exit 1
+          fi
+
+          # Retry only to absorb transient network faults. Credential and
+          # account errors are deterministic, so we classify and exit on the
+          # first definitive answer rather than retrying into the same wall.
+          attempt=1
+          while [ "$attempt" -le 3 ]; do
+            out=$(xcrun notarytool history \
+              --apple-id "$A_ID" \
+              --team-id "$A_TEAM" \
+              --password "$A_PASS" \
+              --output-format json 2>&1)
+            rc=$?
+
+            if [ $rc -eq 0 ]; then
+              echo "Apple notarization preflight OK — credentials valid, team reachable, agreements in effect."
+              exit 0
+            fi
+
+            case "$out" in
+              *"Invalid credentials"*|*"401"*)
+                echo "::error::Apple notarization preflight failed: invalid credentials (HTTP 401)."
+                echo "::error::APPLE_PASSWORD must be an app-specific password from appleid.apple.com,"
+                echo "::error::generated while signed in as the SAME Apple ID as APPLE_ID. A regular"
+                echo "::error::Apple ID password will not work, and a password minted under a different"
+                echo "::error::Apple ID authenticates as that other account."
+                exit 1
+                ;;
+              *"Invalid or inaccessible developer team ID"*)
+                echo "::error::Apple notarization preflight failed: APPLE_ID is not a member of team APPLE_TEAM_ID (HTTP 403)."
+                echo "::error::The Team ID must match the signing certificate. Read it from the cert's"
+                echo "::error::subject, where it appears as: Developer ID Application: NAME (TEAMID)."
+                echo "::error::If you belong to several teams, confirm APPLE_ID is a member of this one."
+                exit 1
+                ;;
+              *"required agreement"*|*"agreement"*)
+                echo "::error::Apple notarization preflight failed: the team has no in-effect agreement (HTTP 403)."
+                echo "::error::Apple reissues the Developer Program License Agreement periodically and"
+                echo "::error::notarization is refused until it is accepted. ONLY THE ACCOUNT HOLDER can"
+                echo "::error::accept it — team Admins cannot. Sign in to the account that owns this team:"
+                echo "::error::  1. https://developer.apple.com/account -> review any pending agreement"
+                echo "::error::  2. App Store Connect -> Business -> accept anything pending there too"
+                echo "::error::Certificates stay valid while this is outstanding, so signing still works."
+                exit 1
+                ;;
+            esac
+
+            echo "Preflight attempt ${attempt}/3 failed with a non-credential error."
+            echo "$out" | tail -5
+            attempt=$((attempt + 1))
+            [ "$attempt" -le 3 ] && sleep 10
+          done
+
+          echo "::error::Apple notarization preflight failed after 3 attempts. Last output:"
+          echo "$out" | tail -20
+          exit 1
+
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'ubuntu-22.04'
         run: |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import secrets
@@ -11,6 +12,19 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
+
+_WS_AUTH_PROTOCOL = "openjarvis.auth.v1"
+_WS_KEY_PROTOCOL_PREFIX = "openjarvis.key.b64url."
+
+
+def _api_keys_match(presented: str, expected: str) -> bool:
+    """Compare API keys as bytes so non-ASCII values do not raise ``TypeError``."""
+    try:
+        presented_bytes = presented.encode("utf-8")
+        expected_bytes = expected.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return secrets.compare_digest(presented_bytes, expected_bytes)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -34,9 +48,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 )
             scheme, _, token = auth.partition(" ")
             # Constant-time comparison to avoid leaking the key via timing.
-            if scheme.lower() != "bearer" or not secrets.compare_digest(
-                token, self._api_key
-            ):
+            if scheme.lower() != "bearer" or not _api_keys_match(token, self._api_key):
                 return JSONResponse(
                     {"detail": "Invalid API key"},
                     status_code=401,
@@ -87,6 +99,71 @@ def check_bind_safety(host: str, *, api_key: str) -> None:
         sys.exit(1)
 
 
+def _websocket_key_protocol(api_key: str) -> str:
+    """Encode an API key as a browser-safe WebSocket protocol token."""
+    try:
+        encoded = base64.urlsafe_b64encode(api_key.encode("utf-8")).decode("ascii")
+    except UnicodeEncodeError:
+        return ""
+    return f"{_WS_KEY_PROTOCOL_PREFIX}{encoded.rstrip('=')}"
+
+
+def _offered_websocket_auth(websocket) -> tuple[str, str | None]:  # noqa: ANN001
+    """Return the credential protocol and protocol to negotiate, if well formed.
+
+    ASGI exposes the complete, flattened protocol offer in ``scope``. Reading
+    it avoids ambiguity from repeated ``Sec-WebSocket-Protocol`` header fields.
+    Exactly one stable protocol marker and one encoded credential are required.
+    """
+    offered = getattr(websocket, "scope", {}).get("subprotocols", [])
+    if not isinstance(offered, (list, tuple)) or len(offered) != 2:
+        return "", None
+    if offered.count(_WS_AUTH_PROTOCOL) != 1:
+        return "", None
+    credentials = [
+        protocol
+        for protocol in offered
+        if isinstance(protocol, str) and protocol != _WS_AUTH_PROTOCOL
+    ]
+    if len(credentials) != 1 or not credentials[0].startswith(_WS_KEY_PROTOCOL_PREFIX):
+        return "", None
+    if credentials[0] == _WS_KEY_PROTOCOL_PREFIX:
+        return "", None
+    return credentials[0], _WS_AUTH_PROTOCOL
+
+
+def authenticate_websocket(
+    websocket,
+    expected_key: str,  # noqa: ANN001
+) -> tuple[bool, str | None]:
+    """Authenticate a WebSocket and return its negotiated auth subprotocol.
+
+    Programmatic clients can send ``Authorization: Bearer <key>``. Browser
+    clients, which cannot set that header, offer ``openjarvis.auth.v1`` plus a
+    marked, unpadded base64url encoding of the UTF-8 key. The encoding only
+    makes the credential valid subprotocol syntax; it does not make it secret.
+    """
+    credential_protocol, selected_protocol = _offered_websocket_auth(websocket)
+
+    # Match AuthMiddleware's local, keyless behavior. If a stale client still
+    # offers a well-formed auth protocol, negotiate it so the browser does not
+    # fail an otherwise allowed handshake.
+    if not expected_key:
+        return True, selected_protocol
+
+    auth = websocket.headers.get("authorization", "")
+    scheme, _, header_token = auth.partition(" ")
+    header_valid = scheme.lower() == "bearer" and _api_keys_match(
+        header_token, expected_key
+    )
+
+    expected_protocol = _websocket_key_protocol(expected_key)
+    protocol_valid = bool(credential_protocol and expected_protocol) and (
+        secrets.compare_digest(credential_protocol, expected_protocol)
+    )
+    return header_valid or protocol_valid, selected_protocol
+
+
 def websocket_authorized(websocket, expected_key: str) -> bool:  # noqa: ANN001
     """Return ``True`` if a WebSocket connection presents the expected key.
 
@@ -96,18 +173,8 @@ def websocket_authorized(websocket, expected_key: str) -> bool:  # noqa: ANN001
 
     When *expected_key* is empty, authentication is disabled (the loopback /
     local-only default, matching :class:`AuthMiddleware`) and all connections
-    are allowed. The token may be supplied either as a ``?token=`` query
-    parameter — browsers cannot set headers on a WebSocket handshake — or via
-    an ``Authorization: Bearer <key>`` header for programmatic clients.
+    are allowed. See :func:`authenticate_websocket` for the supported
+    credential transports. URL query parameters are deliberately not accepted
+    because request targets commonly appear in access logs and browser history.
     """
-    if not expected_key:
-        return True
-    token = websocket.query_params.get("token", "")
-    if not token:
-        auth = websocket.headers.get("authorization", "")
-        scheme, _, value = auth.partition(" ")
-        if scheme.lower() == "bearer":
-            token = value
-    if not token:
-        return False
-    return secrets.compare_digest(token, expected_key)
+    return authenticate_websocket(websocket, expected_key)[0]

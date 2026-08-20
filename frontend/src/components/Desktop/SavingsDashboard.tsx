@@ -222,8 +222,8 @@ const styles: Record<string, React.CSSProperties> = {
 };
 
 const PROVIDER_COLORS: Record<string, string> = {
-  'gpt-5.3': colors.green,
-  'claude-opus-4.6': colors.yellow,
+  'gpt-5.6-sol': colors.green,
+  'claude-fable-5': colors.yellow,
   'gemini-3.1-pro': colors.accent,
 };
 

@@ -80,6 +80,66 @@ def test_imap_sync_uses_resolved_host_and_source(tmp_path: Path) -> None:
     assert docs[0].source == "imap"
     assert docs[0].doc_id.startswith("imap:")
     assert docs[0].title == "Test Email"
+    assert docs[0].url == ""
+    mock_imap.logout.assert_called_once()
+
+
+def test_imap_direct_credentials_resolve_gmail_host() -> None:
+    conn = IMAPConnector(email_address="person@gmail.com", app_password="secret")
+    mock_imap = MagicMock()
+    mock_imap.login.return_value = ("OK", [])
+    mock_imap.select.return_value = ("OK", [])
+    mock_imap.search.return_value = ("OK", [b""])
+
+    with patch("openjarvis.connectors.gmail_imap.imaplib.IMAP4_SSL") as imap_ssl:
+        imap_ssl.return_value = mock_imap
+        assert list(conn.sync()) == []
+
+    imap_ssl.assert_called_once_with("imap.gmail.com")
+    mock_imap.logout.assert_called_once()
+
+
+def test_imap_generator_close_logs_out(tmp_path: Path) -> None:
+    conn = IMAPConnector(
+        email_address="user@example.org",
+        app_password="secret",
+        max_messages=1,
+    )
+    raw_email = (
+        b"From: sender@test.com\r\nTo: user@example.org\r\nSubject: One\r\n"
+        b"Message-ID: <one@test.com>\r\n\r\nbody"
+    )
+    mock_imap = MagicMock()
+    mock_imap.login.return_value = ("OK", [])
+    mock_imap.select.return_value = ("OK", [])
+    mock_imap.search.return_value = ("OK", [b"1"])
+    mock_imap.fetch.return_value = ("OK", [(b"1", raw_email)])
+
+    with patch("openjarvis.connectors.gmail_imap.imaplib.IMAP4_SSL") as imap_ssl:
+        imap_ssl.return_value = mock_imap
+        generator = conn.sync()
+        next(generator)
+        generator.close()
+
+    mock_imap.logout.assert_called_once()
+
+
+def test_failed_login_closes_socket() -> None:
+    from imaplib import IMAP4
+
+    conn = IMAPConnector(email_address="user@example.org", app_password="bad")
+    mock_imap = MagicMock()
+    mock_imap.login.side_effect = IMAP4.error("bad credentials")
+
+    with patch("openjarvis.connectors.gmail_imap.imaplib.IMAP4_SSL") as imap_ssl:
+        imap_ssl.return_value = mock_imap
+        assert list(conn.sync()) == []
+
+    mock_imap.logout.assert_called_once()
+
+
+def test_generic_imap_does_not_advertise_gmail_tools() -> None:
+    assert IMAPConnector().mcp_tools() == []
 
 
 def test_imap_sync_handles_raw_8bit_headers(tmp_path: Path) -> None:

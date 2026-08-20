@@ -108,6 +108,13 @@ INSERT INTO telemetry (
 )
 """
 
+_INSERT_MINING = """\
+INSERT INTO mining_stats (
+    recorded_at, provider_id, shares_submitted, shares_accepted, blocks_found,
+    hashrate, uptime_seconds, last_share_at, last_error, payout_target, fees_owed
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
 _MIGRATE_COLUMNS = [
     ("gpu_utilization_pct", "REAL NOT NULL DEFAULT 0.0"),
     ("gpu_memory_used_gb", "REAL NOT NULL DEFAULT 0.0"),
@@ -144,10 +151,35 @@ _MIGRATE_COLUMNS = [
 
 
 class TelemetryStore:
-    """Append-only SQLite store for inference telemetry records."""
+    """Append-only SQLite store for inference telemetry records.
 
-    def __init__(self, db_path: str | Path) -> None:
+    Writes are batched in memory and flushed to SQLite when a batch reaches
+    ``batch_size``, when ``flush_interval_seconds`` elapses (a background
+    flusher thread guarantees this even with no further writes), on any read
+    through this store, and on ``close()``. Readers that open their OWN
+    connection to the database file (e.g. ``TelemetryAggregator``) therefore
+    see new rows within ``flush_interval_seconds`` at the latest; call
+    ``flush()`` first for immediate visibility. Pass
+    ``flush_interval_seconds=0`` to disable time-based flushing (batch-size
+    and read/close flushes still apply).
+    """
+
+    def __init__(
+        self,
+        db_path: str | Path,
+        batch_size: int = 50,
+        flush_interval_seconds: float = 5.0,
+    ) -> None:
+        if batch_size < 1:
+            raise ValueError("batch_size must be >= 1")
+        if flush_interval_seconds < 0:
+            raise ValueError("flush_interval_seconds must be >= 0")
+
         self._db_path = str(db_path)
+        if self._db_path != ":memory:":
+            from openjarvis.security.file_utils import secure_create
+
+            secure_create(Path(self._db_path))
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._lock = threading.Lock()
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -157,6 +189,38 @@ class TelemetryStore:
         self._conn.execute(_CREATE_MINING_STATS_TABLE)
         self._conn.commit()
         self._migrate_schema()
+
+        self._batch_size = batch_size
+        self._flush_interval_seconds = flush_interval_seconds
+        self._last_flush_time = time.monotonic()
+        self._telemetry_batch: list[tuple[Any, ...]] = []
+        self._mining_batch: list[tuple[Any, ...]] = []
+        self._closed = False
+
+        # Background flusher: without it, a partial batch written just before
+        # traffic stops would stay invisible to other connections until the
+        # NEXT write arrived (the stale check in ``_maybe_flush_unlocked``
+        # only runs inside record calls). Daemon so it never blocks exit.
+        self._stop_flusher = threading.Event()
+        self._flusher: threading.Thread | None = None
+        if flush_interval_seconds > 0:
+            self._flusher = threading.Thread(
+                target=self._flush_loop,
+                name="telemetry-store-flusher",
+                daemon=True,
+            )
+            self._flusher.start()
+
+    def _flush_loop(self) -> None:
+        """Periodically flush pending batches until ``close()`` stops us."""
+        while not self._stop_flusher.wait(self._flush_interval_seconds):
+            with self._lock:
+                # ``close()`` sets the event BEFORE taking the lock, so seeing
+                # it unset here means the connection is still open.
+                if self._stop_flusher.is_set():
+                    break
+                if self._telemetry_batch or self._mining_batch:
+                    self._flush_unlocked()
 
     def _migrate_schema(self) -> None:
         """Add new columns to existing databases (idempotent)."""
@@ -171,54 +235,52 @@ class TelemetryStore:
 
     def record(self, rec: TelemetryRecord) -> None:
         """Persist a single telemetry record."""
+        row = (
+            rec.timestamp,
+            rec.model_id,
+            rec.engine,
+            rec.agent,
+            rec.prompt_tokens,
+            rec.prompt_tokens_evaluated,
+            rec.completion_tokens,
+            rec.total_tokens,
+            rec.latency_seconds,
+            rec.ttft,
+            rec.cost_usd,
+            rec.energy_joules,
+            rec.power_watts,
+            rec.gpu_utilization_pct,
+            rec.gpu_memory_used_gb,
+            rec.gpu_temperature_c,
+            rec.throughput_tok_per_sec,
+            rec.prefill_latency_seconds,
+            rec.decode_latency_seconds,
+            rec.energy_method,
+            rec.energy_vendor,
+            rec.batch_id,
+            1 if rec.is_warmup else 0,
+            rec.cpu_energy_joules,
+            rec.gpu_energy_joules,
+            rec.dram_energy_joules,
+            rec.tokens_per_joule,
+            rec.energy_per_output_token_joules,
+            rec.throughput_per_watt,
+            rec.prefill_energy_joules,
+            rec.decode_energy_joules,
+            rec.mean_itl_ms,
+            rec.median_itl_ms,
+            rec.p90_itl_ms,
+            rec.p95_itl_ms,
+            rec.p99_itl_ms,
+            rec.std_itl_ms,
+            1 if rec.is_streaming else 0,
+            rec.token_counting_version,
+            rec.mining_session_id,
+            json.dumps(rec.metadata),
+        )
         with self._lock:
-            self._conn.execute(
-                _INSERT,
-                (
-                    rec.timestamp,
-                    rec.model_id,
-                    rec.engine,
-                    rec.agent,
-                    rec.prompt_tokens,
-                    rec.prompt_tokens_evaluated,
-                    rec.completion_tokens,
-                    rec.total_tokens,
-                    rec.latency_seconds,
-                    rec.ttft,
-                    rec.cost_usd,
-                    rec.energy_joules,
-                    rec.power_watts,
-                    rec.gpu_utilization_pct,
-                    rec.gpu_memory_used_gb,
-                    rec.gpu_temperature_c,
-                    rec.throughput_tok_per_sec,
-                    rec.prefill_latency_seconds,
-                    rec.decode_latency_seconds,
-                    rec.energy_method,
-                    rec.energy_vendor,
-                    rec.batch_id,
-                    1 if rec.is_warmup else 0,
-                    rec.cpu_energy_joules,
-                    rec.gpu_energy_joules,
-                    rec.dram_energy_joules,
-                    rec.tokens_per_joule,
-                    rec.energy_per_output_token_joules,
-                    rec.throughput_per_watt,
-                    rec.prefill_energy_joules,
-                    rec.decode_energy_joules,
-                    rec.mean_itl_ms,
-                    rec.median_itl_ms,
-                    rec.p90_itl_ms,
-                    rec.p95_itl_ms,
-                    rec.p99_itl_ms,
-                    rec.std_itl_ms,
-                    1 if rec.is_streaming else 0,
-                    rec.token_counting_version,
-                    rec.mining_session_id,
-                    json.dumps(rec.metadata),
-                ),
-            )
-            self._conn.commit()
+            self._telemetry_batch.append(row)
+            self._maybe_flush_unlocked()
 
     def record_mining_stats(self, stats: Any) -> None:
         """Persist one mining stats snapshot.
@@ -226,43 +288,70 @@ class TelemetryStore:
         ``stats`` is duck-typed to keep telemetry usable without importing the
         optional mining package at module import time.
         """
+        row = (
+            time.time(),
+            stats.provider_id,
+            stats.shares_submitted,
+            stats.shares_accepted,
+            stats.blocks_found,
+            stats.hashrate,
+            stats.uptime_seconds,
+            stats.last_share_at,
+            stats.last_error,
+            stats.payout_target,
+            stats.fees_owed,
+        )
         with self._lock:
-            self._conn.execute(
-                """\
-INSERT INTO mining_stats (
-    recorded_at, provider_id, shares_submitted, shares_accepted, blocks_found,
-    hashrate, uptime_seconds, last_share_at, last_error, payout_target, fees_owed
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-""",
-                (
-                    time.time(),
-                    stats.provider_id,
-                    stats.shares_submitted,
-                    stats.shares_accepted,
-                    stats.blocks_found,
-                    stats.hashrate,
-                    stats.uptime_seconds,
-                    stats.last_share_at,
-                    stats.last_error,
-                    stats.payout_target,
-                    stats.fees_owed,
-                ),
-            )
-            self._conn.commit()
+            self._mining_batch.append(row)
+            self._maybe_flush_unlocked()
+
+    def flush(self) -> None:
+        """Write all pending records to the database."""
+        with self._lock:
+            self._flush_unlocked()
+
+    def _flush_unlocked(self) -> None:
+        if self._telemetry_batch:
+            self._conn.executemany(_INSERT, self._telemetry_batch)
+            self._telemetry_batch.clear()
+        if self._mining_batch:
+            self._conn.executemany(_INSERT_MINING, self._mining_batch)
+            self._mining_batch.clear()
+        self._conn.commit()
+        self._last_flush_time = time.monotonic()
+
+    def _maybe_flush_unlocked(self) -> None:
+        """Flush when the batch is full or has been pending too long."""
+        if not self._telemetry_batch and not self._mining_batch:
+            return
+        batch_full = (
+            len(self._telemetry_batch) >= self._batch_size
+            or len(self._mining_batch) >= self._batch_size
+        )
+        stale = (
+            self._flush_interval_seconds > 0
+            and time.monotonic() - self._last_flush_time >= self._flush_interval_seconds
+        )
+        if batch_full or stale:
+            self._flush_unlocked()
 
     def list_recent(self, limit: int = 50) -> list[dict[str, Any]]:
         """Return recent telemetry rows as dictionaries."""
-        return self._select_dicts(
-            "SELECT * FROM telemetry ORDER BY timestamp DESC LIMIT ?",
-            (limit,),
-        )
+        with self._lock:
+            self._flush_unlocked()
+            return self._select_dicts_unlocked(
+                "SELECT * FROM telemetry ORDER BY timestamp DESC LIMIT ?",
+                (limit,),
+            )
 
     def list_recent_mining_stats(self, limit: int = 50) -> list[dict[str, Any]]:
         """Return recent mining stats snapshots as dictionaries."""
-        return self._select_dicts(
-            "SELECT * FROM mining_stats ORDER BY recorded_at DESC LIMIT ?",
-            (limit,),
-        )
+        with self._lock:
+            self._flush_unlocked()
+            return self._select_dicts_unlocked(
+                "SELECT * FROM mining_stats ORDER BY recorded_at DESC LIMIT ?",
+                (limit,),
+            )
 
     def subscribe_to_bus(self, bus: EventBus) -> None:
         """Subscribe to ``TELEMETRY_RECORD`` events on *bus*."""
@@ -277,15 +366,36 @@ INSERT INTO mining_stats (
                 logger.debug("Failed to record telemetry event: %s", exc)
 
     def close(self) -> None:
-        """Close the underlying SQLite connection."""
-        self._conn.close()
+        """Flush pending records and close the underlying SQLite connection."""
+        # Set the stop event BEFORE taking the lock: a flusher iteration
+        # already waiting on the lock re-checks the event after acquiring it
+        # and exits instead of touching the closed connection.
+        self._stop_flusher.set()
+        with self._lock:
+            if self._closed:
+                return
+            self._flush_unlocked()
+            self._conn.close()
+            self._closed = True
+        if self._flusher is not None:
+            self._flusher.join(timeout=1.0)
+            self._flusher = None
 
     # -- helpers for querying (used by tests) --------------------------------
 
     def _fetchall(self, sql: str = "SELECT * FROM telemetry") -> list:
-        return self._conn.execute(sql).fetchall()
+        with self._lock:
+            self._flush_unlocked()
+            return self._conn.execute(sql).fetchall()
 
     def _select_dicts(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        with self._lock:
+            self._flush_unlocked()
+            return self._select_dicts_unlocked(sql, params)
+
+    def _select_dicts_unlocked(
+        self, sql: str, params: tuple[Any, ...]
+    ) -> list[dict[str, Any]]:
         cur = self._conn.execute(sql, params)
         columns = [desc[0] for desc in cur.description]
         return [dict(zip(columns, row)) for row in cur.fetchall()]

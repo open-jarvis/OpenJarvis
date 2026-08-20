@@ -6,6 +6,7 @@ and filtering operations that BM25 search cannot handle.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from typing import Any, Optional
 
@@ -16,10 +17,25 @@ from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 _MAX_ROWS = 50
 
+# Write keywords are matched on word boundaries (mirroring db_query.py) so that
+# a read-only SELECT is not rejected just because a column/alias/literal happens
+# to contain one as a substring (e.g. "deleted_at", "created_at").
+_FORBIDDEN_RE = re.compile(
+    r"\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|TRUNCATE|ATTACH)\b",
+    re.IGNORECASE,
+)
+
+# String literals are stripped before the keyword scan so that data mentioning
+# a write keyword (e.g. WHERE content LIKE '%delete%') is not rejected. A write
+# "hidden" in a literal still cannot execute: the query must start with SELECT
+# and sqlite3 refuses multi-statement strings.
+_STRING_LITERAL_RE = re.compile(r"'[^']*'")
+
 _SCHEMA_DESCRIPTION = (
     "Table: knowledge_chunks\n"
     "Columns: id, content, source, doc_type, doc_id, title, author, "
-    "participants, timestamp, thread_id, url, metadata, chunk_index"
+    "participants, timestamp, thread_id, url, metadata, chunk_index, "
+    "created_at, deleted_at (NULL for active rows)"
 )
 
 
@@ -84,21 +100,20 @@ class KnowledgeSQLTool(BaseTool):
                 success=False,
             )
 
-        _FORBIDDEN = ("DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE", "ATTACH")
-        for forbidden in _FORBIDDEN:
-            if forbidden in normalized:
-                return ToolResult(
-                    tool_name="knowledge_sql",
-                    content=(
-                        f"Query contains forbidden keyword: {forbidden}."
-                        " Only SELECT queries allowed."
-                    ),
-                    success=False,
-                )
+        forbidden = _FORBIDDEN_RE.search(_STRING_LITERAL_RE.sub("''", query))
+        if forbidden:
+            return ToolResult(
+                tool_name="knowledge_sql",
+                content=(
+                    f"Query contains forbidden keyword: {forbidden.group(1).upper()}."
+                    " Only SELECT queries allowed."
+                ),
+                success=False,
+            )
 
         try:
             rows = self._store._conn.execute(query).fetchmany(_MAX_ROWS)
-        except sqlite3.OperationalError as exc:
+        except sqlite3.Error as exc:
             return ToolResult(
                 tool_name="knowledge_sql",
                 content=f"SQL error: {exc}",

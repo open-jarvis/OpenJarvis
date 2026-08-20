@@ -40,6 +40,35 @@ def test_memory_index_file(tmp_path: Path, monkeypatch):
     assert "Indexed" in result.output or "chunk" in result.output
 
 
+def test_memory_index_replaces_existing_source(tmp_path: Path, monkeypatch):
+    """Re-indexing a file replaces its previous chunks."""
+    _register_sqlite()
+    db_path = str(tmp_path / "mem.db")
+    doc = tmp_path / "doc.txt"
+    doc.write_text(" ".join(["legacy"] * 100), encoding="utf-8")
+
+    mod = importlib.import_module("openjarvis.cli.memory_cmd")
+    monkeypatch.setattr(
+        mod,
+        "_get_backend",
+        lambda b=None: SQLiteMemory(db_path=db_path),
+    )
+
+    first = CliRunner().invoke(cli, ["memory", "index", str(doc)])
+    assert first.exit_code == 0
+
+    doc.write_text(" ".join(["updated"] * 100), encoding="utf-8")
+    second = CliRunner().invoke(cli, ["memory", "index", str(doc)])
+    assert second.exit_code == 0
+
+    backend = SQLiteMemory(db_path=db_path)
+    assert backend.count() == 1
+    assert backend.retrieve("legacy") == []
+    updated = backend.retrieve("updated")
+    assert len(updated) == 1
+    assert updated[0].source == str(doc)
+
+
 def test_memory_index_nonexistent(tmp_path: Path):
     """Indexing a nonexistent path should fail."""
     _register_sqlite()
