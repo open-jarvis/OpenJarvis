@@ -7,6 +7,8 @@ import importlib
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from click.testing import CliRunner
@@ -26,6 +28,8 @@ class TestModelConvert:
         # Create a fake output directory
         output_dir = tmp_path / "some--repo-mlx"
         output_dir.mkdir(parents=True)
+        snapshot = tmp_path / "snapshot"
+        snapshot.mkdir()
 
         # Track calls to mlx_lm.convert
         convert_calls = []
@@ -37,6 +41,9 @@ class TestModelConvert:
 
         # Monkeypatch sys.modules to inject fake mlx_lm
         monkeypatch.setitem(sys.modules, "mlx_lm", FakeMLXLM)
+        monkeypatch.setattr(
+            model_module, "_download_snapshot", lambda *args: str(snapshot)
+        )
 
         # Monkeypatch load_config to return default engine
         class FakeConfig:
@@ -63,7 +70,7 @@ class TestModelConvert:
 
         assert result.exit_code == 0
         assert len(convert_calls) == 1
-        assert convert_calls[0] == ("some/repo", str(output_dir), True)
+        assert convert_calls[0] == (str(snapshot), str(output_dir), True)
 
     def test_convert_mlx_missing_extra(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -72,6 +79,8 @@ class TestModelConvert:
         # Create a fake output directory
         output_dir = tmp_path / "some--repo-mlx"
         output_dir.mkdir(parents=True)
+        snapshot = tmp_path / "snapshot"
+        snapshot.mkdir()
 
         # Make import mlx_lm raise ImportError
         real_import_func = __builtins__.get("__import__", __builtins__["__import__"])
@@ -108,6 +117,8 @@ class TestModelConvert:
         # Create a fake output directory
         output_dir = tmp_path / "some--repo-mlx"
         output_dir.mkdir(parents=True)
+        snapshot = tmp_path / "snapshot"
+        snapshot.mkdir()
 
         # Track calls to mlx_lm.convert
         convert_calls = []
@@ -118,6 +129,9 @@ class TestModelConvert:
                 convert_calls.append((hf_path, mlx_path, quantize))
 
         monkeypatch.setitem(sys.modules, "mlx_lm", FakeMLXLM)
+        monkeypatch.setattr(
+            model_module, "_download_snapshot", lambda *args: str(snapshot)
+        )
 
         # Monkeypatch load_config to return mlx as default
         class FakeConfig:
@@ -136,6 +150,28 @@ class TestModelConvert:
         assert result.exit_code == 0
         assert len(convert_calls) == 1
 
+    def test_snapshot_download_returns_concrete_cache_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        snapshot = tmp_path / "models--some--repo" / "snapshots" / "revision"
+        snapshot.mkdir(parents=True)
+        calls = []
+
+        def fake_snapshot_download(*, repo_id: str):
+            calls.append(repo_id)
+            return snapshot
+
+        monkeypatch.setitem(
+            sys.modules,
+            "huggingface_hub",
+            SimpleNamespace(snapshot_download=fake_snapshot_download),
+        )
+
+        resolved = model_module._download_snapshot("some/repo", MagicMock())
+
+        assert resolved == str(snapshot)
+        assert calls == ["some/repo"]
+
     def test_convert_gguf_shells_and_quantizes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -143,6 +179,8 @@ class TestModelConvert:
         # Create a fake output directory
         output_dir = tmp_path / "some--repo-q4_k_m"
         output_dir.mkdir(parents=True)
+        snapshot = tmp_path / "snapshot"
+        snapshot.mkdir()
 
         # Track subprocess calls
         subprocess_calls = []
@@ -155,8 +193,9 @@ class TestModelConvert:
             # Simulate converter success
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
-        # Monkeypatch hf_download to return True
-        monkeypatch.setattr(model_module, "hf_download", lambda *args, **kwargs: True)
+        monkeypatch.setattr(
+            model_module, "_download_snapshot", lambda *args: str(snapshot)
+        )
 
         # Monkeypatch locators to return fake paths
         monkeypatch.setattr(
@@ -202,6 +241,19 @@ class TestModelConvert:
         # Check both subprocess calls were made
         assert any("convert_hf_to_gguf.py" in " ".join(c) for c in subprocess_calls)
         assert any("llama-quantize" in " ".join(c) for c in subprocess_calls)
+        assert subprocess_calls[0] == [
+            sys.executable,
+            "/fake/convert_hf_to_gguf.py",
+            str(snapshot),
+            "--outfile",
+            str(output_dir / "some--repo.f16.gguf"),
+        ]
+        assert subprocess_calls[1] == [
+            "/fake/llama-quantize",
+            str(output_dir / "some--repo.f16.gguf"),
+            str(output_dir / "some--repo.q4_k_m.gguf"),
+            "q4_k_m",
+        ]
 
     def test_convert_gguf_missing_tool(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -211,8 +263,11 @@ class TestModelConvert:
         output_dir = tmp_path / "some--repo-gguf"
         output_dir.mkdir(parents=True)
 
-        # Monkeypatch hf_download to return True
-        monkeypatch.setattr(model_module, "hf_download", lambda *args, **kwargs: True)
+        snapshot = tmp_path / "snapshot"
+        snapshot.mkdir()
+        monkeypatch.setattr(
+            model_module, "_download_snapshot", lambda *args: str(snapshot)
+        )
 
         # Monkeypatch locator to return None (tool not found)
         def fake_locate_convert_script(console):
@@ -273,6 +328,11 @@ class TestModelConvert:
                 convert_calls.append((hf_path, mlx_path, quantize))
 
         monkeypatch.setitem(sys.modules, "mlx_lm", FakeMLXLM)
+        snapshot = tmp_path / "snapshot"
+        snapshot.mkdir()
+        monkeypatch.setattr(
+            model_module, "_download_snapshot", lambda *args: str(snapshot)
+        )
 
         # Monkeypatch load_config
         class FakeConfig:

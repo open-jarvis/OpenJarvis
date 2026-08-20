@@ -279,6 +279,25 @@ def _slug_from_repo(
     return base
 
 
+def _download_snapshot(hf_repo: str, console: Console) -> str | None:
+    """Download *hf_repo* and return the concrete local snapshot directory."""
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        console.print(
+            "[red]Model conversion needs huggingface_hub.[/red]\n"
+            "Install it: [cyan]pip install huggingface_hub[/cyan]"
+        )
+        return None
+
+    try:
+        console.print(f"Downloading [cyan]{hf_repo}[/cyan]...")
+        return str(snapshot_download(repo_id=hf_repo))
+    except Exception as exc:
+        console.print(f"[red]Hugging Face download failed:[/red] {exc}")
+        return None
+
+
 def _convert_mlx(hf_repo: str, output: str, mlx_4bit: bool, console: Console) -> bool:
     """Convert an HF model to MLX format. Returns True on success."""
     try:
@@ -290,11 +309,16 @@ def _convert_mlx(hf_repo: str, output: str, mlx_4bit: bool, console: Console) ->
         )
         return False
 
+    snapshot = _download_snapshot(hf_repo, console)
+    if snapshot is None:
+        return False
+
     try:
+        os.makedirs(output, exist_ok=True)
         console.print(
             f"Converting [cyan]{hf_repo}[/cyan] to MLX at [cyan]{output}[/cyan]..."
         )
-        mlx_lm.convert(hf_path=hf_repo, mlx_path=output, quantize=mlx_4bit)
+        mlx_lm.convert(hf_path=snapshot, mlx_path=output, quantize=mlx_4bit)
         console.print(f"[green]Converted → {output}[/green]")
         return True
     except Exception as exc:
@@ -304,26 +328,26 @@ def _convert_mlx(hf_repo: str, output: str, mlx_4bit: bool, console: Console) ->
 
 def _convert_gguf(
     hf_repo: str, output: str, quantize: str | None, console: Console
-) -> bool:
-    """Convert an HF model to GGUF format via llama.cpp. Returns True on success."""
-    # Step 1: download HF weights
-    console.print(f"Downloading [cyan]{hf_repo}[/cyan]...")
-    if not hf_download(hf_repo, None, console):
-        return False
+) -> str | None:
+    """Convert an HF model to GGUF and return the final artifact path."""
+    snapshot = _download_snapshot(hf_repo, console)
+    if snapshot is None:
+        return None
 
     # Step 2: locate and run convert_hf_to_gguf.py
     convert_script = _locate_convert_script(console)
     if not convert_script:
-        return False
+        return None
 
     # Determine output file path
-    slug = _slug_from_repo(hf_repo, "llamacpp", quantize, False)
-    output_gguf = os.path.join(output, f"{slug}.gguf")
+    os.makedirs(output, exist_ok=True)
+    artifact_stem = hf_repo.replace("/", "--")
+    output_gguf = os.path.join(output, f"{artifact_stem}.f16.gguf")
 
     console.print(f"Converting to [cyan]{output_gguf}[/cyan]...")
     try:
         subprocess.run(
-            ["python", convert_script, hf_repo, output, "--outfile", output_gguf],
+            [sys.executable, convert_script, snapshot, "--outfile", output_gguf],
             check=True,
         )
     except FileNotFoundError:
@@ -331,19 +355,19 @@ def _convert_gguf(
             "[red]convert_hf_to_gguf.py not found.[/red]\n"
             "Install llama.cpp and set [cyan]$LLAMA_CPP_DIR[/cyan] to the repo root."
         )
-        return False
+        return None
     except subprocess.CalledProcessError:
         console.print("[red]Conversion to GGUF failed.[/red]")
-        return False
+        return None
 
     # Step 3: optional quantization
     if quantize:
         console.print(f"Quantizing to [cyan]{quantize}[/cyan]...")
         quant_script = _locate_quantize_script(console)
         if not quant_script:
-            return False
+            return None
 
-        quantized_out = os.path.join(output, f"{slug}-{quantize}.gguf")
+        quantized_out = os.path.join(output, f"{artifact_stem}.{quantize}.gguf")
         try:
             subprocess.run(
                 [quant_script, output_gguf, quantized_out, quantize],
@@ -356,14 +380,15 @@ def _convert_gguf(
                 "Install llama.cpp and set [cyan]$LLAMA_CPP_DIR[/cyan] "
                 "to the repo root."
             )
-            return False
+            return None
         except subprocess.CalledProcessError:
             console.print("[red]Quantization failed.[/red]")
-            return False
+            return None
+        return quantized_out
     else:
         console.print(f"[green]Converted → {output_gguf}[/green]")
 
-    return True
+    return output_gguf
 
 
 def _locate_convert_script(console: Console) -> str | None:
@@ -489,14 +514,9 @@ def convert(
             )
         )
     elif engine == "llamacpp":
-        success = _convert_gguf(hf_repo, output, quantize, console)
-        if not success:
+        gguf_path = _convert_gguf(hf_repo, output, quantize, console)
+        if gguf_path is None:
             sys.exit(1)
-        # Print serve hint
-        slug = _slug_from_repo(hf_repo, "llamacpp", quantize, False)
-        gguf_path = os.path.join(output, f"{slug}.gguf")
-        if quantize:
-            gguf_path = os.path.join(output, f"{slug}-{quantize}.gguf")
         console.print(
             Panel(
                 f"[bold]Artifact:[/bold] {gguf_path}\n"
