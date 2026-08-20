@@ -19,6 +19,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
 from openjarvis.core.registry import ConnectorRegistry
@@ -70,7 +71,7 @@ def _open_db(path: Path) -> sqlite3.Connection | None:
 # SQL
 # ---------------------------------------------------------------------------
 
-_EVENTS_QUERY = """\
+_EVENT_COLUMNS = """\
 SELECT
     ci.ROWID,
     ci.summary,
@@ -84,13 +85,49 @@ SELECT
     ci.last_modified,
     ci.UUID,
     c.title  AS calendar_title,
-    c.color  AS calendar_color
+    c.color  AS calendar_color,
+    0 AS is_occurrence
+"""
+
+_EVENTS_QUERY = _EVENT_COLUMNS + """\
 FROM CalendarItem ci
 JOIN Calendar c ON ci.calendar_id = c.ROWID
 WHERE ci.start_date BETWEEN ? AND ?
   AND ci.summary IS NOT NULL
   AND ci.hidden = 0
 ORDER BY ci.start_date ASC
+"""
+
+_EVENTS_WITH_OCCURRENCES_QUERY = _EVENT_COLUMNS + """\
+FROM CalendarItem ci
+JOIN Calendar c ON ci.calendar_id = c.ROWID
+WHERE ci.start_date BETWEEN ? AND ?
+  AND ci.summary IS NOT NULL
+  AND ci.hidden = 0
+UNION
+SELECT
+    ci.ROWID,
+    ci.summary,
+    ci.description,
+    oc.occurrence_start_date AS start_date,
+    oc.occurrence_end_date AS end_date,
+    ci.all_day,
+    ci.start_tz,
+    ci.location_id,
+    ci.has_attendees,
+    ci.last_modified,
+    ci.UUID,
+    c.title AS calendar_title,
+    c.color AS calendar_color,
+    1 AS is_occurrence
+FROM OccurrenceCache oc
+JOIN CalendarItem ci ON oc.event_id = ci.ROWID
+JOIN Calendar c ON oc.calendar_id = c.ROWID
+WHERE oc.occurrence_end_date >= ?
+  AND oc.occurrence_start_date <= ?
+  AND ci.summary IS NOT NULL
+  AND ci.hidden = 0
+ORDER BY start_date ASC
 """
 
 _LOCATION_QUERY = """\
@@ -172,10 +209,12 @@ class AppleCalendarConnector(BaseConnector):
         (
             _rowid, summary, description, start_ts, end_ts, all_day,
             start_tz, _loc_id, has_attendees, _last_mod, _uuid, cal_title, _color,
+            _is_occurrence,
         ) = row
 
-        start_dt = _apple_ts(start_ts)
-        end_dt = _apple_ts(end_ts) if end_ts else None
+        start_dt, end_dt = self._display_datetimes(
+            start_ts, end_ts, start_tz, bool(all_day)
+        )
 
         if all_day:
             date_str = start_dt.strftime("%A, %B %-d %Y (all day)")
@@ -196,6 +235,49 @@ class AppleCalendarConnector(BaseConnector):
 
         return "\n".join(lines)
 
+    @staticmethod
+    def _display_datetimes(
+        start_ts: float,
+        end_ts: float | None,
+        start_tz: str | None,
+        all_day: bool,
+    ) -> tuple[datetime, datetime | None]:
+        """Preserve Apple Calendar wall-clock semantics for event timestamps."""
+        start_dt = _apple_ts(start_ts)
+        end_dt = _apple_ts(end_ts) if end_ts else None
+        if all_day:
+            # All-day values encode calendar dates, not instants. Converting
+            # them through the machine timezone can move the displayed date.
+            return start_dt.replace(tzinfo=None), (
+                end_dt.replace(tzinfo=None) if end_dt else None
+            )
+        if not start_tz or start_tz == "_float":
+            # Floating events likewise carry a wall time with no timezone.
+            return start_dt.replace(tzinfo=None), (
+                end_dt.replace(tzinfo=None) if end_dt else None
+            )
+        try:
+            zone = ZoneInfo(start_tz)
+        except ZoneInfoNotFoundError:
+            return start_dt, end_dt
+        return start_dt.astimezone(zone), end_dt.astimezone(zone) if end_dt else None
+
+    @staticmethod
+    def _events_query(conn: sqlite3.Connection) -> tuple[str, tuple[int, ...]]:
+        """Select a query shape supported by the current Calendar schema."""
+        occurrence_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(OccurrenceCache)")
+        }
+        required = {
+            "event_id",
+            "calendar_id",
+            "occurrence_start_date",
+            "occurrence_end_date",
+        }
+        if required <= occurrence_columns:
+            return _EVENTS_WITH_OCCURRENCES_QUERY, (0, 1, 0, 1)
+        return _EVENTS_QUERY, (0, 1)
+
     def sync(
         self,
         *,
@@ -214,7 +296,10 @@ class AppleCalendarConnector(BaseConnector):
         end_ts = _to_apple_ts(window_end)
 
         try:
-            rows = conn.execute(_EVENTS_QUERY, (start_ts, end_ts)).fetchall()
+            query, parameter_order = self._events_query(conn)
+            bounds = (start_ts, end_ts)
+            parameters = tuple(bounds[index] for index in parameter_order)
+            rows = conn.execute(query, parameters).fetchall()
             self._items_total = len(rows)
             synced = 0
 
@@ -222,18 +307,22 @@ class AppleCalendarConnector(BaseConnector):
                 (
                     rowid, summary, description, start_date, end_date, all_day,
                     start_tz, loc_id, has_attendees, last_mod, uuid,
-                    cal_title, color,
+                    cal_title, color, is_occurrence,
                 ) = row
 
                 timestamp = _apple_ts(last_mod) if last_mod else _apple_ts(start_date)
                 if since is not None:
-                    since_utc = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+                    since_utc = (
+                        since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+                    )
                     if timestamp < since_utc:
                         continue
 
                 location = self._fetch_location(conn, loc_id)
                 content = self._build_content(row, location)
-                start_dt = _apple_ts(start_date)
+                start_dt, _ = self._display_datetimes(
+                    start_date, end_date, start_tz, bool(all_day)
+                )
 
                 meta: Dict[str, Any] = {
                     "summary": summary,
@@ -245,7 +334,11 @@ class AppleCalendarConnector(BaseConnector):
                 }
 
                 yield Document(
-                    doc_id=f"apple_calendar:{uuid or rowid}",
+                    doc_id=(
+                        f"apple_calendar:{uuid or rowid}:{int(start_date)}"
+                        if is_occurrence
+                        else f"apple_calendar:{uuid or rowid}"
+                    ),
                     source="apple_calendar",
                     doc_type="calendar_event",
                     content=content,
