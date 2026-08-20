@@ -681,7 +681,19 @@ class SystemBuilder:
             # Not yet in self._mcp_clients, so nothing else will ever
             # close it (and the underlying subprocess/connection pool) if
             # we don't do it here (#753).
-            client.close()
+            try:
+                client.close()
+            except Exception as cleanup_exc:
+                # Do not let a cleanup failure mask the original handshake
+                # error; callers need the initialize() failure to diagnose
+                # the server while operators still need the cleanup signal.
+                logger.warning(
+                    "Failed to close MCP client for '%s' after "
+                    "initialization failed: %s",
+                    name,
+                    cleanup_exc,
+                    exc_info=True,
+                )
             raise
 
         self._mcp_clients.append(client)

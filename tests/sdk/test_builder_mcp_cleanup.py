@@ -39,15 +39,20 @@ def _mock_mcp_stack():
         }
 
 
-def test_failed_initialize_closes_the_client(_mock_mcp_stack):
+def test_failed_initialize_closes_the_client(_mock_mcp_stack, caplog):
     builder = SystemBuilder(config=JarvisConfig())
 
     bad_client = MagicMock()
     bad_client.initialize.side_effect = RuntimeError("handshake failed")
+    bad_client.close.side_effect = RuntimeError("cleanup failed")
     _mock_mcp_stack["client"].return_value = bad_client
 
-    with pytest.raises(RuntimeError, match="handshake failed"):
+    with (
+        caplog.at_level("WARNING"),
+        pytest.raises(RuntimeError, match="handshake failed"),
+    ):
         builder._discover_external_mcp({"name": "broken", "url": "http://broken"})
 
     assert bad_client not in builder._mcp_clients
     bad_client.close.assert_called_once()
+    assert any("cleanup failed" in record.getMessage() for record in caplog.records)
