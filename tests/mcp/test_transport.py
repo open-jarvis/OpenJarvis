@@ -137,6 +137,58 @@ class TestStdioTransport:
         finally:
             transport.close()
 
+    def test_concurrent_requests_remain_correlated(self, tmp_path):
+        """Concurrent callers cannot consume one another's response lines."""
+        import threading
+
+        script = tmp_path / "concurrent_echo_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import json
+            import sys
+            import time
+
+            for line in sys.stdin:
+                request = json.loads(line)
+                time.sleep(0.005)
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {"method": request["method"]},
+                }
+                sys.stdout.write(json.dumps(response) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)], response_timeout=2.0)
+        barrier = threading.Barrier(12)
+        responses: dict[int, str] = {}
+        errors: list[Exception] = []
+
+        def call(request_id: int) -> None:
+            try:
+                barrier.wait(timeout=2)
+                response = transport.send(
+                    MCPRequest(method=f"test/{request_id}", id=request_id)
+                )
+                responses[request_id] = response.result["method"]
+            except Exception as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        workers = [threading.Thread(target=call, args=(index,)) for index in range(12)]
+        try:
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=5)
+
+            assert not errors
+            assert not any(worker.is_alive() for worker in workers)
+            assert responses == {index: f"test/{index}" for index in range(12)}
+        finally:
+            transport.close()
+
     def test_skips_unsolicited_notification_before_response(self, tmp_path):
         """Regression for #751: a server-emitted notification (no ``id``)
         arriving on stdout before the real response must not be mistaken
@@ -415,6 +467,67 @@ class TestStdioTransport:
                 "send_notification blocked on stdout — override missing"
             )
             assert result_box.get("ok") is True, result_box
+        finally:
+            transport.close()
+
+    def test_survives_large_stderr_output(self, tmp_path):
+        """Regression for #750: a child that fills the stderr pipe buffer
+        before responding on stdout must not deadlock the transport.
+
+        ``StdioTransport`` spawns the child with ``stderr=subprocess.PIPE``
+        but nothing drains it. Once the child writes more than the OS pipe
+        buffer to stderr, its write blocks and it never gets to read stdin
+        or answer on stdout, so ``proc.stdout.readline()`` hangs forever.
+        """
+        import threading
+
+        script = tmp_path / "noisy_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import json
+
+            # Write well past any OS pipe buffer before touching stdin.
+            for _ in range(20000):
+                sys.stderr.write("noisy line filling the pipe buffer\\n")
+            sys.stderr.flush()
+
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                req = json.loads(line)
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id", 0),
+                    "result": {"echo": req.get("method", "")},
+                }
+                sys.stdout.write(json.dumps(resp) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)])
+        try:
+            result_box: dict = {}
+
+            def call():
+                try:
+                    req = MCPRequest(method="test/echo", id=1)
+                    result_box["resp"] = transport.send(req)
+                except Exception as exc:  # noqa: BLE001
+                    result_box["error"] = exc
+
+            worker = threading.Thread(target=call, daemon=True)
+            worker.start()
+            worker.join(timeout=10.0)
+            assert not worker.is_alive(), (
+                "send() deadlocked on a full stderr pipe buffer"
+            )
+            assert "error" not in result_box, result_box.get("error")
+            resp = result_box["resp"]
+            assert resp.error is None
+            assert resp.result["echo"] == "test/echo"
         finally:
             transport.close()
 

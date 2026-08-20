@@ -966,6 +966,112 @@ class MCPConfig:
     servers: str = ""  # JSON list of MCP server configs
 
 
+_MAX_EXTERNAL_JSON_BYTES = 4 * 1024 * 1024
+
+
+def resolve_json_or_file(raw: str, config_dir: Path) -> Any:
+    """Resolve a config value that is either inline JSON or a path to a JSON file.
+
+    Parameters
+    ----------
+    raw:
+        Either a JSON string (starts with '[' or '{') or a file path
+        to a .json file containing the data.
+    config_dir:
+        Directory of config.toml, used to resolve relative file paths.
+
+    Returns
+    -------
+    Parsed JSON value (dict, list, etc.), or ``None`` if *raw* is empty.
+
+    Raises
+    ------
+    ValueError: If a relative path escapes the config directory.
+    FileNotFoundError: If the referenced file does not exist.
+    json.JSONDecodeError: If the JSON content is malformed.
+    """
+    import json
+
+    if not isinstance(raw, str):
+        raise TypeError("JSON config value must be a string")
+
+    stripped = raw.strip()
+    if not stripped:
+        return None
+
+    # Inline JSON
+    if stripped.startswith("[") or stripped.startswith("{"):
+        return json.loads(stripped)
+
+    # File path reference
+    file_path = Path(stripped).expanduser()
+    was_relative = not file_path.is_absolute()
+    if was_relative:
+        file_path = config_dir / file_path
+
+    resolved = file_path.resolve()
+
+    # Security check: relative paths must not escape the config directory
+    if was_relative:
+        config_resolved = config_dir.expanduser().resolve()
+        try:
+            resolved.relative_to(config_resolved)
+        except ValueError as exc:
+            raise ValueError(
+                f"Path '{stripped}' resolves to '{resolved}' which is outside "
+                f"the config directory '{config_resolved}'"
+            ) from exc
+
+    if not resolved.exists():
+        raise FileNotFoundError(
+            f"MCP config file not found: {resolved} (from '{stripped}')"
+        )
+    if not resolved.is_file():
+        raise ValueError(f"JSON config path is not a regular file: {resolved}")
+    if resolved.stat().st_size > _MAX_EXTERNAL_JSON_BYTES:
+        raise ValueError(
+            f"JSON config file exceeds {_MAX_EXTERNAL_JSON_BYTES} bytes: {resolved}"
+        )
+
+    content = resolved.read_text(encoding="utf-8")
+    return json.loads(content)
+
+
+def resolve_mcp_servers(raw: str, config_dir: Path) -> list[dict[str, Any]]:
+    """Resolve MCP server configuration from inline JSON or an external file.
+
+    Wraps :func:`resolve_json_or_file` with MCP-specific validation:
+    a single server object ``{...}`` is automatically wrapped in a list,
+    and the result must be a ``list``.
+    """
+    import json
+
+    result = resolve_json_or_file(raw, config_dir)
+    if result is None:
+        return []
+    if isinstance(result, dict):
+        result = [result]
+    if not isinstance(result, list):
+        raise ValueError(
+            "MCP servers config must be a JSON array or object, "
+            f"got {type(result).__name__}"
+        )
+
+    servers: list[dict[str, Any]] = []
+    for index, server in enumerate(result):
+        if isinstance(server, str):
+            try:
+                server = json.loads(server)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"MCP server entry {index} is not a valid JSON object"
+                ) from exc
+        if not isinstance(server, dict):
+            raise ValueError(f"MCP server entry {index} must be a JSON object")
+        servers.append(server)
+    return servers
+
+
 @dataclass(slots=True)
 class BrowserConfig:
     """Browser automation settings (Playwright)."""
@@ -1623,6 +1729,15 @@ class JarvisConfig:
     mining: Optional["MiningConfig"] = None
 
     @property
+    def _config_dir(self) -> Path:
+        """Directory containing the loaded config, or the env-aware default."""
+        return self.__dict__.get("_config_source_dir", get_config_dir())
+
+    @_config_dir.setter
+    def _config_dir(self, value: Path) -> None:
+        self.__dict__["_config_source_dir"] = Path(value)
+
+    @property
     def memory(self) -> StorageConfig:
         """Backward-compatible accessor — canonical location is tools.storage."""
         return self.tools.storage
@@ -1867,11 +1982,12 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
     cfg.engine.default = recommend_engine(hw)
 
     if path is not None:
-        config_path = Path(path)
+        config_path = Path(path).expanduser().resolve()
     elif os.environ.get("OPENJARVIS_CONFIG"):
         config_path = Path(os.environ["OPENJARVIS_CONFIG"]).expanduser().resolve()
     else:
         config_path = get_config_path()
+    cfg._config_dir = config_path.parent
     if config_path.exists():
         with open(config_path, "rb") as fh:
             data = tomllib.load(fh)

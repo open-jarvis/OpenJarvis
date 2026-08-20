@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import subprocess
 import threading
@@ -14,6 +15,8 @@ from openjarvis.mcp.protocol import MCPRequest, MCPResponse
 
 if TYPE_CHECKING:
     from openjarvis.mcp.server import MCPServer
+
+logger = logging.getLogger(__name__)
 
 
 class MCPTransport(ABC):
@@ -81,6 +84,12 @@ class StdioTransport(MCPTransport):
         )
         self._reader_stop = threading.Event()
         self._reader_thread: Optional[threading.Thread] = None
+        self._stderr_thread: Optional[threading.Thread] = None
+        # A single stdout stream cannot safely serve multiple independent
+        # readers: one request could consume and discard another request's
+        # response. Serialize complete write/read exchanges (and notification
+        # writes) so response correlation remains lossless.
+        self._request_lock = threading.Lock()
         self._start()
 
     def _start(self) -> None:
@@ -98,6 +107,16 @@ class StdioTransport(MCPTransport):
             daemon=True,
         )
         self._reader_thread.start()
+        # Nothing else reads stderr. Once the child writes more than the OS
+        # pipe buffer to it, the child blocks on that write and never gets
+        # to answer on stdout. Drain it continuously on a background thread.
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr,
+            args=(self._process,),
+            name="openjarvis-mcp-stderr",
+            daemon=True,
+        )
+        self._stderr_thread.start()
 
     def _read_stdout(self) -> None:
         """Read the subprocess pipe without tying up the request thread.
@@ -144,6 +163,15 @@ class StdioTransport(MCPTransport):
             raise RuntimeError("No response from subprocess")
         return item
 
+    def _drain_stderr(self, proc: subprocess.Popen[str]) -> None:
+        """Continuously read the child's stderr so its pipe never fills."""
+        if proc.stderr is None:
+            return
+        for line in proc.stderr:
+            line = line.rstrip("\n")
+            if line:
+                logger.debug("[%s stderr] %s", self._command[0], line)
+
     def send(self, request: MCPRequest) -> MCPResponse:
         """Write request as JSON line, read lines until the matching response.
 
@@ -152,37 +180,38 @@ class StdioTransport(MCPTransport):
         isn't a well-formed JSON-RPC response carrying this request's id,
         rather than treating the first line as gospel (#751).
         """
-        proc = self._process
-        if proc is None or proc.stdin is None or proc.stdout is None:
-            raise RuntimeError("Transport process is not running")
+        with self._request_lock:
+            proc = self._process
+            if proc is None or proc.stdin is None or proc.stdout is None:
+                raise RuntimeError("Transport process is not running")
 
-        line = request.to_json() + "\n"
-        proc.stdin.write(line)
-        proc.stdin.flush()
+            line = request.to_json() + "\n"
+            proc.stdin.write(line)
+            proc.stdin.flush()
 
-        deadline = time.monotonic() + self._response_timeout
-        while True:
-            # Check the wall-clock deadline even when a server continuously
-            # floods stdout, so queued blank/noise/notification lines cannot
-            # keep extending the request forever.
-            response_line = self._next_stdout_line(deadline, request.id)
-            response_line = response_line.strip()
-            if not response_line:
-                continue
+            deadline = time.monotonic() + self._response_timeout
+            while True:
+                # Check the wall-clock deadline even when a server continuously
+                # floods stdout, so queued blank/noise/notification lines cannot
+                # keep extending the request forever.
+                response_line = self._next_stdout_line(deadline, request.id)
+                response_line = response_line.strip()
+                if not response_line:
+                    continue
 
-            try:
-                parsed = json.loads(response_line)
-            except (json.JSONDecodeError, ValueError):
-                parsed = None
+                try:
+                    parsed = json.loads(response_line)
+                except (json.JSONDecodeError, ValueError):
+                    parsed = None
 
-            is_response = (
-                isinstance(parsed, dict)
-                and "id" in parsed
-                and ("result" in parsed or "error" in parsed)
-                and parsed["id"] == request.id
-            )
-            if is_response:
-                return MCPResponse.from_json(response_line)
+                is_response = (
+                    isinstance(parsed, dict)
+                    and "id" in parsed
+                    and ("result" in parsed or "error" in parsed)
+                    and parsed["id"] == request.id
+                )
+                if is_response:
+                    return MCPResponse.from_json(response_line)
 
     def send_notification(self, request: MCPRequest) -> None:
         """Send a JSON-RPC notification — write only, never read.
@@ -191,12 +220,13 @@ class StdioTransport(MCPTransport):
         to notifications, so the default ``send()`` would block forever
         on ``proc.stdout.readline()``.
         """
-        proc = self._process
-        if proc is None or proc.stdin is None:
-            raise RuntimeError("Transport process is not running")
-        line = request.to_json() + "\n"
-        proc.stdin.write(line)
-        proc.stdin.flush()
+        with self._request_lock:
+            proc = self._process
+            if proc is None or proc.stdin is None:
+                raise RuntimeError("Transport process is not running")
+            line = request.to_json() + "\n"
+            proc.stdin.write(line)
+            proc.stdin.flush()
 
     def close(self) -> None:
         """Terminate the subprocess."""
@@ -221,6 +251,9 @@ class StdioTransport(MCPTransport):
                 self._reader_thread.join(timeout=1)
                 self._reader_thread = None
             self._process = None
+        if self._stderr_thread is not None:
+            self._stderr_thread.join(timeout=5)
+            self._stderr_thread = None
 
 
 class StreamableHTTPTransport(MCPTransport):
