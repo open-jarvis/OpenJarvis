@@ -17,16 +17,22 @@ from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec  # noqa: F4
 # ---------------------------------------------------------------------------
 
 
-def _write_toml_skill(directory: Path, name: str, description: str = "") -> None:
+def _write_toml_skill(
+    directory: Path,
+    name: str,
+    description: str = "",
+    depends: list[str] | None = None,
+) -> None:
     skill_dir = directory / name
     skill_dir.mkdir(parents=True, exist_ok=True)
+    depends_line = f"depends = {depends!r}\n" if depends else ""
     (skill_dir / "skill.toml").write_text(
         textwrap.dedent(f"""\
             [skill]
             name = "{name}"
             description = "{description or name}"
             tags = ["test"]
-
+            {depends_line}
             [[skill.steps]]
             tool_name = "echo"
             arguments_template = '{{"text": "{{input}}"}}'
@@ -112,6 +118,57 @@ class TestSkillManagerDiscovery:
         names = mgr.skill_names()
         assert "skill_a" in names
         assert "skill_b" in names
+
+
+# ---------------------------------------------------------------------------
+# TestSkillManagerDependencyCycles
+# ---------------------------------------------------------------------------
+
+
+class TestSkillManagerDependencyCycles:
+    """Regression for #781: a dependency cycle between two skills must not
+    crash discovery for every skill. validate_dependencies(self._skills)
+    ran unguarded, so an uncaught DependencyCycleError propagated out of
+    discover() -- in SystemBuilder this was caught by a broad exception
+    handler that silently discarded ALL discovered skills, not just the
+    cyclic pair."""
+
+    def test_discover_does_not_raise_on_cycle(self, tmp_path: Path) -> None:
+        _write_toml_skill(tmp_path, "alpha", depends=["beta"])
+        _write_toml_skill(tmp_path, "beta", depends=["alpha"])
+
+        mgr = SkillManager(bus=EventBus())
+        mgr.discover(paths=[tmp_path])  # must not raise DependencyCycleError
+
+    def test_discover_prunes_only_the_cyclic_pair(self, tmp_path: Path) -> None:
+        """The two mutually-dependent skills are removed; an unrelated,
+        acyclic skill discovered alongside them must remain usable."""
+        _write_toml_skill(tmp_path, "alpha", depends=["beta"])
+        _write_toml_skill(tmp_path, "beta", depends=["alpha"])
+        _write_toml_skill(tmp_path, "gamma")
+
+        mgr = SkillManager(bus=EventBus())
+        mgr.discover(paths=[tmp_path])
+
+        names = mgr.skill_names()
+        assert "alpha" not in names
+        assert "beta" not in names
+        assert "gamma" in names
+        # The surviving skill must still be fully usable, not a stub.
+        manifest = mgr.resolve("gamma")
+        assert manifest.name == "gamma"
+
+    def test_discover_prunes_three_way_cycle(self, tmp_path: Path) -> None:
+        _write_toml_skill(tmp_path, "a", depends=["c"])
+        _write_toml_skill(tmp_path, "b", depends=["a"])
+        _write_toml_skill(tmp_path, "c", depends=["b"])
+        _write_toml_skill(tmp_path, "safe")
+
+        mgr = SkillManager(bus=EventBus())
+        mgr.discover(paths=[tmp_path])
+
+        names = mgr.skill_names()
+        assert names == ["safe"]
 
 
 # ---------------------------------------------------------------------------
