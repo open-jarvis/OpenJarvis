@@ -172,8 +172,12 @@ RL_ALL_TOOLS: Dict[str, Dict[str, List[str]]] = {
     "enhance_reasoning": {"model": ["reasoner-1", "reasoner-2", "reasoner-3"]},
     "answer": {
         "model": [
-            "answer-1", "answer-2", "answer-3", "answer-4",
-            "answer-math-1", "answer-math-2",
+            "answer-1",
+            "answer-2",
+            "answer-3",
+            "answer-4",
+            "answer-math-1",
+            "answer-math-2",
         ],
     },
     "search": {"model": ["search-1", "search-2", "search-3"]},
@@ -188,10 +192,14 @@ RL_ALL_TOOLS: Dict[str, Dict[str, List[str]]] = {
 # so the substitution is deferred until we know the cell's resolved local/cloud
 # pair. Worker dicts share the schema validated by `_resolve_worker_pool`.
 
-def _expert_for(slot: str, local_model: Optional[str],
-                local_endpoint: Optional[str],
-                cloud_model: str,
-                cloud_endpoint: str = "anthropic") -> Dict[str, Any]:
+
+def _expert_for(
+    slot: str,
+    local_model: Optional[str],
+    local_endpoint: Optional[str],
+    cloud_model: str,
+    cloud_endpoint: str = "anthropic",
+) -> Dict[str, Any]:
     """Map an upstream model slot (`answer-1`, `search-3`, …) to a worker spec.
 
     Routing policy:
@@ -357,6 +365,7 @@ def _paper_expert_for(
 
 # ---- Tavily + Modal helpers -------------------------------------------------
 
+
 def _call_tavily_search(
     query: str,
     max_results: int = 5,
@@ -390,7 +399,9 @@ def _call_modal_python(code: str, timeout_s: int = 60) -> Tuple[str, int]:
         # Python image too. We rely on stdlib only — no extra pip installs.
         image = modal.Image.debian_slim(python_version="3.12")
         sb = modal.Sandbox.create(
-            "python", "-c", code,
+            "python",
+            "-c",
+            code,
             app=app,
             image=image,
             timeout=int(timeout_s),
@@ -485,53 +496,77 @@ def _paper_pool(
     """
     pool: List[Dict[str, Any]] = []
     if local_model and local_endpoint:
-        pool.append({
+        pool.append(
+            {
+                "id": len(pool),
+                "name": "local-qwen",
+                "type": "vllm",
+                "model": local_model,
+                "base_url": local_endpoint,
+                "description": "Local Qwen vLLM (paper uses Qwen3-32B).",
+            }
+        )
+    pool.append(
+        {
             "id": len(pool),
-            "name": "local-qwen",
-            "type": "vllm",
-            "model": local_model,
-            "base_url": local_endpoint,
-            "description": "Local Qwen vLLM (paper uses Qwen3-32B).",
-        })
-    pool.append({
-        "id": len(pool), "name": "tavily-search",
-        "type": "tavily-search", "model": "tavily",
-        "description": "Tavily web search.",
-    })
-    pool.append({
-        "id": len(pool), "name": "modal-python",
-        "type": "modal-python", "model": "modal-python",
-        "description": "Modal Sandbox for one-shot Python exec.",
-    })
-    pool.append({
-        "id": len(pool), "name": "code-specialist",
-        "type": "openrouter", "model": _PAPER_CODER_OPENROUTER,
-        "description": "Qwen-2.5-Coder-32B via OpenRouter (paper).",
-    })
-    pool.append({
-        "id": len(pool), "name": "generalist-llama",
-        "type": "openrouter", "model": _PAPER_GENERALIST_TIER3_OPENROUTER,
-        "description": "Llama-3.3-70B-Instruct via OpenRouter (paper tier-3).",
-    })
-    pool.append({
-        "id": len(pool), "name": "generalist-gpt5",
-        "type": "openai", "model": "gpt-5",
-        "description": "GPT-5 frontier generalist.",
-    })
-    pool.append({
-        "id": len(pool), "name": "generalist-gpt5-mini",
-        "type": "openai", "model": "gpt-5-mini",
-        "description": "GPT-5-mini mid generalist.",
-    })
+            "name": "tavily-search",
+            "type": "tavily-search",
+            "model": "tavily",
+            "description": "Tavily web search.",
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "modal-python",
+            "type": "modal-python",
+            "model": "modal-python",
+            "description": "Modal Sandbox for one-shot Python exec.",
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "code-specialist",
+            "type": "openrouter",
+            "model": _PAPER_CODER_OPENROUTER,
+            "description": "Qwen-2.5-Coder-32B via OpenRouter (paper).",
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "generalist-llama",
+            "type": "openrouter",
+            "model": _PAPER_GENERALIST_TIER3_OPENROUTER,
+            "description": "Llama-3.3-70B-Instruct via OpenRouter (paper tier-3).",
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "generalist-gpt5",
+            "type": "openai",
+            "model": "gpt-5",
+            "description": "GPT-5 frontier generalist.",
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "generalist-gpt5-mini",
+            "type": "openai",
+            "model": "gpt-5-mini",
+            "description": "GPT-5-mini mid generalist.",
+        }
+    )
     return pool
 
 
 # Regex for ``<tool_call>{...}</tool_call>`` blocks emitted by Orchestrator-8B
 # when the vLLM tool parser doesn't catch them (e.g. `qwen3_xml` parser on a
 # hermes-style template). Captures the JSON payload.
-_TOOL_CALL_TAG_RE = re.compile(
-    r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL
-)
+_TOOL_CALL_TAG_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 
 
 def _parse_rl_tool_call(content: str, sdk_tool_calls: Any) -> Optional[Dict[str, Any]]:
@@ -608,7 +643,7 @@ def _strip_fences(s: str) -> str:
     if s.startswith("```"):
         first_nl = s.find("\n")
         if first_nl != -1:
-            s = s[first_nl + 1:]
+            s = s[first_nl + 1 :]
         if s.endswith("```"):
             s = s[:-3]
         s = s.strip()
@@ -660,6 +695,7 @@ def _extract_final_answer_text(text: str) -> str:
 
 # ---------- Worker pool ----------
 
+
 def _default_pool(
     local_model: Optional[str],
     local_endpoint: Optional[str],
@@ -677,17 +713,19 @@ def _default_pool(
         ep = "anthropic"
     pool: List[Dict[str, Any]] = []
     if local_model and local_endpoint:
-        pool.append({
-            "id": len(pool),
-            "name": "local-qwen",
-            "type": "vllm",
-            "model": local_model,
-            "base_url": local_endpoint,
-            "description": (
-                "Open-weights Qwen3.5 served locally. Cheap and fast. Good at "
-                "concise extraction, formatting, arithmetic on given data."
-            ),
-        })
+        pool.append(
+            {
+                "id": len(pool),
+                "name": "local-qwen",
+                "type": "vllm",
+                "model": local_model,
+                "base_url": local_endpoint,
+                "description": (
+                    "Open-weights Qwen3.5 served locally. Cheap and fast. Good at "
+                    "concise extraction, formatting, arithmetic on given data."
+                ),
+            }
+        )
     if ep == "openai":
         search_type = "openai-web-search"
         search_model = cloud_model
@@ -700,36 +738,42 @@ def _default_pool(
         search_type = "anthropic-web-search"
         search_model = _DEFAULT_WEB_SEARCH_MODEL
         search_desc = "Anthropic server-side web_search."
-    pool.append({
-        "id": len(pool),
-        "name": "web-search",
-        "type": search_type,
-        "model": search_model,
-        "description": (
-            f"{search_desc} Use for facts that need a lookup "
-            "(recent events, rare names/dates, niche sources). Returns a digest."
-        ),
-    })
-    pool.append({
-        "id": len(pool),
-        "name": f"frontier-{ep}",
-        "type": ep,
-        "model": cloud_model,
-        "description": (
-            "Frontier reasoning model. Use for hard multi-step reasoning, "
-            "code review, or a final synthesis pass. Expensive — use sparingly."
-        ),
-    })
-    pool.append({
-        "id": len(pool),
-        "name": "frontier-openai-mini",
-        "type": "openai",
-        "model": "gpt-5-mini",
-        "description": (
-            "Mid-tier OpenAI model. Solid general knowledge and reasoning at a "
-            "fraction of frontier cost."
-        ),
-    })
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "web-search",
+            "type": search_type,
+            "model": search_model,
+            "description": (
+                f"{search_desc} Use for facts that need a lookup "
+                "(recent events, rare names/dates, niche sources). Returns a digest."
+            ),
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": f"frontier-{ep}",
+            "type": ep,
+            "model": cloud_model,
+            "description": (
+                "Frontier reasoning model. Use for hard multi-step reasoning, "
+                "code review, or a final synthesis pass. Expensive — use sparingly."
+            ),
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "frontier-openai-mini",
+            "type": "openai",
+            "model": "gpt-5-mini",
+            "description": (
+                "Mid-tier OpenAI model. Solid general knowledge and reasoning at a "
+                "fraction of frontier cost."
+            ),
+        }
+    )
     return pool
 
 
@@ -743,12 +787,21 @@ def _default_pool(
 #   `modal-python`   — One-shot Python exec in a fresh Modal Sandbox (the
 #                      paper's "Python sandbox" inside `enhance_reasoning`).
 _TOOLORCH_VALID_TYPES = (
-    "vllm", "openai", "anthropic", "anthropic-web-search",
-    "openai-web-search", "gemini", "gemini-web-search", "tavily-search",
-    "openrouter", "modal-python",
+    "vllm",
+    "openai",
+    "anthropic",
+    "anthropic-web-search",
+    "openai-web-search",
+    "gemini",
+    "gemini-web-search",
+    "tavily-search",
+    "openrouter",
+    "modal-python",
 )
 _TOOLORCH_SEARCH_TYPES = (
-    "anthropic-web-search", "openai-web-search", "gemini-web-search",
+    "anthropic-web-search",
+    "openai-web-search",
+    "gemini-web-search",
     "tavily-search",
 )
 
@@ -808,9 +861,7 @@ def _resolve_worker_pool(
                 f"Invalid worker_pool entry [{wid_repr}]: 'id' must be an int"
             )
         if wid in seen_ids:
-            raise ValueError(
-                f"Invalid worker_pool entry [{wid}]: duplicate id"
-            )
+            raise ValueError(f"Invalid worker_pool entry [{wid}]: duplicate id")
         seen_ids.add(wid)
         if not entry.get("name") or not isinstance(entry["name"], str):
             raise ValueError(
@@ -850,7 +901,10 @@ def _resolve_worker_pool(
                 raise ValueError(
                     f"Invalid worker_pool entry [{wid}]: 'model' must be a string when set"
                 )
-            if wtype in ("openai-web-search", "gemini-web-search") and model not in PRICES:
+            if (
+                wtype in ("openai-web-search", "gemini-web-search")
+                and model not in PRICES
+            ):
                 raise ValueError(
                     f"Invalid worker_pool entry [{wid}]: model {model!r} "
                     f"is not in PRICES (known: {sorted(PRICES)})"
@@ -958,7 +1012,9 @@ def _call_worker(
         text, p, c, n_searches, _ = LocalCloudAgent._call_openai_agent(
             worker["model"],
             user=prompt,
-            max_tokens=max(max_tok, 16384) if is_gpt5_family(worker["model"]) else max_tok,
+            max_tokens=max(max_tok, 16384)
+            if is_gpt5_family(worker["model"])
+            else max_tok,
             temperature=eff_temp,
         )
         extra = n_searches * OPENAI_WEB_SEARCH_COST_PER_CALL
@@ -975,7 +1031,8 @@ def _call_worker(
     if wtype == "tavily-search":
         max_results = int(cfg.get("tavily_max_results", 5))
         text, p, c, extra, n_searches = _call_tavily_search(
-            str(prompt), max_results=max_results,
+            str(prompt),
+            max_results=max_results,
         )
         return text, p, c, False, extra, n_searches
     if wtype == "openrouter":
@@ -1045,8 +1102,12 @@ def _swe_call_worker(
     is_local = backbone == "local"
     return (
         out["final_summary"] or out["answer"],
-        out["tokens_in"], out["tokens_out"],
-        is_local, 0.0, 0, int(out["turns"]),
+        out["tokens_in"],
+        out["tokens_out"],
+        is_local,
+        0.0,
+        0,
+        int(out["turns"]),
     )
 
 
@@ -1134,20 +1195,24 @@ class ToolOrchestraAgent(LocalCloudAgent):
         )
         shared_workdir: Optional[Path] = None
         if swe_mode:
-            shared_workdir = Path(tempfile.mkdtemp(
-                prefix=f"toolorch-swe-{task_meta.get('task_id','x')}-"
-            ))
+            shared_workdir = Path(
+                tempfile.mkdtemp(
+                    prefix=f"toolorch-swe-{task_meta.get('task_id', 'x')}-"
+                )
+            )
             try:
                 _clone_repo(task_meta["repo"], task_meta["base_commit"], shared_workdir)
             except Exception:
                 shutil.rmtree(shared_workdir, ignore_errors=True)
                 raise
-            self.record_trace_event({
-                "kind": "toolorchestra_swe_workdir",
-                "workdir": str(shared_workdir),
-                "repo": task_meta["repo"],
-                "base_commit": task_meta["base_commit"],
-            })
+            self.record_trace_event(
+                {
+                    "kind": "toolorchestra_swe_workdir",
+                    "workdir": str(shared_workdir),
+                    "repo": task_meta["repo"],
+                    "base_commit": task_meta["base_commit"],
+                }
+            )
 
         # try/finally guards ``shared_workdir`` against exceptions raised
         # anywhere in the turn loop, the worker calls, the fallback, or
@@ -1185,15 +1250,22 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 cost += self.cost_usd(self._cloud_model, o_in, o_out)
 
                 action = _parse_action(text)
-                history.append({
-                    "role": "orchestrator", "turn": turn, "raw": text, "action": action,
-                })
-                self.record_trace_event({
-                    "kind": "toolorchestra_action",
-                    "turn": turn,
-                    "action": action,
-                    "raw": text,
-                })
+                history.append(
+                    {
+                        "role": "orchestrator",
+                        "turn": turn,
+                        "raw": text,
+                        "action": action,
+                    }
+                )
+                self.record_trace_event(
+                    {
+                        "kind": "toolorchestra_action",
+                        "turn": turn,
+                        "action": action,
+                        "raw": text,
+                    }
+                )
 
                 if action is None:
                     parse_failures += 1
@@ -1217,12 +1289,21 @@ class ToolOrchestraAgent(LocalCloudAgent):
                         continue
                     worker = workers[wid]
                     if swe_mode and shared_workdir is not None:
-                        (w_text, w_in, w_out, is_local, extra_cost,
-                         n_searches, bash_turns) = (
-                            _swe_call_worker(
-                                worker, str(w_input), cfg, task_meta,
-                                shared_workdir, turn,
-                            )
+                        (
+                            w_text,
+                            w_in,
+                            w_out,
+                            is_local,
+                            extra_cost,
+                            n_searches,
+                            bash_turns,
+                        ) = _swe_call_worker(
+                            worker,
+                            str(w_input),
+                            cfg,
+                            task_meta,
+                            shared_workdir,
+                            turn,
                         )
                         tool_calls += bash_turns
                     else:
@@ -1236,17 +1317,19 @@ class ToolOrchestraAgent(LocalCloudAgent):
                         cost += self.cost_usd(worker["model"], w_in, w_out) + extra_cost
                     n_web_searches_total += n_searches
                     tool_calls += n_searches
-                    history.append({
-                        "role": "worker",
-                        "turn": turn,
-                        "worker_id": wid,
-                        "worker_name": worker["name"],
-                        "worker_model": worker["model"],
-                        "output": w_text,
-                        "tokens_in": w_in,
-                        "tokens_out": w_out,
-                        "n_web_searches": n_searches,
-                    })
+                    history.append(
+                        {
+                            "role": "worker",
+                            "turn": turn,
+                            "worker_id": wid,
+                            "worker_name": worker["name"],
+                            "worker_model": worker["model"],
+                            "output": w_text,
+                            "tokens_in": w_in,
+                            "tokens_out": w_out,
+                            "n_web_searches": n_searches,
+                        }
+                    )
                     continue
                 # Unknown action kind — treat as parse failure.
                 parse_failures += 1
@@ -1258,18 +1341,22 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 # Search workers are excluded — they answer fact-lookup
                 # questions, not synthesis.
                 non_search = [
-                    w for w in workers
-                    if w.get("type") not in _TOOLORCH_SEARCH_TYPES
+                    w for w in workers if w.get("type") not in _TOOLORCH_SEARCH_TYPES
                 ] or workers
                 worker = max(
                     non_search,
                     key=lambda w: PRICES.get(w.get("model", ""), (0.0, 0.0))[1],
                 )
                 if swe_mode and shared_workdir is not None:
-                    (ans, w_in, w_out, is_local, extra_cost, _,
-                     bash_turns) = _swe_call_worker(
-                        worker, question, cfg, task_meta,
-                        shared_workdir, max_turns + 1,
+                    (ans, w_in, w_out, is_local, extra_cost, _, bash_turns) = (
+                        _swe_call_worker(
+                            worker,
+                            question,
+                            cfg,
+                            task_meta,
+                            shared_workdir,
+                            max_turns + 1,
+                        )
                     )
                     tool_calls += bash_turns
                 else:
@@ -1281,17 +1368,19 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 else:
                     tokens_cloud += w_in + w_out
                     cost += self.cost_usd(worker["model"], w_in, w_out) + extra_cost
-                history.append({
-                    "role": "worker",
-                    "turn": max_turns + 1,
-                    "worker_id": worker["id"],
-                    "worker_name": worker["name"],
-                    "worker_model": worker["model"],
-                    "output": ans,
-                    "tokens_in": w_in,
-                    "tokens_out": w_out,
-                    "fallback": True,
-                })
+                history.append(
+                    {
+                        "role": "worker",
+                        "turn": max_turns + 1,
+                        "worker_id": worker["id"],
+                        "worker_name": worker["name"],
+                        "worker_model": worker["model"],
+                        "output": ans,
+                        "tokens_in": w_in,
+                        "tokens_out": w_out,
+                        "fallback": True,
+                    }
+                )
                 final_answer = ans
 
             # In SWE mode, the authoritative output is the working-tree diff —
@@ -1301,7 +1390,8 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 if patch.strip():
                     final_answer = (
                         f"{final_answer}\n\n```diff\n{patch}```"
-                        if final_answer else f"```diff\n{patch}```"
+                        if final_answer
+                        else f"```diff\n{patch}```"
                     )
 
             meta = {
@@ -1371,20 +1461,24 @@ class ToolOrchestraAgent(LocalCloudAgent):
         )
         shared_workdir: Optional[Path] = None
         if swe_mode:
-            shared_workdir = Path(tempfile.mkdtemp(
-                prefix=f"toolorch-rl-swe-{task_meta.get('task_id','x')}-"
-            ))
+            shared_workdir = Path(
+                tempfile.mkdtemp(
+                    prefix=f"toolorch-rl-swe-{task_meta.get('task_id', 'x')}-"
+                )
+            )
             try:
                 _clone_repo(task_meta["repo"], task_meta["base_commit"], shared_workdir)
             except Exception:
                 shutil.rmtree(shared_workdir, ignore_errors=True)
                 raise
-            self.record_trace_event({
-                "kind": "toolorchestra_rl_swe_workdir",
-                "workdir": str(shared_workdir),
-                "repo": task_meta["repo"],
-                "base_commit": task_meta["base_commit"],
-            })
+            self.record_trace_event(
+                {
+                    "kind": "toolorchestra_rl_swe_workdir",
+                    "workdir": str(shared_workdir),
+                    "repo": task_meta["repo"],
+                    "base_commit": task_meta["base_commit"],
+                }
+            )
 
         # ``context_str`` mirrors the upstream's running context — accumulates
         # search documents and code/exec snippets across turns. We keep this
@@ -1433,40 +1527,53 @@ class ToolOrchestraAgent(LocalCloudAgent):
                     temperature=orch_temp,
                     tools=RL_TOOLS_SPEC,
                 )
-                self.record_trace_event({
-                    "kind": "vllm",
-                    "role": "orchestrator",
-                    "model": orch_model,
-                    "endpoint": orch_endpoint,
-                    "system": RL_ORCHESTRATOR_SYS,
-                    "user": user,
-                    "response": text,
-                    "tool_calls": [
-                        {
-                            "id": getattr(tc, "id", None),
-                            "type": getattr(tc, "type", None),
-                            "function": {
-                                "name": getattr(getattr(tc, "function", None), "name", None),
-                                "arguments": getattr(getattr(tc, "function", None), "arguments", None),
-                            },
-                        }
-                        for tc in (sdk_tool_calls or [])
-                    ],
-                    "tokens_in": o_in,
-                    "tokens_out": o_out,
-                })
+                self.record_trace_event(
+                    {
+                        "kind": "vllm",
+                        "role": "orchestrator",
+                        "model": orch_model,
+                        "endpoint": orch_endpoint,
+                        "system": RL_ORCHESTRATOR_SYS,
+                        "user": user,
+                        "response": text,
+                        "tool_calls": [
+                            {
+                                "id": getattr(tc, "id", None),
+                                "type": getattr(tc, "type", None),
+                                "function": {
+                                    "name": getattr(
+                                        getattr(tc, "function", None), "name", None
+                                    ),
+                                    "arguments": getattr(
+                                        getattr(tc, "function", None), "arguments", None
+                                    ),
+                                },
+                            }
+                            for tc in (sdk_tool_calls or [])
+                        ],
+                        "tokens_in": o_in,
+                        "tokens_out": o_out,
+                    }
+                )
                 tokens_local += o_in + o_out
 
                 action = _parse_rl_tool_call(text, sdk_tool_calls)
-                history.append({
-                    "role": "orchestrator", "turn": turn, "raw": text, "action": action,
-                })
-                self.record_trace_event({
-                    "kind": "toolorchestra_rl_action",
-                    "turn": turn,
-                    "action": action,
-                    "raw": text,
-                })
+                history.append(
+                    {
+                        "role": "orchestrator",
+                        "turn": turn,
+                        "raw": text,
+                        "action": action,
+                    }
+                )
+                self.record_trace_event(
+                    {
+                        "kind": "toolorchestra_rl_action",
+                        "turn": turn,
+                        "action": action,
+                        "raw": text,
+                    }
+                )
 
                 if action is None:
                     parse_failures += 1
@@ -1479,8 +1586,10 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 slot = args.get("model", "")
 
                 # Validate against the upstream tool/arg schema.
-                valid = name in RL_ALL_TOOLS and isinstance(slot, str) and (
-                    slot in RL_ALL_TOOLS[name]["model"]
+                valid = (
+                    name in RL_ALL_TOOLS
+                    and isinstance(slot, str)
+                    and (slot in RL_ALL_TOOLS[name]["model"])
                 )
                 if not valid:
                     parse_failures += 1
@@ -1501,8 +1610,11 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 # framing).
                 if paper_mode:
                     worker = _paper_expert_for(
-                        slot, self._local_model, self._local_endpoint,
-                        self._cloud_model, self._cloud_endpoint,
+                        slot,
+                        self._local_model,
+                        self._local_endpoint,
+                        self._cloud_model,
+                        self._cloud_endpoint,
                     )
                     # In paper mode, `enhance_reasoning` is always the coder
                     # specialist regardless of the orchestrator's chosen tier.
@@ -1516,7 +1628,10 @@ class ToolOrchestraAgent(LocalCloudAgent):
                         }
                 else:
                     worker = _expert_for(
-                        slot, self._local_model, self._local_endpoint, self._cloud_model,
+                        slot,
+                        self._local_model,
+                        self._local_endpoint,
+                        self._cloud_model,
                         self._cloud_endpoint,
                     )
 
@@ -1572,13 +1687,25 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 # bash_turns=0; vllm/anthropic-typed workers run the loop.
                 bash_turns = 0
                 if swe_mode and shared_workdir is not None and name != "search":
-                    (w_text, w_in, w_out, is_local, extra_cost,
-                     n_searches, bash_turns) = _swe_call_worker(
-                        worker, w_input, cfg, task_meta, shared_workdir, turn,
+                    (
+                        w_text,
+                        w_in,
+                        w_out,
+                        is_local,
+                        extra_cost,
+                        n_searches,
+                        bash_turns,
+                    ) = _swe_call_worker(
+                        worker,
+                        w_input,
+                        cfg,
+                        task_meta,
+                        shared_workdir,
+                        turn,
                     )
                 else:
-                    w_text, w_in, w_out, is_local, extra_cost, n_searches = _call_worker(
-                        worker, w_input, cfg
+                    w_text, w_in, w_out, is_local, extra_cost, n_searches = (
+                        _call_worker(worker, w_input, cfg)
                     )
                 if is_local:
                     tokens_local += w_in + w_out
@@ -1597,13 +1724,13 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 # when no python block is found.
                 modal_exec_output: Optional[str] = None
                 modal_exec_rc: Optional[int] = None
-                if (paper_mode and name == "enhance_reasoning"
-                        and not swe_mode):
+                if paper_mode and name == "enhance_reasoning" and not swe_mode:
                     code = _extract_first_python_block(w_text)
                     if code:
                         timeout_s = int(cfg.get("modal_python_timeout_s", 60))
                         modal_exec_output, modal_exec_rc = _call_modal_python(
-                            code, timeout_s=timeout_s,
+                            code,
+                            timeout_s=timeout_s,
                         )
                         tool_calls += 1
                         w_text = (
@@ -1611,27 +1738,29 @@ class ToolOrchestraAgent(LocalCloudAgent):
                             f"(rc={modal_exec_rc})]\n{modal_exec_output}"
                         )
 
-                history.append({
-                    "role": "worker",
-                    "turn": turn,
-                    "tool": name,
-                    "slot": slot,
-                    "worker_model": worker["model"],
-                    "worker_type": worker["type"],
-                    "output": w_text,
-                    "tokens_in": w_in,
-                    "tokens_out": w_out,
-                    "n_web_searches": n_searches,
-                    "bash_turns": bash_turns,
-                    "modal_exec_rc": modal_exec_rc,
-                })
+                history.append(
+                    {
+                        "role": "worker",
+                        "turn": turn,
+                        "tool": name,
+                        "slot": slot,
+                        "worker_model": worker["model"],
+                        "worker_type": worker["type"],
+                        "output": w_text,
+                        "tokens_in": w_in,
+                        "tokens_out": w_out,
+                        "n_web_searches": n_searches,
+                        "bash_turns": bash_turns,
+                        "modal_exec_rc": modal_exec_rc,
+                    }
+                )
 
                 # Update accumulated context for the next turn.
                 if name == "search":
                     # Treat the search worker's response as a document.
                     doc_list.append(w_text)
                     ctx_docs = "\n\n".join(
-                        f"Doc {i+1}: {d}" for i, d in enumerate(doc_list)
+                        f"Doc {i + 1}: {d}" for i, d in enumerate(doc_list)
                     )
                     # Crude char-level cap mirrors the upstream's ~24k token cap.
                     context_str = ("Documents:\n" + ctx_docs)[-24000:]
@@ -1648,15 +1777,23 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 # it can still touch the workdir and emit a diff.
                 expert_fn = _paper_expert_for if paper_mode else _expert_for
                 worker = expert_fn(
-                    "answer-1", self._local_model, self._local_endpoint,
-                    self._cloud_model, self._cloud_endpoint,
+                    "answer-1",
+                    self._local_model,
+                    self._local_endpoint,
+                    self._cloud_model,
+                    self._cloud_endpoint,
                 )
                 fb_bash_turns = 0
                 if swe_mode and shared_workdir is not None:
-                    (ans, w_in, w_out, is_local, extra_cost,
-                     _, fb_bash_turns) = _swe_call_worker(
-                        worker, question, cfg, task_meta,
-                        shared_workdir, max_turns + 1,
+                    (ans, w_in, w_out, is_local, extra_cost, _, fb_bash_turns) = (
+                        _swe_call_worker(
+                            worker,
+                            question,
+                            cfg,
+                            task_meta,
+                            shared_workdir,
+                            max_turns + 1,
+                        )
                     )
                     tool_calls += fb_bash_turns
                 else:
@@ -1668,19 +1805,21 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 else:
                     tokens_cloud += w_in + w_out
                     cost += self.cost_usd(worker["model"], w_in, w_out) + extra_cost
-                history.append({
-                    "role": "worker",
-                    "turn": max_turns + 1,
-                    "tool": "answer",
-                    "slot": "answer-1",
-                    "worker_model": worker["model"],
-                    "worker_type": worker["type"],
-                    "output": ans,
-                    "tokens_in": w_in,
-                    "tokens_out": w_out,
-                    "bash_turns": fb_bash_turns,
-                    "fallback": True,
-                })
+                history.append(
+                    {
+                        "role": "worker",
+                        "turn": max_turns + 1,
+                        "tool": "answer",
+                        "slot": "answer-1",
+                        "worker_model": worker["model"],
+                        "worker_type": worker["type"],
+                        "output": ans,
+                        "tokens_in": w_in,
+                        "tokens_out": w_out,
+                        "bash_turns": fb_bash_turns,
+                        "fallback": True,
+                    }
+                )
                 final_answer = ans
 
             # In SWE mode, the authoritative output is the working-tree diff —
@@ -1690,7 +1829,8 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 if patch.strip():
                     final_answer = (
                         f"{final_answer}\n\n```diff\n{patch}```"
-                        if final_answer else f"```diff\n{patch}```"
+                        if final_answer
+                        else f"```diff\n{patch}```"
                     )
 
             meta = {

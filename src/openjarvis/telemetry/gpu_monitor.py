@@ -19,6 +19,7 @@ try:
     # `pynvml` gets pulled in transitively by torch/vllm/etc. Suppress
     # it narrowly here so user output stays clean (issue #389).
     import warnings
+
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
@@ -34,6 +35,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Hardware spec database
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class GpuHardwareSpec:
@@ -101,6 +103,7 @@ def lookup_gpu_spec(name: str) -> Optional[GpuHardwareSpec]:
 # Snapshot & aggregated sample
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class GpuSnapshot:
     """A single point-in-time reading from one GPU device."""
@@ -132,6 +135,7 @@ class GpuSample:
 # ---------------------------------------------------------------------------
 # Monitor
 # ---------------------------------------------------------------------------
+
 
 class GpuMonitor:
     """Background GPU poller using pynvml.

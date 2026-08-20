@@ -72,15 +72,16 @@ class _OAuth1Auth:
             all_params[key] = value
 
         param_str = "&".join(
-            f"{_pct(k)}={_pct(v)}"
-            for k, v in sorted(all_params.items())
+            f"{_pct(k)}={_pct(v)}" for k, v in sorted(all_params.items())
         )
         base_string = f"{method}&{_pct(base_url)}&{_pct(param_str)}"
 
         signing_key = f"{_pct(self._consumer_secret)}&{_pct(self._access_secret)}"
         signature = base64.b64encode(
             hmac.new(
-                signing_key.encode(), base_string.encode(), hashlib.sha1,
+                signing_key.encode(),
+                base_string.encode(),
+                hashlib.sha1,
             ).digest(),
         ).decode()
 
@@ -146,7 +147,8 @@ class TwitterChannel(BaseChannel):
         self._api_secret = api_secret or os.environ.get("TWITTER_API_SECRET", "")
         self._access_token = access_token or os.environ.get("TWITTER_ACCESS_TOKEN", "")
         self._access_secret = access_secret or os.environ.get(
-            "TWITTER_ACCESS_SECRET", "",
+            "TWITTER_ACCESS_SECRET",
+            "",
         )
         self._bot_user_id = bot_user_id or os.environ.get("TWITTER_BOT_USER_ID", "")
         self._poll_interval = poll_interval
@@ -162,8 +164,10 @@ class TwitterChannel(BaseChannel):
 
     def _oauth(self) -> _OAuth1Auth:
         return _OAuth1Auth(
-            self._api_key, self._api_secret,
-            self._access_token, self._access_secret,
+            self._api_key,
+            self._api_secret,
+            self._access_token,
+            self._access_secret,
         )
 
     # -- connection lifecycle -----------------------------------------------
@@ -179,7 +183,8 @@ class TwitterChannel(BaseChannel):
         self._status = ChannelStatus.CONNECTING
 
         self._listener_thread = threading.Thread(
-            target=self._poll_mentions, daemon=True,
+            target=self._poll_mentions,
+            daemon=True,
         )
         self._listener_thread.start()
         self._status = ChannelStatus.CONNECTED
@@ -276,7 +281,10 @@ class TwitterChannel(BaseChannel):
                     params["since_id"] = self._since_id
 
                 resp = httpx.get(
-                    url, headers=headers, params=params, timeout=10.0,
+                    url,
+                    headers=headers,
+                    params=params,
+                    timeout=10.0,
                 )
                 if resp.status_code < 300:
                     data = resp.json()

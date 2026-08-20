@@ -395,7 +395,9 @@ class _FakeResponse:
             import httpx  # noqa: PLC0415
 
             raise httpx.HTTPStatusError(
-                "error", request=None, response=None  # type: ignore[arg-type]
+                "error",
+                request=None,
+                response=None,  # type: ignore[arg-type]
             )
 
 

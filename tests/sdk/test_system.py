@@ -12,6 +12,34 @@ from openjarvis.system import JarvisSystem, SystemBuilder
 
 
 class TestJarvisSystem:
+    def test_new_fields_do_not_shift_existing_positional_arguments(self):
+        """Adding mcp_tools must not reinterpret legacy positional calls."""
+        config = JarvisConfig()
+        bus = EventBus()
+        engine = MagicMock()
+        agent = MagicMock()
+        tools = [MagicMock()]
+        tool_executor = MagicMock()
+        memory_backend = MagicMock()
+
+        system = JarvisSystem(
+            config,
+            bus,
+            engine,
+            "mock",
+            "test-model",
+            agent,
+            "simple",
+            tools,
+            tool_executor,
+            memory_backend,
+        )
+
+        assert system.tools is tools
+        assert system.tool_executor is tool_executor
+        assert system.memory_backend is memory_backend
+        assert system.mcp_tools == []
+
     def test_ask_direct_mode(self):
         engine = MagicMock()
         engine.generate.return_value = {

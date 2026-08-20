@@ -93,11 +93,16 @@ class HeuristicRouter(RouterPolicy):
 
     Rules (applied in order):
     1. Code detected → prefer model with "code"/"coder" in name
-    2. Math detected → prefer larger model
-    3. Low complexity (score < 0.20) → prefer smaller/faster model
+    2. Low complexity (score <= 0.20) → prefer smaller/faster model
+    3. Math detected → prefer larger model
     4. High complexity (score >= 0.55 OR reasoning keywords) → prefer larger model
     5. High urgency (>0.8) → override to smaller model
     6. Default fallback → default_model → fallback_model → first available
+
+    Low complexity is checked before the math check so that simple arithmetic
+    ("calculate 2+2") routes to the smallest model instead of always escalating
+    on the "math" keyword; math problems above the low-complexity threshold
+    still escalate to the larger model.
     """
 
     def __init__(
@@ -134,13 +139,14 @@ class HeuristicRouter(RouterPolicy):
             # Fall through to larger model for code
             return _largest_model(available) or available[0]
 
-        # Rule 2: Math detected → prefer larger model
+        # Rule 2: Low complexity → prefer smaller model (checked before the math
+        # rule so simple arithmetic doesn't escalate to the largest model)
+        if context.complexity_score <= 0.20:
+            return _smallest_model(available) or available[0]
+
+        # Rule 3: Math detected → prefer larger model
         if context.has_math:
             return _largest_model(available) or available[0]
-
-        # Rule 3: Low complexity → prefer smaller model
-        if context.complexity_score < 0.20:
-            return _smallest_model(available) or available[0]
 
         # Rule 4: High complexity or reasoning → prefer larger model
         if context.complexity_score >= 0.55 or context.has_reasoning:

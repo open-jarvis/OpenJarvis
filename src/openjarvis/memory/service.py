@@ -182,10 +182,9 @@ class MemoryService:
         facts = self._extractor.extract(user_text, assistant_text)
         if facts:
             # Auto-extracted from a raw exchange that may carry untrusted input →
-            # record untrusted provenance on every fact. NOTE: this tag is a
-            # provenance marker only; it is surfaced by the `memory list` CLI but
-            # is NOT yet enforced on the model-facing recall path (LocalFactStore
-            # does not feed inject_context). Recall-time filtering is a follow-up.
+            # quarantine every fact. Model-facing recall filters this tier in
+            # both load_configured_facts() and inject_context(); FactStore.list()
+            # intentionally retains it for auditing in `jarvis memory list`.
             stored = self._store.add_many(facts, source="auto", trust="untrusted")
             if stored:
                 logger.debug("Memory service stored %d new fact(s)", stored)
@@ -237,7 +236,9 @@ def build_memory_service(
         max_facts=getattr(mem, "max_facts", 1000),
     )
     extractor = FactExtractor(engine, model)
-    return MemoryService(store, extractor, event_bus=event_bus, scanner=_build_scanner())
+    return MemoryService(
+        store, extractor, event_bus=event_bus, scanner=_build_scanner()
+    )
 
 
 def _build_scanner() -> Any:
@@ -248,7 +249,9 @@ def _build_scanner() -> Any:
 
         return InjectionScanner()
     except Exception:  # noqa: BLE001 — scanner is an optional defence layer
-        logger.debug("Injection scanner unavailable; memory capture unguarded", exc_info=True)
+        logger.debug(
+            "Injection scanner unavailable; memory capture unguarded", exc_info=True
+        )
         return None
 
 

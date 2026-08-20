@@ -16,7 +16,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, List
+from typing import Any, Iterable, List
 
 from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import FactStoreRegistry
@@ -37,6 +37,23 @@ class Fact:
     # Provenance tier. "" = trusted/legacy; "untrusted" = auto-derived from a
     # raw exchange that may contain hostile input → quarantined when surfaced.
     trust: str = ""
+
+    @property
+    def trusted_for_recall(self) -> bool:
+        """Whether this fact may be placed in model-facing context.
+
+        Empty is the legacy on-disk value. Legacy facts explicitly marked as
+        auto-extracted are quarantined because they predate provenance tagging;
+        other legacy/manual facts remain trusted for backwards compatibility.
+        Unknown future tiers fail closed instead of silently becoming prompt
+        input.
+        """
+        tier = (self.trust or "").strip().lower()
+        if tier == "trusted":
+            return True
+        if tier:
+            return False
+        return (self.source or "").strip().lower() != "auto"
 
 
 class FactStore(ABC):
@@ -211,4 +228,33 @@ def create_fact_store(
     return FactStoreRegistry.create(key, path, max_facts=max_facts)
 
 
-__all__ = ["Fact", "FactStore", "LocalFactStore", "create_fact_store"]
+def load_configured_facts(config: Any) -> List[Fact]:
+    """Load automatic-memory facts from *config* when the service is enabled.
+
+    Context injection is also used by short-lived commands such as
+    ``jarvis ask``, where no :class:`MemoryService` instance exists.  This
+    helper gives those callers the same configured fact-store view without
+    coupling them to the service lifecycle.
+    """
+    memory = getattr(config, "memory", None)
+    if memory is None or not getattr(memory, "enabled", False):
+        return []
+
+    store = create_fact_store(
+        getattr(memory, "backend", "local"),
+        path=getattr(memory, "facts_path", None),
+        max_facts=getattr(memory, "max_facts", 1000),
+    )
+    # This helper feeds short-lived model paths (ask, SDK, system
+    # orchestrator). Keep the full list available through FactStore.list() for
+    # auditing/CLI use, but never return quarantined facts for model recall.
+    return [fact for fact in store.list() if fact.trusted_for_recall]
+
+
+__all__ = [
+    "Fact",
+    "FactStore",
+    "LocalFactStore",
+    "create_fact_store",
+    "load_configured_facts",
+]

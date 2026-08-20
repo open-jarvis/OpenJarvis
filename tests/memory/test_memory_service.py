@@ -104,8 +104,11 @@ def test_injection_in_exchange_skips_storage(tmp_path):
 
 def test_scanner_failure_fails_open(tmp_path):
     # A scanner error must not block memory — provenance/quarantine still apply.
-    svc = _service(tmp_path, FakeExtractor(["a fact"]),
-                   scanner=FakeScanner(raises=RuntimeError("boom")))
+    svc = _service(
+        tmp_path,
+        FakeExtractor(["a fact"]),
+        scanner=FakeScanner(raises=RuntimeError("boom")),
+    )
     svc.start()
     try:
         svc.submit("hello", "hi")

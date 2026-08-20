@@ -123,8 +123,12 @@ class LiteLLMEngine(InferenceEngine):
             call_kwargs["api_base"] = self._api_base
         call_kwargs.update(kwargs)
 
-        resp = litellm.completion(**call_kwargs)
-        for chunk in resp:
+        # ``acompletion`` + ``async for``: the sync ``litellm.completion`` used
+        # before made a blocking network call (and blocking per-chunk reads)
+        # inside this ``async def``, stalling the whole event loop between
+        # tokens — the same bug the httpx engines' streaming paths had.
+        resp = await litellm.acompletion(**call_kwargs)
+        async for chunk in resp:
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta and delta.content:
                 yield delta.content

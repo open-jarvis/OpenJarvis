@@ -303,7 +303,9 @@ def _openrouter_limiter() -> _OpenRouterLimiter:
     if _OPENROUTER_LIMITER is None:
         with _OPENROUTER_LIMITER_LOCK:
             if _OPENROUTER_LIMITER is None:
-                max_concurrent = int(os.environ.get("OJ_OPENROUTER_MAX_CONCURRENT", "20") or 20)
+                max_concurrent = int(
+                    os.environ.get("OJ_OPENROUTER_MAX_CONCURRENT", "20") or 20
+                )
                 rpm = int(os.environ.get("OJ_OPENROUTER_RPM", "60") or 60)
                 _OPENROUTER_LIMITER = _OpenRouterLimiter(max_concurrent, rpm)
     return _OPENROUTER_LIMITER
@@ -319,8 +321,14 @@ def _serialize_block(block: Any) -> Dict[str, Any]:
     """
     out: Dict[str, Any] = {"type": getattr(block, "type", type(block).__name__)}
     for attr in (
-        "id", "name", "input", "text", "thinking", "signature",
-        "tool_use_id", "content",
+        "id",
+        "name",
+        "input",
+        "text",
+        "thinking",
+        "signature",
+        "tool_use_id",
+        "content",
     ):
         if hasattr(block, attr):
             val = getattr(block, attr)
@@ -341,14 +349,16 @@ def _serialize_openai_tool_calls(tool_calls: Any) -> List[Dict[str, Any]]:
         return out
     for tc in tool_calls:
         fn = getattr(tc, "function", None)
-        out.append({
-            "id": getattr(tc, "id", None),
-            "type": getattr(tc, "type", "function"),
-            "function": {
-                "name": getattr(fn, "name", None) if fn else None,
-                "arguments": getattr(fn, "arguments", None) if fn else None,
-            },
-        })
+        out.append(
+            {
+                "id": getattr(tc, "id", None),
+                "type": getattr(tc, "type", "function"),
+                "function": {
+                    "name": getattr(fn, "name", None) if fn else None,
+                    "arguments": getattr(fn, "arguments", None) if fn else None,
+                },
+            }
+        )
     return out
 
 
@@ -473,32 +483,46 @@ class LocalCloudAgent(BaseAgent):
         srv = getattr(msg.usage, "server_tool_use", None)
         n_searches = getattr(srv, "web_search_requests", 0) if srv else 0
         content_blocks = [_serialize_block(b) for b in msg.content]
-        tool_use_blocks = [b for b in content_blocks if b.get("type") in (
-            "tool_use", "server_tool_use",
-        )]
-        tool_result_blocks = [b for b in content_blocks if b.get("type") in (
-            "web_search_tool_result", "tool_result",
-        )]
-        _record_event({
-            "kind": "anthropic",
-            "role": trace_role,
-            "model": model,
-            "system": system,
-            "user": user,
-            "response": text,
-            "content_blocks": content_blocks,
-            "tool_calls": tool_use_blocks,
-            "tool_results": tool_result_blocks,
-            "tokens_in": msg.usage.input_tokens,
-            "tokens_out": msg.usage.output_tokens,
-            "n_web_searches": n_searches,
-            "tools_declared": tools,
-            "tool_choice": tool_choice,
-            "output_config": output_config,
-            "stop_reason": getattr(msg, "stop_reason", None),
-            "latency_s": latency,
-            "ts": time.time(),
-        })
+        tool_use_blocks = [
+            b
+            for b in content_blocks
+            if b.get("type")
+            in (
+                "tool_use",
+                "server_tool_use",
+            )
+        ]
+        tool_result_blocks = [
+            b
+            for b in content_blocks
+            if b.get("type")
+            in (
+                "web_search_tool_result",
+                "tool_result",
+            )
+        ]
+        _record_event(
+            {
+                "kind": "anthropic",
+                "role": trace_role,
+                "model": model,
+                "system": system,
+                "user": user,
+                "response": text,
+                "content_blocks": content_blocks,
+                "tool_calls": tool_use_blocks,
+                "tool_results": tool_result_blocks,
+                "tokens_in": msg.usage.input_tokens,
+                "tokens_out": msg.usage.output_tokens,
+                "n_web_searches": n_searches,
+                "tools_declared": tools,
+                "tool_choice": tool_choice,
+                "output_config": output_config,
+                "stop_reason": getattr(msg, "stop_reason", None),
+                "latency_s": latency,
+                "ts": time.time(),
+            }
+        )
         return text, msg.usage.input_tokens, msg.usage.output_tokens, n_searches
 
     @staticmethod
@@ -550,24 +574,26 @@ class LocalCloudAgent(BaseAgent):
         u = resp.usage
         p = getattr(u, "prompt_tokens", 0) if u else 0
         c = getattr(u, "completion_tokens", 0) if u else 0
-        _record_event({
-            "kind": "openai",
-            "role": trace_role,
-            "model": model,
-            "system": system,
-            "user": user,
-            "response": text,
-            "tool_calls": tool_calls,
-            "reasoning_content": reasoning,
-            "tokens_in": p,
-            "tokens_out": c,
-            "response_format": response_format,
-            "tools_declared": tools,
-            "tool_choice": tool_choice,
-            "finish_reason": getattr(choice, "finish_reason", None),
-            "latency_s": latency,
-            "ts": time.time(),
-        })
+        _record_event(
+            {
+                "kind": "openai",
+                "role": trace_role,
+                "model": model,
+                "system": system,
+                "user": user,
+                "response": text,
+                "tool_calls": tool_calls,
+                "reasoning_content": reasoning,
+                "tokens_in": p,
+                "tokens_out": c,
+                "response_format": response_format,
+                "tools_declared": tools,
+                "tool_choice": tool_choice,
+                "finish_reason": getattr(choice, "finish_reason", None),
+                "latency_s": latency,
+                "ts": time.time(),
+            }
+        )
         return text, p, c
 
     @staticmethod
@@ -614,12 +640,10 @@ class LocalCloudAgent(BaseAgent):
         from openai import OpenAI
 
         if model.startswith("openrouter/"):
-            model = model[len("openrouter/"):]
+            model = model[len("openrouter/") :]
         api_key = os.environ.get("OPENROUTER_API_KEY")
         if not api_key:
-            raise RuntimeError(
-                "OPENROUTER_API_KEY is not set; cannot call OpenRouter."
-            )
+            raise RuntimeError("OPENROUTER_API_KEY is not set; cannot call OpenRouter.")
         client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key,
@@ -658,21 +682,23 @@ class LocalCloudAgent(BaseAgent):
         u = resp.usage
         p = getattr(u, "prompt_tokens", 0) if u else 0
         c = getattr(u, "completion_tokens", 0) if u else 0
-        _record_event({
-            "kind": "openrouter",
-            "role": trace_role,
-            "model": model,
-            "system": system,
-            "user": user,
-            "response": text,
-            "tool_calls": tool_calls,
-            "reasoning_content": reasoning,
-            "tokens_in": p,
-            "tokens_out": c,
-            "finish_reason": getattr(choice, "finish_reason", None),
-            "latency_s": latency,
-            "ts": time.time(),
-        })
+        _record_event(
+            {
+                "kind": "openrouter",
+                "role": trace_role,
+                "model": model,
+                "system": system,
+                "user": user,
+                "response": text,
+                "tool_calls": tool_calls,
+                "reasoning_content": reasoning,
+                "tokens_in": p,
+                "tokens_out": c,
+                "finish_reason": getattr(choice, "finish_reason", None),
+                "latency_s": latency,
+                "ts": time.time(),
+            }
+        )
         return text, p, c
 
     @staticmethod
@@ -701,7 +727,9 @@ class LocalCloudAgent(BaseAgent):
         from google import genai
         from google.genai import types
 
-        client = genai.Client(http_options=types.HttpOptions(timeout=int(timeout * 1000)))
+        client = genai.Client(
+            http_options=types.HttpOptions(timeout=int(timeout * 1000))
+        )
         cfg = types.GenerateContentConfig(
             temperature=temperature,
             max_output_tokens=max_tokens,
@@ -728,21 +756,23 @@ class LocalCloudAgent(BaseAgent):
             finish_reason = str(resp.candidates[0].finish_reason)
         except Exception:
             pass
-        _record_event({
-            "kind": "gemini",
-            "role": trace_role,
-            "model": model,
-            "system": system,
-            "user": user,
-            "response": text,
-            "tokens_in": p,
-            "tokens_out": c,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "finish_reason": finish_reason,
-            "latency_s": latency,
-            "ts": time.time(),
-        })
+        _record_event(
+            {
+                "kind": "gemini",
+                "role": trace_role,
+                "model": model,
+                "system": system,
+                "user": user,
+                "response": text,
+                "tokens_in": p,
+                "tokens_out": c,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "finish_reason": finish_reason,
+                "latency_s": latency,
+                "ts": time.time(),
+            }
+        )
         return text, p, c
 
     @staticmethod
@@ -797,27 +827,29 @@ class LocalCloudAgent(BaseAgent):
         u = resp.usage
         p = getattr(u, "prompt_tokens", 0) if u else 0
         c = getattr(u, "completion_tokens", 0) if u else 0
-        _record_event({
-            "kind": "vllm",
-            "role": trace_role,
-            "model": model,
-            "endpoint": endpoint,
-            "system": system,
-            "user": user,
-            "response": text,
-            "tool_calls": tool_calls,
-            "reasoning_content": reasoning,
-            "tokens_in": p,
-            "tokens_out": c,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "enable_thinking": enable_thinking,
-            "tools_declared": tools,
-            "tool_choice": tool_choice,
-            "finish_reason": getattr(choice, "finish_reason", None),
-            "latency_s": latency,
-            "ts": time.time(),
-        })
+        _record_event(
+            {
+                "kind": "vllm",
+                "role": trace_role,
+                "model": model,
+                "endpoint": endpoint,
+                "system": system,
+                "user": user,
+                "response": text,
+                "tool_calls": tool_calls,
+                "reasoning_content": reasoning,
+                "tokens_in": p,
+                "tokens_out": c,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "enable_thinking": enable_thinking,
+                "tools_declared": tools,
+                "tool_choice": tool_choice,
+                "finish_reason": getattr(choice, "finish_reason", None),
+                "latency_s": latency,
+                "ts": time.time(),
+            }
+        )
         return text, p, c
 
     @staticmethod
@@ -884,33 +916,37 @@ class LocalCloudAgent(BaseAgent):
             n_searches = getattr(srv, "web_search_requests", 0) if srv else 0
             content_blocks = [_serialize_block(b) for b in msg.content]
             tool_use_blocks = [
-                b for b in content_blocks
+                b
+                for b in content_blocks
                 if b.get("type") in ("tool_use", "server_tool_use")
             ]
             tool_result_blocks = [
-                b for b in content_blocks
+                b
+                for b in content_blocks
                 if b.get("type") in ("web_search_tool_result", "tool_result")
             ]
             stop_reason = getattr(msg, "stop_reason", None)
-            _record_event({
-                "kind": "anthropic",
-                "role": trace_role,
-                "model": model,
-                "system": system if turn == 0 else None,
-                "user": user if turn == 0 else None,
-                "turn": turn,
-                "response": text,
-                "content_blocks": content_blocks,
-                "tool_calls": tool_use_blocks,
-                "tool_results": tool_result_blocks,
-                "tokens_in": msg.usage.input_tokens,
-                "tokens_out": msg.usage.output_tokens,
-                "n_web_searches": n_searches,
-                "tools_declared": tools,
-                "stop_reason": stop_reason,
-                "latency_s": latency,
-                "ts": time.time(),
-            })
+            _record_event(
+                {
+                    "kind": "anthropic",
+                    "role": trace_role,
+                    "model": model,
+                    "system": system if turn == 0 else None,
+                    "user": user if turn == 0 else None,
+                    "turn": turn,
+                    "response": text,
+                    "content_blocks": content_blocks,
+                    "tool_calls": tool_use_blocks,
+                    "tool_results": tool_result_blocks,
+                    "tokens_in": msg.usage.input_tokens,
+                    "tokens_out": msg.usage.output_tokens,
+                    "n_web_searches": n_searches,
+                    "tools_declared": tools,
+                    "stop_reason": stop_reason,
+                    "latency_s": latency,
+                    "ts": time.time(),
+                }
+            )
             p_total += msg.usage.input_tokens
             c_total += msg.usage.output_tokens
             n_searches_total += n_searches
@@ -920,9 +956,7 @@ class LocalCloudAgent(BaseAgent):
             # here — break and let the caller (or future loop variant)
             # handle it. Only ``server_tool_use`` blocks (web_search)
             # are auto-continued by Anthropic itself.
-            client_tool_use = any(
-                b.get("type") == "tool_use" for b in content_blocks
-            )
+            client_tool_use = any(b.get("type") == "tool_use" for b in content_blocks)
             if client_tool_use:
                 break
             if stop_reason == "end_turn" or stop_reason is None:
@@ -931,10 +965,12 @@ class LocalCloudAgent(BaseAgent):
             # (server side) — Anthropic returned mid-thought. Append the
             # assistant turn and ask it to continue.
             messages.append({"role": "assistant", "content": msg.content})
-            messages.append({
-                "role": "user",
-                "content": "Continue.",
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": "Continue.",
+                }
+            )
         return last_text, p_total, c_total, n_searches_total, turns
 
     @staticmethod
@@ -1008,8 +1044,12 @@ class LocalCloudAgent(BaseAgent):
                     continue
                 raise
         if resp is None:
-            raise last_exc if last_exc is not None else RuntimeError(
-                "openai responses.create failed for all web_search tool names"
+            raise (
+                last_exc
+                if last_exc is not None
+                else RuntimeError(
+                    "openai responses.create failed for all web_search tool names"
+                )
             )
         _bump_cloud_calls()
         latency = time.time() - t0
@@ -1033,30 +1073,35 @@ class LocalCloudAgent(BaseAgent):
             text = "".join(chunks)
 
         n_searches = sum(
-            1 for item in output_items
-            if getattr(item, "type", None) in (
-                "web_search_call", "web_search_tool_call",
+            1
+            for item in output_items
+            if getattr(item, "type", None)
+            in (
+                "web_search_call",
+                "web_search_tool_call",
             )
         )
         u = getattr(resp, "usage", None)
         p = int(getattr(u, "input_tokens", 0) or 0) if u else 0
         c = int(getattr(u, "output_tokens", 0) or 0) if u else 0
-        _record_event({
-            "kind": "openai_agent",
-            "role": trace_role,
-            "model": model,
-            "system": system,
-            "user": user,
-            "response": text,
-            "output_items": _jsonable(output_items),
-            "tokens_in": p,
-            "tokens_out": c,
-            "n_web_searches": n_searches,
-            "tools_declared": [{"type": used_tool_name}],
-            "stop_reason": getattr(resp, "status", None),
-            "latency_s": latency,
-            "ts": time.time(),
-        })
+        _record_event(
+            {
+                "kind": "openai_agent",
+                "role": trace_role,
+                "model": model,
+                "system": system,
+                "user": user,
+                "response": text,
+                "output_items": _jsonable(output_items),
+                "tokens_in": p,
+                "tokens_out": c,
+                "n_web_searches": n_searches,
+                "tools_declared": [{"type": used_tool_name}],
+                "stop_reason": getattr(resp, "status", None),
+                "latency_s": latency,
+                "ts": time.time(),
+            }
+        )
         return text, p, c, n_searches, 1
 
     @staticmethod
@@ -1129,23 +1174,25 @@ class LocalCloudAgent(BaseAgent):
                 n_searches = len(web_search_queries)
         except Exception:  # noqa: BLE001
             pass
-        _record_event({
-            "kind": "gemini_agent",
-            "role": trace_role,
-            "model": model,
-            "system": system,
-            "user": user,
-            "response": text,
-            "tokens_in": p,
-            "tokens_out": c,
-            "n_web_searches": n_searches,
-            "web_search_queries": web_search_queries,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "finish_reason": finish_reason,
-            "latency_s": latency,
-            "ts": time.time(),
-        })
+        _record_event(
+            {
+                "kind": "gemini_agent",
+                "role": trace_role,
+                "model": model,
+                "system": system,
+                "user": user,
+                "response": text,
+                "tokens_in": p,
+                "tokens_out": c,
+                "n_web_searches": n_searches,
+                "web_search_queries": web_search_queries,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "finish_reason": finish_reason,
+                "latency_s": latency,
+                "ts": time.time(),
+            }
+        )
         return text, p, c, n_searches, 1
 
     def _call_cloud(
@@ -1269,8 +1316,13 @@ class LocalCloudAgent(BaseAgent):
             # Persist the trace before the trace state is closed (and even on
             # hard failure, so we get a record of what we did before it broke).
             self._write_trace_log(
-                context, input, answer, meta if "meta" in locals() else {},
-                events, soft_reason, exc_obj,
+                context,
+                input,
+                answer,
+                meta if "meta" in locals() else {},
+                events,
+                soft_reason,
+                exc_obj,
             )
             _close_trace()
             _close_call_counts()
@@ -1326,9 +1378,7 @@ class LocalCloudAgent(BaseAgent):
                 "metadata": meta,
                 "events": events,
                 "soft_error": soft_reason,
-                "error": (
-                    f"{type(exc).__name__}: {exc}" if exc is not None else None
-                ),
+                "error": (f"{type(exc).__name__}: {exc}" if exc is not None else None),
             }
             (out_dir / f"{task_id}.json").write_text(
                 json.dumps(blob, indent=2, default=str)

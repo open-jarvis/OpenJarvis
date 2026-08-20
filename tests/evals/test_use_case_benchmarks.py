@@ -347,7 +347,7 @@ class TestCostCalculator:
             calls_per_month=1000,
             avg_input_tokens=500,
             avg_output_tokens=200,
-            provider_key="gpt-5.3",
+            provider_key="gpt-5.6-sol",
         )
         assert est.monthly_cost > 0
         assert est.annual_cost == est.monthly_cost * 12

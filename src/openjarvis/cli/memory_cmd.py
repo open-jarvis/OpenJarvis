@@ -89,15 +89,39 @@ def index(
 
     mem = _get_backend(backend)
     try:
-        for chunk in track(chunks, description="Storing chunks...", console=console):
-            mem.store(
-                chunk.content,
-                source=chunk.source,
-                metadata={
-                    "offset": chunk.offset,
-                    "index": chunk.index,
-                },
-            )
+        replace_source = getattr(mem, "replace_source", None)
+        if callable(replace_source):
+            documents_by_source = {}
+            for chunk in chunks:
+                documents_by_source.setdefault(chunk.source, []).append(
+                    (
+                        chunk.content,
+                        {
+                            "offset": chunk.offset,
+                            "index": chunk.index,
+                        },
+                    )
+                )
+            for source, documents in track(
+                documents_by_source.items(),
+                description="Replacing sources...",
+                console=console,
+            ):
+                replace_source(source, documents)
+        else:
+            for chunk in track(
+                chunks,
+                description="Storing chunks...",
+                console=console,
+            ):
+                mem.store(
+                    chunk.content,
+                    source=chunk.source,
+                    metadata={
+                        "offset": chunk.offset,
+                        "index": chunk.index,
+                    },
+                )
     finally:
         if hasattr(mem, "close"):
             mem.close()
@@ -196,18 +220,19 @@ def list_facts() -> None:
     table.add_column("Fact")
     table.add_column("Source", style="cyan")
     table.add_column("Trust")
-    any_untrusted = False
+    any_quarantined = False
     for i, fact in enumerate(facts, 1):
-        quarantined = (fact.trust or "").strip().lower() == "untrusted"
-        any_untrusted = any_untrusted or quarantined
-        trust_disp = "[red]⚠ untrusted[/red]" if quarantined else "[green]trusted[/green]"
+        quarantined = not fact.trusted_for_recall
+        any_quarantined = any_quarantined or quarantined
+        trust_disp = (
+            "[red]⚠ quarantined[/red]" if quarantined else "[green]trusted[/green]"
+        )
         table.add_row(str(i), fact.text, fact.source or "-", trust_disp)
     console.print(table)
-    if any_untrusted:
+    if any_quarantined:
         console.print(
-            "[red]⚠ untrusted[/red] facts were auto-extracted from raw exchanges "
-            "(possible hostile input). Treat them as data, not instructions; "
-            "verify before relying on them."
+            "[red]⚠ quarantined[/red] facts are retained for audit but excluded "
+            "from model recall because they may contain hostile input."
         )
 
 
