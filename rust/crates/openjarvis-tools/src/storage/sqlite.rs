@@ -40,20 +40,26 @@ impl SQLiteMemory {
             ))
         })?;
 
-        // A longer busy timeout plus WAL mode (#756): without WAL,
-        // memory.db runs in rollback-journal mode where any concurrent
-        // writer blocks all readers, and rusqlite's default 5s
-        // busy_timeout was too short under realistic contention. WAL is a
-        // silent no-op on in-memory databases and some filesystems (e.g.
-        // network shares) -- SQLite just keeps the existing journal mode
-        // there, which is fine.
+        // A longer busy timeout plus best-effort WAL mode (#756): without
+        // WAL, a concurrent writer can block readers.  Some SQLite targets
+        // (notably in-memory databases and filesystems without WAL support)
+        // cannot switch journal mode, so failure to enable WAL must not make
+        // an otherwise usable memory backend fail to open.
         conn.busy_timeout(std::time::Duration::from_secs(10))
-            .map_err(|e| {
-                OpenJarvisError::Io(std::io::Error::other(e.to_string()))
-            })?;
-        conn.execute_batch("PRAGMA journal_mode=WAL;").map_err(|e| {
-            OpenJarvisError::Io(std::io::Error::other(e.to_string()))
-        })?;
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+        if db_path != Path::new(":memory:") {
+            match conn.query_row("PRAGMA journal_mode=WAL", [], |row| row.get::<_, String>(0)) {
+                Ok(mode) if mode.eq_ignore_ascii_case("wal") => {}
+                Ok(mode) => tracing::warn!(
+                    journal_mode = %mode,
+                    "SQLite WAL mode is unavailable; using the reported journal mode"
+                ),
+                Err(error) => tracing::warn!(
+                    %error,
+                    "Failed to enable SQLite WAL mode; continuing with the existing mode"
+                ),
+            }
+        }
 
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS documents (
@@ -488,5 +494,70 @@ mod tests {
             busy_timeout_ms >= 10_000,
             "expected busy_timeout of at least 10000ms, got {busy_timeout_ms}"
         );
+    }
+
+    #[test]
+    fn test_sqlite_wal_reader_remains_available_during_write_transaction() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("memory.db");
+        let writer = SQLiteMemory::new(&db_path).unwrap();
+        writer.store("baseline document", "test", None).unwrap();
+        let reader = SQLiteMemory::new(&db_path).unwrap();
+
+        let writer_conn = writer.conn.lock();
+        writer_conn.execute_batch("BEGIN EXCLUSIVE").unwrap();
+
+        let outcome = std::thread::scope(|scope| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            scope.spawn(|| {
+                let result = reader
+                    .retrieve("baseline", 5)
+                    .map(|results| results.len())
+                    .map_err(|error| error.to_string());
+                tx.send(result).unwrap();
+            });
+            let result = rx.recv_timeout(std::time::Duration::from_secs(1));
+            writer_conn.execute_batch("ROLLBACK").unwrap();
+            result
+        });
+
+        let result = outcome.expect("WAL reader blocked behind an active writer");
+        assert_eq!(result.unwrap(), 1);
+    }
+
+    #[test]
+    fn test_sqlite_busy_timeout_serializes_competing_writers() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("memory.db");
+        let first = SQLiteMemory::new(&db_path).unwrap();
+        let second = SQLiteMemory::new(&db_path).unwrap();
+
+        let first_conn = first.conn.lock();
+        first_conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+
+        let outcome = std::thread::scope(|scope| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            scope.spawn(|| {
+                let result = second
+                    .store("concurrent write", "test", None)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+                tx.send(result).unwrap();
+            });
+
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let premature = rx.try_recv();
+            first_conn.execute_batch("COMMIT").unwrap();
+            assert!(
+                matches!(premature, Err(std::sync::mpsc::TryRecvError::Empty)),
+                "competing writer did not wait for the active transaction: {premature:?}"
+            );
+            rx.recv_timeout(std::time::Duration::from_secs(2))
+        });
+
+        outcome
+            .expect("competing writer did not resume after commit")
+            .expect("competing writer failed instead of waiting");
+        assert_eq!(second.count().unwrap(), 1);
     }
 }
