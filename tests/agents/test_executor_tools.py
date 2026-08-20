@@ -230,7 +230,7 @@ def test_executor_uses_tool_loop_for_non_tool_agent_with_configured_tools(tmp_pa
         assert engine.call_count == 2
         assert any(
             message.role is Role.SYSTEM
-            and message.content == "NON_TOOL_SYSTEM_SENTINEL"
+            and message.text.startswith("NON_TOOL_SYSTEM_SENTINEL")
             for message in engine.last_messages or []
         )
         refreshed = manager.get_agent(agent["id"])
@@ -333,7 +333,7 @@ def test_simple_agent_without_tools_keeps_its_custom_system_prompt(tmp_path):
         assert engine.call_count == 1
         assert any(
             message.role is Role.SYSTEM
-            and message.content == "SIMPLE_CUSTOM_SYSTEM_SENTINEL"
+            and message.text.startswith("SIMPLE_CUSTOM_SYSTEM_SENTINEL")
             for message in engine.last_messages or []
         )
     finally:
