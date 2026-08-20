@@ -152,7 +152,7 @@ class TestSend:
         markdown_failure.status_code = 400
         markdown_failure.text = (
             '{"ok":false,"description":"Bad Request: can\'t parse entities: '
-            'Character \'_\' is reserved and must be escaped"}'
+            "Character '_' is reserved and must be escaped\"}"
         )
         plain_success = MagicMock()
         plain_success.status_code = 200
