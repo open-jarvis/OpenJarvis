@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import re
-import subprocess
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
+from openjarvis.security.subprocess_sandbox import run_sandboxed
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 # Maximum output size per stream (100 KB)
@@ -20,9 +19,6 @@ _MAX_TIMEOUT = 300
 
 # Default timeout (seconds)
 _DEFAULT_TIMEOUT = 30
-
-# Environment variables always passed through
-_BASE_ENV_KEYS = ("PATH", "HOME", "USER", "LANG", "TERM")
 
 # Catastrophic, effectively irreversible shell patterns that are refused
 # outright. This is defence-in-depth layered on top of the ``code:execute``
@@ -35,7 +31,8 @@ _DANGEROUS_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         # rm with -r and/or -f targeting root, home, or a root wildcard
         re.compile(
             r"(?i)\brm\s+(?:-\S+\s+)*-\S*[rf]\S*(?:\s+-\S+)*\s+"
-            r"(?:/|/\*|~/?|\$HOME|\$\{HOME\})(?:\s|;|&|\||$)"
+            r"[\"']?(?:/+|/\*|/(?:\./?)+|~/?(?:\*)?|\$HOME(?:/\*)?"
+            r"|\$\{HOME\}(?:/\*)?)[\"']?(?:\s|;|&|\||$)"
         ),
         "recursive/forced delete of a root, home, or wildcard path",
     ),
@@ -54,18 +51,35 @@ _DANGEROUS_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         # piping a remote download straight into a shell interpreter
-        re.compile(r"(?i)\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?\S*sh\b"),
+        re.compile(
+            r"(?i)\b(?:curl|wget)\b[^\n|]*\|\s*"
+            r"(?:(?:sudo|env|command|nohup)\s+)*\S*sh\b"
+        ),
         "piping a remote download into a shell",
     ),
     (
         # recursive chmod/chown of the filesystem root
-        re.compile(r"(?i)\bch(?:mod|own)\s+(?:-\S+\s+)*-\S*R\S*\s+\S+\s+/(?:\s|;|&|\||$)"),
+        re.compile(
+            r"(?i)\bch(?:mod|own)\s+(?:-\S+\s+)*-\S*R\S*\s+\S+\s+/(?:\s|;|&|\||$)"
+        ),
         "recursive permission/ownership change of the filesystem root",
+    ),
+    (
+        # Windows equivalents of a recursive drive wipe.
+        re.compile(
+            r"(?i)\b(?:rd|rmdir|del)\b(?=[^\r\n&|]*/s)"
+            r"[^\r\n&|]*\s+[a-z]:\\(?:\*?)?(?:\s|&|\||$)"
+        ),
+        "recursive delete of a Windows drive root",
+    ),
+    (
+        re.compile(r"(?i)\bformat(?:\.com)?\s+[a-z]:(?:\s|&|\||$)"),
+        "formatting a Windows drive",
     ),
 )
 
 
-def _find_dangerous(command: str) -> Optional[str]:
+def _find_dangerous(command: str) -> str | None:
     """Return a description if *command* matches a catastrophic pattern, else None."""
     for pattern, description in _DANGEROUS_PATTERNS:
         if pattern.search(command):
@@ -124,16 +138,17 @@ class ShellExecTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         command = params.get("command", "")
-        if not command:
+        if not isinstance(command, str) or not command.strip():
             return ToolResult(
                 tool_name="shell_exec",
                 content="No command provided.",
                 success=False,
             )
 
-        # Refuse catastrophic commands up front, before either execution path
-        # (Rust or subprocess). Guarding here — not inside the subprocess
-        # fallback — ensures the Rust backend cannot bypass the check.
+        # Refuse common direct forms of catastrophic commands before entering
+        # the sandbox runner.  Confirmation and the code:execute capability
+        # remain the authorization boundary; this narrow check is an extra
+        # guard against accidental destructive commands.
         danger = _find_dangerous(command)
         if danger is not None:
             return ToolResult(
@@ -157,6 +172,12 @@ class ShellExecTool(BaseTool):
         # Validate working_dir
         working_dir = params.get("working_dir")
         if working_dir is not None:
+            if not isinstance(working_dir, (str, Path)):
+                return ToolResult(
+                    tool_name="shell_exec",
+                    content="Working directory must be a path string.",
+                    success=False,
+                )
             wd_path = Path(working_dir)
             if not wd_path.exists():
                 return ToolResult(
@@ -171,58 +192,24 @@ class ShellExecTool(BaseTool):
                     success=False,
                 )
 
-        # Build sanitised environment
-        env: dict[str, str] = {}
-        for key in _BASE_ENV_KEYS:
-            val = os.environ.get(key)
-            if val is not None:
-                env[key] = val
-
-        env_passthrough: List[str] = params.get("env_passthrough") or []
-        for key in env_passthrough:
-            val = os.environ.get(key)
-            if val is not None:
-                env[key] = val
-
-        try:
-            from openjarvis._rust_bridge import get_rust_module
-
-            _rust = get_rust_module()
-            output = _rust.ShellExecTool().execute(command, working_dir)
+        env_passthrough = params.get("env_passthrough") or []
+        if not isinstance(env_passthrough, list) or not all(
+            isinstance(key, str) for key in env_passthrough
+        ):
             return ToolResult(
                 tool_name="shell_exec",
-                content=output or "(no output)",
-                success=True,
-                metadata={
-                    "returncode": 0,
-                    "timeout_used": timeout,
-                    "working_dir": working_dir,
-                },
-            )
-        except ImportError:
-            pass  # Fall through to subprocess below
-        except Exception as exc:
-            return ToolResult(
-                tool_name="shell_exec",
-                content=str(exc),
+                content="env_passthrough must be a list of variable names.",
                 success=False,
-                metadata={
-                    "returncode": -1,
-                    "timeout_used": timeout,
-                    "working_dir": working_dir,
-                },
             )
-        try:
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=working_dir,
-                env=env,
-            )
-        except subprocess.TimeoutExpired:
+
+        result = run_sandboxed(
+            command,
+            timeout=timeout,
+            working_dir=str(working_dir) if working_dir is not None else None,
+            env_passthrough=env_passthrough,
+            max_output_bytes=_MAX_OUTPUT_BYTES,
+        )
+        if result.timed_out:
             return ToolResult(
                 tool_name="shell_exec",
                 content=f"Command timed out after {timeout} seconds.",
@@ -233,33 +220,12 @@ class ShellExecTool(BaseTool):
                     "working_dir": working_dir,
                 },
             )
-        except PermissionError as exc:
-            return ToolResult(
-                tool_name="shell_exec",
-                content=f"Permission denied: {exc}",
-                success=False,
-            )
-        except OSError as exc:
-            return ToolResult(
-                tool_name="shell_exec",
-                content=f"OS error: {exc}",
-                success=False,
-            )
-
-        # Truncate output if needed
-        stdout = result.stdout
-        stderr = result.stderr
-        if len(stdout) > _MAX_OUTPUT_BYTES:
-            stdout = stdout[:_MAX_OUTPUT_BYTES] + "\n... (stdout truncated)"
-        if len(stderr) > _MAX_OUTPUT_BYTES:
-            stderr = stderr[:_MAX_OUTPUT_BYTES] + "\n... (stderr truncated)"
-
         # Format output
         sections: list[str] = []
-        if stdout:
-            sections.append(f"=== STDOUT ===\n{stdout}")
-        if stderr:
-            sections.append(f"=== STDERR ===\n{stderr}")
+        if result.stdout:
+            sections.append(f"=== STDOUT ===\n{result.stdout}")
+        if result.stderr:
+            sections.append(f"=== STDERR ===\n{result.stderr}")
         content = "\n".join(sections) if sections else "(no output)"
 
         return ToolResult(

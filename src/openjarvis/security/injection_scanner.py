@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import List
 
 from openjarvis.security.types import ScanFinding, ThreatLevel
+
+logger = logging.getLogger(__name__)
 
 # Threat level ordering for comparison
 _THREAT_ORDER = [
@@ -132,14 +135,33 @@ class InjectionScanner:
         # or be silently skipped merely because Rust was not built.
         from openjarvis._rust_bridge import RUST_AVAILABLE, get_rust_module
 
-        self._rust_impl = get_rust_module().InjectionScanner() if RUST_AVAILABLE else None
+        self._rust_impl = None
+        if RUST_AVAILABLE:
+            try:
+                self._rust_impl = get_rust_module().InjectionScanner()
+            except Exception:
+                # An install may temporarily have an older or broken extension.
+                # Scanning must remain active while that extension is replaced.
+                logger.warning(
+                    "Rust injection scanner unavailable; using Python fallback",
+                    exc_info=True,
+                )
 
     def scan(self, text: str) -> InjectionScanResult:
         """Scan text for injection patterns via Rust, or the Python fallback."""
         if self._rust_impl is not None:
             from openjarvis._rust_bridge import injection_result_from_json
 
-            return injection_result_from_json(self._rust_impl.scan(text))
+            try:
+                return injection_result_from_json(self._rust_impl.scan(text))
+            except Exception:
+                logger.warning(
+                    "Rust injection scan failed; using Python fallback",
+                    exc_info=True,
+                )
+                # Avoid retrying a broken extension (and logging a traceback)
+                # for every subsequent scan performed by this instance.
+                self._rust_impl = None
         return self._scan_python(text)
 
     def _scan_python(self, text: str) -> InjectionScanResult:

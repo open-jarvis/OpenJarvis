@@ -7,6 +7,7 @@ Thread-safe writes via lock. Sets os.environ on save for immediate effect.
 from __future__ import annotations
 
 import os
+import tempfile
 import threading
 from pathlib import Path
 
@@ -77,14 +78,37 @@ def _validate_credential_key(tool_name: str, key: str) -> None:
 
 def _write_credentials(creds: dict[str, dict[str, str]], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines: list[str] = []
+    doc = tomlkit.document()
     for section, kvs in creds.items():
-        lines.append(f"[{section}]")
+        table = tomlkit.table()
         for k, v in kvs.items():
-            lines.append(f'{k} = "{v}"')
-        lines.append("")
-    path.write_text("\n".join(lines))
-    os.chmod(path, 0o600)
+            table[k] = v
+        doc[section] = table
+
+    # Write beside the destination and atomically replace it.  Besides keeping
+    # special characters valid TOML, this prevents an interrupted update from
+    # leaving the credential store truncated or half-written.
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        dir=path.parent,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(tomlkit.dumps(doc))
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(temporary_name, 0o600)
+        os.replace(temporary_name, path)
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(temporary_name)
+        except OSError:
+            pass
+        raise
 
 
 def save_credential(

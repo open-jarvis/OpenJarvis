@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
-import shlex
+import subprocess
+import sys
 import tempfile
+from unittest.mock import MagicMock, patch
 
-from openjarvis.core import get_python_executable
 from openjarvis.security.subprocess_sandbox import (
     build_safe_env,
     kill_process_tree,
@@ -33,6 +34,12 @@ class TestBuildSafeEnv:
             "LC_CTYPE",
             "TMPDIR",
             "TZ",
+            "SystemRoot",
+            "SYSTEMROOT",
+            "COMSPEC",
+            "PATHEXT",
+            "TEMP",
+            "TMP",
         }
         for key in env:
             assert key in safe_keys
@@ -99,7 +106,7 @@ class TestRunSandboxed:
     def test_output_truncation(self) -> None:
         # Generate output larger than max_output_bytes
         result = run_sandboxed(
-            f"{shlex.quote(get_python_executable())} -c \"print('A' * 200)\"",
+            subprocess.list2cmdline([sys.executable, "-c", "print('A' * 200)"]),
             timeout=10.0,
             max_output_bytes=50,
         )
@@ -129,12 +136,65 @@ class TestCrossPlatform:
     """
 
     def test_run_sandboxed_portable_command(self) -> None:
-        # ``python -c print(...)`` runs identically on every platform.
-        code = "print('portable-ok')"
-        result = run_sandboxed(
-            f"{shlex.quote(get_python_executable())} -c {shlex.quote(code)}",
-            timeout=15.0,
-        )
+        result = run_sandboxed("echo portable-ok", timeout=15.0)
         assert result.returncode == 0
         assert "portable-ok" in result.stdout
         assert not result.timed_out
+
+    def test_windows_uses_creation_flags_without_posix_hooks(self) -> None:
+        process = MagicMock()
+        process.communicate.return_value = ("ok", "")
+        process.returncode = 0
+        process.pid = 123
+        with (
+            patch("openjarvis.security.subprocess_sandbox._IS_WINDOWS", True),
+            patch.object(
+                subprocess,
+                "CREATE_NEW_PROCESS_GROUP",
+                0x200,
+                create=True,
+            ),
+            patch(
+                "openjarvis.security.subprocess_sandbox.subprocess.Popen",
+                return_value=process,
+            ) as popen,
+        ):
+            result = run_sandboxed("echo ok")
+
+        assert result.returncode == 0
+        kwargs = popen.call_args.kwargs
+        assert kwargs["creationflags"] == 0x200
+        assert "start_new_session" not in kwargs
+        assert "preexec_fn" not in kwargs
+
+    def test_posix_uses_start_new_session_without_preexec(self) -> None:
+        process = MagicMock()
+        process.communicate.return_value = ("ok", "")
+        process.returncode = 0
+        process.pid = 123
+        with (
+            patch("openjarvis.security.subprocess_sandbox._IS_WINDOWS", False),
+            patch(
+                "openjarvis.security.subprocess_sandbox.subprocess.Popen",
+                return_value=process,
+            ) as popen,
+        ):
+            result = run_sandboxed("echo ok")
+
+        assert result.returncode == 0
+        kwargs = popen.call_args.kwargs
+        assert kwargs["start_new_session"] is True
+        assert "preexec_fn" not in kwargs
+
+    def test_windows_kill_uses_taskkill_tree(self) -> None:
+        with (
+            patch("openjarvis.security.subprocess_sandbox._IS_WINDOWS", True),
+            patch("openjarvis.security.subprocess_sandbox.subprocess.run") as run,
+        ):
+            kill_process_tree(456)
+
+        run.assert_called_once_with(
+            ["taskkill", "/F", "/T", "/PID", "456"],
+            capture_output=True,
+            check=False,
+        )

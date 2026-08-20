@@ -8,7 +8,7 @@ import signal
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,14 @@ _SAFE_ENV_VARS = frozenset(
         "LC_CTYPE",
         "TMPDIR",
         "TZ",
+        # Required by cmd.exe and common Windows subprocesses.  Both casings
+        # are included because os.environ preserves the spelling it receives.
+        "SystemRoot",
+        "SYSTEMROOT",
+        "COMSPEC",
+        "PATHEXT",
+        "TEMP",
+        "TMP",
     }
 )
 
@@ -77,11 +85,16 @@ def kill_process_tree(pid: int) -> None:
             logger.debug("Failed to taskkill process %d: %s", pid, exc)
         return
     try:
-        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        process_group = os.getpgid(pid)
+        os.killpg(process_group, signal.SIGTERM)
     except (OSError, ProcessLookupError) as exc:
         logger.debug("Failed to terminate process %d: %s", pid, exc)
+        process_group = None
     try:
-        os.kill(pid, signal.SIGKILL)
+        if process_group is not None:
+            os.killpg(process_group, signal.SIGKILL)
+        else:
+            os.kill(pid, signal.SIGKILL)
     except (OSError, ProcessLookupError) as exc:
         logger.debug("Failed to kill process %d: %s", pid, exc)
 
@@ -109,11 +122,12 @@ def run_sandboxed(
     # Start the child in its own process group so the whole tree can be
     # cleaned up on timeout. The mechanism differs per platform: POSIX uses
     # ``setsid``; Windows uses the CREATE_NEW_PROCESS_GROUP creation flag.
-    popen_kwargs: Dict[str, object] = {}
+    popen_kwargs: Dict[str, Any] = {}
     if _IS_WINDOWS:
         popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     else:
-        popen_kwargs["preexec_fn"] = os.setsid  # New process group
+        # Safer than preexec_fn in a multi-threaded server process.
+        popen_kwargs["start_new_session"] = True
 
     result = SandboxResult()
     try:
@@ -134,7 +148,13 @@ def run_sandboxed(
             result.returncode = proc.returncode
         except subprocess.TimeoutExpired:
             kill_process_tree(proc.pid)
-            proc.wait(timeout=5)
+            try:
+                proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                # taskkill/killpg is best effort.  Ensure the direct child is
+                # reaped even if tree cleanup was unavailable or failed.
+                proc.kill()
+                proc.communicate()
             result.timed_out = True
             result.killed = True
             result.returncode = -1
