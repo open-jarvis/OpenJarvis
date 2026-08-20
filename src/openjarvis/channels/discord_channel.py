@@ -192,13 +192,14 @@ class DiscordChannel(BaseChannel):
 
     def _gateway_loop(self) -> None:
         """Run the discord.py client in a background thread."""
+        client: Any | None = None
+        loop: asyncio.AbstractEventLoop | None = None
         try:
             import discord
 
             intents = discord.Intents.default()
             intents.message_content = True
             client = discord.Client(intents=intents)
-            self._client = client
 
             @client.event
             async def on_message(message):
@@ -229,12 +230,30 @@ class DiscordChannel(BaseChannel):
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            self._client = client
             self._loop = loop
+
+            # disconnect() may run after the listener thread starts but before
+            # these references are published. In that case it cannot schedule
+            # client.close(), so honor the stop request before starting an
+            # orphaned gateway connection.
+            if self._stop_event.is_set():
+                return
+
             loop.run_until_complete(client.start(self._token))
         except Exception:
             logger.debug("Discord gateway loop error", exc_info=True)
             self._status = ChannelStatus.ERROR
         finally:
+            if loop is not None and not loop.is_closed():
+                try:
+                    if client is not None and not client.is_closed():
+                        loop.run_until_complete(client.close())
+                except Exception:
+                    logger.debug("Discord client cleanup failed", exc_info=True)
+                finally:
+                    asyncio.set_event_loop(None)
+                    loop.close()
             self._client = None
             self._loop = None
 

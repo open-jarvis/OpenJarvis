@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import sys
+import threading
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -229,6 +232,61 @@ class TestDisconnectStopsRealListener:
 
         mock_thread_cls.assert_not_called()
         assert ch._listener_thread is existing_thread
+
+    def test_disconnect_before_app_publication_prevents_polling_start(self):
+        """A disconnect while ApplicationBuilder.build() runs is not lost."""
+        building = threading.Event()
+        release_app = threading.Event()
+        polling_calls: list[dict] = []
+
+        class FakeApp:
+            def add_handler(self, handler):
+                pass
+
+            def run_polling(self, **kwargs):
+                polling_calls.append(kwargs)
+
+            def stop_running(self):
+                raise AssertionError("app was not published when disconnect ran")
+
+        class FakeBuilder:
+            def token(self, token):
+                return self
+
+            def build(self):
+                building.set()
+                assert release_app.wait(timeout=2)
+                return FakeApp()
+
+        telegram_ext = SimpleNamespace(
+            ApplicationBuilder=FakeBuilder,
+            MessageHandler=lambda *args: args,
+            filters=SimpleNamespace(TEXT=object()),
+        )
+        ch = TelegramChannel(bot_token="123:ABC")
+
+        with patch.dict(
+            sys.modules,
+            {
+                "telegram": SimpleNamespace(ext=telegram_ext),
+                "telegram.ext": telegram_ext,
+            },
+        ):
+            ch.connect()
+            assert building.wait(timeout=2)
+
+            disconnect_thread = threading.Thread(target=ch.disconnect)
+            disconnect_thread.start()
+            assert ch._stop_event.wait(timeout=2)
+            release_app.set()
+            disconnect_thread.join(timeout=2)
+
+        assert not disconnect_thread.is_alive()
+        assert polling_calls == []
+        assert ch._listener_thread is None
+        assert ch._app is None
+        assert ch._loop is None
+        assert ch.status() == ChannelStatus.DISCONNECTED
 
 
 class TestAllowedChatIds:

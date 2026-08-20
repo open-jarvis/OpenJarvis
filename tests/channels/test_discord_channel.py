@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import sys
+import threading
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -217,6 +221,73 @@ class TestDisconnectStopsRealListener:
 
         mock_thread_cls.assert_not_called()
         assert ch._listener_thread is existing_thread
+
+    def test_disconnect_before_client_publication_prevents_gateway_start(self):
+        """A disconnect during client construction must not be lost."""
+        constructing = threading.Event()
+        release_client = threading.Event()
+        started: list[str] = []
+        closed: list[bool] = []
+        loops: list[asyncio.AbstractEventLoop] = []
+        new_event_loop = asyncio.new_event_loop
+
+        def make_event_loop():
+            loop = new_event_loop()
+            loops.append(loop)
+            return loop
+
+        class FakeClient:
+            def __init__(self, *, intents):
+                self.user = object()
+                self._closed = False
+                constructing.set()
+                assert release_client.wait(timeout=2)
+
+            def event(self, handler):
+                return handler
+
+            async def start(self, token):
+                started.append(token)
+
+            async def close(self):
+                self._closed = True
+                closed.append(True)
+
+            def is_closed(self):
+                return self._closed
+
+        intents = SimpleNamespace(message_content=False)
+        discord = SimpleNamespace(
+            Intents=SimpleNamespace(default=lambda: intents),
+            Client=FakeClient,
+        )
+        ch = DiscordChannel(bot_token="my-bot-token")
+
+        with (
+            patch.dict(sys.modules, {"discord": discord}),
+            patch(
+                "openjarvis.channels.discord_channel.asyncio.new_event_loop",
+                side_effect=make_event_loop,
+            ),
+        ):
+            ch.connect()
+            assert constructing.wait(timeout=2)
+
+            disconnect_thread = threading.Thread(target=ch.disconnect)
+            disconnect_thread.start()
+            assert ch._stop_event.wait(timeout=2)
+            release_client.set()
+            disconnect_thread.join(timeout=2)
+
+        assert not disconnect_thread.is_alive()
+        assert started == []
+        assert closed == [True]
+        assert len(loops) == 1
+        assert loops[0].is_closed()
+        assert ch._listener_thread is None
+        assert ch._client is None
+        assert ch._loop is None
+        assert ch.status() == ChannelStatus.DISCONNECTED
 
 
 class TestWireChannelEndToEnd:

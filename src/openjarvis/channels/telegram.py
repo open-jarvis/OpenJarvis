@@ -206,6 +206,7 @@ class TelegramChannel(BaseChannel):
 
     def _poll_loop(self) -> None:
         """Long-poll for updates using python-telegram-bot."""
+        loop: Any | None = None
         try:
             import asyncio
 
@@ -264,6 +265,11 @@ class TelegramChannel(BaseChannel):
                     )
 
             app.add_handler(MessageHandler(filters.TEXT, _handle_msg))
+            # disconnect() can win the race before _app is published. It
+            # cannot call stop_running() in that window, so do not enter the
+            # blocking poller after a stop has already been requested.
+            if self._stop_event.is_set():
+                return
             app.run_polling(stop_signals=None, drop_pending_updates=True)
         except Exception:
             logger.debug("Telegram poll loop error", exc_info=True)
@@ -271,6 +277,9 @@ class TelegramChannel(BaseChannel):
         finally:
             self._app = None
             self._loop = None
+            if loop is not None and not loop.is_closed():
+                asyncio.set_event_loop(None)
+                loop.close()
 
     def _publish_sent(self, channel: str, content: str, conversation_id: str) -> None:
         """Publish a CHANNEL_MESSAGE_SENT event on the bus."""
