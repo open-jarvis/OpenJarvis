@@ -4,11 +4,24 @@ OpenJarvis provides Docker images for both CPU-only and GPU-accelerated deployme
 
 ## Quick Start
 
-The fastest way to get OpenJarvis running in Docker is with Docker Compose, which starts both the API server and an Ollama backend:
+The container binds `0.0.0.0`, so an **API key is required** — the server
+refuses to start on a non-loopback address without one. Set it first:
+
+```bash
+cd deploy/docker
+cp .env.example .env
+echo "OPENJARVIS_API_KEY=$(jarvis auth generate-key)" > .env   # or paste your own
+```
+
+Then start both the API server and an Ollama backend with Docker Compose:
 
 ```bash
 docker compose up -d
 ```
+
+`docker compose` reads `OPENJARVIS_API_KEY` from `.env` (or your shell
+environment) and fails fast if it is unset. Clients must then send
+`Authorization: Bearer <key>` on `/v1/*` and `/api/*` requests.
 
 This brings up two services:
 

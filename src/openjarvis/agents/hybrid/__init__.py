@@ -6,7 +6,7 @@ Each module here registers one agent under ``@AgentRegistry.register("<name>")``
     conductor         — zero-shot planner emits a DAG of up to 5 worker calls
     minions           — supervisor (cloud) ↔ worker (local) reactive loop
     archon            — layered (generator → ranker → fuser) inference-time search
-    skillorchestra    — skill-aware router picks one agent from a pool
+    skillorchestra    — eval orchestrator: skill-routed search→reasoning→answer loop
     toolorchestra     — prompted multi-turn dispatcher over a mixed tool/model pool
 
 All agents share :class:`LocalCloudAgent` as the base. They are bench-agnostic:
@@ -15,9 +15,9 @@ or the bench's native formatter) and hands it in via ``run(input=...)``. Task
 metadata that the paradigm needs (a problem statement vs. a question, hints,
 etc.) goes through ``context.metadata``.
 
-The hybrid harness at ``/matx/u/aspark/hybrid-local-cloud-compute`` is the
-reference implementation and stays untouched — these ports are the
-OpenJarvis-native versions of the same paradigms.
+The original ``hybrid-local-cloud-compute`` harness is the reference
+implementation and stays untouched — these ports are the OpenJarvis-native
+versions of the same paradigms.
 """
 
 from __future__ import annotations
@@ -35,6 +35,8 @@ for _modname in (
     "skillorchestra",
     "toolorchestra",
     "mini_swe_agent",
+    "baseline_cloud",
+    "baseline_local",
 ):
     try:
         __import__(f"openjarvis.agents.hybrid.{_modname}")

@@ -31,7 +31,7 @@ def test_profile_injector_appends_known_facts() -> None:
     out = injector("你是 Jarvis。")
     assert out is not None
     assert "你是 Jarvis。" in out
-    assert "[我知道關於你]" in out
+    assert "[User profile]" in out
     assert "user.name: Mac" in out
     assert "pref.coffee: 黑咖啡" in out
 
@@ -64,6 +64,15 @@ def test_profile_injector_reloads_from_disk(tmp_path: Path) -> None:
     injector = ProfileInjector(profile_path=profile_path)
     out = injector("base")
     assert "Mac" in out
+
+
+def test_profile_injector_does_not_duplicate_builder_profile() -> None:
+    profile = UserProfile()
+    profile.add("user.name", "Mac")
+    injector = ProfileInjector(profile=profile)
+    prompt = "Base instructions\n\n## User Profile\n\n- user.name: Mac"
+
+    assert injector(prompt) == prompt
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +118,18 @@ def test_session_recaller_finds_overlapping_turn(tmp_path: Path) -> None:
 def test_session_recaller_returns_empty_when_db_missing(tmp_path: Path) -> None:
     recaller = SessionRecaller(db_path=tmp_path / "missing.db")
     assert recaller.recall("anything") == []
+
+
+def test_session_recaller_bounds_nonpositive_and_large_limits(tmp_path: Path) -> None:
+    db = tmp_path / "sessions.db"
+    _seed_sessions_db(
+        db,
+        [("s1", "user", "coffee preference", time.time())],
+    )
+    recaller = SessionRecaller(db_path=db, min_score=0.0)
+
+    assert recaller.recall("coffee", limit=-1) == []
+    assert len(recaller.recall("coffee", limit=10_000)) <= 50
 
 
 def test_session_recaller_excludes_current_session(tmp_path: Path) -> None:
@@ -191,6 +212,6 @@ def test_tool_affinity_injector(tracker: ToolAffinityTracker) -> None:
     tracker.record("calculator", success=True)
     injector = ToolAffinityInjector(tracker=tracker, top_n=5)
     out = injector("base")
-    assert "[你常用的工具]" in out
+    assert "[Preferred tools]" in out
     assert "web_search" in out
     assert "calculator" in out

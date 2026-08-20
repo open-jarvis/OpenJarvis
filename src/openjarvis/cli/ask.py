@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json as json_mod
 import logging
 import sys
@@ -11,6 +12,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from openjarvis.cli._banner import print_banner
 from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.cli.hints import hint_no_engine
 from openjarvis.core.config import load_config
@@ -18,6 +20,7 @@ from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
 from openjarvis.engine import (
     EngineConnectionError,
+    EngineContextLengthError,
     discover_engines,
     discover_models,
     get_engine,
@@ -30,6 +33,189 @@ from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
 from openjarvis.telemetry.store import TelemetryStore
 
 logger = logging.getLogger(__name__)
+
+
+def _run_research(
+    *,
+    query_text: str,
+    engine,
+    model_name: str | None,
+    knowledge_db: str | None,
+    output_json: bool,
+    console: Console,
+) -> None:
+    """Run the hybrid-search research loop and print the result to the console.
+
+    Lazy imports keep the cost of this branch off the cold-path of plain
+    ``jarvis ask`` calls.
+    """
+    import re
+
+    from rich.markdown import Markdown
+    from rich.theme import Theme
+
+    from openjarvis.agents.research_loop import DEFAULT_PLANNER_MODEL, ResearchAgent
+    from openjarvis.connectors.embeddings import OllamaEmbedder
+    from openjarvis.connectors.hybrid_search import HybridSearch
+    from openjarvis.connectors.store import KnowledgeStore
+    from openjarvis.engine.ollama import OllamaEngine
+
+    store_kwargs: dict = {}
+    if knowledge_db:
+        store_kwargs["db_path"] = knowledge_db
+    store = KnowledgeStore(**store_kwargs)
+
+    # Research mode is wired specifically to Ollama: the planner prompt
+    # (gemma4:31b) and the function-call schema for search/clarify both
+    # assume Ollama's /api/chat tool semantics. Using the engine returned
+    # by get_engine() here is a foot-gun — discovery can pick any
+    # OpenAI-compatible engine registered on the same port as our own
+    # API server. research_router.py hardcodes OllamaEngine() for the
+    # same reason; mirror that here so CLI and HTTP behave identically.
+    engine = OllamaEngine()
+
+    chunk_count = store._conn.execute(
+        "SELECT COUNT(*) FROM knowledge_chunks"
+    ).fetchone()[0]
+    logger.debug(
+        "research: engine=%s.%s db=%s chunks=%d",
+        type(engine).__module__,
+        type(engine).__name__,
+        store._db_path,
+        chunk_count,
+    )
+
+    embedder = OllamaEmbedder()
+    embedder_available = embedder.is_available()
+    logger.debug("research: embedder available=%s", embedder_available)
+    if not embedder_available:
+        console.print(
+            "[yellow]Ollama embedder unavailable — falling back to BM25-only "
+            "retrieval. Run `ollama pull nomic-embed-text` for hybrid scoring.[/yellow]"
+        )
+        embedder = None
+
+    planner_model = model_name or DEFAULT_PLANNER_MODEL
+    logger.debug("research: planner_model=%s", planner_model)
+
+    # ---- Output styling --------------------------------------------------
+    # Two consoles by design: traces and the timing footer go to stderr
+    # (so ``jarvis ask --research "..." > out.md`` still gives a clean
+    # markdown file), while the rendered synthesis goes to stdout. The
+    # ``markdown.code`` theme override is the cyan-citation hack — see
+    # ``_style_citations`` below.
+    trace = Console(stderr=True, soft_wrap=True, highlight=False)
+    answer_console = Console(
+        theme=Theme({"markdown.code": "cyan bold not italic"}),
+        soft_wrap=True,
+        highlight=False,
+    )
+
+    def _style_citations(text: str) -> str:
+        """Wrap each ``[N]`` in inline code so it renders cyan.
+
+        Rich's Markdown class doesn't expose any hook for styling
+        arbitrary text spans, so we cheat: convert the citation tokens
+        into inline-code markdown (`[1]` → `` `[1]` ``) and override
+        the ``markdown.code`` theme entry above to colour them. Trims
+        the implicit monospace background that some terminal themes
+        give inline code so the result reads as text, not as code.
+        """
+        return re.sub(r"(\[\d+\])", r"`\1`", text)
+
+    def _format_search_call(args: dict) -> str:
+        q = args.get("query", "") or ""
+        extras: list[str] = []
+        person = args.get("person")
+        if person:
+            extras.append(f"person: {person}")
+        time_range = args.get("time_range")
+        if isinstance(time_range, dict):
+            start = time_range.get("start") or ""
+            end = time_range.get("end") or ""
+            if start or end:
+                bounds = f"{start or '…'} → {end or '…'}"
+                extras.append(f"when: {bounds}")
+        suffix = f" ({', '.join(extras)})" if extras else ""
+        return f"'{q}'{suffix}"
+
+    def on_event(event: dict) -> None:
+        etype = event.get("type")
+        if etype == "search_call":
+            args = event.get("arguments", {})
+            trace.print(
+                f"  [dim]↳ Searching:[/dim] "
+                f"[dim italic]{_format_search_call(args)}[/dim italic]"
+            )
+        elif etype == "search_result":
+            n = event.get("num_hits", 0)
+            label = "result" if n == 1 else "results"
+            trace.print(f"  [dim]↳ Found {n} {label}[/dim]")
+        elif etype == "clarify_call":
+            q = event.get("question", "") or ""
+            trace.print(f"  [dim]↳ Clarifying:[/dim] [dim italic]{q}[/dim italic]")
+        # final_answer and clarify_response are handled outside the loop.
+
+    agent = ResearchAgent(
+        engine=engine,
+        search=HybridSearch(store, embedder),
+        model=planner_model,
+        on_event=on_event,
+    )
+
+    started = time.monotonic()
+    result = agent.run(query_text)
+    elapsed = time.monotonic() - started
+
+    logger.debug(
+        "research: iterations=%d tool_calls=%d usage=%s",
+        result.iterations,
+        len(result.tool_calls),
+        result.usage,
+    )
+
+    if output_json:
+        click.echo(
+            json_mod.dumps(
+                {
+                    "answer": result.answer,
+                    "iterations": result.iterations,
+                    "usage": result.usage,
+                    "tool_calls": [
+                        {
+                            "arguments": inv.arguments,
+                            "num_results": inv.num_results,
+                            "top_titles": inv.top_titles,
+                        }
+                        for inv in result.tool_calls
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return
+
+    # Visual break between live traces and the synthesis.
+    trace.print()
+
+    # Render the synthesis as Markdown with inline citations coloured cyan.
+    answer_console.print(Markdown(_style_citations(result.answer)))
+
+    # Footer: how long it took + how many distinct sources the model
+    # actually cited. Empty answers (rare; only if the model went silent)
+    # skip the footer entirely.
+    if result.answer:
+        cited = {int(n) for n in re.findall(r"\[(\d+)\]", result.answer)}
+        src_word = "source" if len(cited) == 1 else "sources"
+        # Report the model and engine that actually served the query rather
+        # than hardcoding: planner_model is the resolved model passed to the
+        # agent, and engine_id is the backend's own identifier ("ollama").
+        engine_label = getattr(engine, "engine_id", type(engine).__name__)
+        trace.print()
+        trace.print(
+            f"[dim]Deep Research · {elapsed:.1f}s · "
+            f"{len(cited)} {src_word} cited · {planner_model} · {engine_label}[/dim]"
+        )
 
 
 def _get_memory_backend(config):
@@ -60,6 +246,17 @@ def _get_memory_backend(config):
     except Exception as exc:
         logger.debug("Memory backend unavailable (optional): %s", exc)
         return None
+
+
+def _get_memory_facts(config):
+    """Load facts captured by the automatic memory service."""
+    try:
+        from openjarvis.memory import load_configured_facts
+
+        return load_configured_facts(config)
+    except Exception as exc:
+        logger.debug("Automatic memory facts unavailable (optional): %s", exc)
+        return []
 
 
 _MEMORY_TOOLS = frozenset(
@@ -140,6 +337,7 @@ def _run_agent(
     temperature: float,
     max_tokens: int,
     capability_policy=None,
+    memory_files_config=None,
 ):
     """Instantiate and run an agent, returning the AgentResult."""
     # Import agents to trigger registration
@@ -154,13 +352,35 @@ def _run_agent(
 
     agent_cls = AgentRegistry.get(agent_name)
 
-    # Build tools
+    # Build tools — local registry tools + MCP server tools from config
+    # (#461 — MCP tools were silently dropped because ask.py only used
+    # ToolRegistry).
     tools = []
     if tool_names:
         # Trigger tool registration
         import openjarvis.tools  # noqa: F401
 
         tools = _build_tools(tool_names, config, engine, model_name)
+
+    # MCP tools from config.tools.mcp.servers. Loaded regardless of
+    # tool_names — if the caller passed --tools, the loader filters MCP
+    # tools to those names; otherwise every MCP tool is included.
+    from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+    mcp_tools, mcp_clients = load_mcp_tools_from_config(
+        config.tools.mcp,
+        allowed_names=set(tool_names) if tool_names else None,
+    )
+    if mcp_tools:
+        # Dedup against registry tools by spec.name — first occurrence wins
+        # so a registry tool always takes precedence over an MCP tool with
+        # the same name (avoids the "two tools with the same name" footgun
+        # the verdict flagged).
+        existing = {t.spec.name for t in tools}
+        for t in mcp_tools:
+            if t.spec.name not in existing:
+                tools.append(t)
+                existing.add(t.spec.name)
 
     # Build agent with appropriate kwargs
     agent_kwargs = {
@@ -176,7 +396,28 @@ def _run_agent(
     if capability_policy is not None:
         agent_kwargs["capability_policy"] = capability_policy
 
+    # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md persona
+    # files actually reach the model. Only passed to agents whose __init__
+    # explicitly accepts a `prompt_builder` kwarg. Agents with specialized
+    # prompt machinery opt in by naming and forwarding the parameter.
+    import inspect as _inspect
+
+    if "prompt_builder" in _inspect.signature(agent_cls.__init__).parameters:
+        from openjarvis.prompt.builder import SystemPromptBuilder
+
+        agent_kwargs["prompt_builder"] = SystemPromptBuilder(
+            agent_template=config.agent.default_system_prompt or "",
+            memory_files_config=memory_files_config or config.memory_files,
+            system_prompt_config=config.system_prompt,
+        )
+
     agent = agent_cls(engine, model_name, **agent_kwargs)
+    # Hold MCP transports alive for the agent's lifetime — without this
+    # reference they'd be garbage-collected when this function returns
+    # and the underlying HTTP connections would close mid-execution (#461
+    # adversarial review caught this).
+    if mcp_clients:
+        agent._mcp_clients = mcp_clients
     ctx = AgentContext()
 
     # Inject memory context into conversation if available
@@ -185,7 +426,8 @@ def _run_agent(
             from openjarvis.tools.storage.context import ContextConfig, inject_context
 
             backend = _get_memory_backend(config)
-            if backend is not None:
+            facts = _get_memory_facts(config)
+            if backend is not None or facts:
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -196,6 +438,7 @@ def _run_agent(
                     [],
                     backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
                 for msg in context_messages:
                     ctx.conversation.add(msg)
@@ -354,7 +597,11 @@ def _print_profile(
     "--agent",
     "agent_name",
     default=None,
-    help="Agent to use (simple, orchestrator).",
+    help=(
+        "Agent to use (simple, orchestrator, ...). "
+        "When omitted, falls back to ``agent.default_agent`` from config. "
+        "Pass ``--agent ''`` to force direct-to-engine mode (no agent)."
+    ),
 )
 @click.option(
     "--tools",
@@ -368,7 +615,51 @@ def _print_profile(
     is_flag=True,
     help="Print inference telemetry profile (latency, tokens, energy, IPW).",
 )
+@click.option(
+    "--research",
+    "research_mode",
+    is_flag=True,
+    help=(
+        "Route the query through the hybrid-search research agent over the "
+        "personal knowledge store (BM25 + dense embeddings, max 5 tool calls)."
+    ),
+)
+@click.option(
+    "--knowledge-db",
+    "knowledge_db",
+    default=None,
+    help=(
+        "Override the KnowledgeStore path used by --research "
+        "(default: ~/.openjarvis/knowledge.db)."
+    ),
+)
+@click.option(
+    "-i",
+    "--image",
+    "image_paths",
+    multiple=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Image file for a vision model (e.g. gemma3). Repeatable.",
+)
+@click.option(
+    "-S",
+    "--screen",
+    "capture_screen",
+    is_flag=True,
+    help="Capture the current screen and send it to the vision model.",
+)
+@click.option(
+    "--persona",
+    "persona_name",
+    default=None,
+    help=(
+        "Named persona dir under ~/.openjarvis/personas/<name>/ "
+        "(overrides config). Pass 'none' to disable all persona files."
+    ),
+)
+@click.pass_context
 def ask(
+    ctx: click.Context,
     query: tuple[str, ...],
     model_name: str | None,
     engine_key: str | None,
@@ -380,23 +671,77 @@ def ask(
     agent_name: str | None,
     tool_names: str | None,
     enable_profile: bool,
+    research_mode: bool,
+    knowledge_db: str | None,
+    persona_name: str | None,
+    image_paths: tuple[str, ...] = (),
+    capture_screen: bool = False,
 ) -> None:
     """Ask Jarvis a question."""
+    quiet = (ctx.obj or {}).get("quiet", False) or output_json
+    print_banner(quiet=quiet)
     console = Console(stderr=True)
     query_text = " ".join(query)
+
+    # Vision: collect base64 images from --image files and/or --screen.
+    image_b64: list[str] = []
+    for _img_path in image_paths:
+        try:
+            with open(_img_path, "rb") as _fh:
+                image_b64.append(base64.b64encode(_fh.read()).decode("ascii"))
+        except OSError as exc:
+            console.print(f"[red]Could not read image {_img_path}: {exc}[/red]")
+            sys.exit(1)
+    if capture_screen:
+        try:
+            from openjarvis.cli._screen import capture_screen_to_temp
+
+            _shot = capture_screen_to_temp()
+            with open(_shot, "rb") as _fh:
+                image_b64.append(base64.b64encode(_fh.read()).decode("ascii"))
+            logger.debug("Captured screen to %s", _shot)
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[red]Screen capture failed:[/red] {exc}")
+            sys.exit(1)
 
     wall_start = time.monotonic() if enable_profile else None
 
     # Load config
     config = load_config()
 
-    # Contract: when --agent is omitted, fall back to config.agent.default_agent.
-    # Direct-to-engine mode is opted into by leaving default_agent empty in config
-    # or by explicitly passing --agent "" (see TestAskAgentDefault).
+    # Resolve effective MemoryFilesConfig with --persona override
+    import dataclasses as _dc
+
+    effective_mf = (
+        _dc.replace(config.memory_files, persona_name=persona_name)
+        if persona_name is not None
+        else config.memory_files
+    )
+
+    # Honor `agent.default_agent` from config when --agent was not explicitly
+    # passed. Pass `--agent ""` to opt out and use direct-to-engine mode.
+    # Without this fallback, `[agent].default_system_prompt` and the
+    # SOUL.md / MEMORY.md / USER.md persona system are silently bypassed for
+    # the most common command (`jarvis ask "..."`).
+    agent_explicitly_set = agent_name is not None
     if agent_name is None:
-        agent_name = getattr(config.agent, "default_agent", None) or None
-    elif agent_name == "":
-        agent_name = None
+        configured_default = (config.agent.default_agent or "").strip()
+        if configured_default:
+            agent_name = configured_default
+
+    # Vision flows only through direct-to-engine mode. If an image/screenshot
+    # was supplied without an explicit --agent, route to direct mode so the
+    # picture reaches the model; if an agent was explicitly requested, say
+    # plainly that the image is being skipped rather than dropping it silently.
+    if image_b64:
+        if not agent_explicitly_set:
+            agent_name = ""
+        else:
+            console.print(
+                "[yellow]Note:[/yellow] --image/--screen only works in direct "
+                "mode; the image is ignored with --agent set. Re-run with "
+                '`--agent ""` to use vision.'
+            )
 
     # Track whether the user explicitly set --max-tokens
     user_set_max_tokens = max_tokens is not None
@@ -444,7 +789,13 @@ def ask(
     register_builtin_models()
 
     effective_engine_key = engine_key or config.intelligence.preferred_engine or None
-    resolved = get_engine(config, effective_engine_key)
+    # Pass the model we intend to run so engine selection can skip an engine
+    # that can't actually serve it (e.g. the cloud fallback when the local
+    # engine is down but only a non-OpenAI key is set — see #532). This is the
+    # -m flag or the configured default; when neither is set we leave it None
+    # and a model is chosen per-engine below.
+    selection_model = model_name or config.intelligence.default_model or None
+    resolved = get_engine(config, effective_engine_key, model=selection_model)
     if resolved is None:
         console.print(
             "[red bold]No inference engine available.[/red bold]\n\n"
@@ -460,6 +811,20 @@ def ask(
         sys.exit(1)
 
     engine_name, engine = resolved
+
+    # ------------------------------------------------------------------
+    # Research mode — hybrid search + agentic loop over the knowledge store
+    # ------------------------------------------------------------------
+    if research_mode:
+        _run_research(
+            query_text=query_text,
+            engine=engine,
+            model_name=model_name,
+            knowledge_db=knowledge_db,
+            output_json=output_json,
+            console=console,
+        )
+        return
 
     # Apply security guardrails
     from openjarvis.security import setup_security
@@ -516,8 +881,8 @@ def ask(
             model_name,
         )
 
-    # Agent mode
-    if agent_name is not None:
+    # Agent mode (treat empty-string `--agent ""` as explicit opt-out)
+    if agent_name:
         parsed_tools = resolve_tool_names(
             tool_names,
             getattr(config.tools, "enabled", None),
@@ -535,7 +900,13 @@ def ask(
                 temperature,
                 max_tokens,
                 capability_policy=sec.capability_policy,
+                memory_files_config=effective_mf,
             )
+        except EngineContextLengthError as exc:
+            # Not a reachability problem — pointing the user at server/host
+            # config (hint_no_engine) would be misleading here.
+            console.print(f"[red]{exc}[/red]")
+            sys.exit(1)
         except EngineConnectionError as exc:
             console.print(f"[red]模型錯誤：[/red]{exc}")
             console.print(hint_no_engine())
@@ -580,6 +951,27 @@ def ask(
         return
 
     # Direct-to-engine mode (no agent)
+    # Privacy guard: a screenshot/image is sensitive, and OpenJarvis is
+    # local-first. If the active engine isn't local, warn before the image
+    # leaves the machine rather than silently uploading it to a third party.
+    _LOCAL_ENGINES = {
+        "ollama",
+        "llamacpp",
+        "vllm",
+        "sglang",
+        "exo",
+        "nexa",
+        "uzu",
+        "apple_fm",
+        "gemma_cpp",
+    }
+    if image_b64 and engine_name not in _LOCAL_ENGINES:
+        console.print(
+            f"[yellow]Privacy warning:[/yellow] sending {len(image_b64)} "
+            f"image(s) to a non-local engine ('{engine_name}'). The image will "
+            "leave this machine. Use a local engine (e.g. ollama) to keep "
+            "vision on-device."
+        )
     messages = [Message(role=Role.USER, content=query_text)]
 
     # Memory-augmented context injection
@@ -591,7 +983,8 @@ def ask(
             )
 
             backend = _get_memory_backend(config)
-            if backend is not None:
+            facts = _get_memory_facts(config)
+            if backend is not None or facts:
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -602,9 +995,19 @@ def ask(
                     messages,
                     backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
         except Exception as exc:
             logger.debug("Failed to inject memory context: %s", exc)
+
+    # Vision: attach images to the final user message *after* any context
+    # injection (which may rebuild the list). messages_to_dicts() forwards
+    # the "images" field to Ollama's /api/chat.
+    if image_b64:
+        for _m in reversed(messages):
+            if _m.role == Role.USER:
+                _m.images = image_b64
+                break
 
     # Generate (InstrumentedEngine handles telemetry + energy recording)
     try:
@@ -615,6 +1018,11 @@ def ask(
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
+    except EngineContextLengthError as exc:
+        # Not a reachability problem — pointing the user at server/host
+        # config (hint_no_engine) would be misleading here.
+        console.print(f"[red]{exc}[/red]")
+        sys.exit(1)
     except EngineConnectionError as exc:
         console.print(f"[red]模型錯誤：[/red]{exc}")
         console.print(hint_no_engine())

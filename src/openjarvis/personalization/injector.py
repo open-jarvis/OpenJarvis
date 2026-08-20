@@ -52,6 +52,10 @@ class ProfileInjector:
     def __call__(self, prompt: Optional[str]) -> Optional[str]:
         if prompt is None:
             return None
+        # SystemPromptBuilder already injects the configured USER.md under this
+        # heading. Do not repeat the same profile in a second representation.
+        if "## User Profile" in prompt:
+            return prompt
         profile = self.profile or UserProfile.load(self.profile_path)
         if profile.is_empty():
             return prompt
@@ -75,7 +79,7 @@ class ProfileInjector:
         body = "\n".join(lines).strip()
         if not body:
             return prompt
-        return prompt + _wrap_block("我知道關於你", body)
+        return prompt + _wrap_block("User profile", body)
 
 
 # ---------------------------------------------------------------------------
@@ -152,9 +156,9 @@ class ToolAffinityInjector:
         body_lines: List[str] = []
         for name, count, success_rate in top:
             body_lines.append(
-                f"- {name}（用過 {count} 次，成功率 {success_rate:.0%}）"
+                f"- {name} (used {count} times; {success_rate:.0%} success rate)"
             )
-        return prompt + _wrap_block("你常用的工具", "\n".join(body_lines))
+        return prompt + _wrap_block("Preferred tools", "\n".join(body_lines))
 
 
 __all__ = [

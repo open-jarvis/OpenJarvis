@@ -63,7 +63,7 @@ impl BaseTool for FileReadTool {
         if is_sensitive_file(path) {
             return Ok(ToolResult::failure(
                 "file_read",
-                format!("Access denied: '{}' is a sensitive file", path_str),
+                format!("Access denied: '{path_str}' is a sensitive file"),
             ));
         }
 
@@ -71,7 +71,7 @@ impl BaseTool for FileReadTool {
             Ok(content) => Ok(ToolResult::success("file_read", content)),
             Err(e) => Ok(ToolResult::failure(
                 "file_read",
-                format!("Error reading '{}': {}", path_str, e),
+                format!("Error reading '{path_str}': {e}"),
             )),
         }
     }
@@ -94,7 +94,7 @@ impl BaseTool for FileWriteTool {
         if is_sensitive_file(path) {
             return Ok(ToolResult::failure(
                 "file_write",
-                format!("Access denied: '{}' is a sensitive file", path_str),
+                format!("Access denied: '{path_str}' is a sensitive file"),
             ));
         }
 
@@ -103,7 +103,7 @@ impl BaseTool for FileWriteTool {
                 if let Err(e) = std::fs::create_dir_all(parent) {
                     return Ok(ToolResult::failure(
                         "file_write",
-                        format!("Error creating directory: {}", e),
+                        format!("Error creating directory: {e}"),
                     ));
                 }
             }
@@ -116,7 +116,7 @@ impl BaseTool for FileWriteTool {
             )),
             Err(e) => Ok(ToolResult::failure(
                 "file_write",
-                format!("Error writing '{}': {}", path_str, e),
+                format!("Error writing '{path_str}': {e}"),
             )),
         }
     }

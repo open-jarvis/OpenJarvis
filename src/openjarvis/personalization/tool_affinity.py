@@ -96,6 +96,9 @@ class ToolAffinityTracker:
         given, rows whose ``last_used`` is older than that window are
         excluded.
         """
+        limit = max(0, min(int(limit), 100))
+        if limit == 0:
+            return []
         sql = (
             "SELECT tool_name, total_calls, successful_calls, last_used "
             "FROM tool_affinity WHERE total_calls >= ?"

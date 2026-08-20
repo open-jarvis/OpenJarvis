@@ -82,6 +82,9 @@ class ChatCompletionResponse(BaseModel):
 class DeltaMessage(BaseModel):
     role: Optional[str] = None
     content: Optional[str] = None
+    # Streaming tool_calls (OpenAI delta shape, with `index`). Present only
+    # on streamed raw function-calling responses (stream:true + tools).
+    tool_calls: Optional[List[Dict[str, Any]]] = None
 
 
 class StreamChoice(BaseModel):

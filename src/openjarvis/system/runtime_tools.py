@@ -84,8 +84,13 @@ def _instantiate(tool_cls, *, engine, model, memory_backend, channel_backend):
 
     name = getattr(tool_cls, "tool_id", "") or tool_cls.__name__
     try:
-        if name in {"retrieval", "memory_store", "memory_search",
-                    "memory_index", "memory_retrieve"}:
+        if name in {
+            "retrieval",
+            "memory_store",
+            "memory_search",
+            "memory_index",
+            "memory_retrieve",
+        }:
             return tool_cls(backend=memory_backend)
         if name in {"channel_send", "channel_list", "channel_status"}:
             return tool_cls(channel=channel_backend)
@@ -112,6 +117,7 @@ def build_runtime_tools(
     channel_backend: Any = None,
     capability_policy: Any = None,
     override_tool_names: Optional[List[str] | str] = None,
+    extra_tools: Optional[List[Any]] = None,
     include_skills: bool = True,
 ) -> RuntimeToolBundle:
     """Build the runtime tool set + optional skill manager.
@@ -140,6 +146,24 @@ def build_runtime_tools(
         )
         if inst is not None:
             bundle.tools.append(inst)
+
+    # Process-owned MCP tools (or other externally constructed tools) need to
+    # participate in the same executor as built-ins and Skills. Add them before
+    # constructing the SkillManager's ToolExecutor, while avoiding duplicate
+    # names when a registry tool and an external tool overlap.
+    existing_names = {
+        getattr(getattr(tool, "spec", None), "name", "") or getattr(tool, "tool_id", "")
+        for tool in bundle.tools
+    }
+    for tool in extra_tools or []:
+        name = getattr(getattr(tool, "spec", None), "name", "") or getattr(
+            tool, "tool_id", ""
+        )
+        if name and name in existing_names:
+            continue
+        bundle.tools.append(tool)
+        if name:
+            existing_names.add(name)
 
     if include_skills and getattr(config.skills, "enabled", False):
         try:

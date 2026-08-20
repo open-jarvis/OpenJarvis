@@ -708,3 +708,49 @@
   --color-background: var(--background);
   /* Keep project radius tokens — don't override with shadcn calc values */
 }
+
+/* Deep Research timeline — pending-step shimmer */
+@keyframes openjarvis-research-shimmer {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(420%); }
+}
+.research-shimmer {
+  animation: openjarvis-research-shimmer 1.6s ease-in-out infinite;
+}
+
+/* Sync progress pulse — fires on each items_synced bump so the
+   "12,450 / 99,840" label visibly breathes between polls. */
+@keyframes openjarvis-sync-bump {
+  0% { opacity: 0.55; }
+  100% { opacity: 1; }
+}
+.sync-bump {
+  animation: openjarvis-sync-bump 400ms ease-out;
+}
+
+/* Deep Research inline citation pills — small rounded chips that flow
+   with the surrounding text and link out to the cited email. */
+.research-citation {
+  display: inline-block;
+  vertical-align: baseline;
+  margin: 0 1px;
+  padding: 0 6px;
+  min-width: 1.25em;
+  text-align: center;
+  font-size: 0.72em;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border-radius: 9999px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+  /* Keep the pill from inheriting prose link styles (underline, bold). */
+  border-bottom: none;
+}
+.research-citation:hover {
+  color: var(--color-on-accent, #ffffff);
+  background: var(--color-accent);
+  text-decoration: none;
+}

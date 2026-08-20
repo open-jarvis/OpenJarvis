@@ -17,6 +17,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from openjarvis.core.paths import get_cache_dir
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.splits import apply_split
 from openjarvis.evals.core.types import EvalRecord
@@ -24,7 +25,7 @@ from openjarvis.evals.core.types import EvalRecord
 LOGGER = logging.getLogger(__name__)
 
 LIVERESEARCH_REPO = "https://github.com/Ayanami0730/deep_research_bench.git"
-CACHE_DIR = Path.home() / ".cache" / "liveresearch_bench"
+CACHE_DIR = get_cache_dir() / "liveresearch_bench"
 
 
 def _load_jsonl(path: Path) -> List[Dict[str, Any]]:

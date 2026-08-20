@@ -34,8 +34,23 @@ def _mock_engine():
     return engine
 
 
+def _register_agents():
+    """Re-register agents after the conftest registry clear.
+
+    The default ``JarvisConfig().agent.default_agent`` is ``"simple"``,
+    so ``jarvis ask "..."`` (without ``--agent``) routes through SimpleAgent.
+    Without this re-registration, that path raises ``Unknown agent: simple``.
+    """
+    from openjarvis.agents.simple import SimpleAgent
+    from openjarvis.core.registry import AgentRegistry
+
+    if not AgentRegistry.contains("simple"):
+        AgentRegistry.register_value("simple", SimpleAgent)
+
+
 def _patch_engine(engine):
     """Return context managers that patch engine discovery to use our mock."""
+    _register_agents()
     return (
         mock.patch.object(
             _ask_mod,

@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
+from openjarvis.memory.store import Fact
 from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
 from openjarvis.tools.storage.context import (
     ContextConfig,
@@ -165,6 +166,113 @@ def test_inject_context_no_results_returns_original():
     messages = [Message(role=Role.USER, content="hello")]
     augmented = inject_context("query", messages, backend)
     assert augmented is messages
+
+
+def test_inject_context_adds_auto_memory_facts_without_backend():
+    messages = [Message(role=Role.USER, content="What is my favorite color?")]
+    facts = [Fact(text="The user's favorite color is blue", source="auto")]
+
+    augmented = inject_context("favorite color", messages, None, facts=facts)
+
+    assert len(augmented) == 2
+    assert augmented[0].role == Role.SYSTEM
+    assert "remembered from prior conversations" in augmented[0].content
+    assert "favorite color is blue" in augmented[0].content
+
+
+def test_inject_context_prioritizes_newest_facts_within_token_budget():
+    messages = [Message(role=Role.USER, content="What do you remember?")]
+    facts = [
+        Fact(text="old fact uses four tokens"),
+        Fact(text="new fact uses four tokens"),
+    ]
+
+    augmented = inject_context(
+        "remember",
+        messages,
+        None,
+        config=ContextConfig(max_context_tokens=5),
+        facts=facts,
+    )
+
+    assert "new fact uses four tokens" in augmented[0].content
+    assert "old fact uses four tokens" not in augmented[0].content
+
+
+def test_inject_context_merges_with_existing_system_message():
+    messages = [
+        Message(role=Role.SYSTEM, content="You are OpenJarvis."),
+        Message(role=Role.USER, content="What is my favorite color?"),
+    ]
+    facts = [Fact(text="The user's favorite color is blue")]
+
+    augmented = inject_context("favorite color", messages, None, facts=facts)
+
+    system_messages = [m for m in augmented if m.role == Role.SYSTEM]
+    assert len(system_messages) == 1
+    assert "You are OpenJarvis." in system_messages[0].content
+    assert "favorite color is blue" in system_messages[0].content
+    assert messages[0].content == "You are OpenJarvis."
+
+
+def test_inject_context_collapses_multiple_system_messages():
+    messages = [
+        Message(role=Role.SYSTEM, content="Identity."),
+        Message(role=Role.SYSTEM, content="Persona."),
+        Message(role=Role.USER, content="What do you remember?"),
+    ]
+
+    augmented = inject_context(
+        "remember",
+        messages,
+        None,
+        facts=[Fact(text="User likes jazz")],
+    )
+
+    system_messages = [m for m in augmented if m.role == Role.SYSTEM]
+    assert len(system_messages) == 1
+    assert "Identity." in system_messages[0].content
+    assert "Persona." in system_messages[0].content
+    assert "User likes jazz" in system_messages[0].content
+
+
+def test_inject_context_reserves_budget_for_retrieved_documents():
+    backend = _FakeMemory(
+        [RetrievalResult(content="d1 d2 d3 d4 d5", score=1.0, source="doc")]
+    )
+    facts = [
+        Fact(text="old1 old2 old3 old4 old5"),
+        Fact(text="new1 new2 new3 new4 new5"),
+    ]
+
+    augmented = inject_context(
+        "query",
+        [Message(role=Role.USER, content="query")],
+        backend,
+        config=ContextConfig(max_context_tokens=10),
+        facts=facts,
+    )
+
+    assert "new1 new2 new3 new4 new5" in augmented[0].content
+    assert "d1 d2 d3 d4 d5" in augmented[0].content
+    assert "old1 old2 old3 old4 old5" not in augmented[0].content
+
+
+def test_inject_context_prefers_large_document_that_fits_total_budget():
+    backend = _FakeMemory(
+        [RetrievalResult(content="d1 d2 d3 d4 d5 d6 d7 d8", score=1.0)]
+    )
+
+    augmented = inject_context(
+        "query",
+        [Message(role=Role.USER, content="query")],
+        backend,
+        config=ContextConfig(max_context_tokens=10),
+        facts=[Fact(text="f1 f2 f3 f4 f5")],
+    )
+
+    assert "d1 d2 d3 d4 d5 d6 d7 d8" in augmented[0].content
+    assert "f1 f2 f3 f4 f5" not in augmented[0].content
 
 
 def test_inject_context_publishes_event():

@@ -1,0 +1,10 @@
+# Pin the Rust toolchain for the openjarvis_rust workspace.
+#
+# The workspace requires Rust >= 1.88: rig-core uses let-chains and
+# openjarvis-skills uses `is_multiple_of`, both stabilized in 1.88. On older
+# stable toolchains the build fails with cryptic E0658 errors deep inside a
+# transitive dependency (see #252). Pinning here makes rustup install/select a
+# compatible toolchain automatically and gives a clear requirement up front.
+[toolchain]
+channel = "1.88"
+components = ["rustfmt", "clippy"]

@@ -15,6 +15,7 @@ from openjarvis.agents.prompt_middleware import (
 def _fixed_clock(value: datetime):
     def _clock() -> datetime:
         return value
+
     return _clock
 
 
@@ -27,7 +28,7 @@ def test_datetime_injector_appends_note_to_existing_prompt() -> None:
     assert out.startswith("你是 Jarvis。")
     assert "2026-05-20" in out
     assert "09:30" in out
-    assert "星期三" in out
+    assert "Wednesday" in out
 
 
 def test_datetime_injector_skips_when_prompt_is_none() -> None:

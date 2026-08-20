@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -22,7 +23,7 @@ from openjarvis.personalization.profile import (
 from openjarvis.personalization.tool_affinity import ToolAffinityTracker
 
 
-@click.group(help="管理使用者輪廓 (USER.md) 與工具使用偏好。")
+@click.group(help="Manage the user profile (USER.md) and tool preferences.")
 def profile() -> None:
     """Profile management commands."""
 
@@ -36,16 +37,16 @@ def profile() -> None:
     help="Path to USER.md.",
 )
 def show_cmd(profile_path: str) -> None:
-    """顯示目前 USER.md 內容。"""
+    """Show the current USER.md contents."""
     console = Console()
     path = Path(profile_path).expanduser()
     if not path.exists():
-        console.print(f"[yellow]找不到 profile：[/yellow]{path}")
-        console.print("跑 [bold]jarvis profile rebuild[/bold] 從 memory.db 建一份。")
+        console.print(f"[yellow]Profile not found:[/yellow] {path}")
+        console.print("Run [bold]jarvis profile rebuild[/bold] to create it.")
         return
     text = path.read_text(encoding="utf-8")
     if not text.strip():
-        console.print(f"[yellow]profile 是空的：[/yellow]{path}")
+        console.print(f"[yellow]Profile is empty:[/yellow] {path}")
         return
     console.print(Markdown(text))
 
@@ -61,34 +62,35 @@ def show_cmd(profile_path: str) -> None:
 @click.option(
     "--yes",
     is_flag=True,
-    help="不要互動確認，直接覆寫。",
+    help="Update without an interactive confirmation.",
 )
 def rebuild_cmd(profile_path: str, yes: bool) -> None:
-    """從 memory.db 重新整理 USER.md。"""
+    """Merge durable facts from memory.db into USER.md."""
     console = Console()
     target = Path(profile_path).expanduser()
     if target.exists() and not yes:
-        console.print(f"[yellow]會覆寫：[/yellow]{target}")
-        if not click.confirm("確定要繼續嗎？", default=False):
-            console.print("[dim]取消。[/dim]")
+        console.print(f"[yellow]This will update:[/yellow] {target}")
+        if not click.confirm("Continue?", default=False):
+            console.print("[dim]Cancelled.[/dim]")
             return
 
     config = load_config()
     profile, stats = consolidate_from_config(config, output_path=target)
     if stats.scanned == 0:
         console.print(
-            "[yellow]memory.db 沒有任何資料。先用 [bold]memory_learn[/bold] "
-            "工具教 Jarvis 幾件關於你的事，再回來跑這個指令。[/yellow]"
+            "[yellow]memory.db contains no profile facts. Use the "
+            "[bold]memory_learn[/bold] tool first, then rebuild.[/yellow]"
         )
         return
 
-    console.print(f"[green]profile 已寫入：[/green]{stats.profile_path}")
+    console.print(f"[green]Profile updated:[/green] {stats.profile_path}")
 
     table = Table(show_header=False, border_style="cyan")
-    table.add_row("掃描", str(stats.scanned))
-    table.add_row("採用", str(stats.accepted))
-    table.add_row("重複略過", str(stats.skipped_duplicate))
-    table.add_row("沒有 key 略過", str(stats.skipped_no_key))
+    table.add_row("Scanned", str(stats.scanned))
+    table.add_row("Accepted", str(stats.accepted))
+    table.add_row("Duplicates skipped", str(stats.skipped_duplicate))
+    table.add_row("Missing keys skipped", str(stats.skipped_no_key))
+    table.add_row("Untrusted skipped", str(stats.skipped_untrusted))
     console.print(table)
 
 
@@ -100,7 +102,7 @@ def rebuild_cmd(profile_path: str, yes: bool) -> None:
     show_default=True,
 )
 def edit_cmd(profile_path: str) -> None:
-    """用 $EDITOR 打開 USER.md。"""
+    """Open USER.md in $EDITOR."""
     console = Console()
     path = Path(profile_path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,9 +112,9 @@ def edit_cmd(profile_path: str) -> None:
 
     editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or "vi"
     try:
-        subprocess.call([editor, str(path)])
+        subprocess.call([*shlex.split(editor), str(path)])
     except FileNotFoundError:
-        console.print(f"[red]找不到編輯器：[/red]{editor}")
+        console.print(f"[red]Editor not found:[/red] {editor}")
         sys.exit(1)
 
 
@@ -125,16 +127,16 @@ def edit_cmd(profile_path: str) -> None:
 )
 @click.option("--yes", is_flag=True)
 def clear_cmd(profile_path: str, yes: bool) -> None:
-    """清空 USER.md（保留檔案，內容歸零）。"""
+    """Clear USER.md while keeping the file."""
     console = Console()
     path = Path(profile_path).expanduser()
     if not path.exists():
-        console.print("[dim]檔案不存在，沒事做。[/dim]")
+        console.print("[dim]Profile does not exist; nothing to clear.[/dim]")
         return
-    if not yes and not click.confirm(f"清空 {path}？", default=False):
+    if not yes and not click.confirm(f"Clear {path}?", default=False):
         return
     UserProfile().save(path)
-    console.print(f"[green]已清空：[/green]{path}")
+    console.print(f"[green]Profile cleared:[/green] {path}")
 
 
 @profile.command("tools")
@@ -142,25 +144,25 @@ def clear_cmd(profile_path: str, yes: bool) -> None:
     "--recent-days",
     default=None,
     type=float,
-    help="只看最近 N 天的記錄。",
+    help="Only include records from the last N days.",
 )
 @click.option("--limit", default=10, show_default=True)
 def tools_cmd(recent_days: float | None, limit: int) -> None:
-    """看你最常用的工具。"""
+    """Show the most frequently used tools."""
     console = Console()
     tracker = ToolAffinityTracker()
     top = tracker.top_tools(limit=limit, recent_days=recent_days)
     if not top:
-        console.print("[dim]還沒有工具使用紀錄。[/dim]")
+        console.print("[dim]No tool usage has been recorded yet.[/dim]")
         return
     table = Table(
-        title="工具使用偏好",
+        title="Tool preferences",
         header_style="bold bright_white",
         border_style="bright_blue",
     )
-    table.add_column("工具", style="cyan")
-    table.add_column("用量", justify="right")
-    table.add_column("成功率", justify="right")
+    table.add_column("Tool", style="cyan")
+    table.add_column("Uses", justify="right")
+    table.add_column("Success rate", justify="right")
     for name, count, rate in top:
         table.add_row(name, str(count), f"{rate:.0%}")
     console.print(table)

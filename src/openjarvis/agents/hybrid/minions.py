@@ -17,9 +17,9 @@ acc / $0.67 (vs $1.09).
 
 Requires the ``minions`` library from
 https://github.com/HazyResearch/minions installed in the same env (e.g.
-``uv pip install -e /matx/u/aspark/hybrid-local-cloud-compute/external/minions``).
-Import is lazy — the agent class registers without ``minions`` available,
-and the import error only fires on ``run()``.
+``uv pip install -e path/to/minions``). Import is lazy — the agent class
+registers without ``minions`` available, and the import error only fires
+on ``run()``.
 
 Compatibility patches applied at first ``run()`` (idempotent):
 
@@ -45,11 +45,16 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from openjarvis.agents._stubs import AgentContext
 from openjarvis.agents.hybrid._base import (
-    ANTHROPIC_WEB_SEARCH_TOOL,
     WEB_SEARCH_COST_PER_CALL,
     LocalCloudAgent,
+    build_web_search_tool,
+    tavily_search_context,
+    web_search_cfg,
 )
-from openjarvis.agents.hybrid._prices import NO_TEMP_PREFIXES
+from openjarvis.agents.hybrid._openai_retry import (
+    patch_openai_globally as _patch_openai_globally,
+)
+from openjarvis.agents.hybrid._prices import NO_TEMP_PREFIXES, default_max_output_tokens
 from openjarvis.agents.hybrid.mini_swe_agent import run_swe_agent_loop
 from openjarvis.core.registry import AgentRegistry
 
@@ -82,7 +87,7 @@ MINIONS_FIRST_TURN_SCHEMA = {
             "type": "object",
             "properties": {
                 "reasoning": {"type": "string"},
-                "message":   {"type": "string"},
+                "message": {"type": "string"},
             },
             "required": ["reasoning", "message"],
             "additionalProperties": False,
@@ -99,7 +104,7 @@ MINIONS_CONVERSATION_SCHEMA = {
                     "type": "object",
                     "properties": {
                         "decision": {"const": "request_additional_info"},
-                        "message":  {"type": "string"},
+                        "message": {"type": "string"},
                     },
                     "required": ["decision", "message"],
                     "additionalProperties": False,
@@ -108,7 +113,7 @@ MINIONS_CONVERSATION_SCHEMA = {
                     "type": "object",
                     "properties": {
                         "decision": {"const": "provide_final_answer"},
-                        "answer":   {"type": "string"},
+                        "answer": {"type": "string"},
                     },
                     "required": ["decision", "answer"],
                     "additionalProperties": False,
@@ -121,8 +126,8 @@ MINIONS_CONVERSATION_SCHEMA = {
 # Markers from Minions's supervisor prompts (prompts/minion.py). Any one
 # being present in the call's messages/system is a strong Minions signal.
 MINIONS_PROMPT_MARKERS = (
-    "small language model that has read",   # SUPERVISOR_INITIAL_PROMPT
-    "provide_final_answer",                  # SUPERVISOR_CONVERSATION_PROMPT
+    "small language model that has read",  # SUPERVISOR_INITIAL_PROMPT
+    "provide_final_answer",  # SUPERVISOR_CONVERSATION_PROMPT
     "request_additional_info",
 )
 
@@ -166,6 +171,7 @@ def _stub_missing_imports() -> None:
     """
     try:
         import mistralai
+
         if not hasattr(mistralai, "Mistral"):
             mistralai.Mistral = type("Mistral", (), {})  # type: ignore[attr-defined]
     except ImportError:
@@ -200,19 +206,116 @@ def _patch_anthropic_globally() -> None:
 
         def make_patched(orig):  # type: ignore[no-untyped-def]
             def patched(self, **kwargs):  # type: ignore[no-untyped-def]
+                # External Minions's AnthropicClient.chat passes
+                # `cache_control={"type":"ephemeral"}` as a top-level kwarg
+                # (clients/anthropic.py:207). Newer Anthropic SDKs reject that
+                # — cache_control belongs on individual content blocks, not on
+                # Messages.create itself. Strip it; we're not relying on the
+                # ephemeral hint for correctness in these short minions turns.
+                kwargs.pop("cache_control", None)
                 model = kwargs.get("model", "")
                 if model.startswith(NO_TEMP_PREFIXES):
                     kwargs.pop("temperature", None)
-                    if (
-                        "output_config" not in kwargs
-                        and _looks_like_minions_call(kwargs)
+                    if "output_config" not in kwargs and _looks_like_minions_call(
+                        kwargs
                     ):
                         kwargs["output_config"] = _minions_turn_schema(kwargs)
                 return orig(self, **kwargs)
+
             patched._hybrid_patched = True  # type: ignore[attr-defined]
             return patched
 
         cls.create = make_patched(orig)  # type: ignore[assignment]
+
+
+def _patch_gemini_client_usage() -> None:
+    """Patch vendored ``GeminiClient.schat`` for Gemini 2.5 quirks.
+
+    Two issues in the upstream client:
+
+    1. ``response.usage_metadata.candidates_token_count`` is sometimes ``None``
+       (empty / thinking-only responses on 2.5 Pro), and the upstream code
+       does ``total_token_count - candidates_token_count`` raw → ``TypeError``.
+
+    2. ``response.text`` raises if the model only emitted a non-text part
+       (e.g. safety block, thinking-only). We swallow it as empty.
+
+    Both fixes are idempotent and bypass the original ``schat`` body only
+    on the value-extraction lines — the API call itself is unchanged.
+    """
+    from minions.clients.gemini import GeminiClient  # type: ignore[import-not-found]
+    from minions.usage import Usage  # type: ignore[import-not-found]
+
+    if getattr(GeminiClient.schat, "_hybrid_patched", False):
+        return
+
+    _orig_schat = GeminiClient.schat
+
+    def _safe_int(x):  # type: ignore[no-untyped-def]
+        try:
+            return int(x) if x is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def patched_schat(self, messages, **kwargs):  # type: ignore[no-untyped-def]
+        # Mirror the upstream "native" branch by hand, but defensively.
+        # Skip the OpenAI-compat branch — Minions paradigm never sets that.
+        if self.use_openai_api:
+            return _orig_schat(self, messages, **kwargs)
+        if isinstance(messages, dict):
+            messages = [messages]
+        contents, system_instruction = self._format_content(messages)
+        if not system_instruction:
+            system_instruction = self.system_instruction
+        tools = self._prepare_tools(messages=messages)
+        config_kwargs = {
+            "temperature": self.temperature,
+            "max_output_tokens": self.max_tokens,
+        }
+        if self.thinking_budget is not None or self.thinking_level is not None:
+            tc = {}
+            if self.thinking_budget is not None:
+                tc["thinking_budget"] = self.thinking_budget
+            if self.thinking_level is not None:
+                tc["thinking_level"] = self.thinking_level
+            config_kwargs["thinking_config"] = self.types.ThinkingConfig(**tc)
+        if tools:
+            config_kwargs["tools"] = tools
+        config_kwargs["system_instruction"] = system_instruction
+        config = self.types.GenerateContentConfig(**config_kwargs)
+
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=contents,
+            config=config,
+        )
+
+        # Defensive text accessor — upstream `response.text` can raise when
+        # the model only emitted a non-text part.
+        try:
+            text = response.text or ""
+        except Exception:
+            try:
+                parts = response.candidates[0].content.parts or []
+                text = "".join(getattr(p, "text", "") or "" for p in parts)
+            except Exception:
+                text = ""
+
+        um = getattr(response, "usage_metadata", None)
+        total = _safe_int(getattr(um, "total_token_count", 0)) if um else 0
+        comp = _safe_int(getattr(um, "candidates_token_count", 0)) if um else 0
+        prompt = _safe_int(getattr(um, "prompt_token_count", 0)) if um else 0
+        # Prefer the explicit prompt count if present; fall back to (total - comp).
+        if not prompt and total:
+            prompt = max(total - comp, 0)
+        usage = Usage(prompt_tokens=prompt, completion_tokens=comp)
+
+        if self.local:
+            return [text], usage, ["stop"]
+        return [text], usage
+
+    patched_schat._hybrid_patched = True  # type: ignore[attr-defined]
+    GeminiClient.schat = patched_schat  # type: ignore[assignment]
 
 
 def _patch_minions_extract_json() -> None:
@@ -245,13 +348,26 @@ def _apply_patches_once() -> None:
         return
     _stub_missing_imports()
     _patch_anthropic_globally()
+    # Mirror the Anthropic patch for OpenAI so the Minions library's own
+    # ``OpenAIClient`` instances pick up retry + per-org concurrency caps.
+    # Idempotent — also applied at ``_base`` import time.
+    _patch_openai_globally()
+    _patch_gemini_client_usage()
     _patch_minions_extract_json()
     _PATCHES_APPLIED = True
 
 
 # ---------- Pre-fetch helper (GAIA only) ----------
 
-def _prefetch_context(question: str, cloud_endpoint: str, cloud_model: str) -> Dict[str, Any]:
+
+def _prefetch_context(
+    question: str,
+    cloud_endpoint: str,
+    cloud_model: str,
+    max_uses: int = 8,
+    search_backend: str = "provider",
+    tavily_max_results: int = 5,
+) -> Dict[str, Any]:
     """Use Anthropic web_search to fetch real source material the worker can read.
 
     Minions's premise is "worker reads a doc, asks cloud for help" — but GAIA
@@ -262,8 +378,27 @@ def _prefetch_context(question: str, cloud_endpoint: str, cloud_model: str) -> D
     and zeros — the protocol still runs.
     """
     out: Dict[str, Any] = {
-        "text": "", "tokens": 0, "cost_usd": 0.0, "n_searches": 0,
+        "text": "",
+        "tokens": 0,
+        "cost_usd": 0.0,
+        "n_searches": 0,
     }
+    if search_backend == "tavily":
+        try:
+            res = tavily_search_context(question, max_results=tavily_max_results)
+            out.update(
+                text=res["text"],
+                cost_usd=float(res["cost_usd"]),
+                n_searches=int(res["n_searches"]),
+                tokens=0,
+                engine=res.get("engine"),
+                credits=res.get("credits"),
+            )
+            if res.get("error"):
+                out["error"] = res["error"]
+        except Exception as e:
+            out["error"] = f"{type(e).__name__}: {e}"
+        return out
     if cloud_endpoint != "anthropic" or not (question or "").strip():
         return out
     try:
@@ -278,14 +413,16 @@ def _prefetch_context(question: str, cloud_endpoint: str, cloud_model: str) -> D
             cloud_model,
             user=prompt,
             max_tokens=8192,
-            tools=[ANTHROPIC_WEB_SEARCH_TOOL],
+            tools=[build_web_search_tool(max_uses)],
             tool_choice={"type": "any"},
         )
         from openjarvis.agents.hybrid._prices import cost as _cost_usd
+
         out.update(
             text=text,
             tokens=p + c,
-            cost_usd=_cost_usd(cloud_model, p, c) + n_searches * WEB_SEARCH_COST_PER_CALL,
+            cost_usd=_cost_usd(cloud_model, p, c)
+            + n_searches * WEB_SEARCH_COST_PER_CALL,
             n_searches=n_searches,
         )
     except Exception as e:
@@ -293,9 +430,7 @@ def _prefetch_context(question: str, cloud_endpoint: str, cloud_model: str) -> D
     return out
 
 
-def _context_for(
-    task: Optional[Dict[str, Any]], prefetched: str = ""
-) -> List[str]:
+def _context_for(task: Optional[Dict[str, Any]], prefetched: str = "") -> List[str]:
     """Minions wants a context list."""
     bits: List[str] = []
     task = task or {}
@@ -310,6 +445,7 @@ def _context_for(
 
 # ---------- Main agent ----------
 
+
 @AgentRegistry.register("minions")
 class MinionsAgent(LocalCloudAgent):
     """HazyResearch Minions supervisor/worker protocol. See module docstring."""
@@ -321,6 +457,7 @@ class MinionsAgent(LocalCloudAgent):
         # 400/529, KeyError on missing schema fields.
         try:
             import anthropic
+
             if isinstance(exc, anthropic.BadRequestError):
                 return f"{type(exc).__name__}: {str(exc)[:120]}"
         except Exception:
@@ -362,6 +499,9 @@ class MinionsAgent(LocalCloudAgent):
         from minions.clients.anthropic import (
             AnthropicClient,  # type: ignore[import-not-found]
         )
+        from minions.clients.gemini import (
+            GeminiClient,  # type: ignore[import-not-found]
+        )
         from minions.clients.openai import (
             OpenAIClient,  # type: ignore[import-not-found]
         )
@@ -384,18 +524,32 @@ class MinionsAgent(LocalCloudAgent):
             max_tokens=cfg.get("worker_max_tokens", 4096),
             local=True,
         )
+        cloud_max_tokens = int(
+            cfg.get("cloud_max_tokens") or default_max_output_tokens(self._cloud_model)
+        )
         if self._cloud_endpoint == "openai":
             cloud_client = OpenAIClient(
                 model_name=self._cloud_model,
                 temperature=0.0,
-                max_tokens=4096,
+                max_tokens=cloud_max_tokens,
             )
         elif self._cloud_endpoint == "anthropic":
             # Temperature stripping is handled by the global patch above for Opus 4.7+.
             cloud_client = AnthropicClient(
                 model_name=self._cloud_model,
                 temperature=0.0,
-                max_tokens=4096,
+                max_tokens=cloud_max_tokens,
+            )
+        elif self._cloud_endpoint == "gemini":
+            # The vendored Minion library already special-cases GeminiClient
+            # in minion.py: it passes response_mime_type=application/json plus
+            # a Pydantic response_schema so the supervisor reply parses with
+            # the same {decision, message, answer} shape Opus/GPT use. We just
+            # have to hand it a GeminiClient instance — no extra plumbing.
+            cloud_client = GeminiClient(
+                model_name=self._cloud_model,
+                temperature=0.0,
+                max_tokens=cloud_max_tokens,
             )
         else:
             raise ValueError(f"unsupported cloud endpoint: {self._cloud_endpoint!r}")
@@ -412,23 +566,49 @@ class MinionsAgent(LocalCloudAgent):
         # GAIA-shape only: prefetch a web_search digest so the worker has
         # something real to read. SWE-bench (problem_statement only) already
         # ships its own doc.
+        #
+        # Honors the new ``method_cfg.web_search`` schema:
+        #   - omitted          → prefetch ON (legacy default for minions GAIA)
+        #   - enabled = false  → prefetch OFF
+        #   - enabled = true   → prefetch ON (honors max_uses)
         prefetch: Dict[str, Any] = {
-            "text": "", "tokens": 0, "cost_usd": 0.0, "n_searches": 0,
+            "text": "",
+            "tokens": 0,
+            "cost_usd": 0.0,
+            "n_searches": 0,
         }
-        if task_meta.get("question"):
+        ws_block = (
+            cfg.get("web_search") if isinstance(cfg.get("web_search"), dict) else None
+        )
+        ws_enabled, ws_max_uses = web_search_cfg(cfg)
+        # If the cell explicitly set web_search.enabled = false, honor that.
+        # If it set web_search.enabled = true, honor max_uses. If it didn't
+        # set a web_search block at all, keep legacy prefetch ON.
+        prefetch_on = (
+            ws_block is None  # legacy default
+            or ws_enabled
+        )
+        if task_meta.get("question") and prefetch_on:
             prefetch = _prefetch_context(
-                task_meta["question"], self._cloud_endpoint, self._cloud_model
+                task_meta["question"],
+                self._cloud_endpoint,
+                self._cloud_model,
+                max_uses=ws_max_uses,
+                search_backend=str(cfg.get("search_backend", "provider")).lower(),
+                tavily_max_results=int(cfg.get("tavily_max_results", 5)),
             )
 
         if prefetch.get("text"):
-            self.record_trace_event({
-                "kind": "minions_prefetch",
-                "n_searches": prefetch["n_searches"],
-                "tokens": prefetch["tokens"],
-                "cost_usd": prefetch["cost_usd"],
-                "text": prefetch["text"],
-                "error": prefetch.get("error"),
-            })
+            self.record_trace_event(
+                {
+                    "kind": "minions_prefetch",
+                    "n_searches": prefetch["n_searches"],
+                    "tokens": prefetch["tokens"],
+                    "cost_usd": prefetch["cost_usd"],
+                    "text": prefetch["text"],
+                    "error": prefetch.get("error"),
+                }
+            )
 
         out = protocol(
             task=input,  # full formatted prompt (with bench instruction)
@@ -440,15 +620,17 @@ class MinionsAgent(LocalCloudAgent):
         # The Minions library doesn't go through our SDK helpers, so the
         # auto-trace missed every turn. Record the protocol output directly —
         # supervisor_messages + worker_messages contain the full conversation.
-        self.record_trace_event({
-            "kind": "minions_protocol",
-            "mode": mode,
-            "supervisor_messages": out.get("supervisor_messages"),
-            "worker_messages": out.get("worker_messages"),
-            "timing": out.get("timing"),
-            "log_file": out.get("log_file"),
-            "final_answer": out.get("final_answer", ""),
-        })
+        self.record_trace_event(
+            {
+                "kind": "minions_protocol",
+                "mode": mode,
+                "supervisor_messages": out.get("supervisor_messages"),
+                "worker_messages": out.get("worker_messages"),
+                "timing": out.get("timing"),
+                "log_file": out.get("log_file"),
+                "final_answer": out.get("final_answer", ""),
+            }
+        )
 
         local_usage = out.get("local_usage")
         remote_usage = out.get("remote_usage")
@@ -462,6 +644,10 @@ class MinionsAgent(LocalCloudAgent):
             "tokens_cloud": (rp + rc) + prefetch["tokens"],
             "cost_usd": self.cost_usd(self._cloud_model, rp, rc) + prefetch["cost_usd"],
             "turns": cfg.get("max_rounds", 3),
+            "web_search_uses": prefetch["n_searches"],
+            # GAIA: only countable tool surface is the prefetch web_search.
+            # The Minions protocol itself is supervisor↔worker text, no tools.
+            "tool_calls": int(prefetch["n_searches"]),
             "traces": {
                 "mode": mode,
                 "supervisor_messages": out.get("supervisor_messages"),
@@ -478,7 +664,6 @@ class MinionsAgent(LocalCloudAgent):
             },
         }
         return out.get("final_answer", ""), meta
-
 
     # ------------------------------------------------------------------
     # SWE-bench variant
@@ -497,21 +682,23 @@ class MinionsAgent(LocalCloudAgent):
         # 1. Cloud supervisor writes a high-level plan (no tools).
         plan_text, p_in, p_out = self._call_cloud(
             user=(
-                f"Issue:\n{task.get('problem_statement','')}\n\n"
-                f"Repo: {task.get('repo','')}\n"
-                f"Base commit: {task.get('base_commit','')}\n\n"
-                f"{task.get('hints_text','')}"
+                f"Issue:\n{task.get('problem_statement', '')}\n\n"
+                f"Repo: {task.get('repo', '')}\n"
+                f"Base commit: {task.get('base_commit', '')}\n\n"
+                f"{task.get('hints_text', '')}"
             ),
             system=MINIONS_SWE_PLANNER_SYS,
             max_tokens=int(cfg.get("supervisor_max_tokens", 1024)),
             temperature=0.0,
         )
-        self.record_trace_event({
-            "kind": "minions_swe_plan",
-            "plan": plan_text,
-            "tokens_in": p_in,
-            "tokens_out": p_out,
-        })
+        self.record_trace_event(
+            {
+                "kind": "minions_swe_plan",
+                "plan": plan_text,
+                "tokens_in": p_in,
+                "tokens_out": p_out,
+            }
+        )
         supervisor_cost = self.cost_usd(self._cloud_model, p_in, p_out)
 
         # 2. Local worker runs mini-SWE-agent with the plan as context.
@@ -540,6 +727,8 @@ class MinionsAgent(LocalCloudAgent):
             "tokens_cloud": p_in + p_out,
             "cost_usd": supervisor_cost,
             "turns": 1 + out["turns"],
+            # SWE: only the worker invokes tools (bash); supervisor is text-only.
+            "tool_calls": int(out["turns"]),
             "traces": {
                 "swe_mode": True,
                 "supervisor_plan": plan_text,

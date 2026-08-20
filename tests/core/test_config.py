@@ -37,10 +37,12 @@ class TestDefaults:
         assert ec.vllm.host == "http://localhost:8000"
         assert ec.sglang.host == "http://localhost:30000"
         assert ec.llamacpp.host == "http://localhost:8080"
+        assert ec.lemonade.host == "http://localhost:13305"
         assert ec.llamacpp.binary_path == ""
         # Backward-compat properties still work
         assert ec.ollama_host == ""
         assert ec.vllm_host == "http://localhost:8000"
+        assert ec.lemonade_host == "http://localhost:13305"
 
 
 class TestRecommendEngine:
@@ -92,6 +94,36 @@ class TestTomlLoading:
         cfg = load_config(toml_file)
         assert cfg.engine.default == "vllm"
         assert cfg.memory.default_backend == "faiss"
+
+    def test_loads_nested_lemonade_host_override(self, tmp_path: Path) -> None:
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(
+            '[engine]\ndefault = "lemonade"\n\n'
+            '[engine.lemonade]\nhost = "http://custom-lemonade:19000"\n'
+        )
+        cfg = load_config(toml_file)
+        assert cfg.engine.default == "lemonade"
+        assert cfg.engine.lemonade.host == "http://custom-lemonade:19000"
+        assert cfg.engine.lemonade_host == "http://custom-lemonade:19000"
+
+    def test_system_prompt_block_parsed(self, tmp_path: Path) -> None:
+        """Regression for #401: the [system_prompt] block (and its prefix)
+        must reach the runtime config, not be dropped by load_config()."""
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(
+            '[system_prompt]\nprefix = "You are Jarvis."\nsoul_max_chars = 999\n'
+        )
+        cfg = load_config(toml_file)
+        assert cfg.system_prompt.prefix == "You are Jarvis."
+        assert cfg.system_prompt.soul_max_chars == 999
+
+    def test_config_without_system_prompt_block_defaults(self, tmp_path: Path) -> None:
+        """Backward compatibility: a config lacking [system_prompt] keeps
+        the empty-prefix default (no behavior change for existing configs)."""
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text('[engine]\ndefault = "ollama"\n')
+        cfg = load_config(toml_file)
+        assert cfg.system_prompt.prefix == ""
 
 
 class TestGenerateToml:
@@ -205,6 +237,14 @@ class TestAgentConfigNew:
             or isinstance(getattr(ac.__class__, "temperature", None), property) is False
         )
 
+    def test_default_system_prompt_anchors_identity(self) -> None:
+        """#540: the hardened wording must name OpenJarvis and explicitly
+        deny the model's training identity so distilled models stop
+        claiming to be Claude/ChatGPT/etc."""
+        prompt = AgentConfig().default_system_prompt
+        assert "OpenJarvis" in prompt
+        assert "not Claude" in prompt
+
 
 class TestNestedEngineConfig:
     def test_nested_access(self) -> None:
@@ -213,6 +253,7 @@ class TestNestedEngineConfig:
         assert ec.vllm.host == "http://localhost:8000"
         assert ec.sglang.host == "http://localhost:30000"
         assert ec.llamacpp.host == "http://localhost:8080"
+        assert ec.lemonade.host == "http://localhost:13305"
         assert ec.llamacpp.binary_path == ""
 
     def test_backward_compat_setter(self) -> None:
@@ -249,6 +290,17 @@ class TestNestedEngineConfig:
         cfg = load_config(toml_file)
         assert cfg.engine.ollama.host == "http://old:11434"
         assert cfg.engine.vllm.host == "http://old:8000"
+
+    def test_loads_old_flat_lemonade_host(self, tmp_path: Path) -> None:
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(
+            '[engine]\ndefault = "lemonade"\n'
+            'lemonade_host = "http://legacy-lemonade:19191"\n'
+        )
+        cfg = load_config(toml_file)
+        assert cfg.engine.default == "lemonade"
+        assert cfg.engine.lemonade.host == "http://legacy-lemonade:19191"
+        assert cfg.engine.lemonade_host == "http://legacy-lemonade:19191"
 
 
 class TestNestedLearningConfig:
@@ -517,6 +569,7 @@ class TestWhatsAppBaileysChannelConfig:
 
 def test_mining_config_absent_means_none(tmp_path):
     from openjarvis.core.config import load_config
+
     cfg_path = tmp_path / "config.toml"
     cfg_path.write_text("")  # empty config
     cfg = load_config(cfg_path)

@@ -422,12 +422,17 @@ We recommend creating **one Slack app** that handles both. The App Manifest belo
 
 2. Apple Notes is detected automatically when Full Disk Access is granted
 
+OpenJarvis searches an indexed snapshot rather than querying Notes.app live.
+After creating notes, open **Data Sources** and click **Re-sync** on Apple Notes
+before searching for the new content.
+
 ### Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
 | "Not connected" despite Full Disk Access | Restart your terminal app after granting access |
 | Notes content is garbled | Some very old notes may have encoding issues. Most notes should be clean. |
+| New notes are missing | In **Data Sources**, click **Re-sync** on Apple Notes to refresh the index. |
 | Missing notes | Only notes stored locally or in iCloud are indexed. Notes in third-party accounts (Gmail, Exchange) may not appear. |
 
 ---

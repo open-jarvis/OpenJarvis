@@ -18,6 +18,9 @@ Notes:
   backend. Editing USER.md by hand is safe.
 * Rows whose metadata has no ``key`` field are skipped (they're treated
   as RAG corpus, not profile facts).
+* Only explicitly trusted or user-authored facts may be elevated into the
+  system-profile context. Connector/RAG content fails closed even if it carries
+  a profile-looking ``key``.
 """
 
 from __future__ import annotations
@@ -43,6 +46,7 @@ class ConsolidationStats:
     scanned: int = 0
     accepted: int = 0
     skipped_no_key: int = 0
+    skipped_untrusted: int = 0
     skipped_duplicate: int = 0
     profile_path: Optional[Path] = None
 
@@ -54,7 +58,8 @@ def _coerce_metadata(meta: Any) -> Dict[str, Any]:
         try:
             import json
 
-            return json.loads(meta)
+            parsed = json.loads(meta)
+            return parsed if isinstance(parsed, dict) else {}
         except Exception:
             return {}
     return {}
@@ -67,6 +72,25 @@ def _ts_of(meta: Dict[str, Any]) -> float:
         except Exception:
             continue
     return 0.0
+
+
+_TRUSTED_PROFILE_SOURCES = frozenset({"explicit", "manual", "user_facts"})
+
+
+def _is_trusted_profile_fact(meta: Dict[str, Any]) -> bool:
+    """Return whether *meta* is safe to elevate into the system profile.
+
+    An explicit trust tier takes precedence over source provenance. Unknown
+    non-empty tiers fail closed, as do legacy rows with no known user-authored
+    source. This keeps connector documents and auto-extracted model content out
+    of the privileged USER.md prompt while retaining the documented explicit
+    and legacy ``user_facts`` paths.
+    """
+    trust = str(meta.get("trust", "") or "").strip().lower()
+    if trust:
+        return trust == "trusted"
+    source = str(meta.get("source", "") or "").strip().lower()
+    return source in _TRUSTED_PROFILE_SOURCES
 
 
 class ProfileConsolidator:
@@ -117,6 +141,9 @@ class ProfileConsolidator:
             if not key:
                 stats.skipped_no_key += 1
                 continue
+            if not _is_trusted_profile_fact(meta):
+                stats.skipped_untrusted += 1
+                continue
             value = (row.get("content") or "").strip()
             if not value:
                 stats.skipped_no_key += 1
@@ -142,9 +169,7 @@ class ProfileConsolidator:
         output_path = Path(output_path).expanduser()
         with profile_file_lock(output_path):
             profile = UserProfile.load(output_path)
-            existing_keys = {
-                entry.key for entry in profile.all_entries() if entry.key
-            }
+            existing_keys = {entry.key for entry in profile.all_entries() if entry.key}
             for key, (_ts, value) in sorted(latest.items()):
                 if key not in existing_keys:
                     profile.add(key, value)
@@ -215,13 +240,20 @@ class ProfileConsolidator:
     @staticmethod
     def _normalise_row(row: Any) -> Dict[str, Any]:
         if isinstance(row, dict):
+            metadata = dict(_coerce_metadata(row.get("metadata")))
+            if "source" not in metadata and row.get("source"):
+                metadata["source"] = row["source"]
             return {
                 "content": row.get("content", ""),
-                "metadata": _coerce_metadata(row.get("metadata")),
+                "metadata": metadata,
             }
+        metadata = dict(_coerce_metadata(getattr(row, "metadata", None)))
+        source = getattr(row, "source", "") or ""
+        if "source" not in metadata and source:
+            metadata["source"] = source
         return {
             "content": getattr(row, "content", "") or "",
-            "metadata": _coerce_metadata(getattr(row, "metadata", None)),
+            "metadata": metadata,
         }
 
 
@@ -265,9 +297,7 @@ def consolidate_from_config(
             return self._rows
 
     combined = list(rows) + list(backend_rows)
-    return ProfileConsolidator(_Combined(combined)).consolidate(
-        output_path=output_path
-    )
+    return ProfileConsolidator(_Combined(combined)).consolidate(output_path=output_path)
 
 
 def _iter_user_facts(db_path: str) -> Iterable[Dict[str, Any]]:
@@ -287,9 +317,7 @@ def _iter_user_facts(db_path: str) -> Iterable[Dict[str, Any]]:
             )
             if not cur.fetchone():
                 return
-            for row in conn.execute(
-                "SELECT id, ts, key, value FROM user_facts"
-            ):
+            for row in conn.execute("SELECT id, ts, key, value FROM user_facts"):
                 row_id, ts, k, v = row
                 try:
                     from datetime import datetime as _dt

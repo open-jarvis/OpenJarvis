@@ -35,7 +35,7 @@ method_cfg = { swe_use_agent_loop = true, conductor_max_tokens = 2048, swe_max_t
 method = "advisors"
 bench  = "swebench-verified"
 n      = 3
-local  = { model = "Qwen/Qwen3.5-9B", endpoint = "http://localhost:8001/v1" }
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
 cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
 method_cfg = { swe_use_agent_loop = true, swe_max_turns = 25, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096, advisor_max_tokens = 2048 }
 
@@ -45,7 +45,7 @@ method_cfg = { swe_use_agent_loop = true, swe_max_turns = 25, swe_bash_timeout_s
 method = "skillorchestra"
 bench  = "swebench-verified"
 n      = 3
-local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8002/v1" }
 cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
 method_cfg = { swe_use_agent_loop = true, router_max_tokens = 1024, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
 
@@ -55,7 +55,7 @@ method_cfg = { swe_use_agent_loop = true, router_max_tokens = 1024, swe_max_turn
 method = "toolorchestra"
 bench  = "swebench-verified"
 n      = 3
-local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8002/v1" }
 cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
 method_cfg = { swe_use_agent_loop = true, max_turns = 4, orchestrator_max_tokens = 1024, swe_max_turns = 25, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
 
@@ -65,6 +65,6 @@ method_cfg = { swe_use_agent_loop = true, max_turns = 4, orchestrator_max_tokens
 method = "archon"
 bench  = "swebench-verified"
 n      = 3
-local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8002/v1" }
 cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
 method_cfg = { swe_use_agent_loop = true, n_samples = 3, swe_max_turns = 25, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096, ranker_max_tokens = 1024 }

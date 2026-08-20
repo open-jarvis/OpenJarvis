@@ -173,3 +173,58 @@ IDEOF
         ! grep -q "^pull " "$OLLAMA_STUB_LOG"
     fi
 }
+
+@test "install succeeds with no system Python on PATH (#484)" {
+    # Build a stubs dir with NO python3 / python — verifies the
+    # bootstrap shims (get_anon_id, beacon, mark_done) are Python-free.
+    local no_py_stubs="$TEST_TMPDIR/no_py_stubs"
+    mkdir -p "$no_py_stubs"
+    for f in git curl uv ollama cargo rustup; do
+        cp "$PER_TEST_STUBS/$f" "$no_py_stubs/"
+        chmod +x "$no_py_stubs/$f"
+    done
+    # Provide minimal core utilities the shims need (od, sed, awk, tr, grep).
+    for util in id cat bash sh head tail awk sed grep od tr cut mv rm mkdir cp chmod ln test pgrep date sleep ps; do
+        if [[ -x "/usr/bin/$util" ]]; then
+            ln -sf "/usr/bin/$util" "$no_py_stubs/$util"
+        elif [[ -x "/bin/$util" ]]; then
+            ln -sf "/bin/$util" "$no_py_stubs/$util"
+        fi
+    done
+    # pgrep may be absent on minimal BusyBox/Alpine hosts; stub it as
+    # "no matching process" so start_ollama's existing-daemon check
+    # falls through to the spawn path (which the ollama stub handles).
+    if [[ ! -x "$no_py_stubs/pgrep" ]]; then
+        printf '#!/bin/sh\nexit 1\n' > "$no_py_stubs/pgrep"
+        chmod +x "$no_py_stubs/pgrep"
+    fi
+    PATH="$no_py_stubs" run bash "$SCRIPT" --no-bg-orchestrator --minimal
+    [ "$status" -eq 0 ]
+    # State file was still written (mark_done is Python-free).
+    [ -f "$OPENJARVIS_HOME/.state/install-state.json" ]
+    # And it still has valid-looking JSON for state_done's grep.
+    grep -q '"install_uv":' "$OPENJARVIS_HOME/.state/install-state.json"
+}
+
+@test "mark_done is idempotent — second mark of same key doesn't duplicate" {
+    run bash "$SCRIPT" --no-bg-orchestrator
+    [ "$status" -eq 0 ]
+    # Capture first state file
+    local first_count
+    first_count="$(grep -c '"install_uv":' "$OPENJARVIS_HOME/.state/install-state.json")"
+    [ "$first_count" -eq 1 ]
+    # Second run reuses state — keys should not duplicate even if some path re-marks.
+    run bash "$SCRIPT" --no-bg-orchestrator
+    [ "$status" -eq 0 ]
+    local second_count
+    second_count="$(grep -c '"install_uv":' "$OPENJARVIS_HOME/.state/install-state.json")"
+    [ "$second_count" -eq 1 ]
+}
+
+@test "create_venv picks newest in requires-python range, not hardcoded 3.11 (#476)" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal
+    [ "$status" -eq 0 ]
+    # uv stub logs every invocation. We should see `venv --python 3.13 ...`
+    # (the upper bound of >=3.10,<3.14 is 3.14, so the highest usable is 3.13).
+    grep -q '^venv --python 3.13' "$UV_STUB_LOG"
+}

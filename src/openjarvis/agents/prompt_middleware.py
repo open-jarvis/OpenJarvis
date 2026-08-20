@@ -4,8 +4,9 @@ Each middleware is a callable ``(prompt: str | None, ctx: dict) -> str | None``.
 The default middleware injects the current date/time into the prompt so local
 models do not hallucinate "today's date" from training data.
 
-The timezone is read from config (default Asia/Taipei). A ``clock`` keyword can
-be passed to ``DateTimeInjector`` so tests can pin a deterministic clock.
+The timezone is read from config (default: the machine's local timezone). A
+``clock`` keyword can be passed to ``DateTimeInjector`` so tests can pin a
+deterministic clock.
 """
 
 from __future__ import annotations
@@ -16,10 +17,10 @@ from typing import Callable, Optional
 
 PromptMiddleware = Callable[[Optional[str]], Optional[str]]
 
-_WEEKDAY = ["一", "二", "三", "四", "五", "六", "日"]
-
 
 def _resolve_tz(name: str) -> Optional[tzinfo]:
+    if not name:
+        return None
     try:
         from zoneinfo import ZoneInfo
 
@@ -39,7 +40,7 @@ class DateTimeInjector:
       a SYSTEM message and we agreed not to add a second one).
     """
 
-    timezone: str = "Asia/Taipei"
+    timezone: str = ""
     clock: Optional[Callable[[], datetime]] = None
 
     def __call__(self, prompt: Optional[str]) -> Optional[str]:
@@ -53,12 +54,12 @@ class DateTimeInjector:
             now = self.clock()
         else:
             tz = _resolve_tz(self.timezone)
-            now = datetime.now(tz) if tz is not None else datetime.now()
-        weekday = _WEEKDAY[now.weekday()]
+            now = datetime.now(tz) if tz is not None else datetime.now().astimezone()
+        timezone_label = self.timezone or now.tzname() or "local time"
         return (
-            f"\n\n[即時資訊] 現在時間：{now.strftime('%Y-%m-%d')} "
-            f"星期{weekday} {now.strftime('%H:%M')}（{self.timezone}）。"
-            f"問到日期、時間、今天、明天、星期幾時，以這個為準，不要用訓練資料的舊日期。"
+            f"\n\n[Current date and time] {now.strftime('%Y-%m-%d %A %H:%M')} "
+            f"({timezone_label}). Use this value for date and time questions "
+            "instead of relying on the model's training cutoff."
         )
 
 
@@ -77,10 +78,7 @@ def build_default_middleware(cfg) -> list[PromptMiddleware]:
         return chain
 
     if getattr(agent_cfg, "inject_datetime", True):
-        tz = (
-            getattr(agent_cfg, "datetime_timezone", "Asia/Taipei")
-            or "Asia/Taipei"
-        )
+        tz = getattr(agent_cfg, "datetime_timezone", "") or ""
         chain.append(DateTimeInjector(timezone=tz))
 
     if getattr(agent_cfg, "inject_profile", True):
@@ -90,9 +88,7 @@ def build_default_middleware(cfg) -> list[PromptMiddleware]:
                 DEFAULT_PROFILE_PATH,
             )
 
-            profile_path = getattr(
-                agent_cfg, "profile_path", str(DEFAULT_PROFILE_PATH)
-            )
+            profile_path = getattr(agent_cfg, "profile_path", str(DEFAULT_PROFILE_PATH))
             from pathlib import Path
 
             chain.append(ProfileInjector(profile_path=Path(profile_path).expanduser()))
@@ -102,11 +98,9 @@ def build_default_middleware(cfg) -> list[PromptMiddleware]:
     if getattr(agent_cfg, "inject_tool_affinity", True):
         try:
             from openjarvis.personalization.injector import ToolAffinityInjector
-            from openjarvis.personalization.tool_affinity import (
-                ToolAffinityTracker,
-            )
+            from openjarvis.personalization.tool_affinity import get_default_tracker
 
-            tracker = ToolAffinityTracker()
+            tracker = get_default_tracker()
             chain.append(ToolAffinityInjector(tracker=tracker))
         except Exception:
             pass
@@ -114,9 +108,7 @@ def build_default_middleware(cfg) -> list[PromptMiddleware]:
     return chain
 
 
-def apply_chain(
-    prompt: Optional[str], chain: list[PromptMiddleware]
-) -> Optional[str]:
+def apply_chain(prompt: Optional[str], chain: list[PromptMiddleware]) -> Optional[str]:
     """Apply middleware in order. Each step may return a new string or None."""
     out = prompt
     for step in chain:

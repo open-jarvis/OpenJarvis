@@ -8,6 +8,164 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+**Vision input for `jarvis ask`** — attach images to a query with
+`-i`/`--image` (repeatable) or capture the current screen with
+`-S`/`--screen`, for vision-capable models such as `gemma3:4b`. Images flow
+through `Message.images` into Ollama's `/api/chat` `images` field; text-only
+requests are unaffected. A privacy guard warns before any image is sent to a
+non-local engine, and the security guardrail now preserves images when it
+sanitizes a flagged prompt. Screen capture uses the built-in Windows .NET
+stack with `mss`/`Pillow` fallbacks on other platforms. Adds the
+`JARVIS_NUM_CTX` environment variable to tune the Ollama context window
+(default `16384`).
+
+### Security
+
+**WebSocket API keys no longer appear in request URLs.** Browser clients now
+send a marked, base64url-encoded credential through
+`Sec-WebSocket-Protocol`; programmatic clients can continue to use an
+`Authorization: Bearer <key>` handshake header. The encoding only makes the
+credential safe for WebSocket protocol syntax and does not encrypt it, so use
+`wss://` for remote connections.
+
+The former `?token=<key>` WebSocket authentication path is no longer accepted.
+Custom browser clients must migrate to the `openjarvis.auth.v1` subprotocol
+format documented in the API server guide.
+
+## [1.0.2] - 2026-05-24
+
+A patch release that fixes a packaging bug which broke the v1.0.1
+wheel on PyPI, silences a noisy startup warning, restores a working
+install path while `openjarvis.ai` is down, improves desktop
+first-boot diagnostics on Windows, and ships the RAM-detection fix
+for Windows that missed the v1.0.1 cutoff.
+
+### Fixed
+
+**`openjarvis/traces/` missing from the v1.0.1 PyPI wheel** (#372).
+The `.gitignore` carried an unanchored `traces/` pattern, which
+hatchling honored at wheel-build time and matched the runtime module
+`src/openjarvis/traces/` — silently dropping the whole package. Every
+fresh `pip install openjarvis==1.0.1` then failed at import with
+`ModuleNotFoundError: No module named 'openjarvis.traces'` on the
+first `jarvis ask`, learning, or server call. Anchored the pattern to
+`/traces/`. Verified: a clean `uv build` now produces a wheel
+containing all four `traces/` files.
+
+**`pynvml` deprecation `FutureWarning` on every command** (#389).
+Switched the dependency from the legacy `pynvml` package to NVIDIA's
+official `nvidia-ml-py` (same `pynvml` module name, no warning shim),
+and added defensive `warnings.filterwarnings` at every `import pynvml`
+site to suppress the warning even when `pynvml` is pulled in
+transitively.
+
+**Windows RAM detection returning `0.0 GB`** (#373). The Windows
+branch of `_total_ram_gb()` (via `GlobalMemoryStatusEx`) landed after
+the v1.0.1 cutoff, so v1.0.1 users still saw `0.0 GB` from `jarvis
+init`. Now shipping in the wheel. A new `windows-latest` CI job runs
+the real `GlobalMemoryStatusEx` path on every PR as a regression
+guard.
+
+**Desktop first-boot hung on "did not become healthy in time"**
+(#331). The Tauri boot path ran `uv sync` with stderr discarded and
+the exit code ignored, so a failed dependency install surfaced only
+as a generic 600-second health-check timeout. Now captures stderr,
+checks the exit status, and surfaces the actual `uv sync` error
+(with the diagnostic tail) before the long wait. The error-formatting
+logic is covered by unit tests.
+
+### Changed
+
+**Install URL moved to GitHub Pages** (#337, #352). The documented
+`openjarvis.ai/install.sh` URL was failing with `sslv3 alert
+handshake failure` (the domain is community-operated and had a broken
+TLS config). The canonical installer is now served from the
+project-controlled GitHub Pages site at
+`https://open-jarvis.github.io/OpenJarvis/install.sh`, generated from
+the same `scripts/install/install.sh` at docs-build time. The README
+also documents the WSL2 path for Windows and the `uv` prerequisite
+for the desktop binary, and the installer bails early with a clear
+message when run under Git Bash / MSYS2 / Cygwin.
+
+## [1.0.1] - 2026-05-17
+
+A patch release that closes the auto-update gap so the analytics
+module added in #351 actually reaches users on the desktop, adds
+runtime opt-out for that analytics, fixes the misleading upgrade
+hint the CLI was printing, and lands the ACE optimizer alongside
+DSPy and GEPA.
+
+### Added
+
+**ACE agent optimizer** (`learning/agents/ace_optimizer.py`). Adds
+[ACE](https://github.com/ace-agent/ace) as a third agent-learning
+policy alongside DSPy and GEPA. Where DSPy bootstraps few-shot
+examples and GEPA evolves prompt populations, ACE evolves a textual
+*playbook* of strategies the agent reads at inference time, updated
+by a Generator / Reflector / Curator triad. Pick via
+`[learning.agent] policy = "ace"`. Setup is manual (ACE isn't on
+PyPI and isn't a properly-packaged Python project as of v1.0.1) —
+see `docs/learning/ace.md` for the install path and trace-adapter
+behavior.
+
+**`jarvis self-update`** subcommand. Detects how OpenJarvis was
+installed (pip, uv tool, editable git checkout) by inspecting
+`openjarvis.__file__`, then runs the right upgrade command. Supports
+`--check` (print the command without running) and `-y` (skip the
+confirmation prompt). The post-command "new version available" hint
+now points users at this command instead of guessing at the right
+flow.
+
+**Desktop auto-update endpoint wired to the rolling
+`desktop-latest` GitHub release.** The Tauri updater plugin was
+configured on the build side (`createUpdaterArtifacts: true`,
+`includeUpdaterJson: true`, signing key in `TAURI_SIGNING_PRIVATE_KEY`)
+but inert on the runtime side (`active: false`, `endpoints: []`). The
+installed desktop app would never check. Both are now fixed; the app
+polls `releases/download/desktop-latest/latest.json` every 30 minutes
+and signature-verifies downloads against the minisign pubkey baked
+into the app. Full flow, key-rotation runbook, and dev escape hatch
+(`OPENJARVIS_NO_UPDATER=1`) documented in `docs/desktop-auto-update.md`.
+
+**Analytics env-var opt-out** (`DO_NOT_TRACK`, `OPENJARVIS_NO_ANALYTICS`).
+Tanvir's analytics module (#351) only respected the
+`[analytics] enabled` config-file setting. Both env vars are now
+honored in `is_analytics_enabled()` and in the install.sh beacon
+script. Any truthy value (`1`, `true`, `yes`, `on`) disables for
+that process; env opt-out takes precedence over the config file.
+Documented under a new "Opting out" section in `docs/telemetry.md`.
+
+### Changed
+
+**Version-check trigger widened.** The "new version available" hint
+in `_version_check.py` used to fire only on `{ask, chat, serve}` and
+hardcoded the wrong upgrade command (`git pull && uv sync` — only
+correct for editable installs). Now fires on every interactive
+command (`doctor`, `init`, `quickstart`, `model`, `agents`, `skill`,
+`memory`, `bench`, `telemetry`, `config`, `eval`, `optimize`, plus
+the original three) and uses install-detection to print the right
+upgrade command. Honors `JARVIS_NO_UPDATE_CHECK=1` and `CI=true` to
+stay silent in automation.
+
+**Desktop app version bumped 0.1.0 → 1.0.1** across
+`tauri.conf.json`, `frontend/package.json`, and
+`frontend/src-tauri/Cargo.toml` so the Python and desktop release
+streams are aligned and the auto-updater has a real version to
+compare against.
+
+### Migration from 1.0.0
+
+- **Importing `is_analytics_enabled`?** Same signature; behavior now
+  short-circuits on env opt-out before checking the config. Callers
+  that want the raw "is the config flag set" semantic should read
+  `cfg.enabled` directly.
+- **Editable-git users running `jarvis self-update`** get the
+  detected `git pull && uv sync` command pointed at their actual
+  checkout, not `~/OpenJarvis`. If you'd come to rely on the
+  hardcoded path, update your muscle memory.
+
 ## [1.0.0] - 2026-05-15
 
 The five-primitive architecture (Intelligence, Engine, Agents,

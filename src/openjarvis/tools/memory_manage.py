@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
@@ -14,7 +15,9 @@ from openjarvis.tools._stubs import BaseTool, ToolSpec
 class MemoryManageTool(BaseTool):
     """Manage persistent agent memory (MEMORY.md)."""
 
-    def __init__(self, memory_path: Path | str = "~/.openjarvis/MEMORY.md") -> None:
+    def __init__(self, memory_path: Path | str | None = None) -> None:
+        if memory_path is None:
+            memory_path = get_config_dir() / "MEMORY.md"
         self._memory_path = Path(memory_path).expanduser()
 
     @property

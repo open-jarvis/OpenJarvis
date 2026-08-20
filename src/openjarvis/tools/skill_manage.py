@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, List
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
@@ -14,7 +15,9 @@ from openjarvis.tools._stubs import BaseTool, ToolSpec
 class SkillManageTool(BaseTool):
     """Manage agent-authored procedural skills."""
 
-    def __init__(self, skills_dir: Path | str = "~/.openjarvis/skills/") -> None:
+    def __init__(self, skills_dir: Path | str | None = None) -> None:
+        if skills_dir is None:
+            skills_dir = get_config_dir() / "skills"
         self._skills_dir = Path(skills_dir).expanduser()
 
     @property

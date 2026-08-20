@@ -118,14 +118,14 @@ class TraceAnalyzer:
 
                 if key not in step_data:
                     step_data[key] = {
-                        "durations": [], "energies": [],
-                        "input_tokens": [], "output_tokens": [],
+                        "durations": [],
+                        "energies": [],
+                        "input_tokens": [],
+                        "output_tokens": [],
                     }
                 step_data[key]["durations"].append(s.duration_seconds)
                 step_data[key]["energies"].append(energy)
-                step_data[key]["input_tokens"].append(
-                    s.output.get("prompt_tokens", 0)
-                )
+                step_data[key]["input_tokens"].append(s.output.get("prompt_tokens", 0))
                 step_data[key]["output_tokens"].append(
                     s.output.get("completion_tokens", 0)
                 )
@@ -227,8 +227,7 @@ class TraceAnalyzer:
                 call_count=data["count"],
                 avg_latency=_avg(data["latencies"]),
                 success_rate=(
-                    data["successes"] / data["count"]
-                    if data["count"] else 0.0
+                    data["successes"] / data["count"] if data["count"] else 0.0
                 ),
             )
             for name, data in sorted(tools.items())
@@ -286,8 +285,13 @@ def _step_type_str(step: TraceStep) -> str:
 
 def _looks_like_code(text: str) -> bool:
     indicators = [
-        "def ", "class ", "import ",
-        "function ", "const ", "var ", "```",
+        "def ",
+        "class ",
+        "import ",
+        "function ",
+        "const ",
+        "var ",
+        "```",
     ]
     return any(ind in text for ind in indicators)
 

@@ -70,15 +70,23 @@ def is_private_ip(ip_str: str) -> bool:
 
 
 def check_ssrf(url: str) -> Optional[str]:
-    """Check a URL for SSRF vulnerabilities — always via Rust backend."""
-    from openjarvis._rust_bridge import get_rust_module
+    """Check a URL for SSRF vulnerabilities.
 
-    _rust = get_rust_module()
-    return _rust.check_ssrf(url)
+    Prefers the Rust backend, but falls back to the pure-Python
+    implementation when the compiled extension is unavailable. The SSRF
+    guard is security-critical, so it must never be silently skipped — or
+    crash with ``ImportError`` — merely because Rust was not built.
+    """
+    from openjarvis._rust_bridge import RUST_AVAILABLE, get_rust_module
+
+    if RUST_AVAILABLE:
+        return get_rust_module().check_ssrf(url)
+    return _check_ssrf_python(url)
 
 
 def _check_ssrf_python(url: str) -> Optional[str]:
-    """Legacy Python SSRF check — kept for reference only."""
+    """Pure-Python SSRF check — fallback used when the Rust extension is
+    unavailable (e.g. an install without the compiled backend)."""
     from urllib.parse import urlparse
 
     parsed = urlparse(url)

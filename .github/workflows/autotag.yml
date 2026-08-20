@@ -1,0 +1,92 @@
+name: Auto-tag on main push
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute dev version
+        id: version
+        run: |
+          set -euo pipefail
+          # Base version is the next patch above the latest plain release tag
+          # (vX.Y.Z) reachable from HEAD. pyproject.toml no longer carries a
+          # static version (#526 switched it to hatch-vcs), so the release tag
+          # is the source of truth. `.devN`/`.rcN`/`desktop-*` tags are excluded
+          # so they can't be mistaken for the release base.
+          # Any future manual `X.Y.Z` release will outrank every `X.Y.Z.devN`
+          # autotag — PEP 440 sorts dev releases strictly below the final.
+          LATEST_RELEASE=$(git tag --list 'v[0-9]*' --merged HEAD \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          if [[ -z "$LATEST_RELEASE" ]]; then
+            echo "::error::No release tag (vX.Y.Z) reachable from HEAD"
+            exit 1
+          fi
+          BASE="${LATEST_RELEASE#v}"
+          MAJOR=$(echo "$BASE" | cut -d. -f1)
+          MINOR=$(echo "$BASE" | cut -d. -f2)
+          PATCH=$(echo "$BASE" | cut -d. -f3 | sed -E 's/[^0-9].*$//')
+          NEXT_PATCH=$((PATCH + 1))
+          BUILD=$(git rev-list --count HEAD)
+          VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}.dev${BUILD}"
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Computed ${TAG} (base=${BASE})"
+
+      - name: Create and push tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            EXISTING_SHA=$(git rev-parse "$TAG")
+            HEAD_SHA=$(git rev-parse HEAD)
+            if [[ "$EXISTING_SHA" != "$HEAD_SHA" ]]; then
+              echo "::error::Tag $TAG already exists at $EXISTING_SHA but HEAD is $HEAD_SHA"
+              exit 1
+            fi
+            echo "Tag $TAG already exists at HEAD, skipping creation"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "Created and pushed $TAG"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+      # Tag pushes made with the default GITHUB_TOKEN do NOT trigger other
+      # workflows (recursion prevention). workflow_dispatch is the documented
+      # exception, so we explicitly dispatch the downstream CD workflows here.
+      # See: https://docs.github.com/en/actions/security-guides/automatic-token-authentication
+      - name: Dispatch downstream workflows
+        if: steps.tag.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "Dispatching pypi-publish.yml @ ${TAG}"
+          gh workflow run pypi-publish.yml \
+            --ref "${TAG}" \
+            -f tag="${TAG}"
+          echo "Dispatching desktop.yml @ ${TAG}"
+          gh workflow run desktop.yml \
+            --ref "${TAG}" \
+            -f tag="${TAG}"

@@ -19,7 +19,12 @@ with two upstream-`swebench` patches applied at import time:
    ``swebench/harness/modal_eval/run_evaluation_modal.py:66`` writes to
    ``/sys/fs/cgroup/cpu/cpu.shares`` (cgroup v1). Modal v2 sandboxes use
    cgroup v2 — the path doesn't exist and every sandbox dies on the write.
-   Wrap the write in try/except.
+   Wrap the write in try/except. In swebench 4.x the call site is
+   ``ModalSandboxRuntime.__init__`` → ``self.write_file(...)`` →
+   ``self.sandbox.open(path, "w")``; in older swebench it was a free
+   ``set_cpu_quota`` function. We patch both: ``write_file`` swallows
+   FileNotFoundError for cgroup paths, and ``set_cpu_quota`` (if present)
+   is wrapped too.
 
 2. **Rescore `*_ids` fix**: older harness rescore code read
    ``resolved_instances`` / ``unresolved_instances`` / ``error_instances``
@@ -37,16 +42,79 @@ import json
 import logging
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from openjarvis.core.paths import get_cache_dir
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
 
 logger = logging.getLogger(__name__)
+
+
+def _run_subprocess_hard_timeout(
+    cmd: list,
+    *,
+    timeout_s: int,
+    cwd: str,
+) -> "subprocess.CompletedProcess":
+    """Run ``cmd`` with a timeout that is actually enforced.
+
+    ``subprocess.run(..., capture_output=True, timeout=...)`` has a
+    well-known deadlock: on timeout it kills only the *direct* child, then
+    calls ``communicate()`` again to drain the pipes — but if that child
+    spawned grandchildren that inherited the stdout/stderr fds (the Modal
+    ``swebench`` harness does exactly this), those grandchildren keep the
+    pipe open and the drain blocks **forever**. The nominal timeout never
+    fires; the runner freezes.
+
+    This helper avoids that by:
+
+    1. Launching the child in its own process group (``start_new_session``)
+       so we can signal the whole tree, not just the direct child.
+    2. On timeout, ``SIGTERM`` then ``SIGKILL`` the entire group so no
+       grandchild survives to hold a pipe open.
+    3. Draining output with a *bounded* ``communicate()`` after the kill so
+       even a stubborn drain can't hang us.
+
+    Raises :class:`subprocess.TimeoutExpired` (same contract as
+    ``subprocess.run``) so callers can keep their existing except clause.
+    """
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,  # own process group → killable as a tree
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout_s)
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        # Kill the whole group, not just the direct child — Modal harness
+        # subprocesses fork workers that would otherwise keep pipes open.
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(proc.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                break
+            try:
+                proc.wait(timeout=10)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        # Drain whatever is left, but never block on it again — the group
+        # is dead, so this returns promptly; the short cap is just paranoia.
+        try:
+            stdout, stderr = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = "", ""
+        raise subprocess.TimeoutExpired(cmd, timeout_s, output=stdout, stderr=stderr)
 
 
 # ---------- Patch tracking ----------
@@ -100,11 +168,132 @@ def _patch_modal_cgroup_v2() -> None:
     _m._hybrid_cgroup_patched = True  # type: ignore[attr-defined]
 
 
+_CGROUP_SOURCE_SENTINEL = "_OPENJARVIS_CGROUP_V2_PATCH_APPLIED"
+
+
+def _patch_modal_sandbox_source() -> None:
+    """Patch ``run_evaluation_modal.py`` on disk so subprocesses inherit it.
+
+    ``_run_harness`` shells out to ``python -m swebench.harness.run_evaluation``,
+    which means our in-process monkey-patches don't help. We do a one-time
+    idempotent textual rewrite of the swebench module file in the venv:
+
+    - Replace the bare ``self.write_file("/sys/fs/cgroup/cpu/cpu.shares", "2048")``
+      with a try/except FileNotFoundError. Marked with a sentinel so we
+      don't reapply on every call.
+
+    Only fires when the original unwrapped line is present and the sentinel
+    isn't — safe to run repeatedly. No-op if upstream ever fixes this.
+    """
+    try:
+        from swebench.harness.modal_eval import (
+            run_evaluation_modal as _m,  # type: ignore[import-not-found]
+        )
+    except Exception:
+        return
+    src_path = getattr(_m, "__file__", None)
+    if not src_path:
+        return
+    try:
+        src = Path(src_path).read_text()
+    except Exception:
+        return
+    if _CGROUP_SOURCE_SENTINEL in src:
+        return
+    needle = '        self.write_file("/sys/fs/cgroup/cpu/cpu.shares", "2048")'
+    if needle not in src:
+        # Upstream changed the line — bail rather than apply blindly.
+        return
+    replacement = (
+        "        # " + _CGROUP_SOURCE_SENTINEL + "\n"
+        "        try:\n"
+        '            self.write_file("/sys/fs/cgroup/cpu/cpu.shares", "2048")\n'
+        "        except FileNotFoundError:\n"
+        "            pass  # cgroup v2 Modal sandbox — path missing is fine\n"
+    )
+    new_src = src.replace(needle + "\n", replacement, 1)
+    try:
+        Path(src_path).write_text(new_src)
+    except Exception:
+        return
+
+
+def _patch_modal_sandbox_write_file() -> None:
+    """Make ``ModalSandboxRuntime.write_file`` survive cgroup-v2 sandboxes.
+
+    swebench 4.x removed ``set_cpu_quota`` and inlined the cgroup write in
+    ``ModalSandboxRuntime.__init__`` as
+    ``self.write_file("/sys/fs/cgroup/cpu/cpu.shares", "2048")``. Modal v1's
+    ``sandbox.open(path, "w")`` raises ``FileNotFoundError`` because the
+    sandbox image is cgroup-v2 and the parent dir doesn't exist, which kills
+    the whole constructor before any patch can be applied. We wrap
+    ``write_file`` to swallow that specific failure for cgroup paths, while
+    still letting real write failures (patch/eval script) surface.
+    """
+    try:
+        from swebench.harness.modal_eval import (
+            run_evaluation_modal as _m,  # type: ignore[import-not-found]
+        )
+    except Exception:
+        return
+    runtime = getattr(_m, "ModalSandboxRuntime", None)
+    if runtime is None:
+        return
+    if getattr(runtime, "_hybrid_write_file_patched", False):
+        return
+    orig_write = runtime.write_file
+
+    def patched_write_file(self, file_path: str, content: str):  # type: ignore[no-untyped-def]
+        try:
+            return orig_write(self, file_path, content)
+        except FileNotFoundError:
+            # cgroup-v1 paths don't exist in Modal v2 sandboxes — skip
+            # silently for those, re-raise for everything else.
+            if isinstance(file_path, str) and file_path.startswith("/sys/fs/cgroup/"):
+                return None
+            raise
+
+    runtime.write_file = patched_write_file  # type: ignore[assignment]
+    runtime._hybrid_write_file_patched = True  # type: ignore[attr-defined]
+
+
+def _sentinel_present_on_disk() -> bool:
+    """Return True iff the cgroup-v2 sentinel is in the installed swebench file.
+
+    Used to detect that a ``uv sync`` / pip reinstall has reverted the textual
+    patch out from under us while the process is still running. The in-process
+    monkey-patches survive that (they live on the imported module object), but
+    the subprocess fork in :func:`_run_harness` reads the file fresh and would
+    silently regress to the broken version.
+    """
+    try:
+        from swebench.harness.modal_eval import (
+            run_evaluation_modal as _m,  # type: ignore[import-not-found]
+        )
+    except Exception:
+        return False
+    src_path = getattr(_m, "__file__", None)
+    if not src_path:
+        return False
+    try:
+        return _CGROUP_SOURCE_SENTINEL in Path(src_path).read_text()
+    except Exception:
+        return False
+
+
 def _apply_patches_once() -> None:
+    """Apply all swebench patches; idempotent and resilient to disk reverts.
+
+    The in-process flag short-circuits the common case, but if the on-disk
+    sentinel is missing we force a re-apply (covers ``uv sync`` / pip
+    reinstall clobbering the textual rewrite while the process is alive).
+    """
     global _PATCHES_APPLIED
-    if _PATCHES_APPLIED:
+    if _PATCHES_APPLIED and _sentinel_present_on_disk():
         return
     _patch_modal_cgroup_v2()
+    _patch_modal_sandbox_write_file()
+    _patch_modal_sandbox_source()
     _PATCHES_APPLIED = True
 
 
@@ -132,27 +321,28 @@ def extract_patch(text: str) -> Optional[str]:
 
 # ---------- Harness invocation ----------
 
+
 def _harness_cache_dir() -> Path:
     """Where the swebench subprocess writes its report JSON + logs/ tree.
 
-    Defaults to ``$OPENJARVIS_HOME/.swebench-cache`` if set, otherwise to a
-    process-shared tempdir. Pin both so we don't pollute the project root.
+    Consolidated under the env-aware OpenJarvis cache root
+    (``<openjarvis-home>/cache/swebench``) so it never pollutes the project
+    root or scatters across ``$HOME``. Honors ``OPENJARVIS_HOME`` /
+    ``XDG_DATA_HOME`` via :func:`openjarvis.core.paths.get_cache_dir`.
     """
-    home = os.environ.get("OPENJARVIS_HOME")
-    if home:
-        cache = Path(home) / ".swebench-cache"
-    else:
-        cache = Path(tempfile.gettempdir()) / "openjarvis-swebench-cache"
+    cache = get_cache_dir() / "swebench"
     cache.mkdir(parents=True, exist_ok=True)
     return cache
 
 
-def _find_report(cache: Path, instance_id: str, run_id: str) -> Optional[Dict[str, Any]]:
+def _find_report(
+    cache: Path, instance_id: str, run_id: str
+) -> Optional[Dict[str, Any]]:
     """Find the harness's report JSON for one instance.
 
     swebench writes ``<model_name_or_path>.<run_id>.json`` inside the
-    subprocess CWD. We use ``model_name_or_path="openjarvis-harness"``,
-    ``run_id=f"oj-{instance_id}"`` in :func:`_run_harness`.
+    subprocess CWD. We use ``model_name_or_path="openjarvis-harness"``;
+    ``run_id`` is built by :func:`_build_run_id`.
     """
     fname = f"openjarvis-harness.{run_id}.json"
     p = cache / fname
@@ -164,7 +354,53 @@ def _find_report(cache: Path, instance_id: str, run_id: str) -> Optional[Dict[st
         return None
 
 
-def _run_harness(instance_id: str, patch: str, timeout_s: int) -> Dict[str, Any]:
+_RUN_ID_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _sanitize_run_id_part(s: str) -> str:
+    """Reduce a free-form string to filesystem-safe ``[A-Za-z0-9._-]+``.
+
+    Both the harness summary filename (``<model>.<run_id>.json``) and the
+    per-instance log subtree (``logs/run_evaluation/<run_id>/...``) are
+    keyed on ``run_id``, so any character that breaks paths or globs will
+    silently corrupt the score. Strip leading/trailing dashes too — those
+    look fine but make filenames awkward to manage by hand.
+    """
+    return _RUN_ID_SAFE_RE.sub("-", s).strip("-")
+
+
+def _build_run_id(instance_id: str, cell_name: Optional[str]) -> str:
+    """Construct a swebench ``run_id`` unique per (cell, instance).
+
+    The harness keys both its "already run, skipping" cache and its report
+    file path on ``run_id`` alone, so two concurrent cells scoring the
+    same ``instance_id`` with the same ``run_id`` collide: the second
+    cell's harness invocation finds the first's report on disk, skips
+    actual execution, and our caller silently reads the wrong verdict (or
+    ``no_report`` if the two cells race on the summary file write). See
+    :func:`_run_harness` for the full failure mode.
+
+    With ``cell_name`` we emit ``oj-<cell>-<instance>``, which keeps the
+    intra-cell resume cache working (same cell + same instance → same
+    run_id → harness cache hit) while making inter-cell collisions
+    impossible. Without ``cell_name`` we fall back to the legacy
+    ``oj-<instance>`` form for backwards compat with single-cell callers.
+    """
+    safe_instance = _sanitize_run_id_part(instance_id)
+    if not cell_name:
+        return f"oj-{safe_instance}"
+    safe_cell = _sanitize_run_id_part(cell_name)
+    if not safe_cell:
+        return f"oj-{safe_instance}"
+    return f"oj-{safe_cell}-{safe_instance}"
+
+
+def _run_harness(
+    instance_id: str,
+    patch: str,
+    timeout_s: int,
+    cell_name: Optional[str] = None,
+) -> Dict[str, Any]:
     """Hand one prediction to ``python -m swebench.harness.run_evaluation``.
 
     Returns ``{"success": bool, "score": float, "details": dict}``.
@@ -172,7 +408,7 @@ def _run_harness(instance_id: str, patch: str, timeout_s: int) -> Dict[str, Any]
     _apply_patches_once()
     backend = os.environ.get("SWEBENCH_BACKEND", "modal").lower()
     cache = _harness_cache_dir()
-    run_id = f"oj-{instance_id}"
+    run_id = _build_run_id(instance_id, cell_name)
 
     # Defend against stale reports: ``run_id`` is deterministic per
     # instance, the cache dir is shared across runs, and ``_find_report``
@@ -189,27 +425,56 @@ def _run_harness(instance_id: str, patch: str, timeout_s: int) -> Dict[str, Any]
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         preds_path = tmp_path / "predictions.jsonl"
-        preds_path.write_text(json.dumps({
-            "instance_id": instance_id,
-            "model_name_or_path": "openjarvis-harness",
-            "model_patch": patch,
-        }) + "\n")
+        preds_path.write_text(
+            json.dumps(
+                {
+                    "instance_id": instance_id,
+                    "model_name_or_path": "openjarvis-harness",
+                    "model_patch": patch,
+                }
+            )
+            + "\n"
+        )
 
         cmd = [
-            sys.executable, "-m", "swebench.harness.run_evaluation",
-            "--predictions_path", str(preds_path),
-            "--max_workers", "1",
-            "--run_id", run_id,
-            "--dataset_name", "SWE-bench/SWE-bench_Verified",
-            "--instance_ids", instance_id,
+            sys.executable,
+            "-m",
+            "swebench.harness.run_evaluation",
+            "--predictions_path",
+            str(preds_path),
+            "--max_workers",
+            "1",
+            "--run_id",
+            run_id,
+            "--dataset_name",
+            "SWE-bench/SWE-bench_Verified",
+            "--instance_ids",
+            instance_id,
         ]
         if backend == "modal":
             cmd += ["--modal", "true"]
 
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True,
-            timeout=timeout_s, cwd=str(cache),
-        )
+        try:
+            proc = _run_subprocess_hard_timeout(
+                cmd,
+                timeout_s=timeout_s,
+                cwd=str(cache),
+            )
+        except subprocess.TimeoutExpired as exc:
+            # The harness subprocess (and its Modal grandchildren) exceeded
+            # the cap and were force-killed as a process group. Record an
+            # error verdict rather than letting the exception bubble — the
+            # caller's row stays well-formed and the cell keeps moving.
+            return {
+                "success": False,
+                "score": 0.0,
+                "details": {
+                    "reason": "harness_timeout",
+                    "timeout_s": timeout_s,
+                    "stdout": (exc.stdout or "")[-2000:],
+                    "stderr": (exc.stderr or "")[-2000:],
+                },
+            }
 
         report = _find_report(cache, instance_id, run_id)
         if report is None:
@@ -244,6 +509,7 @@ def _run_harness(instance_id: str, patch: str, timeout_s: int) -> Dict[str, Any]
 
 # ---------- Scorer ----------
 
+
 class SWEBenchHarnessScorer(Scorer):
     """SWE-bench Verified scorer that runs the official harness.
 
@@ -261,10 +527,17 @@ class SWEBenchHarnessScorer(Scorer):
         self,
         *,
         timeout_s: int = 1800,
+        cell_name: Optional[str] = None,
         judge_backend: object = None,  # noqa: ARG002 — CLI factory compat
-        judge_model: str = "",         # noqa: ARG002 — CLI factory compat
+        judge_model: str = "",  # noqa: ARG002 — CLI factory compat
     ) -> None:
         self._timeout_s = int(timeout_s)
+        # ``cell_name`` namespaces the ``run_id`` so concurrent cells scoring
+        # the same SWE instance don't collide on the harness's shared cache.
+        # See :func:`_build_run_id` for the failure mode this prevents. Pass
+        # the hybrid cell name (e.g. ``"skillorchestra-qwen36-opus47-swe-n100"``)
+        # or leave as ``None`` for single-cell callers.
+        self._cell_name = cell_name
 
     def score(
         self,
@@ -278,18 +551,24 @@ class SWEBenchHarnessScorer(Scorer):
         if patch is None:
             return False, {"reason": "no_patch_extracted"}
 
-        instance_id = (
-            record.metadata.get("instance_id")
-            or record.record_id
-            or ""
-        )
+        instance_id = record.metadata.get("instance_id") or record.record_id or ""
         if not instance_id:
             return False, {"reason": "missing_instance_id"}
 
-        result = _run_harness(instance_id, patch, self._timeout_s)
+        result = _run_harness(
+            instance_id,
+            patch,
+            self._timeout_s,
+            cell_name=self._cell_name,
+        )
         details = dict(result.get("details", {}))
         details["patch"] = patch
         return bool(result["success"]), details
 
 
-__all__ = ["SWEBenchHarnessScorer", "extract_patch"]
+__all__ = [
+    "SWEBenchHarnessScorer",
+    "extract_patch",
+    "_build_run_id",
+    "_sanitize_run_id_part",
+]

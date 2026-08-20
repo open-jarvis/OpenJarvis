@@ -119,9 +119,9 @@ class RecalledTurn:
         if len(snippet) > 200:
             snippet = snippet[:197] + "..."
         if self.role == "user":
-            return f"你曾說過：「{snippet}」"
+            return f'You previously said: "{snippet}"'
         if self.role == "assistant":
-            return f"我之前回答過：「{snippet}」"
+            return f'I previously answered: "{snippet}"'
         return snippet
 
 
@@ -158,7 +158,12 @@ class SessionRecaller:
     def recall_turns(self, query: str, *, limit: int = 3) -> List[RecalledTurn]:
         if not query or not self._db_path.exists():
             return []
-        tokens = _tokenise(query)
+        limit = max(0, min(int(limit), 50))
+        if limit == 0:
+            return []
+        # Bound SQL variables and repeated LIKE scans for arbitrarily long
+        # caller input while preserving first-seen token order.
+        tokens = list(dict.fromkeys(_tokenise(query)))[:64]
         if not tokens:
             return []
 
