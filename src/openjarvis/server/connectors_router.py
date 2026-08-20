@@ -81,6 +81,9 @@ try:
         code: Optional[str] = None
         email: Optional[str] = None
         password: Optional[str] = None
+        host: Optional[str] = None
+        port: Optional[int] = None
+        security: Optional[str] = None
 
 except ImportError:
     ConnectRequest = None  # type: ignore[assignment,misc]
@@ -409,8 +412,33 @@ def create_connectors_router():
                 directive = _maybe_oauth_client_pair(connector_id, req)
                 if directive is not None:
                     return directive
-                if req.code:
-                    instance.handle_callback(req.code)
+                if (
+                    req.email
+                    and req.password
+                    and hasattr(instance, "connect_with_credentials")
+                ):
+                    from starlette.concurrency import run_in_threadpool
+
+                    connection_options: Dict[str, Any] = {}
+                    # Only the generic IMAP connector accepts a user-selected
+                    # network endpoint. Its connector implementation applies
+                    # the server-side public-address policy and DNS pinning.
+                    if connector_id == "imap":
+                        connection_options = {
+                            "imap_host": req.host or "",
+                            "imap_port": req.port,
+                            "imap_security": req.security or "",
+                        }
+                    await run_in_threadpool(
+                        instance.connect_with_credentials,
+                        req.email,
+                        req.password,
+                        **connection_options,
+                    )
+                elif req.code:
+                    from starlette.concurrency import run_in_threadpool
+
+                    await run_in_threadpool(instance.handle_callback, req.code)
                 elif req.token:
                     # A credential pasted into the ``token`` field. Connectors
                     # that accept a pre-existing access token expose ``_token``
