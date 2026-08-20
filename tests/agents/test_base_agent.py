@@ -291,6 +291,28 @@ class TestBuildMessages:
         assert [message.role for message in messages] == [Role.SYSTEM, Role.USER]
         assert messages[0].content == "Agent instructions."
 
+    def test_server_identity_already_merged_with_memory_is_not_duplicated(self):
+        engine = MagicMock()
+        prompt_builder = MagicMock()
+        prompt_builder.build.return_value = "OpenJarvis identity."
+        agent = _ConcreteAgent(engine, "m", prompt_builder=prompt_builder)
+        conv = Conversation()
+        conv.add(
+            Message(
+                role=Role.SYSTEM,
+                content="OpenJarvis identity.\n\nRemembered preference.",
+                metadata={"openjarvis_identity_prompt": True},
+            )
+        )
+
+        messages = agent._build_messages("new", AgentContext(conversation=conv))
+
+        assert [message.role for message in messages] == [Role.SYSTEM, Role.USER]
+        assert messages[0].content == (
+            "OpenJarvis identity.\n\nRemembered preference."
+        )
+        assert messages[0].content.count("OpenJarvis identity.") == 1
+
     def test_only_empty_context_system_messages_emit_no_system_message(self):
         engine = MagicMock()
         prompt_builder = MagicMock()

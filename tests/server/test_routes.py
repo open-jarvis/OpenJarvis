@@ -1023,6 +1023,53 @@ class TestIdentityPromptInjection:
         assert assistant.tool_calls[0].name == "lookup"
         assert assistant.tool_calls[0].arguments == '{"query":"jazz"}'
 
+    def test_agent_does_not_rebuild_identity_already_merged_with_memory(self):
+        from openjarvis.agents.simple import SimpleAgent
+        from openjarvis.memory.store import Fact
+        from openjarvis.prompt.builder import SystemPromptBuilder
+
+        class _MemoryService:
+            def list_facts(self):
+                return [Fact(text="The user's favorite color is blue")]
+
+        captured: list = []
+        engine = _make_capturing_engine(captured)
+        cfg = _identity_config()
+        cfg.agent.context_from_memory = True
+        agent = SimpleAgent(
+            engine,
+            "test-model",
+            prompt_builder=SystemPromptBuilder(
+                agent_template=cfg.agent.default_system_prompt,
+                memory_files_config=cfg.memory_files,
+                system_prompt_config=cfg.system_prompt,
+            ),
+        )
+        client = TestClient(
+            create_app(
+                engine,
+                "test-model",
+                agent=agent,
+                config=cfg,
+                memory_service=_MemoryService(),
+            )
+        )
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "What is my color?"}],
+            },
+        )
+
+        assert resp.status_code == 200
+        messages = engine.generate.call_args.args[0]
+        system_messages = [m for m in messages if m.role == Role.SYSTEM]
+        assert len(system_messages) == 1
+        assert system_messages[0].content.count("You are OpenJarvis.") == 1
+        assert "favorite color is blue" in system_messages[0].content
+
     def test_direct_injects_soul_persona_when_present(self, tmp_path):
         """Regression: /v1/chat/completions previously injected only the bare
         ``default_system_prompt`` blurb via a hand-rolled lookup, bypassing

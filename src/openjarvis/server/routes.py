@@ -116,7 +116,18 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     if not prompt:
         return messages
 
-    return [Message(role=Role.SYSTEM, content=prompt), *messages]
+    # Mark prompts assembled by this server layer.  Memory injection preserves
+    # the first system message's metadata when it folds retrieved context into
+    # it, allowing BaseAgent to recognize that its own SystemPromptBuilder
+    # output is already present instead of prepending the same identity again.
+    return [
+        Message(
+            role=Role.SYSTEM,
+            content=prompt,
+            metadata={"openjarvis_identity_prompt": True},
+        ),
+        *messages,
+    ]
 
 
 @router.post("/v1/chat/completions")
@@ -125,6 +136,14 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     engine = request.app.state.engine
     agent = getattr(request.app.state, "agent", None)
     model = request_body.model
+    use_server_agent = (
+        agent is not None
+        and not request_body.tools
+        and (
+            not request_body.stream
+            or bool(getattr(agent, "_tools", None))
+        )
+    )
 
     # Inject memory context into messages before dispatching
     config = getattr(request.app.state, "config", None)
@@ -149,7 +168,12 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
             if query_text:
                 messages = _to_messages(request_body.messages)
-                messages = _ensure_identity_prompt(messages, config)
+                # Direct engine paths need the server identity folded into
+                # memory here so adapters receive one leading system message.
+                # Agent paths build that same identity in BaseAgent; injecting
+                # it at both layers duplicates the prompt around memory.
+                if not use_server_agent:
+                    messages = _ensure_identity_prompt(messages, config)
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -251,7 +275,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                 bus=getattr(request.app.state, "bus", None),
                 memory_service=getattr(request.app.state, "memory_service", None),
             )
-        if agent is not None and getattr(agent, "_tools", None):
+        if use_server_agent:
             return await _handle_agent_stream(
                 agent,
                 model,
@@ -292,7 +316,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     # ``engine.generate()``) both make blocking upstream calls; run them in a
     # worker thread so a slow/wedged non-streaming request can't stall the
     # event loop and every other concurrent request with it.
-    if agent is not None and not request_body.tools:
+    if use_server_agent:
         response = await asyncio.to_thread(
             _handle_agent,
             agent,

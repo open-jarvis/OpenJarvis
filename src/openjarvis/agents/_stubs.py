@@ -184,8 +184,13 @@ class BaseAgent(ABC):
         # Qwen-family chat templates reject a system message after the first
         # slot or more than one system message. Empty system messages must be
         # removed too, otherwise they can leave a second system entry behind.
+        identity_already_applied = any(
+            message.role == Role.SYSTEM
+            and message.metadata.get("openjarvis_identity_prompt")
+            for message in context_messages
+        )
         system_parts = []
-        if effective_system_prompt:
+        if effective_system_prompt and not identity_already_applied:
             system_parts.append(effective_system_prompt)
         system_parts.extend(
             message.text
