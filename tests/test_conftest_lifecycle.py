@@ -15,7 +15,7 @@ def test_non_running_sessions_restore_environment_and_remove_test_home(
 ) -> None:
     """Cleanup must run when fixtures never start or collection aborts."""
     repo_root = Path(__file__).resolve().parents[1]
-    script = r'''
+    script = r"""
 import os
 import pathlib
 import sys
@@ -54,7 +54,7 @@ assert os.environ["OPENJARVIS_HOME"] == "/tmp/openjarvis-original-home-sentinel"
 assert os.environ["OPENJARVIS_CONFIG"] == "/tmp/openjarvis-original-config-sentinel"
 assert len(created) == 1, created
 assert not pathlib.Path(created[0]).exists(), created[0]
-'''
+"""
     result = subprocess.run(
         [sys.executable, "-c", script, mode],
         cwd=repo_root,
