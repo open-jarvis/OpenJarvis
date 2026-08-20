@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -602,3 +604,114 @@ class TestLightweightSystemEngineResolution:
             engine=MagicMock(), model="m", config=self._cfg(None, "llamacpp")
         )
         assert captured["key"] == "llamacpp"
+
+    def test_instrumented_engine_uses_runtime_event_bus(self, monkeypatch):
+        pytest.importorskip("fastapi")
+        from openjarvis.core.events import EventBus
+        from openjarvis.server import agent_manager_routes as amr
+        from openjarvis.telemetry import instrumented_engine
+
+        resolved_engine = MagicMock()
+        wrapped_engine = MagicMock()
+        runtime_bus = EventBus()
+        runtime = SimpleNamespace(
+            bus=runtime_bus,
+            memory_backend=object(),
+            channel_backend=None,
+            channel_bridge=None,
+            knowledge_db_path=None,
+        )
+        monkeypatch.setattr(
+            "openjarvis.engine._discovery.get_engine",
+            MagicMock(return_value=("resolved", resolved_engine)),
+        )
+        instrumented = MagicMock(return_value=wrapped_engine)
+        monkeypatch.setattr(instrumented_engine, "InstrumentedEngine", instrumented)
+
+        system = amr._make_lightweight_system(
+            engine=MagicMock(),
+            model="m",
+            config=self._cfg("vllm", "ollama"),
+            runtime=runtime,
+        )
+
+        instrumented.assert_called_once_with(resolved_engine, runtime_bus)
+        assert system.engine is wrapped_engine
+
+    def test_caches_tool_memory_backend_when_prompt_context_is_disabled(
+        self,
+        monkeypatch,
+    ):
+        pytest.importorskip("fastapi")
+        from openjarvis.server import agent_manager_routes as amr
+
+        backend = object()
+        resolver = MagicMock(return_value=backend)
+        monkeypatch.setattr(amr, "_resolve_memory_backend", resolver)
+        config = SimpleNamespace(
+            agent=SimpleNamespace(context_from_memory=False),
+            memory=SimpleNamespace(default_backend="sqlite", db_path="memory.db"),
+        )
+        runtime = SimpleNamespace(
+            memory_backend=None,
+            _owns_memory_backend=False,
+            channel_backend=None,
+            channel_bridge=None,
+            knowledge_db_path=None,
+        )
+
+        system = amr._LightweightSystem(
+            engine=MagicMock(),
+            model="m",
+            config=config,
+            runtime=runtime,
+        )
+
+        resolver.assert_called_once_with(config)
+        assert system.memory_backend is backend
+        assert runtime.memory_backend is backend
+        assert runtime._owns_memory_backend is True
+
+    def test_memory_backend_lazy_init_is_synchronized(self, monkeypatch):
+        pytest.importorskip("fastapi")
+        from openjarvis.server import agent_manager_routes as amr
+
+        backend = object()
+        resolver_calls = 0
+        calls_lock = threading.Lock()
+        duplicate_entered = threading.Event()
+        start = threading.Barrier(8)
+
+        def _resolve(config):
+            nonlocal resolver_calls
+            with calls_lock:
+                resolver_calls += 1
+                call_number = resolver_calls
+                if call_number > 1:
+                    duplicate_entered.set()
+            # A check-then-create race lets another worker enter while the
+            # first resolver is blocked here. The locked implementation times
+            # out once, publishes the backend, and all other workers reuse it.
+            if call_number == 1:
+                duplicate_entered.wait(timeout=0.2)
+            return backend
+
+        monkeypatch.setattr(amr, "_resolve_memory_backend", _resolve)
+        config = SimpleNamespace()
+        runtime = SimpleNamespace(
+            memory_backend=None,
+            _owns_memory_backend=False,
+            _managed_runtime_stopping=False,
+        )
+
+        def _get_backend():
+            start.wait(timeout=2)
+            return amr._get_or_create_memory_backend(runtime, config)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: _get_backend(), range(8)))
+
+        assert resolver_calls == 1
+        assert results == [backend] * 8
+        assert runtime.memory_backend is backend
+        assert runtime._owns_memory_backend is True

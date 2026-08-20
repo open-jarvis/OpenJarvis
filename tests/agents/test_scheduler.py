@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -116,6 +117,48 @@ class TestSchedulerBasic:
 
         assert executor.execute_tick.call_count >= 1
         executor.execute_tick.assert_called_with(agent["id"])
+
+    def test_two_phase_stop_retains_and_drains_active_worker(self, manager):
+        """Shutdown quiesces later ticks and can wait again after cancellation."""
+
+        from openjarvis.agents.scheduler import AgentScheduler
+
+        started = threading.Event()
+        release = threading.Event()
+        calls: list[str] = []
+
+        class _BlockingExecutor:
+            def execute_tick(self, agent_id):
+                calls.append(agent_id)
+                started.set()
+                release.wait(timeout=2)
+
+        scheduler = AgentScheduler(
+            manager=manager,
+            executor=_BlockingExecutor(),
+            tick_interval=0.01,
+        )
+        agents = [
+            manager.create_agent(
+                name=f"test-{index}",
+                agent_type="monitor_operative",
+                config={"schedule_type": "interval", "schedule_value": 0},
+            )
+            for index in range(2)
+        ]
+        for agent in agents:
+            scheduler.register_agent(agent["id"])
+
+        scheduler.start()
+        assert started.wait(timeout=1)
+        scheduler.request_stop()
+        assert scheduler.wait_stopped(timeout=0.01) is False
+        assert scheduler._thread is not None
+
+        release.set()
+        assert scheduler.wait_stopped(timeout=1) is True
+        assert scheduler._thread is None
+        assert calls == [agents[0]["id"]]
 
     def test_skips_paused_agents(self, manager):
         from openjarvis.agents.scheduler import AgentScheduler

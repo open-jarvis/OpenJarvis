@@ -16,7 +16,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, List
+from typing import Any, Iterable, List
 
 from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import FactStoreRegistry
@@ -205,4 +205,30 @@ def create_fact_store(
     return FactStoreRegistry.create(key, path, max_facts=max_facts)
 
 
-__all__ = ["Fact", "FactStore", "LocalFactStore", "create_fact_store"]
+def load_configured_facts(config: Any) -> List[Fact]:
+    """Load automatic-memory facts from *config* when the service is enabled.
+
+    Context injection is also used by short-lived commands such as
+    ``jarvis ask``, where no :class:`MemoryService` instance exists.  This
+    helper gives those callers the same configured fact-store view without
+    coupling them to the service lifecycle.
+    """
+    memory = getattr(config, "memory", None)
+    if memory is None or not getattr(memory, "enabled", False):
+        return []
+
+    store = create_fact_store(
+        getattr(memory, "backend", "local"),
+        path=getattr(memory, "facts_path", None),
+        max_facts=getattr(memory, "max_facts", 1000),
+    )
+    return store.list()
+
+
+__all__ = [
+    "Fact",
+    "FactStore",
+    "LocalFactStore",
+    "create_fact_store",
+    "load_configured_facts",
+]

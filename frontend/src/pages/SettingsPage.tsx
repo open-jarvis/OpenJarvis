@@ -27,6 +27,9 @@ import {
   setInferenceSource,
   getCloudKeyStatus,
   saveCloudKey,
+  fetchToolCredentialStatus,
+  saveToolCredentials,
+  deleteToolCredential,
   isTauri,
   type InferenceSource,
 } from '../lib/api';
@@ -58,26 +61,38 @@ function OllamaModelList() {
   );
 }
 
-function ApiKeyInput({ keyName, placeholder }: { keyName: string; placeholder: string }) {
+function ApiKeyInput({
+  keyName,
+  placeholder,
+  toolName,
+}: {
+  keyName: string;
+  placeholder: string;
+  toolName?: string;
+}) {
   const { t } = useI18n();
   const [value, setValue] = useState('');
   const [saved, setSaved] = useState(false);
   const [hasKey, setHasKey] = useState(false);
   const [error, setError] = useState('');
   const desktopKeyStorage = isTauri();
+  const serverToolStorage = !desktopKeyStorage && !!toolName;
+  const canManage = desktopKeyStorage || serverToolStorage;
 
   const refresh = useCallback(async () => {
-    if (!desktopKeyStorage) {
+    if (!canManage) {
       setHasKey(false);
       return;
     }
     try {
-      const status = await getCloudKeyStatus();
+      const status = desktopKeyStorage
+        ? await getCloudKeyStatus()
+        : await fetchToolCredentialStatus(toolName!);
       setHasKey(!!status[keyName]);
     } catch {
       setHasKey(false);
     }
-  }, [desktopKeyStorage, keyName]);
+  }, [canManage, desktopKeyStorage, keyName, toolName]);
 
   useEffect(() => {
     void refresh();
@@ -90,7 +105,13 @@ function ApiKeyInput({ keyName, placeholder }: { keyName: string; placeholder: s
     if (!next) return;
     setError('');
     try {
-      await saveCloudKey(keyName, next);
+      if (desktopKeyStorage) {
+        await saveCloudKey(keyName, next);
+      } else if (toolName) {
+        await saveToolCredentials(toolName, { [keyName]: next });
+      } else {
+        return;
+      }
       setValue('');
       setHasKey(true);
       setSaved(true);
@@ -104,7 +125,13 @@ function ApiKeyInput({ keyName, placeholder }: { keyName: string; placeholder: s
   const remove = async () => {
     setError('');
     try {
-      await saveCloudKey(keyName, '');
+      if (desktopKeyStorage) {
+        await saveCloudKey(keyName, '');
+      } else if (toolName) {
+        await deleteToolCredential(toolName, keyName);
+      } else {
+        return;
+      }
       setValue('');
       setHasKey(false);
       setSaved(true);
@@ -122,8 +149,12 @@ function ApiKeyInput({ keyName, placeholder }: { keyName: string; placeholder: s
         value={value}
         onChange={e => setValue(e.target.value)}
         onBlur={() => { if (value.trim()) void save(value); }}
-        placeholder={hasKey ? t('settings.apiKeySavedSecurely') : placeholder}
-        disabled={!desktopKeyStorage}
+        placeholder={hasKey
+          ? (desktopKeyStorage
+            ? t('settings.apiKeySavedSecurely')
+            : t('settings.apiKeySavedByServer'))
+          : placeholder}
+        disabled={!canManage}
         className="w-48 px-2 py-1 rounded text-xs"
         style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
       {hasKey && (
@@ -567,7 +598,7 @@ export function SettingsPage() {
           {/* Tools */}
           <Section title={t('settings.tools')}>
             <SettingRow label={t('settings.webSearch')} description={t('settings.webSearchDescription')}>
-              <ApiKeyInput keyName="TAVILY_API_KEY" placeholder="tvly-..." />
+              <ApiKeyInput keyName="TAVILY_API_KEY" placeholder="tvly-..." toolName="web_search" />
             </SettingRow>
           </Section>
 

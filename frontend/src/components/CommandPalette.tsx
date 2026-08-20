@@ -143,7 +143,7 @@ export function CommandPalette() {
     }
   }, [pullSuccess]);
 
-  const handleSelect = async (modelId: string) => {
+  const handleSelect = async (modelId: string, owner?: string) => {
     const previousModel = selectedModel;
     setSelectedModel(modelId);
     setCommandPaletteOpen(false);
@@ -153,7 +153,7 @@ export function CommandPalette() {
       setModelLoading(true);
       addLogEntry({ timestamp: Date.now(), level: 'info', category: 'model', message: `Switching to ${modelId}...` });
       try {
-        await preloadModel(modelId);
+        await preloadModel(modelId, owner);
         addLogEntry({ timestamp: Date.now(), level: 'info', category: 'model', message: `${modelId} loaded` });
       } catch (e: any) {
         addLogEntry({ timestamp: Date.now(), level: 'error', category: 'model', message: `Failed to load ${modelId}: ${e.message}` });
@@ -255,7 +255,8 @@ export function CommandPalette() {
       setSelectedIdx((i) => Math.max(i - 1, 0));
     } else if (e.key === 'Enter' && tab === 'installed' && filtered.length > 0) {
       e.preventDefault();
-      handleSelect((filtered[selectedIdx] as any).id);
+      const model = filtered[selectedIdx] as (typeof models)[number];
+      handleSelect(model.id, model.owned_by);
     }
   };
 
@@ -365,11 +366,15 @@ export function CommandPalette() {
                     onMouseEnter={() => setSelectedIdx(idx)}
                   >
                     <button
-                      onClick={() => handleSelect(model.id)}
+                      onClick={() => handleSelect(model.id, model.owned_by)}
                       className="flex items-center gap-3 flex-1 min-w-0 text-left cursor-pointer"
                       style={{ background: 'none', border: 'none', padding: 0 }}
                     >
-                      <Cpu size={16} style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text-tertiary)' }} />
+                      {model.owned_by === 'litellm' ? (
+                        <Cloud size={16} style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text-tertiary)' }} />
+                      ) : (
+                        <Cpu size={16} style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text-tertiary)' }} />
+                      )}
                       <div className="flex-1 min-w-0">
                         <div className="text-sm truncate" style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text)', fontWeight: isActive ? 500 : 400 }}>
                           {model.id}
@@ -381,17 +386,19 @@ export function CommandPalette() {
                         </span>
                       )}
                     </button>
-                    <button
-                      onClick={() => handleDelete(model.id)}
-                      disabled={isDeleting}
-                      className="p-1 rounded transition-colors cursor-pointer"
-                      style={{ color: 'var(--color-text-tertiary)', opacity: 0 }}
-                      title="Delete model"
-                      onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--color-error)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.opacity = '0'; e.currentTarget.style.color = 'var(--color-text-tertiary)'; }}
-                    >
-                      {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                    </button>
+                    {model.owned_by !== 'litellm' && (
+                      <button
+                        onClick={() => handleDelete(model.id)}
+                        disabled={isDeleting}
+                        className="p-1 rounded transition-colors cursor-pointer"
+                        style={{ color: 'var(--color-text-tertiary)', opacity: 0 }}
+                        title="Delete model"
+                        onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--color-error)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.opacity = '0'; e.currentTarget.style.color = 'var(--color-text-tertiary)'; }}
+                      >
+                        {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      </button>
+                    )}
                   </div>
                 );
               })

@@ -16,6 +16,7 @@ function getGreetingKey(): TranslationKey {
 }
 
 export function ChatArea() {
+  const activeId = useAppStore((s) => s.activeId);
   const messages = useAppStore((s) => s.messages);
   const streamState = useAppStore((s) => s.streamState);
   const systemPanelOpen = useAppStore((s) => s.systemPanelOpen);
@@ -26,6 +27,8 @@ export function ChatArea() {
   const shouldAutoScroll = useRef(true);
   const wasStreaming = useRef(false);
   const lastScrollTop = useRef(0);
+  const isCurrentChatStreaming = streamState.isStreaming && streamState.conversationId === activeId;
+  const currentStreamContent = isCurrentChatStreaming ? streamState.content : '';
 
   // Check if any data sources are connected
   const [hasConnectedSources, setHasConnectedSources] = useState<boolean | null>(null);
@@ -40,14 +43,14 @@ export function ChatArea() {
   useEffect(() => {
     // Sending a message always pins the view to the bottom, even if the
     // user had scrolled up to read earlier messages.
-    if (streamState.isStreaming && !wasStreaming.current) {
+    if (isCurrentChatStreaming && !wasStreaming.current) {
       shouldAutoScroll.current = true;
     }
-    wasStreaming.current = streamState.isStreaming;
+    wasStreaming.current = isCurrentChatStreaming;
     if (shouldAutoScroll.current && listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
-  }, [messages, streamState.content, streamState.isStreaming]);
+  }, [messages, currentStreamContent, isCurrentChatStreaming]);
 
   const handleScroll = () => {
     if (!listRef.current) return;
@@ -68,7 +71,7 @@ export function ChatArea() {
     }
   };
 
-  const isEmpty = messages.length === 0 && !streamState.isStreaming;
+  const isEmpty = messages.length === 0 && !isCurrentChatStreaming;
 
   const PanelIcon = systemPanelOpen ? PanelRightClose : PanelRightOpen;
 
@@ -176,12 +179,12 @@ export function ChatArea() {
                 <MessageBubble
                   key={msg.id}
                   message={msg}
-                  isLive={isLastAssistant && streamState.isStreaming}
+                  isLive={isLastAssistant && isCurrentChatStreaming}
                 />
               );
             })}
             {(() => {
-              if (!streamState.isStreaming || streamState.content !== '') return null;
+              if (!isCurrentChatStreaming || streamState.content !== '') return null;
               // For research messages the ResearchTimeline handles its own
               // pre-content loading state — suppress the generic dots.
               const last = messages[messages.length - 1];

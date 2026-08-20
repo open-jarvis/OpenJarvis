@@ -89,15 +89,39 @@ def index(
 
     mem = _get_backend(backend)
     try:
-        for chunk in track(chunks, description="Storing chunks...", console=console):
-            mem.store(
-                chunk.content,
-                source=chunk.source,
-                metadata={
-                    "offset": chunk.offset,
-                    "index": chunk.index,
-                },
-            )
+        replace_source = getattr(mem, "replace_source", None)
+        if callable(replace_source):
+            documents_by_source = {}
+            for chunk in chunks:
+                documents_by_source.setdefault(chunk.source, []).append(
+                    (
+                        chunk.content,
+                        {
+                            "offset": chunk.offset,
+                            "index": chunk.index,
+                        },
+                    )
+                )
+            for source, documents in track(
+                documents_by_source.items(),
+                description="Replacing sources...",
+                console=console,
+            ):
+                replace_source(source, documents)
+        else:
+            for chunk in track(
+                chunks,
+                description="Storing chunks...",
+                console=console,
+            ):
+                mem.store(
+                    chunk.content,
+                    source=chunk.source,
+                    metadata={
+                        "offset": chunk.offset,
+                        "index": chunk.index,
+                    },
+                )
     finally:
         if hasattr(mem, "close"):
             mem.close()
