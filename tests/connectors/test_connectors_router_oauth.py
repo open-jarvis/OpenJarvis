@@ -30,8 +30,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Iterator
-from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -318,7 +318,9 @@ def test_oauth_callback_exchanges_and_connects(
         "expires_in": 3600,
     }
     with patch.object(oauth_mod, "_exchange_token", return_value=fake_tokens) as ex:
-        resp = client.get(f"/v1/connectors/gdrive/oauth/callback?code=authcode123&state={state}")
+        resp = client.get(
+            f"/v1/connectors/gdrive/oauth/callback?code=authcode123&state={state}"
+        )
 
     assert resp.status_code == 200, resp.text
     assert "Connected!" in resp.text
@@ -343,7 +345,9 @@ def test_oauth_callback_exchanges_and_connects(
 def test_oauth_callback_error_param_renders_failure(client: TestClient) -> None:
     client.post("/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR})
     state = _start_state(client)
-    resp = client.get(f"/v1/connectors/gdrive/oauth/callback?error=access_denied&state={state}")
+    resp = client.get(
+        f"/v1/connectors/gdrive/oauth/callback?error=access_denied&state={state}"
+    )
     assert resp.status_code == 400
     assert "access_denied" in resp.text
 
@@ -360,7 +364,9 @@ def test_oauth_callback_exchange_failure_renders_error(
         raise RuntimeError("token endpoint 400")
 
     with patch.object(oauth_mod, "_exchange_token", side_effect=_boom):
-        resp = client.get(f"/v1/connectors/gdrive/oauth/callback?code=bad&state={state}")
+        resp = client.get(
+            f"/v1/connectors/gdrive/oauth/callback?code=bad&state={state}"
+        )
 
     assert resp.status_code == 500
     assert "Token Exchange Failed" in resp.text
@@ -372,10 +378,17 @@ def test_oauth_callback_rejects_missing_or_reused_state(client: TestClient) -> N
     state = _start_state(client)
     missing = client.get("/v1/connectors/gdrive/oauth/callback?code=untrusted")
     assert missing.status_code == 400
-    with patch("openjarvis.connectors.oauth._exchange_token", return_value={"access_token": "ok"}):
-        first = client.get(f"/v1/connectors/gdrive/oauth/callback?code=ok&state={state}")
+    with patch(
+        "openjarvis.connectors.oauth._exchange_token",
+        return_value={"access_token": "ok"},
+    ):
+        first = client.get(
+            f"/v1/connectors/gdrive/oauth/callback?code=ok&state={state}"
+        )
     assert first.status_code == 200
-    reused = client.get(f"/v1/connectors/gdrive/oauth/callback?code=again&state={state}")
+    reused = client.get(
+        f"/v1/connectors/gdrive/oauth/callback?code=again&state={state}"
+    )
     assert reused.status_code == 400
 
 

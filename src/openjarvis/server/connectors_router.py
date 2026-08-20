@@ -154,7 +154,9 @@ def create_connectors_router():
         parsed = urlsplit(base)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             return None
-        if configured and (parsed.query or parsed.fragment or parsed.username or parsed.password):
+        if configured and (
+            parsed.query or parsed.fragment or parsed.username or parsed.password
+        ):
             return None
         host = parsed.hostname or ""
         if not configured and host not in {"localhost", "127.0.0.1", "::1"}:
@@ -162,10 +164,14 @@ def create_connectors_router():
         if host == "localhost":
             netloc = parsed.netloc.replace("localhost", "127.0.0.1", 1)
             parsed = parsed._replace(netloc=netloc)
-        base = urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
+        base = urlunsplit(
+            (parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", "")
+        )
         return f"{base}/v1/connectors/{connector_id}/oauth/callback"
 
-    def _create_oauth_state(connector_id: str, provider_name: str, redirect_uri: str) -> str:
+    def _create_oauth_state(
+        connector_id: str, provider_name: str, redirect_uri: str
+    ) -> str:
         now = time.monotonic()
         for key, value in list(_oauth_states.items()):
             if value["expires_at"] <= now:
@@ -179,7 +185,9 @@ def create_connectors_router():
         }
         return state
 
-    def _consume_oauth_state(state: str, connector_id: str, provider_name: str) -> Optional[Dict[str, Any]]:
+    def _consume_oauth_state(
+        state: str, connector_id: str, provider_name: str
+    ) -> Optional[Dict[str, Any]]:
         saved = _oauth_states.pop(state, None)
         if not saved or saved["expires_at"] <= time.monotonic():
             return None
@@ -634,7 +642,8 @@ def create_connectors_router():
         if not callback_url:
             raise HTTPException(
                 400,
-                "Configure OPENJARVIS_OAUTH_CALLBACK_BASE_URL to a trusted absolute callback base URL",
+                "Configure OPENJARVIS_OAUTH_CALLBACK_BASE_URL to a trusted "
+                "absolute callback base URL",
             )
         state = _create_oauth_state(connector_id, provider.name, callback_url)
 
@@ -675,11 +684,14 @@ def create_connectors_router():
         if not provider:
             raise HTTPException(400, f"No OAuth provider for '{connector_id}'")
 
-        saved_state = _consume_oauth_state(state, connector_id, provider.name) if state else None
+        saved_state = (
+            _consume_oauth_state(state, connector_id, provider.name) if state else None
+        )
         if not saved_state:
             return _oauth_html(
                 "Authorization Failed",
-                "The sign-in request is missing, expired, or has already been used. Start the connection again.",
+                "The sign-in request is missing, expired, or has already been "
+                "used. Start the connection again.",
                 status_code=400,
             )
 
@@ -687,7 +699,9 @@ def create_connectors_router():
             return _oauth_html("Authorization Failed", error, status_code=400)
 
         if not code:
-            return _oauth_html("Authorization Failed", "Missing authorization code", status_code=400)
+            return _oauth_html(
+                "Authorization Failed", "Missing authorization code", status_code=400
+            )
 
         creds = get_client_credentials(provider)
         if not creds:
@@ -718,7 +732,9 @@ def create_connectors_router():
         # Clear cached instance so it picks up new credentials
         _instances.pop(connector_id, None)
 
-        return _oauth_html("Connected!", "You can close this tab and return to OpenJarvis.")
+        return _oauth_html(
+            "Connected!", "You can close this tab and return to OpenJarvis."
+        )
 
     @router.post("/{connector_id}/sync")
     def trigger_sync(connector_id: str) -> Dict[str, Any]:
