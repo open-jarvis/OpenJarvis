@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
+import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, List, Optional
 
@@ -10,6 +12,8 @@ from openjarvis.mcp.protocol import MCPRequest, MCPResponse
 
 if TYPE_CHECKING:
     from openjarvis.mcp.server import MCPServer
+
+logger = logging.getLogger(__name__)
 
 
 class MCPTransport(ABC):
@@ -61,6 +65,7 @@ class StdioTransport(MCPTransport):
     def __init__(self, command: List[str]) -> None:
         self._command = command
         self._process: Optional[subprocess.Popen[str]] = None
+        self._stderr_thread: Optional[threading.Thread] = None
         self._start()
 
     def _start(self) -> None:
@@ -72,6 +77,25 @@ class StdioTransport(MCPTransport):
             stderr=subprocess.PIPE,
             text=True,
         )
+        # Nothing else reads stderr. Once the child writes more than the OS
+        # pipe buffer to it, the child blocks on that write and never gets
+        # to answer on stdout, deadlocking send()'s readline() (#750). Drain
+        # it continuously on a background thread instead.
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr,
+            args=(self._process,),
+            daemon=True,
+        )
+        self._stderr_thread.start()
+
+    def _drain_stderr(self, proc: subprocess.Popen[str]) -> None:
+        """Continuously read the child's stderr so its pipe never fills."""
+        if proc.stderr is None:
+            return
+        for line in proc.stderr:
+            line = line.rstrip("\n")
+            if line:
+                logger.debug("[%s stderr] %s", self._command[0], line)
 
     def send(self, request: MCPRequest) -> MCPResponse:
         """Write request as JSON line, read response line."""
@@ -108,6 +132,9 @@ class StdioTransport(MCPTransport):
             self._process.terminate()
             self._process.wait(timeout=5)
             self._process = None
+        if self._stderr_thread is not None:
+            self._stderr_thread.join(timeout=5)
+            self._stderr_thread = None
 
 
 class StreamableHTTPTransport(MCPTransport):

@@ -15,7 +15,8 @@ If a server is unreachable or returns an error, OpenJarvis logs a warning and co
 
 ## Configuration
 
-External MCP servers are configured in `config.toml` under `[tools.mcp]`:
+External MCP servers are configured in `config.toml` under `[tools.mcp]`. The
+`servers` field accepts either inline JSON or a path to a JSON file:
 
 ```toml
 [tools.mcp]
@@ -23,10 +24,40 @@ enabled = true
 servers = '[{"name": "homeassistant", "url": "http://172.16.3.1:9583/private_abc123"}]'
 ```
 
-The `servers` value is a **JSON-encoded string** containing an array of server objects. Each object defines one external MCP server.
+For larger configurations, keep the server objects in a separate file next to
+`config.toml`:
+
+```toml
+[tools.mcp]
+enabled = true
+servers = "mcp-servers.json"
+```
+
+```json
+[
+  {
+    "name": "homeassistant",
+    "url": "http://172.16.3.1:9583/private_abc123"
+  },
+  {
+    "name": "database",
+    "command": "db-mcp-server",
+    "args": ["--db", "postgres://localhost/mydb"]
+  }
+]
+```
+
+Relative paths are resolved from the directory containing `config.toml` and
+must remain inside that directory. Absolute paths (including paths expanded
+from `~`) are also supported. A file may contain either an array of server
+objects or one server object, which OpenJarvis wraps in an array.
+
+Inline `servers` values are **JSON-encoded strings** containing an array of
+server objects. Each object defines one external MCP server.
 
 !!! note
-    The value must be a JSON string (with single-quote TOML delimiters around it), not a native TOML array. This is because the configuration system passes it through as a single string field.
+    An inline value must be a JSON string (with single-quote TOML delimiters
+    around it), not a native TOML array. A file path is a normal TOML string.
 
 ## Server Config Schema
 
@@ -136,7 +167,9 @@ No single server failure causes OpenJarvis to crash or prevents other tools from
 ### Server not discovered
 
 1. Check that `[tools.mcp]` has `enabled = true`.
-2. Verify the `servers` JSON is valid. A common mistake is using TOML arrays instead of a JSON string.
+2. Verify the inline `servers` JSON is valid, or that the configured JSON file
+   exists and is readable. A common mistake is using TOML arrays instead of a
+   JSON string.
 3. Check the OpenJarvis logs for warnings like `Failed to discover external MCP tools`.
 
 ### Connection refused / timeout

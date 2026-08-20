@@ -220,9 +220,9 @@ class MemoryService:
         for fact in facts:
             target = quarantined if self._flagged(self._scan(fact)) else clean
             target.append(fact)
-        stored = self._store.add_many(clean, source="auto", trust=TRUST_AUTO)
+        stored = self._store.add_many_with_trust(clean, source="auto", trust=TRUST_AUTO)
         if quarantined:
-            stored += self._store.add_many(
+            stored += self._store.add_many_with_trust(
                 quarantined, source="auto", trust=TRUST_UNTRUSTED
             )
             logger.info(

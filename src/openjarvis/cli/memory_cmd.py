@@ -247,8 +247,6 @@ def trust_fact(index: int) -> None:
     Only do this after reading the fact: a quarantined fact matched an
     injection pattern, and promoting it puts its text into future prompts.
     """
-    from openjarvis.memory.store import TRUST_TRUSTED
-
     console = Console()
 
     store = _get_fact_store()
@@ -264,7 +262,7 @@ def trust_fact(index: int) -> None:
     if fact.trusted_for_recall:
         console.print(f"[yellow]Fact #{index} is already recallable.[/yellow]")
         return
-    if not store.set_trust(index - 1, TRUST_TRUSTED):
+    if not store.promote_reviewed(index - 1, fact.text):
         console.print(f"[red]Could not update fact #{index}.[/red]")
         raise SystemExit(1)
     console.print(f"[green]Fact #{index} is now trusted for recall:[/green]")

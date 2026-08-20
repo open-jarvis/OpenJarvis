@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import List
 
 from openjarvis.security.types import ScanFinding, ThreatLevel
+
+logger = logging.getLogger(__name__)
 
 # Longest ``matched_text`` retained on a finding (mirrors the Rust backend).
 _MAX_MATCH_CHARS = 100
@@ -135,16 +138,29 @@ class InjectionScanner:
 
         self._rust_impl = None
         if RUST_AVAILABLE:
-            from openjarvis._rust_bridge import get_rust_module
+            try:
+                from openjarvis._rust_bridge import get_rust_module
 
-            self._rust_impl = get_rust_module().InjectionScanner()
+                self._rust_impl = get_rust_module().InjectionScanner()
+            except Exception:  # noqa: BLE001 - Python scanner remains available
+                logger.warning(
+                    "Rust injection scanner unavailable; using Python fallback",
+                    exc_info=True,
+                )
 
     def scan(self, text: str) -> InjectionScanResult:
         """Scan text for injection patterns (Rust backend, else Python)."""
         if self._rust_impl is not None:
-            from openjarvis._rust_bridge import injection_result_from_json
+            try:
+                from openjarvis._rust_bridge import injection_result_from_json
 
-            return injection_result_from_json(self._rust_impl.scan(text))
+                return injection_result_from_json(self._rust_impl.scan(text))
+            except Exception:  # noqa: BLE001 - fail over to equivalent patterns
+                logger.warning(
+                    "Rust injection scan failed; using Python fallback",
+                    exc_info=True,
+                )
+                self._rust_impl = None
         return self._scan_python(text)
 
     def _scan_python(self, text: str) -> InjectionScanResult:
