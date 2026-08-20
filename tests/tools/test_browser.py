@@ -288,7 +288,14 @@ class TestBrowserClickTool:
         tool = BrowserClickTool()
         properties = tool.spec.parameters["properties"]
         assert {"selector", "target", "text", "element", "query"} <= set(properties)
-        assert "selector" not in tool.spec.parameters["required"]
+        assert "required" not in tool.spec.parameters
+        assert tool.spec.parameters["anyOf"] == [
+            {"required": ["selector"]},
+            {"required": ["target"]},
+            {"required": ["text"]},
+            {"required": ["element"]},
+            {"required": ["query"]},
+        ]
 
     def test_spec_has_by_text_parameter(self):
         from openjarvis.tools.browser import BrowserClickTool
@@ -361,6 +368,50 @@ class TestBrowserClickTool:
         assert strategy == "css"
         assert hidden.clicked is False
         assert visible.clicked is True
+
+    def test_resolver_applies_ordinal_after_actionability_filter(self):
+        from openjarvis.tools.browser import BrowserClickTool
+
+        class Match:
+            def __init__(self, *, visible=True):
+                self.visible = visible
+                self.clicked = False
+
+            def is_visible(self):
+                return self.visible
+
+            def is_enabled(self):
+                return True
+
+            def click(self, **_kwargs):
+                self.clicked = True
+
+        class Locator:
+            def __init__(self, matches):
+                self.matches = matches
+
+            def count(self):
+                return len(self.matches)
+
+            def nth(self, index):
+                return self.matches[index]
+
+        hidden = Match(visible=False)
+        first_visible = Match()
+        second_visible = Match()
+        duplicate = Locator([hidden, first_visible, second_visible])
+        empty = Locator([])
+        frame = MagicMock(url="https://example.com")
+        frame.get_by_text.return_value = duplicate
+        frame.get_by_role.return_value = empty
+        page = MagicMock(frames=[frame])
+
+        strategy = BrowserClickTool()._resolve_and_click(page, "first save", True)
+
+        assert strategy == "text-exact"
+        assert hidden.clicked is False
+        assert first_visible.clicked is True
+        assert second_visible.clicked is False
 
     def test_execute_playwright_not_installed(self):
         from openjarvis.tools.browser import BrowserClickTool

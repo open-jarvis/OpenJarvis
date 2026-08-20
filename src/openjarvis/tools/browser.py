@@ -200,9 +200,15 @@ class BrowserClickTool(BaseTool):
                         "description": "Alias for selector.",
                     },
                 },
-                # ``selector`` has accepted aliases, so requiring that exact
-                # key would make the advertised aliases invalid JSON Schema.
-                "required": [],
+                # Require one accepted spelling without forcing callers to
+                # use ``selector`` when an advertised alias is supplied.
+                "anyOf": [
+                    {"required": ["selector"]},
+                    {"required": ["target"]},
+                    {"required": ["text"]},
+                    {"required": ["element"]},
+                    {"required": ["query"]},
+                ],
             },
             category="browser",
         )
@@ -313,17 +319,12 @@ class BrowserClickTool(BaseTool):
         def actionable_matches(locator: Any) -> list[Any]:
             """Return click-ordered matches, excluding hidden or disabled ones."""
             count = locator.count()
-            if ordinal is not None:
-                index = count - 1 if ordinal == -1 else ordinal
-                indexes = [index] if 0 <= index < count else []
-            else:
-                # A locator can match a hidden mobile/desktop duplicate before
-                # the visible control.  Inspect every match instead of calling
-                # ``.first`` repeatedly for each strategy.
-                indexes = range(count)
-
             matches = []
-            for index in indexes:
+            # A locator can match hidden mobile/desktop duplicates before the
+            # visible control.  Build the actionable sequence first so an
+            # ordinal such as "first" means the first element a user can
+            # actually click, not the first raw DOM match.
+            for index in range(count):
                 match = locator.nth(index)
                 try:
                     if not match.is_visible() or not match.is_enabled():
@@ -333,6 +334,10 @@ class BrowserClickTool(BaseTool):
                     # check, including stability and event-receivability.
                     pass
                 matches.append(match)
+
+            if ordinal is not None:
+                index = len(matches) - 1 if ordinal == -1 else ordinal
+                return [matches[index]] if 0 <= index < len(matches) else []
             return matches
 
         last_error: Exception | None = None
