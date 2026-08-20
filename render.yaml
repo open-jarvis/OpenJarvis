@@ -9,20 +9,24 @@ services:
     region: oregon
     dockerfilePath: ./deploy/docker/Dockerfile
     dockerContext: .
-    # Override the Dockerfile CMD so the server binds to Render's injected $PORT.
-    # Render does not interpolate Blueprint values, so expand the runtime
-    # environment variable explicitly.  `exec` keeps shutdown signals attached
-    # to the server process instead of leaving an intermediate shell behind.
+    # Override the Dockerfile CMD while preserving its `jarvis` entrypoint.
+    # Render's default web-service port is 10000. Pin PORT and the CLI argument
+    # to that same value because Docker commands do not interpolate `$PORT`.
     # Pin a cloud model as well as the engine. The repository's default model
     # is local-only, so omitting this would make `jarvis serve` reject the
     # otherwise healthy cloud engine during startup.
-    dockerCommand: /bin/sh -c 'exec jarvis serve --host 0.0.0.0 --port "$PORT" --engine cloud --model gpt-4o-mini'
+    dockerCommand: serve --host 0.0.0.0 --port 10000 --engine cloud --model gpt-4o-mini
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       # Force the cloud engine path. The free Render plan has no GPU and the
       # bundled local backends (Ollama/vLLM) cannot run here. The command above
       # selects the OpenAI-backed cloud engine and a model it can serve.
+
+      # Keep Render's expected public port aligned with the fixed Docker
+      # command above. Change both values together when customizing the port.
+      - key: PORT
+        value: "10000"
 
       # Auth for the OpenJarvis API itself. Required because the server refuses
       # to bind to a non-loopback host without an API key (check_bind_safety).

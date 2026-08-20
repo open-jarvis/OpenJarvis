@@ -2,8 +2,8 @@
 
 The repository's `render.yaml` is a minimal Render Blueprint for the
 OpenJarvis API server. It builds `deploy/docker/Dockerfile`, binds the server to
-Render's injected port, and uses OpenAI's `gpt-4o-mini` through the cloud
-engine.
+Render's default web-service port (`10000`), and uses OpenAI's `gpt-4o-mini`
+through the cloud engine.
 
 ## Create the service
 
@@ -13,6 +13,10 @@ engine.
 3. Apply the Blueprint and wait for `/health` to become healthy.
 4. Retrieve the generated `OPENJARVIS_API_KEY` from the Render dashboard and
    send it as `Authorization: Bearer <key>` with API requests.
+
+The Blueprint pins both the `PORT` environment variable and the server's
+`--port` argument to `10000`. Render's Docker command does not expand `$PORT`,
+so if you customize the service port, update both values in `render.yaml`.
 
 The Blueprint deliberately requires one provider key. Render treats every
 `sync: false` environment variable as an input during initial creation, so
