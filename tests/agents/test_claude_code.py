@@ -97,7 +97,14 @@ class TestEnsureRunner:
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(engine, "test-model")
 
+        # _ensure_runner() resolves its destination via get_config_dir(),
+        # which checks $OPENJARVIS_HOME before ever falling back to
+        # Path.home() -- so that's the env var to control here, not a
+        # Path.home() patch (which get_config_dir() never even calls once
+        # OPENJARVIS_HOME is set, e.g. by conftest.py's session-wide
+        # isolation fixture).
         home_dir = tmp_path / "home"
+        home_dir.mkdir()
         monkeypatch.setenv("OPENJARVIS_HOME", str(home_dir))
 
         def which(executable):

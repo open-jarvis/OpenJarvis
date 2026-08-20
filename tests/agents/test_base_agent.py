@@ -237,7 +237,93 @@ class TestBuildMessages:
 
         messages = agent._build_messages("new", AgentContext(conversation=conv))
 
-        assert any(message.content == "You are helpful." for message in messages)
+        assert any("You are helpful." in message.content for message in messages)
+
+    def test_context_system_messages_are_folded_without_a_built_prompt(self):
+        engine = MagicMock()
+        agent = _ConcreteAgent(engine, "m")
+        conv = Conversation()
+        conv.add(Message(role=Role.USER, content="previous question"))
+        conv.add(Message(role=Role.SYSTEM, content="First instruction."))
+        conv.add(Message(role=Role.ASSISTANT, content="previous answer"))
+        conv.add(Message(role=Role.SYSTEM, content="Second instruction."))
+
+        messages = agent._build_messages("new", AgentContext(conversation=conv))
+
+        assert [message.role for message in messages] == [
+            Role.SYSTEM,
+            Role.USER,
+            Role.ASSISTANT,
+            Role.USER,
+        ]
+        assert messages[0].content == "First instruction.\n\nSecond instruction."
+        assert [message.content for message in messages[1:]] == [
+            "previous question",
+            "previous answer",
+            "new",
+        ]
+
+    def test_empty_built_prompt_still_folds_context_system_messages(self):
+        engine = MagicMock()
+        prompt_builder = MagicMock()
+        prompt_builder.build.return_value = ""
+        agent = _ConcreteAgent(engine, "m", prompt_builder=prompt_builder)
+        conv = Conversation()
+        conv.add(Message(role=Role.SYSTEM, content="Context instruction."))
+
+        messages = agent._build_messages("new", AgentContext(conversation=conv))
+
+        assert [message.role for message in messages] == [Role.SYSTEM, Role.USER]
+        assert messages[0].content == "Context instruction."
+
+    def test_empty_context_system_message_is_removed(self):
+        engine = MagicMock()
+        agent = _ConcreteAgent(engine, "m")
+        conv = Conversation()
+        conv.add(Message(role=Role.SYSTEM, content=""))
+
+        messages = agent._build_messages(
+            "new",
+            AgentContext(conversation=conv),
+            system_prompt="Agent instructions.",
+        )
+
+        assert [message.role for message in messages] == [Role.SYSTEM, Role.USER]
+        assert messages[0].content == "Agent instructions."
+
+    def test_server_identity_already_merged_with_memory_is_not_duplicated(self):
+        engine = MagicMock()
+        prompt_builder = MagicMock()
+        prompt_builder.build.return_value = "OpenJarvis identity."
+        agent = _ConcreteAgent(engine, "m", prompt_builder=prompt_builder)
+        conv = Conversation()
+        conv.add(
+            Message(
+                role=Role.SYSTEM,
+                content="OpenJarvis identity.\n\nRemembered preference.",
+                metadata={"openjarvis_identity_prompt": True},
+            )
+        )
+
+        messages = agent._build_messages("new", AgentContext(conversation=conv))
+
+        assert [message.role for message in messages] == [Role.SYSTEM, Role.USER]
+        assert messages[0].content == ("OpenJarvis identity.\n\nRemembered preference.")
+        assert messages[0].content.count("OpenJarvis identity.") == 1
+
+    def test_only_empty_context_system_messages_emit_no_system_message(self):
+        engine = MagicMock()
+        prompt_builder = MagicMock()
+        prompt_builder.build.return_value = None
+        agent = _ConcreteAgent(engine, "m", prompt_builder=prompt_builder)
+        conv = Conversation()
+        conv.add(Message(role=Role.SYSTEM, content=""))
+        conv.add(Message(role=Role.USER, content="previous"))
+
+        messages = agent._build_messages("new", AgentContext(conversation=conv))
+
+        assert [message.role for message in messages] == [Role.USER, Role.USER]
+        assert [message.content for message in messages] == ["previous", "new"]
 
 
 class TestGenerate:
@@ -253,13 +339,22 @@ class TestGenerate:
         assert call_kwargs["temperature"] == 0.5
         assert call_kwargs["max_tokens"] == 100
 
-    def test_extra_kwargs(self):
+    def test_extra_kwargs_are_forwarded_without_filtering(self):
         engine = MagicMock()
         engine.generate.return_value = {"content": "hi"}
         agent = _ConcreteAgent(engine, "m")
-        agent._generate([Message(role=Role.USER, content="hi")], tools=["t"])
+        tools = [{"type": "function", "function": {"name": "search"}}]
+        response_format = {"type": "json_object"}
+        agent._generate(
+            [Message(role=Role.USER, content="hi")],
+            tools=tools,
+            response_format=response_format,
+            stop=["DONE"],
+        )
         call_kwargs = engine.generate.call_args[1]
-        assert call_kwargs["tools"] == ["t"]
+        assert call_kwargs["tools"] is tools
+        assert call_kwargs["response_format"] is response_format
+        assert call_kwargs["stop"] == ["DONE"]
 
 
 class TestMaxTurnsResult:

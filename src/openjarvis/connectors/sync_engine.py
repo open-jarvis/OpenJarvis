@@ -17,6 +17,7 @@ Typical usage::
 from __future__ import annotations
 
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -72,11 +73,22 @@ class SyncEngine:
         self._conn.execute(_CREATE_STATE_TABLE)
         self._conn.commit()
 
+    def __enter__(self) -> "SyncEngine":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def sync(self, connector: BaseConnector) -> int:
+    def sync(
+        self,
+        connector: BaseConnector,
+        *,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> int:
         """Run a full sync for *connector* and return the number of items ingested.
 
         Resumes from the last saved cursor if one exists.  Documents are
@@ -113,6 +125,8 @@ class SyncEngine:
 
             batch = []
             for doc in doc_iter:
+                if cancel_event is not None and cancel_event.is_set():
+                    break
                 batch.append(doc)
 
                 if len(batch) >= _BATCH_SIZE:
@@ -131,7 +145,7 @@ class SyncEngine:
                     )
 
             # Ingest any remaining documents.
-            if batch:
+            if batch and not (cancel_event is not None and cancel_event.is_set()):
                 items_ingested += self._pipeline.ingest(batch)
 
         except Exception as exc:
@@ -143,6 +157,19 @@ class SyncEngine:
             )
             raise
 
+        if cancel_event is not None and cancel_event.is_set():
+            # Cancellation means the source was not exhausted. Preserve the
+            # prior successful watermark exactly as failure checkpoints do;
+            # advancing it here could make the next sync skip documents that
+            # the cancelled run never reached (#782).
+            self._save_checkpoint(
+                connector_id,
+                prior_items + items_ingested,
+                cursor=current_cursor,
+                error=None,
+            )
+            return items_ingested
+
         # Final checkpoint on successful completion — clear any previous
         # error and advance the watermark to when this sync started.
         self._save_checkpoint(
@@ -153,6 +180,10 @@ class SyncEngine:
             last_sync=sync_started_at,
         )
         return items_ingested
+
+    def close(self) -> None:
+        """Close the checkpoint database connection."""
+        self._conn.close()
 
     def get_checkpoint(self, connector_id: str) -> Optional[Dict[str, Any]]:
         """Return the last checkpoint, or ``None`` if never synced."""
@@ -171,6 +202,51 @@ class SyncEngine:
             "last_sync": row["last_sync"],
             "error": row["error"],
         }
+
+    def reset_checkpoint(self, connector_id: str) -> None:
+        """Clear the saved checkpoint for *connector_id*.
+
+        Must be called whenever a connector is reconfigured to point at a
+        different underlying data source (e.g. disconnect/reconnect with a
+        new Obsidian vault path). Without this, the next sync would resume
+        from the old source's cursor/``since`` watermark, inflating
+        ``items_synced`` with the old source's count and potentially
+        skipping new items whose timestamps predate that watermark.
+        """
+        self._conn.execute(
+            "DELETE FROM sync_state WHERE connector_id = ?", (connector_id,)
+        )
+        self._conn.commit()
+
+    def restore_checkpoint(
+        self,
+        connector_id: str,
+        checkpoint: Optional[Dict[str, Any]],
+    ) -> None:
+        """Restore an exact checkpoint snapshot after a failed cleanup."""
+        if checkpoint is None:
+            self.reset_checkpoint(connector_id)
+            return
+        self._conn.execute(
+            """
+            INSERT INTO sync_state
+                (connector_id, items_synced, cursor, last_sync, error)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(connector_id) DO UPDATE SET
+                items_synced = excluded.items_synced,
+                cursor       = excluded.cursor,
+                last_sync    = excluded.last_sync,
+                error        = excluded.error
+            """,
+            (
+                connector_id,
+                checkpoint["items_synced"],
+                checkpoint.get("cursor"),
+                checkpoint.get("last_sync"),
+                checkpoint.get("error"),
+            ),
+        )
+        self._conn.commit()
 
     # ------------------------------------------------------------------
     # Internal helpers

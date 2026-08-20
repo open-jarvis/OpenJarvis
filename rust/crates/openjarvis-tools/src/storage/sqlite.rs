@@ -18,9 +18,7 @@ impl SQLiteMemory {
         // Expand leading ~ to the user's home directory
         let db_path = if db_path.starts_with("~") {
             let home = std::env::var("HOME").map_err(|_| {
-                OpenJarvisError::Io(std::io::Error::other(
-                    "HOME environment variable not set",
-                ))
+                OpenJarvisError::Io(std::io::Error::other("HOME environment variable not set"))
             })?;
             PathBuf::from(home).join(db_path.strip_prefix("~").unwrap())
         } else {
@@ -29,16 +27,33 @@ impl SQLiteMemory {
         let db_path = db_path.as_path();
 
         if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                OpenJarvisError::Io(std::io::Error::other(e))
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e)))?;
         }
 
-        let conn = Connection::open(db_path).map_err(|e| {
-            OpenJarvisError::Io(std::io::Error::other(
-                e.to_string(),
-            ))
-        })?;
+        let conn = Connection::open(db_path)
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+
+        // A longer busy timeout plus best-effort WAL mode (#756): without
+        // WAL, a concurrent writer can block readers.  Some SQLite targets
+        // (notably in-memory databases and filesystems without WAL support)
+        // cannot switch journal mode, so failure to enable WAL must not make
+        // an otherwise usable memory backend fail to open.
+        conn.busy_timeout(std::time::Duration::from_secs(10))
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+        if db_path != Path::new(":memory:") {
+            match conn.query_row("PRAGMA journal_mode=WAL", [], |row| row.get::<_, String>(0)) {
+                Ok(mode) if mode.eq_ignore_ascii_case("wal") => {}
+                Ok(mode) => tracing::warn!(
+                    journal_mode = %mode,
+                    "SQLite WAL mode is unavailable; using the reported journal mode"
+                ),
+                Err(error) => tracing::warn!(
+                    %error,
+                    "Failed to enable SQLite WAL mode; continuing with the existing mode"
+                ),
+            }
+        }
 
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS documents (
@@ -52,11 +67,7 @@ impl SQLiteMemory {
                 content, source, tokenize='porter unicode61'
             );",
         )
-        .map_err(|e| {
-            OpenJarvisError::Io(std::io::Error::other(
-                e.to_string(),
-            ))
-        })?;
+        .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
 
         // Migrate existing FTS5 tables that lack the unicode61 tokenizer
         // (ensures case-insensitive search on databases created before this fix).
@@ -78,11 +89,7 @@ impl SQLiteMemory {
                  INSERT INTO documents_fts (id, content, source)
                      SELECT id, content, source FROM documents;",
             )
-            .map_err(|e| {
-                OpenJarvisError::Io(std::io::Error::other(
-                    e.to_string(),
-                ))
-            })?;
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
         }
 
         Ok(Self {
@@ -102,9 +109,9 @@ impl SQLiteMemory {
         documents: &[(&str, Option<&Value>)],
     ) -> Result<Vec<String>, OpenJarvisError> {
         let mut conn = self.conn.lock();
-        let tx = conn.transaction().map_err(|e| {
-            OpenJarvisError::Io(std::io::Error::other(e.to_string()))
-        })?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
 
         tx.execute(
             "DELETE FROM documents_fts
@@ -159,40 +166,28 @@ impl MemoryBackend for SQLiteMemory {
         metadata: Option<&Value>,
     ) -> Result<String, OpenJarvisError> {
         let doc_id = Uuid::new_v4().to_string();
-        let meta_str =
-            metadata.map(|m| serde_json::to_string(m).unwrap_or_default())
-                .unwrap_or_else(|| "{}".to_string());
+        let meta_str = metadata
+            .map(|m| serde_json::to_string(m).unwrap_or_default())
+            .unwrap_or_else(|| "{}".to_string());
 
         let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO documents (id, content, source, metadata) VALUES (?1, ?2, ?3, ?4)",
             rusqlite::params![doc_id, content, source, meta_str],
         )
-        .map_err(|e| {
-            OpenJarvisError::Io(std::io::Error::other(
-                e.to_string(),
-            ))
-        })?;
+        .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
 
         let rowid = conn.last_insert_rowid();
         conn.execute(
             "INSERT INTO documents_fts (rowid, content, source) VALUES (?1, ?2, ?3)",
             rusqlite::params![rowid, content, source],
         )
-        .map_err(|e| {
-            OpenJarvisError::Io(std::io::Error::other(
-                e.to_string(),
-            ))
-        })?;
+        .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
 
         Ok(doc_id)
     }
 
-    fn retrieve(
-        &self,
-        query: &str,
-        top_k: usize,
-    ) -> Result<Vec<RetrievalResult>, OpenJarvisError> {
+    fn retrieve(&self, query: &str, top_k: usize) -> Result<Vec<RetrievalResult>, OpenJarvisError> {
         let conn = self.conn.lock();
 
         // Split on any non-alphanumeric character (not just whitespace) so
@@ -221,11 +216,7 @@ impl MemoryBackend for SQLiteMemory {
                  ORDER BY bm25(documents_fts, 1.0, 0.5)
                  LIMIT ?2",
             )
-            .map_err(|e| {
-                OpenJarvisError::Io(std::io::Error::other(
-                    e.to_string(),
-                ))
-            })?;
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
 
         let results = stmt
             .query_map(rusqlite::params![fts_query, top_k as i64], |row| {
@@ -240,11 +231,7 @@ impl MemoryBackend for SQLiteMemory {
                     score: row.get::<_, f64>(3).unwrap_or(0.0),
                 })
             })
-            .map_err(|e| {
-                OpenJarvisError::Io(std::io::Error::other(
-                    e.to_string(),
-                ))
-            })?
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?
             .filter_map(|r| r.ok())
             .collect();
 
@@ -258,32 +245,20 @@ impl MemoryBackend for SQLiteMemory {
             "DELETE FROM documents_fts WHERE rowid = (SELECT rowid FROM documents WHERE id = ?1)",
             rusqlite::params![doc_id],
         )
-        .map_err(|e| {
-            OpenJarvisError::Io(std::io::Error::other(
-                e.to_string(),
-            ))
-        })?;
+        .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
         let changes = conn
             .execute(
                 "DELETE FROM documents WHERE id = ?1",
                 rusqlite::params![doc_id],
             )
-            .map_err(|e| {
-                OpenJarvisError::Io(std::io::Error::other(
-                    e.to_string(),
-                ))
-            })?;
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
         Ok(changes > 0)
     }
 
     fn clear(&self) -> Result<(), OpenJarvisError> {
         let conn = self.conn.lock();
         conn.execute_batch("DELETE FROM documents_fts; DELETE FROM documents")
-            .map_err(|e| {
-                OpenJarvisError::Io(std::io::Error::other(
-                    e.to_string(),
-                ))
-            })?;
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
         Ok(())
     }
 
@@ -291,11 +266,7 @@ impl MemoryBackend for SQLiteMemory {
         let conn = self.conn.lock();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))
-            .map_err(|e| {
-                OpenJarvisError::Io(std::io::Error::other(
-                    e.to_string(),
-                ))
-            })?;
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
         Ok(count as usize)
     }
 }
@@ -307,34 +278,50 @@ mod tests {
     #[test]
     fn test_sqlite_store_and_retrieve() {
         let mem = SQLiteMemory::in_memory().unwrap();
-        let id = mem.store("Rust is a systems programming language", "test", None).unwrap();
+        let id = mem
+            .store("Rust is a systems programming language", "test", None)
+            .unwrap();
         assert!(!id.is_empty());
 
         let results = mem.retrieve("Rust programming", 5).unwrap();
         assert!(!results.is_empty());
         assert!(results[0].content.contains("Rust"));
-        assert!(results[0].score > 0.0, "score should be positive, got {}", results[0].score);
+        assert!(
+            results[0].score > 0.0,
+            "score should be positive, got {}",
+            results[0].score
+        );
     }
 
     #[test]
     fn test_sqlite_porter_stemming() {
         let mem = SQLiteMemory::in_memory().unwrap();
-        mem.store("Medication list for patient", "health", None).unwrap();
+        mem.store("Medication list for patient", "health", None)
+            .unwrap();
 
         // Plural form should match via porter stemming
         let results = mem.retrieve("medications", 5).unwrap();
-        assert!(!results.is_empty(), "porter stemming should match 'medications' to 'Medication'");
+        assert!(
+            !results.is_empty(),
+            "porter stemming should match 'medications' to 'Medication'"
+        );
         assert!(results[0].score > 0.0);
     }
 
     #[test]
     fn test_sqlite_punctuation_stripping() {
         let mem = SQLiteMemory::in_memory().unwrap();
-        mem.store("Medication list for patient Micah", "health", None).unwrap();
+        mem.store("Medication list for patient Micah", "health", None)
+            .unwrap();
 
         // Natural language query with trailing punctuation should not break FTS5
-        let results = mem.retrieve("What medications does Micah take?", 5).unwrap();
-        assert!(!results.is_empty(), "query with punctuation should still return results");
+        let results = mem
+            .retrieve("What medications does Micah take?", 5)
+            .unwrap();
+        assert!(
+            !results.is_empty(),
+            "query with punctuation should still return results"
+        );
         assert!(results[0].score > 0.0);
     }
 
@@ -394,8 +381,10 @@ mod tests {
     #[test]
     fn test_sqlite_case_insensitive_search() {
         let mem = SQLiteMemory::in_memory().unwrap();
-        mem.store("Medication dosage guidelines for patients", "medical", None).unwrap();
-        mem.store("The medication was prescribed yesterday", "medical", None).unwrap();
+        mem.store("Medication dosage guidelines for patients", "medical", None)
+            .unwrap();
+        mem.store("The medication was prescribed yesterday", "medical", None)
+            .unwrap();
 
         // Lowercase query should match uppercase content
         let lower = mem.retrieve("medication", 10).unwrap();
@@ -407,13 +396,18 @@ mod tests {
 
         // Mixed case
         let mixed = mem.retrieve("Medication", 10).unwrap();
-        assert_eq!(mixed.len(), 2, "mixed-case query should find both documents");
+        assert_eq!(
+            mixed.len(),
+            2,
+            "mixed-case query should find both documents"
+        );
     }
 
     #[test]
     fn test_sqlite_apostrophe_in_query() {
         let mem = SQLiteMemory::in_memory().unwrap();
-        mem.store("The user's name is Trev.", "identity", None).unwrap();
+        mem.store("The user's name is Trev.", "identity", None)
+            .unwrap();
 
         // A query containing an internal apostrophe must not break FTS5's
         // MATCH syntax (an unescaped `'` is a string delimiter in FTS5's
@@ -428,20 +422,123 @@ mod tests {
         // Bare single-word possessive: exercises the (former) single-word
         // bypass path that skipped the OR-join entirely.
         let bare = mem.retrieve("user's", 5).unwrap();
-        assert!(!bare.is_empty(), "single-word possessive query should still match");
+        assert!(
+            !bare.is_empty(),
+            "single-word possessive query should still match"
+        );
     }
 
     #[test]
     fn test_sqlite_scores_are_positive() {
         let mem = SQLiteMemory::in_memory().unwrap();
-        mem.store("Rust is a systems programming language", "docs", None).unwrap();
-        mem.store("Python is a high-level programming language", "docs", None).unwrap();
-        mem.store("Cooking recipes for beginners", "other", None).unwrap();
+        mem.store("Rust is a systems programming language", "docs", None)
+            .unwrap();
+        mem.store("Python is a high-level programming language", "docs", None)
+            .unwrap();
+        mem.store("Cooking recipes for beginners", "other", None)
+            .unwrap();
 
         let results = mem.retrieve("programming", 5).unwrap();
         assert!(!results.is_empty());
         for r in &results {
             assert!(r.score > 0.0, "score should be positive, got {}", r.score);
         }
+    }
+
+    #[test]
+    fn test_sqlite_uses_wal_journal_mode_and_longer_busy_timeout() {
+        // Regression for #756: without WAL mode, memory.db runs in
+        // rollback-journal mode where any concurrent writer blocks all
+        // readers, and rusqlite's default 5s busy_timeout was too short
+        // under realistic contention.
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("memory.db");
+        let mem = SQLiteMemory::new(&db_path).unwrap();
+
+        let conn = mem.conn.lock();
+
+        let journal_mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            journal_mode.to_lowercase(),
+            "wal",
+            "expected WAL journal mode for a file-backed database"
+        );
+
+        let busy_timeout_ms: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert!(
+            busy_timeout_ms >= 10_000,
+            "expected busy_timeout of at least 10000ms, got {busy_timeout_ms}"
+        );
+    }
+
+    #[test]
+    fn test_sqlite_wal_reader_remains_available_during_write_transaction() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("memory.db");
+        let writer = SQLiteMemory::new(&db_path).unwrap();
+        writer.store("baseline document", "test", None).unwrap();
+        let reader = SQLiteMemory::new(&db_path).unwrap();
+
+        let writer_conn = writer.conn.lock();
+        writer_conn.execute_batch("BEGIN EXCLUSIVE").unwrap();
+
+        let outcome = std::thread::scope(|scope| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let reader = &reader;
+            scope.spawn(move || {
+                let result = reader
+                    .retrieve("baseline", 5)
+                    .map(|results| results.len())
+                    .map_err(|error| error.to_string());
+                tx.send(result).unwrap();
+            });
+            let result = rx.recv_timeout(std::time::Duration::from_secs(1));
+            writer_conn.execute_batch("ROLLBACK").unwrap();
+            result
+        });
+
+        let result = outcome.expect("WAL reader blocked behind an active writer");
+        assert_eq!(result.unwrap(), 1);
+    }
+
+    #[test]
+    fn test_sqlite_busy_timeout_serializes_competing_writers() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("memory.db");
+        let first = SQLiteMemory::new(&db_path).unwrap();
+        let second = SQLiteMemory::new(&db_path).unwrap();
+
+        let first_conn = first.conn.lock();
+        first_conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+
+        let outcome = std::thread::scope(|scope| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let second_worker = &second;
+            scope.spawn(move || {
+                let result = second_worker
+                    .store("concurrent write", "test", None)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+                tx.send(result).unwrap();
+            });
+
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let premature = rx.try_recv();
+            first_conn.execute_batch("COMMIT").unwrap();
+            assert!(
+                matches!(premature, Err(std::sync::mpsc::TryRecvError::Empty)),
+                "competing writer did not wait for the active transaction: {premature:?}"
+            );
+            rx.recv_timeout(std::time::Duration::from_secs(2))
+        });
+
+        outcome
+            .expect("competing writer did not resume after commit")
+            .expect("competing writer failed instead of waiting");
+        assert_eq!(second.count().unwrap(), 1);
     }
 }
