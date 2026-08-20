@@ -107,6 +107,36 @@ class TestChatCommand:
         assert "Model:" in result.output
         record_voice.assert_not_called()
 
+    def test_voice_mode_ctrl_c_during_recording_exits_cleanly(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        backend = MagicMock()
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                side_effect=KeyboardInterrupt,
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--voice", "--model", "test-model"],
+                input="\n",
+            )
+
+        assert result.exit_code == 0
+        assert result.exception is None
+        assert "Goodbye!" in result.output
+
 
 class TestReadInput:
     """Test the _read_input helper function."""
@@ -216,8 +246,7 @@ class TestVoiceInput:
         assert "\x1b]8;" not in rendered
         assert "[link=https://attacker.invalid]permission denied[/link]" in rendered
 
-    @pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit])
-    def test_microphone_base_exceptions_are_not_swallowed(self, error_type) -> None:
+    def test_microphone_keyboard_interrupt_returns_voice_exit(self) -> None:
         backend = MagicMock()
         session = VoiceSession(JarvisConfig())
 
@@ -228,9 +257,25 @@ class TestVoiceInput:
             ),
             patch(
                 "openjarvis.speech.voice_io.record_until_silence",
-                side_effect=error_type(),
+                side_effect=KeyboardInterrupt,
             ),
-            pytest.raises(error_type),
+        ):
+            assert record_voice(MagicMock(), session) is VOICE_EXIT
+
+    def test_microphone_system_exit_is_not_swallowed(self) -> None:
+        backend = MagicMock()
+        session = VoiceSession(JarvisConfig())
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                side_effect=SystemExit(),
+            ),
+            pytest.raises(SystemExit),
         ):
             record_voice(MagicMock(), session)
 
