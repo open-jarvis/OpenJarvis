@@ -93,7 +93,7 @@ def test_oauth_redirect_uri_normalizes_localhost_to_loopback_ip() -> None:
     assert actual_redirect_uri == redirect_uri
 
 
-def test_oauth_setup_redirect_uri_matches_actual_oauth_start(app) -> None:
+def test_oauth_setup_redirect_uri_matches_actual_oauth_start(app, monkeypatch) -> None:
     """oauth_setup.redirect_uri must match what GET /oauth/start actually
     sends as the redirect_uri parameter.
 
@@ -108,6 +108,11 @@ def test_oauth_setup_redirect_uri_matches_actual_oauth_start(app) -> None:
     authorization attempt with "redirect_uri: Not matching configuration",
     no matter how carefully the user followed the (wrong) instructions.
     """
+    # TestClient's synthetic ``testserver`` host is deliberately rejected by
+    # the OAuth hardening. Exercise the deployed-server contract with an
+    # explicit trusted callback base instead.
+    monkeypatch.setenv("OPENJARVIS_OAUTH_CALLBACK_BASE_URL", "https://jarvis.example")
+
     detail = app.get("/v1/connectors/spotify").json()
     redirect_uri = detail["oauth_setup"]["redirect_uri"]
 
