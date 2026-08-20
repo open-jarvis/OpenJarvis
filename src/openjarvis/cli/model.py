@@ -363,7 +363,15 @@ def _convert_gguf(
     console.print(f"Converting to [cyan]{output_gguf}[/cyan]...")
     try:
         subprocess.run(
-            [sys.executable, convert_script, snapshot, "--outfile", output_gguf],
+            [
+                sys.executable,
+                convert_script,
+                snapshot,
+                "--outtype",
+                "f16",
+                "--outfile",
+                output_gguf,
+            ],
             check=True,
         )
         if not os.path.isfile(output_gguf):
@@ -622,7 +630,16 @@ def convert(
     # Check existing output. --force does not remove it yet: conversion happens
     # in a sibling staging directory, so failures leave the old artifact intact.
     if os.path.lexists(output_path):
-        if output_path.is_dir():
+        # A symlink is always an existing output object, even when it points to
+        # an empty directory. Never follow it to decide whether overwriting is
+        # safe; --force replaces the link itself after conversion succeeds.
+        if output_path.is_symlink() and not force:
+            console.print(
+                f"[red]Output path exists as a symlink:[/red] {output_path}\n"
+                "Use [cyan]--force[/cyan] to overwrite."
+            )
+            sys.exit(1)
+        if output_path.is_dir() and not output_path.is_symlink():
             contents = os.listdir(output_path)
             if contents and not force:
                 console.print(

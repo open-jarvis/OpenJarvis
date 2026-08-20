@@ -260,6 +260,8 @@ class TestModelConvert:
             sys.executable,
             "/fake/convert_hf_to_gguf.py",
             str(snapshot),
+            "--outtype",
+            "f16",
             "--outfile",
         ]
         assert converter_out.name == "some--repo.f16.gguf"
@@ -515,6 +517,33 @@ class TestModelConvert:
         assert not output_dir.is_symlink()
         assert (output_dir / "config.json").is_file()
         assert sentinel.read_text(encoding="utf-8") == "keep"
+
+    def test_convert_refuses_empty_directory_symlink_without_force(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        target = tmp_path / "empty-target"
+        target.mkdir()
+        output_dir = tmp_path / "model-link"
+        output_dir.symlink_to(target, target_is_directory=True)
+
+        class FakeConfig:
+            class Engine:
+                default = None
+
+            engine = Engine()
+
+        monkeypatch.setattr(model_module, "load_config", lambda: FakeConfig())
+
+        result = CliRunner().invoke(
+            model,
+            ["convert", "some/repo", "--engine", "mlx", "--output", str(output_dir)],
+        )
+
+        assert result.exit_code == 1
+        assert "symlink" in result.output
+        assert "--force" in result.output
+        assert output_dir.is_symlink()
+        assert list(target.iterdir()) == []
 
     def test_convert_ollama_creates_model_from_gguf(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
