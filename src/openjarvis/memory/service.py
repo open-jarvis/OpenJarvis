@@ -41,12 +41,15 @@ class MemoryService:
         *,
         event_bus: EventBus | None = None,
         backend: Optional[MemoryBackend] = None,
+        owns_backend: bool = False,
         max_queue: int = 256,
     ) -> None:
         self._store = store
         self._extractor = extractor
         self._event_bus = event_bus
         self._backend = backend
+        self._owns_backend = owns_backend
+        self._backend_closed = False
         self._subscribed = False
         self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=max(1, max_queue))
         self._thread: Optional[threading.Thread] = None
@@ -70,19 +73,30 @@ class MemoryService:
 
     def stop(self, timeout: float = 2.0) -> None:
         """Signal the worker to drain and stop, then join it (idempotent)."""
-        if not self._running.is_set():
-            return
-        self._running.clear()
-        try:
-            self._queue.put_nowait(_STOP)
-        except queue.Full:
-            pass  # worker will notice the cleared flag on its next loop
-        thread = self._thread
-        if thread is not None:
-            thread.join(timeout=timeout)
-        self._thread = None
-        self._unsubscribe_events()
+        if self._running.is_set():
+            self._running.clear()
+            try:
+                self._queue.put_nowait(_STOP)
+            except queue.Full:
+                pass  # worker will notice the cleared flag on its next loop
+            thread = self._thread
+            if thread is not None:
+                thread.join(timeout=timeout)
+            self._thread = None
+            self._unsubscribe_events()
+        self._close_owned_backend()
         logger.debug("Memory service stopped")
+
+    def _close_owned_backend(self) -> None:
+        if not self._owns_backend or self._backend_closed:
+            return
+        self._backend_closed = True
+        close = getattr(self._backend, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:  # noqa: BLE001 — shutdown remains best-effort
+                logger.debug("Memory mirror backend close failed", exc_info=True)
 
     @property
     def is_running(self) -> bool:
@@ -266,7 +280,13 @@ def build_memory_service(
     except Exception:  # noqa: BLE001 — mirroring is optional
         logger.debug("Memory mirror backend unavailable", exc_info=True)
 
-    return MemoryService(store, extractor, event_bus=event_bus, backend=backend)
+    return MemoryService(
+        store,
+        extractor,
+        event_bus=event_bus,
+        backend=backend,
+        owns_backend=backend is not None,
+    )
 
 
 def publish_completed_exchange(

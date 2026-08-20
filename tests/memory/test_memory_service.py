@@ -53,12 +53,16 @@ class CapturingBackend:
     def __init__(self, *, raises=None):
         self.stored = []  # list of (content, source, metadata)
         self._raises = raises
+        self.closed = False
 
     def store(self, content, *, source="", metadata=None):
         if self._raises is not None:
             raise self._raises
         self.stored.append((content, source, metadata))
         return "id-%d" % len(self.stored)
+
+    def close(self):
+        self.closed = True
 
 
 def _service(tmp_path, extractor, **kwargs):
@@ -290,6 +294,28 @@ def test_no_backend_is_a_noop(tmp_path):
         assert _wait_until(lambda: svc.fact_count() == 1)
     finally:
         svc.stop()
+
+
+def test_stop_closes_owned_backend_once(tmp_path):
+    backend = CapturingBackend()
+    svc = _service(
+        tmp_path,
+        FakeExtractor([]),
+        backend=backend,
+        owns_backend=True,
+    )
+    svc.start()
+    svc.stop()
+    svc.stop()
+    assert backend.closed is True
+
+
+def test_stop_does_not_close_borrowed_backend(tmp_path):
+    backend = CapturingBackend()
+    svc = _service(tmp_path, FakeExtractor([]), backend=backend)
+    svc.start()
+    svc.stop()
+    assert backend.closed is False
 
 
 def test_mirror_to_sqlite_untrusted_fact_is_dropped_at_recall(tmp_path):

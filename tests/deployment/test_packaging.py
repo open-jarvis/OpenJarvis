@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
 DESKTOP_LIB_RS = ROOT / "frontend" / "src-tauri" / "src" / "lib.rs"
 WINDOWS_INSTALL_PS1 = ROOT / "deploy" / "windows" / "install.ps1"
+QUICKSTART_SH = ROOT / "scripts" / "quickstart.sh"
 
 
 def _pyproject() -> dict:
@@ -59,3 +60,9 @@ def test_windows_installer_syncs_the_native_group() -> None:
         "the Windows installer must include `--group desktop-native` so "
         "openjarvis_rust is built during source install."
     )
+
+
+def test_quickstart_installs_web_search_dependencies() -> None:
+    quickstart = QUICKSTART_SH.read_text()
+    assert "--extra tools-search" in quickstart
+    assert "already running on port 8000" in quickstart

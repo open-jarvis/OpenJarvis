@@ -14,9 +14,9 @@ skipped if the server is unreachable.
 from __future__ import annotations
 
 import os
-import socket
 from pathlib import Path
 
+import httpx
 import pytest
 
 from openjarvis.tools.storage.dense import (
@@ -25,18 +25,56 @@ from openjarvis.tools.storage.dense import (
     chunk_markdown,
     dedupe_chunks,
 )
+from openjarvis.tools.storage.embeddings import OllamaEmbedder
 
 _FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "docs"
-_OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "localhost")
-_OLLAMA_PORT = int(os.environ.get("OLLAMA_PORT", "11434"))
+_EMBED_MODEL = "nomic-embed-text"
+
+
+def _ollama_base_url() -> str:
+    """Resolve the Ollama base URL from ``OLLAMA_HOST``.
+
+    The project documents ``OLLAMA_HOST`` as a full URL
+    (``http://<remote-ip>:11434``), but Ollama's own convention also
+    allows bare ``host`` / ``host:port`` forms — accept all three so
+    the probe and the embedder under test agree on one endpoint.
+    """
+    host = os.environ.get("OLLAMA_HOST", "")
+    if not host:
+        return "http://localhost:11434"
+    if host.startswith(("http://", "https://")):
+        return host.rstrip("/")
+    if ":" in host:
+        return f"http://{host}"
+    return f"http://{host}:11434"
 
 
 def _ollama_up() -> bool:
+    """True only if Ollama is reachable *and* the embed model is pulled.
+
+    A bare TCP connect isn't enough — a machine can run Ollama for chat
+    models without ever having pulled ``nomic-embed-text``, which makes
+    ``/api/embed`` 404 instead of the tests skipping as intended.
+    """
     try:
-        with socket.create_connection((_OLLAMA_HOST, _OLLAMA_PORT), timeout=1.0):
-            return True
-    except OSError:
+        resp = httpx.get(f"{_ollama_base_url()}/api/tags", timeout=1.0)
+        resp.raise_for_status()
+        models = {m.get("model", "") for m in resp.json().get("models", [])}
+        return any(m.startswith(_EMBED_MODEL) for m in models)
+    except (httpx.HTTPError, ValueError):
         return False
+
+
+def _make_backend() -> DenseMemory:
+    """DenseMemory wired to the same Ollama endpoint the probe checked.
+
+    ``DenseMemory()`` alone would build an ``OllamaEmbedder`` with its
+    hard-coded localhost default, so a remote ``OLLAMA_HOST`` could pass
+    the probe and then have every test call the wrong server.
+    """
+    return DenseMemory(
+        embedder=OllamaEmbedder(model=_EMBED_MODEL, base_url=_ollama_base_url())
+    )
 
 
 ollama_required = pytest.mark.skipif(
@@ -46,6 +84,65 @@ ollama_required = pytest.mark.skipif(
         "(start `ollama serve` then `ollama pull nomic-embed-text`)"
     ),
 )
+
+
+# ---------------------------------------------------------------------------
+# Skip-guard unit tests (no Ollama required)
+# ---------------------------------------------------------------------------
+
+
+class _FakeTagsResponse:
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class TestOllamaProbe:
+    def test_base_url_accepts_all_documented_forms(self, monkeypatch):
+        cases = {
+            "http://remote:11434": "http://remote:11434",
+            "http://remote:11434/": "http://remote:11434",
+            "https://ollama.internal": "https://ollama.internal",
+            "remote:8080": "http://remote:8080",
+            "remote": "http://remote:11434",
+        }
+        for raw, expected in cases.items():
+            monkeypatch.setenv("OLLAMA_HOST", raw)
+            assert _ollama_base_url() == expected, raw
+        monkeypatch.delenv("OLLAMA_HOST", raising=False)
+        assert _ollama_base_url() == "http://localhost:11434"
+
+    def test_probe_false_when_server_down(self, monkeypatch):
+        def _refuse(url, timeout):
+            raise httpx.ConnectError("connection refused")
+
+        monkeypatch.setattr(httpx, "get", _refuse)
+        assert _ollama_up() is False
+
+    def test_probe_false_when_model_missing(self, monkeypatch):
+        monkeypatch.setattr(
+            httpx,
+            "get",
+            lambda url, timeout: _FakeTagsResponse({"models": [{"model": "llama3"}]}),
+        )
+        assert _ollama_up() is False
+
+    def test_probe_true_with_tagged_model_on_configured_url(self, monkeypatch):
+        monkeypatch.setenv("OLLAMA_HOST", "http://remote:9999")
+        seen = {}
+
+        def _get(url, timeout):
+            seen["url"] = url
+            return _FakeTagsResponse({"models": [{"model": "nomic-embed-text:latest"}]})
+
+        monkeypatch.setattr(httpx, "get", _get)
+        assert _ollama_up() is True
+        assert seen["url"] == "http://remote:9999/api/tags"
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +380,7 @@ def indexed_backend():
     if not _ollama_up():
         pytest.skip("Ollama not reachable")
 
-    backend = DenseMemory()
+    backend = _make_backend()
     md_files = sorted(_FIXTURE_DIR.glob("*.md"))
     assert md_files, f"no fixtures at {_FIXTURE_DIR}"
 
@@ -452,7 +549,7 @@ def test_score_distribution_vs_threshold(indexed_backend, capsys):
 class TestDenseMemoryAPI:
     @ollama_required
     def test_store_and_delete(self):
-        backend = DenseMemory()
+        backend = _make_backend()
         doc_id = backend.store("the cat sat on the mat", source="a.txt")
         assert backend.count() == 1
         hits = backend.retrieve("where is the cat", top_k=1)
@@ -463,12 +560,12 @@ class TestDenseMemoryAPI:
 
     @ollama_required
     def test_empty_retrieve(self):
-        backend = DenseMemory()
+        backend = _make_backend()
         assert backend.retrieve("anything", top_k=3) == []
 
     @ollama_required
     def test_clear(self):
-        backend = DenseMemory()
+        backend = _make_backend()
         backend.store("foo")
         backend.store("bar")
         backend.clear()

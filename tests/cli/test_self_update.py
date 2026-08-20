@@ -21,7 +21,7 @@ def _mock_info(kind: str = "pypi") -> InstallInfo:
         upgrade_command={
             "pypi": "pip install --upgrade openjarvis",
             "uv-tool": "uv tool upgrade openjarvis",
-            "editable-git": "cd /tmp/repo && git pull && uv sync",
+            "editable-git": "cd /tmp/repo && git pull && uv sync --inexact",
             "unknown": "pip install --upgrade openjarvis",
         }[kind],
     )
@@ -88,6 +88,26 @@ def test_editable_git_uses_shell_true():
         CliRunner().invoke(self_update, ["-y"])
     _, kwargs = mock_run.call_args
     assert kwargs.get("shell") is True
+
+
+def test_editable_git_preserves_extra_dependencies():
+    """The update sync must not remove packages from prior extras/groups."""
+    mock_proc = MagicMock(returncode=0)
+    with (
+        patch(
+            "openjarvis.cli.self_update_cmd.detect_install",
+            return_value=_mock_info("editable-git"),
+        ),
+        patch(
+            "openjarvis.cli.self_update_cmd.subprocess.run",
+            return_value=mock_proc,
+        ) as mock_run,
+    ):
+        result = CliRunner().invoke(self_update, ["-y"])
+
+    assert result.exit_code == 0
+    assert "uv sync --inexact" in result.output
+    assert "uv sync --inexact" in mock_run.call_args.args[0]
 
 
 def test_failed_upgrade_propagates_exit_code():

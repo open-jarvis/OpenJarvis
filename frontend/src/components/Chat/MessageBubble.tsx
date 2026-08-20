@@ -103,6 +103,24 @@ function CopyMessageButton({ content }: { content: string }) {
 export function MessageBubble({ message, isLive = false }: Props) {
   const isUser = message.role === 'user';
 
+  const cleanContent = useMemo(() => stripThinkTags(message.content), [message.content]);
+
+  // Build a ref→source lookup once per render. Memoized so the rehype plugin
+  // identity stays stable until the source list actually changes.
+  const sourcesMap = useMemo(() => {
+    const m = new Map<number, NonNullable<ChatMessage['researchSources']>[number]>();
+    for (const s of message.researchSources ?? []) {
+      if (typeof s.ref === 'number') m.set(s.ref, s);
+    }
+    return m;
+  }, [message.researchSources]);
+
+  const rehypePlugins = useMemo(() => {
+    const base: any[] = [[rehypeHighlight, { detect: true }], rehypeKatex];
+    if (sourcesMap.size > 0) base.push([rehypeCitations, { sources: sourcesMap }]);
+    return base;
+  }, [sourcesMap]);
+
   if (isUser) {
     return (
       <div className="flex justify-end mb-4">
@@ -121,24 +139,6 @@ export function MessageBubble({ message, isLive = false }: Props) {
       </div>
     );
   }
-
-  const cleanContent = useMemo(() => stripThinkTags(message.content), [message.content]);
-
-  // Build a ref→source lookup once per render. Memoized so the rehype plugin
-  // identity stays stable until the source list actually changes.
-  const sourcesMap = useMemo(() => {
-    const m = new Map<number, NonNullable<ChatMessage['researchSources']>[number]>();
-    for (const s of message.researchSources ?? []) {
-      if (typeof s.ref === 'number') m.set(s.ref, s);
-    }
-    return m;
-  }, [message.researchSources]);
-
-  const rehypePlugins = useMemo(() => {
-    const base: any[] = [[rehypeHighlight, { detect: true }], rehypeKatex];
-    if (sourcesMap.size > 0) base.push([rehypeCitations, { sources: sourcesMap }]);
-    return base;
-  }, [sourcesMap]);
 
   return (
     <div className="group mb-6">

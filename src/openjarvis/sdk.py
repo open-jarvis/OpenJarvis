@@ -516,36 +516,65 @@ class Jarvis:
             existing = agent_kwargs.get("tools", [])
             agent_kwargs["tools"] = digest_tools + list(existing)
 
+        # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md reach
+        # the model — mirrors ``cli/ask.py`` and ``cli/serve.py``. Guarded so
+        # agents whose ``__init__`` doesn't accept the kwarg opt out.
+        import inspect as _inspect
+
+        if "prompt_builder" in _inspect.signature(agent_cls.__init__).parameters:
+            from openjarvis.prompt.builder import SystemPromptBuilder
+
+            agent_kwargs["prompt_builder"] = SystemPromptBuilder(
+                agent_template=self._config.agent.default_system_prompt or "",
+                memory_files_config=self._config.memory_files,
+                system_prompt_config=self._config.system_prompt,
+            )
+
         agent_obj = agent_cls(self._engine, model_name, **agent_kwargs)
         ctx = AgentContext()
 
         # Context injection
         if context and self._config.agent.context_from_memory:
+            backend = None
             try:
-                from openjarvis.cli.ask import _get_memory_backend
+                from openjarvis.cli.ask import (
+                    _get_memory_backend,
+                    _get_memory_facts,
+                )
                 from openjarvis.tools.storage.context import (
                     ContextConfig,
                     inject_context,
                 )
 
                 backend = _get_memory_backend(self._config)
-                if backend is not None:
+                facts = _get_memory_facts(self._config)
+                if backend is not None or facts:
                     ctx_cfg = ContextConfig(
                         top_k=self._config.memory.context_top_k,
                         min_score=self._config.memory.context_min_score,
                         max_context_tokens=self._config.memory.context_max_tokens,
-                        untrusted_policy=self._config.memory.context_untrusted_policy,
+                        untrusted_policy=getattr(
+                            self._config.memory, "context_untrusted_policy", "drop"
+                        ),
                     )
                     context_messages = inject_context(
                         query,
                         [],
                         backend,
                         config=ctx_cfg,
+                        facts=facts,
                     )
                     for msg in context_messages:
                         ctx.conversation.add(msg)
             except Exception as exc:
                 logger.warning("Failed to inject memory context for agent: %s", exc)
+            finally:
+                close = getattr(backend, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:
+                        logger.debug("Memory backend close failed", exc_info=True)
 
         result = agent_obj.run(query, context=ctx)
         return {
@@ -570,21 +599,41 @@ class Jarvis:
         messages: List[Message],
     ) -> List[Message]:
         """Inject memory context into messages."""
+        backend = None
         try:
-            from openjarvis.cli.ask import _get_memory_backend
+            from openjarvis.cli.ask import (
+                _get_memory_backend,
+                _get_memory_facts,
+            )
             from openjarvis.tools.storage.context import ContextConfig, inject_context
 
             backend = _get_memory_backend(self._config)
-            if backend is not None:
+            facts = _get_memory_facts(self._config)
+            if backend is not None or facts:
                 ctx_cfg = ContextConfig(
                     top_k=self._config.memory.context_top_k,
                     min_score=self._config.memory.context_min_score,
                     max_context_tokens=self._config.memory.context_max_tokens,
-                    untrusted_policy=self._config.memory.context_untrusted_policy,
+                    untrusted_policy=getattr(
+                        self._config.memory, "context_untrusted_policy", "drop"
+                    ),
                 )
-                return inject_context(query, messages, backend, config=ctx_cfg)
+                return inject_context(
+                    query,
+                    messages,
+                    backend,
+                    config=ctx_cfg,
+                    facts=facts,
+                )
         except Exception as exc:
             logger.warning("Failed to inject memory context: %s", exc)
+        finally:
+            close = getattr(backend, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    logger.debug("Memory backend close failed", exc_info=True)
         return messages
 
     def list_models(self) -> List[str]:

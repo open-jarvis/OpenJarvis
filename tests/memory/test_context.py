@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
+from openjarvis.memory.store import Fact
 from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
 from openjarvis.tools.storage.context import (
     _UNTRUSTED_ANNOTATION,
@@ -169,6 +170,113 @@ def test_inject_context_no_results_returns_original():
     assert augmented is messages
 
 
+def test_inject_context_adds_auto_memory_facts_without_backend():
+    messages = [Message(role=Role.USER, content="What is my favorite color?")]
+    facts = [Fact(text="The user's favorite color is blue", source="auto")]
+
+    augmented = inject_context("favorite color", messages, None, facts=facts)
+
+    assert len(augmented) == 2
+    assert augmented[0].role == Role.SYSTEM
+    assert "remembered from prior conversations" in augmented[0].content
+    assert "favorite color is blue" in augmented[0].content
+
+
+def test_inject_context_prioritizes_newest_facts_within_token_budget():
+    messages = [Message(role=Role.USER, content="What do you remember?")]
+    facts = [
+        Fact(text="old fact uses four tokens"),
+        Fact(text="new fact uses four tokens"),
+    ]
+
+    augmented = inject_context(
+        "remember",
+        messages,
+        None,
+        config=ContextConfig(max_context_tokens=5),
+        facts=facts,
+    )
+
+    assert "new fact uses four tokens" in augmented[0].content
+    assert "old fact uses four tokens" not in augmented[0].content
+
+
+def test_inject_context_merges_with_existing_system_message():
+    messages = [
+        Message(role=Role.SYSTEM, content="You are OpenJarvis."),
+        Message(role=Role.USER, content="What is my favorite color?"),
+    ]
+    facts = [Fact(text="The user's favorite color is blue")]
+
+    augmented = inject_context("favorite color", messages, None, facts=facts)
+
+    system_messages = [m for m in augmented if m.role == Role.SYSTEM]
+    assert len(system_messages) == 1
+    assert "You are OpenJarvis." in system_messages[0].content
+    assert "favorite color is blue" in system_messages[0].content
+    assert messages[0].content == "You are OpenJarvis."
+
+
+def test_inject_context_collapses_multiple_system_messages():
+    messages = [
+        Message(role=Role.SYSTEM, content="Identity."),
+        Message(role=Role.SYSTEM, content="Persona."),
+        Message(role=Role.USER, content="What do you remember?"),
+    ]
+
+    augmented = inject_context(
+        "remember",
+        messages,
+        None,
+        facts=[Fact(text="User likes jazz")],
+    )
+
+    system_messages = [m for m in augmented if m.role == Role.SYSTEM]
+    assert len(system_messages) == 1
+    assert "Identity." in system_messages[0].content
+    assert "Persona." in system_messages[0].content
+    assert "User likes jazz" in system_messages[0].content
+
+
+def test_inject_context_reserves_budget_for_retrieved_documents():
+    backend = _FakeMemory(
+        [RetrievalResult(content="d1 d2 d3 d4 d5", score=1.0, source="doc")]
+    )
+    facts = [
+        Fact(text="old1 old2 old3 old4 old5"),
+        Fact(text="new1 new2 new3 new4 new5"),
+    ]
+
+    augmented = inject_context(
+        "query",
+        [Message(role=Role.USER, content="query")],
+        backend,
+        config=ContextConfig(max_context_tokens=10),
+        facts=facts,
+    )
+
+    assert "new1 new2 new3 new4 new5" in augmented[0].content
+    assert "d1 d2 d3 d4 d5" in augmented[0].content
+    assert "old1 old2 old3 old4 old5" not in augmented[0].content
+
+
+def test_inject_context_prefers_large_document_that_fits_total_budget():
+    backend = _FakeMemory(
+        [RetrievalResult(content="d1 d2 d3 d4 d5 d6 d7 d8", score=1.0)]
+    )
+
+    augmented = inject_context(
+        "query",
+        [Message(role=Role.USER, content="query")],
+        backend,
+        config=ContextConfig(max_context_tokens=10),
+        facts=[Fact(text="f1 f2 f3 f4 f5")],
+    )
+
+    assert "d1 d2 d3 d4 d5 d6 d7 d8" in augmented[0].content
+    assert "f1 f2 f3 f4 f5" not in augmented[0].content
+
+
 def test_inject_context_publishes_event():
     bus = EventBus(record_history=True)
     results = [
@@ -251,12 +359,16 @@ def test_apply_trust_policy_annotate_does_not_mutate_original():
     assert annotated[0].metadata == original.metadata
 
 
-def test_apply_trust_policy_unknown_passes_through_unchanged():
+def test_apply_trust_policy_unknown_fails_closed():
     results = [_trusted(), _untrusted()]
-    passed = apply_trust_policy(results, "passthrough")
-    assert passed == results
-    # A new list is returned, not the caller's own.
-    assert passed is not results
+    filtered = apply_trust_policy(results, "passthrough")
+    assert filtered == [results[0]]
+
+
+def test_apply_trust_policy_malformed_metadata_fails_closed():
+    result = _untrusted()
+    result.metadata = ["not", "a", "mapping"]
+    assert apply_trust_policy([result], "drop") == []
 
 
 def test_apply_trust_policy_trust_tag_is_case_insensitive():
@@ -275,6 +387,20 @@ def test_inject_context_drops_untrusted_result():
     augmented = inject_context("query", messages, backend)
     # Fully dropped → original messages returned unchanged.
     assert augmented is messages
+
+
+def test_inject_context_keeps_facts_when_all_retrieval_is_dropped():
+    backend = _FakeMemory([_untrusted("injected")])
+    messages = [Message(role=Role.USER, content="hello")]
+    augmented = inject_context(
+        "query",
+        messages,
+        backend,
+        facts=[Fact(text="User likes jazz")],
+    )
+    assert len(augmented) == 2
+    assert "User likes jazz" in augmented[0].content
+    assert "injected" not in augmented[0].content
 
 
 def test_inject_context_keeps_trusted_drops_untrusted():
