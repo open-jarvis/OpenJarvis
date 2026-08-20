@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -73,3 +74,23 @@ def test_sync_yields_activities(connector):
     assert docs[0].title == "Morning Run"
     assert docs[1].doc_type == "ride"
     assert docs[0].metadata["distance_m"] == 5200.0
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        '{"client_id": "id", "client_secret": "secret"}',
+        '{"access_token": "   "}',
+        "not-json",
+    ],
+)
+def test_client_registration_file_is_not_connected(
+    tmp_path: Path,
+    contents: str,
+) -> None:
+    from openjarvis.connectors.strava import StravaConnector
+
+    token_path = tmp_path / "strava.json"
+    token_path.write_text(contents, encoding="utf-8")
+
+    assert StravaConnector(token_path=str(token_path)).is_connected() is False

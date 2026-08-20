@@ -344,3 +344,29 @@ def test_oauth_callback_exchange_failure_renders_error(
 
     assert resp.status_code == 500
     assert "Token Exchange Failed" in resp.text
+
+
+def test_oauth_callback_rejects_missing_access_token_without_false_success(
+    client: TestClient,
+    hermetic_connectors: Path,
+) -> None:
+    """Client credentials alone must not complete the consent flow."""
+    import openjarvis.connectors.oauth as oauth_mod
+
+    client.post("/v1/connectors/spotify/connect", json={"code": "id:secret"})
+    with patch.object(
+        oauth_mod,
+        "_exchange_token",
+        return_value={"refresh_token": "refresh-only"},
+    ):
+        resp = client.get("/v1/connectors/spotify/oauth/callback?code=bad-payload")
+
+    assert resp.status_code == 500
+    assert "Token Exchange Failed" in resp.text
+    assert "Connected!" not in resp.text
+    saved = json.loads((hermetic_connectors / "spotify.json").read_text())
+    assert "access_token" not in saved
+
+    from openjarvis.connectors.spotify import SpotifyConnector
+
+    assert SpotifyConnector().is_connected() is False

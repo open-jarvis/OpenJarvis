@@ -108,4 +108,32 @@ describe('connectors-api sends the Bearer auth header', () => {
     await triggerSync('gmail');
     expect(authHeaderSent()).toBe('Bearer sk-local-123');
   });
+
+  it('OAuth polling waits for a real connected state before resolving', async () => {
+    vi.useFakeTimers();
+    const open = vi.fn();
+    vi.stubGlobal('window', { open });
+    try {
+      fetchMock
+        .mockResolvedValueOnce(okJson({ connected: false }))
+        .mockResolvedValueOnce(okJson({ connected: true }));
+      const { startServerOAuth } = await freshConnectorsApi();
+
+      let resolved = false;
+      const flow = startServerOAuth('spotify').then(() => {
+        resolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(resolved).toBe(false);
+      await vi.advanceTimersByTimeAsync(2000);
+      await flow;
+
+      expect(resolved).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(open).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
 });

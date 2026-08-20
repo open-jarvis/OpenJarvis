@@ -7,8 +7,12 @@ functions for easy mocking in tests.
 
 from __future__ import annotations
 
+import http.client
+import ipaddress
 import json
+import socket
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -23,26 +27,204 @@ from openjarvis.core.registry import ConnectorRegistry
 
 _DEFAULT_CONFIG_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "news_rss.json")
 _MAX_REDIRECTS = 5
+_MAX_FEED_BYTES = 10 * 1024 * 1024
 
 
-def _validate_feed_url(url: str) -> None:
-    """Reject malformed and private-network feed targets."""
+@dataclass(frozen=True)
+class _FeedTarget:
+    """A validated URL plus the exact public addresses it may connect to."""
+
+    scheme: str
+    hostname: str
+    port: int
+    request_target: str
+    host_header: str
+    addresses: tuple[str, ...]
+
+
+def _resolve_host_addresses(hostname: str, port: int) -> tuple[str, ...]:
+    """Resolve once, reject every non-global answer, and return pinned IPs."""
+    from openjarvis.security.ssrf import is_private_ip
+
+    try:
+        results = socket.getaddrinfo(
+            hostname,
+            port,
+            socket.AF_UNSPEC,
+            socket.SOCK_STREAM,
+        )
+    except socket.gaierror as exc:
+        raise ValueError(
+            f"RSS feed hostname could not be resolved: {hostname}"
+        ) from exc
+
+    addresses: list[str] = []
+    for _family, _type, _proto, _canonname, sockaddr in results:
+        raw_ip = sockaddr[0].split("%", 1)[0]
+        try:
+            address = ipaddress.ip_address(raw_ip)
+        except ValueError as exc:
+            raise ValueError(f"RSS feed resolved to an invalid IP: {raw_ip}") from exc
+        # ``is_global`` closes gaps outside the project's original RFC1918
+        # list (CGNAT, benchmarking, documentation, and other special ranges).
+        if not address.is_global or is_private_ip(str(address)):
+            raise ValueError(f"RSS feed resolved to a non-public IP: {address}")
+        normalized = str(address)
+        if normalized not in addresses:
+            addresses.append(normalized)
+
+    if not addresses:
+        raise ValueError(f"RSS feed hostname returned no addresses: {hostname}")
+    return tuple(addresses)
+
+
+def _validate_feed_url(url: str) -> _FeedTarget:
+    """Reject malformed/private targets and pin the addresses just checked."""
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("Each RSS feed must be an http(s) URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("RSS feed URLs must not contain user credentials")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("Each RSS feed must include a hostname")
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError as exc:
+        raise ValueError("RSS feed URL contains an invalid port") from exc
+
     from openjarvis.security.ssrf import check_ssrf
 
     error = check_ssrf(url)
     if error:
         raise ValueError(f"RSS feed URL is not allowed: {error}")
 
+    # IDNA is used consistently for DNS, HTTP Host, TLS SNI, and certificate
+    # verification. IP literals are already ASCII and remain unchanged.
+    try:
+        ipaddress.ip_address(hostname)
+        connection_hostname = hostname
+    except ValueError:
+        try:
+            connection_hostname = hostname.encode("idna").decode("ascii")
+        except UnicodeError as exc:
+            raise ValueError("RSS feed hostname is not valid IDNA") from exc
+
+    addresses = _resolve_host_addresses(connection_hostname, port)
+    default_port = 443 if parsed.scheme == "https" else 80
+    displayed_host = (
+        f"[{connection_hostname}]"
+        if ":" in connection_hostname
+        else connection_hostname
+    )
+    host_header = (
+        displayed_host
+        if port == default_port
+        else f"{displayed_host}:{port}"
+    )
+    request_target = parsed.path or "/"
+    if parsed.query:
+        request_target = f"{request_target}?{parsed.query}"
+
+    return _FeedTarget(
+        scheme=parsed.scheme,
+        hostname=connection_hostname,
+        port=port,
+        request_target=request_target,
+        host_header=host_header,
+        addresses=addresses,
+    )
+
+
+class _PinnedConnectionMixin:
+    """Connect to a verified IP while retaining the URL host for HTTP/TLS."""
+
+    def __init__(self, host: str, port: int, *, pinned_ip: str, **kwargs: Any) -> None:
+        self._pinned_ip = pinned_ip
+        super().__init__(host, port, **kwargs)
+        # HTTPConnection.__init__ deliberately installs socket.create_connection
+        # as an instance attribute, so replace that hook after initialization.
+        self._create_connection = self._create_pinned_connection
+
+    def _create_pinned_connection(self, address, timeout, source_address):
+        # Ignore ``address[0]`` so http.client never performs a second DNS
+        # lookup. HTTPSConnection still uses ``self.host`` as TLS SNI and for
+        # certificate hostname verification.
+        return socket.create_connection(
+            (self._pinned_ip, address[1]),
+            timeout,
+            source_address,
+        )
+
+
+class _PinnedHTTPConnection(_PinnedConnectionMixin, http.client.HTTPConnection):
+    pass
+
+
+class _PinnedHTTPSConnection(_PinnedConnectionMixin, http.client.HTTPSConnection):
+    pass
+
+
+def _request_feed(url: str, target: _FeedTarget) -> httpx.Response:
+    """GET *url* using only the already-validated addresses in *target*."""
+    request = httpx.Request("GET", url)
+    last_error: Exception | None = None
+
+    for address in target.addresses:
+        connection_cls = (
+            _PinnedHTTPSConnection
+            if target.scheme == "https"
+            else _PinnedHTTPConnection
+        )
+        connection = connection_cls(
+            target.hostname,
+            target.port,
+            pinned_ip=address,
+            timeout=30.0,
+        )
+        try:
+            connection.request(
+                "GET",
+                target.request_target,
+                headers={
+                    "Host": target.host_header,
+                    "Accept": (
+                        "application/rss+xml, application/atom+xml, "
+                        "application/xml, text/xml;q=0.9, */*;q=0.1"
+                    ),
+                    "User-Agent": "OpenJarvis-RSS/1.0",
+                    "Connection": "close",
+                },
+            )
+            raw_response = connection.getresponse()
+            body = raw_response.read(_MAX_FEED_BYTES + 1)
+            if len(body) > _MAX_FEED_BYTES:
+                raise ValueError(
+                    f"RSS feed exceeded {_MAX_FEED_BYTES} response bytes"
+                )
+            return httpx.Response(
+                raw_response.status,
+                headers=raw_response.getheaders(),
+                content=body,
+                request=request,
+            )
+        except (OSError, http.client.HTTPException) as exc:
+            last_error = exc
+        finally:
+            connection.close()
+
+    raise httpx.RequestError(
+        f"Unable to fetch RSS feed from its verified addresses: {last_error}",
+        request=request,
+    ) from last_error
+
 
 def _fetch_feed(url: str) -> str:
     """Download feed XML while validating every redirect target."""
     current_url = url
     for _ in range(_MAX_REDIRECTS + 1):
-        _validate_feed_url(current_url)
-        resp = httpx.get(current_url, timeout=30.0, follow_redirects=False)
+        target = _validate_feed_url(current_url)
+        resp = _request_feed(current_url, target)
         if resp.status_code not in {301, 302, 303, 307, 308}:
             resp.raise_for_status()
             return resp.text
@@ -171,7 +353,7 @@ class NewsRSSConnector(BaseConnector):
 
             try:
                 xml_text = _fetch_feed(feed_url)
-            except httpx.HTTPError:
+            except (httpx.HTTPError, ValueError):
                 continue
 
             items = _parse_rss_items(xml_text)
