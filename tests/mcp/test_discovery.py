@@ -244,6 +244,39 @@ def test_builder_global_mcp_disable_prevents_discovery() -> None:
     assert builder._mcp_tools == []
 
 
+def test_builder_resolves_external_file_from_config_directory(tmp_path) -> None:
+    """SystemBuilder consumes file-backed MCP config on the primary path."""
+
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.system import SystemBuilder
+
+    server_file = tmp_path / "mcp-servers.json"
+    server_file.write_text(
+        '[{"name": "file-server", "url": "http://localhost:8080/mcp"}]',
+        encoding="utf-8",
+    )
+    config = JarvisConfig()
+    config.tools.mcp.servers = server_file.name
+    config._config_dir = tmp_path
+    builder = SystemBuilder(config)
+
+    with (
+        patch("openjarvis.mcp.server.MCPServer") as mcp_server_cls,
+        patch.object(builder, "_discover_external_mcp", return_value=[]) as discover,
+    ):
+        mcp_server_cls.return_value.get_tools.return_value = []
+        builder._resolve_tools(
+            config,
+            engine=MagicMock(),
+            model="test-model",
+            memory_backend=None,
+        )
+
+    discover.assert_called_once_with(
+        {"name": "file-server", "url": "http://localhost:8080/mcp"}
+    )
+
+
 def test_reused_builder_transfers_only_current_build_mcp_state() -> None:
     """Each built system exclusively owns its own MCP clients and tools."""
 
