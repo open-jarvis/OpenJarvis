@@ -4,19 +4,29 @@
   <p><i>Personal AI, On Personal Devices.</i></p>
 
   <p>
-    <a href="https://scalingintelligence.stanford.edu/blogs/openjarvis/"><img src="https://img.shields.io/badge/project-OpenJarvis-blue" alt="Project"></a>
+    <a href="https://arxiv.org/abs/2605.17172"><img src="https://img.shields.io/badge/arXiv-2605.17172-b31b1b.svg" alt="arXiv"></a>
+    <a href="https://openjarvis.stanford.edu/"><img src="https://img.shields.io/badge/project-OpenJarvis-blue" alt="Project"></a>
     <a href="https://open-jarvis.github.io/OpenJarvis/"><img src="https://img.shields.io/badge/docs-mkdocs-blue" alt="Docs"></a>
     <img src="https://img.shields.io/badge/python-%3E%3D3.10-blue" alt="Python">
     <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License">
-    <a href="https://discord.gg/YZZRxCAhmm"><img src="https://img.shields.io/badge/discord-join-7289da?logo=discord&logoColor=white" alt="Discord"></a>
+    <a href="https://discord.gg/CMVBmDQ5Fj"><img src="https://img.shields.io/badge/discord-join-7289da?logo=discord&logoColor=white" alt="Discord"></a>
+    <a href="https://x.com/OpenJarvisAI"><img src="https://img.shields.io/badge/X-@OpenJarvisAI-black?logo=x&logoColor=white" alt="X / Twitter"></a>
   </p>
+</div>
+
+---
+
+<div align="center">
+  <img alt="OpenJarvis demo reel" src="assets/openjarvis_demo_reel.webp" width="75%">
 </div>
 
 ---
 
 > **[Documentation](https://open-jarvis.github.io/OpenJarvis/)**
 >
-> **[Project Site](https://scalingintelligence.stanford.edu/blogs/openjarvis/)**
+> **[Project Site](https://openjarvis.stanford.edu/)**
+>
+> **[Paper](https://arxiv.org/abs/2605.17172)**
 >
 > **[Leaderboard](https://open-jarvis.github.io/OpenJarvis/leaderboard/)**
 >
@@ -26,89 +36,48 @@
 
 Personal AI agents are exploding in popularity, but nearly all of them still route intelligence through cloud APIs. Your "personal" AI continues to depend on someone else's server. At the same time, our [Intelligence Per Watt](https://www.intelligence-per-watt.ai/) research showed that local language models already handle 88.7% of single-turn chat and reasoning queries, with intelligence efficiency improving 5.3× from 2023 to 2025. The models and hardware are increasingly ready. What has been missing is the software stack to make local-first personal AI practical.
 
-OpenJarvis is that stack. It is an opinionated framework for local-first personal AI, built around three core ideas: shared primitives for building on-device agents; evaluations that treat energy, FLOPs, latency, and dollar cost as first-class constraints alongside accuracy; and a learning loop that improves models using local trace data. The goal is simple: make it possible to build personal AI agents that run locally by default, calling the cloud only when truly necessary. OpenJarvis aims to be both a research platform and a production foundation for local AI, in the spirit of PyTorch.
+OpenJarvis is that stack. It is a framework for local-first personal AI, built around three core ideas: shared primitives for building on-device agents; evaluations that treat energy, FLOPs, latency, and dollar cost as first-class constraints alongside accuracy; and a learning loop that improves models using local trace data. The goal is simple: make it possible to build personal AI agents that run locally by default, calling the cloud only when truly necessary. OpenJarvis aims to be both a research platform and a production foundation for local AI, in the spirit of PyTorch.
 
 ## Installation
 
-### Prerequisites
+Pick your platform and run one command. Each installer handles [uv](https://docs.astral.sh/uv/), the Python venv, Ollama, and a starter model — about 3 minutes on broadband.
 
-| Tool | Install |
-|------|---------|
-| **Python 3.10+** | [python.org](https://www.python.org/downloads/) |
-| **uv** (Python package manager) | `curl -LsSf https://astral.sh/uv/install.sh \| sh` — or `brew install uv` on macOS |
-| **Rust** | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| **Git** | [git-scm.com](https://git-scm.com/) — or `brew install git` on macOS |
+| Platform | One-liner |
+|---|---|
+| **macOS · Linux · WSL2** | `curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh \| bash` |
+| **Native Windows** | `irm https://open-jarvis.github.io/OpenJarvis/install.ps1 \| iex` |
+| **Desktop GUI** | Download `.exe` / `.dmg` / `.deb` / `.rpm` / `.AppImage` from the [latest release](https://github.com/open-jarvis/OpenJarvis/releases) |
 
-> **macOS users:** see the full [macOS Installation Guide](https://open-jarvis.github.io/OpenJarvis/getting-started/macos/) for a step-by-step walkthrough including Homebrew setup.
+Then `jarvis` to start. The Rust extension and larger models continue downloading in the background; `jarvis doctor` shows status.
 
-### Setup
-
-```bash
-git clone https://github.com/open-jarvis/OpenJarvis.git
-cd OpenJarvis
-uv sync                           # core framework
-uv sync --extra server             # + FastAPI server
-
-# Build the Rust extension
-uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
-```
-
-> **Python 3.14+:** set `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` before the `maturin` command.
-
-You also need a local inference backend: [Ollama](https://ollama.com), [vLLM](https://github.com/vllm-project/vllm), [SGLang](https://github.com/sgl-project/sglang), or [llama.cpp](https://github.com/ggerganov/llama.cpp). Alternatively, use the `cloud` engine with [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Google Gemini](https://ai.google.dev), [OpenRouter](https://openrouter.ai), or [MiniMax](https://www.minimax.io) by setting the corresponding API key environment variable.
+Platform-specific notes (WSL2 setup, native-Windows scheduled-task service, desktop prerequisites, manual / contributor install): see the [installation docs](https://open-jarvis.github.io/OpenJarvis/getting-started/install/).
 
 ## Quick Start
 
 ```bash
-# 1. Install and detect hardware
-git clone https://github.com/open-jarvis/OpenJarvis.git
-cd OpenJarvis
-uv sync
-uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml   # required for memory + security features
-uv run jarvis init
-
-# 2. Start Ollama and pull a model
-curl -fsSL https://ollama.com/install.sh | sh
-ollama serve &
-ollama pull qwen3.5:4b   # CPU-friendly default; use qwen3.5:9b or larger if you have a GPU
-
-# 3. Ask a question
-uv run jarvis ask "What is the capital of France?"
+jarvis                          # start chatting (default: chat-simple)
+jarvis init --preset <name>     # switch to a starter config
 ```
 
-`jarvis init` auto-detects your hardware and recommends the best engine and model size. Run `uv run jarvis doctor` at any time to diagnose issues.
+> Prefix `jarvis ...` with `uv run`, or `source .venv/bin/activate` first.
 
-## Starter Configs
+| Preset | What it does |
+|---|---|
+| `morning-digest-mac` / `morning-digest-linux` / `morning-digest-minimal` | Spoken daily briefing from email, calendar, health, news |
+| `deep-research` | Multi-hop research across indexed docs with citations |
+| `code-assistant` | Agent with code execution, file I/O, and shell access |
+| `scheduled-monitor` | Stateful agent on a schedule with memory |
+| `chat-simple` | Lightweight conversation, no tools |
 
-Install any preset with one command:
+Example:
 
 ```bash
-uv run jarvis init --preset morning-digest-mac   # or any preset below
+jarvis init --preset morning-digest-mac
+jarvis connect gdrive          # one OAuth covers Gmail / Calendar / Tasks
+jarvis digest --fresh          # generate and play your first briefing
 ```
 
-> Prefix every `jarvis ...` invocation with `uv run`, or activate the venv first (`source .venv/bin/activate`) so plain `jarvis ...` works for the rest of your shell session.
-
-| Preset | Use Case | What it does |
-|--------|----------|-------------|
-| `morning-digest-mac` | Daily Briefing (Mac) | Spoken briefing from email, calendar, health, news with Jarvis voice |
-| `morning-digest-linux` | Daily Briefing (Linux) | Same, with vLLM support for GPU servers |
-| `morning-digest-minimal` | Daily Briefing (minimal) | Just Gmail + Calendar, runs on any machine |
-| `deep-research` | Research Assistant | Multi-hop research across indexed docs with citations |
-| `code-assistant` | Code Companion | Agent with code execution, file I/O, and shell access |
-| `scheduled-monitor` | Persistent Monitor | Stateful agent that runs on a schedule with memory |
-| `chat-simple` | Simple Chat | Lightweight conversation, no tools needed |
-
-```bash
-# Example: Morning Digest on Mac
-uv run jarvis init --preset morning-digest-mac
-uv run jarvis connect gdrive          # one OAuth flow covers Gmail, Calendar, Tasks
-uv run jarvis digest --fresh          # generate and play your first briefing
-
-# Example: Deep Research
-uv run jarvis init --preset deep-research
-uv run jarvis memory index ./docs/    # requires the Rust extension — see Setup above
-uv run jarvis ask "Summarize all emails about Project X"
-```
+Per-preset deep dives: [morning digest](https://open-jarvis.github.io/OpenJarvis/user-guide/morning-digest/) · [deep research](https://open-jarvis.github.io/OpenJarvis/user-guide/deep-research/) · [code assistant](https://open-jarvis.github.io/OpenJarvis/user-guide/code-assistant/) · [scheduled monitor](https://open-jarvis.github.io/OpenJarvis/user-guide/scheduled-monitor/) · [chat simple](https://open-jarvis.github.io/OpenJarvis/user-guide/chat-simple/) · or the full [quickstart guide](https://open-jarvis.github.io/OpenJarvis/getting-started/quickstart/).
 
 ### Skills
 
@@ -135,6 +104,8 @@ See the [Skills User Guide](https://open-jarvis.github.io/OpenJarvis/user-guide/
 
 ### Built-in Agents
 
+OpenJarvis ships with eight built-in agents across three execution modes (on-demand, scheduled, continuous):
+
 | Agent | Type | What it does |
 |-------|------|-------------|
 | `morning_digest` | Scheduled | Daily briefing from email, calendar, health, news — with TTS audio |
@@ -149,6 +120,13 @@ See the [Skills User Guide](https://open-jarvis.github.io/OpenJarvis/user-guide/
 See the [User Guide](https://open-jarvis.github.io/OpenJarvis/user-guide/morning-digest/) and [Tutorials](https://open-jarvis.github.io/OpenJarvis/tutorials/) for detailed setup instructions.
 
 Full documentation — including Docker deployment, cloud engines, development setup, and tutorials — at **[open-jarvis.github.io/OpenJarvis](https://open-jarvis.github.io/OpenJarvis/)**.
+
+## Community
+
+- **GitHub:** [github.com/open-jarvis/OpenJarvis](https://github.com/open-jarvis/OpenJarvis)
+- **Discord:** [discord.gg/CMVBmDQ5Fj](https://discord.gg/CMVBmDQ5Fj)
+- **X / Twitter:** [@OpenJarvisAI](https://x.com/OpenJarvisAI)
+- **Docs:** [open-jarvis.github.io/OpenJarvis](https://open-jarvis.github.io/OpenJarvis/)
 
 ## Contributing
 
@@ -168,7 +146,7 @@ Browse the [Roadmap](https://open-jarvis.github.io/OpenJarvis/development/roadma
 
 ## About
 
-OpenJarvis is part of [Intelligence Per Watt](https://www.intelligence-per-watt.ai/), a research initiative studying the efficiency of on-device AI systems. The project is developed at [Hazy Research](https://hazyresearch.stanford.edu/) and the [Scaling Intelligence Lab](https://scalingintelligence.stanford.edu/) at [Stanford SAIL](https://ai.stanford.edu/).
+OpenJarvis is part of [Intelligence Per Watt](https://www.intelligence-per-watt.ai/), a research initiative studying the intelligence efficiency of AI systems. The project is developed at [Hazy Research](https://hazyresearch.stanford.edu/) and the [Scaling Intelligence Lab](https://scalingintelligence.stanford.edu/) at [Stanford SAIL](https://ai.stanford.edu/).
 
 ## Sponsors
 
@@ -184,11 +162,14 @@ OpenJarvis is part of [Intelligence Per Watt](https://www.intelligence-per-watt.
 
 ## Citation
 ```bibtex
-@misc{saadfalcon2026openjarvis,
-  title={OpenJarvis: Personal AI, On Personal Devices},
-  author={Jon Saad-Falcon and Avanika Narayan and Herumb Shandilya and Hakki Orhun Akengin and Robby Manihani and Gabriel Bo and John Hennessy and Christopher R\'{e} and Azalia Mirhoseini},
-  year={2026},
-  howpublished={\url{https://scalingintelligence.stanford.edu/blogs/openjarvis/}},
+@misc{saadfalcon2026openjarvispersonalaipersonal,
+      title={OpenJarvis: Personal AI, On Personal Devices}, 
+      author={Jon Saad-Falcon and Avanika Narayan and Robby Manihani and Tanvir Bhathal and Herumb Shandilya and Hakki Orhun Akengin and Gabriel Bo and Andrew Park and Matthew Hart and Caia Costello and Chuan Li and Christopher Ré and Azalia Mirhoseini},
+      year={2026},
+      eprint={2605.17172},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2605.17172}, 
 }
 ```
 

@@ -1,0 +1,76 @@
+# LLM-Guided Spec Search — quickstart configuration
+# Copy to ~/.openjarvis/config.toml and run:
+#   python -m openjarvis_examples.spec_search_quickstart
+#
+# This config has two parts:
+#   1. The agent system being optimized (intelligence / engine / agent / tools).
+#      Same schema as the other examples in this directory; parsed by
+#      ``openjarvis.core.config.load_config``.
+#   2. ``[learning.spec_search]`` and its sub-tables — the search hyperparameters
+#      consumed by ``SpecSearchOrchestrator.from_config`` and ``SpecSearchLoop``.
+#
+# Defaults below match the paper (Saad-Falcon et al., 2026):
+#   - max_regression = 0.01    (epsilon in GateOK)
+#   - stagnation_k   = 5       (Algorithm 1 stopping rule)
+#   - composite_reward weights (alpha, beta, gamma, delta) = (0.5, 0.1, 0.1, 0.3)
+#
+# Teacher API keys come from your environment / credentials store, not this file.
+
+# ---------------------------------------------------------------------------
+# Agent system being optimized
+# ---------------------------------------------------------------------------
+
+[engine]
+default = "ollama"               # swap to "vllm" on H100/RTX 6000 / DGX Spark
+
+[intelligence]
+default_model = "qwen3.5:9b"     # the local student
+# default_model = "qwen3.5:27b-fp8"  # workstation tier
+
+[agent]
+default_agent = "orchestrator"   # multi-turn, tool-using
+max_turns = 10
+
+[tools]
+enabled = [
+    "code_interpreter",
+    "file_read",
+    "web_search",
+    "think",
+    "calculator",
+]
+
+# ---------------------------------------------------------------------------
+# LLM-guided spec search hyperparameters (paper §3.3, Algorithm 1)
+# ---------------------------------------------------------------------------
+
+[learning.spec_search]
+enabled = true
+teacher_model = "claude-opus-4-6"      # frontier proposer
+teacher_engine = "cloud"               # CloudEngine registry key (uses LiteLLM)
+autonomy_mode  = "tiered"              # auto | tiered | manual
+
+# Per-session bounds (one diagnose / plan / execute / record pass)
+min_traces                   = 20
+max_cost_per_session_usd     = 5.0
+max_tool_calls_per_diagnosis = 30
+
+# Multi-session loop (paper Algorithm 1 stopping)
+stagnation_k        = 5      # stop after this many sessions with no gate-score gain
+stagnation_eps      = 0.001  # delta below this counts as no improvement
+max_total_cost_usd  = 50.0   # cumulative teacher-cost budget across all sessions
+
+# GateOK predicate — accept iff target cluster improves AND every other cluster
+# regresses by at most max_regression (epsilon in the paper).
+max_regression           = 0.01   # paper default: 1%
+min_improvement          = 0.0
+benchmark_subsample_size = 50
+benchmark_version        = "personal_v1"
+
+# Composite reward (paper Eq. 1) — used only when an Intelligence edit triggers
+# LoRA / GRPO training inside an accepted edit. The held-out gate is unaffected.
+[learning.spec_search.composite_reward]
+alpha = 0.5     # accuracy weight
+beta  = 0.1     # energy penalty
+gamma = 0.1     # latency penalty
+delta = 0.3     # cost penalty

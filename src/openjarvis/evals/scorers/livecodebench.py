@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
+from openjarvis.core import get_python_executable
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
 
@@ -90,7 +91,7 @@ def _run_single_test(
 
     try:
         result = subprocess.run(
-            ["python3", script_path],
+            [get_python_executable(), script_path],
             input=test_input,
             capture_output=True,
             text=True,

@@ -389,10 +389,15 @@ class LoRATrainer:
             [item["attention_mask"] for item in batch_items]
         ).to(self.device)
 
+        # Exclude padding positions from the loss (-100 is the
+        # cross-entropy ignore_index; pad_token == eos_token here).
+        labels = input_ids.clone()
+        labels[attention_mask == 0] = -100
+
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            labels=input_ids,
+            labels=labels,
         )
         loss = outputs.loss
 

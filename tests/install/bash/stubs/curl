@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Stub for curl — records args, returns canned output.
+echo "$@" >> "${CURL_STUB_LOG:-/dev/null}"
+if [[ "${CURL_STUB_OUTPUT_FILE:-}" ]]; then
+    cat "$CURL_STUB_OUTPUT_FILE"
+fi
+exit "${CURL_STUB_EXIT:-0}"

@@ -1,0 +1,500 @@
+{
+  "version": "0.0.1-seed",
+  "created_at": "2026-05-19",
+  "updated_at": "2026-05-19",
+  "_note": "HAND-AUTHORED SEED \u2014 not produced by the explore->learn->select pipeline. Priors are calibrated to Qwen-27B vs Opus on GAIA-style QA. Replace with a learned StageSkillHandbook when available.",
+  "skills": {
+    "search": {
+      "search.entity_lookup": {
+        "skill_id": "search.entity_lookup",
+        "name": "Entity Lookup",
+        "description": "Find a specific named entity, date, or attribute (person, place, work, organization).",
+        "stage": "search",
+        "examples": [
+          "Who directed the 1997 film Titanic?"
+        ],
+        "discovered_from_problems": []
+      },
+      "search.recent_events": {
+        "skill_id": "search.recent_events",
+        "name": "Recent Events",
+        "description": "Find recent or time-sensitive facts unlikely to be in a small model's parametric memory.",
+        "stage": "search",
+        "examples": [
+          "Which team won the 2025 Cricket World Cup?"
+        ],
+        "discovered_from_problems": []
+      },
+      "search.multi_hop": {
+        "skill_id": "search.multi_hop",
+        "name": "Multi Hop",
+        "description": "Locate intermediate facts that chain together to answer a compositional question.",
+        "stage": "search",
+        "examples": [
+          "What is the capital of the country that won the most 2024 Olympic gold medals?"
+        ],
+        "discovered_from_problems": []
+      }
+    },
+    "code": {
+      "code.arithmetic": {
+        "skill_id": "code.arithmetic",
+        "name": "Arithmetic",
+        "description": "Exact numeric computation, unit conversion, and counting over given values.",
+        "stage": "code",
+        "examples": [
+          "How many days are between 1999-03-01 and 2001-07-15?"
+        ],
+        "discovered_from_problems": []
+      },
+      "code.data_transform": {
+        "skill_id": "code.data_transform",
+        "name": "Data Transform",
+        "description": "Parse, filter, sort, or aggregate structured data to derive an intermediate result.",
+        "stage": "code",
+        "examples": [
+          "Given this table, which row has the third-highest revenue?"
+        ],
+        "discovered_from_problems": []
+      }
+    },
+    "answer": {
+      "answer.synthesis": {
+        "skill_id": "answer.synthesis",
+        "name": "Synthesis",
+        "description": "Combine retrieved documents and code results into a single correct answer.",
+        "stage": "answer",
+        "examples": [
+          "Combine the search results to state the final figure."
+        ],
+        "discovered_from_problems": []
+      },
+      "answer.format_compliance": {
+        "skill_id": "answer.format_compliance",
+        "name": "Format Compliance",
+        "description": "Emit the answer in the exact required format (no units, exact casing, list shape).",
+        "stage": "answer",
+        "examples": [
+          "Answer with a comma-separated list, no units."
+        ],
+        "discovered_from_problems": []
+      },
+      "answer.long_context": {
+        "skill_id": "answer.long_context",
+        "name": "Long Context",
+        "description": "Read a long accumulated context and extract the precise answer span.",
+        "stage": "answer",
+        "examples": [
+          "Extract the requested value from the document above."
+        ],
+        "discovered_from_problems": []
+      }
+    }
+  },
+  "model_profiles": {
+    "search-1": {
+      "model_alias": "search-1",
+      "actual_model": "claude-opus-4-7",
+      "stage": "search",
+      "skill_scores": {
+        "search.entity_lookup": 0.82,
+        "search.recent_events": 0.78,
+        "search.multi_hop": 0.8
+      },
+      "skill_attempts": {
+        "search.entity_lookup": 24,
+        "search.recent_events": 24,
+        "search.multi_hop": 24
+      },
+      "skill_successes": {
+        "search.entity_lookup": 20,
+        "search.recent_events": 19,
+        "search.multi_hop": 19
+      },
+      "overall_success_rate": 0.6,
+      "total_attempts": 24,
+      "total_successes": 14,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 320.0,
+      "avg_cost_usd": 0.014,
+      "strengths": [
+        "multi-hop reasoning",
+        "rare-fact recall"
+      ],
+      "weaknesses": [
+        "higher cost"
+      ]
+    },
+    "search-2": {
+      "model_alias": "search-2",
+      "actual_model": "claude-opus-4-7",
+      "stage": "search",
+      "skill_scores": {
+        "search.entity_lookup": 0.82,
+        "search.recent_events": 0.78,
+        "search.multi_hop": 0.8
+      },
+      "skill_attempts": {
+        "search.entity_lookup": 24,
+        "search.recent_events": 24,
+        "search.multi_hop": 24
+      },
+      "skill_successes": {
+        "search.entity_lookup": 20,
+        "search.recent_events": 19,
+        "search.multi_hop": 19
+      },
+      "overall_success_rate": 0.6,
+      "total_attempts": 24,
+      "total_successes": 14,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 320.0,
+      "avg_cost_usd": 0.014,
+      "strengths": [
+        "multi-hop reasoning",
+        "rare-fact recall"
+      ],
+      "weaknesses": [
+        "higher cost"
+      ]
+    },
+    "search-3": {
+      "model_alias": "search-3",
+      "actual_model": "Qwen/Qwen3.5-27B-FP8",
+      "stage": "search",
+      "skill_scores": {
+        "search.entity_lookup": 0.55,
+        "search.recent_events": 0.3,
+        "search.multi_hop": 0.42
+      },
+      "skill_attempts": {
+        "search.entity_lookup": 24,
+        "search.recent_events": 24,
+        "search.multi_hop": 24
+      },
+      "skill_successes": {
+        "search.entity_lookup": 13,
+        "search.recent_events": 7,
+        "search.multi_hop": 10
+      },
+      "overall_success_rate": 0.34,
+      "total_attempts": 24,
+      "total_successes": 8,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 280.0,
+      "avg_cost_usd": 0.0,
+      "strengths": [
+        "strict formatting",
+        "arithmetic on given values"
+      ],
+      "weaknesses": [
+        "recent / rare facts",
+        "long-context extraction"
+      ]
+    },
+    "reasoner-1": {
+      "model_alias": "reasoner-1",
+      "actual_model": "claude-opus-4-7",
+      "stage": "code",
+      "skill_scores": {
+        "code.arithmetic": 0.85,
+        "code.data_transform": 0.84
+      },
+      "skill_attempts": {
+        "code.arithmetic": 24,
+        "code.data_transform": 24
+      },
+      "skill_successes": {
+        "code.arithmetic": 20,
+        "code.data_transform": 20
+      },
+      "overall_success_rate": 0.6,
+      "total_attempts": 24,
+      "total_successes": 14,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 320.0,
+      "avg_cost_usd": 0.014,
+      "strengths": [
+        "multi-hop reasoning",
+        "rare-fact recall"
+      ],
+      "weaknesses": [
+        "higher cost"
+      ]
+    },
+    "reasoner-2": {
+      "model_alias": "reasoner-2",
+      "actual_model": "claude-opus-4-7",
+      "stage": "code",
+      "skill_scores": {
+        "code.arithmetic": 0.85,
+        "code.data_transform": 0.84
+      },
+      "skill_attempts": {
+        "code.arithmetic": 24,
+        "code.data_transform": 24
+      },
+      "skill_successes": {
+        "code.arithmetic": 20,
+        "code.data_transform": 20
+      },
+      "overall_success_rate": 0.6,
+      "total_attempts": 24,
+      "total_successes": 14,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 320.0,
+      "avg_cost_usd": 0.014,
+      "strengths": [
+        "multi-hop reasoning",
+        "rare-fact recall"
+      ],
+      "weaknesses": [
+        "higher cost"
+      ]
+    },
+    "reasoner-3": {
+      "model_alias": "reasoner-3",
+      "actual_model": "Qwen/Qwen3.5-27B-FP8",
+      "stage": "code",
+      "skill_scores": {
+        "code.arithmetic": 0.78,
+        "code.data_transform": 0.66
+      },
+      "skill_attempts": {
+        "code.arithmetic": 24,
+        "code.data_transform": 24
+      },
+      "skill_successes": {
+        "code.arithmetic": 19,
+        "code.data_transform": 16
+      },
+      "overall_success_rate": 0.34,
+      "total_attempts": 24,
+      "total_successes": 8,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 280.0,
+      "avg_cost_usd": 0.0,
+      "strengths": [
+        "strict formatting",
+        "arithmetic on given values"
+      ],
+      "weaknesses": [
+        "recent / rare facts",
+        "long-context extraction"
+      ]
+    },
+    "answer-1": {
+      "model_alias": "answer-1",
+      "actual_model": "claude-opus-4-7",
+      "stage": "answer",
+      "skill_scores": {
+        "answer.synthesis": 0.84,
+        "answer.format_compliance": 0.8,
+        "answer.long_context": 0.86
+      },
+      "skill_attempts": {
+        "answer.synthesis": 24,
+        "answer.format_compliance": 24,
+        "answer.long_context": 24
+      },
+      "skill_successes": {
+        "answer.synthesis": 20,
+        "answer.format_compliance": 19,
+        "answer.long_context": 21
+      },
+      "overall_success_rate": 0.6,
+      "total_attempts": 24,
+      "total_successes": 14,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 320.0,
+      "avg_cost_usd": 0.018,
+      "strengths": [
+        "multi-hop reasoning",
+        "rare-fact recall"
+      ],
+      "weaknesses": [
+        "higher cost"
+      ]
+    },
+    "answer-2": {
+      "model_alias": "answer-2",
+      "actual_model": "claude-opus-4-7",
+      "stage": "answer",
+      "skill_scores": {
+        "answer.synthesis": 0.84,
+        "answer.format_compliance": 0.8,
+        "answer.long_context": 0.86
+      },
+      "skill_attempts": {
+        "answer.synthesis": 24,
+        "answer.format_compliance": 24,
+        "answer.long_context": 24
+      },
+      "skill_successes": {
+        "answer.synthesis": 20,
+        "answer.format_compliance": 19,
+        "answer.long_context": 21
+      },
+      "overall_success_rate": 0.6,
+      "total_attempts": 24,
+      "total_successes": 14,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 320.0,
+      "avg_cost_usd": 0.018,
+      "strengths": [
+        "multi-hop reasoning",
+        "rare-fact recall"
+      ],
+      "weaknesses": [
+        "higher cost"
+      ]
+    },
+    "answer-3": {
+      "model_alias": "answer-3",
+      "actual_model": "Qwen/Qwen3.5-27B-FP8",
+      "stage": "answer",
+      "skill_scores": {
+        "answer.synthesis": 0.52,
+        "answer.format_compliance": 0.74,
+        "answer.long_context": 0.58
+      },
+      "skill_attempts": {
+        "answer.synthesis": 24,
+        "answer.format_compliance": 24,
+        "answer.long_context": 24
+      },
+      "skill_successes": {
+        "answer.synthesis": 12,
+        "answer.format_compliance": 18,
+        "answer.long_context": 14
+      },
+      "overall_success_rate": 0.34,
+      "total_attempts": 24,
+      "total_successes": 8,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 280.0,
+      "avg_cost_usd": 0.0,
+      "strengths": [
+        "strict formatting",
+        "arithmetic on given values"
+      ],
+      "weaknesses": [
+        "recent / rare facts",
+        "long-context extraction"
+      ]
+    },
+    "answer-4": {
+      "model_alias": "answer-4",
+      "actual_model": "Qwen/Qwen3.5-27B-FP8",
+      "stage": "answer",
+      "skill_scores": {
+        "answer.synthesis": 0.52,
+        "answer.format_compliance": 0.74,
+        "answer.long_context": 0.58
+      },
+      "skill_attempts": {
+        "answer.synthesis": 24,
+        "answer.format_compliance": 24,
+        "answer.long_context": 24
+      },
+      "skill_successes": {
+        "answer.synthesis": 12,
+        "answer.format_compliance": 18,
+        "answer.long_context": 14
+      },
+      "overall_success_rate": 0.34,
+      "total_attempts": 24,
+      "total_successes": 8,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 280.0,
+      "avg_cost_usd": 0.0,
+      "strengths": [
+        "strict formatting",
+        "arithmetic on given values"
+      ],
+      "weaknesses": [
+        "recent / rare facts",
+        "long-context extraction"
+      ]
+    },
+    "answer-math-1": {
+      "model_alias": "answer-math-1",
+      "actual_model": "claude-opus-4-7",
+      "stage": "answer",
+      "skill_scores": {
+        "answer.synthesis": 0.84,
+        "answer.format_compliance": 0.8,
+        "answer.long_context": 0.86
+      },
+      "skill_attempts": {
+        "answer.synthesis": 24,
+        "answer.format_compliance": 24,
+        "answer.long_context": 24
+      },
+      "skill_successes": {
+        "answer.synthesis": 20,
+        "answer.format_compliance": 19,
+        "answer.long_context": 21
+      },
+      "overall_success_rate": 0.6,
+      "total_attempts": 24,
+      "total_successes": 14,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 320.0,
+      "avg_cost_usd": 0.018,
+      "strengths": [
+        "multi-hop reasoning",
+        "rare-fact recall"
+      ],
+      "weaknesses": [
+        "higher cost"
+      ]
+    },
+    "answer-math-2": {
+      "model_alias": "answer-math-2",
+      "actual_model": "Qwen/Qwen3.5-27B-FP8",
+      "stage": "answer",
+      "skill_scores": {
+        "answer.synthesis": 0.52,
+        "answer.format_compliance": 0.74,
+        "answer.long_context": 0.58
+      },
+      "skill_attempts": {
+        "answer.synthesis": 24,
+        "answer.format_compliance": 24,
+        "answer.long_context": 24
+      },
+      "skill_successes": {
+        "answer.synthesis": 12,
+        "answer.format_compliance": 18,
+        "answer.long_context": 14
+      },
+      "overall_success_rate": 0.34,
+      "total_attempts": 24,
+      "total_successes": 8,
+      "avg_prompt_tokens": 1200.0,
+      "avg_completion_tokens": 280.0,
+      "avg_cost_usd": 0.0,
+      "strengths": [
+        "strict formatting",
+        "arithmetic on given values"
+      ],
+      "weaknesses": [
+        "recent / rare facts",
+        "long-context extraction"
+      ]
+    }
+  },
+  "usage_patterns": {
+    "stages": {},
+    "guidelines": {},
+    "models": {},
+    "raw": {}
+  },
+  "learning_history": [],
+  "routing_insights": [
+    "Route recent/rare-fact searches to a cloud search model; the local model lacks that knowledge.",
+    "Arithmetic and strict-format answers can go to the cheaper local model without losing accuracy.",
+    "Switch to the answer stage once retrieved documents cover every sub-fact of the question."
+  ]
+}

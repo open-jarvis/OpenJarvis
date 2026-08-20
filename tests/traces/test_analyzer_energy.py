@@ -25,8 +25,12 @@ def _make_trace(steps: list[TraceStep]) -> Trace:
     )
 
 
-def _gen_step(energy: float = 0.0, duration: float = 1.0,
-              prompt_tokens: int = 50, completion_tokens: int = 25) -> TraceStep:
+def _gen_step(
+    energy: float = 0.0,
+    duration: float = 1.0,
+    prompt_tokens: int = 50,
+    completion_tokens: int = 25,
+) -> TraceStep:
     return TraceStep(
         step_type=StepType.GENERATE,
         timestamp=time.time(),
@@ -56,11 +60,13 @@ def _tool_step(duration: float = 0.5) -> TraceStep:
 class TestTraceSummaryEnergyFields:
     def test_total_energy_joules(self, tmp_path):
         store = TraceStore(db_path=tmp_path / "traces.db")
-        trace = _make_trace([
-            _gen_step(energy=10.0, duration=2.0),
-            _tool_step(duration=0.5),
-            _gen_step(energy=15.0, duration=3.0),
-        ])
+        trace = _make_trace(
+            [
+                _gen_step(energy=10.0, duration=2.0),
+                _tool_step(duration=0.5),
+                _gen_step(energy=15.0, duration=3.0),
+            ]
+        )
         store.save(trace)
         analyzer = TraceAnalyzer(store)
         summary = analyzer.summary()
@@ -70,18 +76,24 @@ class TestTraceSummaryEnergyFields:
 
     def test_step_type_stats(self, tmp_path):
         store = TraceStore(db_path=tmp_path / "traces.db")
-        trace = _make_trace([
-            _gen_step(
-                energy=10.0, duration=2.0,
-                prompt_tokens=100, completion_tokens=50,
-            ),
-            _gen_step(
-                energy=20.0, duration=4.0,
-                prompt_tokens=80, completion_tokens=40,
-            ),
-            _tool_step(duration=0.5),
-            _tool_step(duration=1.5),
-        ])
+        trace = _make_trace(
+            [
+                _gen_step(
+                    energy=10.0,
+                    duration=2.0,
+                    prompt_tokens=100,
+                    completion_tokens=50,
+                ),
+                _gen_step(
+                    energy=20.0,
+                    duration=4.0,
+                    prompt_tokens=80,
+                    completion_tokens=40,
+                ),
+                _tool_step(duration=0.5),
+                _tool_step(duration=1.5),
+            ]
+        )
         store.save(trace)
         analyzer = TraceAnalyzer(store)
         summary = analyzer.summary()

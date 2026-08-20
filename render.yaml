@@ -11,17 +11,15 @@ services:
     dockerContext: .
     # Override the Dockerfile CMD so the server binds to Render's injected $PORT.
     # The Dockerfile entrypoint is "jarvis", so we pass `serve` plus its flags.
-    dockerCommand: serve --host 0.0.0.0 --port $PORT
+    dockerCommand: serve --host 0.0.0.0 --port $PORT --engine cloud
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       # Force the cloud engine path. The free Render plan has no GPU and the
       # bundled Rust extension/local backends (Ollama/vLLM) cannot run here, so
-      # OpenJarvis must route inference to a hosted provider. Set at least one
-      # of the *_API_KEY values below — the serve CLI auto-detects them and
-      # wraps the engine in MultiEngine.
-      - key: OPENJARVIS_ENGINE
-        value: cloud
+      # OpenJarvis must route inference to a hosted provider. The Docker
+      # command above selects the cloud engine explicitly. Set at least one of
+      # the *_API_KEY values below so that engine has a provider to use.
 
       # Auth for the OpenJarvis API itself. Required because the server refuses
       # to bind to a non-loopback host without an API key (check_bind_safety).
@@ -45,7 +43,3 @@ services:
         sync: false
       - key: WHATSAPP_APP_SECRET
         sync: false
-
-      # CORS — relax for browser clients hitting the API directly.
-      - key: OPENJARVIS_CORS_ORIGINS
-        value: "*"

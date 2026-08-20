@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from openjarvis.core.paths import get_config_dir
+
 LOGGER = logging.getLogger(__name__)
 
 CONDITIONS = (
@@ -52,14 +54,12 @@ class SkillBenchmarkConfig:
     seeds: List[int] = field(default_factory=lambda: [42, 43, 44])
     max_samples: Optional[int] = None
     output_dir: Path = field(default_factory=lambda: Path("docs/superpowers/results/"))
-    skills_dir: Path = field(
-        default_factory=lambda: Path("~/.openjarvis/skills/").expanduser()
-    )
+    skills_dir: Path = field(default_factory=lambda: get_config_dir() / "skills")
     overlay_dir_dspy: Path = field(
-        default_factory=lambda: Path("~/.openjarvis/learning/skills-dspy/").expanduser()
+        default_factory=lambda: get_config_dir() / "learning" / "skills-dspy"
     )
     overlay_dir_gepa: Path = field(
-        default_factory=lambda: Path("~/.openjarvis/learning/skills-gepa/").expanduser()
+        default_factory=lambda: get_config_dir() / "learning" / "skills-gepa"
     )
 
 

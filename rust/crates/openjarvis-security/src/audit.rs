@@ -303,7 +303,7 @@ mod tests {
                 event_type: SecurityEventType::SecretDetected,
                 timestamp: 1000.0 + i as f64,
                 findings: vec![],
-                content_preview: format!("event {}", i),
+                content_preview: format!("event {i}"),
                 action_taken: "warn".into(),
             };
             logger.log(&event).unwrap();

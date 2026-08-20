@@ -31,19 +31,23 @@ def _make_trace(
         ),
     ]
     if tool_name:
-        steps.append(TraceStep(
-            step_type=StepType.TOOL_CALL,
-            timestamp=now + 0.1,
-            duration_seconds=latency * 0.2,
-            input={"tool": tool_name},
-            output={"success": True},
-        ))
-    steps.append(TraceStep(
-        step_type=StepType.RESPOND,
-        timestamp=now + latency,
-        duration_seconds=0.0,
-        output={"content": "result"},
-    ))
+        steps.append(
+            TraceStep(
+                step_type=StepType.TOOL_CALL,
+                timestamp=now + 0.1,
+                duration_seconds=latency * 0.2,
+                input={"tool": tool_name},
+                output={"success": True},
+            )
+        )
+    steps.append(
+        TraceStep(
+            step_type=StepType.RESPOND,
+            timestamp=now + latency,
+            duration_seconds=0.0,
+            output={"content": "result"},
+        )
+    )
     return Trace(
         query=query,
         agent=agent,
@@ -87,18 +91,29 @@ class TestTraceAnalyzer:
 
     def test_per_route_stats(self, tmp_path: Path) -> None:
         store = TraceStore(tmp_path / "test.db")
-        store.save(_make_trace(
-            model="qwen3:8b", agent="simple",
-            outcome="success", feedback=0.9,
-        ))
-        store.save(_make_trace(
-            model="qwen3:8b", agent="simple",
-            outcome="success", feedback=0.8,
-        ))
-        store.save(_make_trace(
-            model="llama3:70b", agent="orchestrator",
-            outcome="failure",
-        ))
+        store.save(
+            _make_trace(
+                model="qwen3:8b",
+                agent="simple",
+                outcome="success",
+                feedback=0.9,
+            )
+        )
+        store.save(
+            _make_trace(
+                model="qwen3:8b",
+                agent="simple",
+                outcome="success",
+                feedback=0.8,
+            )
+        )
+        store.save(
+            _make_trace(
+                model="llama3:70b",
+                agent="orchestrator",
+                outcome="failure",
+            )
+        )
 
         analyzer = TraceAnalyzer(store)
         stats = analyzer.per_route_stats()

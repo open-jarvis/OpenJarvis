@@ -102,7 +102,9 @@ class TestSend:
 
         with patch("httpx.post", return_value=mock_response) as mock_post:
             result = ch.send(
-                "twitter", "Replying!", conversation_id="9876543210",
+                "twitter",
+                "Replying!",
+                conversation_id="9876543210",
             )
             assert result is True
             payload = mock_post.call_args[1]["json"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import List
@@ -31,7 +32,13 @@ else:
 
 logger = logging.getLogger(__name__)
 
-VALID_BACKENDS = {"jarvis-direct", "jarvis-agent", "terminalbench-native"}
+VALID_BACKENDS = {
+    "jarvis-direct",
+    "jarvis-agent",
+    "terminalbench-native",
+    "hermes",
+    "openclaw",
+}
 
 # Known benchmark names (used for warnings, not hard validation)
 KNOWN_BENCHMARKS = {
@@ -50,6 +57,7 @@ KNOWN_BENCHMARKS = {
     "swefficiency",
     "terminalbench",
     "terminalbench-native",
+    "terminalbench-v2.1",
     "email_triage",
     "morning_brief",
     "research_mining",
@@ -134,8 +142,16 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
         sheets_spreadsheet_id=run_raw.get("sheets_spreadsheet_id", ""),
         sheets_worksheet=run_raw.get("sheets_worksheet", "Results"),
         sheets_credentials_path=run_raw.get("sheets_credentials_path", ""),
-        max_turns=(
-            int(run_raw["max_turns"]) if "max_turns" in run_raw else None
+        max_turns=(int(run_raw["max_turns"]) if "max_turns" in run_raw else None),
+        global_agent_timeout_sec=(
+            float(run_raw["global_agent_timeout_sec"])
+            if "global_agent_timeout_sec" in run_raw
+            else None
+        ),
+        global_timeout_multiplier=(
+            float(run_raw["global_timeout_multiplier"])
+            if "global_timeout_multiplier" in run_raw
+            else None
         ),
     )
 
@@ -187,6 +203,12 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
             logger.warning("Unknown benchmark name: '%s'", bench_name)
 
         tools_raw = b.get("tools", [])
+        record_ids_raw = b.get("record_ids")
+        record_ids = (
+            [str(r) for r in record_ids_raw]
+            if isinstance(record_ids_raw, list) and record_ids_raw
+            else None
+        )
         benchmarks.append(
             BenchmarkConfig(
                 name=bench_name,
@@ -199,8 +221,31 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
                 temperature=float(b["temperature"]) if "temperature" in b else None,
                 max_tokens=int(b["max_tokens"]) if "max_tokens" in b else None,
                 subset=b.get("subset"),
+                record_ids=record_ids,
+                global_agent_timeout_sec=(
+                    float(b["global_agent_timeout_sec"])
+                    if "global_agent_timeout_sec" in b
+                    else None
+                ),
+                global_timeout_multiplier=(
+                    float(b["global_timeout_multiplier"])
+                    if "global_timeout_multiplier" in b
+                    else None
+                ),
             )
         )
+
+    # Parse optional [backend.external] section (for hermes/openclaw backends).
+    # Env vars override TOML values; either source may be empty.
+    external_raw = raw.get("backend", {}).get("external", {})
+    backend_external_base_url = (
+        os.environ.get("JARVIS_BACKEND_BASE_URL")
+        or external_raw.get("base_url")
+        or None
+    )
+    backend_external_api_key = (
+        os.environ.get("JARVIS_BACKEND_API_KEY") or external_raw.get("api_key") or None
+    )
 
     return EvalSuiteConfig(
         meta=meta,
@@ -209,6 +254,8 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
         run=execution,
         models=models,
         benchmarks=benchmarks,
+        backend_external_base_url=backend_external_base_url,
+        backend_external_api_key=backend_external_api_key,
     )
 
 
@@ -247,6 +294,14 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
             judge_model = suite.judge.model
             if bench.judge_model is not None:
                 judge_model = bench.judge_model
+
+            # terminal-bench harness budgets: benchmark > [run]
+            global_agent_timeout_sec = suite.run.global_agent_timeout_sec
+            if bench.global_agent_timeout_sec is not None:
+                global_agent_timeout_sec = bench.global_agent_timeout_sec
+            global_timeout_multiplier = suite.run.global_timeout_multiplier
+            if bench.global_timeout_multiplier is not None:
+                global_timeout_multiplier = bench.global_timeout_multiplier
 
             # Auto-generate output path
             model_slug = model.name.replace("/", "-").replace(":", "-")
@@ -298,6 +353,11 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
                     sheets_worksheet=suite.run.sheets_worksheet,
                     sheets_credentials_path=suite.run.sheets_credentials_path,
                     max_turns=suite.run.max_turns,
+                    base_url=suite.backend_external_base_url,
+                    api_key=suite.backend_external_api_key,
+                    record_ids=bench.record_ids,
+                    global_agent_timeout_sec=global_agent_timeout_sec,
+                    global_timeout_multiplier=global_timeout_multiplier,
                 )
             )
 

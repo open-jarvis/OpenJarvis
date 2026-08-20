@@ -17,13 +17,15 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from openjarvis.core.paths import get_cache_dir
 from openjarvis.evals.core.dataset import DatasetProvider
+from openjarvis.evals.core.splits import apply_split
 from openjarvis.evals.core.types import EvalRecord
 
 LOGGER = logging.getLogger(__name__)
 
 LIVERESEARCH_REPO = "https://github.com/Ayanami0730/deep_research_bench.git"
-CACHE_DIR = Path.home() / ".cache" / "liveresearch_bench"
+CACHE_DIR = get_cache_dir() / "liveresearch_bench"
 
 
 def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
@@ -132,7 +134,12 @@ class LiveResearchBenchDataset(DatasetProvider):
         if split and split in ("en", "zh"):
             queries = [q for q in queries if q.get("language") == split]
 
-        if seed is not None:
+        effective_seed = 42 if seed is None else seed
+        if split in ("train", "test", "all"):
+            queries = apply_split(
+                queries, split=split, seed=effective_seed, train_frac=0.2
+            )
+        elif seed is not None:
             random.Random(seed).shuffle(queries)
         if max_samples is not None:
             queries = queries[:max_samples]

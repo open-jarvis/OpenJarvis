@@ -48,7 +48,7 @@ impl BaseTool for CalculatorTool {
             Ok(result) => Ok(ToolResult::success("calculator", result.to_string())),
             Err(e) => Ok(ToolResult::failure(
                 "calculator",
-                format!("Error evaluating '{}': {}", expression, e),
+                format!("Error evaluating '{expression}': {e}"),
             )),
         }
     }

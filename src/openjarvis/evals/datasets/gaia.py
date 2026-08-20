@@ -11,10 +11,12 @@ import shutil
 from pathlib import Path
 from typing import Iterable, List, MutableMapping, Optional, Sequence
 
+from openjarvis.core.paths import get_cache_dir
 from openjarvis.evals.core.dataset import DatasetProvider
+from openjarvis.evals.core.splits import apply_split
 from openjarvis.evals.core.types import EvalRecord
 
-_DEFAULT_CACHE_DIR = Path.home() / ".cache" / "gaia_benchmark"
+_DEFAULT_CACHE_DIR = get_cache_dir() / "gaia_benchmark"
 
 _DEFAULT_INPUT_PROMPT = """Please answer the question below. You should:
 
@@ -54,7 +56,11 @@ class GAIADataset(DatasetProvider):
         from datasets import load_dataset
         from huggingface_hub import snapshot_download
 
-        use_split = split or self._default_split
+        use_split = (
+            self._default_split
+            if split in ("train", "test", "all") or split is None
+            else split
+        )
 
         # Ensure dataset is downloaded
         dataset_location = self._cache_dir / "GAIA"
@@ -82,7 +88,11 @@ class GAIADataset(DatasetProvider):
         else:
             rows = list(dataset)
 
-        if seed is not None:
+        effective_seed = 42 if seed is None else seed
+        if split in ("train", "test", "all"):
+            rows = list(rows)
+            rows = apply_split(rows, split=split, seed=effective_seed, train_frac=0.2)
+        elif seed is not None:
             rng = random.Random(seed)
             rows = list(rows)
             rng.shuffle(rows)
@@ -150,6 +160,7 @@ class GAIADataset(DatasetProvider):
 
         metadata = {
             "task_id": task_id,
+            "question": question,
             "level": level,
             "file_name": file_name,
             "file_path": str(file_path) if file_path else None,

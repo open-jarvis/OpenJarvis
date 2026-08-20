@@ -123,15 +123,35 @@ class AgentScheduler:
         self._thread.start()
         logger.info("Agent scheduler started")
 
-    def stop(self) -> None:
-        """Stop the scheduler background thread."""
+    def request_stop(self) -> None:
+        """Prevent new scheduled ticks without waiting for the worker."""
+
         self._stop_event.set()
         if self._bus:
             self._bus.unsubscribe(EventType.AGENT_TICK_END, self._on_tick_event)
-        if self._thread is not None:
-            self._thread.join(timeout=10)
+
+    def wait_stopped(self, timeout: float = 10.0) -> bool:
+        """Wait for an active tick to finish, retaining live thread state."""
+
+        thread = self._thread
+        if thread is None:
+            return True
+        if thread is threading.current_thread():
+            return False
+        thread.join(timeout=timeout)
+        if thread.is_alive():
+            logger.warning("Agent scheduler did not stop within %.1fs", timeout)
+            return False
+        if self._thread is thread:
             self._thread = None
-        logger.info("Agent scheduler stopped")
+        return True
+
+    def stop(self, timeout: float = 10.0) -> None:
+        """Stop dispatching and wait for the scheduler worker."""
+
+        self.request_stop()
+        if self.wait_stopped(timeout=timeout):
+            logger.info("Agent scheduler stopped")
 
     def _loop(self) -> None:
         """Main scheduler loop."""
@@ -160,6 +180,8 @@ class AgentScheduler:
             ]
 
         for agent_id, info in due:
+            if self._stop_event.is_set():
+                break
             agent = self._manager.get_agent(agent_id)
             if agent is None or agent["status"] in (
                 "paused",

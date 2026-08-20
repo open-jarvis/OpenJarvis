@@ -1,0 +1,229 @@
+# ToolOrchestra cells (arXiv:2511.21689).
+#
+# Two modes via `method_cfg.orchestrator_mode`:
+#
+#   "prompted" (default)  -- cloud model (Opus etc.) plays the orchestrator
+#                            over a heterogeneous worker pool. Useful as a
+#                            prompted upper-bound; NOT what the paper does.
+#
+#   "rl"                  -- paper-faithful path. The RL-trained
+#                            `nvidia/Orchestrator-8B` served on a local vLLM
+#                            (default :8003) is the orchestrator and emits
+#                            OpenAI-style tool_calls for the three NVlabs
+#                            tools (enhance_reasoning / answer / search).
+#                            Expert pool maps tool-`model` slots to our
+#                            workers: *-1 -> cloud, *-2 -> gpt-5-mini,
+#                            *-3 -> local vLLM, search -> Anthropic web_search.
+#                            See `toolorchestra.py` module docstring for
+#                            what's collapsed vs. the upstream (no Tavily /
+#                            FAISS-wiki / Qwen-Coder code-interpreter).
+#
+# Naming: toolorchestra-<orch-short>-<cloud-short>-<bench>-<N>
+#         (legacy prompted cells keep their original naming scheme.)
+
+# ============================================================
+# Legacy prompted-mode cells (cloud-as-orchestrator).
+# ============================================================
+
+[cells.toolorchestra-gaia-qwen27b-opus-3]
+method = "toolorchestra"
+bench  = "gaia"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { max_turns = 6, orchestrator_max_tokens = 1024, worker_max_tokens = 4096 }
+
+[cells.toolorchestra-swebenchverified-qwen27b-opus-3]
+method = "toolorchestra"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { max_turns = 6, orchestrator_max_tokens = 1024, worker_max_tokens = 8192 }
+
+[cells.toolorchestra-gaia-qwen27b-opus-30]
+method = "toolorchestra"
+bench  = "gaia"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { max_turns = 8, orchestrator_max_tokens = 1024, worker_max_tokens = 4096 }
+
+# ============================================================
+# RL-mode cells -- Orchestrator-8B drives the loop (n=100).
+# ============================================================
+#
+# `local` carries the orchestrator's vLLM (nvidia/Orchestrator-8B on :8003).
+# Tier-3 expert calls (`answer-3`, `reasoner-3`, …) route to this same model.
+# `cloud` is the frontier worker invoked for tier-1 slots.
+# `gpt-5-mini` is hard-coded as the tier-2 mid worker (matches the paper's
+# `gpt-5-mini` slots in `eval_hle.py` MODEL_MAPPING).
+
+[cells.toolorchestra-orch8b-opus47-gaia-n100]
+method = "toolorchestra"
+bench  = "gaia"
+n      = 100
+subset = "gaia_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 4096, worker_temperature = 0.2 }
+concurrency = 4
+
+[cells.toolorchestra-orch8b-opus47-swe-n100]
+method = "toolorchestra"
+bench  = "swebench-verified"
+n      = 100
+subset = "swebench_verified_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 8192, worker_temperature = 0.2, swe_use_agent_loop = true, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+concurrency = 3
+
+# ============================================================
+# Paper-match pool smoke (2026-05-19). n=5 GAIA. Opts into the
+# closer-to-paper worker pool via `method_cfg.pool = "paper"`:
+#   - search       -> Tavily API (TAVILY_API_KEY in OpenJarvis/.env)
+#   - enhance_..   -> Qwen2.5-Coder-32B (OpenRouter) + Modal Python sandbox
+#   - answer-1     -> GPT-5             answer-math-* -> Qwen2.5-Coder-32B
+#   - answer-2     -> GPT-5-mini        answer-3     -> Llama-3.3-70B (OR)
+#   - answer-4     -> local Qwen (the Orchestrator-8B endpoint at :8003)
+# Skipped vs. paper: FAISS RAG, Qwen2.5-Math-{72B,7B} (not on OpenRouter).
+[cells.toolorchestra-papermatch-orch8b-opus47-gaia-n5]
+method = "toolorchestra"
+bench  = "gaia"
+n      = 5
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 4096, worker_temperature = 0.2, pool = "paper", modal_python_timeout_s = 60, tavily_max_results = 5 }
+concurrency = 1
+
+# Smoke cell for the RL-mode SWE wiring (2026-05-19). n=2, no subset so it
+# just grabs the first two SWE-bench Verified tasks. Used to verify
+# end-to-end: workdir clone, _swe_call_worker dispatch through Orchestrator-8B,
+# diff extraction, Modal-harness scoring. Promote to n=100 once green.
+[cells.toolorchestra-orch8b-opus47-swe-smoke2]
+method = "toolorchestra"
+bench  = "swebench-verified"
+n      = 2
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 6, orchestrator_max_tokens = 4096, worker_max_tokens = 8192, worker_temperature = 0.2, swe_use_agent_loop = true, swe_max_turns = 15, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+concurrency = 1
+
+# ============================================================
+# ToolOrchestra × cloud-worker ablation (n=100, 2026-05-19)
+# Cloud-axis sweep: Haiku 4.5, GPT-5, GPT-5 mini, Gemini 2.5 Pro,
+# Gemini 2.5 Flash. Mirrors the skillorchestra cloud-axis cells.
+# All share Orchestrator-8B on :8003 as the local orchestrator.
+# concurrency=3 for Anthropic/Google, 2 for OpenAI (prepaid-quota wall).
+# ============================================================
+
+# ---------- Anthropic Haiku 4.5 ----------
+
+[cells.toolorchestra-orch8b-haiku45-gaia-n100]
+method = "toolorchestra"
+bench  = "gaia"
+n      = 100
+subset = "gaia_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "claude-haiku-4-5", endpoint = "anthropic" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 4096, worker_temperature = 0.2 }
+concurrency = 3
+
+[cells.toolorchestra-orch8b-haiku45-swe-n100]
+method = "toolorchestra"
+bench  = "swebench-verified"
+n      = 100
+subset = "swebench_verified_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "claude-haiku-4-5", endpoint = "anthropic" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 8192, worker_temperature = 0.2, swe_use_agent_loop = true, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+concurrency = 3
+
+# ---------- OpenAI GPT-5 ----------
+
+[cells.toolorchestra-orch8b-gpt5-gaia-n100]
+method = "toolorchestra"
+bench  = "gaia"
+n      = 100
+subset = "gaia_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "gpt-5", endpoint = "openai" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 4096, worker_temperature = 0.2 }
+concurrency = 2
+
+[cells.toolorchestra-orch8b-gpt5-swe-n100]
+method = "toolorchestra"
+bench  = "swebench-verified"
+n      = 100
+subset = "swebench_verified_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "gpt-5", endpoint = "openai" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 8192, worker_temperature = 0.2, swe_use_agent_loop = true, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+concurrency = 2
+
+# ---------- OpenAI GPT-5 mini ----------
+
+[cells.toolorchestra-orch8b-gpt5mini-gaia-n100]
+method = "toolorchestra"
+bench  = "gaia"
+n      = 100
+subset = "gaia_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "gpt-5-mini", endpoint = "openai" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 4096, worker_temperature = 0.2 }
+concurrency = 2
+
+[cells.toolorchestra-orch8b-gpt5mini-swe-n100]
+method = "toolorchestra"
+bench  = "swebench-verified"
+n      = 100
+subset = "swebench_verified_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "gpt-5-mini", endpoint = "openai" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 8192, worker_temperature = 0.2, swe_use_agent_loop = true, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+concurrency = 2
+
+# ---------- Google Gemini 2.5 Pro ----------
+
+[cells.toolorchestra-orch8b-gemini25pro-gaia-n100]
+method = "toolorchestra"
+bench  = "gaia"
+n      = 100
+subset = "gaia_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "gemini-2.5-pro", endpoint = "gemini" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 4096, worker_temperature = 0.2 }
+concurrency = 3
+
+[cells.toolorchestra-orch8b-gemini25pro-swe-n100]
+method = "toolorchestra"
+bench  = "swebench-verified"
+n      = 100
+subset = "swebench_verified_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "gemini-2.5-pro", endpoint = "gemini" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 8192, worker_temperature = 0.2, swe_use_agent_loop = true, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+concurrency = 3
+
+# ---------- Google Gemini 2.5 Flash ----------
+
+[cells.toolorchestra-orch8b-gemini25flash-gaia-n100]
+method = "toolorchestra"
+bench  = "gaia"
+n      = 100
+subset = "gaia_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "gemini-2.5-flash", endpoint = "gemini" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 4096, worker_temperature = 0.2 }
+concurrency = 3
+
+[cells.toolorchestra-orch8b-gemini25flash-swe-n100]
+method = "toolorchestra"
+bench  = "swebench-verified"
+n      = 100
+subset = "swebench_verified_n100_seed42.json"
+local  = { model = "nvidia/Orchestrator-8B", endpoint = "http://localhost:8003/v1" }
+cloud  = { model = "gemini-2.5-flash", endpoint = "gemini" }
+method_cfg = { orchestrator_mode = "rl", orchestrator_endpoint = "http://localhost:8003/v1", orchestrator_model = "nvidia/Orchestrator-8B", max_turns = 8, orchestrator_max_tokens = 4096, worker_max_tokens = 8192, worker_temperature = 0.2, swe_use_agent_loop = true, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+concurrency = 3

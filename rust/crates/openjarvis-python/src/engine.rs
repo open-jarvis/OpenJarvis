@@ -93,7 +93,7 @@ impl PyEngine {
             ),
             other => {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                    format!("Unknown engine: {}", other),
+                    format!("Unknown engine: {other}"),
                 ));
             }
         };

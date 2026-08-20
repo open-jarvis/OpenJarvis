@@ -1,0 +1,59 @@
+# SkillOrchestra cells (arXiv:2602.19672).
+#
+# Faithful port of the eval-orchestrator runtime — the multi-round
+# search -> reasoning -> answer ReAct loop, verbatim eval_orchestrator
+# prompts, the StageSkillHandbook + 5 routing strategies, real Python
+# subprocess execution, and a model-alias pool. See the package
+# README at agents/hybrid/skillorchestra/README.md.
+#
+# method_cfg knobs (all optional):
+#   routing_strategy  none | router_decides | analyze_model_decide
+#                     | weighted_avg | weakest_skill | strongest_skill
+#   handbook_path     StageSkillHandbook JSON; relative -> resolved inside
+#                     the skillorchestra package. weighted/weakest/strongest
+#                     need one; router_decides / none do not.
+#   max_rounds        orchestrator loop cap (default 6).
+#   retriever_url     FAISS wiki retriever; absent -> Anthropic web_search.
+#   model_pool        per-alias { model, endpoint } overrides.
+#   orchestrator_model / orchestrator_endpoint   pin the orchestrator LLM.
+#
+# GAIA cells run the full skill-routing loop against the hand-authored
+# seed handbook (handbook_seed.json — NOT learned; swap in a learned one
+# when the explore->learn->select pipeline has run). SWE-bench is out of
+# scope for the original QA orchestrator: those cells run the cloud
+# backbone through the shared mini SWE agent loop.
+
+[cells.skillorchestra-gaia-qwen27b-opus-3]
+method = "skillorchestra"
+bench  = "gaia"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",      endpoint = "anthropic" }
+method_cfg = { routing_strategy = "weighted_avg", handbook_path = "handbook_seed.json", max_rounds = 6 }
+
+[cells.skillorchestra-swebenchverified-qwen27b-opus-3]
+method = "skillorchestra"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",      endpoint = "anthropic" }
+method_cfg = { swe_use_agent_loop = true, swe_max_turns = 50, swe_bash_timeout_s = 120 }
+concurrency = 3
+
+[cells.skillorchestra-gaia-qwen27b-opus-30]
+method = "skillorchestra"
+bench  = "gaia"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",      endpoint = "anthropic" }
+method_cfg = { routing_strategy = "weighted_avg", handbook_path = "handbook_seed.json", max_rounds = 6 }
+concurrency = 4
+
+[cells.skillorchestra-swebenchverified-qwen27b-opus-30]
+method = "skillorchestra"
+bench  = "swebench-verified"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",      endpoint = "anthropic" }
+method_cfg = { swe_use_agent_loop = true, swe_max_turns = 50, swe_bash_timeout_s = 120 }
+concurrency = 3

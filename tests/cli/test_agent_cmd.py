@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from click.testing import CliRunner
 
 from openjarvis.cli import cli
@@ -11,6 +13,25 @@ class TestAgentCmd:
     def test_agent_list_help(self) -> None:
         result = CliRunner().invoke(cli, ["agents", "list", "--help"])
         assert result.exit_code == 0
+
+    def test_agent_list_error_with_markup_chars_does_not_crash(self) -> None:
+        """Regression for #297.
+
+        When ``_get_manager()`` (or anything in the body) raises an
+        exception whose message contains Rich markup metacharacters like
+        ``[...]``, the error handler must not re-parse that text as markup
+        and blow up with a secondary MarkupError traceback. The command
+        should print a clean one-line error instead.
+        """
+        # A message with bracketed text is what triggers the MarkupError
+        # when fed to console.print() unescaped.
+        boom = RuntimeError("DB locked at [/var/run/x] not a [valid] tag")
+        with patch("openjarvis.cli.agent_cmd._get_manager", side_effect=boom):
+            result = CliRunner().invoke(cli, ["agents", "list"])
+        # No traceback / unhandled exception leaked through.
+        assert result.exception is None, result.output
+        # The raw message (brackets intact) is surfaced to the user.
+        assert "DB locked at [/var/run/x] not a [valid] tag" in result.output
 
     def test_agent_info_help(self) -> None:
         result = CliRunner().invoke(cli, ["agents", "info", "--help"])

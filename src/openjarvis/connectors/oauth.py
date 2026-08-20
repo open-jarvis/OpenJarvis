@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
+from openjarvis.core import open_browser
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
 
 # ---------------------------------------------------------------------------
@@ -58,9 +59,12 @@ GOOGLE_ALL_SCOPES: List[str] = [
     "email",
     "profile",
     "https://www.googleapis.com/auth/drive.readonly",
-    "https://www.googleapis.com/auth/calendar.readonly",
+    # calendar (not .readonly) so the proactive agent can accept/decline events.
+    "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/contacts.readonly",
-    "https://www.googleapis.com/auth/gmail.readonly",
+    # gmail.modify (a superset of gmail.readonly) so the proactive agent
+    # can trash and label-modify (archive) emails after user approval.
+    "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/tasks.readonly",
 ]
 
@@ -271,6 +275,62 @@ def delete_tokens(path: str) -> None:
         p.unlink()
 
 
+def refresh_google_token(path: str) -> Optional[str]:
+    """Refresh a Google access token using the stored refresh token.
+
+    Reads the credentials file at *path*, exchanges its ``refresh_token``
+    (plus ``client_id``/``client_secret``) for a new ``access_token``
+    against Google's OAuth token endpoint, persists the refreshed payload
+    back to *path*, and returns the new access token.
+
+    Returns ``None`` if any required field is missing or the refresh call
+    fails (network error or Google returns a non-2xx response — typically
+    ``invalid_grant`` when the refresh token has been revoked).
+    """
+    import httpx
+
+    tokens = load_tokens(path)
+    if not tokens:
+        return None
+    refresh_token = tokens.get("refresh_token")
+    client_id = tokens.get("client_id")
+    client_secret = tokens.get("client_secret")
+    if not (refresh_token and client_id and client_secret):
+        return None
+
+    try:
+        resp = httpx.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            },
+            timeout=15.0,
+        )
+    except httpx.HTTPError:
+        return None
+    if resp.status_code >= 400:
+        return None
+
+    body = resp.json()
+    new_access = body.get("access_token")
+    if not new_access:
+        return None
+
+    tokens.update(
+        {
+            "access_token": new_access,
+            "token": new_access,  # legacy key used by some connectors
+            "token_type": body.get("token_type", tokens.get("token_type", "Bearer")),
+            "expires_in": body.get("expires_in", tokens.get("expires_in", 3600)),
+        }
+    )
+    save_tokens(path, tokens)
+    return new_access
+
+
 # ---------------------------------------------------------------------------
 # Token exchange & full OAuth flow
 # ---------------------------------------------------------------------------
@@ -360,7 +420,6 @@ def run_oauth_flow(
     RuntimeError
         If the user denies authorization or the callback times out.
     """
-    import webbrowser
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from urllib.parse import parse_qs, urlparse
 
@@ -433,7 +492,7 @@ def run_oauth_flow(
     server.timeout = 120  # 2 minute timeout
 
     # Open the consent page in the user's default browser
-    webbrowser.open(auth_url)
+    open_browser(auth_url)
 
     # Wait for the callback (blocking, with per-request timeout)
     while not auth_code and not error:
@@ -602,7 +661,6 @@ def run_connector_oauth(
 
     Returns the raw token response dict.
     """
-    import webbrowser
 
     provider = get_provider_for_connector(connector_id)
     if provider is None:
@@ -635,7 +693,7 @@ def run_connector_oauth(
     auth_url = f"{provider.auth_endpoint}?{urlencode(params)}"
 
     # Open browser and wait for callback
-    webbrowser.open(auth_url)
+    open_browser(auth_url)
     code = _wait_for_callback_code(
         host=provider.callback_host,
         port=provider.callback_port,
