@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -152,6 +153,7 @@ def test_disconnect_cancels_inflight_sync_before_purge(app) -> None:
 
     started = threading.Event()
     released = threading.Event()
+    disconnect_called = threading.Event()
 
     class BlockingConnector:
         connector_id = "obsidian"
@@ -171,22 +173,120 @@ def test_disconnect_cancels_inflight_sync_before_purge(app) -> None:
             )
 
         def disconnect(self):
-            released.set()
+            disconnect_called.set()
 
         def sync_status(self):
             return SyncStatus()
 
     _instances["obsidian"] = BlockingConnector()
+    responses = []
+
+    def disconnect_request():
+        responses.append(app.post("/v1/connectors/obsidian/disconnect"))
+
+    disconnect_thread = threading.Thread(target=disconnect_request)
     try:
         assert app.post("/v1/connectors/obsidian/sync").status_code == 200
         assert started.wait(timeout=2)
-        response = app.post("/v1/connectors/obsidian/disconnect")
-        assert response.status_code == 200
+        disconnect_thread.start()
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if app.get("/v1/connectors/obsidian/sync").json()["state"] == "stopping":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("disconnect never entered the stopping state")
+
+        # Credentials remain intact until the old writer has stopped.
+        assert not disconnect_called.is_set()
+        released.set()
+        disconnect_thread.join(timeout=3)
+        assert not disconnect_thread.is_alive()
+        assert responses[0].status_code == 200
+        assert disconnect_called.is_set()
         with KnowledgeStore() as store:
             assert not any(
                 result.metadata.get("doc_id") == "obsidian:late-write"
                 for result in store.retrieve("must survive disconnect", top_k=10)
             )
+    finally:
+        released.set()
+        disconnect_thread.join(timeout=3)
+        _instances.pop("obsidian", None)
+
+
+def test_disconnect_timeout_preserves_source_and_guards_reconnect(
+    app,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from openjarvis.connectors._stubs import SyncStatus
+    from openjarvis.server import connectors_router
+    from openjarvis.server.connectors_router import _instances
+
+    started = threading.Event()
+    released = threading.Event()
+    finished = threading.Event()
+    disconnect_called = threading.Event()
+
+    class StuckConnector:
+        connector_id = "obsidian"
+        indexed_sources = ("obsidian",)
+        auth_type = "filesystem"
+
+        def __init__(self):
+            self._connected = True
+            self._vault_path = "old-vault"
+
+        def is_connected(self):
+            return self._connected
+
+        def sync(self, **kwargs):
+            started.set()
+            released.wait(timeout=3)
+            finished.set()
+            if False:
+                yield
+
+        def disconnect(self):
+            disconnect_called.set()
+            self._connected = False
+
+        def sync_status(self):
+            return SyncStatus()
+
+    connector = StuckConnector()
+    _instances["obsidian"] = connector
+    monkeypatch.setattr(connectors_router, "_SYNC_STOP_TIMEOUT_SECONDS", 0.05)
+    new_vault = tmp_path / "new-vault"
+    new_vault.mkdir()
+
+    try:
+        assert app.post("/v1/connectors/obsidian/sync").status_code == 200
+        assert started.wait(timeout=2)
+
+        response = app.post("/v1/connectors/obsidian/disconnect")
+        assert response.status_code == 409
+        assert connector.is_connected()
+        assert connector._vault_path == "old-vault"
+        assert not disconnect_called.is_set()
+
+        reconnect = app.post(
+            "/v1/connectors/obsidian/connect",
+            json={"path": str(new_vault)},
+        )
+        assert reconnect.status_code == 409
+        assert connector._vault_path == "old-vault"
+        assert app.post("/v1/connectors/obsidian/sync").status_code == 409
+
+        released.set()
+        assert finished.wait(timeout=2)
+        assert app.get("/v1/connectors/obsidian/sync").json()["state"] == "stopping"
+        response = app.post("/v1/connectors/obsidian/disconnect")
+        assert response.status_code == 200
+        assert disconnect_called.is_set()
+        assert not connector.is_connected()
     finally:
         released.set()
         _instances.pop("obsidian", None)

@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Module-level cache of connector instances (keyed by connector_id).
 _instances: Dict[str, Any] = {}
+_SYNC_STOP_TIMEOUT_SECONDS = 5.0
 
 
 def _knowledge_sources(connector_id: str, connector: Any = None) -> tuple[str, ...]:
@@ -236,6 +237,27 @@ def create_connectors_router():
     # globally keeps connect/disconnect/manual-sync decisions atomic,
     # including ownership checks for sources shared by multiple connectors.
     _lifecycle_lock = threading.RLock()
+
+    def _disconnect_pending(connector_id: str) -> bool:
+        """Whether a prior disconnect is waiting for its worker to stop."""
+        with _sync_lock:
+            cancel_event = _sync_cancel_events.get(connector_id)
+            return (
+                connector_id in _sync_threads
+                and cancel_event is not None
+                and cancel_event.is_set()
+            )
+
+    def _reject_pending_disconnect(connector_id: str) -> None:
+        """Prevent credential/source changes while an old worker still owns them."""
+        if _disconnect_pending(connector_id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Sync for '{connector_id}' is still stopping; "
+                    "retry disconnect before reconnecting or syncing"
+                ),
+            )
 
     def _serialized_async(func):
         @wraps(func)
@@ -470,6 +492,7 @@ def create_connectors_router():
                 status_code=404,
                 detail=f"Connector '{connector_id}' not found",
             )
+        _reject_pending_disconnect(connector_id)
         instance = _get_or_create(connector_id)
 
         try:
@@ -560,13 +583,16 @@ def create_connectors_router():
             sync_thread = _sync_threads.get(connector_id)
             if cancel_event is not None:
                 cancel_event.set()
-        try:
-            instance.disconnect()
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
+            if sync_thread is not None and sync_thread.is_alive():
+                previous_state = _sync_state.get(connector_id, {})
+                _sync_state[connector_id] = {
+                    **previous_state,
+                    "state": "stopping",
+                    "error": None,
+                }
 
         if sync_thread is not None and sync_thread.is_alive():
-            sync_thread.join(timeout=5.0)
+            sync_thread.join(timeout=_SYNC_STOP_TIMEOUT_SECONDS)
         if sync_thread is not None and sync_thread.is_alive():
             raise HTTPException(
                 status_code=409,
@@ -575,6 +601,15 @@ def create_connectors_router():
                     "indexed content was not purged"
                 ),
             )
+
+        # Only revoke/delete credentials after the worker has relinquished
+        # the old connection.  A timeout must leave the connector usable and
+        # reject reconnect attempts, rather than silently switching source
+        # state underneath a still-running writer.
+        try:
+            instance.disconnect()
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
 
         # A source can be shared by multiple connector implementations
         # (Gmail OAuth and Gmail IMAP both write source='gmail'). Preserve it
@@ -697,6 +732,8 @@ def create_connectors_router():
 
         _ensure_connectors_registered()
 
+        _reject_pending_disconnect(connector_id)
+
         if error:
             _style = "font-family:system-ui;text-align:center;padding:60px"
             return HTMLResponse(
@@ -778,6 +815,7 @@ def create_connectors_router():
                 detail=f"Connector '{connector_id}' not found",
             )
         inst = _get_or_create(connector_id)
+        _reject_pending_disconnect(connector_id)
         if not inst.is_connected():
             raise HTTPException(
                 status_code=400,
@@ -862,7 +900,9 @@ def create_connectors_router():
             last_sync_str = None
 
         # Determine effective state
-        if is_bg_running:
+        if _disconnect_pending(connector_id):
+            effective_state = "stopping"
+        elif is_bg_running:
             effective_state = "syncing"
         elif bg.get("state") == "error":
             effective_state = "error"
