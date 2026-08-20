@@ -116,7 +116,7 @@ All providers produce the same output format consumed by agents:
 | **LM Studio** | `lmstudio` | OpenAI-compatible | 1234 | No (GPU optional) | Desktop GUI, easy model management |
 | **Exo** | `exo` | OpenAI-compatible | 52415 | No (distributed) | Distributed inference across heterogeneous devices |
 | **Nexa** | `nexa` | OpenAI-compatible | 18181 | No (CPU/GPU) | On-device inference with GGUF models |
-| **Lemonade** | `lemonade` | OpenAI-compatible | 8000 | AMD GPU/NPU | AMD consumer GPUs (RDNA), Ryzen AI NPUs |
+| **Lemonade** | `lemonade` | OpenAI-compatible | 13305 | AMD GPU/NPU | AMD consumer GPUs (RDNA), Ryzen AI NPUs |
 | **Uzu** | `uzu` | OpenAI-compatible | 8000 | Varies | Uzu inference runtime |
 | **Apple FM** | `apple_fm` | OpenAI-compatible | 8079 | Apple Silicon | Apple Foundation Model on-device inference |
 | **LiteLLM** | `litellm` | OpenAI-compatible | — | No | Unified proxy to 100+ LLM providers |
@@ -135,7 +135,7 @@ The Ollama backend communicates via Ollama's native HTTP API at `/api/chat` and 
 
 The vLLM backend uses the OpenAI-compatible `/v1/chat/completions` API. It is recommended for datacenter GPUs (NVIDIA A100, H100, L40, A10, A30 and AMD MI300, MI325, MI350, MI355).
 
-- **Default host:** `http://localhost:8000`
+- **Default host:** `http://localhost:13305`
 - **Health check:** `GET /v1/models`
 - **Tool fallback:** If the server returns HTTP 400 when tools are included, the engine automatically retries without tools
 
@@ -204,7 +204,7 @@ The Nexa backend connects to the Nexa SDK on-device inference server via a FastA
 
 The Lemonade backend connects to the [Lemonade](https://lemonade-server.ai/) inference server, which is optimized for AMD consumer GPUs (RDNA architecture) and Ryzen AI Neural Processing Units (NPUs). It uses the OpenAI-compatible `/v1/chat/completions` API.
 
-- **Default host:** `http://localhost:8000`
+- **Default host:** `http://localhost:13305`
 - **Health check:** `GET /v1/models`
 - **Install:** Visit [lemonade-server.ai](https://lemonade-server.ai/) for platform-specific installation instructions
 - **Best for:** Ryzen AI GPUs and NPUs, and AMD-based desktop and laptop systems
@@ -357,7 +357,7 @@ host = "http://localhost:30000"
 # binary_path = ""
 
 # [engine.lemonade]
-# host = "http://localhost:8000"
+# host = "http://localhost:13305"
 ```
 
 The `EngineConfig` dataclass and its per-engine sub-dataclasses map these settings:
@@ -370,7 +370,7 @@ The `EngineConfig` dataclass and its per-engine sub-dataclasses map these settin
 | `SGLangEngineConfig` | `host` | `http://localhost:30000` | SGLang server URL |
 | `LlamaCppEngineConfig` | `host` | `http://localhost:8080` | llama.cpp server URL |
 | `LlamaCppEngineConfig` | `binary_path` | `""` | Path to llama.cpp binary (for managed mode) |
-| `LemonadeEngineConfig` | `host` | `http://localhost:8000` | Lemonade server URL |
+| `LemonadeEngineConfig` | `host` | `http://localhost:13305` | Lemonade server URL |
 
 !!! note "Backward compatibility"
     The old flat field names `ollama_host`, `vllm_host`, `llamacpp_host`, `llamacpp_path`, `sglang_host`, and `lemonade_host` under `[engine]` are still accepted as backward-compatible properties on `EngineConfig`. New configurations should use the nested sub-section format.

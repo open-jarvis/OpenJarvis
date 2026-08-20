@@ -1,3 +1,33 @@
+/* ── Version badge (top-right of header) ─────────────────────────── */
+.md-version-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 1.6rem;
+  padding: 0 0.55rem;
+  margin: 0 0.4rem 0 0.2rem;
+  font-family: var(--md-code-font);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--md-primary-bg-color, #ffffff);
+  background-color: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0.6rem;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.md-version-badge:hover,
+.md-version-badge:focus {
+  background-color: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.45);
+  text-decoration: none;
+}
+@media screen and (max-width: 76.1875em) {
+  .md-version-badge { display: none; }
+}
+
 /* ── Fonts ─────────────────────────────────────────────────────────── */
 :root {
   --md-text-font: Georgia, "Times New Roman", serif;
@@ -410,6 +440,13 @@
   font-family: var(--md-code-font-family, monospace);
   font-size: 13px;
 }
+/* Placeholder for rows where energy / FLOPs telemetry didn't land.
+   Distinguishes "telemetry missing" from "user genuinely had 0 work
+   done" without making the row visually pop more than data rows. */
+.lb-missing {
+  color: var(--md-default-fg-color--light, #999);
+  font-style: italic;
+}
 
 /* ── DocSearch ───────────────────────────────────────────────────────── */
 #docsearch {
@@ -531,4 +568,19 @@
   .DocSearch-Button-Placeholder {
     display: none !important;
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Showcase screenshots
+ *
+ * Hero images on docs/showcase/* pages. Constrains width on wide screens and
+ * adds a subtle border so placeholder/broken-image states still look intentional
+ * before community-contributed screenshots populate docs/assets/showcase/.
+ * ------------------------------------------------------------------------- */
+.showcase-screenshot {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--md-default-fg-color--lightest, rgba(0, 0, 0, 0.08));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }

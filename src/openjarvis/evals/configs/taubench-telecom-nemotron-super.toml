@@ -1,0 +1,29 @@
+# Taubench: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+[meta]
+name = "taubench-telecom-nemotron-super"
+description = "taubench on nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+
+[defaults]
+temperature = 0.7
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/nemotron-super/taubench-telecom/"
+seed = 42
+
+[[models]]
+name = "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+engine = "vllm"
+num_gpus = 2
+
+[[benchmarks]]
+name = "taubench"
+backend = "jarvis-direct"
+max_samples = 20
+split = "telecom"

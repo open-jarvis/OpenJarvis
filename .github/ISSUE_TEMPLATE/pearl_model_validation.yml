@@ -1,0 +1,98 @@
+name: Pearl Model Validation
+description: Track conversion and validation of a Pearl-compatible mining model
+labels: ["type:feature", "area:mining"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when promoting a raw Hugging Face model to a
+        Pearl-compatible `pearl-ai/*-pearl` mining model. A model should remain
+        `planned` in OpenJarvis until this checklist is complete.
+  - type: input
+    id: raw_model
+    attributes:
+      label: Raw model
+      placeholder: e.g., Qwen/Qwen3.5-9B
+    validations:
+      required: true
+  - type: input
+    id: pearl_model
+    attributes:
+      label: Pearl model artifact
+      placeholder: e.g., pearl-ai/Qwen3.5-9B-pearl
+    validations:
+      required: true
+  - type: dropdown
+    id: target_provider
+    attributes:
+      label: Target provider
+      options:
+        - vllm-pearl
+        - cpu-pearl
+        - apple-mps-pearl
+    validations:
+      required: true
+  - type: textarea
+    id: quantization_recipe
+    attributes:
+      label: Quantization recipe
+      description: Link or paste the recipe used to create the Pearl model artifact.
+      placeholder: |
+        - compressed-tensors config:
+        - 7-bit mining layers:
+        - 8-bit non-mining layers:
+        - calibration data:
+        - SmoothQuant settings:
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Validation hardware
+      placeholder: |
+        - GPU:
+        - VRAM:
+        - driver/CUDA:
+        - Docker image/tag:
+        - Pearl commit/ref:
+    validations:
+      required: true
+  - type: checkboxes
+    id: acceptance
+    attributes:
+      label: Acceptance checks
+      options:
+        - label: Model loads in Pearl's vLLM miner container
+          required: true
+        - label: vLLM registers Pearl's quantization plugin
+          required: true
+        - label: Mining layers use int7 NoisyGEMM
+          required: true
+        - label: Non-mining layers use int8 vanilla Pearl GEMM
+          required: true
+        - label: `jarvis mine init --model <pearl-model-id>` succeeds
+          required: true
+        - label: `jarvis mine start` succeeds
+          required: true
+        - label: `jarvis ask` succeeds through the mining engine
+          required: true
+        - label: `jarvis mine status` reports gateway/mining metrics
+          required: true
+        - label: `jarvis mine validate-model --allow-planned` passes
+          required: true
+        - label: Gateway/miner logs show no submission errors
+          required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Artifacts
+      description: Attach logs, metrics, model config, and command output.
+      placeholder: |
+        - /v1/models output:
+        - `jarvis mine status` output:
+        - `jarvis mine validate-model --output` JSON:
+        - gateway metrics excerpt:
+        - miner logs:
+        - PR/commit that flips status to validated:
+    validations:
+      required: true

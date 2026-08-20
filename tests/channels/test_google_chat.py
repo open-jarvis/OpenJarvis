@@ -11,6 +11,7 @@ from openjarvis.channels._stubs import ChannelStatus
 from openjarvis.channels.google_chat import GoogleChatChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
@@ -20,15 +21,13 @@ def _register_google_chat():
         ChannelRegistry.register_value("google_chat", GoogleChatChannel)
 
 
-class TestRegistration:
-    def test_registry_key(self):
-        assert ChannelRegistry.contains("google_chat")
-
-    def test_channel_id(self):
-        ch = GoogleChatChannel(
-            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
-        )
-        assert ch.channel_id == "google_chat"
+TestCommonChannel = make_common_channel_tests(
+    GoogleChatChannel,
+    "google_chat",
+    constructor_kwargs={
+        "webhook_url": "https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+    },
+)
 
 
 class TestInit:
@@ -133,42 +132,8 @@ class TestSend:
         assert EventType.CHANNEL_MESSAGE_SENT in event_types
 
 
-class TestListChannels:
-    def test_list_channels(self):
-        ch = GoogleChatChannel(
-            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
-        )
-        assert ch.list_channels() == ["google_chat"]
-
-
 class TestStatus:
-    def test_disconnected_initially(self):
-        ch = GoogleChatChannel(
-            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
-        )
-        assert ch.status() == ChannelStatus.DISCONNECTED
-
     def test_no_url_connect_error(self):
         ch = GoogleChatChannel()
         ch.connect()
         assert ch.status() == ChannelStatus.ERROR
-
-
-class TestOnMessage:
-    def test_on_message(self):
-        ch = GoogleChatChannel(
-            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
-        )
-        handler = MagicMock()
-        ch.on_message(handler)
-        assert handler in ch._handlers
-
-
-class TestDisconnect:
-    def test_disconnect(self):
-        ch = GoogleChatChannel(
-            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
-        )
-        ch._status = ChannelStatus.CONNECTED
-        ch.disconnect()
-        assert ch.status() == ChannelStatus.DISCONNECTED

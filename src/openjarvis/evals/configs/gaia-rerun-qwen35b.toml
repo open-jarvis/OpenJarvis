@@ -1,0 +1,30 @@
+# GAIA rerun with max_turns=30: Qwen/Qwen3.5-35B-A3B-FP8
+[meta]
+name = "gaia-rerun-qwen35b"
+description = "GAIA rerun with 30 max turns on Qwen/Qwen3.5-35B-A3B-FP8"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+
+[run]
+max_workers = 1
+output_dir = "results/gaia-rerun-qwen35b/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-35B-A3B-FP8"
+engine = "vllm"
+num_gpus = 4
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+max_samples = 50
+tools = ["think", "calculator", "code_interpreter", "web_search", "file_read"]

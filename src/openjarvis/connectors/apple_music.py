@@ -26,9 +26,18 @@ logger = logging.getLogger(__name__)
 # AppleScript helpers
 # ---------------------------------------------------------------------------
 
-_LIBRARY_CHECK_SCRIPT = 'tell application "Music" to get name of playlist "Library"'
+_LIBRARY_CHECK_SCRIPT = """
+if application "Music" is running then
+    tell application "Music" to get name of playlist "Library"
+else
+    error "Music is not running"
+end if
+"""
 
 _TRACKS_SCRIPT = """
+if not (application "Music" is running) then
+    error "Music is not running"
+end if
 tell application "Music"
     set output to ""
     set allTracks to every track of playlist "Library"

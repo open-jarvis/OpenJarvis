@@ -64,12 +64,17 @@ class BaseTool(ABC):
 
     def to_openai_function(self) -> Dict[str, Any]:
         """Convert to OpenAI function-calling format."""
+        from openjarvis.tools.description_loader import (
+            get_tool_description_override,
+        )
+
         s = self.spec
+        desc = get_tool_description_override(s.name) or s.description
         return {
             "type": "function",
             "function": {
                 "name": s.name,
-                "description": s.description,
+                "description": desc,
                 "parameters": s.parameters,
             },
         }
@@ -131,6 +136,15 @@ class ToolExecutor:
                 content=f"Invalid arguments JSON: {exc}",
                 success=False,
             )
+        if not isinstance(params, dict):
+            return ToolResult(
+                tool_name=tool_call.name,
+                content=(
+                    "Invalid arguments: expected a JSON object, "
+                    f"got {type(params).__name__}."
+                ),
+                success=False,
+            )
 
         # Boundary guard: scan external tool arguments
         if self._boundary_guard is not None and not getattr(tool, "is_local", True):
@@ -138,6 +152,15 @@ class ToolExecutor:
                 tool_call = self._boundary_guard.check_outbound(tool_call)
                 # Re-parse arguments after potential redaction
                 params = json.loads(tool_call.arguments) if tool_call.arguments else {}
+                if not isinstance(params, dict):
+                    return ToolResult(
+                        tool_name=tool_call.name,
+                        content=(
+                            "Invalid arguments: expected a JSON object, "
+                            f"got {type(params).__name__}."
+                        ),
+                        success=False,
+                    )
             except Exception as exc:
                 return ToolResult(
                     tool_name=tool_call.name,
@@ -220,11 +243,18 @@ class ToolExecutor:
                     success=False,
                 )
 
-        # Emit start event
+        # Emit start event. ``agent`` carries the managed-agent UUID so the
+        # AgentExecutor's trace subscriber (which filters by agent_id) can
+        # actually match this event — without it, every tool call is silently
+        # dropped from traces.
         if self._bus:
             self._bus.publish(
                 EventType.TOOL_CALL_START,
-                {"tool": tool_call.name, "arguments": params},
+                {
+                    "tool": tool_call.name,
+                    "arguments": params,
+                    "agent": self._agent_id,
+                },
             )
 
         # Execute with timeout
@@ -269,6 +299,13 @@ class ToolExecutor:
         # Emit end event
         if self._bus:
             result_text = str(result.content)[:10240] if result.content else ""
+            # Pass through ToolResult.metadata so downstream consumers
+            # (TraceCollector → TraceStep.metadata → SkillOptimizer) can
+            # see skill-tagged invocations.  Filter to JSON-serializable
+            # values only — internal objects like TaintSet (added by the
+            # taint auto-detect above) must not leak to event subscribers
+            # since the trace store will JSON-serialize them later.
+            event_metadata = self._json_safe_metadata(result.metadata)
             self._bus.publish(
                 EventType.TOOL_CALL_END,
                 {
@@ -276,10 +313,41 @@ class ToolExecutor:
                     "success": result.success,
                     "latency": latency,
                     "result": result_text,
+                    "metadata": event_metadata,
+                    "agent": self._agent_id,
                 },
             )
 
         return result
+
+    @staticmethod
+    def _json_safe_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Return a copy of *metadata* containing only JSON-serializable values.
+
+        ``ToolExecutor`` annotates ``ToolResult.metadata`` with internal
+        objects (currently ``_taint: TaintSet``).  Those are useful for
+        in-process security checks but cannot be serialized when the
+        ``TraceCollector`` writes ``TraceStep.metadata`` to JSON in the
+        SQLite trace store.  This helper drops any keys whose value is
+        not JSON-safe — silently, since the missing data is not
+        load-bearing for downstream consumers.
+        """
+        if not metadata:
+            return {}
+
+        import json
+
+        safe: Dict[str, Any] = {}
+        for key, value in metadata.items():
+            if not isinstance(key, str):
+                continue
+            try:
+                json.dumps(value)
+            except (TypeError, ValueError):
+                # Skip non-serializable values (e.g. TaintSet)
+                continue
+            safe[key] = value
+        return safe
 
     def available_tools(self) -> List[ToolSpec]:
         """Return specs for all available tools."""
@@ -319,10 +387,15 @@ def build_tool_descriptions(
     if not tools:
         return "No tools available."
 
+    from openjarvis.tools.description_loader import (
+        get_tool_description_override,
+    )
+
     sections: list[str] = []
     for t in tools:
         s = t.spec
-        lines = [f"### {s.name}", s.description]
+        desc = get_tool_description_override(s.name) or s.description
+        lines = [f"### {s.name}", desc]
 
         if include_category and s.category:
             lines.append(f"Category: {s.category}")

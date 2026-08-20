@@ -1,7 +1,7 @@
-# LiveResearchBench: claude-opus-4-6
+# DeepResearchBench: claude-opus-4-6
 [meta]
 name = "liveresearch-claude-opus"
-description = "LiveResearchBench deep research benchmark on claude-opus-4-6"
+description = "DeepResearchBench deep research benchmark on claude-opus-4-6"
 
 [defaults]
 temperature = 0.6

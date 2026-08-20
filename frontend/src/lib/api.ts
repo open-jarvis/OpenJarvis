@@ -1,11 +1,10 @@
 import type { ModelInfo, SavingsData, ServerInfo } from '../types';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
+import { serializeToolCallArguments } from './tool-call';
 
 // ---------------------------------------------------------------------------
-// Supabase config — safe to embed (RLS protects writes)
+// Supabase config
 // ---------------------------------------------------------------------------
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://mtbtgpwzrbostweaanpr.supabase.co';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10YnRncHd6cmJvc3R3ZWFhbnByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxODk0OTQsImV4cCI6MjA4ODc2NTQ5NH0._xMlqCfljtXpwPj54H-ghxfLFO-jiq4W2WhpU8vVL1c';
 
 declare global {
   interface Window {
@@ -14,6 +13,31 @@ declare global {
 }
 
 export const isTauri = () => typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
+
+export type CloudKeyStatus = Record<string, boolean>;
+
+export async function getCloudKeyStatus(): Promise<CloudKeyStatus> {
+  if (!isTauri()) return {};
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const rows = await invoke<Array<{ key: string; set: boolean }>>('get_cloud_key_status');
+    return Object.fromEntries(rows.map((row) => [row.key, row.set]));
+  } catch (e: any) {
+    throw new Error(e?.message ?? e ?? 'Failed to read cloud key status');
+  }
+}
+
+export async function saveCloudKey(keyName: string, keyValue: string): Promise<void> {
+  if (!isTauri()) {
+    throw new Error('Cloud API keys can be saved in the desktop app only.');
+  }
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('save_cloud_key', { keyName, keyValue });
+  } catch (e: any) {
+    throw new Error(e?.message ?? e ?? 'Failed to save cloud key');
+  }
+}
 
 // Cached API base URL fetched from the Tauri backend at startup.
 // This avoids hardcoding the port — the Rust backend is the single
@@ -52,6 +76,50 @@ export const getBase = (): string => {
   return '';
 };
 
+// Resolve the local server API key (OPENJARVIS_API_KEY). When `jarvis serve`
+// is started with a key, AuthMiddleware 401s every /v1 and /api request that
+// lacks a Bearer token — so the frontend must send it (#266). Sourced from the
+// same settings blob as the API URL, with an optional build-time env override.
+// Returns '' when unset, so a keyless local server keeps working unchanged.
+export const getApiKey = (): string => {
+  try {
+    const raw = localStorage.getItem('openjarvis-settings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.apiKey) return String(parsed.apiKey);
+    }
+  } catch {}
+  if (import.meta.env.VITE_OPENJARVIS_API_KEY) {
+    return import.meta.env.VITE_OPENJARVIS_API_KEY as string;
+  }
+  return '';
+};
+
+// Build request headers with the Bearer Authorization token when a local key
+// is configured, merging any caller-supplied headers. Adds no Authorization
+// header when no key is set, so keyless local dev is byte-for-byte unchanged.
+export const authHeaders = (
+  extra: Record<string, string> = {},
+): Record<string, string> => {
+  const key = getApiKey();
+  return key ? { ...extra, Authorization: `Bearer ${key}` } : { ...extra };
+};
+
+// Centralized fetch for the local server: prepends getBase() and injects the
+// Bearer auth header (when a key is set) on every call. Using this everywhere
+// guarantees no /v1 or /api request is sent without auth — the bug in #266 was
+// that direct fetch() calls omitted the header and 401'd. `path` is the
+// server-relative path (e.g. "/v1/savings").
+export const apiFetch = (
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> => {
+  const headers = authHeaders(
+    (init.headers as Record<string, string> | undefined) ?? {},
+  );
+  return fetch(`${getBase()}${path}`, { ...init, headers });
+};
+
 async function tauriInvoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
   const apiUrl = getBase();
@@ -69,6 +137,7 @@ export interface SetupStatus {
   server_ready: boolean;
   model_ready: boolean;
   error: string | null;
+  source?: 'ollama' | 'custom'; // drives source-aware setup labels
 }
 
 export async function getSetupStatus(): Promise<SetupStatus | null> {
@@ -94,14 +163,14 @@ export async function fetchModels(): Promise<ModelInfo[]> {
       // Fall through to fetch
     }
   }
-  const res = await fetch(`${getBase()}/v1/models`);
+  const res = await apiFetch(`/v1/models`);
   if (!res.ok) throw new Error(`Failed to fetch models: ${res.status}`);
   const data = await res.json();
   return data.data || [];
 }
 
 export async function fetchRecommendedModel(): Promise<{ model: string; reason: string }> {
-  const res = await fetch(`${getBase()}/v1/recommended-model`);
+  const res = await apiFetch(`/v1/recommended-model`);
   if (!res.ok) return { model: '', reason: 'Failed to fetch' };
   return res.json();
 }
@@ -118,7 +187,7 @@ export async function pullModel(modelName: string): Promise<void> {
       throw new Error(e?.message || e || 'Download failed');
     }
   }
-  const res = await fetch(`${getBase()}/v1/models/pull`, {
+  const res = await apiFetch(`/v1/models/pull`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: modelName }),
@@ -139,7 +208,7 @@ export async function deleteModel(modelName: string): Promise<void> {
       throw new Error(e?.message || e || 'Delete failed');
     }
   }
-  const res = await fetch(`${getBase()}/v1/models/${encodeURIComponent(modelName)}`, {
+  const res = await apiFetch(`/v1/models/${encodeURIComponent(modelName)}`, {
     method: 'DELETE',
   });
   if (!res.ok) {
@@ -150,9 +219,9 @@ export async function deleteModel(modelName: string): Promise<void> {
 
 const _CLOUD_PREFIXES = ['gpt-', 'o1-', 'o3-', 'o4-', 'claude-', 'gemini-', 'openrouter/'];
 
-export async function preloadModel(modelName: string): Promise<void> {
+export async function preloadModel(modelName: string, owner?: string): Promise<void> {
   // Cloud models don't need Ollama preloading
-  if (_CLOUD_PREFIXES.some(p => modelName.startsWith(p))) {
+  if (owner === 'litellm' || _CLOUD_PREFIXES.some(p => modelName.startsWith(p))) {
     return;
   }
   // Trigger Ollama to load the model into memory (empty prompt, no generation).
@@ -172,13 +241,13 @@ export async function preloadModel(modelName: string): Promise<void> {
 }
 
 export async function fetchSavings(): Promise<SavingsData> {
-  const res = await fetch(`${getBase()}/v1/savings`);
+  const res = await apiFetch(`/v1/savings`);
   if (!res.ok) throw new Error(`Failed to fetch savings: ${res.status}`);
   return res.json();
 }
 
 export async function fetchServerInfo(): Promise<ServerInfo> {
-  const res = await fetch(`${getBase()}/v1/info`);
+  const res = await apiFetch(`/v1/info`);
   if (!res.ok) throw new Error(`Failed to fetch server info: ${res.status}`);
   return res.json();
 }
@@ -192,12 +261,26 @@ export async function checkHealth(): Promise<boolean> {
       return false;
     }
   }
-  try {
-    const res = await fetch(`${getBase()}/health`);
-    return res.ok;
-  } catch {
-    return false;
-  }
+  // In the browser, hit /health relative to the page origin so the request
+  // flows through whatever path is already serving the SPA — the Vite
+  // proxy in dev, FastAPI's static mount in prod. This avoids the
+  // false-negative "Cannot reach backend" banner when getBase() points at
+  // an absolute URL the browser can't reach directly.
+  //
+  // If /health itself fails for any reason (proxy quirk, stale service
+  // worker, etc.) fall back to an arbitrary API endpoint we know the rest
+  // of the app polls successfully. If THAT also fails we genuinely can't
+  // reach the backend.
+  const probe = async (url: string): Promise<boolean> => {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+  if (await probe('/health')) return true;
+  return probe('/v1/connectors');
 }
 
 export async function fetchEnergy(): Promise<unknown> {
@@ -206,7 +289,7 @@ export async function fetchEnergy(): Promise<unknown> {
       return await tauriInvoke('fetch_energy', { apiUrl: getBase() });
     } catch {}
   }
-  const res = await fetch(`${getBase()}/v1/telemetry/energy`);
+  const res = await apiFetch(`/v1/telemetry/energy`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -217,7 +300,7 @@ export async function fetchTelemetry(): Promise<unknown> {
       return await tauriInvoke('fetch_telemetry', { apiUrl: getBase() });
     } catch {}
   }
-  const res = await fetch(`${getBase()}/v1/telemetry/stats`);
+  const res = await apiFetch(`/v1/telemetry/stats`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -228,7 +311,7 @@ export async function fetchTraces(limit: number = 50): Promise<unknown> {
       return await tauriInvoke('fetch_traces', { apiUrl: getBase(), limit });
     } catch {}
   }
-  const res = await fetch(`${getBase()}/v1/traces?limit=${limit}`);
+  const res = await apiFetch(`/v1/traces?limit=${limit}`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -258,17 +341,27 @@ export async function transcribeAudio(audioBlob: Blob, filename = 'recording.web
         audioData: Array.from(new Uint8Array(buffer)),
         filename,
       });
-    } catch {
-      // Fall through to fetch
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(msg || 'Transcription failed');
     }
   }
   const formData = new FormData();
   formData.append('file', audioBlob, filename);
-  const res = await fetch(`${getBase()}/v1/speech/transcribe`, {
+  const res = await apiFetch(`/v1/speech/transcribe`, {
     method: 'POST',
     body: formData,
   });
-  if (!res.ok) throw new Error(`Transcription failed: ${res.status}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = typeof body.detail === 'string' ? body.detail : "";
+    } catch {
+      // Keep the status-only message below when the body is not JSON.
+    }
+    throw new Error(detail || `Transcription failed: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -280,7 +373,7 @@ export async function fetchSpeechHealth(): Promise<SpeechHealth> {
       return { available: false };
     }
   }
-  const res = await fetch(`${getBase()}/v1/speech/health`);
+  const res = await apiFetch(`/v1/speech/health`);
   if (!res.ok) return { available: false };
   return res.json();
 }
@@ -344,6 +437,14 @@ export interface AgentTemplate {
   [key: string]: unknown;
 }
 
+export interface PersistedToolCall {
+  tool: string;
+  arguments: string;
+  result?: string;
+  success?: boolean;
+  latency?: number;
+}
+
 export interface AgentMessage {
   id: string;
   agent_id: string;
@@ -352,17 +453,18 @@ export interface AgentMessage {
   mode: 'immediate' | 'queued';
   status: 'pending' | 'delivered' | 'responded';
   created_at: number;
+  tool_calls?: PersistedToolCall[] | null;
 }
 
 export async function fetchManagedAgents(): Promise<ManagedAgent[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents`);
+  const res = await apiFetch(`/v1/managed-agents`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.agents || [];
 }
 
 export async function fetchManagedAgent(agentId: string): Promise<ManagedAgent> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}`);
+  const res = await apiFetch(`/v1/managed-agents/${agentId}`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -373,7 +475,7 @@ export async function createManagedAgent(body: {
   template_id?: string;
   config?: Record<string, unknown>;
 }): Promise<ManagedAgent> {
-  const res = await fetch(`${getBase()}/v1/managed-agents`, {
+  const res = await apiFetch(`/v1/managed-agents`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -386,7 +488,7 @@ export async function updateManagedAgent(
   agentId: string,
   body: Partial<{ name: string; agent_type: string; config: Record<string, unknown> }>,
 ): Promise<ManagedAgent> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}`, {
+  const res = await apiFetch(`/v1/managed-agents/${agentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -396,29 +498,29 @@ export async function updateManagedAgent(
 }
 
 export async function deleteManagedAgent(agentId: string): Promise<void> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}`, { method: 'DELETE' });
+  const res = await apiFetch(`/v1/managed-agents/${agentId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
 export async function pauseManagedAgent(agentId: string): Promise<void> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/pause`, { method: 'POST' });
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/pause`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
 export async function resumeManagedAgent(agentId: string): Promise<void> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/resume`, { method: 'POST' });
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/resume`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
 export async function fetchAgentTasks(agentId: string): Promise<AgentTask[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/tasks`);
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/tasks`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.tasks || [];
 }
 
 export async function createAgentTask(agentId: string, description: string): Promise<AgentTask> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/tasks`, {
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/tasks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ description }),
@@ -428,7 +530,7 @@ export async function createAgentTask(agentId: string, description: string): Pro
 }
 
 export async function fetchAgentChannels(agentId: string): Promise<ChannelBinding[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/channels`);
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/channels`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.bindings || [];
@@ -472,7 +574,7 @@ export async function sendblueVerify(
   apiKeyId: string,
   apiSecretKey: string,
 ): Promise<{ valid: boolean; numbers: string[]; raw: unknown }> {
-  const res = await fetch(`${getBase()}/v1/channels/sendblue/verify`, {
+  const res = await apiFetch(`/v1/channels/sendblue/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ api_key_id: apiKeyId, api_secret_key: apiSecretKey }),
@@ -489,7 +591,7 @@ export async function sendblueRegisterWebhook(
   apiSecretKey: string,
   webhookUrl: string,
 ): Promise<{ registered: boolean; status: number }> {
-  const res = await fetch(`${getBase()}/v1/channels/sendblue/register-webhook`, {
+  const res = await apiFetch(`/v1/channels/sendblue/register-webhook`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -511,7 +613,7 @@ export async function sendblueTest(
   fromNumber: string,
   toNumber: string,
 ): Promise<{ sent: boolean; status: number }> {
-  const res = await fetch(`${getBase()}/v1/channels/sendblue/test`, {
+  const res = await apiFetch(`/v1/channels/sendblue/test`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -529,20 +631,20 @@ export async function sendblueTest(
 }
 
 export async function sendblueHealth(): Promise<{ channel_connected: boolean; bridge_wired: boolean; ready: boolean }> {
-  const res = await fetch(`${getBase()}/v1/channels/sendblue/health`);
+  const res = await apiFetch(`/v1/channels/sendblue/health`);
   if (!res.ok) return { channel_connected: false, bridge_wired: false, ready: false };
   return res.json();
 }
 
 export async function fetchTemplates(): Promise<AgentTemplate[]> {
-  const res = await fetch(`${getBase()}/v1/templates`);
+  const res = await apiFetch(`/v1/templates`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.templates || [];
 }
 
 export async function runManagedAgent(agentId: string): Promise<void> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/run`, { method: 'POST' });
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/run`, { method: 'POST' });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || `Failed: ${res.status}`);
@@ -550,7 +652,7 @@ export async function runManagedAgent(agentId: string): Promise<void> {
 }
 
 export async function recoverManagedAgent(agentId: string): Promise<{ recovered: boolean; checkpoint: unknown }> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/recover`, { method: 'POST' });
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/recover`, { method: 'POST' });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || `Failed: ${res.status}`);
@@ -565,9 +667,21 @@ export async function fetchAgentState(agentId: string): Promise<{
   messages: AgentMessage[];
   checkpoint: unknown;
 }> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/state`);
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/state`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
+}
+
+export interface AgentToolCallStart {
+  tool: string;
+  arguments: string;
+}
+
+export interface AgentToolCallEnd {
+  tool: string;
+  success: boolean;
+  latency: number;
+  result?: string;
 }
 
 export async function sendAgentMessage(
@@ -577,10 +691,12 @@ export async function sendAgentMessage(
   callbacks?: {
     onProgress?: (label: string) => void;
     onContentDelta?: (delta: string, fullContent: string) => void;
+    onToolCallStart?: (info: AgentToolCallStart) => void;
+    onToolCallEnd?: (info: AgentToolCallEnd) => void;
     onDone?: (fullContent: string, usage?: Record<string, number>, telemetry?: Record<string, unknown>) => void;
   },
 ): Promise<AgentMessage> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/messages`, {
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content, mode, stream: true }),
@@ -596,6 +712,7 @@ export async function sendAgentMessage(
     let buffer = '';
     let lastUsage: Record<string, number> | undefined;
     let lastTelemetry: Record<string, unknown> | undefined;
+    let currentEvent: string | undefined;
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -604,10 +721,52 @@ export async function sendAgentMessage(
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
         for (const line of lines) {
-          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim();
+            continue;
+          }
+          if (!line.startsWith('data: ')) {
+            if (line.trim() === '') currentEvent = undefined;
+            continue;
+          }
+          const data = line.slice(6);
+          if (data === '[DONE]') {
+            currentEvent = undefined;
+            continue;
+          }
+          const evName = currentEvent;
+          currentEvent = undefined;
+
+          if (evName === 'tool_call_start') {
+            try {
+              const parsed = JSON.parse(data);
+              callbacks?.onToolCallStart?.({
+                tool: parsed.tool,
+                arguments: serializeToolCallArguments(parsed.arguments),
+              });
+            } catch {
+              /* skip */
+            }
+            continue;
+          }
+          if (evName === 'tool_call_end') {
+            try {
+              const parsed = JSON.parse(data);
+              callbacks?.onToolCallEnd?.({
+                tool: parsed.tool,
+                success: !!parsed.success,
+                latency: typeof parsed.latency === 'number' ? parsed.latency : 0,
+                result: parsed.result,
+              });
+            } catch {
+              /* skip */
+            }
+            continue;
+          }
+
           try {
-            const chunk = JSON.parse(line.slice(6));
-            // Check for tool progress events
+            const chunk = JSON.parse(data);
+            // Deep-research branch still uses tool_progress in a data chunk
             const toolProgress = chunk.choices?.[0]?.tool_progress;
             if (toolProgress) {
               callbacks?.onProgress?.(toolProgress);
@@ -617,10 +776,11 @@ export async function sendAgentMessage(
               fullContent += delta;
               callbacks?.onContentDelta?.(delta, fullContent);
             }
-            // Capture usage + telemetry from final chunk
             if (chunk.usage) lastUsage = chunk.usage;
             if (chunk.telemetry) lastTelemetry = chunk.telemetry;
-          } catch { /* skip malformed chunks */ }
+          } catch {
+            /* skip malformed chunks */
+          }
         }
       }
     } catch { /* stream ended */ }
@@ -641,15 +801,34 @@ export async function sendAgentMessage(
   return res.json();
 }
 
+/**
+ * Ask the agent a question by triggering an ad-hoc run.
+ *
+ * Posts the question as an `immediate`, non-streamed message — the backend
+ * stores it and spawns a real agent tick (`execute_tick`) that consumes it as
+ * the run's input (tools, trace, and all), rather than a raw one-shot chat.
+ * Returns immediately with the stored user message; progress is observed via
+ * the `/v1/agents/events` WebSocket and the resulting trace.
+ */
+export async function askAgent(agentId: string, content: string): Promise<AgentMessage> {
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, mode: 'immediate', stream: false }),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchAgentMessages(agentId: string): Promise<AgentMessage[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/messages`);
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/messages`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.messages || [];
 }
 
 export async function fetchErrorAgents(): Promise<ManagedAgent[]> {
-  const res = await fetch(`${getBase()}/v1/agents/errors`);
+  const res = await apiFetch(`/v1/agents/errors`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.agents || [];
@@ -689,7 +868,7 @@ export interface ToolInfo {
 }
 
 export async function fetchAvailableTools(): Promise<ToolInfo[]> {
-  const res = await fetch(`${getBase()}/v1/tools`);
+  const res = await apiFetch(`/v1/tools`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.tools || [];
@@ -699,11 +878,30 @@ export async function saveToolCredentials(
   toolName: string,
   credentials: Record<string, string>,
 ): Promise<void> {
-  const res = await fetch(`${getBase()}/v1/tools/${toolName}/credentials`, {
+  const res = await apiFetch(`/v1/tools/${toolName}/credentials`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(credentials),
   });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
+
+export async function fetchToolCredentialStatus(
+  toolName: string,
+): Promise<Record<string, boolean>> {
+  const res = await apiFetch(`/v1/tools/${toolName}/credentials/status`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function deleteToolCredential(
+  toolName: string,
+  keyName: string,
+): Promise<void> {
+  const res = await apiFetch(
+    `/v1/tools/${encodeURIComponent(toolName)}/credentials/${encodeURIComponent(keyName)}`,
+    { method: 'DELETE' },
+  );
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
@@ -723,26 +921,26 @@ export interface AgentTraceDetail {
 }
 
 export async function fetchLearningLog(agentId: string): Promise<LearningLogEntry[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/learning`);
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/learning`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.learning_log || [];
 }
 
 export async function triggerLearning(agentId: string): Promise<void> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/learning/run`, { method: 'POST' });
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/learning/run`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
 export async function fetchAgentTraces(agentId: string, limit = 20): Promise<AgentTrace[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/traces?limit=${limit}`);
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/traces?limit=${limit}`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.traces || [];
 }
 
 export async function fetchAgentTrace(agentId: string, traceId: string): Promise<AgentTraceDetail> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/traces/${traceId}`);
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/traces/${traceId}`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -782,5 +980,166 @@ export async function submitSavings(data: SavingsSubmission): Promise<boolean> {
     return res.ok || res.status === 201 || res.status === 200;
   } catch {
     return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Memory
+// ---------------------------------------------------------------------------
+
+export interface MemorySearchResult {
+  content: string;
+  score: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface MemoryStats {
+  entries: number;
+  backend: string;
+  [key: string]: unknown;
+}
+
+export interface MemoryConfig {
+  backend: string;
+  // Set by the server when the native `openjarvis_rust` extension is missing,
+  // so the UI can show the real cause instead of a healthy-looking config.
+  available?: boolean;
+  detail?: string | null;
+  context_from_memory: boolean;
+  context_top_k: number;
+  context_min_score: number;
+  context_max_tokens: number;
+}
+
+/**
+ * Extract the server's `detail` message from a failed JSON response so the UI
+ * surfaces the real cause (e.g. "openjarvis_rust extension is not installed")
+ * instead of a blanket fallback string (#502).
+ */
+async function memoryErrorDetail(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.json();
+    if (data && typeof data.detail === 'string' && data.detail) return data.detail;
+  } catch {
+    // Non-JSON body — fall through to the generic message below.
+  }
+  return fallback;
+}
+
+export async function getMemoryStats(): Promise<MemoryStats> {
+  const res = await apiFetch(`/v1/memory/stats`);
+  if (!res.ok) throw new Error('Failed to fetch memory stats');
+  return res.json();
+}
+
+export async function searchMemory(query: string, topK: number = 5): Promise<MemorySearchResult[]> {
+  const res = await apiFetch(`/v1/memory/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, top_k: topK }),
+  });
+  if (!res.ok) throw new Error('Failed to search memory');
+  const data = await res.json();
+  return data.results;
+}
+
+export async function storeMemory(content: string, metadata?: Record<string, unknown>): Promise<void> {
+  const res = await apiFetch(`/v1/memory/store`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, metadata }),
+  });
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to store memory'));
+}
+
+export async function indexMemoryPath(path: string): Promise<{ chunks_indexed: number; note?: string }> {
+  const res = await apiFetch(`/v1/memory/index`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to index path'));
+  return res.json();
+}
+
+export async function getMemoryConfig(): Promise<MemoryConfig> {
+  const res = await apiFetch(`/v1/memory/config`);
+  if (!res.ok) throw new Error('Failed to fetch memory config');
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Approvals
+// ---------------------------------------------------------------------------
+
+export interface PendingApproval {
+  id: string;
+  action_type: string;
+  description: string;
+  payload: Record<string, unknown>;
+  permission_key: string;
+  tier: 'trivial' | 'low' | 'medium' | 'high';
+  status: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export async function fetchPendingApprovals(): Promise<PendingApproval[]> {
+  const res = await apiFetch(`/v1/approvals/pending`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.actions || [];
+}
+
+export async function approveAction(actionId: string): Promise<void> {
+  const res = await apiFetch(`/v1/approvals/${actionId}/approve`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
+
+export async function denyAction(actionId: string): Promise<void> {
+  const res = await apiFetch(`/v1/approvals/${actionId}/deny`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// Inference source (desktop only)
+// ---------------------------------------------------------------------------
+
+export type InferenceSource = {
+  kind: 'ollama' | 'custom';
+  model?: string;
+  host?: string;
+  engine?: string;
+};
+
+export async function getInferenceSource(): Promise<InferenceSource> {
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return await invoke<InferenceSource>('get_inference_source');
+    } catch (e: any) {
+      throw new Error(e?.message ?? e ?? 'Failed to read inference source');
+    }
+  }
+  return { kind: 'ollama' };
+}
+
+export async function setInferenceSource(
+  src: InferenceSource & { apiKey?: string },
+): Promise<void> {
+  if (!isTauri()) throw new Error('Inference source is configurable in the desktop app only.');
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke<void>('set_inference_source', {
+      kind: src.kind,
+      model: src.model ?? null,
+      host: src.host ?? null,
+      engine: src.engine ?? null,
+      apiKey: src.apiKey ?? null,
+    });
+  } catch (e: any) {
+    // Surface the backend's actionable error strings (e.g. "A server URL is
+    // required…", "Could not store the API key…") as proper Error instances.
+    throw new Error(e?.message ?? e ?? 'Failed to save inference source');
   }
 }

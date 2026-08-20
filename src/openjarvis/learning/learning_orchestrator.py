@@ -98,6 +98,32 @@ class LearningOrchestrator:
             "timestamp": time.time(),
         }
 
+        # 0. Skill optimization (Plan 2A C2) — runs INDEPENDENTLY of the
+        # routing/agent SFT pipeline.  Skills are tagged via trace metadata
+        # rather than mined as SFT pairs, so they can be optimized even when
+        # there's no other training data available.
+        try:
+            from openjarvis.core.config import load_config
+
+            cfg = load_config()
+            skills_cfg = getattr(cfg.learning, "skills", None)
+            if skills_cfg is not None and skills_cfg.auto_optimize:
+                skill_results = self._maybe_optimize_skills(
+                    auto_optimize=True,
+                    optimizer=skills_cfg.optimizer,
+                    min_traces_per_skill=skills_cfg.min_traces_per_skill,
+                )
+                if skill_results is not None:
+                    result["skill_optimization"] = {
+                        name: {
+                            "status": r.status,
+                            "trace_count": r.trace_count,
+                        }
+                        for name, r in skill_results.items()
+                    }
+        except Exception as exc:
+            logger.warning("Skill auto-optimize probe failed: %s", exc)
+
         # 1. Mine training data from traces
         sft_pairs = self._miner.extract_sft_pairs(agent=agent_id)
         routing_pairs = self._miner.extract_routing_pairs(agent=agent_id)
@@ -193,6 +219,38 @@ class LearningOrchestrator:
         except Exception as exc:
             logger.warning("LoRA training failed: %s", exc)
             return {"status": "error", "reason": str(exc)}
+
+    def _maybe_optimize_skills(
+        self,
+        *,
+        auto_optimize: bool = False,
+        optimizer: str = "dspy",
+        min_traces_per_skill: int = 20,
+    ) -> Optional[dict]:
+        """Optionally run the skill optimizer.
+
+        Called from :meth:`run` when ``learning.skills.auto_optimize`` is
+        true.  Returns the per-skill result dict or ``None`` if disabled.
+        """
+        if not auto_optimize:
+            return None
+        try:
+            from openjarvis.core.events import EventBus
+            from openjarvis.learning.agents.skill_optimizer import SkillOptimizer
+            from openjarvis.skills.manager import SkillManager
+
+            mgr = SkillManager(bus=EventBus())
+            mgr.discover()
+            opt = SkillOptimizer(
+                min_traces_per_skill=min_traces_per_skill,
+                optimizer=optimizer,
+            )
+            return opt.optimize(self._trace_store, mgr)
+        except Exception as exc:
+            import logging
+
+            logging.getLogger(__name__).warning("Skill auto-optimize failed: %s", exc)
+            return None
 
 
 __all__ = ["LearningOrchestrator"]

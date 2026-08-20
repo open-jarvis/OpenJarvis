@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
 import { useAppStore } from '../lib/store';
 import {
@@ -8,7 +9,6 @@ import {
   fetchAgentChannels,
   bindAgentChannel,
   unbindAgentChannel,
-  fetchAgentMessages,
   fetchTemplates,
   createManagedAgent,
   pauseManagedAgent,
@@ -16,13 +16,13 @@ import {
   deleteManagedAgent,
   runManagedAgent,
   recoverManagedAgent,
-  sendAgentMessage,
+  askAgent,
   fetchLearningLog,
   triggerLearning,
   fetchAgentTraces,
+  fetchAgentTrace,
   fetchManagedAgent,
   fetchAvailableTools,
-  saveToolCredentials,
   fetchModels,
   updateManagedAgent,
   fetchRecommendedModel,
@@ -31,7 +31,9 @@ import {
   sendblueTest,
   sendblueHealth,
 } from '../lib/api';
-import type { AgentTask, ChannelBinding, AgentTemplate, AgentMessage, ManagedAgent, LearningLogEntry, AgentTrace, ToolInfo } from '../lib/api';
+import type { AgentTask, ChannelBinding, AgentTemplate, ManagedAgent, LearningLogEntry, AgentTrace, AgentTraceDetail, ToolInfo } from '../lib/api';
+import { useAgentEvents } from '../lib/useAgentEvents';
+import type { AgentEvent } from '../lib/useAgentEvents';
 import {
   Plus,
   Bot,
@@ -58,10 +60,13 @@ import {
   Copy,
   Check,
   Pencil,
+  Loader2,
 } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
 import { listConnectors, connectSource } from '../lib/connectors-api';
+import type { ToolCallInfo } from '../types';
+import { ToolCallCard } from '../components/Chat/ToolCallCard';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -78,18 +83,18 @@ type AgentStatus =
   | 'stalled';
 
 const STATUS_COLOR: Record<AgentStatus, string> = {
-  idle: '#22c55e',
-  running: '#3b82f6',
-  paused: '#6b7280',
-  error: '#ef4444',
-  archived: '#6b7280',
-  needs_attention: '#f59e0b',
-  budget_exceeded: '#f97316',
-  stalled: '#eab308',
+  idle: 'var(--color-success)',
+  running: 'var(--color-accent)',
+  paused: 'var(--color-text-tertiary)',
+  error: 'var(--color-error)',
+  archived: 'var(--color-text-tertiary)',
+  needs_attention: 'var(--color-warning)',
+  budget_exceeded: 'var(--color-warning)',
+  stalled: 'var(--color-warning)',
 };
 
 function statusColor(s: string): string {
-  return STATUS_COLOR[s as AgentStatus] || '#6b7280';
+  return STATUS_COLOR[s as AgentStatus] || 'var(--color-text-tertiary)';
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -283,6 +288,353 @@ function Tooltip({ text }: { text: string }) {
   return <span className="inline-block ml-1 cursor-help" style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }} title={text}>(?)</span>;
 }
 
+// ---------------------------------------------------------------------------
+// ToolsPicker — dev-inventory style tool selector used by the launch wizard
+// ---------------------------------------------------------------------------
+
+const TOOL_CATEGORY_ORDER = [
+  'filesystem',
+  'system',
+  'code',
+  'vcs',
+  'storage',
+  'memory',
+  'knowledge',
+  'knowledge_graph',
+  'search',
+  'network',
+  'browser',
+  'database',
+  'data',
+  'math',
+  'reasoning',
+  'inference',
+  'media',
+  'audio',
+  'skill',
+  'channel',
+  'communication',
+  'other',
+];
+
+const TOOL_CATEGORY_LABELS: Record<string, string> = {
+  filesystem: 'filesystem',
+  system: 'shell & exec',
+  code: 'code & repl',
+  vcs: 'git',
+  storage: 'memory · storage',
+  memory: 'memory',
+  knowledge: 'knowledge',
+  knowledge_graph: 'knowledge graph',
+  search: 'search',
+  network: 'network',
+  browser: 'browser',
+  database: 'database',
+  data: 'data',
+  math: 'math',
+  reasoning: 'reasoning',
+  inference: 'inference',
+  media: 'media',
+  audio: 'audio',
+  skill: 'skills',
+  channel: 'channel primitives',
+  communication: 'channels',
+  other: 'other',
+};
+
+function ToolsPicker({
+  tools,
+  selected,
+  onChange,
+}: {
+  tools: ToolInfo[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [hovered, setHovered] = useState<ToolInfo | null>(null);
+  const [pulseKey, setPulseKey] = useState(0);
+
+  // Channels (source === 'channel') live in ChannelRegistry and aren't
+  // directly callable by the LLM — the agent talks to them through the
+  // `channel_send` tool. Showing them in the tools picker is misleading,
+  // so filter them out; channel bindings are configured separately.
+  const tollableTools = tools.filter((t) => t.source !== 'channel');
+
+  // Group by category, respecting the preferred order then alphabetical.
+  const grouped = (() => {
+    const buckets: Record<string, ToolInfo[]> = {};
+    for (const t of tollableTools) {
+      const cat = TOOL_CATEGORY_ORDER.includes(t.category) ? t.category : 'other';
+      (buckets[cat] ||= []).push(t);
+    }
+    for (const cat of Object.keys(buckets)) {
+      buckets[cat].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return TOOL_CATEGORY_ORDER
+      .filter((cat) => buckets[cat]?.length)
+      .map((cat) => ({ category: cat, items: buckets[cat] }));
+  })();
+
+  const configurable = tollableTools.filter((t) => t.configured).map((t) => t.name);
+  const allSelected =
+    configurable.length > 0 && configurable.every((n) => selected.includes(n));
+
+  const toggle = (name: string) => {
+    const next = selected.includes(name)
+      ? selected.filter((t) => t !== name)
+      : [...selected, name];
+    onChange(next);
+    setPulseKey((k) => k + 1);
+  };
+
+  const hint = hovered
+    ? hovered.configured
+      ? hovered.description || hovered.name
+      : `Needs ${hovered.credential_keys.join(', ') || 'credentials'}`
+    : 'hover a tool for details';
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <label
+          className="block text-[13px] font-medium"
+          style={{ color: 'var(--color-text-secondary)' }}
+        >
+          Tools
+        </label>
+        <div className="flex items-center gap-2">
+          <span
+            key={pulseKey}
+            className="tools-count"
+            style={{
+              fontFamily:
+                'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+              fontSize: 10.5,
+              color: 'var(--color-text-tertiary)',
+            }}
+          >
+            <span style={{ color: 'var(--color-accent)' }}>
+              {selected.length}
+            </span>
+            <span style={{ opacity: 0.5 }}> / {tollableTools.length}</span>
+          </span>
+          <span style={{ color: 'var(--color-text-tertiary)', opacity: 0.3 }}>·</span>
+          <button
+            type="button"
+            onClick={() => onChange(allSelected ? [] : configurable)}
+            disabled={tools.length === 0}
+            className="transition-colors"
+            style={{
+              fontFamily:
+                'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+              fontSize: 10,
+              color: 'var(--color-text-tertiary)',
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: tools.length === 0 ? 'default' : 'pointer',
+              textDecoration: 'underline',
+              textUnderlineOffset: 2,
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.color = 'var(--color-text)')
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.color = 'var(--color-text-tertiary)')
+            }
+          >
+            {allSelected ? 'none' : 'all'}
+          </button>
+        </div>
+      </div>
+      <p
+        className="text-[10.5px] mb-2"
+        style={{ color: 'var(--color-text-tertiary)' }}
+      >
+        What the agent is allowed to call. An empty selection makes a
+        chat-only agent.
+      </p>
+      {tools.length === 0 ? (
+        <div
+          className="px-3 py-2 rounded-lg text-xs"
+          style={{
+            background: 'var(--color-bg-secondary)',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-tertiary)',
+          }}
+        >
+          Loading available tools…
+        </div>
+      ) : (
+        <div
+          className="rounded-lg overflow-hidden"
+          style={{
+            background: 'var(--color-bg-secondary)',
+            border: '1px solid var(--color-border)',
+          }}
+          onMouseLeave={() => setHovered(null)}
+        >
+          <div
+            className="px-2.5 py-2 overflow-y-auto"
+            style={{ maxHeight: 200 }}
+          >
+            {grouped.map(({ category, items }, idx) => (
+              <div key={category} style={{ marginTop: idx === 0 ? 0 : 10 }}>
+                <div
+                  className="flex items-center gap-1.5 mb-1.5"
+                  style={{
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                    fontSize: 9.5,
+                    color: 'var(--color-text-tertiary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em',
+                  }}
+                >
+                  <span style={{ opacity: 0.5 }}>─</span>
+                  <span>{TOOL_CATEGORY_LABELS[category] || category}</span>
+                  <span
+                    className="flex-1"
+                    style={{
+                      borderBottom: '1px dashed var(--color-border)',
+                      marginBottom: 3,
+                      opacity: 0.5,
+                    }}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {items.map((tool) => {
+                    const isSelected = selected.includes(tool.name);
+                    const disabled = !tool.configured;
+                    return (
+                      <button
+                        key={tool.name}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => toggle(tool.name)}
+                        onMouseEnter={() => setHovered(tool)}
+                        onFocus={() => setHovered(tool)}
+                        className="tool-chip"
+                        style={{
+                          fontFamily:
+                            'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                          fontSize: 11,
+                          lineHeight: 1.2,
+                          padding: '3px 7px 3px 5px',
+                          borderRadius: 4,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          background: isSelected
+                            ? 'color-mix(in srgb, var(--color-accent) 14%, transparent)'
+                            : 'var(--color-bg)',
+                          color: disabled
+                            ? 'var(--color-text-tertiary)'
+                            : isSelected
+                              ? 'var(--color-accent)'
+                              : 'var(--color-text-secondary)',
+                          border: disabled
+                            ? '1px dashed var(--color-border)'
+                            : `1px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                          boxShadow: isSelected
+                            ? 'inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 30%, transparent)'
+                            : 'none',
+                          cursor: disabled ? 'not-allowed' : 'pointer',
+                          opacity: disabled ? 0.55 : 1,
+                          transition:
+                            'background 120ms, color 120ms, border-color 120ms, transform 80ms',
+                        }}
+                        onMouseDown={(e) =>
+                          !disabled && (e.currentTarget.style.transform = 'scale(0.97)')
+                        }
+                        onMouseUp={(e) =>
+                          (e.currentTarget.style.transform = 'scale(1)')
+                        }
+                      >
+                        <span
+                          style={{
+                            opacity: isSelected ? 1 : 0.5,
+                            color: disabled
+                              ? 'var(--color-text-tertiary)'
+                              : isSelected
+                                ? 'var(--color-accent)'
+                                : 'var(--color-text-tertiary)',
+                            fontSize: 10.5,
+                          }}
+                        >
+                          {disabled ? '⨯' : isSelected ? '▣' : '□'}
+                        </span>
+                        <span>{tool.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Live description strip */}
+          <div
+            className="flex items-start gap-2 px-2.5 py-1.5"
+            style={{
+              borderTop: '1px solid var(--color-border)',
+              background: 'var(--color-bg)',
+              fontFamily:
+                'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+              fontSize: 10.5,
+              color: 'var(--color-text-tertiary)',
+              minHeight: 26,
+            }}
+          >
+            <span
+              style={{
+                color: hovered
+                  ? hovered.configured
+                    ? 'var(--color-accent)'
+                    : '#f59e0b'
+                  : 'var(--color-text-tertiary)',
+                opacity: hovered ? 1 : 0.5,
+              }}
+            >
+              {hovered ? (hovered.configured ? '▸' : '!') : '·'}
+            </span>
+            {hovered && (
+              <span
+                style={{
+                  color: 'var(--color-text)',
+                  fontWeight: 500,
+                }}
+              >
+                {hovered.name}
+              </span>
+            )}
+            <span
+              className="min-w-0 whitespace-normal break-words"
+              style={{
+                flex: 1,
+                color: 'var(--color-text-tertiary)',
+                lineHeight: 1.4,
+              }}
+            >
+              {hovered ? `— ${hint}` : hint}
+            </span>
+          </div>
+        </div>
+      )}
+      <style>{`
+        @keyframes tools-count-pulse {
+          0% { transform: scale(1); }
+          40% { transform: scale(1.18); }
+          100% { transform: scale(1); }
+        }
+        .tools-count {
+          display: inline-block;
+          animation: tools-count-pulse 220ms ease-out;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function LaunchWizard({
   templates,
   onClose,
@@ -317,6 +669,7 @@ function LaunchWizard({
   });
   const [launching, setLaunching] = useState(false);
   const [recommendedModel, setRecommendedModel] = useState('');
+  const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
   const models = useAppStore((s) => s.models);
 
   useEffect(() => {
@@ -325,6 +678,9 @@ function LaunchWizard({
       if (!wizard.model) {
         setWizard((w) => ({ ...w, model: r.model }));
       }
+    }).catch(() => {});
+    fetchAvailableTools().then((tools) => {
+      setAvailableTools(tools);
     }).catch(() => {});
   }, []);
 
@@ -439,7 +795,7 @@ function LaunchWizard({
                 onClick={() => selectTemplate(tpl)}
                 className="text-left p-4 rounded-lg transition-all items-start"
                 style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-purple) 6%, transparent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.background = 'var(--color-bg-secondary)'; }}
               >
                 <div className="flex items-center gap-2 mb-1">
@@ -450,7 +806,7 @@ function LaunchWizard({
                 {(tpl as any).tools && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {((tpl as any).tools as string[]).slice(0, 4).map((t: string) => (
-                      <span key={t} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(124,58,237,0.12)', color: '#a78bfa' }}>{t}</span>
+                      <span key={t} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'color-mix(in srgb, var(--color-accent-purple) 12%, transparent)', color: 'var(--color-accent-purple)' }}>{t}</span>
                     ))}
                     {((tpl as any).tools as string[]).length > 4 && (
                       <span className="text-xs px-1.5 py-0.5 rounded" style={{ color: 'var(--color-text-tertiary)' }}>+{((tpl as any).tools as string[]).length - 4}</span>
@@ -463,7 +819,7 @@ function LaunchWizard({
               onClick={() => selectTemplate(null)}
               className="text-left p-4 rounded-lg transition-all items-start"
               style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)'; }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-purple) 6%, transparent)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.background = 'var(--color-bg-secondary)'; }}
             >
               <div className="flex items-center gap-2 mb-1">
@@ -517,11 +873,20 @@ function LaunchWizard({
               style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
             />
             {wizard.instruction.includes('[') && (
-              <p className="text-[10px] mt-1" style={{ color: '#f59e0b' }}>
+              <p className="text-[10px] mt-1" style={{ color: 'var(--color-warning)' }}>
                 Replace the [bracketed text] with your own values
               </p>
             )}
           </div>
+
+          {/* Tools picker */}
+          <ToolsPicker
+            tools={availableTools}
+            selected={wizard.selectedTools}
+            onChange={(next) =>
+              setWizard((w) => ({ ...w, selectedTools: next }))
+            }
+          />
 
           {/* Model + Schedule row */}
           <div className="grid grid-cols-2 gap-3">
@@ -588,7 +953,7 @@ function LaunchWizard({
                           className="px-1.5 py-1 rounded text-xs font-medium"
                           style={{
                             background: isSelected ? 'var(--color-accent)' : 'var(--color-bg)',
-                            color: isSelected ? '#fff' : 'var(--color-text-tertiary)',
+                            color: isSelected ? 'var(--color-on-accent)' : 'var(--color-text-tertiary)',
                             border: `1px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border)'}`,
                           }}
                         >
@@ -650,7 +1015,7 @@ function LaunchWizard({
               </label>
               <div className="flex flex-wrap gap-1.5">
                 {wizard.selectedTools.map((t) => (
-                  <span key={t} className="text-xs px-2 py-1 rounded" style={{ background: 'rgba(124,58,237,0.12)', color: '#a78bfa' }}>{t}</span>
+                  <span key={t} className="text-xs px-2 py-1 rounded" style={{ background: 'color-mix(in srgb, var(--color-accent-purple) 12%, transparent)', color: 'var(--color-accent-purple)' }}>{t}</span>
                 ))}
               </div>
             </div>
@@ -739,7 +1104,7 @@ function LaunchWizard({
               onClick={handleLaunch}
               disabled={launching || !wizard.name.trim()}
               className="flex-1 py-2.5 rounded-lg text-sm font-semibold"
-              style={{ background: 'var(--color-accent)', color: '#fff', opacity: launching || !wizard.name.trim() ? 0.5 : 1 }}
+              style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)', opacity: launching || !wizard.name.trim() ? 0.5 : 1 }}
             >
               {launching ? 'Creating...' : 'Launch Agent'}
             </button>
@@ -800,7 +1165,7 @@ function OverflowMenu({
               setOpen(false);
             }}
             className="w-full text-left px-3 py-1.5 text-xs cursor-pointer flex items-center gap-2"
-            style={{ color: '#ef4444' }}
+            style={{ color: 'var(--color-error)' }}
           >
             <Trash2 size={12} /> Delete
           </button>
@@ -893,10 +1258,10 @@ function AgentCard({
                 width: `${Math.min(100, ((agent.total_cost ?? 0) / (agent.config?.max_cost as number)) * 100)}%`,
                 background:
                   ((agent.total_cost ?? 0) / (agent.config?.max_cost as number)) > 0.9
-                    ? '#ef4444'
+                    ? 'var(--color-error)'
                     : ((agent.total_cost ?? 0) / (agent.config?.max_cost as number)) > 0.75
-                      ? '#f59e0b'
-                      : '#22c55e',
+                      ? 'var(--color-warning)'
+                      : 'var(--color-success)',
               }}
             />
           </div>
@@ -943,7 +1308,7 @@ function AgentCard({
           <button
             onClick={() => onResume(agent.id)}
             className="p-1 rounded cursor-pointer"
-            style={{ color: '#22c55e' }}
+            style={{ color: 'var(--color-success)' }}
             title="Resume"
           >
             <Play size={13} />
@@ -953,7 +1318,7 @@ function AgentCard({
           <button
             onClick={() => onRecover(agent.id)}
             className="flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer"
-            style={{ background: '#ef444420', color: '#ef4444' }}
+            style={{ background: 'var(--color-error)20', color: 'var(--color-error)' }}
             title="Recover agent"
           >
             <AlertTriangle size={11} /> Recover
@@ -1013,7 +1378,7 @@ function AgentInstructionSection({ agent, onAgentUpdated }: { agent: ManagedAgen
             style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
           />
           <div className="flex gap-2">
-            <button onClick={save} className="text-xs px-3 py-1 rounded font-medium cursor-pointer" style={{ background: 'var(--color-accent)', color: '#fff' }}>Save</button>
+            <button onClick={save} className="text-xs px-3 py-1 rounded font-medium cursor-pointer" style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}>Save</button>
             <button onClick={() => setEditing(false)} className="text-xs px-3 py-1 rounded cursor-pointer" style={{ color: 'var(--color-text-tertiary)', border: '1px solid var(--color-border)' }}>Cancel</button>
           </div>
         </div>
@@ -1040,20 +1405,20 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
     let cancelled = false;
     async function checkModel() {
       try {
-        const res = await fetch('http://localhost:11434/api/tags');
-        if (!res.ok) { setModelAvailable('unknown'); return; }
-        const data = await res.json();
-        const loadedNames: string[] = (data.models || []).map((m: { name: string }) => m.name);
-        if (!cancelled) {
-          setOllamaModels(loadedNames);
-          if (currentModel === '(default)') {
-            setModelAvailable(loadedNames.length > 0 ? 'available' : 'unknown');
-          } else {
-            const isLoaded = loadedNames.some(
-              (n) => n === currentModel || n.startsWith(currentModel + ':') || currentModel.startsWith(n.split(':')[0])
-            );
-            setModelAvailable(isLoaded ? 'available' : 'unavailable');
-          }
+        // Ask the backend which models are installed rather than hitting
+        // Ollama directly from the browser: the backend always knows where
+        // Ollama lives (incl. remote) and there's no cross-origin/CORS issue,
+        // which is what made the check spuriously report "Not available".
+        const installed = (await fetchModels()).map((m) => m.id);
+        if (cancelled) return;
+        setOllamaModels(installed);
+        if (currentModel === '(default)') {
+          setModelAvailable(installed.length > 0 ? 'available' : 'unknown');
+        } else {
+          const isInstalled = installed.some(
+            (n) => n === currentModel || n.startsWith(currentModel + ':') || currentModel.startsWith(n.split(':')[0])
+          );
+          setModelAvailable(isInstalled ? 'available' : 'unavailable');
         }
       } catch {
         if (!cancelled) setModelAvailable('unknown');
@@ -1065,21 +1430,15 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
 
   async function startEditingModel() {
     try {
-      const fetched = await fetchModels();
-      setModels(fetched.map((m) => m.id));
-    } catch { /* ignore */ }
-    // Also refresh Ollama models for availability indication
-    try {
-      const res = await fetch('http://localhost:11434/api/tags');
-      if (res.ok) {
-        const data = await res.json();
-        setOllamaModels((data.models || []).map((m: { name: string }) => m.name));
-      }
+      const fetched = (await fetchModels()).map((m) => m.id);
+      setModels(fetched);
+      // Same backend list drives both the dropdown and the availability dots.
+      setOllamaModels(fetched);
     } catch { /* ignore */ }
     setEditingModel(true);
   }
 
-  function isModelLoaded(modelId: string): boolean {
+  function isModelInstalled(modelId: string): boolean {
     return ollamaModels.some(
       (n) => n === modelId || n.startsWith(modelId + ':') || modelId.startsWith(n.split(':')[0])
     );
@@ -1098,10 +1457,10 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
   }
 
   const modelStatusDot = modelAvailable === 'available'
-    ? '#22c55e'
+    ? 'var(--color-success)'
     : modelAvailable === 'unavailable'
-      ? '#ef4444'
-      : '#888';
+      ? 'var(--color-error)'
+      : 'var(--color-text-tertiary)';
 
   const rows: [string, React.ReactNode][] = [
     ['Intelligence', editingModel ? (
@@ -1117,10 +1476,10 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
           style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
         >
           {models.map((m) => {
-            const loaded = isModelLoaded(m);
+            const installed = isModelInstalled(m);
             return (
-              <option key={m} value={m} style={!loaded ? { color: '#888' } : undefined}>
-                {m}{!loaded ? ' (not loaded)' : ''}
+              <option key={m} value={m} style={!installed ? { color: 'var(--color-text-tertiary)' } : undefined}>
+                {m}{!installed ? ' (not installed)' : ''}
               </option>
             );
           })}
@@ -1145,14 +1504,14 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
         />
         <span style={{ color: 'var(--color-text)' }}>{currentModel}</span>
         {modelAvailable === 'unavailable' && (
-          <span className="text-xs" style={{ color: '#ef4444' }}>Not available</span>
+          <span className="text-xs" style={{ color: 'var(--color-error)' }}>Not available</span>
         )}
         <button
           onClick={startEditingModel}
           className="text-xs px-2 py-0.5 rounded cursor-pointer"
           style={{
-            color: modelAvailable === 'unavailable' ? '#ef4444' : 'var(--color-accent)',
-            border: `1px solid ${modelAvailable === 'unavailable' ? '#ef4444' : 'var(--color-accent)'}`,
+            color: modelAvailable === 'unavailable' ? 'var(--color-error)' : 'var(--color-accent)',
+            border: `1px solid ${modelAvailable === 'unavailable' ? 'var(--color-error)' : 'var(--color-accent)'}`,
             opacity: 0.8,
           }}
         >
@@ -1183,386 +1542,421 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
 // Detail view — Interact tab
 // ---------------------------------------------------------------------------
 
-/** AgentMessage extended with optional response metadata for the footer. */
-type InteractMessage = AgentMessage & {
-  _elapsed?: string;
-  _toolCalls?: number;
-  _usage?: Record<string, number>;
-  _telemetry?: Record<string, unknown>;
-};
+/** One entry in the live activity feed assembled from agent events. */
+type LiveItem =
+  | { kind: 'note'; id: string; label: string }
+  | { kind: 'tool'; id: string; tool: ToolCallInfo };
 
-function AgentResponseFooter({
-  msg, copiedId, onCopy,
-}: {
-  msg: InteractMessage;
-  copiedId: string | null;
-  onCopy: (id: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const u = msg._usage;
-  const t = msg._telemetry as Record<string, unknown> | undefined;
-  const elapsed = msg._elapsed;
-  const toolCalls = msg._toolCalls || 0;
-
-  // Build summary line like Chat: "ollama - qwen3.5:9b - 18.3s - 50 tokens"
-  const parts: string[] = [];
-  if (t?.engine) parts.push(String(t.engine));
-  if (t?.model_id) parts.push(String(t.model_id));
-  if (elapsed) parts.push(`${elapsed}s`);
-  if (u?.prompt_tokens) parts.push(`${u.prompt_tokens} input tokens`);
-  if (u?.completion_tokens) parts.push(`${u.completion_tokens} output tokens`);
-  if (toolCalls > 0) parts.push(`${toolCalls} tool ${toolCalls === 1 ? 'call' : 'calls'}`);
-
-  const summary = parts.length > 0 ? parts.join(' - ') : elapsed ? `${elapsed}s` : '';
-
-  // Build expanded rows
-  const rows: Array<{ label: string; value: string }> = [];
-  if (t?.engine) rows.push({ label: 'Engine', value: `${t.engine}${t.model_id ? ` (${t.model_id})` : ''}` });
-  if (u) {
-    const tokenParts = [];
-    if (u.completion_tokens) tokenParts.push(`${u.completion_tokens} generated`);
-    if (u.prompt_tokens) tokenParts.push(`${u.prompt_tokens} prompt`);
-    if (tokenParts.length) rows.push({ label: 'Tokens', value: tokenParts.join(' · ') });
-  }
-  if (toolCalls > 0) rows.push({ label: 'Tool calls', value: `${toolCalls}` });
-  if (t?.tokens_per_sec) rows.push({ label: 'Speed', value: `${Math.round(Number(t.tokens_per_sec))} tok/s` });
-  if (t?.total_ms) rows.push({ label: 'Latency', value: `${(Number(t.total_ms) / 1000).toFixed(1)}s total` });
-
-  if (!summary) return null;
-
-  return (
-    <div style={{ borderTop: '1px solid var(--color-border-subtle)', marginTop: 6 }}>
-      <div style={{ display: 'flex', alignItems: 'center', paddingTop: 4 }}>
-        <button
-          onClick={() => rows.length > 0 && setExpanded(!expanded)}
-          style={{
-            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
-            background: 'none', border: 'none', cursor: rows.length > 0 ? 'pointer' : 'default',
-            padding: 0, textAlign: 'left',
-          }}
-        >
-          <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--color-accent)', flexShrink: 0 }} />
-          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'system-ui' }}>
-            {summary}
-          </span>
-          {rows.length > 0 && (
-            <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
-              {expanded ? '▲' : '▼'}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => onCopy(msg.id)}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: 'var(--color-text-tertiary)', padding: 2,
-            display: 'flex', alignItems: 'center',
-          }}
-          title="Copy response"
-        >
-          {copiedId === msg.id ? <Check size={12} /> : <Copy size={12} />}
-        </button>
-      </div>
-      {expanded && rows.length > 0 && (
-        <div style={{
-          borderRadius: 6, marginTop: 4, padding: '6px 10px',
-          background: 'rgba(0, 0, 0, 0.15)',
-        }}>
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'auto 1fr',
-            columnGap: 12, rowGap: 2,
-          }}>
-            {rows.map((row) => (
-              <div key={row.label} style={{ display: 'contents' }}>
-                <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'monospace' }}>
-                  {row.label}
-                </span>
-                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
-                  {row.value}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+/** Convert a persisted trace step into a ToolCallInfo for ToolCallCard. */
+function stepToToolCall(
+  step: AgentTraceDetail['steps'][number],
+  idx: number,
+): ToolCallInfo {
+  const input = (step.input ?? {}) as { tool?: string; args?: unknown };
+  const out = step.output as unknown;
+  const result =
+    typeof out === 'string'
+      ? out
+      : out && typeof out === 'object' && 'result' in out
+        ? String((out as { result: unknown }).result ?? '')
+        : out != null
+          ? JSON.stringify(out)
+          : '';
+  const args = input.args;
+  return {
+    id: `step-${idx}`,
+    tool: input.tool || step.step_type || 'step',
+    arguments:
+      typeof args === 'string' ? args : args != null ? JSON.stringify(args) : '',
+    status: 'success',
+    result,
+    latency: step.duration ? step.duration * 1000 : undefined,
+  };
 }
 
-function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: string }) {
-  const [messages, setMessages] = useState<InteractMessage[]>([]);
+// ---------------------------------------------------------------------------
+// Interact tab — trace viewer (top) + follow-up chat (bottom).
+//
+// The chat input doesn't open a side-channel chat; it triggers a real ad-hoc
+// agent run (execute_tick) with the user's question as input. The trace area
+// shows that run live (tick + tool calls over the events WebSocket) and, when
+// idle, the last run's trace steps plus the agent's resulting findings — so
+// users can interrogate the agent about its work ("tell me more about X").
+// ---------------------------------------------------------------------------
+function InteractTab({ agentId, agentStatus, onRunStateChange }: { agentId: string; agentStatus: string; onRunStateChange?: () => void }) {
+  const [agent, setAgent] = useState<ManagedAgent | null>(null);
+  const [activity, setActivity] = useState('');
+  const [running, setRunning] = useState(agentStatus === 'running');
+  const [liveItems, setLiveItems] = useState<LiveItem[]>([]);
+  const [lastTrace, setLastTrace] = useState<AgentTraceDetail | null>(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [waitingForResponse, setWaitingForResponse] = useState(false);
-  const [progressLabel, setProgressLabel] = useState('');
-  const [streamingContent, setStreamingContent] = useState('');
-  const [currentActivity, setCurrentActivity] = useState('');
-  const [liveStatus, setLiveStatus] = useState(agentStatus);
-  const [streamElapsedMs, setStreamElapsedMs] = useState(0);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [question, setQuestion] = useState(''); // question driving the current/last run
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  const startRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const runningRef = useRef(running);
+  runningRef.current = running;
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Keep a ref of local metadata so polling doesn't overwrite it
-  const localMetaRef = useRef<Map<string, {
-    _elapsed?: string;
-    _toolCalls?: number;
-    _usage?: Record<string, number>;
-    _telemetry?: Record<string, unknown>;
-  }>>(new Map());
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
 
-  const loadData = useCallback(async () => {
+  // Load idle snapshot: agent record (status + findings) and the latest trace.
+  const loadIdle = useCallback(async () => {
     try {
-      const [msgs, agent] = await Promise.all([
-        fetchAgentMessages(agentId),
-        fetchManagedAgent(agentId),
-      ]);
-      // Merge server messages with locally-stored metadata
-      const merged: InteractMessage[] = msgs.map((m) => {
-        const meta = localMetaRef.current.get(m.content?.slice(0, 100) || '');
-        return meta ? { ...m, ...meta } : m;
-      });
-      setMessages(merged);
-      setLiveStatus(agent.status);
-      setCurrentActivity(agent.current_activity || '');
+      const a = await fetchManagedAgent(agentId);
+      setAgent(a);
+      setActivity(a.current_activity || '');
+      try {
+        const traces = await fetchAgentTraces(agentId, 1);
+        if (traces.length > 0) {
+          const detail = await fetchAgentTrace(agentId, traces[0].id);
+          setLastTrace(detail);
+        }
+      } catch {
+        /* trace store may be empty */
+      }
     } catch {
-      // ignore
+      /* ignore */
     }
   }, [agentId]);
 
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 2000);
-    return () => clearInterval(interval);
-  }, [loadData]);
+    loadIdle();
+  }, [loadIdle]);
 
-  useEffect(() => { setLiveStatus(agentStatus); }, [agentStatus]);
-
-  // Clean up elapsed-time timer on unmount
+  // Tick the elapsed timer while running.
   useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
+    if (!running) {
+      clearTimer();
+      return;
+    }
+    if (!startRef.current) startRef.current = Date.now();
+    timerRef.current = setInterval(
+      () => setElapsedMs(Date.now() - startRef.current),
+      100,
+    );
+    return clearTimer;
+  }, [running, clearTimer]);
+
+  const finishRun = useCallback(() => {
+    setRunning(false);
+    startRef.current = 0;
+    clearTimer();
+    // Give the backend a beat to persist summary_memory + trace, then refresh
+    // both this tab and the parent (so the detail/list status badge flips back
+    // from "running" to "idle" without waiting for the slow background poll).
+    setTimeout(() => {
+      loadIdle();
+      onRunStateChange?.();
+    }, 500);
+  }, [clearTimer, loadIdle, onRunStateChange]);
+
+  // Live trace: assemble events from the agent events WebSocket.
+  const onEvent = useCallback(
+    (ev: AgentEvent) => {
+      const data = ev.data || {};
+      switch (ev.type) {
+        case 'agent_tick_start': {
+          startRef.current = Date.now();
+          setElapsedMs(0);
+          setRunning(true);
+          setErrorMsg('');
+          setLiveItems([{ kind: 'note', id: `start-${ev.timestamp}`, label: 'Run started' }]);
+          break;
+        }
+        case 'tool_call_start': {
+          const id = `tc-${ev.timestamp}-${Math.random().toString(36).slice(2, 6)}`;
+          const args = data.arguments;
+          const tc: ToolCallInfo = {
+            id,
+            tool: String(data.tool || 'tool'),
+            arguments:
+              typeof args === 'string' ? args : args != null ? JSON.stringify(args) : '',
+            status: 'running',
+          };
+          setLiveItems((prev) => [...prev, { kind: 'tool', id, tool: tc }]);
+          break;
+        }
+        case 'tool_call_end': {
+          setLiveItems((prev) => {
+            const next = [...prev];
+            for (let i = next.length - 1; i >= 0; i--) {
+              const it = next[i];
+              if (
+                it.kind === 'tool' &&
+                it.tool.tool === String(data.tool) &&
+                it.tool.status === 'running'
+              ) {
+                next[i] = {
+                  ...it,
+                  tool: {
+                    ...it.tool,
+                    status: data.success === false ? 'error' : 'success',
+                    result:
+                      typeof data.result === 'string' ? data.result : it.tool.result,
+                    latency:
+                      typeof data.latency === 'number'
+                        ? data.latency * 1000
+                        : it.tool.latency,
+                  },
+                };
+                break;
+              }
+            }
+            return next;
+          });
+          break;
+        }
+        case 'agent_tick_end':
+        case 'agent_tick_error': {
+          if (ev.type === 'agent_tick_error') {
+            setErrorMsg(String(data.error || 'The run failed.'));
+          }
+          finishRun();
+          break;
+        }
       }
-    };
-  }, []);
+    },
+    [finishRun],
+  );
 
-  // Scroll to bottom only on initial load, not on every poll update.
-  const hasScrolled = useRef(false);
+  useAgentEvents(agentId, onEvent, [
+    'agent_tick_start',
+    'tool_call_start',
+    'tool_call_end',
+    'agent_tick_end',
+    'agent_tick_error',
+  ]);
+
+  // Fallback poll — WS is primary, but this catches missed tick_end events and
+  // runs started elsewhere (e.g. the scheduler or the Overview "Run" button).
   useEffect(() => {
-    if (!hasScrolled.current && messages.length > 0) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-      hasScrolled.current = true;
-    }
-  }, [messages]);
+    const iv = setInterval(async () => {
+      try {
+        const a = await fetchManagedAgent(agentId);
+        setActivity(a.current_activity || '');
+        if (a.status === 'running' && !runningRef.current) {
+          setRunning(true);
+        } else if (a.status !== 'running' && runningRef.current) {
+          finishRun();
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 3000);
+    return () => clearInterval(iv);
+  }, [agentId, finishRun]);
 
-  // Scroll to bottom when streaming content updates
+  // Keep pinned to the newest live item.
   useEffect(() => {
-    if (streamingContent) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [streamingContent]);
+    if (running) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [liveItems, running]);
 
-  async function handleSend(mode: 'immediate' | 'queued') {
-    if (!input.trim()) return;
-    const text = input.trim();
+  async function handleAsk() {
+    const q = input.trim();
+    if (!q || running || sending) return;
     setInput('');
+    setQuestion(q);
+    setErrorMsg('');
     setSending(true);
-
-    // Show user message immediately as a local bubble
-    const localMsg: AgentMessage = {
-      id: `local-${Date.now()}`,
-      agent_id: agentId,
-      direction: 'user_to_agent',
-      content: text,
-      mode,
-      status: 'delivered',
-      created_at: Date.now() / 1000,
-    };
-    setMessages((prev) => [localMsg, ...prev]);
-    setSending(false);
-    setWaitingForResponse(true);
-    setProgressLabel('Initializing agent...');
-    setStreamingContent('');
-
-    // Start elapsed-time timer
-    const startTime = Date.now();
-    setStreamElapsedMs(0);
-    timerRef.current = setInterval(() => {
-      setStreamElapsedMs(Date.now() - startTime);
-    }, 100);
-
-    let toolCount = 0;
-    let responseUsage: Record<string, number> | undefined;
-    let responseTelemetry: Record<string, unknown> | undefined;
+    setLiveItems([{ kind: 'note', id: 'queued', label: 'Starting run…' }]);
+    startRef.current = Date.now();
+    setElapsedMs(0);
     try {
-      const response = await sendAgentMessage(agentId, text, mode, {
-        onProgress: (label) => {
-          setProgressLabel(label);
-          toolCount++;
-        },
-        onContentDelta: (_delta, full) => setStreamingContent(full),
-        onDone: (_content, usage, telemetry) => {
-          setStreamingContent('');
-          responseUsage = usage;
-          responseTelemetry = telemetry;
-        },
-      });
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      // Add the agent's response as a local bubble immediately
-      if (response && response.content) {
-        const meta = {
-          _elapsed: elapsed,
-          _toolCalls: toolCount,
-          _usage: responseUsage,
-          _telemetry: responseTelemetry,
-        };
-        // Store metadata keyed by content prefix so polling preserves it
-        localMetaRef.current.set(response.content.slice(0, 100), meta);
-        setMessages((prev) => [
-          {
-            ...response,
-            id: response.id || `response-${Date.now()}`,
-            direction: 'agent_to_user' as const,
-            ...meta,
-          },
-          ...prev,
-        ]);
-      }
-      // Also refresh from server to sync any persisted messages
-      await loadData();
+      // immediate, non-streamed → triggers a real agent run that consumes the
+      // question as input. tick_start over the WS confirms; poll is the backstop.
+      await askAgent(agentId, q);
+      setRunning(true);
+      onRunStateChange?.(); // flip the parent status badge to "running" now
     } catch {
-      // ignore
+      setErrorMsg('Could not start the agent run.');
+      setLiveItems([]);
     } finally {
-      setWaitingForResponse(false);
-      setStreamingContent('');
-      setProgressLabel('');
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      setStreamElapsedMs(0);
+      setSending(false);
     }
   }
 
-  // Reverse so newest messages appear at the bottom (closest to input).
-  // Filter out agent responses with empty content.
-  const displayMessages = [...messages]
-    .filter((m) => m.direction === 'user_to_agent' || m.content.trim())
-    .reverse();
+  const isBusy = running || sending;
+  const findings = agent?.summary_memory?.trim() || '';
+  const traceSteps = lastTrace?.steps ?? [];
 
   return (
-    <div className="flex flex-col h-full" style={{ minHeight: 320 }}>
-      <div className="flex-1 overflow-y-auto space-y-3 pb-4" style={{ maxHeight: 400 }}>
-        {displayMessages.length === 0 && !waitingForResponse && (
-          <div className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>
-            No messages yet. Send a message to interact with this agent.
+    <div className="flex flex-col" style={{ minHeight: 360 }}>
+      {/* ── Trace area header ──────────────────────────────── */}
+      <div className="flex items-center justify-between mb-2">
+        <div
+          className="flex items-center gap-2 text-sm font-medium"
+          style={{ color: 'var(--color-text)' }}
+        >
+          <Activity size={14} style={{ color: 'var(--color-accent)' }} />
+          Activity trace
+        </div>
+        <div
+          className="flex items-center gap-2 text-xs"
+          style={{ color: 'var(--color-text-tertiary)' }}
+        >
+          {isBusy ? (
+            <>
+              <span
+                className="inline-block w-2 h-2 rounded-full animate-pulse"
+                style={{ background: 'var(--color-accent)' }}
+              />
+              Running{elapsedMs > 0 ? ` · ${(elapsedMs / 1000).toFixed(1)}s` : ''}
+            </>
+          ) : (
+            <>
+              {agent?.last_run_at
+                ? `Last run ${new Date(agent.last_run_at * 1000).toLocaleString()}`
+                : 'Idle'}
+              {lastTrace && ` · ${lastTrace.outcome}`}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Trace area body ────────────────────────────────── */}
+      <div
+        className="flex-1 overflow-y-auto rounded-lg p-3 space-y-3"
+        style={{
+          background: 'var(--color-bg-secondary)',
+          border: '1px solid var(--color-border)',
+          maxHeight: 'calc(100vh - 360px)',
+          minHeight: 200,
+        }}
+      >
+        {question && (
+          <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+            <span style={{ color: 'var(--color-text-secondary)' }}>Question:</span> {question}
           </div>
         )}
-        {displayMessages.map((msg) => (
+
+        {errorMsg && (
           <div
-            key={msg.id}
-            className={`flex ${msg.direction === 'user_to_agent' ? 'justify-end' : 'justify-start'}`}
+            className="text-sm px-3 py-2 rounded-lg"
+            style={{
+              background: 'rgba(255,80,80,0.08)',
+              border: '1px solid var(--color-error)',
+              color: 'var(--color-error)',
+            }}
           >
-            <div
-              className="max-w-[75%] px-3 py-2 rounded-lg text-sm"
-              style={{
-                background: msg.direction === 'user_to_agent' ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
-                color: msg.direction === 'user_to_agent' ? '#fff' : 'var(--color-text)',
-                border: msg.direction === 'agent_to_user' ? '1px solid var(--color-border)' : 'none',
-              }}
-            >
-              {msg.direction === 'agent_to_user' ? (
-                <div className="prose prose-sm prose-invert max-w-none"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
-              ) : (
-                <p>{msg.content}</p>
-              )}
-              <p className="text-xs mt-1 opacity-70">
-                {msg.status === 'pending' ? 'sending...' : new Date(msg.created_at * 1000).toLocaleTimeString()}
-              </p>
-              {msg.direction === 'agent_to_user' && (
-                <AgentResponseFooter msg={msg} copiedId={copiedId} onCopy={(id) => {
-                  navigator.clipboard.writeText(msg.content);
-                  setCopiedId(id);
-                  setTimeout(() => setCopiedId(null), 2000);
-                }} />
-              )}
-            </div>
-          </div>
-        ))}
-        {/* Progress indicator — shown when waiting but no streamed content yet */}
-        {(waitingForResponse || sending) && !streamingContent && (
-          <div className="flex justify-start">
-            <div
-              className="px-3 py-2 rounded-lg text-sm"
-              style={{
-                background: 'var(--color-bg-secondary)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-text-secondary)',
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--color-accent)' }} />
-                {sending
-                  ? 'Sending message...'
-                  : progressLabel || 'Agent is thinking...'}
-              </div>
-            </div>
+            {errorMsg}
           </div>
         )}
-        {/* Streaming content bubble — real-time response as it arrives */}
-        {waitingForResponse && streamingContent && (
-          <div className="flex justify-start">
-            <div
-              className="max-w-[75%] px-3 py-2 rounded-lg text-sm"
-              style={{
-                background: 'var(--color-bg-secondary)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-text)',
-              }}
-            >
-              {progressLabel && (
-                <div className="flex items-center gap-2 mb-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                  <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--color-accent)' }} />
-                  {progressLabel}
+
+        {isBusy ? (
+          /* LIVE view — current tick */
+          <>
+            {liveItems.map((it) =>
+              it.kind === 'tool' ? (
+                <ToolCallCard key={it.id} toolCall={it.tool} />
+              ) : (
+                <div
+                  key={it.id}
+                  className="flex items-center gap-2 text-sm"
+                  style={{ color: 'var(--color-text-secondary)' }}
+                >
+                  <span
+                    className="inline-block w-2 h-2 rounded-full animate-pulse"
+                    style={{ background: 'var(--color-accent)' }}
+                  />
+                  {it.label}
                 </div>
-              )}
-              <p className="whitespace-pre-wrap">{streamingContent}</p>
-              <p className="text-xs mt-1 opacity-70">
-                {streamElapsedMs > 0 && `${(streamElapsedMs / 1000).toFixed(1)}s elapsed`}
-              </p>
+              ),
+            )}
+            <div
+              className="flex items-center gap-2 text-sm"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              <Loader2 size={13} className="animate-spin" style={{ color: 'var(--color-accent)' }} />
+              {activity || 'Agent is working…'}
             </div>
-          </div>
+          </>
+        ) : (
+          /* IDLE view — last run's trace + findings */
+          <>
+            {traceSteps.length > 0 && (
+              <div className="space-y-2">
+                {traceSteps.map((s, i) => (
+                  <ToolCallCard key={i} toolCall={stepToToolCall(s, i)} />
+                ))}
+              </div>
+            )}
+            {findings ? (
+              <div
+                className="px-3 py-2 rounded-lg text-sm"
+                style={{
+                  background: 'var(--color-bg)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text)',
+                }}
+              >
+                <div className="text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Result
+                </div>
+                <div className="prose prose-sm prose-invert max-w-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{findings}</ReactMarkdown>
+                </div>
+              </div>
+            ) : (
+              traceSteps.length === 0 && (
+                <div
+                  className="text-sm text-center py-8"
+                  style={{ color: 'var(--color-text-tertiary)' }}
+                >
+                  No runs yet. Ask a question below to run the agent.
+                </div>
+              )
+            )}
+          </>
         )}
         <div ref={bottomRef} />
       </div>
-      {/* Input area */}
-      <div
-        className="mt-3 pt-3"
-        style={{ borderTop: '1px solid var(--color-border)' }}
-      >
+
+      {/* ── Follow-up chat input ───────────────────────────── */}
+      <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
-              handleSend('immediate');
+              handleAsk();
             }
           }}
-          placeholder="Send a message to this agent..."
+          placeholder={isBusy ? 'Agent is running…' : "Ask a follow-up about this agent's work…"}
+          disabled={isBusy}
           className="w-full px-3 py-2 rounded-lg text-sm bg-transparent outline-none resize-none"
-          style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)', minHeight: 72 }}
+          style={{
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text)',
+            minHeight: 64,
+            opacity: isBusy ? 0.6 : 1,
+          }}
         />
-        <div className="flex gap-2 mt-2">
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+            Sends your question as an ad-hoc run — results appear in the trace above.
+          </span>
           <button
-            onClick={() => handleSend('immediate')}
-            disabled={sending || waitingForResponse || !input.trim()}
+            onClick={handleAsk}
+            disabled={isBusy || !input.trim()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer font-medium"
-            style={{ background: 'var(--color-accent)', color: '#fff', opacity: sending || !input.trim() ? 0.5 : 1 }}
+            style={{
+              background: 'var(--color-accent)',
+              color: 'var(--color-on-accent)',
+              opacity: isBusy || !input.trim() ? 0.5 : 1,
+            }}
           >
-            <Send size={13} /> Send
+            {isBusy ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+            {isBusy ? 'Running' : 'Ask'}
           </button>
         </div>
       </div>
@@ -1667,7 +2061,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
               key={c.connector_id}
               style={{
                 background: 'var(--color-bg-secondary)',
-                border: '1px solid #2a5a3a',
+                border: '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)',
                 borderRadius: 6,
                 overflow: 'hidden',
                 gridColumn: isReconnecting ? '1 / -1' : undefined,
@@ -1682,7 +2076,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                   <div style={{ fontSize: 14, fontWeight: 600 }}>
                     {c.display_name}
                   </div>
-                  <div style={{ fontSize: 12, color: c.chunks > 0 ? '#4ade80' : '#f59e0b' }}>
+                  <div style={{ fontSize: 12, color: c.chunks > 0 ? 'var(--color-success)' : 'var(--color-warning)' }}>
                     {c.chunks > 0
                       ? `${c.chunks.toLocaleString()} ${unit}`
                       : 'Connected — no data synced yet'}
@@ -1707,7 +2101,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                   padding: 12,
                 }}>
                   <div style={{
-                    fontSize: 12, color: '#f59e0b',
+                    fontSize: 12, color: 'var(--color-warning)',
                     marginBottom: 8,
                   }}>
                     Re-enter credentials to reconnect this source.
@@ -1723,7 +2117,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                       }}
                     >
                       <div style={{
-                        color: '#7c3aed', fontSize: 10,
+                        color: 'var(--color-accent-purple)', fontSize: 10,
                         fontWeight: 600, marginBottom: 3,
                       }}>
                         STEP {i + 1}
@@ -1737,7 +2131,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                           target="_blank"
                           rel="noopener noreferrer"
                           style={{
-                            color: '#60a5fa', fontSize: 11,
+                            color: 'var(--color-accent)', fontSize: 11,
                             textDecoration: 'underline',
                           }}
                         >
@@ -1805,7 +2199,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                     </div>
                   </div>
                   <span style={{
-                    color: '#7c3aed', fontSize: 11, fontWeight: 500,
+                    color: 'var(--color-accent-purple)', fontSize: 11, fontWeight: 500,
                   }}>
                     {isExpanded ? '\u2715 Close' : '+ Add'}
                   </span>
@@ -1828,7 +2222,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                         }}
                       >
                         <div style={{
-                          color: '#7c3aed', fontSize: 10,
+                          color: 'var(--color-accent-purple)', fontSize: 10,
                           fontWeight: 600, marginBottom: 3,
                         }}>
                           STEP {i + 1}
@@ -1844,7 +2238,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{
-                              color: '#60a5fa', fontSize: 11,
+                              color: 'var(--color-accent)', fontSize: 11,
                               textDecoration: 'underline',
                             }}
                           >
@@ -1935,8 +2329,8 @@ function InlineConnectForm({
         disabled={loading || !allFilled}
         style={{
           width: '100%', padding: 8,
-          background: loading || !allFilled ? '#444' : '#7c3aed',
-          color: 'white', border: 'none',
+          background: loading || !allFilled ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
+          color: 'var(--color-on-accent)', border: 'none',
           borderRadius: 6, fontSize: 12, cursor: 'pointer',
         }}
       >
@@ -2023,19 +2417,19 @@ function SendBlueWebhookStep({
   return (
     <div style={{ borderTop: '1px solid var(--color-border)', padding: 14, background: 'var(--color-bg)' }}>
       <div style={{
-        background: '#052e16', border: '1px solid #2a5a3a',
+        background: 'color-mix(in srgb, var(--color-success) 10%, var(--color-bg))', border: '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)',
         borderRadius: 6, padding: 12, marginBottom: 12, textAlign: 'center',
       }}>
-        <div style={{ fontSize: 11, color: '#4ade80', fontWeight: 600, marginBottom: 4 }}>
+        <div style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 600, marginBottom: 4 }}>
           {'\u2713'} Your agent is now reachable via iMessage / SMS
         </div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: '#4ade80' }}>{selectedNumber}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-success)' }}>{selectedNumber}</div>
       </div>
 
       {/* Webhook / ngrok step */}
       <div style={{ marginTop: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <span style={{ background: '#7c3aed', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>4</span>
+          <span style={{ background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>4</span>
           <span style={{ fontSize: 12, fontWeight: 600 }}>Set up webhook to receive texts</span>
         </div>
         <div style={{
@@ -2044,7 +2438,7 @@ function SendBlueWebhookStep({
           padding: '8px 10px', marginBottom: 10,
           background: 'var(--color-bg-secondary)',
           borderRadius: 6,
-          borderLeft: '3px solid var(--color-accent, #7c3aed)',
+          borderLeft: '3px solid var(--color-accent, var(--color-accent-purple))',
         }}>
           <div><strong>1.</strong> Open a terminal and run: <code style={{ color: 'var(--color-accent)', background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 3 }}>ngrok http 8000</code></div>
           <div style={{ marginTop: 4 }}><strong>2.</strong> Copy the <code style={{ color: 'var(--color-accent)', background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 3 }}>https://</code> forwarding URL</div>
@@ -2066,8 +2460,8 @@ function SendBlueWebhookStep({
             disabled={!webhookUrl.trim() || webhookStatus === 'registering'}
             style={{
               fontSize: 11, padding: '7px 14px', whiteSpace: 'nowrap' as const,
-              background: webhookStatus === 'done' ? '#22c55e' : '#7c3aed',
-              color: 'white', border: 'none', borderRadius: 5,
+              background: webhookStatus === 'done' ? 'var(--color-success)' : 'var(--color-accent-purple)',
+              color: 'var(--color-on-accent)', border: 'none', borderRadius: 5,
               cursor: 'pointer', fontWeight: 600,
               opacity: !webhookUrl.trim() || webhookStatus === 'registering' ? 0.5 : 1,
             }}
@@ -2079,17 +2473,17 @@ function SendBlueWebhookStep({
           </button>
         </div>
         {webhookStatus === 'done' && (
-          <div style={{ fontSize: 11, color: '#22c55e', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--color-success)', marginTop: 6 }}>
             Webhook registered! Incoming texts will be forwarded to your agent.
           </div>
         )}
         {webhookStatus === 'error' && (
-          <div style={{ fontSize: 11, color: '#ef4444', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 6 }}>
             Failed to register. Check your ngrok URL and try again.
           </div>
         )}
         <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
-          Don't have ngrok? <a href="https://ngrok.com/download" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'underline' }}>Download it free</a>
+          Don't have ngrok? <a href="https://ngrok.com/download" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)', textDecoration: 'underline' }}>Download it free</a>
         </div>
       </div>
     </div>
@@ -2148,12 +2542,12 @@ function SendBlueWizard({
 
   const cardStyle: React.CSSProperties = {
     background: 'var(--color-bg-secondary)',
-    border: isActive ? '1px solid #2a5a3a' : '1px dashed var(--color-border)',
+    border: isActive ? '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)' : '1px dashed var(--color-border)',
     borderRadius: 8, marginBottom: 10, overflow: 'hidden',
   };
 
   const btnPrimary: React.CSSProperties = {
-    fontSize: 12, padding: '7px 18px', background: '#7c3aed', color: 'white',
+    fontSize: 12, padding: '7px 18px', background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
     border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 600,
   };
 
@@ -2244,7 +2638,7 @@ function SendBlueWizard({
           <span style={{ fontSize: 18, marginRight: 10 }}>{'\uD83D\uDCAC'}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 600, fontSize: 13 }}>iMessage / SMS</div>
-            <div style={{ fontSize: 11, color: healthy ? '#4ade80' : '#f59e0b' }}>
+            <div style={{ fontSize: 11, color: healthy ? 'var(--color-success)' : 'var(--color-warning)' }}>
               {healthy ? `Active on ${activeNumber}` : `Disconnected — ${activeNumber}`}
             </div>
           </div>
@@ -2259,8 +2653,8 @@ function SendBlueWizard({
               </button>
             )}
             <span style={{
-              background: healthy ? '#2a5a3a' : '#78350f',
-              color: healthy ? '#4ade80' : '#f59e0b',
+              background: healthy ? 'color-mix(in srgb, var(--color-success) 22%, transparent)' : 'color-mix(in srgb, var(--color-warning) 18%, var(--color-bg))',
+              color: healthy ? 'var(--color-success)' : 'var(--color-warning)',
               padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600,
             }}>{healthy ? 'Active' : 'Disconnected'}</span>
             <button onClick={() => setExpanded(true)} style={btnSecondary}>
@@ -2280,11 +2674,11 @@ function SendBlueWizard({
           <span style={{ fontSize: 18, marginRight: 10 }}>{'\uD83D\uDCAC'}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 600, fontSize: 13 }}>iMessage / SMS</div>
-            <div style={{ fontSize: 11, color: '#4ade80' }}>Active on {activeNumber}</div>
+            <div style={{ fontSize: 11, color: 'var(--color-success)' }}>Active on {activeNumber}</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setExpanded(false)} style={btnSecondary}>Collapse</button>
-            <button onClick={() => onRemove(binding!.id)} style={{ ...btnSecondary, color: '#f87171' }}>Remove</button>
+            <button onClick={() => onRemove(binding!.id)} style={{ ...btnSecondary, color: 'var(--color-error)' }}>Remove</button>
           </div>
         </div>
         <div style={{ borderTop: '1px solid var(--color-border)', padding: 14, background: 'var(--color-bg)' }}>
@@ -2311,7 +2705,7 @@ function SendBlueWizard({
               {testSent ? 'Sent!' : 'Send Test'}
             </button>
           </div>
-          {error && <div style={{ color: '#f87171', fontSize: 11, marginTop: 6 }}>{error}</div>}
+          {error && <div style={{ color: 'var(--color-error)', fontSize: 11, marginTop: 6 }}>{error}</div>}
         </div>
       </div>
     );
@@ -2334,7 +2728,7 @@ function SendBlueWizard({
         </div>
         <button
           onClick={(e) => { e.stopPropagation(); setStep(step === 'idle' ? 'creds' : 'idle'); }}
-          style={{ fontSize: 10, padding: '3px 12px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 600 }}
+          style={{ fontSize: 10, padding: '3px 12px', background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 600 }}
         >
           {step === 'idle' ? 'Set Up' : 'Cancel'}
         </button>
@@ -2344,7 +2738,7 @@ function SendBlueWizard({
       {(step === 'creds' || step === 'verifying') && (
         <div style={{ borderTop: '1px solid var(--color-border)', padding: 14, background: 'var(--color-bg)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ background: '#7c3aed', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>1</span>
+            <span style={{ background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>1</span>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Create a SendBlue account</span>
           </div>
           <button
@@ -2355,12 +2749,12 @@ function SendBlueWizard({
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ background: '#7c3aed', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>2</span>
+            <span style={{ background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>2</span>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Paste your API credentials</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
             Go to your{' '}
-            <a href="https://dashboard.sendblue.co/api-credentials" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'underline' }}>
+            <a href="https://dashboard.sendblue.co/api-credentials" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)', textDecoration: 'underline' }}>
               SendBlue API Credentials page
             </a>{' '}
             and copy the API Key and API Secret.
@@ -2379,7 +2773,7 @@ function SendBlueWizard({
             <input value={apiSecret} onChange={(e) => setApiSecret(e.target.value)} placeholder="Your API secret key" type="password" style={inputStyle} />
           </div>
 
-          {error && <div style={{ color: '#f87171', fontSize: 11, marginBottom: 8 }}>{error}</div>}
+          {error && <div style={{ color: 'var(--color-error)', fontSize: 11, marginBottom: 8 }}>{error}</div>}
 
           <button
             onClick={handleVerify}
@@ -2395,12 +2789,12 @@ function SendBlueWizard({
       {(step === 'verified' || step === 'connecting') && (
         <div style={{ borderTop: '1px solid var(--color-border)', padding: 14, background: 'var(--color-bg)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ background: '#22c55e', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{'\u2713'}</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#4ade80' }}>Credentials verified</span>
+            <span style={{ background: 'var(--color-success)', color: 'var(--color-on-accent)', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{'\u2713'}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-success)' }}>Credentials verified</span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ background: '#7c3aed', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>3</span>
+            <span style={{ background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>3</span>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Your agent's phone number</span>
           </div>
 
@@ -2419,13 +2813,13 @@ function SendBlueWizard({
             </div>
           ) : numbers.length === 1 ? (
             <div style={{
-              background: 'var(--color-bg-secondary)', border: '1px solid #2a5a3a',
+              background: 'var(--color-bg-secondary)', border: '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)',
               borderRadius: 6, padding: '10px 12px', marginBottom: 12,
               display: 'flex', alignItems: 'center', gap: 8,
             }}>
               <span style={{ fontSize: 20 }}>{'\uD83D\uDCF1'}</span>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#4ade80' }}>{selectedNumber}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-success)' }}>{selectedNumber}</div>
                 <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>This will be your agent's phone number</div>
               </div>
             </div>
@@ -2435,7 +2829,7 @@ function SendBlueWizard({
                 fontSize: 11, color: 'var(--color-text-secondary)',
                 marginBottom: 8, lineHeight: 1.5,
                 padding: '8px 10px', background: 'var(--color-bg-secondary)',
-                borderRadius: 6, borderLeft: '3px solid #7c3aed',
+                borderRadius: 6, borderLeft: '3px solid var(--color-accent-purple)',
               }}>
                 Copy the phone number shown under <strong>"Send from"</strong> in your SendBlue dashboard
                 and paste it below. On the free tier this is a shared number.
@@ -2452,7 +2846,7 @@ function SendBlueWizard({
             </div>
           )}
 
-          {error && <div style={{ color: '#f87171', fontSize: 11, marginBottom: 8 }}>{error}</div>}
+          {error && <div style={{ color: 'var(--color-error)', fontSize: 11, marginBottom: 8 }}>{error}</div>}
 
           <button
             onClick={handleConnect}
@@ -2570,7 +2964,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
             style={{
               background: 'var(--color-bg-secondary)',
               border: binding
-                ? '1px solid #2a5a3a'
+                ? '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)'
                 : '1px dashed var(--color-border)',
               borderRadius: 8, marginBottom: 10,
               overflow: 'hidden',
@@ -2586,7 +2980,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{ch.name}</div>
                 <div style={{
                   fontSize: 11,
-                  color: binding ? '#4ade80' : 'var(--color-text-secondary)',
+                  color: binding ? 'var(--color-success)' : 'var(--color-text-secondary)',
                 }}>
                   {binding ? ch.activeLabel(cfg) : ch.description}
                 </div>
@@ -2594,7 +2988,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
               {binding ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{
-                    background: '#2a5a3a', color: '#4ade80',
+                    background: 'color-mix(in srgb, var(--color-success) 22%, transparent)', color: 'var(--color-success)',
                     padding: '2px 8px', borderRadius: 10,
                     fontSize: 10, fontWeight: 600,
                   }}>Active</span>
@@ -2617,7 +3011,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
                   }}
                   style={{
                     fontSize: 10, padding: '3px 12px',
-                    background: '#7c3aed', color: 'white',
+                    background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
                     border: 'none', borderRadius: 5,
                     cursor: 'pointer', fontWeight: 600,
                   }}
@@ -2659,7 +3053,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
                   padding: '8px 10px',
                   background: 'var(--color-bg-secondary)',
                   borderRadius: 6,
-                  borderLeft: '3px solid var(--color-accent, #7c3aed)',
+                  borderLeft: '3px solid var(--color-accent, var(--color-accent-purple))',
                 }}>
                   {ch.setupSteps.map((step, i) => {
                     if (step.startsWith('COPYABLE:')) {
@@ -2681,7 +3075,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
                               style={{
                                 position: 'sticky', float: 'right', top: 0,
                                 fontSize: 10, padding: '2px 8px',
-                                background: '#7c3aed', color: 'white',
+                                background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
                                 border: 'none', borderRadius: 3,
                                 cursor: 'pointer', fontWeight: 600,
                               }}
@@ -2724,7 +3118,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
                   disabled={loading || !canConnect}
                   style={{
                     fontSize: 12, padding: '7px 20px',
-                    background: '#7c3aed', color: 'white',
+                    background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
                     border: 'none', borderRadius: 5,
                     cursor: 'pointer', fontWeight: 600,
                     opacity: loading || !canConnect ? 0.5 : 1,
@@ -2775,8 +3169,8 @@ function LearningTab({ agentId, learningEnabled }: { agentId: string; learningEn
           <span
             className="text-xs px-2 py-0.5 rounded-full"
             style={{
-              background: learningEnabled ? '#22c55e20' : 'var(--color-bg-secondary)',
-              color: learningEnabled ? '#22c55e' : 'var(--color-text-tertiary)',
+              background: learningEnabled ? 'var(--color-success)20' : 'var(--color-bg-secondary)',
+              color: learningEnabled ? 'var(--color-success)' : 'var(--color-text-tertiary)',
             }}
           >
             {learningEnabled ? 'Enabled' : 'Disabled'}
@@ -2788,7 +3182,7 @@ function LearningTab({ agentId, learningEnabled }: { agentId: string; learningEn
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs cursor-pointer font-medium"
           style={{
             background: 'var(--color-accent)',
-            color: '#fff',
+            color: 'var(--color-on-accent)',
             opacity: triggering ? 0.6 : 1,
           }}
         >
@@ -2854,9 +3248,19 @@ function LogsTab({ agentId }: { agentId: string }) {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 5000);
+    // Fallback slow poll — WS is primary, this catches missed events
+    const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // Event-driven refresh — trace/learning entries are created by tick + tool events
+  useAgentEvents(agentId, loadData, [
+    'agent_tick_end',
+    'agent_tick_error',
+    'tool_call_end',
+    'inference_end',
+    'agent_learning_completed',
+  ]);
 
   // Merge traces and learning entries into a unified timeline
   type TimelineEntry =
@@ -2869,11 +3273,11 @@ function LogsTab({ agentId }: { agentId: string }) {
   ].sort((a, b) => b.ts - a.ts);
 
   const learningEventColor = (eventType: string) => {
-    if (eventType === 'query_start') return '#3b82f6';
-    if (eventType === 'query_complete') return '#22c55e';
-    if (eventType === 'tool_call') return '#f59e0b';
-    if (eventType === 'tool_result') return '#8b5cf6';
-    if (eventType === 'query_error') return '#ef4444';
+    if (eventType === 'query_start') return 'var(--color-accent)';
+    if (eventType === 'query_complete') return 'var(--color-success)';
+    if (eventType === 'tool_call') return 'var(--color-warning)';
+    if (eventType === 'tool_result') return 'var(--color-accent-purple)';
+    if (eventType === 'query_error') return 'var(--color-error)';
     return 'var(--color-text-secondary)';
   };
 
@@ -2957,7 +3361,7 @@ function LogsTab({ agentId }: { agentId: string }) {
                   <div className="flex items-center gap-2">
                     <span
                       className="w-2 h-2 rounded-full inline-block"
-                      style={{ background: t.outcome === 'success' ? '#22c55e' : '#ef4444' }}
+                      style={{ background: t.outcome === 'success' ? 'var(--color-success)' : 'var(--color-error)' }}
                     />
                     <span style={{ color: 'var(--color-text)' }}>{t.outcome}</span>
                     <span
@@ -2970,10 +3374,10 @@ function LogsTab({ agentId }: { agentId: string }) {
                       <span
                         className="text-[10px] px-1.5 py-0.5 rounded font-medium"
                         style={{
-                          background: errorDetail.error_type === 'fatal' ? '#ef444420' :
-                            errorDetail.error_type === 'escalate' ? '#f59e0b20' : '#3b82f620',
-                          color: errorDetail.error_type === 'fatal' ? '#ef4444' :
-                            errorDetail.error_type === 'escalate' ? '#f59e0b' : '#3b82f6',
+                          background: errorDetail.error_type === 'fatal' ? 'var(--color-error)20' :
+                            errorDetail.error_type === 'escalate' ? 'var(--color-warning)20' : 'var(--color-accent)20',
+                          color: errorDetail.error_type === 'fatal' ? 'var(--color-error)' :
+                            errorDetail.error_type === 'escalate' ? 'var(--color-warning)' : 'var(--color-accent)',
                         }}
                       >
                         {errorDetail.error_type}
@@ -3131,10 +3535,15 @@ export function AgentsPage() {
           }
           prevStatuses.current[agent.id] = agent.status;
         }
+        // Keep the agent list — and the derived selectedAgent status badge —
+        // live. This poll previously fetched statuses only to fire error
+        // toasts and threw the result away, so a detail header could stay
+        // stuck on "running" after a tick finished on the backend.
+        setManagedAgents(agents);
       } catch {}
-    }, 30000);
+    }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [setManagedAgents]);
 
   if (loading) {
     return (
@@ -3164,7 +3573,8 @@ export function AgentsPage() {
     ] as const;
 
     return (
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto px-6 py-10">
+        <div className="max-w-5xl mx-auto">
         {/* Back button */}
         <button
           onClick={() => setSelectedAgentId(null)}
@@ -3195,7 +3605,7 @@ export function AgentsPage() {
             {detailTab === 'interact' ? (
               <span
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs"
-                style={{ background: '#22c55e20', color: '#22c55e', border: '1px solid #22c55e40' }}
+                style={{ background: 'var(--color-success)20', color: 'var(--color-success)', border: '1px solid var(--color-success)40' }}
               >
                 <MessageSquare size={13} /> Chat ready — just type below
               </span>
@@ -3203,7 +3613,7 @@ export function AgentsPage() {
               <button
                 onClick={() => handleRun(selectedAgent.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer font-medium"
-                style={{ background: 'var(--color-accent)', color: '#fff' }}
+                style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
               >
                 <Zap size={13} /> Run Now
               </button>
@@ -3221,7 +3631,7 @@ export function AgentsPage() {
               <button
                 onClick={() => handleResume(selectedAgent.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer"
-                style={{ background: '#22c55e20', color: '#22c55e', border: '1px solid #22c55e40' }}
+                style={{ background: 'var(--color-success)20', color: 'var(--color-success)', border: '1px solid var(--color-success)40' }}
               >
                 <Play size={13} /> Resume
               </button>
@@ -3230,7 +3640,7 @@ export function AgentsPage() {
               <button
                 onClick={() => handleRecover(selectedAgent.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer"
-                style={{ background: '#ef444420', color: '#ef4444', border: '1px solid #ef444440' }}
+                style={{ background: 'var(--color-error)20', color: 'var(--color-error)', border: '1px solid var(--color-error)40' }}
               >
                 <AlertTriangle size={13} /> Recover
               </button>
@@ -3244,7 +3654,7 @@ export function AgentsPage() {
                 }
               }}
               className="p-1.5 rounded-lg cursor-pointer transition-colors"
-              style={{ color: '#ef4444', background: '#ef444415' }}
+              style={{ color: 'var(--color-error)', background: 'var(--color-error)15' }}
               title="Delete agent"
             >
               <Trash2 size={15} />
@@ -3330,8 +3740,8 @@ export function AgentsPage() {
               const paramsB = paramMatch ? parseFloat(paramMatch[1]) : 9;
               const flops = 2 * paramsB * 1e9 * (inTok + outTok);
               const providers = [
-                { label: 'GPT-5.3', inPer1M: 2.0, outPer1M: 10.0 },
-                { label: 'Claude Opus 4.6', inPer1M: 5.0, outPer1M: 25.0 },
+                { label: 'GPT-5.6 Sol', inPer1M: 5.0, outPer1M: 30.0 },
+                { label: 'Claude Fable 5', inPer1M: 10.0, outPer1M: 50.0 },
                 { label: 'Gemini 3.1 Pro', inPer1M: 2.0, outPer1M: 12.0 },
               ];
               const energyWh = (inTok + outTok) / 1000 * 0.4;
@@ -3367,11 +3777,11 @@ export function AgentsPage() {
                         <p style={sectionTitle}>Local Utilization</p>
                         <div className="flex gap-5">
                           <div>
-                            <p className="text-xl font-bold leading-none" style={{ color: '#22c55e' }}>{fmtFlops}</p>
+                            <p className="text-xl font-bold leading-none" style={{ color: 'var(--color-success)' }}>{fmtFlops}</p>
                             <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Compute</p>
                           </div>
                           <div>
-                            <p className="text-xl font-bold leading-none" style={{ color: '#22c55e' }}>{energyKj.toFixed(2)} kJ</p>
+                            <p className="text-xl font-bold leading-none" style={{ color: 'var(--color-success)' }}>{energyKj.toFixed(2)} kJ</p>
                             <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Energy</p>
                           </div>
                         </div>
@@ -3385,7 +3795,7 @@ export function AgentsPage() {
                             const cost = (inTok / 1e6) * p.inPer1M + (outTok / 1e6) * p.outPer1M;
                             return (
                               <div key={p.label}>
-                                <p className="text-xl font-bold leading-none" style={{ color: '#22c55e' }}>${cost.toFixed(4)}</p>
+                                <p className="text-xl font-bold leading-none" style={{ color: 'var(--color-success)' }}>${cost.toFixed(4)}</p>
                                 <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>{p.label}</p>
                               </div>
                             );
@@ -3417,7 +3827,7 @@ export function AgentsPage() {
         )}
 
         {/* Tab: Interact */}
-        {detailTab === 'interact' && <InteractTab agentId={selectedAgent.id} agentStatus={selectedAgent.status} />}
+        {detailTab === 'interact' && <InteractTab agentId={selectedAgent.id} agentStatus={selectedAgent.status} onRunStateChange={refresh} />}
 
         {/* Tab: Channels */}
         {detailTab === 'channels' && (
@@ -3486,6 +3896,7 @@ export function AgentsPage() {
         {detailTab === 'logs' && (
           <LogsTab agentId={selectedAgent.id} />
         )}
+        </div>
       </div>
     );
   }
@@ -3493,7 +3904,8 @@ export function AgentsPage() {
   // ── List View ───────────────────────────────────────────────────────────
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 overflow-y-auto px-6 py-10">
+      <div className="max-w-5xl mx-auto">
       {/* Launch wizard modal */}
       {showWizard && (
         <LaunchWizard
@@ -3506,29 +3918,34 @@ export function AgentsPage() {
         />
       )}
 
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-xl font-semibold" style={{ color: 'var(--color-text)' }}>
-          Agents
-        </h1>
-        <button
-          onClick={() => agentManagerAvailable && setShowWizard(true)}
-          disabled={agentManagerAvailable === false}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{
-            background: agentManagerAvailable === false ? 'var(--color-bg-tertiary)' : 'var(--color-accent)',
-            color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : '#fff',
-          }}
-        >
-          <Plus size={15} /> New Agent
-        </button>
-      </div>
+      <header className="mb-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
+            Agents
+          </h1>
+          <button
+            onClick={() => agentManagerAvailable && setShowWizard(true)}
+            disabled={agentManagerAvailable === false}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: agentManagerAvailable === false ? 'var(--color-bg-tertiary)' : 'var(--color-accent)',
+              color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : 'var(--color-on-accent)',
+            }}
+          >
+            <Plus size={15} /> New Agent
+          </button>
+        </div>
+        <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--color-text-secondary)' }}>
+          Long-running autonomous agents that can monitor sources, run tasks on a schedule, and message you through connected channels.
+        </p>
+      </header>
 
       {agentManagerAvailable === false && (
         <div
           className="mx-4 mt-2 px-4 py-3 rounded-lg flex items-center gap-3 text-sm"
           style={{
             background: 'var(--color-accent-amber-subtle)',
-            border: '1px solid rgba(245, 158, 11, 0.2)',
+            border: '1px solid color-mix(in srgb, var(--color-warning) 20%, transparent)',
             color: 'var(--color-accent-amber)',
           }}
         >
@@ -3577,13 +3994,14 @@ export function AgentsPage() {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               background: agentManagerAvailable === false ? 'var(--color-bg-tertiary)' : 'var(--color-accent)',
-              color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : '#fff',
+              color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : 'var(--color-on-accent)',
             }}
           >
             <Plus size={15} /> Launch your first agent
           </button>
         </div>
       )}
+      </div>
     </div>
   );
 }

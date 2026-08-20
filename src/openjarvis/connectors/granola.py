@@ -10,6 +10,7 @@ Settings → API (requires Business or Enterprise plan).
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
@@ -20,6 +21,8 @@ from openjarvis.connectors.oauth import delete_tokens, load_tokens, save_tokens
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
 from openjarvis.core.registry import ConnectorRegistry
 from openjarvis.tools._stubs import ToolSpec
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -71,6 +74,41 @@ def _granola_api_list_notes(
     )
     resp.raise_for_status()
     return resp.json()
+
+
+class GranolaKeyError(ValueError):
+    """Raised when a Granola API key is missing or rejected by the API.
+
+    Surfaced through the ``/connect`` endpoint as an HTTP 400 so the user
+    sees why the key was refused instead of a silent failed sync later.
+    """
+
+
+def _granola_api_validate_key(api_key: str) -> None:
+    """Verify an API key with a minimal ``GET /v1/notes?limit=1`` probe.
+
+    Raises :class:`GranolaKeyError` when the key is empty or the API
+    responds 401/403, so an invalid key never overwrites a working
+    credential on disk. Other HTTP errors propagate via ``raise_for_status``.
+    """
+    if not api_key:
+        raise GranolaKeyError("Granola API key is empty.")
+    try:
+        resp = httpx.get(
+            f"{_GRANOLA_API_BASE}/v1/notes",
+            headers={"Authorization": f"Bearer {api_key}"},
+            params={"limit": 1},
+            timeout=30.0,
+        )
+    except httpx.HTTPError as exc:
+        raise GranolaKeyError(
+            f"Could not reach Granola to verify the key: {exc}"
+        ) from exc
+    if resp.status_code in (401, 403):
+        raise GranolaKeyError(
+            "Invalid API key. Check your key in Granola Settings → API."
+        )
+    resp.raise_for_status()
 
 
 def _granola_api_get_note(api_key: str, note_id: str) -> Dict[str, Any]:
@@ -239,10 +277,15 @@ class GranolaConnector(BaseConnector):
         )
 
     def handle_callback(self, code: str) -> None:
-        """Persist the API key to the credentials file.
+        """Validate and persist the API key.
 
-        The *code* parameter holds the raw API key string provided by the user.
+        The *code* parameter holds the raw API key string provided by the
+        user. The key is verified with a live ``GET /v1/notes?limit=1``
+        probe *before* it is written, so an invalid key can never overwrite
+        a working credential on disk (raises :class:`GranolaKeyError` on a
+        401/403).
         """
+        _granola_api_validate_key(code)
         save_tokens(self._credentials_path, {"token": code})
 
     def sync(
@@ -286,6 +329,7 @@ class GranolaConnector(BaseConnector):
                 created_after=created_after,
             )
             notes: List[Dict[str, Any]] = list_resp.get("notes", [])
+            logger.info("Granola: Found %d notes on this page", len(notes))
 
             for note_summary in notes:
                 note_id: str = note_summary.get("id", "")
@@ -297,11 +341,16 @@ class GranolaConnector(BaseConnector):
 
                 title: str = note.get("title", "")
                 owner: Dict[str, Any] = note.get("owner") or {}
-                author: str = owner.get("email", "")
+                author: str = (owner.get("email") or "").lower()
 
                 attendees: List[Dict[str, Any]] = note.get("attendees") or []
                 participants: List[str] = [
-                    a.get("email", "") for a in attendees if a.get("email")
+                    (a.get("email") or "").lower() for a in attendees if a.get("email")
+                ]
+                participants_raw: List[str] = [
+                    a.get("name") or a.get("email") or ""
+                    for a in attendees
+                    if a.get("name") or a.get("email")
                 ]
 
                 created_at_str: str = note.get("created_at", "")
@@ -309,11 +358,14 @@ class GranolaConnector(BaseConnector):
 
                 content = _format_note_content(note)
 
-                # Build URL from calendar event if available, else None
-                cal_event: Optional[Dict[str, Any]] = note.get("calendar_event")
-                url: Optional[str] = None
-                if cal_event:
-                    url = note.get("url")
+                cal_event: Dict[str, Any] = note.get("calendar_event") or {}
+                channel: str = cal_event.get("event_title") or "meeting"
+
+                # ``web_url`` (e.g. https://notes.granola.ai/d/{uuid}) is the
+                # only reliable way to deep-link to a Granola note — the API
+                # ``note_id`` and the web UUID are different, so we must store
+                # what the API gives us here.
+                web_url: Optional[str] = note.get("web_url") or None
 
                 doc = Document(
                     doc_id=f"granola:{note_id}",
@@ -323,8 +375,11 @@ class GranolaConnector(BaseConnector):
                     title=title,
                     author=author,
                     participants=participants,
+                    participants_raw=participants_raw,
+                    channel=channel,
+                    thread_id=note_id,
                     timestamp=timestamp,
-                    url=url,
+                    url=web_url,
                     metadata={
                         "note_id": note_id,
                         "owner_name": owner.get("name", ""),
@@ -343,6 +398,7 @@ class GranolaConnector(BaseConnector):
 
         self._items_synced = synced
         self._last_sync = datetime.now(tz=timezone.utc)
+        logger.info("Granola: Sync complete, %d notes total", synced)
 
     def sync_status(self) -> SyncStatus:
         """Return sync progress from the most recent :meth:`sync` call."""

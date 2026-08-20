@@ -22,6 +22,7 @@ from openjarvis.channels._stubs import (
     ChannelStatus,
 )
 from openjarvis.core.events import EventBus, EventType
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import ChannelRegistry
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ if not _BRIDGE_SRC.exists():
     )
 
 # Default runtime directory (npm install + auth state).
-_DEFAULT_RUNTIME_DIR = Path.home() / ".openjarvis" / "whatsapp_baileys_bridge"
+_DEFAULT_RUNTIME_DIR = get_config_dir() / "whatsapp_baileys_bridge"
 
 
 @ChannelRegistry.register("whatsapp_baileys")

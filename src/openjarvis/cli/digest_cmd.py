@@ -184,10 +184,36 @@ def digest(
             from openjarvis.sdk import Jarvis
 
             with Jarvis() as j:
-                result = j.ask("Generate my morning digest", agent="morning_digest")
-                console.print(Markdown(result))
+                j.ask("Generate my morning digest", agent="morning_digest")
         except Exception as exc:
             console.print(f"[red]Failed to generate digest: {exc}[/red]")
+            store.close()
+            return
+
+        # Reload the freshly-generated digest from the store and play audio
+        store.close()
+        store = DigestStore(db_path=db_path) if db_path else DigestStore()
+        artifact = store.get_latest()
+        if artifact is None:
+            console.print("[red]Digest was not saved.[/red]")
+            store.close()
+            return
+
+        audio_path = str(artifact.audio_path)
+        console.print(f"[dim]Audio path: '{audio_path}'[/dim]")
+        has_audio = bool(audio_path) and artifact.audio_path.exists()
+        console.print(f"[dim]Audio available: {has_audio}[/dim]")
+        if has_audio:
+            audio_thread = threading.Thread(
+                target=_play_audio, args=(audio_path,), daemon=True
+            )
+            audio_thread.start()
+            console.print("[dim]Playing audio...[/dim]")
+        else:
+            console.print("[yellow]Audio unavailable — TTS failed.[/yellow]")
+            console.print("[yellow]Check OPENAI_API_KEY is set.[/yellow]")
+
+        console.print(Markdown(artifact.text))
         store.close()
         return
 

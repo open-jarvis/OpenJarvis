@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import textwrap
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -109,25 +110,43 @@ class TelegramChannel(BaseChannel):
         try:
             import httpx
 
+            _TELEGRAM_MAX_LEN = 4096
             url = f"https://api.telegram.org/bot{self._token}/sendMessage"
-            chat_id = conversation_id or channel
-            payload: Dict[str, Any] = {
-                "chat_id": chat_id,
-                "text": content,
-            }
-            if self._parse_mode:
-                payload["parse_mode"] = self._parse_mode
-
-            resp = httpx.post(url, json=payload, timeout=10.0)
-            if resp.status_code < 300:
-                self._publish_sent(channel, content, conversation_id)
-                return True
-            logger.warning(
-                "Telegram API returned status %d: %s",
-                resp.status_code,
-                resp.text,
+            # Canonical channel send contract (see BaseChannel.send): the first
+            # positional ``channel`` arg is the DESTINATION (the Telegram chat
+            # id).  ``conversation_id`` is the inbound message id used as a
+            # reply/thread reference (``reply_to_message_id``).  We fall back to
+            # ``conversation_id`` as the chat id only when ``channel`` is empty,
+            # for backwards compatibility with legacy callers that passed the
+            # chat id via ``conversation_id``.
+            chat_id = channel or conversation_id
+            reply_to = conversation_id if (channel and conversation_id) else ""
+            chunks = textwrap.wrap(
+                content,
+                width=_TELEGRAM_MAX_LEN,
+                break_long_words=True,
+                replace_whitespace=False,
             )
-            return False
+            for chunk in chunks:
+                payload: Dict[str, Any] = {
+                    "chat_id": chat_id,
+                    "text": chunk,
+                }
+                if self._parse_mode:
+                    payload["parse_mode"] = self._parse_mode
+                if reply_to:
+                    payload["reply_to_message_id"] = reply_to
+
+                resp = httpx.post(url, json=payload, timeout=10.0)
+                if resp.status_code >= 300:
+                    logger.warning(
+                        "Telegram API returned status %d: %s",
+                        resp.status_code,
+                        resp.text,
+                    )
+                    return False
+            self._publish_sent(channel, content, conversation_id)
+            return True
         except Exception:
             logger.debug("Telegram send failed", exc_info=True)
             return False

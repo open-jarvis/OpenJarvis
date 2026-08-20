@@ -14,6 +14,7 @@ import random
 from typing import Any, Dict, Iterable, List, Optional
 
 from openjarvis.evals.core.dataset import DatasetProvider
+from openjarvis.evals.core.splits import apply_split
 from openjarvis.evals.core.types import EvalRecord
 
 LOGGER = logging.getLogger(__name__)
@@ -653,7 +654,7 @@ class ToolCall15Dataset(DatasetProvider):
         scenarios = list(SCENARIOS)
 
         # Optional category filter via split (e.g. "A", "A,B", "D-RestraintRefusal")
-        if split:
+        if split and split not in ("train", "test", "all"):
             filter_cats = [c.strip().upper() for c in split.split(",")]
             scenarios = [
                 s
@@ -661,7 +662,12 @@ class ToolCall15Dataset(DatasetProvider):
                 if any(s["category"].upper().startswith(fc) for fc in filter_cats)
             ]
 
-        if seed is not None:
+        effective_seed = 42 if seed is None else seed
+        if split in ("train", "test", "all"):
+            scenarios = apply_split(
+                scenarios, split=split, seed=effective_seed, train_frac=0.2
+            )
+        elif seed is not None:
             random.Random(seed).shuffle(scenarios)
         if max_samples is not None:
             scenarios = scenarios[:max_samples]

@@ -21,12 +21,18 @@ class StreamChunk:
     Used by ``stream_full()`` to yield rich streaming data including
     tool_calls fragments and finish_reason, unlike ``stream()`` which
     only yields plain content strings.
+
+    ``content_blocks`` and ``tool_results`` are aggregate fields emitted
+    once at end-of-stream so streaming callers reach parity with the
+    non-streaming ``generate()`` return shape.
     """
 
     content: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
     finish_reason: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
+    content_blocks: Optional[List[Dict[str, Any]]] = None
+    tool_results: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass(slots=True)
@@ -112,6 +118,17 @@ class InferenceEngine(ABC):
     @abstractmethod
     def health(self) -> bool:
         """Return ``True`` when the engine is reachable and healthy."""
+
+    def can_serve(self, model: str) -> bool:
+        """Return ``True`` if this engine can serve *model*.
+
+        Defaults to ``True``: local engines accept any model id (whether a
+        specific model is *installed* is a separate concern from engine
+        selection). Engines that multiplex provider-specific clients (e.g.
+        the cloud engine) override this so selection can skip an engine whose
+        client for the model's provider isn't configured (see #532).
+        """
+        return True
 
     def close(self) -> None:
         """Release resources (HTTP clients, connections, threads, etc.)."""

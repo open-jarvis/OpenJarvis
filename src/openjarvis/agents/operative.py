@@ -58,6 +58,7 @@ class OperativeAgent(ToolUsingAgent):
         memory_backend: Optional[Any] = None,
         interactive: bool = False,
         confirm_callback=None,
+        prompt_builder: Optional[Any] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -70,6 +71,7 @@ class OperativeAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            prompt_builder=prompt_builder,
         )
         self._system_prompt = system_prompt or ""
         self._operator_id = operator_id
@@ -96,6 +98,9 @@ class OperativeAgent(ToolUsingAgent):
             sys_parts.append(f"\n## Previous State\n{previous_state}")
 
         system_prompt = "\n\n".join(sys_parts) if sys_parts else None
+        # Honor SOUL.md / MEMORY.md / USER.md persona files like `jarvis ask`,
+        # appended so the operative's own instructions are preserved (#376).
+        system_prompt = self._apply_persona(system_prompt)
 
         # 3. Load session history
         session_messages = self._load_session()

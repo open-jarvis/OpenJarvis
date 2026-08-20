@@ -26,16 +26,19 @@ class MultiEngine(InferenceEngine):
     def __init__(self, engines: list[tuple[str, InferenceEngine]]) -> None:
         self._engines = engines
         self._model_map: Dict[str, InferenceEngine] = {}
+        self._model_key_map: Dict[str, str] = {}
         self._refresh_map()
 
     def _refresh_map(self) -> None:
         self._model_map.clear()
-        for _key, engine in self._engines:
+        self._model_key_map.clear()
+        for key, engine in self._engines:
             try:
                 for model_id in engine.list_models():
                     self._model_map[model_id] = engine
+                    self._model_key_map[model_id] = key
             except Exception as exc:
-                logger.debug("Failed to list models for %s: %s", _key, exc)
+                logger.debug("Failed to list models for %s: %s", key, exc)
 
     _CLOUD_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "claude-", "gemini-", "openrouter/")
 
@@ -56,14 +59,15 @@ class MultiEngine(InferenceEngine):
                 if key == "cloud":
                     logger.info("Routing cloud model %r to cloud engine", model)
                     return eng
-        logger.warning(
-            "Model %r not found in any engine (known: %s)",
-            model,
-            ", ".join(sorted(self._model_map.keys())),
+        # Non-cloud models: do NOT silently fall back to cloud. A transient
+        # vLLM outage during a long agentic run would otherwise route every
+        # call to cloud, producing confusing "invalid model ID" errors
+        # across all tasks.
+        raise ValueError(
+            f"Model {model!r} not found in any engine "
+            f"(known: {', '.join(sorted(self._model_map.keys())) or '<none>'}). "
+            f"Check that the expected backend (e.g. vLLM server) is reachable."
         )
-        # Fall back to the first engine — caller will see the
-        # downstream error if the model doesn't exist there.
-        return self._engines[0][1]
 
     def generate(
         self,
@@ -115,6 +119,14 @@ class MultiEngine(InferenceEngine):
     def list_models(self) -> List[str]:
         self._refresh_map()
         return list(self._model_map.keys())
+
+    def engine_key_for(self, model: str) -> str | None:
+        """Return the registry key of the engine advertising *model*."""
+        key = self._model_key_map.get(model)
+        if key is not None:
+            return key
+        self._refresh_map()
+        return self._model_key_map.get(model)
 
     def health(self) -> bool:
         return any(engine.health() for _key, engine in self._engines)

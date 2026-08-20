@@ -170,7 +170,7 @@ impl MemoryBackend for KnowledgeGraphMemory {
         top_k: usize,
     ) -> Result<Vec<RetrievalResult>, OpenJarvisError> {
         let conn = self.conn.lock();
-        let pattern = format!("%{}%", query);
+        let pattern = format!("%{query}%");
         let mut stmt = conn
             .prepare(
                 "SELECT name, entity_type, properties

@@ -12,9 +12,14 @@ import re
 from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
+from openjarvis.agents.prompt_loader import (
+    load_few_shot_exemplars,
+    load_system_prompt_override,
+)
 from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
+from openjarvis.engine._base import estimate_prompt_tokens
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool, build_tool_descriptions
 
@@ -112,8 +117,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         max_prompt_tokens: int = 3000,
     ) -> list[Message]:
         """Truncate messages if estimated token count exceeds limit."""
-        total_chars = sum(len(m.content) for m in messages)
-        estimated_tokens = total_chars // 4
+        estimated_tokens = estimate_prompt_tokens(messages)
         if estimated_tokens <= max_prompt_tokens:
             return messages
         # Find the last user message and truncate its content
@@ -121,7 +125,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             if messages[i].role == Role.USER:
                 excess_tokens = estimated_tokens - max_prompt_tokens
                 excess_chars = excess_tokens * 4
-                original = messages[i].content
+                original = messages[i].content or ""
                 if len(original) > excess_chars + 200:
                     truncated = original[: len(original) - excess_chars]
                     messages[i] = Message(
@@ -220,7 +224,10 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         self._emit_turn_start(input)
 
         tool_descriptions = build_tool_descriptions(self._tools)
-        system_prompt = OPENHANDS_SYSTEM_PROMPT.format(
+        prompt_template = (
+            load_system_prompt_override("native_openhands") or OPENHANDS_SYSTEM_PROMPT
+        )
+        system_prompt = prompt_template.format(
             tool_descriptions=tool_descriptions,
         )
 
@@ -244,38 +251,35 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             direct_messages = self._truncate_if_needed(direct_messages)
             try:
                 result = self._generate(direct_messages)
-                content = self._strip_think_tags(result.get("content", ""))
-                usage = result.get("usage", {})
-                self._emit_turn_end(turns=1)
-                return AgentResult(
-                    content=content,
-                    tool_results=[],
-                    turns=1,
-                    metadata={
-                        "prompt_tokens": usage.get("prompt_tokens", 0),
-                        "completion_tokens": usage.get("completion_tokens", 0),
-                        "total_tokens": usage.get("total_tokens", 0),
-                    },
-                )
-            except Exception as exc:
-                error_str = str(exc)
-                if "400" in error_str:
-                    error_msg = (
-                        "The input is too long for the "
-                        "model's context window. "
-                        "Please try a shorter message."
-                    )
-                else:
-                    error_msg = "The model returned an error: " + error_str
+            except Exception:
+                # Propagate to the eval runner / server bridge so the failure
+                # is recorded as an error instead of a fake "input too long"
+                # answer that silently scores as 0%. Telemetry boundary is
+                # still emitted before re-raising.
                 self._emit_turn_end(turns=1, error=True)
-                return AgentResult(
-                    content=error_msg,
-                    tool_results=[],
-                    turns=1,
-                    metadata={"error": True},
-                )
+                raise
+            content = self._strip_think_tags(result.get("content") or "")
+            usage = result.get("usage", {})
+            self._emit_turn_end(turns=1)
+            return AgentResult(
+                content=content,
+                tool_results=[],
+                turns=1,
+                metadata={
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0),
+                },
+            )
 
         messages = self._build_messages(input, context, system_prompt=system_prompt)
+
+        # Inject few-shot exemplars before the user input
+        for ex in load_few_shot_exemplars("native_openhands"):
+            if ex.get("input") and ex.get("output"):
+                messages.insert(-1, Message(role=Role.USER, content=ex["input"]))
+                messages.insert(-1, Message(role=Role.ASSISTANT, content=ex["output"]))
+
         messages = self._truncate_if_needed(messages)
 
         all_tool_results: list[ToolResult] = []
@@ -300,29 +304,18 @@ class NativeOpenHandsAgent(ToolUsingAgent):
 
             try:
                 result = self._generate(messages, **gen_kwargs)
-            except Exception as exc:
-                error_str = str(exc)
-                if "400" in error_str:
-                    error_msg = (
-                        "The input is too long for the model's context window. "
-                        "Please try a shorter message."
-                    )
-                else:
-                    error_msg = f"The model returned an error: {error_str}"
+            except Exception:
+                # Propagate so the eval runner records a real error rather
+                # than a fake "input too long" string that silently scores 0.
                 self._emit_turn_end(turns=turns, error=True)
-                return AgentResult(
-                    content=error_msg,
-                    tool_results=all_tool_results,
-                    turns=turns,
-                    metadata={"error": True},
-                )
+                raise
 
             # Accumulate usage from this generate call
             usage = result.get("usage", {})
             for k in total_usage:
                 total_usage[k] += usage.get(k, 0)
 
-            content = result.get("content", "")
+            content = result.get("content") or ""
             # Strip think tags so they don't interfere with parsing
             content = self._strip_think_tags(content)
             last_content = content

@@ -11,6 +11,8 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore[no-redef]
 
+from openjarvis.core.paths import get_config_dir
+
 
 @dataclass(slots=True)
 class AgentTemplate:
@@ -72,7 +74,7 @@ def _builtin_templates_dir() -> Path:
 
 def _user_templates_dir() -> Path:
     """Return the path to user-defined templates (~/.openjarvis/templates/agents/)."""
-    return Path.home() / ".openjarvis" / "templates" / "agents"
+    return get_config_dir() / "templates" / "agents"
 
 
 def discover_templates(

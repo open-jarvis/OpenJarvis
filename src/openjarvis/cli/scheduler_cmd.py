@@ -218,6 +218,83 @@ def scheduler_logs(task_id: str, limit: int) -> None:
         store.close()
 
 
+@scheduler.command("run-task")
+@click.argument("agent_name")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print what would run without executing.",
+)
+def scheduler_run_task(agent_name: str, dry_run: bool) -> None:
+    """Immediately execute the active task for AGENT_NAME.
+
+    Finds the first active scheduled task whose agent matches AGENT_NAME
+    and runs it right now — useful for testing and for launchd invocation
+    when OpenJarvis is not running as a persistent daemon.
+
+    Example (launchd plist ProgramArguments):
+        jarvis scheduler run-task proactive
+    """
+    console = Console()
+    store = _get_store()
+    try:
+        sched = _get_scheduler(store)
+        tasks = sched.list_tasks(status="active")
+        match = next((t for t in tasks if t.agent == agent_name), None)
+
+        if match is None:
+            console.print(
+                f"[yellow]No active task found for agent '{agent_name}'. "
+                "Register it first with 'jarvis scheduler create'.[/yellow]"
+            )
+            return
+
+        if dry_run:
+            console.print("[dim]Dry run — would execute:[/dim]")
+            console.print(f"  Task : {match.id}")
+            console.print(f"  Agent: {match.agent}")
+            console.print(f"  Prompt: {match.prompt[:80]}")
+            return
+
+        console.print(f"Running task [cyan]{match.id}[/cyan] (agent: {match.agent})…")
+
+        from openjarvis.core.config import load_config
+        from openjarvis.system import SystemBuilder
+
+        system = SystemBuilder(load_config()).build()
+        result = system.ask(match.prompt, agent=match.agent)
+
+        # Log the run result in the scheduler store
+        from datetime import datetime, timezone
+
+        if isinstance(result, (dict, list)):
+            import json as _json
+
+            result_str = _json.dumps(result, default=str)
+        else:
+            result_str = str(result) if result is not None else ""
+
+        now = datetime.now(timezone.utc).isoformat()
+        store.log_run(
+            task_id=match.id,
+            started_at=now,
+            finished_at=now,
+            success=True,
+            result=result_str,
+            error="",
+        )
+
+        console.print("[green]Done.[/green]")
+        if result:
+            console.print(result)
+    except Exception as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise SystemExit(1)
+    finally:
+        store.close()
+
+
 @scheduler.command("start")
 @click.option(
     "--poll-interval",

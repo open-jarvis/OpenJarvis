@@ -133,7 +133,7 @@ export function ReadyScreen({
       <button
         onClick={() => onStart()}
         className="px-8 py-3 rounded-xl font-semibold text-sm transition-all"
-        style={{ background: 'var(--color-accent)', color: 'white' }}
+        style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
       >
         Open Chat
       </button>

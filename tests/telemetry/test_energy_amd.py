@@ -9,6 +9,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.telemetry.energy_test_helpers import (
+    assert_available_false_when_lib_missing,
+    assert_close_sets_uninitialized,
+    assert_empty_sample_result,
+    assert_sample_result_basics,
+)
+
 # ---------------------------------------------------------------------------
 # Helpers: build a fake amdsmi module
 # ---------------------------------------------------------------------------
@@ -55,12 +62,9 @@ class TestAvailable:
     def test_available_false_when_amdsmi_not_importable(self):
         import openjarvis.telemetry.energy_amd as mod
 
-        orig = mod._AMDSMI_AVAILABLE
-        mod._AMDSMI_AVAILABLE = False
-        try:
-            assert mod.AmdEnergyMonitor.available() is False
-        finally:
-            mod._AMDSMI_AVAILABLE = orig
+        assert_available_false_when_lib_missing(
+            mod, mod.AmdEnergyMonitor, "_AMDSMI_AVAILABLE"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -128,9 +132,9 @@ class TestSampleCounterDelta:
                 expected_joules = (2000.0 - 1000.0) * 15.3 / 1e6
                 assert result.energy_joules == pytest.approx(expected_joules)
                 assert result.gpu_energy_joules == pytest.approx(expected_joules)
-                assert result.vendor == "amd"
-                assert result.energy_method == "hw_counter"
-                assert result.duration_seconds > 0
+                assert_sample_result_basics(
+                    result, vendor="amd", energy_method="hw_counter"
+                )
             finally:
                 mod._AMDSMI_AVAILABLE = orig
 
@@ -155,9 +159,7 @@ class TestSampleNoDevices:
         with monitor.sample() as result:
             pass
 
-        assert result.energy_joules == 0.0
-        assert result.duration_seconds >= 0
-        assert result.vendor == "amd"
+        assert_empty_sample_result(result, vendor="amd")
 
 
 # ---------------------------------------------------------------------------
@@ -180,9 +182,7 @@ class TestClose:
                 assert monitor._initialized is True
 
                 fake_amdsmi.amdsmi_shut_down.reset_mock()
-                monitor.close()
-
+                assert_close_sets_uninitialized(monitor)
                 fake_amdsmi.amdsmi_shut_down.assert_called_once()
-                assert monitor._initialized is False
             finally:
                 mod._AMDSMI_AVAILABLE = orig

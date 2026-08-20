@@ -9,6 +9,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from openjarvis.connectors.obsidian import ObsidianConnector
 from openjarvis.connectors.pipeline import IngestionPipeline
 from openjarvis.connectors.store import KnowledgeStore
@@ -19,6 +21,7 @@ from openjarvis.tools.knowledge_search import KnowledgeSearchTool
 DOCS_DIR = Path(__file__).resolve().parents[2] / "docs"
 
 
+@pytest.mark.live
 def test_live_obsidian_full_pipeline() -> None:
     """Smoke test: index real .md files, then search them."""
     assert DOCS_DIR.is_dir(), f"Docs dir not found: {DOCS_DIR}"

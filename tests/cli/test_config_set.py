@@ -60,6 +60,42 @@ class TestConfigSet:
         assert "vllm" in content
         assert "qwen2.5:3b" in content
 
+    def test_set_uses_utf8_for_existing_config(self, tmp_path: Path) -> None:
+        """config set preserves a UTF-8 config regardless of the system locale."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '# Preset comment — stored as UTF-8\n[engine]\ndefault = "ollama"\n',
+            encoding="utf-8",
+        )
+        original_read_text = Path.read_text
+        original_write_text = Path.write_text
+
+        def read_text(path: Path, *args: object, **kwargs: object) -> str:
+            if path == config_file:
+                assert kwargs.get("encoding") == "utf-8"
+            return original_read_text(path, *args, **kwargs)
+
+        def write_text(path: Path, data: str, *args: object, **kwargs: object) -> int:
+            if path == config_file:
+                assert kwargs.get("encoding") == "utf-8"
+            return original_write_text(path, data, *args, **kwargs)
+
+        with (
+            mock.patch.dict(os.environ, {"OPENJARVIS_CONFIG": str(config_file)}),
+            mock.patch.object(Path, "read_text", autospec=True, side_effect=read_text),
+            mock.patch.object(
+                Path, "write_text", autospec=True, side_effect=write_text
+            ),
+        ):
+            result = CliRunner().invoke(
+                cli, ["config", "set", "engine.default", "vllm"]
+            )
+
+        assert result.exit_code == 0
+        content = config_file.read_text(encoding="utf-8")
+        assert "Preset comment — stored as UTF-8" in content
+        assert "vllm" in content
+
     def test_set_invalid_key_rejected(self, tmp_path: Path) -> None:
         """config set rejects unknown keys."""
         config_file = tmp_path / "config.toml"

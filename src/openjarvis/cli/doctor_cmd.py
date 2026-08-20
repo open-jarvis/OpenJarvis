@@ -170,7 +170,13 @@ def _check_default_model() -> CheckResult:
     from openjarvis.core.registry import EngineRegistry
     from openjarvis.engine import _discovery
 
-    for key in sorted(EngineRegistry.keys()):
+    preferred = config.intelligence.preferred_engine or config.engine.default
+    check_order = []
+    if preferred:
+        check_order.append(preferred)
+    check_order += [k for k in sorted(EngineRegistry.keys()) if k != preferred]
+
+    for key in check_order:
         try:
             engine = _discovery._make_engine(key, config)
             if engine.health():
@@ -215,6 +221,47 @@ def _check_optional_deps() -> List[CheckResult]:
                 )
             )
     return results
+
+
+def _check_speech_backend() -> CheckResult:
+    """Check whether the configured speech backend can load."""
+    try:
+        from openjarvis.speech._discovery import get_speech_backend
+
+        config = _get_config()
+        backend = get_speech_backend(config)
+        if backend is None:
+            return CheckResult(
+                "Speech backend",
+                "warn",
+                "Not configured",
+                details="Install desktop dependencies with `uv sync --extra desktop`.",
+            )
+
+        if backend.health():
+            return CheckResult(
+                "Speech backend",
+                "ok",
+                f"{backend.backend_id} ready",
+            )
+
+        details = None
+        last_error = getattr(backend, "last_error", None)
+        if callable(last_error):
+            details = last_error()
+        return CheckResult(
+            "Speech backend",
+            "warn",
+            f"{backend.backend_id} unavailable",
+            details=details
+            or "Install desktop dependencies with `uv sync --extra desktop`.",
+        )
+    except Exception as exc:
+        return CheckResult(
+            "Speech backend",
+            "warn",
+            f"Could not check: {exc}",
+        )
 
 
 def _check_security_profile() -> CheckResult:
@@ -300,6 +347,7 @@ def _run_all_checks() -> List[CheckResult]:
     checks.extend(_check_models())
     checks.append(_check_default_model())
     checks.extend(_check_optional_deps())
+    checks.append(_check_speech_backend())
     checks.append(_check_nodejs())
     checks.append(_check_security_profile())
     return checks
@@ -345,3 +393,41 @@ def doctor(as_json: bool) -> None:
     console.print()
     console.print(f"  {ok_count} passed, {warn_count} warnings, {fail_count} failures")
     console.print()
+
+    # Background tasks section
+    from openjarvis.cli._bg_state import get_status
+    from openjarvis.core.paths import get_config_dir
+
+    scripts_dir = get_config_dir() / ".scripts"
+    console.print("[bold]Background tasks[/bold]")
+    bg = get_status()
+    bg_failed = False
+
+    if bg.rust_extension == "ready":
+        console.print("  [green]✓[/green] Rust extension: ready")
+    elif bg.rust_extension == "failed":
+        console.print(f"  [red]✗[/red] Rust extension: failed — {bg.rust_error[:80]}")
+        console.print(
+            f"    retry: {scripts_dir}/install-rust.sh && "
+            f"{scripts_dir}/build-extension.sh"
+        )
+        bg_failed = True
+    else:
+        console.print(
+            "  [yellow]…[/yellow] Rust extension: building (run in background)"
+        )
+
+    if not bg.models:
+        console.print("  [dim]no model downloads tracked[/dim]")
+    for model_id, state in bg.models.items():
+        if state == "ready":
+            console.print(f"  [green]✓[/green] {model_id}: ready")
+        elif state == "failed":
+            console.print(f"  [red]✗[/red] {model_id}: failed")
+            console.print(f"    retry: {scripts_dir}/pull-model.sh {model_id}")
+            bg_failed = True
+        else:
+            console.print(f"  [yellow]…[/yellow] {model_id}: downloading")
+
+    if bg_failed:
+        raise click.exceptions.Exit(code=1)

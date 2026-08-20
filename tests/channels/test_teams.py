@@ -11,6 +11,7 @@ from openjarvis.channels._stubs import ChannelStatus
 from openjarvis.channels.teams import TeamsChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
@@ -20,13 +21,11 @@ def _register_teams():
         ChannelRegistry.register_value("teams", TeamsChannel)
 
 
-class TestRegistration:
-    def test_registry_key(self):
-        assert ChannelRegistry.contains("teams")
-
-    def test_channel_id(self):
-        ch = TeamsChannel(app_id="test-id", app_password="test-pass")
-        assert ch.channel_id == "teams"
+TestCommonChannel = make_common_channel_tests(
+    TeamsChannel,
+    "teams",
+    constructor_kwargs={"app_id": "test-id", "app_password": "test-pass"},
+)
 
 
 class TestInit:
@@ -115,34 +114,8 @@ class TestSend:
         assert EventType.CHANNEL_MESSAGE_SENT in event_types
 
 
-class TestListChannels:
-    def test_list_channels(self):
-        ch = TeamsChannel(app_id="test-id", app_password="test-pass")
-        assert ch.list_channels() == ["teams"]
-
-
 class TestStatus:
-    def test_disconnected_initially(self):
-        ch = TeamsChannel(app_id="test-id", app_password="test-pass")
-        assert ch.status() == ChannelStatus.DISCONNECTED
-
     def test_no_config_connect_error(self):
         ch = TeamsChannel()
         ch.connect()
         assert ch.status() == ChannelStatus.ERROR
-
-
-class TestOnMessage:
-    def test_on_message(self):
-        ch = TeamsChannel(app_id="test-id", app_password="test-pass")
-        handler = MagicMock()
-        ch.on_message(handler)
-        assert handler in ch._handlers
-
-
-class TestDisconnect:
-    def test_disconnect(self):
-        ch = TeamsChannel(app_id="test-id", app_password="test-pass")
-        ch._status = ChannelStatus.CONNECTED
-        ch.disconnect()
-        assert ch.status() == ChannelStatus.DISCONNECTED

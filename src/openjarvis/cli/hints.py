@@ -43,3 +43,10 @@ def hint_no_model(model_name: Optional[str] = None) -> str:
         "  Pull a model first: [bold]ollama pull qwen3.5:2b[/bold]\n"
         "  Run [bold]jarvis model list[/bold] to see available models."
     )
+
+
+def mining_not_running_hint(cfg: object | None, sidecar_present: bool) -> Optional[str]:
+    """Return a mining hint when configured but no session sidecar exists."""
+    if cfg is None or sidecar_present:
+        return None
+    return "mining configured but not running - start it with `jarvis mine start`"

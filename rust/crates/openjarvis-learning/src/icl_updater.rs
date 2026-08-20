@@ -141,7 +141,7 @@ impl ICLUpdaterPolicy {
             }
         }
 
-        skills.sort_by(|a, b| b.occurrences.cmp(&a.occurrences));
+        skills.sort_by_key(|s| std::cmp::Reverse(s.occurrences));
         self.discovered_skills = skills;
         &self.discovered_skills
     }
@@ -209,7 +209,7 @@ mod tests {
     fn test_max_examples_trim() {
         let mut policy = ICLUpdaterPolicy::new(0.0, 3, 3);
         for i in 0..5 {
-            policy.add_example(format!("q{}", i), format!("r{}", i), 0.5, HashMap::new());
+            policy.add_example(format!("q{i}"), format!("r{i}"), 0.5, HashMap::new());
         }
         assert_eq!(policy.example_db().len(), 3);
         assert_eq!(policy.example_db()[0].query, "q2");

@@ -47,18 +47,23 @@ echo "  └───────────────────────
 echo -e "${NC}"
 
 # ── 1. Check Python ──────────────────────────────────────────────────
+# Prefer python3, fall back to python (Windows / minimal distros that ship
+# only the unversioned name).
 info "Checking Python..."
 if command -v python3 &>/dev/null; then
-  PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-  PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
-  PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-  if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 10 ]; then
-    ok "Python $PY_VERSION"
-  else
-    fail "Python 3.10+ required (found $PY_VERSION)"
-  fi
+  PY_CMD="python3"
+elif command -v python &>/dev/null; then
+  PY_CMD="python"
 else
   fail "Python 3 not found. Install from https://python.org"
+fi
+PY_VERSION=$("$PY_CMD" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
+PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
+if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 10 ]; then
+  ok "Python $PY_VERSION ($PY_CMD)"
+else
+  fail "Python 3.10+ required (found $PY_VERSION)"
 fi
 
 # ── 2. Check / install uv ───────────────────────────────────────────
@@ -143,7 +148,8 @@ fi
 
 # ── 7. Install Python dependencies ──────────────────────────────────
 info "Installing Python dependencies..."
-uv sync --extra server --quiet 2>/dev/null || uv sync --extra server
+uv sync --extra desktop --extra tools-search --quiet 2>/dev/null \
+  || uv sync --extra desktop --extra tools-search
 ok "Python dependencies installed"
 
 # ── 7b. Build Rust extension ──────────────────────────────────────
@@ -159,11 +165,17 @@ ok "Frontend dependencies installed"
 
 # ── 9. Start backend ────────────────────────────────────────────────
 info "Starting backend API server on port 8000..."
+if curl -sf http://localhost:8000/health &>/dev/null; then
+  fail "An OpenJarvis server is already running on port 8000. Stop it before re-running quickstart so updated environment variables are applied."
+fi
 uv run jarvis serve --port 8000 &>/dev/null &
-CLEANUP_PIDS+=($!)
+BACKEND_PID=$!
+CLEANUP_PIDS+=("$BACKEND_PID")
 sleep 3
 
-if curl -sf http://localhost:8000/health &>/dev/null; then
+if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+  fail "Backend exited during startup. Run 'uv run jarvis serve --port 8000' to see the error."
+elif curl -sf http://localhost:8000/health &>/dev/null; then
   ok "Backend running at http://localhost:8000"
 else
   warn "Backend may still be starting..."
@@ -182,6 +194,7 @@ info "Opening $URL ..."
 case "$(uname -s)" in
   Darwin) open "$URL" ;;
   Linux)  xdg-open "$URL" 2>/dev/null || true ;;
+  MINGW*|MSYS*|CYGWIN*) cmd /c start "" "$URL" 2>/dev/null || true ;;
   *)      true ;;
 esac
 

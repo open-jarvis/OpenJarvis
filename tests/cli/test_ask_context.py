@@ -23,11 +23,18 @@ def test_ask_has_no_context_option():
     assert "--no-context" in result.output
 
 
-def test_get_memory_backend_returns_none_when_empty(
+def test_get_memory_backend_returns_backend_even_when_empty(
     tmp_path,
     monkeypatch,
 ):
-    """_get_memory_backend returns None when no docs indexed."""
+    """_get_memory_backend returns a backend for an empty DB.
+
+    Retrieval against an empty store is a valid operation — it simply
+    returns no hits. Callers must check ``len(results)``; returning
+    ``None`` here would conflate "backend unavailable" with "no docs",
+    which is the kind of ambiguity that leads to silent grounding
+    failures downstream.
+    """
     from openjarvis.core.config import JarvisConfig, MemoryConfig
     from openjarvis.core.registry import MemoryRegistry
     from openjarvis.tools.storage.sqlite import SQLiteMemory
@@ -42,7 +49,11 @@ def test_get_memory_backend_returns_none_when_empty(
 
     mod = importlib.import_module("openjarvis.cli.ask")
     result = mod._get_memory_backend(config)
-    assert result is None
+    assert result is not None
+    # An empty backend should still retrieve cleanly (zero hits).
+    assert result.retrieve("anything", top_k=3) == []
+    if hasattr(result, "close"):
+        result.close()
 
 
 def test_get_memory_backend_returns_backend_with_docs(

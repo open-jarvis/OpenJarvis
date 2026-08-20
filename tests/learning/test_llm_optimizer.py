@@ -11,8 +11,8 @@ import pytest
 from openjarvis.core.types import StepType, Trace, TraceStep
 from openjarvis.evals.core.backend import InferenceBackend
 from openjarvis.evals.core.types import RunSummary
-from openjarvis.optimize.llm_optimizer import LLMOptimizer
-from openjarvis.optimize.types import (
+from openjarvis.learning.optimize.llm_optimizer import LLMOptimizer
+from openjarvis.learning.optimize.types import (
     SampleScore,
     SearchDimension,
     SearchSpace,

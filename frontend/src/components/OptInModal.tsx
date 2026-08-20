@@ -89,7 +89,7 @@ export function OptInModal({ onClose }: OptInModalProps) {
           <div
             className="flex items-center justify-center w-14 h-14 rounded-2xl mb-5 mx-auto"
             style={{
-              background: 'linear-gradient(135deg, var(--color-accent), #6366f1)',
+              background: 'linear-gradient(135deg, var(--color-accent), var(--color-accent-purple))',
             }}
           >
             <Trophy size={28} color="white" />
@@ -151,7 +151,7 @@ export function OptInModal({ onClose }: OptInModalProps) {
                   className="px-5 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer"
                   style={{
                     background: 'var(--color-accent)',
-                    color: 'white',
+                    color: 'var(--color-on-accent)',
                   }}
                 >
                   Done
@@ -240,7 +240,7 @@ export function OptInModal({ onClose }: OptInModalProps) {
                 className="w-full py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer"
                 style={{
                   background: 'var(--color-accent)',
-                  color: 'white',
+                  color: 'var(--color-on-accent)',
                 }}
                 onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
                 onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}

@@ -29,7 +29,11 @@ class TestServerConfigDefaults:
         assert isinstance(cfg.cors_origins, list)
         assert "http://localhost:3000" in cfg.cors_origins
         assert "http://localhost:5173" in cfg.cors_origins
+        # All three Tauri 2 production webview origins must be allowed
+        # so the desktop chat stream works on every platform.
         assert "tauri://localhost" in cfg.cors_origins
+        assert "http://tauri.localhost" in cfg.cors_origins
+        assert "https://tauri.localhost" in cfg.cors_origins
         assert "*" not in cfg.cors_origins
 
 
@@ -137,3 +141,44 @@ class TestCORSConfiguration:
             },
         )
         assert resp2.headers.get("access-control-allow-origin") != "http://evil.com"
+
+    def test_default_origins_allow_tauri_webview(self) -> None:
+        """Regression: Tauri 2 desktop chat-completions stream must not
+        be blocked by CORS preflight on any platform.
+
+        macOS / Linux use ``tauri://localhost``; Windows / Android use
+        ``http://tauri.localhost`` (or the ``https`` variant when
+        ``windows.useHttpsScheme`` is enabled). The default origin list
+        in ``create_app`` must accept all three so the user does not
+        see "Stream error: Failed to fetch" in the desktop logs.
+        """
+        pytest.importorskip("fastapi")
+        from unittest.mock import MagicMock
+
+        from fastapi.testclient import TestClient
+
+        from openjarvis.server.app import create_app
+
+        mock_engine = MagicMock()
+        mock_engine.health.return_value = True
+        mock_engine.list_models.return_value = ["test-model"]
+
+        app = create_app(mock_engine, "test-model")
+        client = TestClient(app)
+
+        for origin in (
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+        ):
+            resp = client.options(
+                "/v1/chat/completions",
+                headers={
+                    "Origin": origin,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "content-type",
+                },
+            )
+            assert resp.headers.get("access-control-allow-origin") == origin, (
+                f"Tauri origin {origin} was not allowed by default CORS list"
+            )

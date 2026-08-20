@@ -1,0 +1,28 @@
+# Toolcall15: Qwen/Qwen3.5-35B-A3B-FP8
+[meta]
+name = "toolcall15-qwen-35b"
+description = "toolcall15 on Qwen/Qwen3.5-35B-A3B-FP8"
+
+[defaults]
+temperature = 0.6
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/qwen-35b/toolcall15/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-35B-A3B-FP8"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "toolcall15"
+backend = "jarvis-direct"
+max_samples = 15

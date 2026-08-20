@@ -1,0 +1,10 @@
+[mining]
+provider       = "vllm-pearl"
+wallet_address = "prl1qexampleaddress"
+submit_target  = "pool:https://pool.openjarvis.ai/submit"
+
+[mining.extra]
+model                   = "pearl-ai/Llama-3.3-70B-Instruct-pearl"
+pearld_rpc_url          = "http://localhost:44107"
+pearld_rpc_user         = "rpcuser"
+pearld_rpc_password_env = "PEARLD_RPC_PASSWORD"

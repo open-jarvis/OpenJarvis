@@ -1,0 +1,34 @@
+# Pinchbench: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+[meta]
+name = "pinchbench-nemotron-super"
+description = "pinchbench on nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/nemotron-super/pinchbench/"
+seed = 42
+
+[[models]]
+name = "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+engine = "vllm"
+num_gpus = 2
+
+[[benchmarks]]
+name = "pinchbench"
+backend = "jarvis-agent"
+max_samples = 23
+agent = "native_openhands"
+tools = [
+    "think", "file_read", "file_write", "web_search", "shell_exec",
+    "code_interpreter", "browser_navigate", "image_generate",
+    "calculator", "http_request", "pdf_extract",
+]

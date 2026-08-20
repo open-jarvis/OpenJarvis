@@ -94,6 +94,16 @@ class DiscordChannel(BaseChannel):
         if not self._token:
             logger.warning("Cannot send: no Discord bot token")
             return False
+        # Defensive guard for #459 follow-up: an empty `channel` arg would
+        # produce /channels//messages and silently 404. Better to fail
+        # explicitly so the upstream bug (wrong field passed in) surfaces
+        # in the warning log instead of silently blackholing the reply.
+        if not channel:
+            logger.warning(
+                "Cannot send: no Discord channel destination "
+                "(caller passed empty channel id)"
+            )
+            return False
 
         try:
             import httpx

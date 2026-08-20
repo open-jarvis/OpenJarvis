@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -38,17 +41,79 @@ class TestAgentManagerRoutes:
 
         app = FastAPI()
         routers = create_agent_manager_router(manager)
-        agents_router, templates_router, global_router, tools_router = routers
-        app.include_router(agents_router)
-        app.include_router(templates_router)
-        app.include_router(global_router)
-        app.include_router(tools_router)
+        for r in routers:
+            app.include_router(r)
         return TestClient(app)
 
     def test_list_agents_empty(self, client):
         resp = client.get("/v1/managed-agents")
         assert resp.status_code == 200
         assert resp.json()["agents"] == []
+
+    def test_sendblue_verify_uses_async_http_client(self, client):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [
+            "+15551234567",
+            {"phone_number": "+15557654321"},
+            None,
+        ]
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            instance = mock_client_cls.return_value.__aenter__.return_value
+            instance.get = AsyncMock(return_value=mock_resp)
+            resp = client.post(
+                "/v1/channels/sendblue/verify",
+                json={"api_key_id": "key-id", "api_secret_key": "secret"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["valid"] is True
+        assert resp.json()["numbers"] == ["+15551234567", "+15557654321"]
+        instance.get.assert_awaited_once()
+
+    def test_sendblue_register_webhook_uses_async_http_client(self, client):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"ok": True}
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            instance = mock_client_cls.return_value.__aenter__.return_value
+            instance.post = AsyncMock(return_value=mock_resp)
+            resp = client.post(
+                "/v1/channels/sendblue/register-webhook",
+                json={
+                    "api_key_id": "key-id",
+                    "api_secret_key": "secret",
+                    "webhook_url": "https://example.com/webhooks/sendblue",
+                },
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["registered"] is True
+        instance.post.assert_awaited_once()
+
+    def test_sendblue_test_message_uses_async_http_client(self, client):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"ok": True}
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            instance = mock_client_cls.return_value.__aenter__.return_value
+            instance.post = AsyncMock(return_value=mock_resp)
+            resp = client.post(
+                "/v1/channels/sendblue/test",
+                json={
+                    "api_key_id": "key-id",
+                    "api_secret_key": "secret",
+                    "from_number": "+15550000000",
+                    "to_number": "+15551234567",
+                },
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["sent"] is True
+        instance.post.assert_awaited_once()
 
     def test_create_agent(self, client):
         resp = client.post(
@@ -287,11 +352,8 @@ class TestAgentManagerStreaming:
         app.state.bus = None
 
         routers = create_agent_manager_router(manager)
-        agents_router, templates_router, global_router, tools_router = routers
-        app.include_router(agents_router)
-        app.include_router(templates_router)
-        app.include_router(global_router)
-        app.include_router(tools_router)
+        for r in routers:
+            app.include_router(r)
         return TestClient(app)
 
     def test_send_message_stream(self, manager, stream_client):
@@ -425,3 +487,231 @@ class TestAgentManagerStreaming:
         assert resp.status_code == 200
         assert "Error:" in resp.text or "error" in resp.text.lower()
         assert "data: [DONE]" in resp.text
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
+class TestResolveToolSpecs:
+    """Unit tests for _resolve_tool_specs — converts template string
+    tool names into OpenAI-format function specs so the engine can
+    actually bind them to the model.
+    """
+
+    @pytest.fixture
+    def _registered_tools(self):
+        """Re-register tools after the autouse conftest fixture clears them."""
+        import importlib
+        import sys
+
+        from openjarvis.core.registry import ToolRegistry
+
+        for mod_name in list(sys.modules):
+            if (
+                mod_name.startswith("openjarvis.tools.")
+                and not mod_name.endswith("_stubs")
+                and not mod_name.endswith("agent_tools")
+            ):
+                try:
+                    importlib.reload(sys.modules[mod_name])
+                except Exception:
+                    pass
+        yield ToolRegistry
+
+    def test_string_names_resolve_to_openai_specs(self, _registered_tools):
+        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+
+        specs = _resolve_tool_specs(["file_read", "think"])
+        assert len(specs) == 2
+        names = [s["function"]["name"] for s in specs]
+        assert "file_read" in names
+        assert "think" in names
+        for s in specs:
+            assert s["type"] == "function"
+            assert "description" in s["function"]
+            assert "parameters" in s["function"]
+
+    def test_unknown_names_dropped(self, _registered_tools):
+        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+
+        specs = _resolve_tool_specs(["file_read", "nonexistent_tool_xyz"])
+        assert len(specs) == 1
+        assert specs[0]["function"]["name"] == "file_read"
+
+    def test_dict_entries_passed_through(self, _registered_tools):
+        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+
+        full_spec = {
+            "type": "function",
+            "function": {
+                "name": "custom",
+                "description": "x",
+                "parameters": {"type": "object"},
+            },
+        }
+        specs = _resolve_tool_specs([full_spec, "file_read"])
+        assert len(specs) == 2
+        assert specs[0] is full_spec
+
+    def test_empty_and_none_return_empty_list(self):
+        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+
+        assert _resolve_tool_specs(None) == []
+        assert _resolve_tool_specs([]) == []
+
+
+class TestLightweightSystemEngineResolution:
+    """Regression for #477 / #514: the managed-agent lightweight system must
+    resolve the user's *configured* engine (preferred_engine, else
+    engine.default), not a hardcoded OllamaEngine. We assert the key passed to
+    ``get_engine`` — captured before the system is built — rather than the final
+    (telemetry-wrapped) engine object.
+    """
+
+    @staticmethod
+    def _cfg(preferred, default):
+        # context_from_memory absent on .agent -> memory backend resolves to None
+        return SimpleNamespace(
+            intelligence=SimpleNamespace(preferred_engine=preferred),
+            engine=SimpleNamespace(default=default, ollama=SimpleNamespace(host="")),
+            agent=SimpleNamespace(),
+        )
+
+    def _capture_get_engine(self, monkeypatch):
+        captured = {}
+
+        def fake_get_engine(cfg, key):
+            captured["key"] = key
+            return ("resolved", MagicMock())
+
+        monkeypatch.setattr("openjarvis.engine._discovery.get_engine", fake_get_engine)
+        return captured
+
+    def test_resolves_preferred_engine_over_default(self, monkeypatch):
+        pytest.importorskip("fastapi")
+        from openjarvis.server import agent_manager_routes as amr
+
+        captured = self._capture_get_engine(monkeypatch)
+        amr._make_lightweight_system(
+            engine=MagicMock(), model="m", config=self._cfg("vllm", "ollama")
+        )
+        assert captured["key"] == "vllm"
+
+    def test_falls_back_to_engine_default_without_preference(self, monkeypatch):
+        pytest.importorskip("fastapi")
+        from openjarvis.server import agent_manager_routes as amr
+
+        captured = self._capture_get_engine(monkeypatch)
+        amr._make_lightweight_system(
+            engine=MagicMock(), model="m", config=self._cfg(None, "llamacpp")
+        )
+        assert captured["key"] == "llamacpp"
+
+    def test_instrumented_engine_uses_runtime_event_bus(self, monkeypatch):
+        pytest.importorskip("fastapi")
+        from openjarvis.core.events import EventBus
+        from openjarvis.server import agent_manager_routes as amr
+        from openjarvis.telemetry import instrumented_engine
+
+        resolved_engine = MagicMock()
+        wrapped_engine = MagicMock()
+        runtime_bus = EventBus()
+        runtime = SimpleNamespace(
+            bus=runtime_bus,
+            memory_backend=object(),
+            channel_backend=None,
+            channel_bridge=None,
+            knowledge_db_path=None,
+        )
+        monkeypatch.setattr(
+            "openjarvis.engine._discovery.get_engine",
+            MagicMock(return_value=("resolved", resolved_engine)),
+        )
+        instrumented = MagicMock(return_value=wrapped_engine)
+        monkeypatch.setattr(instrumented_engine, "InstrumentedEngine", instrumented)
+
+        system = amr._make_lightweight_system(
+            engine=MagicMock(),
+            model="m",
+            config=self._cfg("vllm", "ollama"),
+            runtime=runtime,
+        )
+
+        instrumented.assert_called_once_with(resolved_engine, runtime_bus)
+        assert system.engine is wrapped_engine
+
+    def test_caches_tool_memory_backend_when_prompt_context_is_disabled(
+        self,
+        monkeypatch,
+    ):
+        pytest.importorskip("fastapi")
+        from openjarvis.server import agent_manager_routes as amr
+
+        backend = object()
+        resolver = MagicMock(return_value=backend)
+        monkeypatch.setattr(amr, "_resolve_memory_backend", resolver)
+        config = SimpleNamespace(
+            agent=SimpleNamespace(context_from_memory=False),
+            memory=SimpleNamespace(default_backend="sqlite", db_path="memory.db"),
+        )
+        runtime = SimpleNamespace(
+            memory_backend=None,
+            _owns_memory_backend=False,
+            channel_backend=None,
+            channel_bridge=None,
+            knowledge_db_path=None,
+        )
+
+        system = amr._LightweightSystem(
+            engine=MagicMock(),
+            model="m",
+            config=config,
+            runtime=runtime,
+        )
+
+        resolver.assert_called_once_with(config)
+        assert system.memory_backend is backend
+        assert runtime.memory_backend is backend
+        assert runtime._owns_memory_backend is True
+
+    def test_memory_backend_lazy_init_is_synchronized(self, monkeypatch):
+        pytest.importorskip("fastapi")
+        from openjarvis.server import agent_manager_routes as amr
+
+        backend = object()
+        resolver_calls = 0
+        calls_lock = threading.Lock()
+        duplicate_entered = threading.Event()
+        start = threading.Barrier(8)
+
+        def _resolve(config):
+            nonlocal resolver_calls
+            with calls_lock:
+                resolver_calls += 1
+                call_number = resolver_calls
+                if call_number > 1:
+                    duplicate_entered.set()
+            # A check-then-create race lets another worker enter while the
+            # first resolver is blocked here. The locked implementation times
+            # out once, publishes the backend, and all other workers reuse it.
+            if call_number == 1:
+                duplicate_entered.wait(timeout=0.2)
+            return backend
+
+        monkeypatch.setattr(amr, "_resolve_memory_backend", _resolve)
+        config = SimpleNamespace()
+        runtime = SimpleNamespace(
+            memory_backend=None,
+            _owns_memory_backend=False,
+            _managed_runtime_stopping=False,
+        )
+
+        def _get_backend():
+            start.wait(timeout=2)
+            return amr._get_or_create_memory_backend(runtime, config)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: _get_backend(), range(8)))
+
+        assert resolver_calls == 1
+        assert results == [backend] * 8
+        assert runtime.memory_backend is backend
+        assert runtime._owns_memory_backend is True

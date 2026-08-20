@@ -66,7 +66,7 @@ impl ToolExecutor {
                 if !policy.check(aid, cap, "") {
                     return Err(OpenJarvisError::Tool(ToolError::CapabilityDenied(
                         aid.to_string(),
-                        format!("{} (tool: {})", cap, tool_name),
+                        format!("{cap} (tool: {tool_name})"),
                     )));
                 }
             }

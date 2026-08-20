@@ -141,10 +141,18 @@ class OrchestratorSFTDataset:
             return_tensors="pt",
         )
 
+        input_ids = encoding["input_ids"].squeeze(0)
+        attention_mask = encoding["attention_mask"].squeeze(0)
+
+        # Exclude padding positions from the loss (-100 is the
+        # cross-entropy ignore_index).
+        labels = input_ids.clone()
+        labels[attention_mask == 0] = -100
+
         return {
-            "input_ids": encoding["input_ids"].squeeze(0),
-            "attention_mask": encoding["attention_mask"].squeeze(0),
-            "labels": encoding["input_ids"].squeeze(0).clone(),
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels,
         }
 
     def _format_conversation(self, conversations: List[Dict[str, str]]) -> str:
