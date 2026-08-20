@@ -61,6 +61,10 @@ def ensure_registered() -> None:
         import openjarvis.learning.agents.gepa_optimizer  # noqa: F401
     except ImportError:
         pass
+    try:
+        import openjarvis.learning.agents.ace_optimizer  # noqa: F401
+    except ImportError:
+        pass
 
 
 __all__ = [

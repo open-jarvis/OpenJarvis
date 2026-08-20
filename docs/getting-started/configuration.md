@@ -17,6 +17,46 @@ The configuration file lives at:
 
 OpenJarvis creates the `~/.openjarvis/` directory and populates it with a default config when you run `jarvis init`.
 
+## Relocating the OpenJarvis directory
+
+OpenJarvis keeps **all** of its state — config, databases, caches, logs,
+credentials, skills, recipes, connectors — under a **single root** so it never
+clutters your home directory beyond one folder. By default that root is
+`~/.openjarvis`, but you can move it.
+
+The root is resolved in priority order:
+
+1. **`$OPENJARVIS_HOME`** — explicit override. Honored by both the installer
+   and the Python runtime.
+2. **`$XDG_DATA_HOME/openjarvis`** — used when `$XDG_DATA_HOME` is set (a single
+   `openjarvis` directory nested under it, per the XDG Base Directory spec).
+3. **`~/.openjarvis`** — the default. With no environment variables set, the
+   resolved path is exactly this, so existing installs are untouched.
+
+```bash
+# Relocate the whole install + runtime tree at install time:
+OPENJARVIS_HOME=~/apps/openjarvis curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
+
+# Or for a single run / your shell profile:
+export OPENJARVIS_HOME=~/apps/openjarvis
+```
+
+Confirm where your data lives with:
+
+```bash
+jarvis config path
+```
+
+!!! note "Migration"
+    Because the default is unchanged, **no data migration is required** for
+    existing installs. If you set `OPENJARVIS_HOME` (or `XDG_DATA_HOME`) on a
+    machine that already has data in `~/.openjarvis`, OpenJarvis will look in
+    the new location and not see your old data — move it yourself if you want
+    to keep it: `mv ~/.openjarvis "$OPENJARVIS_HOME"`.
+
+`$OPENJARVIS_CONFIG` still points at an explicit `config.toml` file
+independently of the root, if you need to override just the config file path.
+
 ## Generating Configuration
 
 ### First-Time Setup
@@ -564,7 +604,7 @@ enforce_tool_confirmation = true
 | `scan_output` | bool | `true` | Whether to scan model output. |
 | `secret_scanner` | bool | `true` | Enable secret detection (API keys, tokens, passwords). |
 | `pii_scanner` | bool | `true` | Enable PII detection (emails, SSNs, credit cards). |
-| `enforce_tool_confirmation` | bool | `true` | Require confirmation before executing tools. |
+| `enforce_tool_confirmation` | bool | `true` | Accepted but **not currently enforced**. Whether you get prompts depends on the entry point. See [System Access](../user-guide/system-access.md#confirmation-behaviour). |
 
 !!! tip "Choosing a security mode"
     Use `"warn"` during development to see what would be flagged without disrupting output.
@@ -1047,7 +1087,7 @@ OpenJarvis respects the following environment variables:
 | `OPENAI_API_KEY` | API key for OpenAI cloud inference. Required for the `cloud` engine with OpenAI models. |
 | `ANTHROPIC_API_KEY` | API key for Anthropic cloud inference. Required for the `cloud` engine with Claude models. |
 | `GOOGLE_API_KEY` | API key for Google Gemini inference. Required for the `google` engine. |
-| `MINIMAX_API_KEY` | API key for MiniMax cloud inference. Required for the `cloud` engine with MiniMax models (MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed). |
+| `MINIMAX_API_KEY` | API key for MiniMax cloud inference. Required for the `cloud` engine with MiniMax models (MiniMax-M3, MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed). |
 | `TAVILY_API_KEY` | API key for the Tavily web search tool. Required for the `web_search` tool. |
 
 ## Next Steps
@@ -1060,21 +1100,21 @@ OpenJarvis respects the following environment variables:
 
 ---
 
-## Learning & Distillation
+## Learning & spec search
 
-The distillation subsystem uses a frontier model to automatically improve your local agent configuration. See the [user guide](../user-guide/learning-distillation.md) for a full walkthrough.
+LLM-guided spec search uses a frontier model to automatically improve your local agent configuration. See the [user guide](../user-guide/llm-guided-spec-search.md) for a full walkthrough.
 
-### `[learning.distillation]`
+### `[learning.spec_search]`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `enabled` | bool | `true` | Gate the entire distillation subsystem |
+| `enabled` | bool | `true` | Gate the entire spec-search subsystem |
 | `autonomy_mode` | string | `"tiered"` | `auto`, `tiered`, or `manual` |
 | `teacher_model` | string | `"claude-opus-4-6"` | Frontier model for diagnosis and planning |
 | `max_cost_per_session_usd` | float | `5.0` | Per-session teacher API budget |
 | `max_tool_calls_per_diagnosis` | int | `30` | Max teacher tool calls in diagnosis phase |
 
-### `[learning.distillation.triggers]`
+### `[learning.spec_search.triggers]`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -1086,7 +1126,7 @@ The distillation subsystem uses a frontier model to automatically improve your l
 | `cluster_min_size` | int | `5` | Minimum traces in a cluster |
 | `cluster_failure_threshold` | float | `0.3` | Feedback <= this counts as failure |
 
-### `[learning.distillation.gate]`
+### `[learning.spec_search.gate]`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -1095,7 +1135,7 @@ The distillation subsystem uses a frontier model to automatically improve your l
 | `benchmark_subsample_size` | int | `50` | Tasks per gate run |
 | `full_benchmark` | bool | `false` | Disable subsampling (slower, more accurate) |
 
-### `[learning.distillation.benchmark]`
+### `[learning.spec_search.benchmark]`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -1104,12 +1144,12 @@ The distillation subsystem uses a frontier model to automatically improve your l
 | `auto_refresh` | bool | `true` | Auto-mine new high-feedback traces |
 | `max_synthesis_cost_usd_per_refresh` | float | `2.0` | Cost cap per benchmark refresh |
 
-### `[learning.distillation.tier_overrides]`
+### `[learning.spec_search.tier_overrides]`
 
 Override the default risk tier for any operation. Keys are operation names, values are tier strings (`auto`, `review`, `manual`).
 
 ```toml
-[learning.distillation.tier_overrides]
+[learning.spec_search.tier_overrides]
 # patch_system_prompt = "auto"     # promote to auto after trust
 # replace_system_prompt = "auto"
 ```

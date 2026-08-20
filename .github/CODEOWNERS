@@ -1,0 +1,16 @@
+# CODEOWNERS — gates which approvals satisfy the "Require review from
+# Code Owners" branch ruleset on `main`.
+#
+# Anyone listed here may approve PRs against the patterns they own.
+# Combined with the matching branch ruleset toggle, only their approvals
+# count toward the merge requirement. Non-owners can still leave reviews
+# and comments; their approvals simply do not unblock merge.
+#
+# See: https://docs.github.com/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+#
+# To add more owners, append GitHub handles (`@username`) or team slugs
+# (`@open-jarvis/<team>`) to the line below. To gate specific paths
+# differently, add a more-specific pattern beneath it (later, more
+# specific rules win).
+
+* @jonsaadfalcon @ANarayan @robbym-dev

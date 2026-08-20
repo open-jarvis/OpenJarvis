@@ -158,7 +158,7 @@ def _show_toml_config(console: Console, config_path: Path) -> None:
     console.print(f"[dim]Loading config from: {config_path}[/dim]")
 
     if config_path.exists():
-        config_content = config_path.read_text()
+        config_content = config_path.read_text(encoding="utf-8")
         syntax = Syntax(config_content, "toml", theme="monokai", line_numbers=True)
         console.print(Panel(syntax, title="Config File", border_style="cyan"))
     else:
@@ -170,7 +170,7 @@ def _show_json_config(console: Console, config_path: Path) -> None:
     console.print(f"[dim]Loading config from: {config_path}[/dim]")
 
     if config_path.exists():
-        config_content = config_path.read_text()
+        config_content = config_path.read_text(encoding="utf-8")
 
         try:
             import tomllib  # Python 3.11+
@@ -276,6 +276,36 @@ def hardware() -> None:
 config.add_command(show_group, "show")
 
 
+@config.command("path")
+def show_path() -> None:
+    """Print the resolved OpenJarvis directories (home, config, cache).
+
+    All OpenJarvis state lives under a single root, resolved in priority
+    order: ``$OPENJARVIS_HOME`` > ``$XDG_DATA_HOME/openjarvis`` >
+    ``~/.openjarvis``. Use this to confirm where your data is stored after
+    setting an override.
+    """
+    from openjarvis.core.paths import get_cache_dir, get_config_dir, get_config_path
+
+    console = Console(stderr=True)
+    home = get_config_dir()
+    override = (
+        "OPENJARVIS_HOME"
+        if os.environ.get("OPENJARVIS_HOME")
+        else "XDG_DATA_HOME"
+        if os.environ.get("XDG_DATA_HOME")
+        else "default (~/.openjarvis)"
+    )
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Directory")
+    table.add_column("Path", style="cyan")
+    table.add_row("Home (root)", str(home))
+    table.add_row("Config file", str(get_config_path()))
+    table.add_row("Cache", str(get_cache_dir()))
+    console.print(table)
+    console.print(f"[dim]Resolved via: {override}[/dim]")
+
+
 def _probe_engine_host(url: str, console: Console) -> None:
     """Probe an engine host URL and print reachability status."""
     try:
@@ -345,7 +375,7 @@ def set_config(key: str, value: str) -> None:
         os.environ.get("OPENJARVIS_CONFIG", DEFAULT_CONFIG_DIR / "config.toml")
     )
     if config_path.exists():
-        doc = tomlkit.parse(config_path.read_text())
+        doc = tomlkit.parse(config_path.read_text(encoding="utf-8"))
     else:
         doc = tomlkit.document()
         config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -360,7 +390,7 @@ def set_config(key: str, value: str) -> None:
     current[parts[-1]] = typed_value
 
     # Write back
-    config_path.write_text(tomlkit.dumps(doc))
+    config_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
 
     console.print(f"[green]Set[/green] {key} = {value!r}")
 

@@ -11,11 +11,14 @@ from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 
+from openjarvis.cli._banner import print_banner
+from openjarvis.cli._bootstrap import detect_cloud_keys
 from openjarvis.cli.model import find_model_spec, hf_download, ollama_pull
 from openjarvis.cli.scan_cmd import PrivacyScanner
 from openjarvis.core.config import (
     DEFAULT_CONFIG_DIR,
     DEFAULT_CONFIG_PATH,
+    _available_memory_gb,
     detect_hardware,
     estimated_download_gb,
     generate_default_toml,
@@ -227,7 +230,7 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
 )
 @click.option(
     "--config",
-    type=click.Path(exists=True),
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Path to config file to use.",
 )
 @click.option(
@@ -281,7 +284,16 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
     default=None,
     help="Use a pre-built starter config instead of generating one.",
 )
+@click.option(
+    "--from-bare-jarvis",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help="Run init non-interactively; called by the bare-jarvis first-run guard.",
+)
+@click.pass_context
 def init(
+    ctx: click.Context,
     force: bool,
     config: Optional[Path],
     full_config: bool = False,
@@ -291,9 +303,20 @@ def init(
     host: Optional[str] = None,
     enable_digest: bool = False,
     preset: Optional[str] = None,
+    from_bare_jarvis: bool = False,
 ) -> None:
     """Detect hardware and generate ~/.openjarvis/config.toml."""
+    print_banner(quiet=(ctx.obj or {}).get("quiet", False))
     console = Console()
+
+    # Cloud auto-detect — inform user if a key is in env.
+    detected_cloud = detect_cloud_keys()
+    if detected_cloud is not None:
+        console.print(
+            f"[cyan]Detected cloud key in env:[/cyan] {detected_cloud.env_var} "
+            f"(provider: {detected_cloud.provider}). "
+            f"Cloud inference is available via this key."
+        )
 
     if DEFAULT_CONFIG_PATH.exists() and not force:
         console.print(
@@ -321,7 +344,9 @@ def init(
             console.print(f"  Looked in: {examples_dir}")
             raise SystemExit(1)
         DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        DEFAULT_CONFIG_PATH.write_text(preset_path.read_text())
+        DEFAULT_CONFIG_PATH.write_text(
+            preset_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
         console.print(
             f"[green]Preset '{preset}' installed to {DEFAULT_CONFIG_PATH}[/green]"
         )
@@ -349,53 +374,57 @@ def init(
     # Resolve engine: explicit flag > interactive selection > auto-detect
     if engine is None and config is None:
         recommended = recommend_engine(hw)
-        console.print()
-        console.print("[bold]Detecting running inference engines...[/bold]")
-        running = _detect_running_engines()
-        if running:
-            console.print(f"  Found running: [green]{', '.join(running)}[/green]")
+        # Bare-jarvis cold path: use the recommended engine non-interactively.
+        if from_bare_jarvis:
+            engine = recommended
         else:
-            console.print("  No running engines detected.")
+            console.print()
+            console.print("[bold]Detecting running inference engines...[/bold]")
+            running = _detect_running_engines()
+            if running:
+                console.print(f"  Found running: [green]{', '.join(running)}[/green]")
+            else:
+                console.print("  No running engines detected.")
 
-        # Build choices: show running engines first, then recommended, then rest
-        seen: set[str] = set()
-        choices: list[str] = []
-        for r in running:
-            if r not in seen:
-                choices.append(r)
-                seen.add(r)
-        if recommended not in seen:
-            choices.append(recommended)
-            seen.add(recommended)
-        for e in _SUPPORTED_ENGINES:
-            if e not in seen:
-                choices.append(e)
-                seen.add(e)
+            # Build choices: show running engines first, then recommended, then rest
+            seen: set[str] = set()
+            choices: list[str] = []
+            for r in running:
+                if r not in seen:
+                    choices.append(r)
+                    seen.add(r)
+            if recommended not in seen:
+                choices.append(recommended)
+                seen.add(recommended)
+            for e in _SUPPORTED_ENGINES:
+                if e not in seen:
+                    choices.append(e)
+                    seen.add(e)
 
-        # Default: first running engine, or hardware recommendation
-        default = running[0] if running else recommended
+            # Default: first running engine, or hardware recommendation
+            default = running[0] if running else recommended
 
-        labels = []
-        for c in choices:
-            parts = [c]
-            if c in running:
-                parts.append("running")
-            if c == recommended:
-                parts.append("recommended")
-            labels.append(
-                f"  {c}" + (f"  ({', '.join(parts[1:])})" if len(parts) > 1 else "")
+            labels = []
+            for c in choices:
+                parts = [c]
+                if c in running:
+                    parts.append("running")
+                if c == recommended:
+                    parts.append("recommended")
+                labels.append(
+                    f"  {c}" + (f"  ({', '.join(parts[1:])})" if len(parts) > 1 else "")
+                )
+
+            console.print()
+            console.print("[bold]Available engines:[/bold]")
+            for label in labels:
+                console.print(label)
+
+            engine = click.prompt(
+                "\nSelect inference engine",
+                type=click.Choice(choices, case_sensitive=False),
+                default=default,
             )
-
-        console.print()
-        console.print("[bold]Available engines:[/bold]")
-        for label in labels:
-            console.print(label)
-
-        engine = click.prompt(
-            "\nSelect inference engine",
-            type=click.Choice(choices, case_sensitive=False),
-            default=default,
-        )
 
     # Probe remote host if specified
     if host:
@@ -416,7 +445,7 @@ def init(
             )
 
     if config:
-        toml_content = config.read_text()
+        toml_content = config.read_text(encoding="utf-8")
     else:
         if full_config:
             toml_content = generate_default_toml(hw, engine=engine, host=host)
@@ -424,10 +453,10 @@ def init(
             toml_content = generate_minimal_toml(hw, engine=engine, host=host)
 
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    if config:
-        config.write_text(toml_content)
-    else:
-        DEFAULT_CONFIG_PATH.write_text(toml_content)
+    # ``--config`` selects an existing file to install; it is not an alternate
+    # output path.  Always activate the selected/generated configuration at
+    # the canonical location that subsequent ``jarvis`` commands load.
+    DEFAULT_CONFIG_PATH.write_text(toml_content, encoding="utf-8")
 
     console.print()
     console.print(
@@ -464,7 +493,7 @@ sources = ["gcalendar"]
 [digest.world]
 sources = ["hackernews", "news_rss"]
 """
-        target = config if config else DEFAULT_CONFIG_PATH
+        target = DEFAULT_CONFIG_PATH
         existing = target.read_text()
         target.write_text(existing + digest_section)
         toml_content = target.read_text()
@@ -505,15 +534,13 @@ sources = ["hackernews", "news_rss"]
     else:
         spec = find_model_spec(model)
         size_gb = estimated_download_gb(spec.parameter_count_b) if spec else 0
-        from openjarvis.core.config import _available_memory_gb
-
         avail = _available_memory_gb(hw)
         console.print(
             f"\n  [bold]Recommended model:[/bold] {model} (~{size_gb:.1f} GB)"
             f"  [dim](selected for {avail:.0f} GB available memory)[/dim]"
         )
 
-        if not no_download and spec:
+        if not no_download and not from_bare_jarvis and spec:
             prompt = f"  Download {model} (~{size_gb:.1f} GB) now?"
             if click.confirm(prompt, default=True):
                 _do_download(selected_engine, model, spec, console)

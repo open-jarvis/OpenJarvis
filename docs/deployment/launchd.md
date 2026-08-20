@@ -24,6 +24,14 @@ launchctl load ~/Library/LaunchAgents/com.openjarvis.plist
 
 The service starts immediately (due to `RunAtLoad`) and will automatically restart at each login.
 
+!!! note "Binds loopback by default"
+    The plist binds `127.0.0.1` — reachable from this Mac but not the network,
+    the right default for a personal device, and no API key is needed. To
+    expose it on your LAN, change the host to `0.0.0.0` **and** uncomment the
+    `EnvironmentVariables` block to set `OPENJARVIS_API_KEY`
+    (`jarvis auth generate-key`); an unauthenticated `0.0.0.0` server refuses
+    to start.
+
 Verify it is running:
 
 ```bash
@@ -55,10 +63,17 @@ The provided plist file at `deploy/launchd/com.openjarvis.plist`:
         <string>/usr/local/bin/jarvis</string>
         <string>serve</string>
         <string>--host</string>
-        <string>0.0.0.0</string>
+        <string>127.0.0.1</string>
         <string>--port</string>
         <string>8000</string>
     </array>
+    <!-- To expose on the LAN: set host to 0.0.0.0 and uncomment this block.
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OPENJARVIS_API_KEY</key>
+        <string>REPLACE_WITH_A_REAL_KEY</string>
+    </dict>
+    -->
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -76,7 +91,7 @@ The provided plist file at `deploy/launchd/com.openjarvis.plist`:
 | Key                  | Value                          | Description                                                                                          |
 |----------------------|--------------------------------|------------------------------------------------------------------------------------------------------|
 | `Label`              | `com.openjarvis`               | Unique identifier for the service. Used with `launchctl` commands to manage the service.             |
-| `ProgramArguments`   | `["/usr/local/bin/jarvis", "serve", "--host", "0.0.0.0", "--port", "8000"]` | The command and arguments to execute. Each element of the command line is a separate string in the array. |
+| `ProgramArguments`   | `["/usr/local/bin/jarvis", "serve", "--host", "127.0.0.1", "--port", "8000"]` | The command and arguments to execute. Binds loopback by default; see the note above to expose on the LAN with an API key. |
 | `RunAtLoad`          | `true`                         | Start the service immediately when the plist is loaded (and on each login).                          |
 | `KeepAlive`          | `true`                         | Automatically restart the service if it exits for any reason. launchd monitors the process and relaunches it. |
 | `StandardOutPath`    | `/tmp/openjarvis.stdout.log`   | File where standard output is written. Contains server startup messages and access logs.             |

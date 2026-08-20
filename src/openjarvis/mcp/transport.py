@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
+import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, List, Optional
 
@@ -10,6 +12,8 @@ from openjarvis.mcp.protocol import MCPRequest, MCPResponse
 
 if TYPE_CHECKING:
     from openjarvis.mcp.server import MCPServer
+
+logger = logging.getLogger(__name__)
 
 
 class MCPTransport(ABC):
@@ -61,6 +65,7 @@ class StdioTransport(MCPTransport):
     def __init__(self, command: List[str]) -> None:
         self._command = command
         self._process: Optional[subprocess.Popen[str]] = None
+        self._stderr_thread: Optional[threading.Thread] = None
         self._start()
 
     def _start(self) -> None:
@@ -72,6 +77,25 @@ class StdioTransport(MCPTransport):
             stderr=subprocess.PIPE,
             text=True,
         )
+        # Nothing else reads stderr. Once the child writes more than the OS
+        # pipe buffer to it, the child blocks on that write and never gets
+        # to answer on stdout, deadlocking send()'s readline() (#750). Drain
+        # it continuously on a background thread instead.
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr,
+            args=(self._process,),
+            daemon=True,
+        )
+        self._stderr_thread.start()
+
+    def _drain_stderr(self, proc: subprocess.Popen[str]) -> None:
+        """Continuously read the child's stderr so its pipe never fills."""
+        if proc.stderr is None:
+            return
+        for line in proc.stderr:
+            line = line.rstrip("\n")
+            if line:
+                logger.debug("[%s stderr] %s", self._command[0], line)
 
     def send(self, request: MCPRequest) -> MCPResponse:
         """Write request as JSON line, read response line."""
@@ -88,12 +112,29 @@ class StdioTransport(MCPTransport):
             raise RuntimeError("No response from subprocess")
         return MCPResponse.from_json(response_line.strip())
 
+    def send_notification(self, request: MCPRequest) -> None:
+        """Send a JSON-RPC notification — write only, never read.
+
+        Overrides the base implementation: stdio servers do not reply
+        to notifications, so the default ``send()`` would block forever
+        on ``proc.stdout.readline()``.
+        """
+        proc = self._process
+        if proc is None or proc.stdin is None:
+            raise RuntimeError("Transport process is not running")
+        line = request.to_json() + "\n"
+        proc.stdin.write(line)
+        proc.stdin.flush()
+
     def close(self) -> None:
         """Terminate the subprocess."""
         if self._process is not None:
             self._process.terminate()
             self._process.wait(timeout=5)
             self._process = None
+        if self._stderr_thread is not None:
+            self._stderr_thread.join(timeout=5)
+            self._stderr_thread = None
 
 
 class StreamableHTTPTransport(MCPTransport):
@@ -108,12 +149,14 @@ class StreamableHTTPTransport(MCPTransport):
         self,
         url: str,
         *,
+        token: Optional[str] = None,
         connect_timeout: float = 10.0,
         request_timeout: float = 60.0,
     ) -> None:
         import httpx
 
         self._url = url
+        self._token = token
         self._session_id: Optional[str] = None
         self._client = httpx.Client(
             timeout=httpx.Timeout(
@@ -132,11 +175,21 @@ class StreamableHTTPTransport(MCPTransport):
         return f"{parsed.scheme}://{parsed.netloc}"
 
     def _build_headers(self) -> dict:
-        """Build common request headers."""
+        """Build common request headers.
+
+        Sends ``Authorization: Bearer <token>`` when the transport was
+        constructed with a token (#461) — required by authenticated MCP
+        servers such as Home Assistant's. Falsy tokens (None / empty
+        string) deliberately do NOT send the header, matching the
+        upstream MCP spec and the cfg.get("token") plumbing in the
+        builder.
+        """
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         }
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
         if self._session_id is not None:
             headers["Mcp-Session-Id"] = self._session_id
         return headers

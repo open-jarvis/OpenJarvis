@@ -14,6 +14,7 @@ from typing import List
 
 import yaml
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.skills.sources.base import ResolvedSkill, SourceResolver
 
 LOGGER = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ class HermesResolver(SourceResolver):
 
     def __init__(self, cache_root: Path | None = None) -> None:
         if cache_root is None:
-            cache_root = Path("~/.openjarvis/skill-cache/hermes/").expanduser()
+            cache_root = get_config_dir() / "skill-cache" / "hermes"
         self._cache_root = Path(cache_root)
 
     def cache_dir(self) -> Path:

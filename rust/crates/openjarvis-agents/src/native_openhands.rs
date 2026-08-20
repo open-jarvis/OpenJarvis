@@ -202,7 +202,7 @@ impl<M: CompletionModel + 'static> OjAgent for NativeOpenHandsAgent<M> {
 
                 if let Some(loop_msg) = guard.check(tool_name, &args_str) {
                     return Ok(AgentResult {
-                        content: format!("Agent stopped: {}", loop_msg),
+                        content: format!("Agent stopped: {loop_msg}"),
                         tool_results: all_tool_results,
                         turns: turn,
                         metadata: HashMap::new(),
@@ -221,7 +221,7 @@ impl<M: CompletionModel + 'static> OjAgent for NativeOpenHandsAgent<M> {
 
                 let obs = Self::truncate_observation(&tool_result.content, 4000);
                 history.push(RigMessage::assistant(&text));
-                current_input = format!("Output:\n{}", obs);
+                current_input = format!("Output:\n{obs}");
 
                 all_tool_results.push(tool_result);
                 continue;
@@ -231,7 +231,7 @@ impl<M: CompletionModel + 'static> OjAgent for NativeOpenHandsAgent<M> {
             if let Some((action, action_input)) = Self::parse_action(&text) {
                 if let Some(loop_msg) = guard.check(&action, &action_input) {
                     return Ok(AgentResult {
-                        content: format!("Agent stopped: {}", loop_msg),
+                        content: format!("Agent stopped: {loop_msg}"),
                         tool_results: all_tool_results,
                         turns: turn,
                         metadata: HashMap::new(),
@@ -253,7 +253,7 @@ impl<M: CompletionModel + 'static> OjAgent for NativeOpenHandsAgent<M> {
 
                 let obs = Self::truncate_observation(&tool_result.content, 4000);
                 history.push(RigMessage::assistant(&text));
-                current_input = format!("Result: {}", obs);
+                current_input = format!("Result: {obs}");
 
                 all_tool_results.push(tool_result);
                 continue;

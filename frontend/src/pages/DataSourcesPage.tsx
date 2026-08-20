@@ -24,7 +24,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
-import { listConnectors, connectSource, getSyncStatus, triggerSync } from '../lib/connectors-api';
+import { listConnectors, connectSource, disconnectSource, getSyncStatus, triggerSync, startServerOAuth } from '../lib/connectors-api';
 import type { SyncStatus } from '../types/connectors';
 
 // ---------------------------------------------------------------------------
@@ -312,11 +312,120 @@ const IconFor = ({ id, size = 18 }: { id: string; size?: number }) => {
   return <Ico size={size} />;
 };
 
+// The Gmail card unifies the OAuth (`gmail`) and IMAP (`gmail_imap`) backend
+// connectors — both should resolve to the gmail_imap catalog entry so the
+// connected card shows the same name, unit label, and troubleshooting tips
+// regardless of which underlying flow the user picked.
+function metaFor(connectorId: string) {
+  const id = connectorId === 'gmail' ? 'gmail_imap' : connectorId;
+  return SOURCE_CATALOG.find((s) => s.connector_id === id);
+}
+
+// Advanced OAuth disclosure for the unified Gmail card. Hidden by default;
+// expands to a Client ID + Client Secret form that POSTs to the OAuth
+// `gmail` backend connector. Lives here rather than in SOURCE_CATALOG
+// because the Gmail card is the only one with a dual-flow shape.
+function GmailOAuthAdvanced({
+  loading,
+  onConnect,
+}: {
+  loading: boolean;
+  onConnect: (req: ConnectRequest) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          fontSize: 11,
+          color: 'var(--color-text-tertiary)',
+          cursor: 'pointer',
+          textDecoration: 'underline',
+        }}
+      >
+        {open ? 'Hide advanced' : 'Advanced: Connect with Google OAuth'}
+      </button>
+      {open && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 10,
+            background: 'var(--color-bg)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 6,
+          }}
+        >
+          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>
+            For developers with an existing Google Cloud project. Enable the
+            Gmail API and create a Desktop OAuth client at{' '}
+            <a
+              href="https://console.cloud.google.com/apis/credentials"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--color-accent)', textDecoration: 'underline' }}
+            >
+              Google Cloud Credentials →
+            </a>{' '}
+            then paste the Client ID and Client Secret below.
+          </div>
+          <InlineConnectForm
+            fields={[
+              { name: 'email', placeholder: 'Client ID', type: 'text' },
+              { name: 'password', placeholder: 'Client Secret', type: 'password' },
+            ]}
+            loading={loading}
+            onSubmit={onConnect}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Data Sources section
 // ---------------------------------------------------------------------------
 
 // Sync status display component with progress bar
+function formatTimeAgo(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  const diffSec = (Date.now() - t) / 1000;
+  if (diffSec < 30) return 'just now';
+  if (diffSec < 60) return 'less than a min ago';
+  if (diffSec < 3600) {
+    const m = Math.round(diffSec / 60);
+    return `${m} min${m === 1 ? '' : 's'} ago`;
+  }
+  if (diffSec < 86400) {
+    const h = Math.round(diffSec / 3600);
+    return `${h} hr${h === 1 ? '' : 's'} ago`;
+  }
+  const d = Math.round(diffSec / 86400);
+  return `${d} day${d === 1 ? '' : 's'} ago`;
+}
+
+/** Render how far back the corpus extends, given the oldest indexed
+ *  item's timestamp. Returns null when there isn't enough data yet. */
+function formatBacklogRange(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  const days = (Date.now() - t) / 86400_000;
+  if (days < 7) return 'past few days';
+  if (days < 30) return 'past month';
+  if (days < 90) return 'past 3 months';
+  if (days < 365) return 'past year';
+  const years = Math.round(days / 365);
+  return `past ${years} year${years === 1 ? '' : 's'}`;
+}
+
 function SyncStatusDisplay({
   chunks,
   sync,
@@ -368,13 +477,65 @@ function SyncStatusDisplay({
     );
   }
 
-  // Done — has chunks
-  if (chunks > 0) {
+  // Treat the SyncEngine's checkpointed items_synced as the source of
+  // truth for "total indexed" — `chunks` from listConnectors counts
+  // embedding chunks (often != source items) and the checkpoint is what
+  // both the syncing and idle branches need to display consistently.
+  const totalIndexed = sync?.items_synced ?? chunks;
+  const itemsTotal = sync?.items_total ?? 0;
+  const backlogRange = formatBacklogRange(sync?.oldest_item_date);
+  // "Complete inbox" — the user has indexed everything reachable. Only
+  // surface this label when idle (during a sync we always show how far
+  // back we've gotten so far).
+  const isComplete =
+    totalIndexed > 0 && itemsTotal > 0 && totalIndexed >= itemsTotal;
+
+  // Actively syncing — single status line + reassurance line.
+  if (sync?.state === 'syncing' || syncing) {
+    const rangeLabel = backlogRange ?? 'building corpus';
+    return (
+      <div>
+        <div style={{ fontSize: 11, color: 'var(--color-warning)', marginBottom: 4 }}>
+          Indexed{' '}
+          <span key={totalIndexed} className="sync-bump">
+            {totalIndexed.toLocaleString()} {unitLabel}
+          </span>{' '}
+          <span style={{ color: 'var(--color-text-tertiary)' }}>
+            ({rangeLabel})
+          </span>{' '}
+          <span style={{ color: 'var(--color-text-tertiary)' }}>
+            · Still indexing…
+          </span>
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
+          Deep Research available now · results improve as more {unitLabel} are indexed
+        </div>
+      </div>
+    );
+  }
+
+  // Idle — already has indexed items: show the corpus size + range or
+  // "complete inbox" label, plus how long ago we last refreshed it.
+  if (totalIndexed > 0) {
+    const lastSyncLabel = formatTimeAgo(sync?.last_sync);
+    const rangeLabel = isComplete
+      ? 'complete inbox'
+      : backlogRange;
     return (
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 12, color: 'var(--color-success)' }}>
-            {chunks.toLocaleString()} {unitLabel}
+            Indexed {totalIndexed.toLocaleString()} {unitLabel}
+            {rangeLabel && (
+              <span style={{ color: 'var(--color-text-tertiary)' }}>
+                {' '}({rangeLabel})
+              </span>
+            )}
+            {lastSyncLabel && (
+              <span style={{ color: 'var(--color-text-tertiary)' }}>
+                {' · '}Last synced {lastSyncLabel}
+              </span>
+            )}
           </span>
           <button
             onClick={handleSync}
@@ -397,70 +558,14 @@ function SyncStatusDisplay({
     );
   }
 
-  // Actively syncing
-  if (sync?.state === 'syncing' || syncing) {
-    const pct = sync?.items_total && sync.items_total > 0
-      ? Math.round((sync.items_synced / sync.items_total) * 100)
-      : null;
-    const label = sync?.items_total && sync.items_total > 0
-      ? `${sync.items_synced.toLocaleString()} / ${sync.items_total.toLocaleString()}`
-      : sync?.items_synced && sync.items_synced > 0
-        ? `${sync.items_synced.toLocaleString()} items so far`
-        : 'Starting...';
-    return (
-      <div>
-        <div style={{ fontSize: 11, color: 'var(--color-warning)', marginBottom: 4 }}>
-          Syncing — {label}
-        </div>
-        <div style={{
-          height: 4, borderRadius: 2,
-          background: 'var(--color-bg-tertiary)',
-          overflow: 'hidden',
-        }}>
-          <div style={{
-            height: '100%', borderRadius: 2,
-            background: 'var(--color-warning)',
-            width: pct != null ? `${pct}%` : '30%',
-            transition: 'width 0.5s ease',
-            animationName: pct == null ? 'pulse' : undefined,
-            animationDuration: pct == null ? '1.5s' : undefined,
-            animationIterationCount: pct == null ? 'infinite' : undefined,
-          }} />
-        </div>
-      </div>
-    );
-  }
-
-  // Idle with items synced but no chunks yet (indexing)
-  if (sync?.state === 'idle' && sync.items_synced > 0) {
-    return (
-      <div>
-        <div style={{ fontSize: 11, color: 'var(--color-warning)', marginBottom: 4 }}>
-          Indexing {sync.items_synced.toLocaleString()} items...
-        </div>
-        <div style={{
-          height: 4, borderRadius: 2,
-          background: 'var(--color-bg-tertiary)',
-          overflow: 'hidden',
-        }}>
-          <div style={{
-            height: '100%', borderRadius: 2, background: 'var(--color-warning)',
-            width: '60%',
-            animationName: 'pulse', animationDuration: '1.5s', animationIterationCount: 'infinite',
-          }} />
-        </div>
-      </div>
-    );
-  }
-
-  // Connected but no chunks yet
+  // Connected but nothing ever ingested. Mirror the original copy.
   const hasSynced = sync?.last_sync != null;
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
           {hasSynced
-            ? 'Synced — 0 items found'
+            ? `Synced — 0 ${unitLabel} found`
             : 'Connected — not synced yet'}
         </span>
         <button
@@ -546,6 +651,21 @@ function DataSourcesSection() {
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connectStage, setConnectStage] = useState<string>('');
   const [connectError, setConnectError] = useState<string>('');
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
+
+  const handleDisconnect = async (id: string) => {
+    if (disconnectingId) return;
+    setDisconnectingId(id);
+    try {
+      await disconnectSource(id);
+      loadConnectors();
+    } catch {
+      // Surface failures silently — the connector list will refresh on the
+      // next poll and reflect the true state regardless.
+    } finally {
+      setDisconnectingId(null);
+    }
+  };
 
   const handleConnect = async (id: string, req: ConnectRequest) => {
     setLoading(true);
@@ -553,7 +673,19 @@ function DataSourcesSection() {
     setConnectStage('Connecting...');
     setConnectError('');
     try {
-      await connectSource(id, req);
+      const resp = await connectSource(id, req);
+
+      // OAuth connectors (Google Drive/Calendar/Contacts/Gmail/Tasks): pasting
+      // a Client ID / Secret only registers the app credentials. The backend
+      // returns `oauth_required` with the path to the in-process consent flow,
+      // which is the only path that actually mints an access token. Open it now
+      // and wait for the callback to flip the connector to connected. Without
+      // this the connector would stay "pending" forever — the exact #512 bug.
+      if (resp.status === 'oauth_required') {
+        setConnectStage('Opening Google sign-in...');
+        await startServerOAuth(id, resp.oauth_start);
+      }
+
       setConnectStage('Connected! Starting sync...');
 
       // Wait for connector to show as connected
@@ -598,8 +730,32 @@ function DataSourcesSection() {
     }
   };
 
-  const connected = connectors.filter((c) => c.connected);
-  const notConnectedBase = connectors.filter((c) => !c.connected);
+  // Merge the OAuth Gmail (`gmail`) and IMAP Gmail (`gmail_imap`) backend
+  // connectors into a single user-facing Gmail card. IMAP is the default
+  // flow (no Google Cloud setup needed); OAuth lives behind an "Advanced"
+  // disclosure when the card is expanded. If both happen to be connected,
+  // keep whichever has more indexed chunks so the active source still
+  // surfaces its sync state.
+  const unifiedConnectors = (() => {
+    const gmail = connectors.find((c) => c.connector_id === 'gmail');
+    const gmailImap = connectors.find((c) => c.connector_id === 'gmail_imap');
+    if (!gmail || !gmailImap) return connectors;
+    if (gmail.connected && !gmailImap.connected) {
+      return connectors.filter((c) => c.connector_id !== 'gmail_imap');
+    }
+    if (gmailImap.connected && !gmail.connected) {
+      return connectors.filter((c) => c.connector_id !== 'gmail');
+    }
+    if (gmail.connected && gmailImap.connected) {
+      const dropId = gmail.chunks >= gmailImap.chunks ? 'gmail_imap' : 'gmail';
+      return connectors.filter((c) => c.connector_id !== dropId);
+    }
+    // Neither connected — show only the IMAP card as the default flow.
+    return connectors.filter((c) => c.connector_id !== 'gmail');
+  })();
+
+  const connected = unifiedConnectors.filter((c) => c.connected);
+  const notConnectedBase = unifiedConnectors.filter((c) => !c.connected);
   // Always show the upload card in the not-connected list (it has no backend connector)
   const uploadEntry = { connector_id: 'upload', display_name: 'Upload / Paste', connected: false, chunks: 0 };
   const notConnected = notConnectedBase.some((c) => c.connector_id === 'upload')
@@ -642,10 +798,9 @@ function DataSourcesSection() {
           </div>
           <div className="flex flex-col gap-2">
           {connected.map((c) => {
-            const meta = SOURCE_CATALOG.find(s => s.connector_id === c.connector_id);
+            const meta = metaFor(c.connector_id);
             const unit = meta?.unitLabel || 'items';
             const sync = syncStatuses[c.connector_id];
-            const isReconnecting = expandedId === c.connector_id;
             const hasError = !!sync?.error;
             return (
               <div
@@ -663,7 +818,7 @@ function DataSourcesSection() {
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="font-semibold" style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text)' }}>
-                      {c.display_name}
+                      {meta?.display_name ?? c.display_name}
                     </div>
                     <SyncStatusDisplay
                       chunks={c.chunks}
@@ -674,60 +829,23 @@ function DataSourcesSection() {
                     />
                   </div>
                   <button
-                    onClick={() => setExpandedId(isReconnecting ? null : c.connector_id)}
+                    onClick={() => handleDisconnect(c.connector_id)}
+                    disabled={disconnectingId === c.connector_id}
                     className="hud-label"
                     style={{
                       padding: '6px 12px',
                       background: 'transparent',
                       color: 'var(--color-text-secondary)',
                       border: '1px solid var(--color-border)',
-                      borderRadius: 4, cursor: 'pointer',
+                      borderRadius: 4,
+                      cursor: disconnectingId === c.connector_id ? 'default' : 'pointer',
                       letterSpacing: '0.15em',
+                      opacity: disconnectingId === c.connector_id ? 0.5 : 1,
                     }}
                   >
-                    {isReconnecting ? 'Cancel' : 'Reconnect'}
+                    {disconnectingId === c.connector_id ? 'Disconnecting…' : 'Disconnect'}
                   </button>
                 </div>
-                {isReconnecting && meta?.steps && (
-                  <div style={{ borderTop: '1px solid var(--color-border)', padding: 12 }}>
-                    <div style={{ fontSize: 12, color: 'var(--color-warning)', marginBottom: 8 }}>
-                      Re-enter credentials to reconnect this source.
-                    </div>
-                    {meta.steps.map((step, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          background: 'var(--color-bg)',
-                          border: '1px solid var(--color-border)',
-                          borderRadius: 6, padding: 10,
-                          marginBottom: 8,
-                        }}
-                      >
-                        <div style={{ color: 'var(--color-accent-purple)', fontSize: 10, fontWeight: 600, marginBottom: 3 }}>
-                          STEP {i + 1}
-                        </div>
-                        <div style={{ fontSize: 12, marginBottom: step.url ? 4 : 0 }}>{step.label}</div>
-                        {step.url && (
-                          <a
-                            href={step.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: 'var(--color-accent)', fontSize: 11, textDecoration: 'underline' }}
-                          >
-                            {step.urlLabel || 'Open'} &rarr;
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                    {meta.inputFields && (
-                      <InlineConnectForm
-                        fields={meta.inputFields}
-                        loading={loading}
-                        onSubmit={(req) => handleConnect(c.connector_id, req)}
-                      />
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}
@@ -744,7 +862,7 @@ function DataSourcesSection() {
           </div>
           <div className="grid grid-cols-2 gap-2">
           {notConnected.map((c) => {
-            const meta = SOURCE_CATALOG.find(s => s.connector_id === c.connector_id);
+            const meta = metaFor(c.connector_id);
             const isExpanded = expandedId === c.connector_id;
 
             return (
@@ -767,10 +885,10 @@ function DataSourcesSection() {
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="font-semibold" style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text)' }}>
-                      {c.display_name}
+                      {meta?.display_name ?? c.display_name}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
-                      Not connected
+                      {meta?.description ?? 'Not connected'}
                     </div>
                   </div>
                   <span style={{ color: 'var(--color-text-secondary)', fontSize: 12, fontWeight: 500 }}>
@@ -820,6 +938,12 @@ function DataSourcesSection() {
                         fields={meta.inputFields}
                         loading={loading && connectingId === c.connector_id}
                         onSubmit={(req) => handleConnect(c.connector_id, req)}
+                      />
+                    )}
+                    {c.connector_id === 'gmail_imap' && (
+                      <GmailOAuthAdvanced
+                        loading={loading && connectingId === 'gmail'}
+                        onConnect={(req) => handleConnect('gmail', req)}
                       />
                     )}
                     {meta?.troubleshooting && (

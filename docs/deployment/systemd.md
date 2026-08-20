@@ -21,7 +21,17 @@ cd /opt/openjarvis/OpenJarvis && sudo -u openjarvis uv sync --extra server
 
 ## Installing the Service
 
-Copy the unit file to the systemd directory, reload the daemon, and enable the service:
+The unit binds `0.0.0.0`, so an **API key is required** — and the unit
+declares `EnvironmentFile=/etc/openjarvis/env` (no `-` prefix), so it will
+**fail to start** until that file exists with a key. Create it first:
+
+```bash
+sudo mkdir -p /etc/openjarvis
+echo "OPENJARVIS_API_KEY=$(jarvis auth generate-key)" | sudo tee /etc/openjarvis/env
+sudo chmod 600 /etc/openjarvis/env
+```
+
+Then copy the unit file, reload the daemon, and enable the service:
 
 ```bash
 sudo cp deploy/systemd/openjarvis.service /etc/systemd/system/
@@ -29,6 +39,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable openjarvis
 sudo systemctl start openjarvis
 ```
+
+Clients must send `Authorization: Bearer <key>` on `/v1/*` and `/api/*`
+requests. (If you instead bind to `127.0.0.1`, the key is optional and you
+can drop the `EnvironmentFile` line.)
 
 Verify it is running:
 

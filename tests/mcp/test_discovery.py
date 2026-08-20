@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -53,7 +54,11 @@ class TestDiscoverHTTPServer:
         cfg = {"name": "ha-mcp", "url": "http://172.16.3.1:9583/mcp"}
         result = builder._discover_external_mcp(cfg)
 
-        mock_transport_cls.assert_called_once_with(url="http://172.16.3.1:9583/mcp")
+        # token=None is now forwarded explicitly (#461) so authenticated
+        # MCP servers can use it; missing config field → None → no header.
+        mock_transport_cls.assert_called_once_with(
+            url="http://172.16.3.1:9583/mcp", token=None
+        )
         mock_client_cls.return_value.initialize.assert_called_once()
         assert len(result) == 2
         assert result[0].spec.name == "get_entities"
@@ -177,6 +182,165 @@ class TestClientPersistence:
         assert len(builder._mcp_clients) == 3
 
 
+def test_builder_retains_full_mcp_pool_for_managed_agents() -> None:
+    """Global primary-agent filters must not trim managed-agent MCP tools."""
+
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.system import SystemBuilder
+
+    config = JarvisConfig()
+    config.tools.mcp.servers = json.dumps(
+        [{"name": "test", "url": "http://localhost:8080/mcp"}]
+    )
+    external = _make_mock_tool("mcp_only")
+    builder = SystemBuilder(config).tools(["native_only"])
+
+    with (
+        patch("openjarvis.mcp.server.MCPServer") as mcp_server_cls,
+        patch.object(
+            builder,
+            "_discover_external_mcp",
+            return_value=[external],
+        ),
+    ):
+        mcp_server_cls.return_value.get_tools.return_value = []
+        primary_tools = builder._resolve_tools(
+            config,
+            engine=MagicMock(),
+            model="test-model",
+            memory_backend=None,
+        )
+
+    assert primary_tools == []
+    assert builder._mcp_tools == [external]
+
+
+def test_builder_global_mcp_disable_prevents_discovery() -> None:
+    """A global MCP disable is honored by every managed-agent entry path."""
+
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.system import SystemBuilder
+
+    config = JarvisConfig()
+    config.tools.mcp.enabled = False
+    config.tools.mcp.servers = json.dumps(
+        [{"name": "disabled", "url": "http://localhost:8080/mcp"}]
+    )
+    builder = SystemBuilder(config)
+
+    with (
+        patch("openjarvis.mcp.server.MCPServer") as mcp_server_cls,
+        patch.object(builder, "_discover_external_mcp") as discover,
+    ):
+        mcp_server_cls.return_value.get_tools.return_value = []
+        builder._resolve_tools(
+            config,
+            engine=MagicMock(),
+            model="test-model",
+            memory_backend=None,
+        )
+
+    discover.assert_not_called()
+    assert builder._mcp_tools == []
+
+
+def test_builder_resolves_external_file_from_config_directory(tmp_path) -> None:
+    """SystemBuilder consumes file-backed MCP config on the primary path."""
+
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.system import SystemBuilder
+
+    server_file = tmp_path / "mcp-servers.json"
+    server_file.write_text(
+        '[{"name": "file-server", "url": "http://localhost:8080/mcp"}]',
+        encoding="utf-8",
+    )
+    config = JarvisConfig()
+    config.tools.mcp.servers = server_file.name
+    config._config_dir = tmp_path
+    builder = SystemBuilder(config)
+
+    with (
+        patch("openjarvis.mcp.server.MCPServer") as mcp_server_cls,
+        patch.object(builder, "_discover_external_mcp", return_value=[]) as discover,
+    ):
+        mcp_server_cls.return_value.get_tools.return_value = []
+        builder._resolve_tools(
+            config,
+            engine=MagicMock(),
+            model="test-model",
+            memory_backend=None,
+        )
+
+    discover.assert_called_once_with(
+        {"name": "file-server", "url": "http://localhost:8080/mcp"}
+    )
+
+
+def test_reused_builder_transfers_only_current_build_mcp_state() -> None:
+    """Each built system exclusively owns its own MCP clients and tools."""
+
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.system import SystemBuilder
+
+    config = JarvisConfig()
+    config.telemetry.enabled = False
+    config.traces.enabled = False
+    config.skills.enabled = False
+    config.agent_manager.enabled = False
+    config.tools.mcp.servers = json.dumps(
+        [{"name": "test", "url": "http://localhost:8080/mcp"}]
+    )
+
+    engine = MagicMock(spec=["health", "can_serve", "generate", "list_models", "close"])
+    engine.health.return_value = True
+    first_tool = _make_mock_tool("first_mcp_tool")
+    second_tool = _make_mock_tool("second_mcp_tool")
+    first_client = MagicMock()
+    second_client = MagicMock()
+    discoveries = iter([(first_tool, first_client), (second_tool, second_client)])
+
+    builder = (
+        SystemBuilder(config)
+        .engine_instance(engine)
+        .model("test-model")
+        .tools([])
+        .telemetry(False)
+        .traces(False)
+        .speech(False)
+    )
+
+    def _discover(_server_cfg):
+        tool, client = next(discoveries)
+        builder._mcp_clients.append(client)
+        return [tool]
+
+    with (
+        patch.object(builder, "_discover_external_mcp", side_effect=_discover),
+        patch.object(builder, "_resolve_memory", return_value=None),
+    ):
+        first_system = builder.build()
+        assert first_system.mcp_tools == [first_tool]
+        assert first_system._mcp_clients == [first_client]
+        assert builder._mcp_tools == []
+        assert builder._mcp_clients == []
+        first_system.close()
+
+        second_system = builder.build()
+
+    try:
+        assert second_system.mcp_tools == [second_tool]
+        assert second_system._mcp_clients == [second_client]
+        assert first_client not in second_system._mcp_clients
+        assert builder._mcp_tools == []
+        assert builder._mcp_clients == []
+    finally:
+        second_system.close()
+
+    first_client.close.assert_called_once()
+    second_client.close.assert_called_once()
+
+
 class TestStringConfig:
     @patch(_PATCH_PROVIDER)
     @patch(_PATCH_CLIENT)
@@ -192,4 +356,8 @@ class TestStringConfig:
         cfg_str = json.dumps({"name": "test", "url": "http://localhost:8080/mcp"})
         builder._discover_external_mcp(cfg_str)
 
-        mock_transport_cls.assert_called_once_with(url="http://localhost:8080/mcp")
+        # token=None is forwarded by the builder (#461) — see comment in
+        # TestDiscoverHTTPServer.test_url_config_uses_http_transport.
+        mock_transport_cls.assert_called_once_with(
+            url="http://localhost:8080/mcp", token=None
+        )

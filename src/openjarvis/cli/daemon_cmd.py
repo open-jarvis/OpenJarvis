@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import signal
 import subprocess
 import sys
 import time
@@ -12,9 +10,15 @@ import click
 from rich.console import Console
 
 from openjarvis.core.config import DEFAULT_CONFIG_DIR, load_config
+from openjarvis.core.utils import process_alive, terminate_process
 
 _PID_FILE = DEFAULT_CONFIG_DIR / "server.pid"
 _LOG_FILE = DEFAULT_CONFIG_DIR / "server.log"
+
+
+def _pid_alive(pid: int) -> bool:
+    """Return whether *pid* identifies a running process without signaling it."""
+    return process_alive(pid)
 
 
 def _read_pid() -> int | None:
@@ -23,12 +27,14 @@ def _read_pid() -> int | None:
         return None
     try:
         pid = int(_PID_FILE.read_text().strip())
-        # Check if process is still running
-        os.kill(pid, 0)
-        return pid
-    except (ValueError, OSError):
+    except (OSError, ValueError):
         _PID_FILE.unlink(missing_ok=True)
         return None
+    # Check if process is still running (non-destructive, cross-platform).
+    if not _pid_alive(pid):
+        _PID_FILE.unlink(missing_ok=True)
+        return None
+    return pid
 
 
 def _write_pid(pid: int) -> None:
@@ -81,14 +87,28 @@ def start(
     if agent_name:
         cmd.extend(["--agent", agent_name])
 
-    # Start as background process
+    # Start as background process, fully detached from the launching terminal.
+    #
+    # ``start_new_session`` is POSIX-only: CPython's Windows ``_execute_child``
+    # names the parameter ``unused_start_new_session`` and ignores it. Relying
+    # on it there leaves the server sharing its parent's console, so closing
+    # that console — or logging off — delivers CTRL_CLOSE_EVENT and kills the
+    # daemon. DETACHED_PROCESS gives it no console at all; the new process
+    # group additionally stops a Ctrl-C in the parent reaching it.
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     log_fh = open(_LOG_FILE, "a")  # noqa: SIM115
+    spawn_kwargs: dict = {}
+    if sys.platform == "win32":
+        spawn_kwargs["creationflags"] = (
+            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+    else:
+        spawn_kwargs["start_new_session"] = True
     proc = subprocess.Popen(
         cmd,
         stdout=log_fh,
         stderr=log_fh,
-        start_new_session=True,
+        **spawn_kwargs,
     )
     _write_pid(proc.pid)
 
@@ -108,23 +128,9 @@ def stop() -> None:
         console.print("[yellow]No running server found.[/yellow]")
         sys.exit(1)
 
-    try:
-        os.kill(pid, signal.SIGTERM)
-        # Wait up to 10 seconds for graceful shutdown
-        for _ in range(20):
-            time.sleep(0.5)
-            try:
-                os.kill(pid, 0)
-            except OSError:
-                break
-        else:
-            # Force kill if still running
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
-    except OSError:
-        pass
+    # Graceful shutdown (SIGTERM / taskkill), escalating to a forced kill after
+    # 10s if still running. Cross-platform — no POSIX-only os.kill/SIGKILL.
+    terminate_process(pid, grace_seconds=10.0)
 
     _PID_FILE.unlink(missing_ok=True)
     console.print(f"[green]Server stopped[/green] (PID {pid}).")

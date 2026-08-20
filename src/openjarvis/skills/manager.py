@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import html
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from openjarvis.core.events import EventBus
-from openjarvis.skills.dependency import validate_dependencies
+from openjarvis.core.paths import get_config_dir
+from openjarvis.skills.dependency import DependencyCycleError, validate_dependencies
 from openjarvis.skills.executor import SkillExecutor, SkillResult
 from openjarvis.skills.loader import discover_skills
 from openjarvis.skills.tool_adapter import SkillTool
 from openjarvis.skills.types import SkillManifest
 from openjarvis.tools._stubs import BaseTool, ToolExecutor
+
+logger = logging.getLogger(__name__)
 
 
 class SkillManager:
@@ -54,7 +58,7 @@ class SkillManager:
             except Exception:
                 pass
             if overlay_dir is None:
-                overlay_dir = Path("~/.openjarvis/learning/skills/").expanduser()
+                overlay_dir = get_config_dir() / "learning" / "skills"
         self._overlay_dir = Path(overlay_dir).expanduser()
 
     # ------------------------------------------------------------------
@@ -85,12 +89,40 @@ class SkillManager:
 
             # Validate the dependency graph after loading skills
             if self._skills:
-                validate_dependencies(self._skills)
+                self._prune_dependency_cycles()
 
         # Load optimization overlays (Plan 2A) — always runs, even when no
         # paths are provided, so callers can apply overlays to skills loaded
         # via other means.
         self._load_overlays()
+
+    def _prune_dependency_cycles(self) -> None:
+        """Validate the dependency graph, iteratively dropping any skills
+        involved in a cycle so the rest of discovery still succeeds (#781).
+
+        Previously ``validate_dependencies`` was called unguarded: a single
+        cyclic pair raised ``DependencyCycleError`` straight out of
+        ``discover()``, which crashed CLI callers outright and, in
+        ``SystemBuilder``, was caught by a broad exception handler that
+        silently discarded every discovered skill — not just the cyclic
+        ones. Each pass removes exactly the skills the error identifies as
+        cyclic and re-validates, since removing them can resolve skills
+        that only *looked* stuck because of an edge into the cycle.
+        """
+        while self._skills:
+            try:
+                validate_dependencies(self._skills)
+                return
+            except DependencyCycleError as exc:
+                if not exc.skills:
+                    # No indication of which skills to drop; bail out
+                    # rather than looping forever.
+                    return
+                for name in sorted(exc.skills):
+                    logger.warning(
+                        "Skill '%s' removed: part of a dependency cycle", name
+                    )
+                    self._skills.pop(name, None)
 
     def _load_overlays(self) -> None:
         """Apply optimization overlays to discovered skills.
@@ -262,7 +294,7 @@ class SkillManager:
         discovered = discovery.analyze_traces(traces)
 
         if output_dir is None:
-            output_dir = Path("~/.openjarvis/skills/discovered/").expanduser()
+            output_dir = get_config_dir() / "skills" / "discovered"
         output_dir = Path(output_dir).expanduser()
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -375,7 +407,7 @@ class SkillManager:
         manifest's ``name`` field equals ``name``.
         """
         if roots is None:
-            roots = [Path("~/.openjarvis/skills/").expanduser(), Path("./skills")]
+            roots = [get_config_dir() / "skills", Path("./skills")]
 
         matches: List[Path] = []
         for root in roots:

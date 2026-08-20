@@ -1,0 +1,33 @@
+# mini-SWE-agent cells. Single-model bash-tool loop on SWE-bench-Verified.
+#
+# Vendored ~150-line port of mini-SWE-agent v2. No Docker; each task clones
+# the repo into a tempdir and execs bash there. See
+# `agents/hybrid/mini_swe_agent.py` docstring for the safety caveats.
+#
+# Backbone is `cloud` by default (drives the loop with the cloud model).
+# Set `backbone = "local"` to drive with the vLLM-served local model
+# (requires --enable-auto-tool-choice + a tool-call parser).
+
+[cells.mini-swe-agent-swebenchverified-opus-3]
+method = "mini_swe_agent"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { backbone = "cloud", max_turns = 30, bash_timeout_s = 120, turn_max_tokens = 4096 }
+
+[cells.mini-swe-agent-swebenchverified-opus-30]
+method = "mini_swe_agent"
+bench  = "swebench-verified"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { backbone = "cloud", max_turns = 50, bash_timeout_s = 120, turn_max_tokens = 4096 }
+
+[cells.mini-swe-agent-swebenchverified-qwen27b-3]
+method = "mini_swe_agent"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { backbone = "local", max_turns = 30, bash_timeout_s = 120, turn_max_tokens = 4096 }

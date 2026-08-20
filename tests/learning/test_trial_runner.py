@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from openjarvis.evals.core.types import RunConfig, RunSummary
@@ -137,7 +138,9 @@ class TestBuildRunConfig:
         cfg = runner._build_run_config(trial, recipe)
 
         assert "trial-abc" in cfg.output_path
-        assert cfg.output_path.startswith("out/")
+        # Path(...) / "..." legitimately produces backslashes on Windows,
+        # so compare path components rather than a hard-coded "out/".
+        assert Path(cfg.output_path).parts[0] == "out"
 
     def test_default_model_fallback(self) -> None:
         runner = TrialRunner(benchmark="supergpqa")

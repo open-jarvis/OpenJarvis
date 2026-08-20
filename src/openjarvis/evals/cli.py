@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -51,6 +52,10 @@ BENCHMARKS = {
     "terminalbench-native": {
         "category": "agentic",
         "description": "TerminalBench Native (Docker)",
+    },
+    "terminalbench-v2.1": {
+        "category": "agentic",
+        "description": "TerminalBench V2.1 (Harbor-style Docker tasks)",
     },
     "email_triage": {
         "category": "use-case",
@@ -153,6 +158,8 @@ BENCHMARKS = {
 BACKENDS = {
     "jarvis-direct": "Engine-level inference (local or cloud)",
     "jarvis-agent": "Agent-level inference with tool calling",
+    "hermes": "Real Hermes Agent (Nous Research) via subprocess",
+    "openclaw": "Real OpenClaw via Node subprocess",
 }
 
 
@@ -174,8 +181,30 @@ def _build_backend(
     gpu_metrics: bool = False,
     model: Optional[str] = None,
     max_turns: Optional[int] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    first_party_endpoint: bool = True,
 ):
-    """Construct the appropriate backend."""
+    """Construct the appropriate backend.
+
+    ``base_url``/``api_key`` point at the OpenAI-compatible endpoint serving
+    the model under eval:
+
+    - For "hermes" and "openclaw" they are REQUIRED — these foreign
+      frameworks always call out to an external endpoint.
+    - "jarvis-direct" and "jarvis-agent" honor them when
+      ``first_party_endpoint`` is True (the CLI ``--base-url`` path): the
+      eval targets exactly that endpoint — no engine-discovery fallback —
+      and fails fast if it is unreachable. Suite mode passes
+      ``first_party_endpoint=False`` so the suite TOML's
+      ``[backend.external]`` section stays scoped to hermes/openclaw
+      (extending it to first-party backends is explicitly deferred).
+    """
+    if not first_party_endpoint:
+        fp_base_url = fp_api_key = None
+    else:
+        fp_base_url, fp_api_key = base_url, api_key
+
     if backend_name == "jarvis-agent":
         from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
 
@@ -187,14 +216,48 @@ def _build_backend(
             gpu_metrics=gpu_metrics,
             model=model,
             max_turns=max_turns,
+            base_url=fp_base_url,
+            api_key=fp_api_key,
         )
-    else:
+    elif backend_name == "jarvis-direct":
         from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
 
         return JarvisDirectBackend(
             engine_key=engine_key,
             telemetry=telemetry,
             gpu_metrics=gpu_metrics,
+            base_url=fp_base_url,
+            api_key=fp_api_key,
+        )
+    elif backend_name == "hermes":
+        from openjarvis.evals.backends.external import HermesBackend
+
+        if not base_url or not api_key:
+            raise click.UsageError(
+                "hermes backend requires --base-url and --api-key (or "
+                "the equivalent env vars / config entries) — Hermes needs "
+                "an OpenAI-compatible endpoint to call the model."
+            )
+        return HermesBackend(
+            base_url=base_url,
+            api_key=api_key,
+        )
+    elif backend_name == "openclaw":
+        from openjarvis.evals.backends.external import OpenClawBackend
+
+        if not base_url or not api_key:
+            raise click.UsageError(
+                "openclaw backend requires --base-url and --api-key (or "
+                "the equivalent env vars / config entries) — OpenClaw needs "
+                "an OpenAI-compatible endpoint to call the model."
+            )
+        return OpenClawBackend(
+            base_url=base_url,
+            api_key=api_key,
+        )
+    else:
+        raise click.UsageError(
+            f"unknown backend {backend_name!r}; valid: {list(BACKENDS)}"
         )
 
 
@@ -262,6 +325,12 @@ def _build_dataset(benchmark: str, subset: str | None = None):
         )
 
         return TerminalBenchNativeDataset()
+    elif benchmark == "terminalbench-v2.1":
+        from openjarvis.evals.datasets.terminalbench_v2_1 import (
+            TerminalBenchV21Dataset,
+        )
+
+        return TerminalBenchV21Dataset()
     elif benchmark == "email_triage":
         from openjarvis.evals.datasets.email_triage import EmailTriageDataset
 
@@ -421,6 +490,12 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
         )
 
         return TerminalBenchNativeScorer(judge_backend, judge_model)
+    elif benchmark == "terminalbench-v2.1":
+        from openjarvis.evals.scorers.terminalbench_v2_1 import (
+            TerminalBenchV21Scorer,
+        )
+
+        return TerminalBenchV21Scorer(judge_backend, judge_model)
     elif benchmark == "email_triage":
         from openjarvis.evals.scorers.email_triage import EmailTriageScorer
 
@@ -599,71 +674,137 @@ def _build_trackers(config) -> list:
     return trackers
 
 
-def _run_terminalbench_native(config, console: Console) -> object:
-    """Run TerminalBench V2 natively via terminal-bench Harness."""
+def _run_terminalbench_native(
+    config,
+    console: Console,
+    *,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> object:
+    """Run TerminalBench V2.1 natively via terminal-bench Harness.
+
+    ``base_url`` (from ``--base-url`` / JARVIS_BACKEND_BASE_URL) targets an
+    already-running OpenAI-compatible endpoint; when unset, the legacy local
+    vLLM default (http://localhost:8000/v1) is used.
+    """
+    from openjarvis.engine.openai_compat_engines import normalize_openai_base_url
     from openjarvis.evals.backends.terminalbench_native import (
         TerminalBenchNativeBackend,
+        summarize_benchmark_results,
     )
-    from openjarvis.evals.core.types import RunSummary
 
     model = config.model
     # LiteLLM expects "openai/<model>" for OpenAI-compatible servers
     litellm_model = f"openai/{model}"
     output_dir = getattr(config, "output_path", None) or "results/terminalbench-native/"
 
+    # Harness budgets: only forward explicit config values so the backend
+    # defaults (global_agent_timeout_sec=1800) apply otherwise.
+    timeout_kwargs = {}
+    if getattr(config, "global_agent_timeout_sec", None) is not None:
+        timeout_kwargs["global_agent_timeout_sec"] = config.global_agent_timeout_sec
+    if getattr(config, "global_timeout_multiplier", None) is not None:
+        timeout_kwargs["global_timeout_multiplier"] = config.global_timeout_multiplier
+
+    # Normalize to exactly one trailing "/v1" — LiteLLM's api_base wants the
+    # full OpenAI-compatible prefix, and users pass both forms of the URL.
+    if base_url:
+        api_base = normalize_openai_base_url(base_url) + "/v1"
+    else:
+        api_base = "http://localhost:8000/v1"
+
     backend = TerminalBenchNativeBackend(
         model=litellm_model,
-        api_base="http://localhost:8000/v1",
+        api_base=api_base,
         temperature=config.temperature,
         max_samples=config.max_samples,
         output_dir=output_dir,
         n_concurrent=config.max_workers or 4,
+        **timeout_kwargs,
     )
 
     import re
 
     # Docker compose project names must be lowercase alphanumeric + hyphens/underscores
     model_slug = re.sub(r"[^a-z0-9_-]", "-", model.lower().replace("/", "-"))
-    run_id = f"tb2-{model_slug}"
-    console.print(f"  Running TerminalBench V2 natively: {model}")
+    run_id = f"tb21-{model_slug}"
+    console.print(f"  Running TerminalBench V2.1 natively: {model}")
+    console.print(f"  API base: {api_base}")
     console.print(f"  Harness run_id: {run_id}")
 
-    results = backend.run_harness(run_id)
+    if api_key:
+        # terminus-2 routes model calls through LiteLLM with the "openai/"
+        # prefix, which reads OPENAI_API_KEY from the environment. The
+        # harness runs in-process, so set the var for the duration of the
+        # run and restore the previous value afterwards.
+        prev_key = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = api_key
+        try:
+            results = backend.run_harness(run_id)
+        finally:
+            if prev_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = prev_key
+    else:
+        results = backend.run_harness(run_id)
 
-    # Convert BenchmarkResults to RunSummary
-    total = len(results.trial_results) if hasattr(results, "trial_results") else 0
-    correct = 0
-    if hasattr(results, "trial_results"):
-        for tr in results.trial_results:
-            if getattr(tr, "is_resolved", False):
-                correct += 1
-
-    accuracy = correct / total if total > 0 else 0.0
-    return RunSummary(
-        benchmark="terminalbench-native",
-        category="agentic",
-        backend="terminalbench-native",
-        model=model,
-        total_samples=total,
-        scored_samples=total,
-        correct=correct,
-        accuracy=accuracy,
-        errors=0,
-        mean_latency_seconds=0.0,
-        total_cost_usd=0.0,
-    )
+    # Convert BenchmarkResults to RunSummary, classifying harness/infra
+    # failures (e.g. zero-model-contact setup hangs) out of the resolve-rate.
+    summary, harness_failures = summarize_benchmark_results(results, model=model)
+    if harness_failures:
+        console.print(
+            f"  [red bold]{len(harness_failures)} harness/infra failure(s) "
+            "excluded from resolve-rate:[/red bold]"
+        )
+        for failure in harness_failures:
+            console.print(
+                f"  [red]- {failure['task_id']}: {failure['reason']} "
+                f"(failure_mode={failure['failure_mode']})[/red]"
+            )
+    return summary
 
 
-def _run_single(config, console: Optional[Console] = None) -> object:
-    """Run a single eval from a RunConfig and return the summary."""
+def _run_single(
+    config,
+    console: Optional[Console] = None,
+    *,
+    suite_mode: bool = False,
+) -> object:
+    """Run a single eval from a RunConfig and return the summary.
+
+    ``suite_mode=True`` (TOML-suite drivers) scopes ``config.base_url`` /
+    ``config.api_key`` — stamped from the suite's ``[backend.external]``
+    section onto every RunConfig — to the hermes/openclaw backends only;
+    extending suite-level endpoint targeting to first-party backends is
+    explicitly deferred. The CLI single-run path (``suite_mode=False``)
+    honors ``--base-url``/``--api-key`` for every backend.
+    """
     from openjarvis.evals.core.runner import EvalRunner
 
     if console is None:
         console = Console()
 
-    # TerminalBench V2 native: use terminal-bench Harness directly
+    _metadata = getattr(config, "metadata", None) or {}
+    base_url = (
+        getattr(config, "base_url", None)
+        or _metadata.get("base_url")
+        or os.environ.get("JARVIS_BACKEND_BASE_URL")
+    )
+    api_key = (
+        getattr(config, "api_key", None)
+        or _metadata.get("api_key")
+        or os.environ.get("JARVIS_BACKEND_API_KEY")
+    )
+
+    # TerminalBench V2.1 native: use terminal-bench Harness directly
     if config.benchmark == "terminalbench-native":
-        return _run_terminalbench_native(config, console)
+        return _run_terminalbench_native(
+            config,
+            console,
+            base_url=None if suite_mode else base_url,
+            api_key=None if suite_mode else api_key,
+        )
 
     eval_backend = _build_backend(
         config.backend,
@@ -674,6 +815,9 @@ def _run_single(config, console: Optional[Console] = None) -> object:
         gpu_metrics=getattr(config, "gpu_metrics", False),
         model=config.model,
         max_turns=getattr(config, "max_turns", None),
+        base_url=base_url,
+        api_key=api_key,
+        first_party_endpoint=not suite_mode,
     )
     dataset = _build_dataset(config.benchmark)
     # Inject engine config for benchmarks that run their own simulation
@@ -896,7 +1040,9 @@ def _print_agentic_summary(console: Console, traces, config) -> None:
     from rich.table import Table
 
     completed = sum(1 for t in traces if t.completed)
-    resolved = sum(1 for t in traces if t.is_resolved is True)
+    harness_errors = [t for t in traces if t.error_kind == "harness_error"]
+    model_traces = [t for t in traces if t.error_kind != "harness_error"]
+    resolved = sum(1 for t in model_traces if t.is_resolved is True)
     timed_out = sum(1 for t in traces if t.timed_out)
     total_turns = sum(t.num_turns for t in traces)
     total_tool_calls = sum(t.total_tool_calls for t in traces)
@@ -924,8 +1070,11 @@ def _print_agentic_summary(console: Console, traces, config) -> None:
     table.add_row("Queries", str(len(traces)))
     table.add_row("Completed", f"{completed}/{len(traces)}")
     if any(t.is_resolved is not None for t in traces):
-        table.add_row("Resolved", f"{resolved}/{len(traces)}")
+        # Harness errors are excluded from the resolve-rate denominator:
+        # they are infra failures, not model misses.
+        table.add_row("Resolved", f"{resolved}/{len(model_traces)}")
     table.add_row("Timed out", str(timed_out))
+    table.add_row("Harness errors", str(len(harness_errors)))
     table.add_row("Total turns", str(total_turns))
     avg_t = f"{total_turns / len(traces):.1f}" if traces else "0"
     table.add_row("Avg turns/query", avg_t)
@@ -951,6 +1100,19 @@ def _print_agentic_summary(console: Console, traces, config) -> None:
         )
 
     console.print(table)
+
+    if harness_errors:
+        console.print(
+            f"[red bold]{len(harness_errors)} harness/infra failure(s) "
+            "excluded from resolve-rate:[/red bold]"
+        )
+        for t in harness_errors[:5]:
+            console.print(f"[red]  {t.query_id}: {(t.error or '')[:300]}[/red]")
+        if len(harness_errors) > 5:
+            console.print(
+                f"[red]  ... and {len(harness_errors) - 5} more "
+                "(see traces.jsonl)[/red]"
+            )
 
 
 def _run_from_config(
@@ -1002,7 +1164,7 @@ def _run_from_config(
             f"Run {i}/{len(run_configs)}: {rc.benchmark} / {rc.model}",
         )
         try:
-            summary = _run_single(rc, console=console)
+            summary = _run_single(rc, console=console, suite_mode=True)
             summaries.append(summary)
             console.print(
                 f"  [green]{summary.accuracy:.4f}[/green] "
@@ -1043,6 +1205,25 @@ def main():
     default="jarvis-direct",
     type=click.Choice(list(BACKENDS.keys())),
     help="Inference backend",
+)
+@click.option(
+    "--base-url",
+    default=None,
+    help=(
+        "OpenAI-compatible endpoint for the model under eval. Required for "
+        "hermes/openclaw; for jarvis-direct/jarvis-agent/terminalbench-native "
+        "it bypasses engine discovery and targets this URL directly "
+        "(env: JARVIS_BACKEND_BASE_URL)."
+    ),
+)
+@click.option(
+    "--api-key",
+    default=None,
+    help=(
+        "API key for the --base-url endpoint, sent as a Bearer token. "
+        "Required for hermes/openclaw; optional for first-party backends "
+        "(env: JARVIS_BACKEND_API_KEY)."
+    ),
 )
 @click.option("-m", "--model", default=None, help="Model identifier")
 @click.option(
@@ -1152,6 +1333,8 @@ def run(
     config_path,
     benchmark,
     backend,
+    base_url,
+    api_key,
     model,
     engine_key,
     agent_name,
@@ -1245,6 +1428,12 @@ def run(
         sheets_worksheet=sheets_worksheet,
         sheets_credentials_path=sheets_credentials_path,
         episode_mode=episode_mode,
+        base_url=base_url or os.environ.get("JARVIS_BACKEND_BASE_URL"),
+        api_key=api_key or os.environ.get("JARVIS_BACKEND_API_KEY"),
+        metadata={
+            "base_url": base_url or os.environ.get("JARVIS_BACKEND_BASE_URL"),
+            "api_key": api_key or os.environ.get("JARVIS_BACKEND_API_KEY"),
+        },
     )
 
     # Banner + config
@@ -1424,6 +1613,151 @@ def summarize(jsonl_path):
     console.print(f"[cyan]Correct:[/cyan]   {len(correct)}")
     console.print(f"[cyan]Accuracy:[/cyan]  [bold]{accuracy:.4f}[/bold]")
     console.print(f"[cyan]Errors:[/cyan]    {len(errors)}")
+
+
+@main.command("reparse-judge")
+@click.option(
+    "--jsonl",
+    "jsonl_path",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to a results JSONL produced by an LLM-judge benchmark.",
+)
+@click.option(
+    "--out",
+    "out_path",
+    default=None,
+    type=click.Path(),
+    help=(
+        "Output JSONL path. Defaults to <jsonl>.reparsed when --in-place is not set."
+    ),
+)
+@click.option(
+    "--in-place",
+    is_flag=True,
+    default=False,
+    help="Overwrite the input JSONL (creates <jsonl>.bak first).",
+)
+@click.option(
+    "--summary-out",
+    default=None,
+    type=click.Path(),
+    help="Output summary JSON path. Defaults to <out>.summary.json.",
+)
+def reparse_judge(jsonl_path, out_path, in_place, summary_out):
+    """Re-parse stored judge output and recover records that failed.
+
+    Reads each record raw_judge_output, runs it through the (fixed) parser,
+    and updates records whose old score was 0/None when a new score is
+    recoverable. Writes a summary.json with the recomputed accuracy + the
+    continuous-score fields, and prints a diff.
+    """
+    import json as _json
+    import shutil
+    import statistics
+    from pathlib import Path as _Path
+
+    from openjarvis.evals.scorers.liveresearch import rescore_from_metadata
+
+    in_path = _Path(jsonl_path)
+    if in_place:
+        backup = in_path.with_suffix(in_path.suffix + ".bak")
+        if not backup.exists():
+            shutil.copy2(in_path, backup)
+        target = in_path
+    else:
+        if out_path is None:
+            target = in_path.with_suffix(in_path.suffix + ".reparsed")
+        else:
+            target = _Path(out_path)
+
+    records = []
+    with open(in_path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                records.append(_json.loads(line))
+
+    n_rescored = 0
+    old_scores = []
+    new_scores = []
+    for rec in records:
+        sm = rec.get("scoring_metadata") or {}
+        old_score = rec.get("score")
+        old_scores.append(old_score)
+        attempt = old_score is None or (
+            isinstance(old_score, (int, float)) and float(old_score) <= 0.0
+        )
+        new_score = old_score
+        if attempt:
+            res = rescore_from_metadata(sm)
+            if res is not None:
+                new_correct, new_meta = res
+                if new_meta.get("score", 0.0) > 0:
+                    rec["scoring_metadata"] = new_meta
+                    rec["is_correct"] = bool(new_correct)
+                    rec["score"] = float(new_meta["score"])
+                    new_score = rec["score"]
+                    n_rescored += 1
+        new_scores.append(new_score)
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "w") as f:
+        for rec in records:
+            f.write(_json.dumps(rec, default=str) + chr(10))
+
+    cont = [float(s) for s in new_scores if s is not None]
+    scored = [r for r in records if r.get("is_correct") is not None]
+    correct = [r for r in scored if r.get("is_correct")]
+    accuracy = len(correct) / len(scored) if scored else 0.0
+    summary = {
+        "benchmark": records[0].get("benchmark", "?") if records else "?",
+        "model": records[0].get("model", "?") if records else "?",
+        "total_samples": len(records),
+        "scored_samples": len(scored),
+        "correct": len(correct),
+        "accuracy": round(accuracy, 4),
+        "mean_continuous_score": (round(sum(cont) / len(cont), 6) if cont else None),
+        "median_continuous_score": (
+            round(statistics.median(cont), 6) if cont else None
+        ),
+        "pct_above_0.5": (
+            round(sum(1 for v in cont if v > 0.5) / len(cont), 6) if cont else None
+        ),
+        "pct_above_0.7": (
+            round(sum(1 for v in cont if v > 0.7) / len(cont), 6) if cont else None
+        ),
+        "pct_above_0.8": (
+            round(sum(1 for v in cont if v > 0.8) / len(cont), 6) if cont else None
+        ),
+        "pct_above_0.9": (
+            round(sum(1 for v in cont if v > 0.9) / len(cont), 6) if cont else None
+        ),
+        "reparse_records_recovered": n_rescored,
+    }
+    if summary_out is None:
+        summary_path = target.with_suffix(target.suffix + ".summary.json")
+    else:
+        summary_path = _Path(summary_out)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(summary_path, "w") as f:
+        _json.dump(summary, f, indent=2)
+
+    old_cont = [float(s) for s in old_scores if s is not None]
+    old_acc = sum(1 for s in old_cont if s >= 0.5) / len(old_cont) if old_cont else 0.0
+    old_mean = sum(old_cont) / len(old_cont) if old_cont else 0.0
+    new_mean = sum(cont) / len(cont) if cont else 0.0
+    mean_shift = new_mean - old_mean
+    acc_shift = accuracy - old_acc
+
+    console = Console()
+    console.print(f"[cyan]Input:[/cyan]    {in_path}")
+    console.print(f"[cyan]Output:[/cyan]   {target}")
+    console.print(f"[cyan]Summary:[/cyan]  {summary_path}")
+    console.print(
+        f"[bold green]{n_rescored}[/bold green] records re-scored, "
+        f"mean shift {mean_shift:+.4f}, accuracy shift {acc_shift:+.2%}"
+    )
 
 
 @main.command("list")

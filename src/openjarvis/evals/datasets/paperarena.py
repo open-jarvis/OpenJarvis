@@ -15,6 +15,7 @@ import random
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from openjarvis.core.paths import get_cache_dir
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
 
@@ -41,7 +42,7 @@ class PaperArenaDataset(DatasetProvider):
         cache_dir: Optional[str] = None,
     ) -> None:
         self._cache_dir = (
-            Path(cache_dir) if cache_dir else Path.home() / ".cache" / "paperarena"
+            Path(cache_dir) if cache_dir else get_cache_dir() / "paperarena"
         )
         self._records: List[EvalRecord] = []
 

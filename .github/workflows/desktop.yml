@@ -2,11 +2,8 @@ name: Desktop Build & Release
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/desktop.yml'
     tags:
+      - 'v*'
       - 'desktop-v*'
   pull_request:
     branches: [main]
@@ -14,9 +11,14 @@ on:
       - 'frontend/**'
       - '.github/workflows/desktop.yml'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. v1.0.2.dev500). If set, autotag dispatches use this. github.ref still controls the checkout.'
+        required: false
+        type: string
 
 concurrency:
-  group: desktop-${{ github.ref }}
+  group: desktop-${{ inputs.tag || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -38,7 +40,8 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
-            libxdo-dev
+            libxdo-dev \
+            libdbus-1-dev
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -64,23 +67,27 @@ jobs:
       - name: Create frontend dist stub
         run: mkdir -p frontend/dist && echo '<html><body></body></html>' > frontend/dist/index.html
 
-      - name: Cargo check
+      # `cargo test` builds the crate (same coverage as the old `cargo check`)
+      # and runs the unit tests, including the #331 uv-sync error-formatting
+      # helpers. Static command, no untrusted input — no injection surface.
+      - name: Cargo test
         working-directory: frontend/src-tauri
-        run: cargo check
+        run: cargo test
 
-  # Remove stale artifacts from the desktop-latest pre-release so that
-  # only the current build's files are available for download.
+  # Remove stale artifacts from the desktop-edge rolling pre-release so that
+  # only the current build's files are available for download. (The stable
+  # `desktop-latest` channel the installed app polls is never cleaned here.)
   clean-release:
     needs: [validate]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - name: Delete old assets from desktop-latest
+      - name: Delete old assets from desktop-edge
         if: "!startsWith(github.ref, 'refs/tags/')"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="desktop-latest"
+          TAG="desktop-edge"
           # List all asset IDs on the release and delete them
           ASSET_IDS=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" \
             --jq '.assets[].id' 2>/dev/null || true)
@@ -108,6 +115,109 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Full history + tags so the workflow_dispatch fallback in
+          # "Determine release info" can derive the dev version from the
+          # latest release tag (#526).
+          fetch-depth: 0
+
+      # Validate Apple credentials BEFORE the expensive work. Notarization is
+      # the very last thing `tauri-action` does, so a bad credential or a
+      # lapsed account agreement previously surfaced ~10 minutes in — after the
+      # Rust toolchain, npm install, two Ollama sidecar downloads and a
+      # universal cargo build — as a single opaque line:
+      #
+      #   failed to bundle project: failed codesign application: failed to
+      #   notarize app: Error: HTTP status code: 403. ...
+      #
+      # `notarytool history` is a read-only call (it submits nothing) that
+      # exercises the identical auth path, so every credential/account failure
+      # mode reaches us here first, in seconds, with the specific cause named.
+      # `xcrun` is preinstalled on macOS runners, hence placement before the
+      # toolchain steps rather than next to "Configure Apple signing".
+      - name: Preflight Apple notarization credentials
+        if: matrix.platform == 'macos-14'
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          A_ID: ${{ secrets.APPLE_ID }}
+          A_PASS: ${{ secrets.APPLE_PASSWORD }}
+          A_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          # Mirror the skip logic in "Configure Apple signing": without a
+          # certificate the build is unsigned and never notarizes, so there is
+          # nothing to preflight. Tag builds still hard-fail there.
+          if [ -z "$CERT" ]; then
+            echo "No Apple certificate configured; skipping notarization preflight."
+            exit 0
+          fi
+
+          missing=""
+          [ -z "$A_ID" ]   && missing="$missing APPLE_ID"
+          [ -z "$A_PASS" ] && missing="$missing APPLE_PASSWORD"
+          [ -z "$A_TEAM" ] && missing="$missing APPLE_TEAM_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::APPLE_CERTIFICATE is set but notarization secrets are missing:$missing"
+            echo "::error::Signing would succeed and notarization would then fail. Set them or clear APPLE_CERTIFICATE."
+            exit 1
+          fi
+
+          # Retry only to absorb transient network faults. Credential and
+          # account errors are deterministic, so we classify and exit on the
+          # first definitive answer rather than retrying into the same wall.
+          attempt=1
+          while [ "$attempt" -le 3 ]; do
+            out=$(xcrun notarytool history \
+              --apple-id "$A_ID" \
+              --team-id "$A_TEAM" \
+              --password "$A_PASS" \
+              --output-format json 2>&1)
+            rc=$?
+
+            if [ $rc -eq 0 ]; then
+              echo "Apple notarization preflight OK — credentials valid, team reachable, agreements in effect."
+              exit 0
+            fi
+
+            case "$out" in
+              *"Invalid credentials"*|*"401"*)
+                echo "::error::Apple notarization preflight failed: invalid credentials (HTTP 401)."
+                echo "::error::APPLE_PASSWORD must be an app-specific password from appleid.apple.com,"
+                echo "::error::generated while signed in as the SAME Apple ID as APPLE_ID. A regular"
+                echo "::error::Apple ID password will not work, and a password minted under a different"
+                echo "::error::Apple ID authenticates as that other account."
+                exit 1
+                ;;
+              *"Invalid or inaccessible developer team ID"*)
+                echo "::error::Apple notarization preflight failed: APPLE_ID is not a member of team APPLE_TEAM_ID (HTTP 403)."
+                echo "::error::The Team ID must match the signing certificate. Read it from the cert's"
+                echo "::error::subject, where it appears as: Developer ID Application: NAME (TEAMID)."
+                echo "::error::If you belong to several teams, confirm APPLE_ID is a member of this one."
+                exit 1
+                ;;
+              *"required agreement"*|*"agreement"*)
+                echo "::error::Apple notarization preflight failed: the team has no in-effect agreement (HTTP 403)."
+                echo "::error::Apple reissues the Developer Program License Agreement periodically and"
+                echo "::error::notarization is refused until it is accepted. ONLY THE ACCOUNT HOLDER can"
+                echo "::error::accept it — team Admins cannot. Sign in to the account that owns this team:"
+                echo "::error::  1. https://developer.apple.com/account -> review any pending agreement"
+                echo "::error::  2. App Store Connect -> Business -> accept anything pending there too"
+                echo "::error::Certificates stay valid while this is outstanding, so signing still works."
+                exit 1
+                ;;
+            esac
+
+            echo "Preflight attempt ${attempt}/3 failed with a non-credential error."
+            echo "$out" | tail -5
+            attempt=$((attempt + 1))
+            [ "$attempt" -le 3 ] && sleep 10
+          done
+
+          echo "::error::Apple notarization preflight failed after 3 attempts. Last output:"
+          echo "$out" | tail -20
+          exit 1
 
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'ubuntu-22.04'
@@ -119,7 +229,8 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
-            libxdo-dev
+            libxdo-dev \
+            libdbus-1-dev
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -156,14 +267,55 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.ref }}" == refs/tags/desktop-v* ]]; then
+            # Explicit stable desktop release tag
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#desktop-v}"
             echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
             echo "name=Desktop ${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # Auto-tagged rolling build from autotag.yml — use the same
+            # version as the CLI/PyPI release so all surfaces stay in sync.
+            # Rolling/dev builds go to the `desktop-edge` channel, NOT the
+            # `desktop-latest` channel the installed app polls — so users on
+            # stable are never auto-updated onto an unvetted dev build.
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+            echo "tag=desktop-edge" >> "$GITHUB_OUTPUT"
+            echo "name=Desktop (Edge Build)" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=desktop-latest" >> "$GITHUB_OUTPUT"
-            echo "name=Desktop (Latest Build)" >> "$GITHUB_OUTPUT"
+            # workflow_dispatch fallback (manual UI dispatch without --ref).
+            # Derive a PEP 440 dev version aligned with autotag.yml so we
+            # don't burn the X.Y.Z release-version namespace.
+            # pyproject.toml no longer carries a static version (#526), so the
+            # base comes from the latest plain release tag (vX.Y.Z), matching
+            # autotag.yml. .dev/.rc/desktop-* tags are excluded.
+            LATEST_RELEASE=$(git tag --list 'v[0-9]*' --merged HEAD \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+            if [[ -z "$LATEST_RELEASE" ]]; then
+              echo "::error::No release tag (vX.Y.Z) reachable from HEAD"
+              exit 1
+            fi
+            BASE="${LATEST_RELEASE#v}"
+            MAJOR=$(echo "$BASE" | cut -d. -f1)
+            MINOR=$(echo "$BASE" | cut -d. -f2)
+            PATCH=$(echo "$BASE" | cut -d. -f3 | sed -E 's/[^0-9].*$//')
+            NEXT_PATCH=$((PATCH + 1))
+            BUILD=$(git rev-list --count HEAD)
+            VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}.dev${BUILD}"
+            # Manual dispatches are also dev builds -> the edge channel.
+            echo "tag=desktop-edge" >> "$GITHUB_OUTPUT"
+            echo "name=Desktop (Edge Build)" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # Tauri's build script requires strict SemVer (MAJOR.MINOR.PATCH[-pre][+build]).
+          # PEP 440 dev releases (`1.0.2.dev661`) are NOT valid SemVer, so we
+          # translate `.devN` to the SemVer-equivalent `-dev.N` prerelease form.
+          # PyPI keeps the PEP 440 form; only the Tauri bundle uses SemVer.
+          TAURI_VERSION="${VERSION/.dev/-dev.}"
+          echo "tauri_version=${TAURI_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Configure Apple signing
         if: runner.os == 'macOS'
@@ -199,7 +351,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_CONFIG: '{"bundle":{"externalBin":["binaries/ollama"]}}'
+          TAURI_CONFIG: '{"version":"${{ steps.release-info.outputs.tauri_version }}","bundle":{"createUpdaterArtifacts":true,"externalBin":["binaries/ollama"]}}'
+          # tauri-action runs beforeBuildCommand (npm run build:tauri -> vite
+          # build), which requires this at build time (#587). Strict for
+          # releases: a missing/empty secret fails the build by design.
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         with:
           projectPath: frontend
           tauriScript: npx tauri
@@ -210,3 +366,43 @@ jobs:
           prerelease: ${{ steps.release-info.outputs.prerelease }}
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+
+  # When a stable `desktop-v*` release is published, repoint the
+  # `desktop-latest` auto-update channel (the endpoint the installed app
+  # polls) at it. The stable release's own `latest.json` already references
+  # this release's signed assets, so we copy it verbatim — installed apps are
+  # only ever offered vetted stable builds, never `desktop-edge` dev builds.
+  refresh-stable-channel:
+    needs: [build-and-release]
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror stable latest.json into desktop-latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STABLE_TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The stable release's updater manifest may take a moment to become
+          # downloadable after tauri-action publishes it; retry briefly.
+          URL="https://github.com/${REPO}/releases/download/${STABLE_TAG}/latest.json"
+          for attempt in 1 2 3 4 5; do
+            if curl -fsSL -o latest.json "$URL"; then
+              echo "Fetched ${STABLE_TAG}/latest.json on attempt ${attempt}"
+              break
+            fi
+            echo "latest.json not ready yet (attempt ${attempt}); sleeping 15s"
+            sleep 15
+          done
+          test -s latest.json || { echo "::error::Could not fetch ${URL}"; exit 1; }
+          # Ensure the channel release exists (prerelease so it never usurps
+          # the stable "Latest" badge), then replace its manifest in place.
+          if ! gh release view desktop-latest --repo "$REPO" >/dev/null 2>&1; then
+            gh release create desktop-latest --repo "$REPO" \
+              --prerelease \
+              --title "Desktop Auto-Update Channel" \
+              --notes "Auto-update channel pointer for the desktop app. Mirrors the latest stable \`desktop-v*\` release; the in-app updater polls this \`latest.json\`. Download the app from the latest stable release, not here."
+          fi
+          gh release upload desktop-latest latest.json --repo "$REPO" --clobber
+          echo "desktop-latest now mirrors ${STABLE_TAG}"

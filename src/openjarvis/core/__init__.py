@@ -19,6 +19,12 @@ from openjarvis.core.types import (
     ToolCall,
     ToolResult,
 )
+from openjarvis.core.utils import (
+    get_python_executable,
+    open_browser,
+    process_alive,
+    terminate_process,
+)
 
 __all__ = [
     "AgentRegistry",
@@ -34,4 +40,8 @@ __all__ = [
     "ToolCall",
     "ToolRegistry",
     "ToolResult",
+    "get_python_executable",
+    "open_browser",
+    "process_alive",
+    "terminate_process",
 ]
