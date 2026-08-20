@@ -34,6 +34,7 @@ def test_outlook_handle_callback(tmp_path: Path) -> None:
     mock_imap = MagicMock()
     mock_imap.login.return_value = ("OK", [])
     mock_imap.select.return_value = ("OK", [])
+    mock_imap.response.return_value = ("UIDVALIDITY", [b"777"])
     with patch.object(conn, "_make_imap_client", return_value=mock_imap):
         conn.handle_callback("user@outlook.com:mypassword123")
     tokens = load_tokens(creds_path)
@@ -50,6 +51,7 @@ def test_outlook_is_connected(tmp_path: Path) -> None:
     mock_imap = MagicMock()
     mock_imap.login.return_value = ("OK", [])
     mock_imap.select.return_value = ("OK", [])
+    mock_imap.response.return_value = ("UIDVALIDITY", [b"777"])
     with patch.object(conn, "_make_imap_client", return_value=mock_imap):
         conn.handle_callback("user@outlook.com:pass")
     assert conn.is_connected() is True
@@ -62,6 +64,7 @@ def test_outlook_sync_source_is_outlook(tmp_path: Path) -> None:
     mock_imap = MagicMock()
     mock_imap.login.return_value = ("OK", [])
     mock_imap.select.return_value = ("OK", [])
+    mock_imap.response.return_value = ("UIDVALIDITY", [b"777"])
 
     raw_email = (
         b"From: sender@test.com\r\n"

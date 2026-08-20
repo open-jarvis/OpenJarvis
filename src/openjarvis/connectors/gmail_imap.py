@@ -30,6 +30,7 @@ _DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "gmail_imap.
 _IMAP_TIMEOUT_SECONDS = 30
 _SECURITY_TLS = "tls"
 _SECURITY_STARTTLS = "starttls"
+_UIDVALIDITY_ATTRIBUTE = "_openjarvis_uidvalidity"
 
 
 def _normalize_imap_security(value: str) -> str:
@@ -110,6 +111,28 @@ def _parse_date(msg: email_lib.message.Message) -> datetime:
         return parsedate_to_datetime(date_str)
     except Exception:
         return datetime.now()
+
+
+def _read_uidvalidity(imap: imaplib.IMAP4) -> str:
+    """Read the UID generation for the currently selected mailbox."""
+    response_type, data = imap.response("UIDVALIDITY")
+    if isinstance(response_type, bytes):
+        response_type = response_type.decode("ascii", errors="replace")
+    if str(response_type).upper() != "UIDVALIDITY" or not data:
+        raise IMAP4.error("IMAP server did not provide UIDVALIDITY")
+
+    raw_value = data[-1]
+    if isinstance(raw_value, bytes):
+        text = raw_value.decode("ascii", errors="strict").strip()
+    else:
+        text = str(raw_value).strip()
+    try:
+        value = int(text)
+    except (TypeError, ValueError) as exc:
+        raise IMAP4.error("IMAP server provided invalid UIDVALIDITY") from exc
+    if value <= 0:
+        raise IMAP4.error("IMAP server provided invalid UIDVALIDITY")
+    return str(value)
 
 
 @ConnectorRegistry.register("gmail_imap")
@@ -297,6 +320,10 @@ class GmailIMAPConnector(BaseConnector):
             status, _ = imap.select("INBOX", readonly=True)
             if status != "OK":
                 raise IMAP4.error("Unable to select INBOX read-only")
+            # A UID is meaningful only together with this mailbox generation.
+            # Store it on the selected connection so reconnects cannot reuse an
+            # old UID against a reset or replaced mailbox.
+            setattr(imap, _UIDVALIDITY_ATTRIBUTE, _read_uidvalidity(imap))
             return imap
         except Exception:
             self._close_imap(imap)
@@ -344,6 +371,7 @@ class GmailIMAPConnector(BaseConnector):
 
         synced = 0
         try:
+            uidvalidity = str(getattr(imap, _UIDVALIDITY_ATTRIBUTE))
             # SEARCH ALL is deliberate: pipeline dedup makes a complete scan
             # safe while avoiding gaps after an interrupted backfill.
             status, data = imap.uid("SEARCH", None, "ALL")
@@ -400,6 +428,15 @@ class GmailIMAPConnector(BaseConnector):
                     except (IMAP4.error, OSError, ValueError) as reconnect_exc:
                         logger.error("IMAP reconnect failed: %s", reconnect_exc)
                         break
+                    reconnected_uidvalidity = str(getattr(imap, _UIDVALIDITY_ATTRIBUTE))
+                    if reconnected_uidvalidity != uidvalidity:
+                        logger.error(
+                            "IMAP UIDVALIDITY changed from %s to %s during sync; "
+                            "stopping before reusing stale UIDs",
+                            uidvalidity,
+                            reconnected_uidvalidity,
+                        )
+                        break
                     continue
                 except Exception:
                     index += 1
@@ -411,7 +448,9 @@ class GmailIMAPConnector(BaseConnector):
                 body = _extract_text_body(msg)
                 timestamp = _parse_date(msg)
                 uid_text = message_uid.decode("ascii", errors="replace")
-                message_id = _decode_header(msg.get("Message-ID", "")) or uid_text
+                message_id = _decode_header(msg.get("Message-ID", "")) or (
+                    f"{uidvalidity}:{uid_text}"
+                )
 
                 synced += 1
                 index += 1
@@ -431,7 +470,11 @@ class GmailIMAPConnector(BaseConnector):
                     timestamp=timestamp,
                     thread_id=_decode_header(msg.get("In-Reply-To", "")),
                     url="https://mail.google.com/mail/u/0/#inbox",
-                    metadata={"message_id": message_id, "imap_uid": uid_text},
+                    metadata={
+                        "message_id": message_id,
+                        "imap_uid": uid_text,
+                        "imap_uidvalidity": uidvalidity,
+                    },
                 )
         finally:
             self._close_imap(imap)

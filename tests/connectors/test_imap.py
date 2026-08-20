@@ -35,10 +35,11 @@ def _message(
     )
 
 
-def _authenticated_client() -> MagicMock:
+def _authenticated_client(uidvalidity: int = 777) -> MagicMock:
     client = MagicMock()
     client.login.return_value = ("OK", [])
     client.select.return_value = ("OK", [])
+    client.response.return_value = ("UIDVALIDITY", [str(uidvalidity).encode("ascii")])
     client.logout.return_value = ("OK", [])
     return client
 
@@ -120,6 +121,23 @@ def test_failed_login_is_not_persisted_or_connected(tmp_path: Path) -> None:
         pytest.raises(IMAP4.error, match="bad credentials"),
     ):
         conn.handle_callback("user@example.org:wrong")
+
+    assert load_tokens(creds_path) is None
+    assert conn.is_connected() is False
+    client.logout.assert_called_once()
+
+
+def test_missing_uidvalidity_is_not_persisted_or_connected(tmp_path: Path) -> None:
+    creds_path = str(tmp_path / "imap.json")
+    conn = IMAPConnector(credentials_path=creds_path)
+    client = _authenticated_client()
+    client.response.return_value = ("UIDVALIDITY", [None])
+
+    with (
+        patch.object(conn, "_make_imap_client", return_value=client),
+        pytest.raises(IMAP4.error, match="UIDVALIDITY"),
+    ):
+        conn.handle_callback("user@example.org:secret")
 
     assert load_tokens(creds_path) is None
     assert conn.is_connected() is False
@@ -221,6 +239,13 @@ def test_invalid_transport_settings_fail_before_connecting(
         ("169.254.169.254", "169.254.169.254"),
         ("::1", "::1"),
         ("100.64.0.1", "100.64.0.1"),
+        ("224.0.0.1", "224.0.0.1"),
+        ("239.255.255.250", "239.255.255.250"),
+        ("ff02::1", "ff02::1"),
+        ("::ffff:224.0.0.1", "::ffff:224.0.0.1"),
+        ("0.0.0.0", "0.0.0.0"),
+        ("::", "::"),
+        ("240.0.0.1", "240.0.0.1"),
     ],
 )
 def test_endpoint_policy_rejects_local_and_nonpublic_hosts(
@@ -357,6 +382,7 @@ def test_sync_uses_uids_and_generic_document_identity(tmp_path: Path) -> None:
     assert docs[0].source == "imap"
     assert docs[0].doc_id == "imap:<test123@test.com>"
     assert docs[0].metadata["imap_uid"] == "41"
+    assert docs[0].metadata["imap_uidvalidity"] == "777"
     assert docs[0].title == "Test Email"
     assert docs[0].url == ""
     client.logout.assert_called_once()
@@ -368,7 +394,7 @@ def test_missing_message_id_falls_back_to_uid() -> None:
     client = _sync_client(raw)
     with patch.object(conn, "_make_imap_client", return_value=client):
         docs = list(conn.sync())
-    assert docs[0].doc_id == "imap:41"
+    assert docs[0].doc_id == "imap:777:41"
 
 
 def test_generator_close_logs_out() -> None:
@@ -450,6 +476,27 @@ def test_sync_reconnects_by_uid_on_dropped_connection() -> None:
 
     assert len(docs) == 1
     assert docs[0].metadata["imap_uid"] == "41"
+    assert docs[0].metadata["imap_uidvalidity"] == "777"
+    first.logout.assert_called_once()
+    second.logout.assert_called_once()
+
+
+def test_sync_stops_if_uidvalidity_changes_during_reconnect() -> None:
+    conn = IMAPConnector(email_address="user@example.org", app_password="pass")
+    first = _authenticated_client(uidvalidity=777)
+
+    def first_uid(command: str, *args):
+        if command == "SEARCH":
+            return "OK", [b"41"]
+        raise OSError("connection dropped")
+
+    first.uid.side_effect = first_uid
+    second = _authenticated_client(uidvalidity=888)
+
+    with patch.object(conn, "_make_imap_client", side_effect=[first, second]):
+        assert list(conn.sync()) == []
+
+    second.uid.assert_not_called()
     first.logout.assert_called_once()
     second.logout.assert_called_once()
 

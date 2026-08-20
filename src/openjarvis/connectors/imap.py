@@ -78,11 +78,22 @@ def _normalize_hostname(host: str) -> str:
 
 
 def _is_public_address(address: str) -> bool:
-    """Return whether an address is globally routable (including mapped v4)."""
+    """Return whether an address is globally routable unicast."""
     parsed = ipaddress.ip_address(address)
     if isinstance(parsed, ipaddress.IPv6Address) and parsed.ipv4_mapped is not None:
         parsed = parsed.ipv4_mapped
-    return parsed.is_global
+    # ``is_global`` alone is insufficient: Python classifies multicast ranges
+    # as global even though they are not valid remote unicast endpoints.
+    return parsed.is_global and not any(
+        (
+            parsed.is_multicast,
+            parsed.is_reserved,
+            parsed.is_unspecified,
+            parsed.is_loopback,
+            parsed.is_link_local,
+            parsed.is_private,
+        )
+    )
 
 
 def validate_imap_endpoint(host: str, port: int) -> tuple[str, tuple[str, ...]]:
