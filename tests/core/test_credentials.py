@@ -5,6 +5,7 @@ import os
 import pytest
 
 from openjarvis.core.credentials import (
+    TOOL_CREDENTIALS,
     delete_credential,
     get_credential_status,
     inject_credentials,
@@ -12,15 +13,31 @@ from openjarvis.core.credentials import (
     save_credential,
 )
 
+_CREDENTIAL_ENV_KEYS = frozenset(
+    key for keys in TOOL_CREDENTIALS.values() for key in keys
+)
+_ENV_BASELINE = {
+    key: value for key, value in os.environ.items() if key in _CREDENTIAL_ENV_KEYS
+}
+
 
 @pytest.fixture
 def cred_path(tmp_path):
     return tmp_path / "credentials.toml"
 
 
+def _restore_credential_environ(snapshot):
+    """Restore credential variables without disturbing pytest/process internals."""
+    for key in _CREDENTIAL_ENV_KEYS:
+        if key in snapshot:
+            os.environ[key] = snapshot[key]
+        else:
+            os.environ.pop(key, None)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_environ():
-    """Snapshot and restore os.environ around every test in this module.
+    """Reset os.environ to the collection baseline around every test.
 
     save_credential()/inject_credentials()/delete_credential() mutate
     os.environ directly as a side effect of file persistence -- they are
@@ -32,13 +49,13 @@ def _isolate_environ():
     leaked value at teardown -- permanently re-leaking it into every
     later test in the session, including tests/security/
     test_data_boundary_audit.py's cloud-surface detection (#788).
-    Force a full restore of the real environment after every test here
-    instead of relying on monkeypatch to track these direct mutations.
+    Resetting both before and after each test makes isolation independent
+    of test order while preserving legitimate ambient credentials supplied
+    by the developer or CI process.
     """
-    original = dict(os.environ)
+    _restore_credential_environ(_ENV_BASELINE)
     yield
-    os.environ.clear()
-    os.environ.update(original)
+    _restore_credential_environ(_ENV_BASELINE)
 
 
 def test_save_and_load(cred_path):
@@ -47,15 +64,16 @@ def test_save_and_load(cred_path):
     assert creds["web_search"]["TAVILY_API_KEY"] == "tvly-123"
 
 
-def test_zz_previous_test_did_not_leak_env(cred_path):
-    """Regression for #788: this must run *after* a test that sets
-    TAVILY_API_KEY directly on os.environ (test_save_and_load, just
-    above -- pytest runs tests in file order by default). Before the
-    _isolate_environ fixture existed, save_credential()'s direct
-    os.environ mutation was never cleaned up, and tests/security/
-    test_data_boundary_audit.py's cloud-surface detection would see the
-    leaked key and misreport a cloud API surface."""
-    assert "TAVILY_API_KEY" not in os.environ
+def test_restore_environ_preserves_legitimate_ambient_key(cred_path):
+    """Regression for #788 must not erase a real key from the parent process."""
+    baseline = {"TAVILY_API_KEY": "tvly-legitimate-ambient"}
+    _restore_credential_environ(baseline)
+
+    save_credential("web_search", "TAVILY_API_KEY", "tvly-test", path=cred_path)
+    assert os.environ["TAVILY_API_KEY"] == "tvly-test"
+
+    _restore_credential_environ(baseline)
+    assert os.environ["TAVILY_API_KEY"] == "tvly-legitimate-ambient"
 
 
 def test_save_sets_env(cred_path):
