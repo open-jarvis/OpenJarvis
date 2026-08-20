@@ -10,6 +10,32 @@ from click.testing import CliRunner
 from openjarvis.cli import cli
 
 _NO_DL = "--no-download"
+_READ_TEXT = Path.read_text
+_WRITE_TEXT = Path.write_text
+
+
+def _cp1252_read_text(
+    path: Path,
+    encoding: str | None = None,
+    errors: str | None = None,
+) -> str:
+    return _READ_TEXT(path, encoding=encoding or "cp1252", errors=errors)
+
+
+def _cp1252_write_text(
+    path: Path,
+    data: str,
+    encoding: str | None = None,
+    errors: str | None = None,
+    newline: str | None = None,
+) -> int:
+    return _WRITE_TEXT(
+        path,
+        data,
+        encoding=encoding or "cp1252",
+        errors=errors,
+        newline=newline,
+    )
 
 
 class TestInitDigestEncoding:
@@ -26,6 +52,11 @@ class TestInitDigestEncoding:
             mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_DIR", config_dir),
             mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
             mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
+            # Emulate Windows' non-UTF default locale on every platform. Any
+            # init-path read/write that omits encoding now uses cp1252 and the
+            # box-drawing rule raises exactly the original Unicode error.
+            mock.patch.object(Path, "read_text", _cp1252_read_text),
+            mock.patch.object(Path, "write_text", _cp1252_write_text),
         ):
             result = CliRunner().invoke(
                 cli,
