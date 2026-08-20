@@ -219,9 +219,54 @@ def list_facts() -> None:
     table.add_column("#", style="dim", width=4)
     table.add_column("Fact")
     table.add_column("Source", style="cyan")
+    table.add_column("Trust")
+    any_quarantined = False
     for i, fact in enumerate(facts, 1):
-        table.add_row(str(i), fact.text, fact.source or "-")
+        quarantined = not fact.trusted_for_recall
+        any_quarantined = any_quarantined or quarantined
+        trust_disp = (
+            "[red]⚠ quarantined[/red]"
+            if quarantined
+            else f"[green]{fact.trust or 'legacy'}[/green]"
+        )
+        table.add_row(str(i), fact.text, fact.source or "-", trust_disp)
     console.print(table)
+    if any_quarantined:
+        console.print(
+            "[red]⚠ quarantined[/red] facts are retained for audit but excluded "
+            "from model recall because they may contain hostile input. Review "
+            "one and run [bold]jarvis memory trust <#>[/bold] to allow recall."
+        )
+
+
+@memory.command(name="trust")
+@click.argument("index", type=int)
+def trust_fact(index: int) -> None:
+    """Promote quarantined fact INDEX (as shown by `memory list`) to trusted.
+
+    Only do this after reading the fact: a quarantined fact matched an
+    injection pattern, and promoting it puts its text into future prompts.
+    """
+    console = Console()
+
+    store = _get_fact_store()
+    facts = store.list()
+    if not 1 <= index <= len(facts):
+        console.print(
+            f"[red]No fact #{index}.[/red] "
+            f"{len(facts)} fact(s) stored — see [bold]jarvis memory list[/bold]."
+        )
+        raise SystemExit(1)
+
+    fact = facts[index - 1]
+    if fact.trusted_for_recall:
+        console.print(f"[yellow]Fact #{index} is already recallable.[/yellow]")
+        return
+    if not store.promote_reviewed(index - 1, fact.text):
+        console.print(f"[red]Could not update fact #{index}.[/red]")
+        raise SystemExit(1)
+    console.print(f"[green]Fact #{index} is now trusted for recall:[/green]")
+    console.print(f"  {fact.text}")
 
 
 @memory.command()

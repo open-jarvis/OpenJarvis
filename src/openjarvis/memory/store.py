@@ -76,6 +76,16 @@ def _default_fact_path() -> Path:
     return get_config_dir() / "memory_facts.jsonl"
 
 
+# Provenance tiers, recorded on every fact.
+TRUST_AUTO = "auto"  # auto-extracted and scanner-clean → recallable
+TRUST_TRUSTED = "trusted"  # explicitly vouched for by the user
+TRUST_UNTRUSTED = "untrusted"  # scanner flagged the text → quarantined
+
+# "" is the legacy on-disk value, written before provenance existed. It stays
+# recallable so upgrading does not silently erase a user's existing memory.
+_RECALLABLE_TIERS = frozenset({"", TRUST_AUTO, TRUST_TRUSTED})
+
+
 @contextmanager
 def _cross_process_lock(lock_path: Path) -> Iterator[None]:
     """Hold an exclusive, blocking OS-level lock on *lock_path*.
@@ -117,6 +127,18 @@ class Fact:
     text: str
     source: str = ""
     created_at: float = 0.0
+    # Provenance tier: one of the TRUST_* constants above ("" for legacy rows).
+    trust: str = ""
+
+    @property
+    def trusted_for_recall(self) -> bool:
+        """Whether this fact may be placed in model-facing context.
+
+        Only ``untrusted`` — the tier the memory service assigns when the
+        injection scanner flags a fact's own text — is withheld. Unknown
+        future tiers fail closed rather than silently becoming prompt input.
+        """
+        return (self.trust or "").strip().lower() in _RECALLABLE_TIERS
 
 
 class FactStore(ABC):
@@ -126,6 +148,11 @@ class FactStore(ABC):
     def add(self, text: str, source: str = "") -> bool:
         """Store *text* as a fact. Returns True if a new fact was stored."""
 
+    def set_trust(self, index: int, trust: str) -> bool:
+        """Set the provenance tier of the *index*-th fact (0-based) as returned
+        by :meth:`list`. Returns True if a fact was updated."""
+        raise NotImplementedError
+
     def add_many(self, texts: Iterable[str], source: str = "") -> int:
         """Store several facts, returning the count of newly stored ones."""
         added = 0
@@ -133,6 +160,41 @@ class FactStore(ABC):
             if self.add(text, source=source):
                 added += 1
         return added
+
+    def add_with_trust(self, text: str, source: str = "", trust: str = "") -> bool:
+        """Store a provenance-aware fact without breaking legacy backends.
+
+        Third-party stores implementing the original ``add(text, source)``
+        contract inherit this adapter. Recallable facts are stored normally;
+        quarantined or unknown tiers are dropped because a backend that cannot
+        persist provenance cannot safely retain them for model-facing recall.
+        Provenance-aware stores should override this method.
+        """
+        if (trust or "").strip().lower() not in _RECALLABLE_TIERS:
+            return False
+        return self.add(text, source=source)
+
+    def add_many_with_trust(
+        self,
+        texts: Iterable[str],
+        source: str = "",
+        trust: str = "",
+    ) -> int:
+        """Store several provenance-aware facts."""
+        return sum(
+            bool(self.add_with_trust(text, source=source, trust=trust))
+            for text in texts
+        )
+
+    def promote_reviewed(self, index: int, expected_text: str) -> bool:
+        """Promote the reviewed fact at *index* when it still matches.
+
+        The default preserves compatibility with third-party implementations;
+        stores with concurrent writers should override this with an atomic
+        identity check.
+        """
+        del expected_text
+        return self.set_trust(index, TRUST_TRUSTED)
 
     @abstractmethod
     def list(self) -> List[Fact]:
@@ -199,6 +261,7 @@ class LocalFactStore(FactStore):
                     text=fact_text,
                     source=str(obj.get("source", "")),
                     created_at=float(obj.get("created_at", 0.0) or 0.0),
+                    trust=str(obj.get("trust", "")),
                 )
             )
         return facts
@@ -237,22 +300,63 @@ class LocalFactStore(FactStore):
 
     # -- FactStore API ------------------------------------------------------
 
-    def add(self, text: str, source: str = "") -> bool:
+    def add(self, text: str, source: str = "", trust: str = "") -> bool:
         text = (text or "").strip()
         if not text:
             return False
+        trust = (trust or "").strip().lower()
         with self._lock, _cross_process_lock(self._lock_path()):
             self._sync_from_disk_locked()
             lowered = text.lower()
-            if any(f.text.lower() == lowered for f in self._facts):
+            duplicate = next(
+                (fact for fact in self._facts if fact.text.lower() == lowered),
+                None,
+            )
+            if duplicate is not None:
+                # A later hostile derivation must be able to quarantine an
+                # older recallable copy. Never auto-promote in the opposite
+                # direction; promotion requires explicit human review.
+                if trust not in _RECALLABLE_TIERS and duplicate.trusted_for_recall:
+                    duplicate.trust = trust or TRUST_UNTRUSTED
+                    self._flush()
                 return False  # dedupe
-            self._facts.append(Fact(text=text, source=source, created_at=time.time()))
+            self._facts.append(
+                Fact(text=text, source=source, created_at=time.time(), trust=trust)
+            )
             # Enforce the cap by evicting the oldest entries. max_facts is
             # always positive (validated in __init__), so this slice can't
             # hit Python's `list[-0:]` footgun, which returns the whole
             # list instead of emptying it.
             if len(self._facts) > self._max_facts:
                 self._facts = self._facts[-self._max_facts :]
+            self._flush()
+        return True
+
+    def add_with_trust(self, text: str, source: str = "", trust: str = "") -> bool:
+        return self.add(text, source=source, trust=trust)
+
+    def set_trust(self, index: int, trust: str) -> bool:
+        trust = (trust or "").strip().lower()
+        if trust not in {TRUST_AUTO, TRUST_TRUSTED, TRUST_UNTRUSTED}:
+            raise ValueError(f"Unknown fact trust tier: {trust!r}")
+        with self._lock, _cross_process_lock(self._lock_path()):
+            self._sync_from_disk_locked()
+            if not 0 <= index < len(self._facts):
+                return False
+            self._facts[index].trust = trust
+            self._flush()
+        return True
+
+    def promote_reviewed(self, index: int, expected_text: str) -> bool:
+        """Atomically promote exactly the fact a user reviewed."""
+        with self._lock, _cross_process_lock(self._lock_path()):
+            self._sync_from_disk_locked()
+            if not 0 <= index < len(self._facts):
+                return False
+            fact = self._facts[index]
+            if fact.text != expected_text or fact.trusted_for_recall:
+                return False
+            fact.trust = TRUST_TRUSTED
             self._flush()
         return True
 
@@ -329,10 +433,16 @@ def load_configured_facts(config: Any) -> List[Fact]:
         path=getattr(memory, "facts_path", None),
         max_facts=getattr(memory, "max_facts", 1000),
     )
-    return store.list()
+    # This helper feeds short-lived model paths (ask, SDK, system
+    # orchestrator). Keep the full list available through FactStore.list() for
+    # auditing/CLI use, but never return quarantined facts for model recall.
+    return [fact for fact in store.list() if fact.trusted_for_recall]
 
 
 __all__ = [
+    "TRUST_AUTO",
+    "TRUST_TRUSTED",
+    "TRUST_UNTRUSTED",
     "Fact",
     "FactStore",
     "LocalFactStore",

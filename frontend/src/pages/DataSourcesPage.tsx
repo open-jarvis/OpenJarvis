@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
-import type { ConnectRequest } from '../types/connectors';
+import type { ConnectRequest, ConnectorMeta } from '../types/connectors';
 import { listConnectors, connectSource, disconnectSource, getSyncStatus, triggerSync, startServerOAuth } from '../lib/connectors-api';
 import type { SyncStatus } from '../types/connectors';
 
@@ -36,16 +36,20 @@ function InlineConnectForm({
   loading,
   onSubmit,
 }: {
-  fields: Array<{ name: string; placeholder: string; type?: string }>;
+  fields: NonNullable<ConnectorMeta['inputFields']>;
   loading: boolean;
   onSubmit: (req: ConnectRequest) => void;
 }) {
-  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [inputs, setInputs] = useState<Record<string, string>>(() =>
+    Object.fromEntries(fields.map((field) => [field.name, field.defaultValue || ''])),
+  );
 
   const update = (name: string, value: string) =>
     setInputs((p) => ({ ...p, [name]: value }));
 
-  const allFilled = fields.every((f) => inputs[f.name]?.trim());
+  const allFilled = fields
+    .filter((field) => field.required !== false)
+    .every((field) => inputs[field.name]?.trim());
 
   const submit = () => {
     const req: ConnectRequest = {};
@@ -54,6 +58,11 @@ function InlineConnectForm({
       else if (f.name === 'password') req.password = inputs.password;
       else if (f.name === 'token') req.token = inputs.token;
       else if (f.name === 'path') req.path = inputs.path;
+      else if (f.name === 'host' && inputs.host?.trim()) req.host = inputs.host.trim();
+      else if (f.name === 'port' && inputs.port?.trim()) req.port = Number(inputs.port);
+      else if (f.name === 'security' && (inputs.security === 'tls' || inputs.security === 'starttls')) {
+        req.security = inputs.security;
+      }
     }
     if (req.email && req.password) {
       req.token = `${req.email}:${req.password}`;
@@ -66,21 +75,43 @@ function InlineConnectForm({
   return (
     <div>
       {fields.map((f) => (
-        <input
-          key={f.name}
-          value={inputs[f.name] || ''}
-          onChange={(e) => update(f.name, e.target.value)}
-          placeholder={f.placeholder}
-          type={f.type || 'text'}
-          style={{
-            width: '100%', padding: '7px 10px',
-            background: 'var(--color-bg)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 4, color: 'var(--color-text)',
-            fontSize: 12, marginBottom: 6,
-            boxSizing: 'border-box',
-          }}
-        />
+        f.type === 'select' ? (
+          <select
+            key={f.name}
+            value={inputs[f.name] || f.defaultValue || ''}
+            onChange={(e) => update(f.name, e.target.value)}
+            aria-label={f.placeholder}
+            style={{
+              width: '100%', padding: '7px 10px',
+              background: 'var(--color-bg)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 4, color: 'var(--color-text)',
+              fontSize: 12, marginBottom: 6,
+              boxSizing: 'border-box',
+            }}
+          >
+            {(f.options || []).map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        ) : (
+          <input
+            key={f.name}
+            value={inputs[f.name] || ''}
+            onChange={(e) => update(f.name, e.target.value)}
+            placeholder={f.placeholder}
+            type={f.type || 'text'}
+            required={f.required !== false}
+            style={{
+              width: '100%', padding: '7px 10px',
+              background: 'var(--color-bg)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 4, color: 'var(--color-text)',
+              fontSize: 12, marginBottom: 6,
+              boxSizing: 'border-box',
+            }}
+          />
+        )
       ))}
       <button
         onClick={submit}

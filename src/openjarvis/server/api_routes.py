@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -409,16 +410,34 @@ async def get_trace(trace_id: str, request: Request):
 telemetry_router = APIRouter(prefix="/v1/telemetry", tags=["telemetry"])
 
 
+def _telemetry_db_path(request: Request) -> Path:
+    """Resolve telemetry storage from the active app configuration.
+
+    ``DEFAULT_CONFIG_DIR`` is fixed when :mod:`openjarvis.core.config` is
+    imported, so it cannot honor a later ``OPENJARVIS_HOME`` override.  The
+    running app's config is authoritative; lightweight apps that include these
+    routes directly fall back to the env-aware path resolver.
+    """
+    config = getattr(request.app.state, "config", None)
+    telemetry = getattr(config, "telemetry", None)
+    configured_path = getattr(telemetry, "db_path", None)
+    if configured_path:
+        return Path(configured_path).expanduser()
+
+    from openjarvis.core.paths import get_config_dir
+
+    return get_config_dir() / "telemetry.db"
+
+
 @telemetry_router.get("/stats")
 async def telemetry_stats(request: Request):
     """Get aggregated telemetry statistics."""
     try:
         from dataclasses import asdict
 
-        from openjarvis.core.config import DEFAULT_CONFIG_DIR
         from openjarvis.telemetry.aggregator import TelemetryAggregator
 
-        db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
+        db_path = _telemetry_db_path(request)
         if not db_path.exists():
             return {"total_requests": 0, "total_tokens": 0}
 
@@ -441,10 +460,9 @@ async def telemetry_stats(request: Request):
 async def telemetry_energy(request: Request):
     """Get energy monitoring data."""
     try:
-        from openjarvis.core.config import DEFAULT_CONFIG_DIR
         from openjarvis.telemetry.aggregator import TelemetryAggregator
 
-        db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
+        db_path = _telemetry_db_path(request)
         if not db_path.exists():
             return {
                 "total_energy_j": 0,
@@ -591,28 +609,36 @@ metrics_router = APIRouter(tags=["metrics"])
 async def prometheus_metrics(request: Request):
     """Prometheus-compatible metrics endpoint."""
     try:
-        from openjarvis.core.config import DEFAULT_CONFIG_DIR
         from openjarvis.telemetry.aggregator import TelemetryAggregator
 
-        db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
+        db_path = _telemetry_db_path(request)
         if not db_path.exists():
             from starlette.responses import PlainTextResponse
 
             return PlainTextResponse("# no telemetry data\n", media_type="text/plain")
 
         agg = TelemetryAggregator(db_path)
-        stats = agg.summary()
+        try:
+            stats = agg.summary()
+        finally:
+            agg.close()
+
+        avg_latency_ms = (
+            (stats.total_latency / stats.total_calls) * 1000
+            if stats.total_calls
+            else 0.0
+        )
 
         lines = [
             "# HELP openjarvis_requests_total Total requests processed",
             "# TYPE openjarvis_requests_total counter",
-            f"openjarvis_requests_total {stats.get('total_requests', 0)}",
+            f"openjarvis_requests_total {stats.total_calls}",
             "# HELP openjarvis_tokens_total Total tokens generated",
             "# TYPE openjarvis_tokens_total counter",
-            f"openjarvis_tokens_total {stats.get('total_tokens', 0)}",
+            f"openjarvis_tokens_total {stats.total_tokens}",
             "# HELP openjarvis_latency_avg_ms Average latency in milliseconds",
             "# TYPE openjarvis_latency_avg_ms gauge",
-            f"openjarvis_latency_avg_ms {stats.get('avg_latency_ms', 0)}",
+            f"openjarvis_latency_avg_ms {avg_latency_ms}",
         ]
         from starlette.responses import PlainTextResponse
 

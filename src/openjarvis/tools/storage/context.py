@@ -28,6 +28,11 @@ def _count_tokens(text: str) -> int:
     return len(text.split())
 
 
+def _trusted_facts(facts: Sequence[Fact]) -> List[Fact]:
+    """Return only facts explicitly safe for model-facing recall."""
+    return [fact for fact in facts if bool(getattr(fact, "trusted_for_recall", True))]
+
+
 def format_context(results: List[RetrievalResult]) -> str:
     """Format retrieval results into a context block.
 
@@ -52,6 +57,10 @@ def build_context_message(
     facts: Sequence[Fact] = (),
 ) -> Message:
     """Create a system message with formatted context."""
+    # Defensive filtering here protects direct callers as well as the normal
+    # inject_context() path. Quarantined facts must never become instructions
+    # merely because a caller skipped the budget-selection helper.
+    facts = _trusted_facts(facts)
     sections = []
     if facts:
         fact_text = "\n".join(f"- {fact.text}" for fact in facts)
@@ -92,16 +101,12 @@ def _merge_context_message(
         if part
     )
     combined = replace(system_messages[0], content=content)
-    merged: List[Message] = []
-    inserted = False
-    for message in messages:
-        if message.role == Role.SYSTEM:
-            if not inserted:
-                merged.append(combined)
-                inserted = True
-            continue
-        merged.append(message)
-    return merged
+    # Always place the merged system message FIRST. Ollama (and many chat
+    # templates) reject a non-initial system message with
+    # "system message must be at the beginning", so preserving the original
+    # system position is not safe — a system message may arrive mid-list
+    # (e.g. after caller-provided history).
+    return [combined] + [m for m in messages if m.role != Role.SYSTEM]
 
 
 def inject_context(
@@ -131,7 +136,8 @@ def inject_context(
     config:
         Context injection settings (uses defaults if ``None``).
     facts:
-        Durable facts captured by the automatic memory service.
+        Durable facts captured by the automatic memory service. Quarantined
+        provenance tiers are excluded before budgeting or prompt construction.
     """
     cfg = config or ContextConfig()
     if not cfg.enabled:
@@ -150,7 +156,7 @@ def inject_context(
         fact_budget //= 2
     selected_facts: List[Fact] = []
     total_tokens = 0
-    for fact in reversed(facts):
+    for fact in reversed(_trusted_facts(facts)):
         tokens = _count_tokens(fact.text)
         if total_tokens + tokens > fact_budget:
             continue
