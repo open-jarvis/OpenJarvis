@@ -236,6 +236,42 @@ def test_inject_context_collapses_multiple_system_messages():
     assert "User likes jazz" in system_messages[0].content
 
 
+def test_inject_context_moves_mid_history_system_messages_to_front_in_order():
+    messages = [
+        Message(role=Role.USER, content="Earlier question"),
+        Message(
+            role=Role.SYSTEM,
+            content="Identity.",
+            metadata={"origin": "caller"},
+        ),
+        Message(role=Role.ASSISTANT, content="Earlier answer"),
+        Message(role=Role.SYSTEM, content="Persona."),
+    ]
+
+    augmented = inject_context(
+        "remember",
+        messages,
+        None,
+        facts=[Fact(text="User likes jazz")],
+    )
+
+    assert [message.role for message in augmented] == [
+        Role.SYSTEM,
+        Role.USER,
+        Role.ASSISTANT,
+    ]
+    assert augmented[0].content == (
+        "Identity.\n\nPersona.\n\n"
+        "The following durable facts were remembered from prior conversations. "
+        "Use them when relevant to the user's request:\n\n- User likes jazz"
+    )
+    assert augmented[0].metadata == {"origin": "caller"}
+    assert [message.content for message in augmented[1:]] == [
+        "Earlier question",
+        "Earlier answer",
+    ]
+
+
 def test_inject_context_reserves_budget_for_retrieved_documents():
     backend = _FakeMemory(
         [RetrievalResult(content="d1 d2 d3 d4 d5", score=1.0, source="doc")]
