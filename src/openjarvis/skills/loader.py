@@ -308,9 +308,7 @@ def discover_skills(directory: str | Path) -> list[SkillManifest]:
                 try:
                     manifests.append(load_skill_directory(grandchild))
                 except Exception as exc:
-                    LOGGER.warning(
-                        "Failed to load skill from %s: %s", grandchild, exc
-                    )
+                    LOGGER.warning("Failed to load skill from %s: %s", grandchild, exc)
                     continue
 
     return manifests

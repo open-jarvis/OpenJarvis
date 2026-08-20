@@ -165,9 +165,7 @@ class LocalFactStore(FactStore):
     ) -> None:
         max_facts = int(max_facts)
         if max_facts <= 0:
-            raise ValueError(
-                f"max_facts must be a positive integer, got {max_facts}"
-            )
+            raise ValueError(f"max_facts must be a positive integer, got {max_facts}")
         self._path = (
             Path(path).expanduser() if path is not None else _default_fact_path()
         )
