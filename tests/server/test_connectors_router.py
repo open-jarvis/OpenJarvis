@@ -192,6 +192,85 @@ def test_disconnect_cancels_inflight_sync_before_purge(app) -> None:
         _instances.pop("obsidian", None)
 
 
+def test_disconnect_prevents_sync_start_racing_checkpoint_read(
+    app,
+    monkeypatch,
+) -> None:
+    """A sync must not publish a writer after disconnect already purged."""
+    from openjarvis.connectors._stubs import Document, SyncStatus
+    from openjarvis.connectors.sync_engine import SyncEngine
+    from openjarvis.server.connectors_router import _instances
+
+    baseline_started = threading.Event()
+    release_baseline = threading.Event()
+    sync_called = threading.Event()
+    gate_lock = threading.Lock()
+    gate_first_call = True
+    original_get_checkpoint = SyncEngine.get_checkpoint
+
+    def gated_get_checkpoint(self, connector_id):
+        nonlocal gate_first_call
+        with gate_lock:
+            should_gate = gate_first_call
+            gate_first_call = False
+        if should_gate:
+            baseline_started.set()
+            assert release_baseline.wait(timeout=3)
+        return original_get_checkpoint(self, connector_id)
+
+    monkeypatch.setattr(SyncEngine, "get_checkpoint", gated_get_checkpoint)
+
+    class RacingConnector:
+        connector_id = "obsidian"
+        indexed_sources = ("obsidian",)
+
+        def __init__(self):
+            self.connected = True
+
+        def is_connected(self):
+            return self.connected
+
+        def sync(self, **kwargs):
+            sync_called.set()
+            yield Document(
+                doc_id="obsidian:post-disconnect",
+                source="obsidian",
+                doc_type="note",
+                content="must never be written",
+            )
+
+        def disconnect(self):
+            self.connected = False
+
+        def sync_status(self):
+            return SyncStatus()
+
+    _instances["obsidian"] = RacingConnector()
+    sync_response = []
+
+    def trigger_sync():
+        sync_response.append(app.post("/v1/connectors/obsidian/sync"))
+
+    request_thread = threading.Thread(target=trigger_sync)
+    try:
+        request_thread.start()
+        assert baseline_started.wait(timeout=3)
+
+        disconnect_response = app.post("/v1/connectors/obsidian/disconnect")
+        assert disconnect_response.status_code == 200
+
+        release_baseline.set()
+        request_thread.join(timeout=3)
+        assert not request_thread.is_alive()
+        assert sync_response[0].status_code == 200
+        assert sync_response[0].json()["status"] == "cancelled"
+        assert not sync_called.wait(timeout=0.1)
+    finally:
+        release_baseline.set()
+        request_thread.join(timeout=3)
+        _instances.pop("obsidian", None)
+
+
 def test_disconnect_preserves_source_owned_by_connected_peer(app) -> None:
     from openjarvis.connectors._stubs import SyncStatus
     from openjarvis.connectors.store import KnowledgeStore

@@ -229,6 +229,7 @@ def create_connectors_router():
     _sync_cancel_events: Dict[str, threading.Event] = {}
     _sync_state: Dict[str, Dict[str, Any]] = {}
     _sync_lock = threading.Lock()
+    _sync_generations: Dict[str, int] = {}
 
     def _translate_sync_error(raw: str) -> str:
         """Map common backend exceptions to a short user-facing message."""
@@ -255,6 +256,11 @@ def create_connectors_router():
             existing = _sync_threads.get(connector_id)
             if existing and existing.is_alive():
                 return "already_syncing"
+            # Detect a disconnect that completes while the checkpoint baseline
+            # below is being read, before this start has published its thread.
+            # Without a generation token that race can launch a writer after
+            # disconnect has already purged the connector's indexed content.
+            start_generation = _sync_generations.get(connector_id, 0)
 
         # Snapshot the prior checkpoint count so the GET handler can
         # report "X new this run" without each client tracking it.
@@ -318,6 +324,13 @@ def create_connectors_router():
 
         t = threading.Thread(target=_run_sync, daemon=True)
         with _sync_lock:
+            if _sync_generations.get(connector_id, 0) != start_generation:
+                _sync_state[connector_id] = {
+                    "state": "cancelled",
+                    "error": None,
+                    "baseline_items": baseline_items,
+                }
+                return "cancelled"
             existing = _sync_threads.get(connector_id)
             if existing and existing.is_alive():
                 return "already_syncing"
@@ -499,6 +512,7 @@ def create_connectors_router():
             )
         instance = _get_or_create(connector_id)
         with _sync_lock:
+            _sync_generations[connector_id] = _sync_generations.get(connector_id, 0) + 1
             cancel_event = _sync_cancel_events.get(connector_id)
             sync_thread = _sync_threads.get(connector_id)
             if cancel_event is not None:
@@ -528,9 +542,7 @@ def create_connectors_router():
             if other_id == connector_id:
                 continue
             other_cls = ConnectorRegistry.get(other_id)
-            shared = purge_sources.intersection(
-                _knowledge_sources(other_id, other_cls)
-            )
+            shared = purge_sources.intersection(_knowledge_sources(other_id, other_cls))
             if not shared:
                 continue
             try:
