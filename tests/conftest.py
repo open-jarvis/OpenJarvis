@@ -24,6 +24,7 @@ _MISSING = object()
 _ORIGINAL_OPENJARVIS_HOME = os.environ.get("OPENJARVIS_HOME", _MISSING)
 _ORIGINAL_OPENJARVIS_CONFIG = os.environ.get("OPENJARVIS_CONFIG", _MISSING)
 _TEST_HOME = Path(tempfile.mkdtemp(prefix="openjarvis-test-home-"))
+_TEST_HOME_CLEANED = False
 os.environ["OPENJARVIS_HOME"] = str(_TEST_HOME)
 # An explicit config path takes precedence inside load_config(). It may point
 # at a developer's real file even when OPENJARVIS_HOME is isolated, so remove
@@ -51,10 +52,20 @@ from openjarvis.core.registry import (  # noqa: E402
 )
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _cleanup_session_test_home():
-    """Keep the import-time home alive through teardown, then remove it."""
-    yield
+def _cleanup_test_home() -> None:
+    """Restore import-time process state exactly once.
+
+    A session fixture is not instantiated for ``--collect-only`` and may not
+    be instantiated when collection fails.  Keep the cleanup in a normal
+    function so both fixture teardown and pytest's unconditional unconfigure
+    hook can call it safely.
+    """
+    global _TEST_HOME_CLEANED
+
+    if _TEST_HOME_CLEANED:
+        return
+    _TEST_HOME_CLEANED = True
+
     load_config.cache_clear()
     shutil.rmtree(_TEST_HOME, ignore_errors=True)
 
@@ -66,6 +77,18 @@ def _cleanup_session_test_home():
         os.environ.pop("OPENJARVIS_CONFIG", None)
     else:
         os.environ["OPENJARVIS_CONFIG"] = str(_ORIGINAL_OPENJARVIS_CONFIG)
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    """Clean up even when pytest never starts the session fixture."""
+    _cleanup_test_home()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_session_test_home():
+    """Keep the import-time home alive through normal fixture teardown."""
+    yield
+    _cleanup_test_home()
 
 
 @pytest.fixture(autouse=True)
