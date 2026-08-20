@@ -50,9 +50,11 @@ class DiscordChannel(BaseChannel):
         # connect() cannot clear a stop request after disconnect() returns.
         self._lifecycle_lock = threading.RLock()
         # Published by _gateway_loop while it's running so disconnect()
-        # can actually interrupt client.start() (#784).
+        # can wake the async lifecycle owner (#784).
         self._client: Optional[Any] = None
         self._loop: Optional[Any] = None
+        self._async_stop_event: Optional[asyncio.Event] = None
+        self._runtime_lock = threading.Lock()
 
     # -- connection lifecycle ---------------------------------------------------
 
@@ -97,25 +99,23 @@ class DiscordChannel(BaseChannel):
     def disconnect(self) -> None:
         """Stop the listener thread.
 
-        ``client.start()`` blocks the gateway thread inside its own event
-        loop and never observed ``_stop_event`` (#784). Interrupt it by
-        scheduling the coroutine ``client.close()`` onto that loop from
-        here via ``asyncio.run_coroutine_threadsafe()`` and waiting for it
-        to actually finish. Status is only ever reported as DISCONNECTED
-        once the thread has actually terminated; otherwise a later
-        ``connect()`` would spawn a duplicate gateway connection.
+        The listener owns login, gateway connection, and client cleanup.
+        ``disconnect`` publishes a durable stop request onto that loop; the
+        listener races each async startup phase against it and performs the
+        close itself. Status is only reported DISCONNECTED after the thread
+        has actually terminated.
         """
         with self._lifecycle_lock:
             self._stop_event.set()
 
-            client = self._client
-            loop = self._loop
-            if client is not None and loop is not None:
+            with self._runtime_lock:
+                loop = self._loop
+                async_stop_event = self._async_stop_event
+            if loop is not None and async_stop_event is not None:
                 try:
-                    future = asyncio.run_coroutine_threadsafe(client.close(), loop)
-                    future.result(timeout=5.0)
-                except Exception:
-                    logger.debug("Discord client.close() failed", exc_info=True)
+                    loop.call_soon_threadsafe(async_stop_event.set)
+                except RuntimeError:
+                    logger.debug("Discord gateway event loop already closed")
 
             if self._listener_thread is not None:
                 self._listener_thread.join(timeout=5.0)
@@ -200,6 +200,59 @@ class DiscordChannel(BaseChannel):
 
     # -- internal helpers -------------------------------------------------------
 
+    def _stop_requested(self, async_stop_event: asyncio.Event) -> bool:
+        return self._stop_event.is_set() or async_stop_event.is_set()
+
+    async def _run_stage_until_stopped(
+        self,
+        awaitable: Any,
+        async_stop_event: asyncio.Event,
+    ) -> bool:
+        """Run one Discord startup stage, cancelling it when stop wins."""
+        if self._stop_requested(async_stop_event):
+            close = getattr(awaitable, "close", None)
+            if callable(close):
+                close()
+            return False
+
+        stage_task = asyncio.create_task(awaitable)
+        stop_task = asyncio.create_task(async_stop_event.wait())
+        try:
+            done, _pending = await asyncio.wait(
+                {stage_task, stop_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if stop_task in done or self._stop_event.is_set():
+                stage_task.cancel()
+                await asyncio.gather(stage_task, return_exceptions=True)
+                return False
+            await stage_task
+            return True
+        finally:
+            stop_task.cancel()
+            await asyncio.gather(stop_task, return_exceptions=True)
+
+    async def _run_gateway_lifecycle(
+        self,
+        client: Any,
+        async_stop_event: asyncio.Event,
+    ) -> None:
+        """Own Discord login/connect/close with stop checks at each boundary."""
+        try:
+            if not await self._run_stage_until_stopped(
+                client.login(self._token),
+                async_stop_event,
+            ):
+                return
+            if self._stop_requested(async_stop_event):
+                return
+            await self._run_stage_until_stopped(
+                client.connect(reconnect=True),
+                async_stop_event,
+            )
+        finally:
+            await client.close()
+
     def _gateway_loop(self) -> None:
         """Run the discord.py client in a background thread."""
         client: Any | None = None
@@ -240,20 +293,22 @@ class DiscordChannel(BaseChannel):
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            self._client = client
-            self._loop = loop
+            async_stop_event = asyncio.Event()
+            with self._runtime_lock:
+                self._client = client
+                self._async_stop_event = async_stop_event
+                self._loop = loop
 
-            # disconnect() may run after the listener thread starts but before
-            # these references are published. In that case it cannot schedule
-            # client.close(), so honor the stop request before starting an
-            # orphaned gateway connection.
-            if self._stop_event.is_set():
-                return
-
-            loop.run_until_complete(client.start(self._token))
+            # A disconnect before these references were published remains in
+            # the durable threading event. The owned lifecycle checks it before
+            # login and races it against every asynchronous startup phase.
+            loop.run_until_complete(
+                self._run_gateway_lifecycle(client, async_stop_event)
+            )
         except Exception:
             logger.debug("Discord gateway loop error", exc_info=True)
-            self._status = ChannelStatus.ERROR
+            if not self._stop_event.is_set():
+                self._status = ChannelStatus.ERROR
         finally:
             if loop is not None and not loop.is_closed():
                 try:
@@ -264,8 +319,10 @@ class DiscordChannel(BaseChannel):
                 finally:
                     asyncio.set_event_loop(None)
                     loop.close()
-            self._client = None
-            self._loop = None
+            with self._runtime_lock:
+                self._client = None
+                self._async_stop_event = None
+                self._loop = None
 
     def _publish_sent(self, channel: str, content: str, conversation_id: str) -> None:
         """Publish a CHANNEL_MESSAGE_SENT event on the bus."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import textwrap
@@ -60,9 +61,11 @@ class TelegramChannel(BaseChannel):
         # event, losing the stop request and leaving a fresh poller behind.
         self._lifecycle_lock = threading.RLock()
         # Published by _poll_loop while it's running so disconnect() can
-        # actually interrupt Application.run_polling() (#784).
+        # wake the async lifecycle owner (#784).
         self._app: Optional[Any] = None
         self._loop: Optional[Any] = None
+        self._async_stop_event: Optional[asyncio.Event] = None
+        self._runtime_lock = threading.Lock()
 
     # -- connection lifecycle ---------------------------------------------------
 
@@ -114,23 +117,21 @@ class TelegramChannel(BaseChannel):
     def disconnect(self) -> None:
         """Stop the listener thread.
 
-        ``app.run_polling()`` blocks the listener thread inside its own
-        event loop and never observed ``_stop_event`` (#784). Interrupt it
-        via ``Application.stop_running()`` -- which internally calls
-        ``asyncio.get_running_loop().stop()`` and so is only safe to call
-        from *within* that loop's own thread -- scheduled here with
-        ``loop.call_soon_threadsafe()``. Status is only ever reported as
-        DISCONNECTED once the thread has actually terminated; otherwise a
-        later ``connect()`` would spawn a duplicate poller.
+        The listener owns every async startup/shutdown phase. ``disconnect``
+        only publishes a stop request onto that owned loop, which is observed
+        between initialize, polling startup, and application startup as well
+        as during steady-state polling. Status is only reported DISCONNECTED
+        once the thread has actually terminated.
         """
         with self._lifecycle_lock:
             self._stop_event.set()
 
-            app = self._app
-            loop = self._loop
-            if app is not None and loop is not None:
+            with self._runtime_lock:
+                loop = self._loop
+                async_stop_event = self._async_stop_event
+            if loop is not None and async_stop_event is not None:
                 try:
-                    loop.call_soon_threadsafe(app.stop_running)
+                    loop.call_soon_threadsafe(async_stop_event.set)
                 except RuntimeError:
                     logger.debug("Telegram poll loop's event loop already closed")
 
@@ -241,25 +242,76 @@ class TelegramChannel(BaseChannel):
 
     # -- internal helpers -------------------------------------------------------
 
+    def _stop_requested(self, async_stop_event: asyncio.Event) -> bool:
+        return self._stop_event.is_set() or async_stop_event.is_set()
+
+    async def _run_polling_lifecycle(
+        self,
+        app: Any,
+        async_stop_event: asyncio.Event,
+    ) -> None:
+        """Own PTB's lifecycle so no stop can disappear inside run_polling.
+
+        ``Application.run_polling`` checks its private stop marker before
+        ``Updater.start_polling`` but not after it. A disconnect in that await
+        therefore used to be lost and the subsequent ``run_forever`` stranded
+        the thread. Explicit boundaries make the shared stop request durable.
+        """
+        updater = getattr(app, "updater", None)
+        if updater is None:
+            raise RuntimeError("Telegram application has no updater")
+
+        try:
+            if self._stop_requested(async_stop_event):
+                return
+            await app.initialize()
+            if self._stop_requested(async_stop_event):
+                return
+            if getattr(app, "post_init", None) is not None:
+                await app.post_init(app)
+            if self._stop_requested(async_stop_event):
+                return
+
+            await updater.start_polling(drop_pending_updates=True)
+            if self._stop_requested(async_stop_event):
+                return
+
+            await app.start()
+            if self._stop_requested(async_stop_event):
+                return
+
+            await async_stop_event.wait()
+        finally:
+            if getattr(updater, "running", False):
+                await updater.stop()
+            if getattr(app, "running", False):
+                await app.stop()
+                if getattr(app, "post_stop", None) is not None:
+                    await app.post_stop(app)
+            await app.shutdown()
+            if getattr(app, "post_shutdown", None) is not None:
+                await app.post_shutdown(app)
+
     def _poll_loop(self) -> None:
         """Long-poll for updates using python-telegram-bot."""
         loop: Any | None = None
+        app: Any | None = None
         try:
-            import asyncio
-
             from telegram.ext import ApplicationBuilder, MessageHandler, filters
 
-            # Create and set this thread's event loop ourselves so it's
-            # available before app.run_polling() starts (it picks up the
-            # already-set loop via asyncio.get_event_loop() rather than
-            # creating its own) -- disconnect() needs a reference to
-            # schedule Application.stop_running() onto it (#784).
+            # This thread owns the loop and every PTB startup/shutdown phase.
+            # Publishing the stop event lets disconnect wake it safely from
+            # another thread without asking PTB to stop a half-started app.
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            self._loop = loop
+            async_stop_event = asyncio.Event()
+            with self._runtime_lock:
+                self._async_stop_event = async_stop_event
+                self._loop = loop
 
             app = ApplicationBuilder().token(self._token).build()
-            self._app = app
+            with self._runtime_lock:
+                self._app = app
 
             def _handle_msg(update, context):
                 msg = update.message
@@ -302,18 +354,18 @@ class TelegramChannel(BaseChannel):
                     )
 
             app.add_handler(MessageHandler(filters.TEXT, _handle_msg))
-            # disconnect() can win the race before _app is published. It
-            # cannot call stop_running() in that window, so do not enter the
-            # blocking poller after a stop has already been requested.
-            if self._stop_event.is_set():
-                return
-            app.run_polling(stop_signals=None, drop_pending_updates=True)
+            loop.run_until_complete(
+                self._run_polling_lifecycle(app, async_stop_event)
+            )
         except Exception:
             logger.debug("Telegram poll loop error", exc_info=True)
-            self._status = ChannelStatus.ERROR
+            if not self._stop_event.is_set():
+                self._status = ChannelStatus.ERROR
         finally:
-            self._app = None
-            self._loop = None
+            with self._runtime_lock:
+                self._app = None
+                self._async_stop_event = None
+                self._loop = None
             if loop is not None and not loop.is_closed():
                 asyncio.set_event_loop(None)
                 loop.close()

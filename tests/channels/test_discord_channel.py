@@ -143,32 +143,23 @@ class TestDisconnectStopsRealListener:
     thread actually terminated -- otherwise a subsequent connect() spawns
     a second gateway connection, duplicating message handling."""
 
-    def test_disconnect_schedules_close_via_run_coroutine_threadsafe(self):
-        """client.close() is a coroutine and client.start() is running on
-        the gateway thread's own event loop, so disconnect() must hand it
-        off with asyncio.run_coroutine_threadsafe(), not await it directly
-        from the disconnecting thread."""
+    def test_disconnect_publishes_stop_via_call_soon_threadsafe(self):
+        """The gateway thread owns close(); disconnect only signals its loop."""
         ch = DiscordChannel(bot_token="my-bot-token")
         ch._status = ChannelStatus.CONNECTED
 
-        mock_client = MagicMock()
         mock_loop = MagicMock()
-        ch._client = mock_client
+        async_stop_event = MagicMock()
         ch._loop = mock_loop
+        ch._async_stop_event = async_stop_event
 
         mock_thread = MagicMock()
         mock_thread.is_alive.return_value = False
         ch._listener_thread = mock_thread
 
-        mock_future = MagicMock()
-        with patch(
-            "asyncio.run_coroutine_threadsafe", return_value=mock_future
-        ) as mock_rct:
-            ch.disconnect()
+        ch.disconnect()
 
-        mock_rct.assert_called_once()
-        assert mock_rct.call_args[0][1] is mock_loop
-        mock_future.result.assert_called_once()
+        mock_loop.call_soon_threadsafe.assert_called_once_with(async_stop_event.set)
         mock_thread.join.assert_called_once()
         assert ch._listener_thread is None
         assert ch.status() == ChannelStatus.DISCONNECTED
@@ -286,6 +277,82 @@ class TestDisconnectStopsRealListener:
         assert loops[0].is_closed()
         assert ch._listener_thread is None
         assert ch._client is None
+        assert ch._loop is None
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
+    @pytest.mark.parametrize("blocked_stage", ["login", "connect"])
+    def test_disconnect_during_every_async_startup_boundary(self, blocked_stage):
+        """Login and gateway startup are both cancellable by disconnect."""
+        entered = threading.Event()
+        calls: list[str] = []
+        loops: list[asyncio.AbstractEventLoop] = []
+        new_event_loop = asyncio.new_event_loop
+
+        async def run_stage(name: str) -> None:
+            calls.append(f"{name}:enter")
+            if name == blocked_stage:
+                entered.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    calls.append(f"{name}:cancelled")
+            calls.append(f"{name}:exit")
+
+        class FakeClient:
+            def __init__(self, *, intents):
+                self.user = object()
+                self._closed = False
+
+            def event(self, handler):
+                return handler
+
+            async def login(self, token):
+                assert token == "my-bot-token"
+                await run_stage("login")
+
+            async def connect(self, *, reconnect):
+                assert reconnect is True
+                await run_stage("connect")
+
+            async def close(self):
+                self._closed = True
+                calls.append("client:close")
+
+            def is_closed(self):
+                return self._closed
+
+        intents = SimpleNamespace(message_content=False)
+        discord = SimpleNamespace(
+            Intents=SimpleNamespace(default=lambda: intents),
+            Client=FakeClient,
+        )
+
+        def make_event_loop():
+            loop = new_event_loop()
+            loops.append(loop)
+            return loop
+
+        ch = DiscordChannel(bot_token="my-bot-token")
+        with (
+            patch.dict(sys.modules, {"discord": discord}),
+            patch(
+                "openjarvis.channels.discord_channel.asyncio.new_event_loop",
+                side_effect=make_event_loop,
+            ),
+        ):
+            ch.connect()
+            assert entered.wait(timeout=2), calls
+            ch.disconnect()
+
+        assert f"{blocked_stage}:cancelled" in calls
+        if blocked_stage == "login":
+            assert "connect:enter" not in calls
+        assert calls.count("client:close") == 1
+        assert len(loops) == 1
+        assert loops[0].is_closed()
+        assert ch._listener_thread is None
+        assert ch._client is None
+        assert ch._async_stop_event is None
         assert ch._loop is None
         assert ch.status() == ChannelStatus.DISCONNECTED
 

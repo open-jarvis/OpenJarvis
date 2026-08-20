@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 import threading
@@ -221,18 +222,15 @@ class TestDisconnectStopsRealListener:
     connect() spawns a second poller against the same bot token, and
     Telegram's getUpdates API returns 409 Conflict."""
 
-    def test_disconnect_schedules_stop_running_via_call_soon_threadsafe(self):
-        """stop_running() calls asyncio.get_running_loop().stop() internally,
-        which is only safe from within the poll loop's own thread/loop --
-        so disconnect() must schedule it via loop.call_soon_threadsafe(),
-        not call it directly."""
+    def test_disconnect_publishes_stop_via_call_soon_threadsafe(self):
+        """The listener owns PTB cleanup; disconnect only signals its loop."""
         ch = TelegramChannel(bot_token="123:ABC")
         ch._status = ChannelStatus.CONNECTED
 
-        mock_app = MagicMock()
         mock_loop = MagicMock()
-        ch._app = mock_app
+        async_stop_event = MagicMock()
         ch._loop = mock_loop
+        ch._async_stop_event = async_stop_event
 
         mock_thread = MagicMock()
         mock_thread.is_alive.return_value = False
@@ -240,7 +238,7 @@ class TestDisconnectStopsRealListener:
 
         ch.disconnect()
 
-        mock_loop.call_soon_threadsafe.assert_called_once_with(mock_app.stop_running)
+        mock_loop.call_soon_threadsafe.assert_called_once_with(async_stop_event.set)
         mock_thread.join.assert_called_once()
         assert ch._listener_thread is None
         assert ch.status() == ChannelStatus.DISCONNECTED
@@ -347,6 +345,133 @@ class TestDisconnectStopsRealListener:
         assert polling_calls == []
         assert ch._listener_thread is None
         assert ch._app is None
+        assert ch._loop is None
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
+    @pytest.mark.parametrize(
+        "blocked_stage",
+        ["initialize", "post_init", "start_polling", "start", "steady"],
+    )
+    def test_disconnect_during_every_async_startup_boundary(self, blocked_stage):
+        """A stop remains observable across every awaited PTB boundary."""
+        entered = threading.Event()
+        release = threading.Event()
+        calls: list[str] = []
+        loops: list[asyncio.AbstractEventLoop] = []
+        new_event_loop = asyncio.new_event_loop
+
+        async def run_stage(name: str) -> None:
+            calls.append(f"{name}:enter")
+            if name == blocked_stage:
+                entered.set()
+                while not release.is_set():
+                    await asyncio.sleep(0.001)
+            calls.append(f"{name}:exit")
+
+        class FakeUpdater:
+            running = False
+
+            async def start_polling(self, *, drop_pending_updates):
+                assert drop_pending_updates is True
+                await run_stage("start_polling")
+                self.running = True
+
+            async def stop(self):
+                calls.append("updater:stop")
+                self.running = False
+
+        class FakeApp:
+            def __init__(self):
+                self.updater = FakeUpdater()
+                self.running = False
+
+            def add_handler(self, handler):
+                calls.append("handler:add")
+
+            async def initialize(self):
+                await run_stage("initialize")
+
+            async def post_init(self, app):
+                assert app is self
+                await run_stage("post_init")
+
+            async def start(self):
+                await run_stage("start")
+                self.running = True
+                if blocked_stage == "steady":
+                    entered.set()
+
+            async def stop(self):
+                calls.append("app:stop")
+                self.running = False
+
+            async def post_stop(self, app):
+                assert app is self
+                calls.append("app:post_stop")
+
+            async def shutdown(self):
+                calls.append("app:shutdown")
+
+            async def post_shutdown(self, app):
+                assert app is self
+                calls.append("app:post_shutdown")
+
+        app = FakeApp()
+
+        class FakeBuilder:
+            def token(self, token):
+                assert token == "123:ABC"
+                return self
+
+            def build(self):
+                return app
+
+        telegram_ext = SimpleNamespace(
+            ApplicationBuilder=FakeBuilder,
+            MessageHandler=lambda *args: args,
+            filters=SimpleNamespace(TEXT=object()),
+        )
+
+        def make_event_loop():
+            loop = new_event_loop()
+            loops.append(loop)
+            return loop
+
+        ch = TelegramChannel(bot_token="123:ABC")
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "telegram": SimpleNamespace(ext=telegram_ext),
+                    "telegram.ext": telegram_ext,
+                },
+            ),
+            patch(
+                "openjarvis.channels.telegram.asyncio.new_event_loop",
+                side_effect=make_event_loop,
+            ),
+        ):
+            ch.connect()
+            assert entered.wait(timeout=2), calls
+
+            disconnect_thread = threading.Thread(target=ch.disconnect)
+            disconnect_thread.start()
+            assert ch._stop_event.wait(timeout=2)
+            release.set()
+            disconnect_thread.join(timeout=2)
+
+        assert not disconnect_thread.is_alive(), calls
+        stage_order = ["initialize", "post_init", "start_polling", "start"]
+        if blocked_stage in stage_order:
+            for later_stage in stage_order[stage_order.index(blocked_stage) + 1 :]:
+                assert f"{later_stage}:enter" not in calls
+        assert "app:shutdown" in calls
+        assert "app:post_shutdown" in calls
+        assert len(loops) == 1
+        assert loops[0].is_closed()
+        assert ch._listener_thread is None
+        assert ch._app is None
+        assert ch._async_stop_event is None
         assert ch._loop is None
         assert ch.status() == ChannelStatus.DISCONNECTED
 
