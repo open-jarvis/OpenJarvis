@@ -1,6 +1,6 @@
 """Load system prompt and few-shot overrides from $OPENJARVIS_HOME.
 
-Distillation (M1) proposes edits that get written to disk by appliers.
+LLM-guided spec search (M1) proposes edits that get written to disk by appliers.
 This module lets agents pick those overrides up at runtime:
 
 - System prompts: ``$OPENJARVIS_HOME/agents/{name}/system_prompt.md``
@@ -15,16 +15,17 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any
+
+from openjarvis.core.paths import get_config_dir
 
 logger = logging.getLogger(__name__)
 
 
 def _openjarvis_home() -> Path:
-    """Resolve $OPENJARVIS_HOME, defaulting to ~/.openjarvis."""
-    return Path(os.environ.get("OPENJARVIS_HOME", "~/.openjarvis")).expanduser()
+    """Resolve the OpenJarvis root, honoring OPENJARVIS_HOME / XDG_DATA_HOME."""
+    return get_config_dir()
 
 
 def load_system_prompt_override(agent_name: str) -> str | None:

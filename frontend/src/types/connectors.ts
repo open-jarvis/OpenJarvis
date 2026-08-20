@@ -36,6 +36,13 @@ export interface SyncStatus {
   state: "idle" | "syncing" | "paused" | "error";
   items_synced: number;
   items_total: number;
+  /** Items processed in the current (or most recent) run only. `null`
+   *  when no sync has been triggered through this server session yet. */
+  new_items_synced?: number | null;
+  /** ISO 8601 timestamp of the oldest indexed item, used to label how far
+   *  back the corpus reaches ("past 3 months", "past 5 years"). `null`
+   *  before anything is indexed. */
+  oldest_item_date?: string | null;
   last_sync: string | null;
   error: string | null;
 }
@@ -46,6 +53,19 @@ export interface ConnectRequest {
   code?: string;
   email?: string;
   password?: string;
+}
+
+/** Response from POST /v1/connectors/{id}/connect.
+ *  For OAuth connectors, pasting a Client ID / Secret pair only registers the
+ *  app credentials; the backend returns `status: "oauth_required"` plus an
+ *  `oauth_start` path the UI must open to run the browser consent flow that
+ *  actually mints an access token (see issue #512). */
+export interface ConnectResponse {
+  connector_id: string;
+  connected: boolean;
+  status: "connected" | "pending" | "oauth_required" | "disconnected";
+  oauth_start?: string;
+  sync_status?: string | null;
 }
 
 export type WizardStep = "pick" | "connect" | "ingest" | "ready";
@@ -73,6 +93,9 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
   },
   // ── Communication ──────────────────────────────────────────────────
   {
+    // Unified Gmail card. Defaults to the IMAP (app-password) flow because
+    // it needs no Google Cloud setup; the OAuth path is offered as an
+    // "Advanced" disclosure rendered in DataSourcesPage.
     connector_id: 'gmail_imap',
     display_name: 'Gmail',
     auth_type: 'oauth',
@@ -83,23 +106,14 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
     unitLabel: 'emails',
     steps: [
       {
-        label: 'Go to your Google Account \u2192 Security \u2192 2-Step Verification. Make sure it\'s turned ON. App Passwords only work if 2-Step Verification is enabled.',
-        url: 'https://myaccount.google.com/signinoptions/two-step-verification',
-        urlLabel: 'Open Google Security \u2192',
-      },
-      {
-        label: 'Go to App Passwords. Select app: "Mail", device: "Other" and type "OpenJarvis". Click Generate. This does NOT open a login popup \u2014 you\'ll get a 16-character password to copy (you won\'t see it again).',
+        label: 'Make sure 2-Step Verification is enabled, then generate a 16-character App Password (Mail / Other / "OpenJarvis"). Paste it below \u2014 spaces are fine, and use the app password, not your regular Gmail password.',
         url: 'https://myaccount.google.com/apppasswords',
-        urlLabel: 'Open App Passwords \u2192',
-      },
-      {
-        label: 'Paste your Gmail address and the 16-character app password below (spaces are fine). Use the app password, NOT your regular Gmail password.',
+        urlLabel: 'How to get an app password \u2192',
       },
     ],
     troubleshooting: [
       "Don't see App Passwords? Make sure 2-Step Verification is enabled first.",
       "Google Workspace user? Your admin may need to enable App Passwords for your organization.",
-      "Want OAuth instead? Use the Google Drive connector \u2014 it covers Gmail content too.",
     ],
     inputFields: [
       { name: 'email', placeholder: 'you@gmail.com', type: 'text' },
@@ -113,7 +127,7 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
     category: 'communication',
     icon: 'Hash',
     color: 'text-purple-400',
-    description: 'Read messages from channels, DMs, and threads',
+    description: 'Read messages from every channel, private channel, DM, and group DM you have access to',
     unitLabel: 'messages',
     steps: [
       {
@@ -122,16 +136,16 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
         urlLabel: 'Open Slack Apps',
       },
       {
-        label: 'In the left sidebar, click "OAuth & Permissions". Scroll down to "Bot Token Scopes" and click "Add an OAuth Scope" to add EACH of these scopes one by one:',
+        label: 'In the left sidebar, click "OAuth & Permissions". Scroll down to "User Token Scopes" (NOT "Bot Token Scopes"). Click "Add an OAuth Scope" and add EACH of these scopes one by one:',
       },
       {
-        label: 'channels:read • channels:history • channels:join • groups:read • groups:history • im:read • im:history • mpim:read • mpim:history • chat:write • users:read • app_mentions:read',
+        label: 'channels:history • channels:read • groups:history • groups:read • im:history • im:read • mpim:history • mpim:read • users:read',
       },
       {
-        label: 'In the left sidebar, click "Install App" → click "Install to Workspace" → click "Allow". After installing, copy the "Bot User OAuth Token" that appears (starts with xoxb-)',
+        label: 'In the left sidebar, click "Install App" → click "Install to Workspace" → click "Allow". After installing, copy the "User OAuth Token" that appears (starts with xoxp-, NOT xoxb-)',
       },
       {
-        label: 'Paste the bot token below. After connecting, invite the bot to channels you want indexed by typing /invite @OpenJarvis in each channel',
+        label: 'Paste the user token below. Sync indexes every channel, private channel, DM, and group DM you have access to — no need to invite anything to channels',
       },
       {
         label: '(Optional) Set the app icon: in the left sidebar click "Basic Information" → scroll to "Display Information" → upload the OpenJarvis logo',
@@ -140,7 +154,7 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
       },
     ],
     inputFields: [
-      { name: 'token', placeholder: 'xoxb-...', type: 'password' },
+      { name: 'token', placeholder: 'xoxp-...', type: 'password' },
     ],
   },
   {
@@ -256,12 +270,12 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
         urlLabel: 'Enable Drive API',
       },
       {
-        label: 'Create OAuth credentials: go to Credentials (link below) → click "+ Create Credentials" → choose "OAuth client ID" → Application type: "Desktop app" → click "Create"',
+        label: 'Create OAuth credentials: go to Credentials (link below) → click "+ Create Credentials" → choose "OAuth client ID" → Application type: "Web application". Under "Authorized redirect URIs" add this server\'s callback (e.g. http://localhost:1313/v1/connectors/gdrive/oauth/callback — match the host/port your OpenJarvis server is bound to) → click "Create".',
         url: 'https://console.cloud.google.com/apis/credentials',
         urlLabel: 'Open Credentials',
       },
       {
-        label: 'A dialog will show your Client ID and Client Secret. Copy both and paste them below. (If you miss it, click the download icon next to your OAuth client to see them again)',
+        label: 'A dialog will show your Client ID and Client Secret. Copy both and paste them below, then click Connect — a Google sign-in window opens to finish authorization. (If you miss the dialog, click the download icon next to your OAuth client to see them again.)',
       },
     ],
     inputFields: [

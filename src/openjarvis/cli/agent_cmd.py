@@ -12,15 +12,12 @@ from rich.table import Table
 
 def _get_manager():
     """Get or create the AgentManager singleton."""
-    from pathlib import Path
-
     from openjarvis.agents.manager import AgentManager
     from openjarvis.core.config import load_config
+    from openjarvis.core.paths import get_config_dir
 
     config = load_config()
-    db_path = config.agent_manager.db_path or str(
-        Path("~/.openjarvis/agents.db").expanduser()
-    )
+    db_path = config.agent_manager.db_path or str(get_config_dir() / "agents.db")
     return AgentManager(db_path=db_path)
 
 
@@ -88,7 +85,13 @@ def list_agents() -> None:
             )
         console.print(table)
     except Exception as exc:
-        console.print(f"[red]Error: {exc}[/red]")
+        # Escape the dynamic exception text: Rich re-parses console.print
+        # arguments as markup, so an exception message containing "[...]"
+        # raises a secondary MarkupError (see #297). Keep the static
+        # "Error:" label styled; render the message literally.
+        from rich.markup import escape
+
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
 
 
 @agent.command("create")
@@ -267,6 +270,7 @@ def search(agent_id: str, query: str, limit: int) -> None:
     console = Console(stderr=True)
     try:
         from openjarvis.core.config import load_config
+        from openjarvis.core.paths import get_config_dir
         from openjarvis.traces.store import TraceStore
 
         config = load_config()
@@ -275,7 +279,7 @@ def search(agent_id: str, query: str, limit: int) -> None:
         if not agent:
             console.print(f"[red]Agent not found: {agent_id}[/red]")
             return
-        store = TraceStore(config.traces.db_path or "~/.openjarvis/traces.db")
+        store = TraceStore(config.traces.db_path or str(get_config_dir() / "traces.db"))
         results = store.search(query, agent=agent["name"], limit=limit)
         if not results:
             console.print("[dim]No results.[/dim]")
@@ -337,6 +341,67 @@ def _get_scheduler_and_executor(system=None):
     return system.agent_scheduler, system.agent_executor, system
 
 
+def _format_tool_args(args) -> str:
+    """Compact one-line rendering of tool arguments for the live trace."""
+    if not isinstance(args, dict) or not args:
+        return ""
+    # Surface the single most meaningful field for common tools; fall back to
+    # the first couple of key=value pairs. Everything is truncated so a long
+    # query or URL can't blow out the line.
+    for key in ("query", "url", "path", "key", "thought", "content"):
+        val = args.get(key)
+        if val:
+            return str(val).replace("\n", " ")[:80]
+    return ", ".join(f"{k}={str(v)[:40]}" for k, v in list(args.items())[:2])
+
+
+def _run_tick_with_live_trace(executor, agent_id: str, console: Console) -> None:
+    """Run one tick synchronously, streaming progress to *console*.
+
+    Mirrors the Deep Research live trace: subscribe to the executor's
+    EventBus and print each inference / tool call as it happens. The bus
+    dispatches subscribers inline on the publishing thread, and we run the
+    tick on this same thread, so callbacks fire in real time. Subscriptions
+    are always torn down in the ``finally`` so a second invocation in the
+    same process doesn't double-print.
+    """
+    from openjarvis.core.events import EventType
+
+    bus = getattr(executor, "_bus", None)
+
+    def on_tool_start(event) -> None:
+        if event.data.get("agent") != agent_id:
+            return
+        tool = event.data.get("tool", "?")
+        argstr = _format_tool_args(event.data.get("arguments", {}))
+        suffix = f" [dim italic]{argstr}[/dim italic]" if argstr else ""
+        console.print(f"  [cyan]↳[/cyan] [dim]{tool}[/dim]{suffix}")
+
+    def on_tool_end(event) -> None:
+        if event.data.get("agent") != agent_id:
+            return
+        mark = "[green]✓[/green]" if event.data.get("success", True) else "[red]✗[/red]"
+        console.print(f"    {mark} [dim]{event.data.get('latency', 0.0):.1f}s[/dim]")
+
+    def on_inference_start(_event) -> None:
+        console.print("  [dim]· thinking…[/dim]")
+
+    subs = [
+        (EventType.TOOL_CALL_START, on_tool_start),
+        (EventType.TOOL_CALL_END, on_tool_end),
+        (EventType.INFERENCE_START, on_inference_start),
+    ]
+    if bus is not None:
+        for et, cb in subs:
+            bus.subscribe(et, cb)
+    try:
+        executor.execute_tick(agent_id)
+    finally:
+        if bus is not None:
+            for et, cb in subs:
+                bus.unsubscribe(et, cb)
+
+
 @agent.command()
 def launch():
     """Interactive agent launcher."""
@@ -354,6 +419,19 @@ def launch():
     else:
         template = None
         name = click.prompt("Agent name")
+
+    # An agent with no instruction has nothing to work on — its ticks spin on
+    # an empty prompt. Require a topic/instruction up front and store it so the
+    # template's {instruction} placeholder is filled and `run` has real input.
+    instruction = click.prompt(
+        "What should this agent focus on? (research topic / instruction)"
+    ).strip()
+    while not instruction:
+        click.echo("An instruction is required so the agent knows what to do.")
+        instruction = click.prompt(
+            "What should this agent focus on? (research topic / instruction)"
+        ).strip()
+
     schedule_type = click.prompt(
         "Schedule type",
         type=click.Choice(["cron", "interval", "manual"]),
@@ -372,9 +450,12 @@ def launch():
     }
     manager = _get_manager()
     if template:
+        # Pass the instruction as an override so create_from_template can
+        # expand the template's {instruction} placeholder into system_prompt.
         agent_data = manager.create_from_template(
             template["id"],
             name=name,
+            overrides={"instruction": instruction},
         )
         agent_config = agent_data.get("config", {})
         agent_config.update(config)
@@ -382,6 +463,7 @@ def launch():
         agent_data = manager.get_agent(agent_data["id"])
     else:
         agent_type = click.prompt("Agent type", default="monitor_operative")
+        config["instruction"] = instruction
         agent_data = manager.create_agent(
             name=name, agent_type=agent_type, config=config
         )
@@ -434,19 +516,47 @@ def run_agent(agent_id):
     if agent_data["status"] == "archived":
         click.echo(f"Agent {agent_id} is archived and cannot be run", err=True)
         raise SystemExit(1)
-    click.echo(f'Running tick for "{agent_data["name"]}"...')
+
+    # Refuse to run an agent with nothing to do: no standing instruction and
+    # no queued message means every tick would spin on an empty prompt.
+    instruction = (agent_data.get("config", {}).get("instruction") or "").strip()
+    pending = manager.get_pending_messages(agent_id)
+    if not instruction and not pending:
+        click.echo(
+            "Agent has no instruction set. Use "
+            f"'jarvis agents ask {agent_id} <message>' to set one.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    console = Console()
+    console.print(f'[bold]Running tick for "{agent_data["name"]}"…[/bold]')
     _, executor, _ = _get_scheduler_and_executor()
     if executor is None:
         click.echo("Executor not available", err=True)
         raise SystemExit(1)
     try:
-        executor.execute_tick(agent_id)
+        _run_tick_with_live_trace(executor, agent_id, console)
     except Exception as exc:
         click.echo(f"Tick failed: {exc}", err=True)
         raise SystemExit(1)
     updated = manager.get_agent(agent_id)
     runs = updated.get("total_runs", 0)
-    click.echo(f"Tick complete. Status: {updated['status']}, runs: {runs}")
+    console.print(
+        f"[green]✓[/green] Tick complete. Status: {updated['status']}, runs: {runs}"
+    )
+
+    # Print the agent's actual output. summary_memory holds the latest tick's
+    # findings (or an "ERROR: ..." detail on failure); render it as markdown so
+    # the headers/bullets the agent produced come through formatted.
+    findings = (updated.get("summary_memory") or "").strip()
+    if findings:
+        from rich.markdown import Markdown
+
+        console.print("\n[bold]--- Findings ---[/bold]\n")
+        console.print(Markdown(findings))
+    else:
+        console.print("[dim](No findings recorded for this tick.)[/dim]")
 
 
 @agent.command("status")
@@ -549,6 +659,7 @@ def trace(agent_id, run_number, limit):
     import datetime
 
     from openjarvis.core.config import load_config
+    from openjarvis.core.paths import get_config_dir
     from openjarvis.traces.store import TraceStore
 
     manager = _get_manager()
@@ -558,7 +669,7 @@ def trace(agent_id, run_number, limit):
         raise SystemExit(1)
 
     config = load_config()
-    store = TraceStore(config.traces.db_path or "~/.openjarvis/traces.db")
+    store = TraceStore(config.traces.db_path or str(get_config_dir() / "traces.db"))
     traces = store.list_traces(agent=agent_id, limit=limit)
 
     if not traces:
@@ -702,23 +813,46 @@ def errors():
 @agent.command("ask")
 @click.argument("agent_id")
 @click.argument("message")
-def ask(agent_id, message):
+@click.option(
+    "--yes/--no-yes",
+    "auto_approve",
+    default=True,
+    help="Auto-approve tool execution that would otherwise need confirmation. "
+    "Default: on (suits non-interactive CLI use). Pass --no-yes to require a "
+    "TTY prompt for tools whose ToolSpec sets requires_confirmation=True.",
+)
+def ask(agent_id, message, auto_approve):
     """Ask an agent a question (immediate response)."""
     manager = _get_manager()
     agent_id = _resolve_agent_id(manager, agent_id)
     manager.send_message(agent_id, message, mode="immediate")
-    click.echo("Asking agent...")
-    _, executor, _ = _get_scheduler_and_executor()
+    console = Console()
+    console.print("[bold]Asking agent…[/bold]")
+    _, executor, system = _get_scheduler_and_executor()
     if executor is None:
         click.echo("Executor not available", err=True)
         raise SystemExit(1)
-    executor.execute_tick(agent_id)
+    # Wire a confirmation callback so the agent's own ToolExecutor can actually
+    # run tools whose ToolSpec sets requires_confirmation=True (e.g. shell_exec,
+    # git_*). `executor` is the AgentExecutor; the callback is read in
+    # _invoke_agent and propagated to the constructed agent via agent_kwargs.
+    if auto_approve:
+        executor._confirm_callback = lambda _prompt: True
+    else:
+        executor._confirm_callback = lambda prompt: click.confirm(
+            f"\n{prompt}", default=False
+        )
+    # Run the tick with a live trace rather than blocking in silence — the
+    # message we just queued is consumed as this tick's input, so the user
+    # sees the agent's searches/tool calls instead of an apparent hang.
+    _run_tick_with_live_trace(executor, agent_id, console)
     msgs = manager.list_messages(agent_id)
+    # list_messages returns newest-first, so responses[0] is this tick's reply.
     responses = [m for m in msgs if m["direction"] == "agent_to_user"]
     if responses:
-        click.echo(f"\nAgent: {responses[0]['content']}")
+        console.print(f"\n[bold cyan]Agent:[/bold cyan] {responses[0]['content']}")
     else:
-        click.echo("\n(No response from agent)")
+        console.print("\n[dim](No response from agent)[/dim]")
 
 
 @agent.command("instruct")

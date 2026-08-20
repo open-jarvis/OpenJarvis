@@ -136,6 +136,54 @@ class TestStdioTransport:
         finally:
             transport.close()
 
+    def test_send_notification_does_not_read_stdout(self, tmp_path):
+        """Regression for #339: stdio servers don't reply to notifications.
+
+        The base ``MCPTransport.send_notification`` falls back to ``send()``,
+        which writes the request and then blocks on ``proc.stdout.readline()``.
+        For stdio MCP servers that never reply to a notification, that read
+        hangs forever, breaking the JSON-RPC ``notifications/initialized``
+        handshake. ``StdioTransport.send_notification`` must override that
+        behavior to be write-only.
+
+        This test spawns a subprocess that consumes stdin without ever
+        writing to stdout, then issues ``send_notification`` from a worker
+        thread. If the override is missing, the thread blocks on
+        ``readline()`` and the join timeout fires.
+        """
+        import threading
+
+        script = tmp_path / "silent_consumer.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            for _ in sys.stdin:
+                pass
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)])
+        try:
+            notification = MCPRequest(method="notifications/initialized")
+            result_box: dict = {}
+
+            def call():
+                try:
+                    transport.send_notification(notification)
+                    result_box["ok"] = True
+                except Exception as exc:  # noqa: BLE001
+                    result_box["error"] = exc
+
+            worker = threading.Thread(target=call, daemon=True)
+            worker.start()
+            worker.join(timeout=2.0)
+            assert not worker.is_alive(), (
+                "send_notification blocked on stdout — override missing"
+            )
+            assert result_box.get("ok") is True, result_box
+        finally:
+            transport.close()
+
     def test_close_terminates_process(self, tmp_path):
         script = tmp_path / "sleep_server.py"
         script.write_text(

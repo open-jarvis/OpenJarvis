@@ -97,7 +97,7 @@ impl McpServer {
                 let resp = McpResponse::error(
                     Value::Null,
                     -32700,
-                    &format!("Parse error: {}", e),
+                    &format!("Parse error: {e}"),
                 );
                 serde_json::to_string(&resp).unwrap_or_default()
             }

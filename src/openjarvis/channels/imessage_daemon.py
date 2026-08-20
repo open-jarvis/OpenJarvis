@@ -18,11 +18,13 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
+from openjarvis.core.paths import get_config_dir
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_DB_PATH = str(Path.home() / "Library" / "Messages" / "chat.db")
 _POLL_INTERVAL = 5
-_PID_FILE = str(Path.home() / ".openjarvis" / "imessage-agent.pid")
+_PID_FILE = str(get_config_dir() / "imessage-agent.pid")
 
 
 def poll_new_messages(
@@ -58,26 +60,46 @@ def poll_new_messages(
 
 
 def send_imessage(chat_identifier: str, message: str) -> bool:
-    """Send an iMessage via AppleScript."""
+    """Send an iMessage via AppleScript.
+
+    ``chat_identifier`` is the recipient handle:
+      - phone number in E.164 format (e.g. ``+15551234567``)
+      - or email address registered with iMessage
+
+    Internally addresses the recipient via the iMessage service's
+    ``participant`` lookup — the previous ``chat id "..."`` form
+    expected an internal chat handle (e.g. ``iMessage;-;+1555...``)
+    and silently failed on raw phone numbers, returning success while
+    no message was actually sent.
+    """
     escaped = message.replace("\\", "\\\\").replace('"', '\\"')
     script = (
-        f'tell application "Messages"\n'
-        f"  set targetChat to a reference to "
-        f'chat id "{chat_identifier}"\n'
-        f'  send "{escaped}" to targetChat\n'
-        f"end tell"
+        'tell application "Messages"\n'
+        "  set targetService to 1st account whose service type = iMessage\n"
+        f'  set targetBuddy to participant "{chat_identifier}" of targetService\n'
+        f'  send "{escaped}" to targetBuddy\n'
+        "end tell"
     )
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["osascript", "-e", script],
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
-        return True
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        logger.error("Failed to send iMessage via AppleScript")
+        logger.error("Failed to invoke osascript for iMessage send")
         return False
+
+    if result.returncode != 0:
+        logger.error(
+            "AppleScript iMessage send failed (rc=%s): %s",
+            result.returncode,
+            (result.stderr or "").strip(),
+        )
+        return False
+    return True
 
 
 def run_daemon(

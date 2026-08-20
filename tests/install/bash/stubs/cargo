@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Stub: presence is the point — file existing in PATH = cargo "installed".
+exit 0

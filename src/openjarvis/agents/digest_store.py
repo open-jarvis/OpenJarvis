@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from openjarvis.core.paths import get_config_dir
+
 
 @dataclass
 class DigestArtifact:
@@ -30,7 +32,7 @@ class DigestStore:
 
     def __init__(self, db_path: str = "") -> None:
         if not db_path:
-            db_path = str(Path.home() / ".openjarvis" / "digest.db")
+            db_path = str(get_config_dir() / "digest.db")
         self._db_path = db_path
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")

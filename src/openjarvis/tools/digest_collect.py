@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Digest collection tool — fetches recent data from configured connectors."""
 
 from __future__ import annotations
@@ -157,13 +158,17 @@ def _format_strava(doc: Document) -> str:
 
 
 def _format_gmail(doc: Document) -> str:
-    """Format a Gmail email document."""
+    """Format a Gmail email document.
+
+    Includes ``doc_id`` so the proactive agent can reference the
+    real Gmail ``messages.get/modify`` id in its action proposals
+    instead of hallucinating one.
+    """
     sender = doc.author or "Unknown"
     subject = doc.title or "(no subject)"
     ago = _time_ago(doc.timestamp)
-    # Include body preview (first 150 chars, single line)
     body = doc.content.replace("\n", " ").strip()[:150] if doc.content else ""
-    line = f'[gmail] From: {sender} — "{subject}" ({ago})'
+    line = f'[gmail id={doc.doc_id}] From: {sender} — "{subject}" ({ago})'
     if body:
         line += f"\n  Preview: {body}"
     return line
@@ -174,7 +179,7 @@ def _format_gmail_imap(doc: Document) -> str:
     sender = doc.author or "Unknown"
     subject = doc.title or "(no subject)"
     ago = _time_ago(doc.timestamp)
-    return f'[gmail] From: {sender} — "{subject}" ({ago})'
+    return f'[gmail id={doc.doc_id}] From: {sender} — "{subject}" ({ago})'
 
 
 def _format_google_tasks(doc: Document) -> str:
@@ -271,7 +276,7 @@ def _format_gcalendar(doc: Document) -> str:
                 time_range = f" ({duration})"
             except (ValueError, TypeError):
                 pass
-    return f"[gcalendar] {time_str} — {title}{time_range}"
+    return f"[gcalendar id={doc.doc_id}] {time_str} — {title}{time_range}"
 
 
 def _format_spotify(doc: Document) -> str:
@@ -381,6 +386,39 @@ def _format_music_section(
     return lines
 
 
+def _filter_unanswered_threads(docs: List[Document]) -> List[Document]:
+    """Keep only iMessage threads where the last message is NOT from the user.
+
+    Groups by chat title, finds the most-recent message per chat, and returns
+    only that message if ``author != "me"``.  Threads the user has already
+    replied to are silently dropped.
+    """
+    from collections import defaultdict
+
+    by_chat: Dict[str, List[Document]] = defaultdict(list)
+    for doc in docs:
+        by_chat[doc.title or doc.author or ""].append(doc)
+
+    result: List[Document] = []
+    for chat_docs in by_chat.values():
+        latest = max(chat_docs, key=lambda d: d.timestamp)
+        if latest.author != "me":
+            result.append(latest)
+    return result
+
+
+def _filter_pending_invites(docs: List[Document]) -> List[Document]:
+    """Keep only calendar events the user has not yet responded to."""
+    pending: List[Document] = []
+    for doc in docs:
+        response_status = doc.metadata.get("response_status", "")
+        # Include if status is explicitly needsAction, or if no status recorded
+        # (connector may not populate it — safer to include than to drop)
+        if response_status in ("needsAction", ""):
+            pending.append(doc)
+    return pending
+
+
 @ToolRegistry.register("digest_collect")
 class DigestCollectTool(BaseTool):
     """Collect recent data from multiple connectors for digest synthesis."""
@@ -413,6 +451,18 @@ class DigestCollectTool(BaseTool):
                         "type": "number",
                         "description": "How many hours back to look (default: 24).",
                     },
+                    "unacted_only": {
+                        "type": "boolean",
+                        "description": (
+                            "When true, only return items the user has not yet acted on: "
+                            "unread emails, unanswered iMessage threads, pending calendar invites."
+                        ),
+                    },
+                    "seen_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "doc_ids to exclude (already queued or acted on).",
+                    },
                 },
                 "required": ["sources"],
             },
@@ -426,6 +476,8 @@ class DigestCollectTool(BaseTool):
 
         sources: List[str] = params.get("sources", [])
         hours_back: float = params.get("hours_back", 24)
+        unacted_only: bool = bool(params.get("unacted_only", False))
+        seen_ids: set = set(params.get("seen_ids", []))
         since = datetime.now() - timedelta(hours=hours_back)
 
         # Collect raw documents per source
@@ -450,10 +502,22 @@ class DigestCollectTool(BaseTool):
                 # Cap per-source to avoid overwhelming the LLM context
                 max_per_source = 15
                 docs: List[Document] = []
-                for d in connector.sync(since=since):
-                    docs.append(d)
+
+                sync_kwargs: Dict[str, Any] = {"since": since}
+                if unacted_only and source == "gmail":
+                    sync_kwargs["query_extra"] = "is:unread"
+
+                for d in connector.sync(**sync_kwargs):
+                    if d.doc_id not in seen_ids:
+                        docs.append(d)
                     if len(docs) >= max_per_source:
                         break
+
+                if unacted_only and source == "imessage":
+                    docs = _filter_unanswered_threads(docs)
+
+                if unacted_only and source == "gcalendar":
+                    docs = _filter_pending_invites(docs)
 
                 collected_docs[source] = docs
             except Exception as exc:

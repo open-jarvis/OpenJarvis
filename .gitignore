@@ -39,6 +39,9 @@ Thumbs.db
 # Secrets
 .env
 .env.*
+# ...but keep checked-in example/templates (never contain real secrets)
+!.env.example
+!**/.env.example
 
 # Project
 *.sqlite
@@ -48,7 +51,11 @@ Thumbs.db
 *.log
 results/
 logs/
-traces/
+# Anchored to repo root — DO NOT use the unanchored form `traces/`.
+# hatchling honors .gitignore when building the wheel; an unanchored
+# `traces/` pattern matches src/openjarvis/traces/ and silently drops
+# the runtime module from the wheel (issue #372).
+/traces/
 coding_task_*
 get-pip.py
 # Junk from mocked-path tests that write to their mock's __repr__ as a path
@@ -60,6 +67,10 @@ site/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+
+# Desktop
+desktop/node_modules/
+desktop/dist/
 src/openjarvis/server/static/
 
 # Desktop (Tauri)
@@ -95,6 +106,9 @@ src/openjarvis/channels/whatsapp_baileys_bridge/node_modules/
 # SQLite in-memory artifacts
 :memory:
 
+# Dogfood reports (regenerated locally; not for VCS)
+dogfood_report*.md
+
 # Second Repos
 Inline/
 scratch/
@@ -111,3 +125,8 @@ learning.db
 **/learning/benchmarks/
 **/teacher_traces/
 *.session.json
+
+# Local dev artifacts (hybrid worker logs + cli debug dumps)
+minion_logs/
+*.oj-debug.json
+oj-debug.*.json

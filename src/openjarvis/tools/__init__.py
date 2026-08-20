@@ -73,6 +73,7 @@ except ImportError:
     pass
 
 try:
+    import openjarvis.tools.docker_shell_exec  # noqa: F401
     import openjarvis.tools.shell_exec  # noqa: F401
 except ImportError:
     pass
@@ -138,6 +139,16 @@ except ImportError:
 
 try:
     import openjarvis.tools.digest_collect  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.scan_chunks  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.knowledge_sql  # noqa: F401
 except ImportError:
     pass
 

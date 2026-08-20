@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Stub for rustup curl-pipe-bash installer — does nothing.
+echo "$@" >> "${RUSTUP_STUB_LOG:-/dev/null}"
+exit 0

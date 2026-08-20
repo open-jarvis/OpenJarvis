@@ -1,0 +1,105 @@
+# Conductor cells. Inference-only repro of arXiv 2512.04388 (Sakana, 2025).
+#
+# Stage-1 substitutes the (untrained) Qwen2.5-7B conductor with a zero-shot
+# frontier planner (Opus). Workers come from `method_cfg.worker_pool` — an
+# explicit, deterministic pool. The n100 cells below pin a 3-worker pool
+# (0=local, 1=Opus, 2=gpt-5-mini) via `$local` / `$cloud` substitution so
+# the named local + cloud models are actually exercised.
+#
+# DO NOT rely on the implicit default pool: `_default_pool` is the paper's
+# 7-worker cloud-only pool (no local, no Opus). Cells that want hybrid
+# local+cloud MUST set `worker_pool` explicitly (race-free, no per-task
+# vLLM probe).
+#
+# Naming: conductor-<bench>-<conductor-short>-<N>
+
+[cells.conductor-gaia-opusplan-5]
+method = "conductor"
+bench  = "gaia"
+n      = 5
+# vLLM is the default local worker; auto-skipped if /v1/models is unreachable.
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { worker_max_tokens = 4096, worker_temperature = 0.2, conductor_max_tokens = 2048 }
+
+[cells.conductor-gaia-gpt5miniplan-5]
+method = "conductor"
+bench  = "gaia"
+n      = 5
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "gpt-5-mini", endpoint = "openai" }
+method_cfg = { worker_max_tokens = 4096, worker_temperature = 0.2, conductor_max_tokens = 2048 }
+
+[cells.conductor-swebenchverified-opusplan-5]
+method = "conductor"
+bench  = "swebench-verified"
+n      = 5
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { worker_max_tokens = 8192, worker_temperature = 0.2, conductor_max_tokens = 4096 }
+
+
+# ---- n=30 (scaled-up cells for paradigms that worked at smoke tier) ----
+
+[cells.conductor-gaia-opusplan-30]
+method = "conductor"
+bench  = "gaia"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { worker_max_tokens = 4096, worker_temperature = 0.2, conductor_max_tokens = 2048 }
+concurrency = 8
+
+[cells.conductor-swebenchverified-opusplan-30]
+method = "conductor"
+bench  = "swebench-verified"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { worker_max_tokens = 8192, worker_temperature = 0.2, conductor_max_tokens = 4096 }
+concurrency = 8
+
+# ============================================================
+# n=100 ablation cells (added 2026-05-18)
+# ============================================================
+
+# Deterministic 3-worker pool: 0=local (Qwen3.5-27B via vLLM), 1=Opus 4.7
+# (cloud), 2=gpt-5-mini. `$local` / `$cloud` resolve against the cell's
+# `local` / `cloud` blocks. GAIA cells enable web_search so the search-
+# capable workers (anthropic / openai) can ground their answers.
+[cells.conductor-qwen27b-opus47-gaia-n100]
+method = "conductor"
+bench  = "gaia"
+n      = 100
+subset = "gaia_n100_seed42.json"
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+concurrency = 4
+[cells.conductor-qwen27b-opus47-gaia-n100.method_cfg]
+worker_max_tokens = 4096
+worker_temperature = 0.2
+conductor_max_tokens = 2048
+web_search = { enabled = true, max_uses = 8 }
+worker_pool = [
+  { id = 0, name = "local-qwen", endpoint = "vllm", model = "$local", description = "Open-weights Qwen3.5-27B served locally via vLLM. Cheap and fast. Good at concise extraction, formatting, and arithmetic on given data; weaker at open-domain factual recall and complex multi-step reasoning. Cannot perform live web search." },
+  { id = 1, name = "frontier-anthropic", endpoint = "anthropic", model = "$cloud", description = "Anthropic Claude Opus 4.7. Frontier reasoning model — strongest at multi-step reasoning, careful instruction following, code, and writing. Can perform live web search. Expensive; use for hard or decisive steps." },
+  { id = 2, name = "frontier-openai-mini", endpoint = "openai", model = "gpt-5-mini", description = "OpenAI gpt-5-mini. Mid-tier model with solid general knowledge and reasoning at a fraction of frontier cost. Can perform live web search. Good default for retrieval-style or broad-knowledge questions." },
+]
+
+[cells.conductor-qwen27b-opus47-swe-n100]
+method = "conductor"
+bench  = "swebench-verified"
+n      = 100
+subset = "swebench_verified_n100_seed42.json"
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+concurrency = 4
+[cells.conductor-qwen27b-opus47-swe-n100.method_cfg]
+worker_max_tokens = 8192
+worker_temperature = 0.2
+conductor_max_tokens = 4096
+worker_pool = [
+  { id = 0, name = "local-qwen", endpoint = "vllm", model = "$local", description = "Open-weights Qwen3.5-27B served locally via vLLM. Cheap and fast. Good at concise extraction, formatting, and arithmetic; weaker at complex multi-step reasoning and large code patches." },
+  { id = 1, name = "frontier-anthropic", endpoint = "anthropic", model = "$cloud", description = "Anthropic Claude Opus 4.7. Frontier reasoning model — strongest at multi-step reasoning, careful instruction following, and code. Writes tight, well-formed unified diffs. Expensive; use for hard or decisive steps." },
+  { id = 2, name = "frontier-openai-mini", endpoint = "openai", model = "gpt-5-mini", description = "OpenAI gpt-5-mini. Mid-tier model with solid general knowledge and reasoning at a fraction of frontier cost. Good default for broad-knowledge or straightforward code steps." },
+]

@@ -184,8 +184,9 @@ class TestHttpRequestTool:
         """Timeout should produce a clear error."""
         tool = HttpRequestTool()
         with patch("openjarvis.tools.http_request.check_ssrf", return_value=None):
-            with patch(
-                "openjarvis.tools.http_request.httpx.request",
+            with patch.object(
+                HttpRequestTool,
+                "_request_following_redirects",
                 side_effect=httpx.TimeoutException("timed out"),
             ):
                 result = tool.execute(url="https://slow.example.com", timeout=5)
@@ -196,13 +197,49 @@ class TestHttpRequestTool:
         """Connection error should produce a clear error."""
         tool = HttpRequestTool()
         with patch("openjarvis.tools.http_request.check_ssrf", return_value=None):
-            with patch(
-                "openjarvis.tools.http_request.httpx.request",
+            with patch.object(
+                HttpRequestTool,
+                "_request_following_redirects",
                 side_effect=httpx.ConnectError("Connection refused"),
             ):
                 result = tool.execute(url="https://down.example.com")
         assert result.success is False
         assert "Request error" in result.content
+
+    @respx.mock
+    def test_redirect_to_private_ip_blocked(self):
+        """A redirect to an internal/metadata host must be re-checked + blocked."""
+        respx.get("https://public.example.com/start").mock(
+            return_value=httpx.Response(
+                302, headers={"location": "http://169.254.169.254/latest/"}
+            )
+        )
+        tool = HttpRequestTool()
+        # First check (initial URL) passes; the redirect target is blocked.
+        with patch(
+            "openjarvis.tools.http_request.check_ssrf",
+            side_effect=[None, "Blocked host: 169.254.169.254"],
+        ):
+            result = tool.execute(url="https://public.example.com/start")
+        assert result.success is False
+        assert "SSRF protection blocked redirect" in result.content
+
+    @respx.mock
+    def test_safe_redirect_is_followed(self):
+        """A redirect to another public URL is followed normally."""
+        respx.get("https://public.example.com/start").mock(
+            return_value=httpx.Response(
+                302, headers={"location": "https://public.example.com/final"}
+            )
+        )
+        respx.get("https://public.example.com/final").mock(
+            return_value=httpx.Response(200, text="done")
+        )
+        tool = HttpRequestTool()
+        with patch("openjarvis.tools.http_request.check_ssrf", return_value=None):
+            result = tool.execute(url="https://public.example.com/start")
+        assert result.success is True
+        assert "done" in result.content
 
     def test_method_validation(self):
         """Invalid HTTP method should be rejected."""

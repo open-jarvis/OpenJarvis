@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 import pytest
 
 from openjarvis.evals.core.agentic_runner import AgenticRunner, _extract_patch
+from openjarvis.evals.core.environment import TaskEnvironmentError
 
 # ---------------------------------------------------------------------------
 # Mock objects
@@ -48,6 +49,66 @@ class MockFailingAgent:
 
     def ask(self, query: str) -> dict:
         raise RuntimeError("Agent error")
+
+
+class MockZeroContactAgent:
+    """Agent that returns without ever contacting the model.
+
+    Mirrors the downstream failure signature: a hung/dead in-container
+    setup yields zero LM events and zero token usage, while run_tests
+    still stamps is_resolved=False.
+    """
+
+    def ask(self, query: str) -> dict:
+        return {"content": "setup log tail ...", "usage": {}}
+
+
+class FailingTaskEnv:
+    """Task env whose __enter__ fails like a tmux/compose breakage."""
+
+    def __init__(self, metadata: Dict[str, Any]) -> None:
+        self._metadata = metadata
+
+    def __enter__(self) -> "FailingTaskEnv":
+        message = (
+            "Task 't1': required binary 'tmux' is not usable in task image "
+            "'tb__t1__client'"
+        )
+        self._metadata["harness_error"] = message
+        raise TaskEnvironmentError(message)
+
+    def __exit__(self, *args: Any) -> None:
+        return None
+
+
+class ResolvingTaskEnv:
+    """Task env that stamps is_resolved into metadata like run_tests does."""
+
+    def __init__(self, metadata: Dict[str, Any], is_resolved: bool) -> None:
+        self._metadata = metadata
+        self._is_resolved = is_resolved
+
+    def __enter__(self) -> "ResolvingTaskEnv":
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        return None
+
+    def run_tests(self):
+        self._metadata["is_resolved"] = self._is_resolved
+        return self._is_resolved, {}
+
+
+class EnvDataset(MockDataset):
+    """Dataset whose create_task_env is configurable per record id."""
+
+    def __init__(self, records: List[MockRecord], env_factories: Dict[str, Any]):
+        super().__init__(records)
+        self._env_factories = env_factories
+
+    def create_task_env(self, record: MockRecord):
+        factory = self._env_factories.get(record.record_id)
+        return factory(record.metadata) if factory is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +160,59 @@ class TestAgenticRunner:
         assert len(traces) == 1
         assert not traces[0].completed
         assert "Agent error" in traces[0].response_text
+        assert traces[0].error_kind == "agent_error"
+        assert "Agent error" in (traces[0].error or "")
+
+    def test_harness_failure_recorded_and_run_continues(self):
+        """(c) one task's env breakage doesn't kill the run."""
+        records = [
+            MockRecord(record_id="r1", problem="broken env"),
+            MockRecord(record_id="r2", problem="healthy"),
+        ]
+        dataset = EnvDataset(records, {"r1": FailingTaskEnv})
+        runner = AgenticRunner(agent=MockAgent(), dataset=dataset)
+
+        traces = self._run_async(runner.run())
+        assert len(traces) == 2
+        # Failed task: recorded distinctly as a harness error, not a miss.
+        assert traces[0].error_kind == "harness_error"
+        assert not traces[0].completed
+        assert "tmux" in (traces[0].error or "")
+        assert traces[0].is_resolved is None
+        # Healthy task still ran to completion.
+        assert traces[1].completed
+        assert traces[1].error_kind is None
+        assert "Response to: healthy" in traces[1].response_text
+
+    def test_zero_model_contact_flagged_as_harness_error(self):
+        """(e) zero model requests -> harness_error, not a model miss."""
+        records = [MockRecord(record_id="r1", problem="task")]
+        dataset = EnvDataset(
+            records,
+            {"r1": lambda meta: ResolvingTaskEnv(meta, is_resolved=False)},
+        )
+        runner = AgenticRunner(agent=MockZeroContactAgent(), dataset=dataset)
+
+        traces = self._run_async(runner.run())
+        assert traces[0].error_kind == "harness_error"
+        assert "zero_model_requests" in (traces[0].error or "")
+        assert traces[0].total_input_tokens == 0
+        assert traces[0].total_output_tokens == 0
+
+    def test_genuine_model_miss_not_flagged(self):
+        """(e) control: tokens>0 + is_resolved=False is a model miss."""
+        records = [MockRecord(record_id="r1", problem="task")]
+        dataset = EnvDataset(
+            records,
+            {"r1": lambda meta: ResolvingTaskEnv(meta, is_resolved=False)},
+        )
+        runner = AgenticRunner(agent=MockAgent(), dataset=dataset)
+
+        traces = self._run_async(runner.run())
+        assert traces[0].is_resolved is False
+        assert traces[0].error_kind is None
+        assert traces[0].error is None
+        assert traces[0].total_input_tokens > 0
 
     def test_synthetic_turn_created(self):
         records = [MockRecord(record_id="r1", problem="test")]
