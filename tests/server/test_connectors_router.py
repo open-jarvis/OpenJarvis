@@ -242,7 +242,12 @@ def test_connect_granola_invalid_key_returns_400_keeps_existing(
 @pytest.mark.parametrize(
     ("connector_id", "filename", "payload", "expected"),
     [
-        ("github_notifications", "github.json", {"token": "ghp_test"}, {"token": "ghp_test"}),
+        (
+            "github_notifications",
+            "github.json",
+            {"token": "ghp_test"},
+            {"token": "ghp_test"},
+        ),
         ("oura", "oura.json", {"token": "oura_test"}, {"token": "oura_test"}),
         (
             "weather",
@@ -256,7 +261,6 @@ def test_connect_persists_generic_token_connector_credentials(
     app, tmp_path: Path, connector_id: str, filename: str, payload: dict, expected: dict
 ) -> None:
     """The generic token panel must actually configure each token connector."""
-    from unittest.mock import patch
 
     from openjarvis.connectors.github_notifications import GitHubNotificationsConnector
     from openjarvis.connectors.oura import OuraConnector
@@ -265,7 +269,9 @@ def test_connect_persists_generic_token_connector_credentials(
 
     path = tmp_path / filename
     constructors = {
-        "github_notifications": lambda: GitHubNotificationsConnector(token_path=str(path)),
+        "github_notifications": lambda: GitHubNotificationsConnector(
+            token_path=str(path)
+        ),
         "oura": lambda: OuraConnector(token_path=str(path)),
         "weather": lambda: WeatherConnector(token_path=str(path)),
     }

@@ -245,9 +245,7 @@ def test_google_client_pair_detection_unaffected_by_generalization(
 ) -> None:
     """Guard against regressing defect A/B: Google's pair must still only be
     recognized via its distinctive client ID suffix, not just any colon."""
-    resp = client.post(
-        "/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR}
-    )
+    resp = client.post("/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR})
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "oauth_required"
     saved = json.loads((hermetic_connectors / "gdrive.json").read_text())
