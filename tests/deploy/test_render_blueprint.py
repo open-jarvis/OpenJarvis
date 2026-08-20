@@ -1,6 +1,8 @@
 """Render Blueprint stays aligned with settings the server consumes."""
 
+import os
 import shlex
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -9,6 +11,7 @@ from openjarvis.cli.serve import serve
 
 RENDER_BLUEPRINT = Path(__file__).resolve().parents[2] / "render.yaml"
 RENDER_DOC = Path(__file__).resolve().parents[2] / "docs/deployment/render.md"
+DOCKERFILE = Path(__file__).resolve().parents[2] / "deploy/docker/Dockerfile"
 
 
 def _service() -> dict:
@@ -22,22 +25,58 @@ def _env_vars(service: dict) -> dict[str, dict]:
     return {item["key"]: item for item in service["envVars"]}
 
 
-def test_render_selects_cloud_engine_through_the_serve_cli() -> None:
+def test_render_selects_cloud_engine_through_the_serve_cli(tmp_path: Path) -> None:
     service = _service()
-    args = shlex.split(service["dockerCommand"])
+    docker_command = shlex.split(service["dockerCommand"])
 
-    assert args[0] == "serve"
-    # Render expands $PORT before invoking the image entrypoint. Parsing the
-    # substituted command through Click catches stale/renamed CLI options.
-    parsed = serve.make_context(
-        "serve",
-        ["8080" if value == "$PORT" else value for value in args[1:]],
+    assert docker_command[:2] == ["/bin/sh", "-c"]
+
+    # Exercise the same shell Render starts. A fake `jarvis` executable records
+    # the expanded argv without starting a real server.
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_jarvis = fake_bin / "jarvis"
+    fake_jarvis.write_text(
+        "#!/bin/sh\nprintf '%s\\0' \"$@\"\n",
+        encoding="utf-8",
     )
+    fake_jarvis.chmod(0o755)
+    env = os.environ.copy()
+    env.update({"PATH": f"{fake_bin}{os.pathsep}{env['PATH']}", "PORT": "18080"})
+    completed = subprocess.run(
+        docker_command,
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+    args = completed.stdout.rstrip(b"\0").decode().split("\0")
+
+    assert args == [
+        "serve",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "18080",
+        "--engine",
+        "cloud",
+        "--model",
+        "gpt-4o-mini",
+    ]
+    parsed = serve.make_context("serve", args[1:])
     assert parsed.params["host"] == "0.0.0.0"
-    assert parsed.params["port"] == 8080
+    assert parsed.params["port"] == 18080
     assert parsed.params["engine_key"] == "cloud"
     assert parsed.params["model_name"] == "gpt-4o-mini"
     assert "OPENJARVIS_ENGINE" not in _env_vars(service)
+
+
+def test_docker_command_can_replace_the_image_default() -> None:
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+
+    assert 'ENTRYPOINT ["jarvis"]' not in dockerfile
+    assert 'CMD ["jarvis", "serve", "--host", "0.0.0.0", "--port", "8000"]' in (
+        dockerfile
+    )
 
 
 def test_render_does_not_advertise_an_unconsumed_cors_variable() -> None:

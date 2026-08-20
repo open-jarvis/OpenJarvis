@@ -80,5 +80,8 @@ USER openjarvis
 
 EXPOSE 8000
 
-ENTRYPOINT ["jarvis"]
-CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]
+# Keep the executable in CMD rather than ENTRYPOINT.  Container platforms such
+# as Render replace CMD with their configured Docker command; an ENTRYPOINT of
+# `jarvis` would incorrectly prepend it to `/bin/sh -c ...` and prevent runtime
+# environment-variable expansion.
+CMD ["jarvis", "serve", "--host", "0.0.0.0", "--port", "8000"]

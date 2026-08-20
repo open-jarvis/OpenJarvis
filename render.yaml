@@ -10,11 +10,13 @@ services:
     dockerfilePath: ./deploy/docker/Dockerfile
     dockerContext: .
     # Override the Dockerfile CMD so the server binds to Render's injected $PORT.
-    # The Dockerfile entrypoint is "jarvis", so we pass `serve` plus its flags.
+    # Render does not interpolate Blueprint values, so expand the runtime
+    # environment variable explicitly.  `exec` keeps shutdown signals attached
+    # to the server process instead of leaving an intermediate shell behind.
     # Pin a cloud model as well as the engine. The repository's default model
     # is local-only, so omitting this would make `jarvis serve` reject the
     # otherwise healthy cloud engine during startup.
-    dockerCommand: serve --host 0.0.0.0 --port $PORT --engine cloud --model gpt-4o-mini
+    dockerCommand: /bin/sh -c 'exec jarvis serve --host 0.0.0.0 --port "$PORT" --engine cloud --model gpt-4o-mini'
     healthCheckPath: /health
     autoDeploy: true
     envVars:
