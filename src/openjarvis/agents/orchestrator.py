@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import logging
 import re
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.core.events import EventBus
@@ -23,6 +24,8 @@ from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool
+
+logger = logging.getLogger(__name__)
 
 
 @AgentRegistry.register("orchestrator")
@@ -62,6 +65,7 @@ class OrchestratorAgent(ToolUsingAgent):
         parallel_tools: bool = True,
         interactive: bool = False,
         confirm_callback=None,
+        before_tool_call: Optional[Callable[[str, dict[str, Any]], bool]] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -78,6 +82,7 @@ class OrchestratorAgent(ToolUsingAgent):
         self._mode = mode
         self._system_prompt = system_prompt
         self._parallel_tools = parallel_tools
+        self._before_tool_call = before_tool_call
 
     def run(
         self,
@@ -88,6 +93,47 @@ class OrchestratorAgent(ToolUsingAgent):
         if self._mode == "structured":
             return self._run_structured(input, context, **kwargs)
         return self._run_function_calling(input, context, **kwargs)
+
+    # ------------------------------------------------------------------
+    # Governance hook
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _governance_denial(tool_name: str, reason: str) -> ToolResult:
+        return ToolResult(
+            tool_name=tool_name,
+            content=(
+                f"[Governance] Tool '{tool_name}' was not approved ({reason}). "
+                "Adjust your plan and try a different approach."
+            ),
+            success=False,
+        )
+
+    def _check_tool_allowed(self, tc: ToolCall) -> Optional[ToolResult]:
+        """Call before_tool_call hook if set.
+
+        Returns None to allow execution, or a denial ToolResult to inject
+        instead of running the tool. Invalid arguments and hook failures deny
+        execution so a governance integration cannot fail open.
+        """
+        if self._before_tool_call is None:
+            return None
+
+        try:
+            tool_args = json.loads(tc.arguments) if tc.arguments else {}
+        except (json.JSONDecodeError, TypeError):
+            return self._governance_denial(tc.name, "invalid tool arguments")
+        if not isinstance(tool_args, dict):
+            return self._governance_denial(tc.name, "tool arguments are not an object")
+
+        try:
+            allowed = self._before_tool_call(tc.name, tool_args)
+        except Exception:
+            logger.exception("before_tool_call hook failed for tool %s", tc.name)
+            return self._governance_denial(tc.name, "governance check failed")
+        if allowed:
+            return None
+        return self._governance_denial(tc.name, "policy denied the call")
 
     # ------------------------------------------------------------------
     # Structured mode (THOUGHT/TOOL/INPUT/FINAL_ANSWER)
@@ -148,7 +194,11 @@ class OrchestratorAgent(ToolUsingAgent):
                         parsed["input"],
                     ),
                 )
-                tool_result = self._executor.execute(tool_call)
+                denial = self._check_tool_allowed(tool_call)
+                if denial is not None:
+                    tool_result = denial
+                else:
+                    tool_result = self._executor.execute(tool_call)
                 all_tool_results.append(tool_result)
 
                 if tool_result.success:
@@ -367,7 +417,18 @@ class OrchestratorAgent(ToolUsingAgent):
 
             # Execute each tool (with loop guard check) and append results
             if self._parallel_tools and len(tool_calls) > 1:
-                # Parallel execution
+                # Governance callbacks often wrap stateful policy engines and
+                # are not assumed to be thread-safe. Evaluate them in request
+                # order before dispatching the approved tool work in parallel.
+                results_map: dict[int, tuple[ToolCall, ToolResult]] = {}
+                approved_calls: list[ToolCall] = []
+                for tc in tool_calls:
+                    denial = self._check_tool_allowed(tc)
+                    if denial is None:
+                        approved_calls.append(tc)
+                    else:
+                        results_map[id(tc)] = (tc, denial)
+
                 def _exec_tool(tc: ToolCall) -> tuple:
                     if self._loop_guard:
                         verdict = self._loop_guard.check_call(
@@ -382,14 +443,16 @@ class OrchestratorAgent(ToolUsingAgent):
                             )
                     return tc, self._executor.execute(tc)
 
-                with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=len(tool_calls),
-                ) as pool:
-                    futures = {pool.submit(_exec_tool, tc): tc for tc in tool_calls}
-                    results_map: dict[int, tuple] = {}
-                    for future in concurrent.futures.as_completed(futures):
-                        tc_orig = futures[future]
-                        results_map[id(tc_orig)] = future.result()
+                if approved_calls:
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=len(approved_calls),
+                    ) as pool:
+                        futures = {
+                            pool.submit(_exec_tool, tc): tc for tc in approved_calls
+                        }
+                        for future in concurrent.futures.as_completed(futures):
+                            tc_orig = futures[future]
+                            results_map[id(tc_orig)] = future.result()
 
                 # Append results in original order
                 for tc in tool_calls:
@@ -406,6 +469,20 @@ class OrchestratorAgent(ToolUsingAgent):
             else:
                 # Sequential execution
                 for tc in tool_calls:
+                    # Governance hook check before execution
+                    denial = self._check_tool_allowed(tc)
+                    if denial is not None:
+                        all_tool_results.append(denial)
+                        messages.append(
+                            Message(
+                                role=Role.TOOL,
+                                content=denial.content,
+                                tool_call_id=tc.id,
+                                name=tc.name,
+                            )
+                        )
+                        continue
+
                     # Loop guard check before execution
                     if self._loop_guard:
                         verdict = self._loop_guard.check_call(
