@@ -14,11 +14,12 @@ female (prefix ``z`` → ``lang_code="z"``).
 from __future__ import annotations
 
 import io
+import threading
+from collections import OrderedDict
 from typing import Any, Dict, List
 
 from openjarvis.core.registry import TTSRegistry
 from openjarvis.speech.tts import TTSBackend, TTSResult
-
 
 # Kokoro's voice-prefix → ``lang_code`` mapping. Each lang_code spins up
 # a separate KPipeline; pipelines are cached for the backend's lifetime.
@@ -45,10 +46,23 @@ class KokoroTTSBackend(TTSBackend):
 
     backend_id = "kokoro"
 
-    def __init__(self, *, model_path: str = "", device: str = "auto") -> None:
+    def __init__(
+        self,
+        *,
+        model_path: str = "",
+        device: str = "auto",
+        max_cached_pipelines: int = 4,
+    ) -> None:
+        if max_cached_pipelines < 1:
+            raise ValueError("max_cached_pipelines must be at least 1")
         self._model_path = model_path
         self._device = device
-        self._pipelines: Dict[str, Any] = {}
+        self._max_cached_pipelines = max_cached_pipelines
+        self._pipelines: OrderedDict[str, Any] = OrderedDict()
+        # Pipeline creation and inference are both guarded: KPipeline is not
+        # documented as thread-safe, and an LRU entry must not be evicted and
+        # closed while another thread is still synthesizing with it.
+        self._pipeline_lock = threading.RLock()
 
     @staticmethod
     def _lang_for_voice(voice_id: str) -> str:
@@ -64,40 +78,65 @@ class KokoroTTSBackend(TTSBackend):
         return _VOICE_PREFIX_TO_LANG.get(voice_id[:1], _DEFAULT_LANG_CODE)
 
     def _ensure_pipeline(self, lang_code: str) -> Any:
-        """Lazily create and cache a ``KPipeline`` per language code."""
-        if lang_code in self._pipelines:
-            return self._pipelines[lang_code]
-        try:
-            from kokoro import KPipeline
-        except ImportError as exc:
-            raise RuntimeError(
-                "kokoro package not installed. Install with: pip install kokoro"
-            ) from exc
-        try:
-            pipeline = KPipeline(lang_code=lang_code)
-        except ImportError as exc:
-            # Kokoro loads language-specific G2P resources at init time and
-            # several languages need extra dependencies that aren't pulled in
-            # by the base ``kokoro`` package. The known cases:
-            #   z (Mandarin) → misaki.zh (jieba / pypinyin / ordered-set)
-            #   j (Japanese) → misaki.ja (fugashi / unidic-lite)
-            # Translate the cryptic ``ordered_set``/``fugashi`` ImportError
-            # into a one-line install hint so the user isn't left guessing.
-            hints = {
-                "z": 'pip install "misaki[zh]"',
-                "j": 'pip install "misaki[ja]"',
-                "k": 'pip install "misaki[ko]"',
-            }
-            hint = hints.get(
-                lang_code,
-                f'extra phoneme deps for lang_code="{lang_code}" (see Kokoro docs)',
-            )
-            raise RuntimeError(
-                f"Kokoro lang_code={lang_code!r} requires extra dependencies. "
-                f"Try: {hint}. Original error: {exc}"
-            ) from exc
-        self._pipelines[lang_code] = pipeline
-        return pipeline
+        """Lazily create and retain a bounded LRU of language pipelines."""
+        with self._pipeline_lock:
+            pipeline = self._pipelines.get(lang_code)
+            if pipeline is not None:
+                self._pipelines.move_to_end(lang_code)
+                return pipeline
+            try:
+                from kokoro import KPipeline
+            except ImportError as exc:
+                raise RuntimeError(
+                    "kokoro package not installed. Install with: pip install kokoro"
+                ) from exc
+            try:
+                pipeline = KPipeline(lang_code=lang_code)
+            except ImportError as exc:
+                # Kokoro loads language-specific G2P resources at init time and
+                # several languages need extra dependencies that aren't pulled in
+                # by the base ``kokoro`` package. The known cases:
+                #   z (Mandarin) → misaki.zh (jieba / pypinyin / ordered-set)
+                #   j (Japanese) → misaki.ja (fugashi / unidic-lite)
+                # Translate the cryptic ``ordered_set``/``fugashi`` ImportError
+                # into a one-line install hint so the user isn't left guessing.
+                hints = {
+                    "z": 'pip install "misaki[zh]"',
+                    "j": 'pip install "misaki[ja]"',
+                    "k": 'pip install "misaki[ko]"',
+                }
+                hint = hints.get(
+                    lang_code,
+                    f'extra phoneme deps for lang_code="{lang_code}" (see Kokoro docs)',
+                )
+                raise RuntimeError(
+                    f"Kokoro lang_code={lang_code!r} requires extra dependencies. "
+                    f"Try: {hint}. Original error: {exc}"
+                ) from exc
+
+            self._pipelines[lang_code] = pipeline
+            if len(self._pipelines) > self._max_cached_pipelines:
+                _, evicted = self._pipelines.popitem(last=False)
+                self._cleanup_pipeline(evicted)
+            return pipeline
+
+    @staticmethod
+    def _cleanup_pipeline(pipeline: Any) -> None:
+        """Release resources exposed by a pipeline implementation, if any."""
+        close = getattr(pipeline, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:  # pragma: no cover - third-party cleanup is best effort
+                pass
+
+    def close(self) -> None:
+        """Release every cached pipeline and clear the cache."""
+        with self._pipeline_lock:
+            pipelines = list(self._pipelines.values())
+            self._pipelines.clear()
+            for pipeline in pipelines:
+                self._cleanup_pipeline(pipeline)
 
     def synthesize(
         self,
@@ -107,15 +146,15 @@ class KokoroTTSBackend(TTSBackend):
         speed: float = 1.0,
         output_format: str = "wav",
     ) -> TTSResult:
-        lang_code = self._lang_for_voice(voice_id)
-        pipeline = self._ensure_pipeline(lang_code)
-
         import numpy as np
         import soundfile as sf
 
-        samples = []
-        for _, _, audio in pipeline(text, voice=voice_id, speed=speed):
-            samples.append(audio)
+        lang_code = self._lang_for_voice(voice_id)
+        with self._pipeline_lock:
+            pipeline = self._ensure_pipeline(lang_code)
+            samples = []
+            for _, _, audio in pipeline(text, voice=voice_id, speed=speed):
+                samples.append(audio)
 
         if not samples:
             return TTSResult(
@@ -146,15 +185,31 @@ class KokoroTTSBackend(TTSBackend):
         # releases.
         return [
             # American English
-            "af_heart", "af_bella", "af_nicole", "af_sarah", "af_sky",
-            "am_adam", "am_michael",
+            "af_heart",
+            "af_bella",
+            "af_nicole",
+            "af_sarah",
+            "af_sky",
+            "am_adam",
+            "am_michael",
             # British English
-            "bf_emma", "bf_isabella", "bm_george", "bm_lewis",
+            "bf_emma",
+            "bf_isabella",
+            "bm_george",
+            "bm_lewis",
             # Mandarin Chinese
-            "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi",
-            "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
+            "zf_xiaobei",
+            "zf_xiaoni",
+            "zf_xiaoxiao",
+            "zf_xiaoyi",
+            "zm_yunjian",
+            "zm_yunxi",
+            "zm_yunxia",
+            "zm_yunyang",
             # Japanese
-            "jf_alpha", "jf_gongitsune", "jm_kumo",
+            "jf_alpha",
+            "jf_gongitsune",
+            "jm_kumo",
         ]
 
     def health(self) -> bool:

@@ -144,7 +144,7 @@ def test_kokoro_missing_chinese_deps_gives_actionable_error(monkeypatch):
         backend._ensure_pipeline("z")
     msg = str(exc_info.value)
     assert "misaki[zh]" in msg
-    assert "lang_code='z'" in msg or "lang_code=\"z\"" in msg
+    assert "lang_code='z'" in msg or 'lang_code="z"' in msg
 
 
 def test_kokoro_pipeline_cached_per_language(monkeypatch):
@@ -170,6 +170,93 @@ def test_kokoro_pipeline_cached_per_language(monkeypatch):
     backend._ensure_pipeline("z")  # cache hit
 
     assert init_calls == ["a", "z"]
+
+
+def test_kokoro_pipeline_cache_is_thread_safe(monkeypatch):
+    """Concurrent requests for one language construct exactly one pipeline."""
+    import sys
+    import threading
+    import time
+    import types
+
+    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    init_calls = []
+
+    class FakeKPipeline:
+        def __init__(self, lang_code):
+            init_calls.append(lang_code)
+            time.sleep(0.02)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "kokoro",
+        types.SimpleNamespace(KPipeline=FakeKPipeline),
+    )
+    backend = KokoroTTSBackend()
+    pipelines = []
+
+    def load_pipeline():
+        pipelines.append(backend._ensure_pipeline("z"))
+
+    threads = [threading.Thread(target=load_pipeline) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+    assert init_calls == ["z"]
+    assert len({id(pipeline) for pipeline in pipelines}) == 1
+
+
+def test_kokoro_pipeline_cache_evicts_lru_and_cleans_up(monkeypatch):
+    """The cache is bounded and closes evicted and explicitly released entries."""
+    import sys
+    import types
+
+    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    instances = {}
+
+    class FakeKPipeline:
+        def __init__(self, lang_code):
+            self.closed = False
+            instances[lang_code] = self
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setitem(
+        sys.modules,
+        "kokoro",
+        types.SimpleNamespace(KPipeline=FakeKPipeline),
+    )
+    backend = KokoroTTSBackend(max_cached_pipelines=2)
+
+    backend._ensure_pipeline("a")
+    backend._ensure_pipeline("z")
+    backend._ensure_pipeline("a")  # make American English most recently used
+    backend._ensure_pipeline("j")
+
+    assert list(backend._pipelines) == ["a", "j"]
+    assert instances["z"].closed is True
+    assert instances["a"].closed is False
+    assert instances["j"].closed is False
+
+    backend.close()
+    assert not backend._pipelines
+    assert instances["a"].closed is True
+    assert instances["j"].closed is True
+
+
+def test_kokoro_pipeline_cache_size_must_be_positive():
+    import pytest
+
+    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    with pytest.raises(ValueError, match="at least 1"):
+        KokoroTTSBackend(max_cached_pipelines=0)
 
 
 def test_kokoro_synthesize_routes_voice_to_correct_language(monkeypatch):
