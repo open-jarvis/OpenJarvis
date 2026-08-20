@@ -219,13 +219,22 @@ class TestGenerate:
         assert call_kwargs["temperature"] == 0.5
         assert call_kwargs["max_tokens"] == 100
 
-    def test_extra_kwargs(self):
+    def test_extra_kwargs_are_forwarded_without_filtering(self):
         engine = MagicMock()
         engine.generate.return_value = {"content": "hi"}
         agent = _ConcreteAgent(engine, "m")
-        agent._generate([Message(role=Role.USER, content="hi")], tools=["t"])
+        tools = [{"type": "function", "function": {"name": "search"}}]
+        response_format = {"type": "json_object"}
+        agent._generate(
+            [Message(role=Role.USER, content="hi")],
+            tools=tools,
+            response_format=response_format,
+            stop=["DONE"],
+        )
         call_kwargs = engine.generate.call_args[1]
-        assert call_kwargs["tools"] == ["t"]
+        assert call_kwargs["tools"] is tools
+        assert call_kwargs["response_format"] is response_format
+        assert call_kwargs["stop"] == ["DONE"]
 
 
 class TestMaxTurnsResult:

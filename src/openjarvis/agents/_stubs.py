@@ -179,11 +179,17 @@ class BaseAgent(ABC):
                 {"model": self._model, "engine": engine_id},
             )
 
+        # Stored engine options originate in CLI/runtime configuration and are
+        # intentionally allowlisted. Per-call kwargs originate in the agent
+        # implementation itself (for example ``tools`` or ``response_format``)
+        # and must reach the engine adapter unchanged. Filtering the merged
+        # mapping silently stripped function-calling tools from every agent.
         gen_kwargs = {
-            k: v
-            for k, v in {**self._engine_options, **extra_kwargs}.items()
-            if k in _ALLOWED_ENGINE_OPTION_KEYS
+            key: value
+            for key, value in self._engine_options.items()
+            if key in _ALLOWED_ENGINE_OPTION_KEYS
         }
+        gen_kwargs.update(extra_kwargs)
         result = self._engine.generate(
             messages,
             model=self._model,
