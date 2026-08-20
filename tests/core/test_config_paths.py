@@ -7,6 +7,7 @@ Covers the single-root consolidation: ``$OPENJARVIS_HOME`` >
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -193,3 +194,4 @@ class TestLegacyConstantsHonorEnv:
 
         real_home = (Path.home() / ".openjarvis").resolve()
         assert DEFAULT_CONFIG_DIR != real_home
+        assert "OPENJARVIS_CONFIG" not in os.environ

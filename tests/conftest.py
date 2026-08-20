@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -19,8 +20,15 @@ import pytest
 # reference them) to the developer's real ~/.openjarvis for the rest of the
 # run, so tests touching e.g. AgentConfigEvolver or LearningOrchestrator
 # read/write real files under the developer's home directory (#787).
+_MISSING = object()
+_ORIGINAL_OPENJARVIS_HOME = os.environ.get("OPENJARVIS_HOME", _MISSING)
+_ORIGINAL_OPENJARVIS_CONFIG = os.environ.get("OPENJARVIS_CONFIG", _MISSING)
 _TEST_HOME = Path(tempfile.mkdtemp(prefix="openjarvis-test-home-"))
 os.environ["OPENJARVIS_HOME"] = str(_TEST_HOME)
+# An explicit config path takes precedence inside load_config(). It may point
+# at a developer's real file even when OPENJARVIS_HOME is isolated, so remove
+# it before config.py and its import-time constants are initialized.
+os.environ.pop("OPENJARVIS_CONFIG", None)
 
 from openjarvis.core.config import GpuInfo, HardwareInfo, load_config  # noqa: E402
 from openjarvis.core.events import EventBus, reset_event_bus  # noqa: E402
@@ -41,6 +49,23 @@ from openjarvis.core.registry import (  # noqa: E402
     ToolRegistry,
     TTSRegistry,
 )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_session_test_home():
+    """Keep the import-time home alive through teardown, then remove it."""
+    yield
+    load_config.cache_clear()
+    shutil.rmtree(_TEST_HOME, ignore_errors=True)
+
+    if _ORIGINAL_OPENJARVIS_HOME is _MISSING:
+        os.environ.pop("OPENJARVIS_HOME", None)
+    else:
+        os.environ["OPENJARVIS_HOME"] = str(_ORIGINAL_OPENJARVIS_HOME)
+    if _ORIGINAL_OPENJARVIS_CONFIG is _MISSING:
+        os.environ.pop("OPENJARVIS_CONFIG", None)
+    else:
+        os.environ["OPENJARVIS_CONFIG"] = str(_ORIGINAL_OPENJARVIS_CONFIG)
 
 
 @pytest.fixture(autouse=True)
@@ -68,6 +93,7 @@ def _isolated_openjarvis_home(monkeypatch: pytest.MonkeyPatch) -> None:
     values instead of the current test's.
     """
     monkeypatch.setenv("OPENJARVIS_HOME", str(_TEST_HOME))
+    monkeypatch.delenv("OPENJARVIS_CONFIG", raising=False)
     load_config.cache_clear()
     yield
     load_config.cache_clear()
