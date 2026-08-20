@@ -19,6 +19,7 @@ PYPROJECT = ROOT / "pyproject.toml"
 DESKTOP_LIB_RS = ROOT / "frontend" / "src-tauri" / "src" / "lib.rs"
 WINDOWS_INSTALL_PS1 = ROOT / "deploy" / "windows" / "install.ps1"
 QUICKSTART_SH = ROOT / "scripts" / "quickstart.sh"
+CLAUDE_RUNNER = ROOT / "src" / "openjarvis" / "agents" / "claude_code_runner"
 
 
 def _pyproject() -> dict:
@@ -66,3 +67,26 @@ def test_quickstart_installs_web_search_dependencies() -> None:
     quickstart = QUICKSTART_SH.read_text()
     assert "--extra tools-search" in quickstart
     assert "already running on port 8000" in quickstart
+
+
+def test_claude_runner_wheel_includes_only_runtime_files() -> None:
+    targets = _pyproject()["tool"]["hatch"]["build"]["targets"]
+    wheel = targets["wheel"]
+    force_include = wheel["force-include"]
+    runner_source = "src/openjarvis/agents/claude_code_runner"
+    runtime_files = {"index.mjs", "package.json", "package-lock.json"}
+
+    assert runner_source not in force_include, (
+        "Directory-level force-inclusion can accidentally bundle node_modules"
+    )
+    for filename in runtime_files:
+        source = f"{runner_source}/{filename}"
+        destination = f"_node_modules/claude_code_runner/{filename}"
+        assert force_include[source] == destination
+        assert (CLAUDE_RUNNER / filename).is_file()
+
+    assert f"/{runner_source}" in wheel["exclude"], (
+        "The runner should ship once under _node_modules, not twice"
+    )
+    assert f"/{runner_source}/node_modules" in targets["sdist"]["exclude"]
+    assert targets["sdist"]["skip-excluded-dirs"] is True

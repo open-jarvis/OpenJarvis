@@ -193,12 +193,23 @@ openjarvis-rust = { path = "rust/crates/openjarvis-python" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openjarvis"]
+exclude = [
+    "/src/openjarvis/agents/claude_code_runner",
+]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/openjarvis/agents/claude_code_runner" = "_node_modules/claude_code_runner"
+"src/openjarvis/agents/claude_code_runner/index.mjs" = "_node_modules/claude_code_runner/index.mjs"
+"src/openjarvis/agents/claude_code_runner/package.json" = "_node_modules/claude_code_runner/package.json"
+"src/openjarvis/agents/claude_code_runner/package-lock.json" = "_node_modules/claude_code_runner/package-lock.json"
 "src/openjarvis/channels/whatsapp_baileys_bridge" = "_node_modules/whatsapp_baileys_bridge"
 "scripts/install" = "_install_scripts"
 "deploy/windows" = "_deploy/windows"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/src/openjarvis/agents/claude_code_runner/node_modules",
+]
+skip-excluded-dirs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

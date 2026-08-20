@@ -394,18 +394,21 @@ j.close()
 
 ## ClaudeCodeAgent
 
-The `ClaudeCodeAgent` wraps the `@anthropic-ai/claude-code` SDK via a bundled Node.js subprocess bridge. Unlike the other agents, inference is handled entirely by the Claude Agent SDK -- the `engine` parameter is accepted only for `BaseAgent` interface conformance and is not used.
+The `ClaudeCodeAgent` wraps the `@anthropic-ai/claude-agent-sdk` package via a bundled Node.js subprocess bridge. Unlike the other agents, inference is handled entirely by the Claude Agent SDK -- the `engine` parameter is accepted only for `BaseAgent` interface conformance and is not used.
 
 !!! warning "Requirements"
-    Requires Node.js 22+ on `PATH` and an `ANTHROPIC_API_KEY` environment variable (or pass `api_key=` directly). The bundled runner is auto-installed to `~/.openjarvis/claude_code_runner/` on first use via `npm install`.
+    Requires Node.js 22+ with npm on `PATH` and authentication supported by the Claude Agent SDK, such as an `ANTHROPIC_API_KEY` environment variable or the `api_key=` constructor argument. The bundled runner's locked production dependencies are auto-installed under the resolved OpenJarvis home on first use.
 
 **How it works:**
 
-1. On first call, copies the bundled `claude_code_runner/` to `~/.openjarvis/claude_code_runner/` and runs `npm install --production` if `node_modules` is missing.
-2. Builds a JSON request payload (prompt, API key, workspace, allowed tools, system prompt, session ID) and sends it to `stdin` of a `node dist/index.js` subprocess.
+1. On first call, copies the bundled `claude_code_runner/` to a content-addressed generation under the resolved OpenJarvis home and runs `npm ci --omit=dev --include=optional` when the locked dependencies are missing or have changed.
+2. Builds a JSON request payload (prompt, API key, workspace, allowed tools, system prompt, session ID) and sends it to `stdin` of a content-addressed `node index.<hash>.mjs` subprocess.
 3. The Node.js runner calls the Claude Agent SDK and writes sentinel-delimited JSON to `stdout`.
 4. The Python side parses the output between `---OPENJARVIS_OUTPUT_START---` and `---OPENJARVIS_OUTPUT_END---` markers, extracting content, tool results, and metadata.
 5. Returns an `AgentResult` with `turns=1`.
+
+!!! tip "Runner cache cleanup"
+    Runner dependencies live in content-addressed generations so an OpenJarvis upgrade cannot modify files used by an in-flight agent. Older generations and the legacy flat cache are retained for safety. To reclaim that space, stop all `ClaudeCodeAgent` processes and clear `<OpenJarvis home>/claude_code_runner/`; the current generation is recreated on the next run. The home is `$OPENJARVIS_HOME` when set, otherwise `$XDG_DATA_HOME/openjarvis` when set, and `~/.openjarvis` by default.
 
 **Constructor parameters:**
 
@@ -419,7 +422,7 @@ The `ClaudeCodeAgent` wraps the `@anthropic-ai/claude-code` SDK via a bundled No
 | `api_key`        | `str`             | `$ANTHROPIC_API_KEY`| Anthropic API key                                |
 | `workspace`      | `str`             | `os.getcwd()`       | Working directory for the Claude agent           |
 | `session_id`     | `str`             | `""`                | Optional session ID for conversation continuity  |
-| `allowed_tools`  | `list[str]`       | `None` (all)        | Claude Code tool names to allow                  |
+| `allowed_tools`  | `list[str]`       | `None` (SDK defaults)| SDK tool names or scoped rules to expose/approve |
 | `system_prompt`  | `str`             | `""`                | Additional system prompt for the agent           |
 | `timeout`        | `int`             | `300`               | Subprocess timeout in seconds                    |
 
@@ -445,7 +448,7 @@ jarvis ask --agent claude_code "Refactor the tests to use pytest fixtures"
 ```
 
 !!! info "accepts_tools = False"
-    `ClaudeCodeAgent` does not accept OpenJarvis tools via `--tools`. Tool access for the Claude agent is configured separately via the `allowed_tools` constructor parameter, which passes tool names understood by the Claude Agent SDK itself.
+    `ClaudeCodeAgent` does not accept OpenJarvis tools via `--tools`. Tool access for the Claude agent is configured separately via `allowed_tools`: `None` leaves the SDK's normal tool and permission defaults unchanged, `[]` disables all built-in tools, and a nonempty list exposes the named base tools while auto-approving the matching names or scoped SDK rules.
 
 ---
 
