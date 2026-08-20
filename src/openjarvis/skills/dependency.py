@@ -110,8 +110,7 @@ def validate_dependencies(
     if len(order) != len(graph):
         cyclic = set(graph) - set(order)
         raise DependencyCycleError(
-            "Cycle detected in skill dependency graph. "
-            f"Skills involved: {cyclic}",
+            f"Cycle detected in skill dependency graph. Skills involved: {cyclic}",
             skills=cyclic,
         )
 
