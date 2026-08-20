@@ -13,7 +13,7 @@ from openjarvis.agents._stubs import (
     BaseAgent,
     ToolUsingAgent,
 )
-from openjarvis.cli.chat_cmd import _read_input, chat
+from openjarvis.cli.chat_cmd import _VOICE_EXIT, _read_input, _record_voice, chat
 from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.core.registry import AgentRegistry, ToolRegistry
@@ -117,6 +117,22 @@ class TestReadInput:
     def test_read_input_normal(self) -> None:
         with mock.patch("builtins.input", return_value="hello"):
             assert _read_input() == "hello"
+
+
+class TestVoiceInput:
+    def test_unavailable_stt_is_detected_before_recording(self) -> None:
+        console = MagicMock()
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=None,
+            ),
+            patch("openjarvis.speech.voice_io.record_until_silence") as record,
+        ):
+            assert _record_voice(console) is _VOICE_EXIT
+
+        record.assert_not_called()
+        assert "OpenJarvis[speech]" in str(console.print.call_args)
 
 
 class TestChatAgents:

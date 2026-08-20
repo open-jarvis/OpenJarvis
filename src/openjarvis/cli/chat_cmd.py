@@ -56,7 +56,9 @@ def _record_voice(console: "Console") -> "Optional[str] | object":
     if backend is None:
         console.print(
             "[red]No speech-to-text backend available. "
-            "Install faster-whisper: pip install faster-whisper[/red]"
+            "Install the voice dependencies with: "
+            "pip install 'OpenJarvis[speech]', or configure a healthy "
+            "OpenAI/Deepgram backend.[/red]"
         )
         return _VOICE_EXIT
 
