@@ -126,6 +126,39 @@ def test_wrong_audience_is_rejected(monkeypatch):
     )
 
 
+def test_real_rs256_token_requires_the_configured_audience():
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwks_client = MagicMock()
+    jwks_client.get_signing_key_from_jwt.return_value.key = private_key.public_key()
+    valid = jwt.encode(
+        {"sub": "user_123", "aud": "client_expected"},
+        private_key,
+        algorithm="RS256",
+    )
+    wrong_audience = jwt.encode(
+        {"sub": "user_123", "aud": "client_other"},
+        private_key,
+        algorithm="RS256",
+    )
+
+    assert _verify_authkit_jwt(
+        valid,
+        jwks_client,
+        audience="client_expected",
+    ) == {"sub": "user_123", "aud": "client_expected"}
+    assert (
+        _verify_authkit_jwt(
+            wrong_audience,
+            jwks_client,
+            audience="client_expected",
+        )
+        is None
+    )
+
+
 def test_jwks_client_requires_well_formed_workos_client_id():
     assert _build_jwks_client("https://attacker.example/jwks") is None
     assert _build_jwks_client("client_bad/path") is None
