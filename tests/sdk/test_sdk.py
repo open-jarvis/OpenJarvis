@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import openjarvis
 from openjarvis.core.config import JarvisConfig
 from openjarvis.sdk import Jarvis, MemoryHandle
 
@@ -38,7 +39,7 @@ class TestJarvisInit:
 
     def test_version_property(self):
         j = Jarvis(config=JarvisConfig())
-        assert j.version == "0.1.0"
+        assert j.version == openjarvis.__version__
         j.close()
 
     def test_engine_key_override(self):
@@ -92,6 +93,30 @@ class TestJarvisAsk:
             j = Jarvis(config=JarvisConfig(), model="test-model")
             result = j.ask("Hello", agent="mock-agent")
             assert result == "Agent response"
+            j.close()
+
+    def test_ask_with_agent_wires_persona(self, tmp_path):
+        from openjarvis.agents.simple import SimpleAgent
+        from openjarvis.core.registry import AgentRegistry
+
+        soul = tmp_path / "SOUL.md"
+        soul.write_text("SDK_PERSONA_SENTINEL", encoding="utf-8")
+
+        cfg = JarvisConfig()
+        cfg.memory_files.soul_path = str(soul)
+        cfg.memory_files.memory_path = ""
+        cfg.memory_files.user_path = ""
+        cfg.agent.context_from_memory = False
+
+        if not AgentRegistry.contains("simple"):
+            AgentRegistry.register_value("simple", SimpleAgent)
+
+        engine = _make_engine()
+        with patch("openjarvis.sdk.get_engine", return_value=("mock", engine)):
+            j = Jarvis(config=cfg, model="test-model")
+            j.ask("Hello", agent="simple")
+            messages = engine.generate.call_args.args[0]
+            assert "SDK_PERSONA_SENTINEL" in messages[0].content
             j.close()
 
     def test_ask_no_engine_raises(self):

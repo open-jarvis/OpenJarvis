@@ -81,8 +81,7 @@ class FeishuChannel(BaseChannel):
 
             # Obtain tenant_access_token
             token_url = (
-                "https://open.feishu.cn/open-apis/auth/v3/"
-                "tenant_access_token/internal"
+                "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
             )
             token_resp = httpx.post(
                 token_url,
@@ -119,13 +118,17 @@ class FeishuChannel(BaseChannel):
             }
 
             resp = httpx.post(
-                msg_url, json=payload, headers=headers, timeout=10.0,
+                msg_url,
+                json=payload,
+                headers=headers,
+                timeout=10.0,
             )
             if resp.status_code < 300:
                 self._publish_sent(channel, content, conversation_id)
                 return True
             logger.warning(
-                "Feishu API returned status %d", resp.status_code,
+                "Feishu API returned status %d",
+                resp.status_code,
             )
             return False
         except Exception:

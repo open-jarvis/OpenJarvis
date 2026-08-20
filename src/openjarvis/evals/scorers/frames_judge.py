@@ -47,7 +47,9 @@ class FRAMESScorer(LLMJudgeScorer):
     scorer_id = "frames"
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
@@ -66,7 +68,9 @@ class FRAMESScorer(LLMJudgeScorer):
             raw = self._ask_judge(prompt, temperature=0.0, max_tokens=2048)
 
             structured_match = re.search(
-                r"^correct:\s*(yes|no)", raw, re.MULTILINE | re.IGNORECASE,
+                r"^correct:\s*(yes|no)",
+                raw,
+                re.MULTILINE | re.IGNORECASE,
             )
             if structured_match:
                 is_correct = structured_match.group(1).lower() == "yes"
@@ -84,7 +88,9 @@ class FRAMESScorer(LLMJudgeScorer):
                 "raw_judge_output": raw,
             }
             extracted = re.search(
-                r"^extracted_final_answer:\s*(.+)", raw, re.MULTILINE,
+                r"^extracted_final_answer:\s*(.+)",
+                raw,
+                re.MULTILINE,
             )
             if extracted:
                 meta["extracted_answer"] = extracted.group(1).strip()

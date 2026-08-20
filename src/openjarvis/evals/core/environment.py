@@ -8,6 +8,18 @@ from typing import Any, Dict, Tuple
 from openjarvis.evals.core.types import EvalRecord
 
 
+class TaskEnvironmentError(RuntimeError):
+    """A task execution environment failed to start or operate.
+
+    Raised when infrastructure backing a task (Docker container, docker
+    compose project, tmux session, recording binaries, ...) breaks. This is
+    a harness/environment failure, **not** a model failure: runners record
+    it distinctly (``QueryTrace.error_kind == "harness_error"``) so scoring
+    can exclude the sample from resolve-rate instead of silently counting
+    it as a model miss.
+    """
+
+
 class EnvironmentProvider(ABC):
     """Manages an external environment for evaluation benchmarks.
 
@@ -34,7 +46,8 @@ class EnvironmentProvider(ABC):
 
     @abstractmethod
     def validate(
-        self, record: EvalRecord,
+        self,
+        record: EvalRecord,
     ) -> Tuple[bool, Dict[str, Any]]:
         """Check environment state against expected outcome.
 
@@ -49,3 +62,6 @@ class EnvironmentProvider(ABC):
     @abstractmethod
     def teardown(self) -> None:
         """Stop the environment and release resources."""
+
+
+__all__ = ["EnvironmentProvider", "TaskEnvironmentError"]

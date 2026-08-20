@@ -1,0 +1,96 @@
+# Minions cells. One [cells.<name>] block per (bench × local × cloud × N).
+#
+# Naming: minions-<bench>-<local-short>-<cloud-short>-<N>
+# HF model IDs verified Feb 2026 / Gemma 4 release:
+#   Qwen/Qwen3.5-27B          (dense, 262K native context)
+#   google/gemma-4-31B-it     (dense instruct, 256K context — 26B is the MoE variant)
+
+# ---- Stage 1 smokes (n=3) ----
+
+[cells.minions-gaia-qwen27b-opus-3]
+method = "minions"
+bench  = "gaia"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",  endpoint = "anthropic" }
+method_cfg = { mode = "minion", max_rounds = 3, worker_max_tokens = 4096 }
+
+[cells.minions-swebenchverified-qwen27b-opus-3]
+method = "minions"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",  endpoint = "anthropic" }
+method_cfg = { mode = "minion", max_rounds = 3, worker_max_tokens = 8192 }
+
+
+# ---- Stage 1.5 mid (n=30) — catches cells that smoke-pass but full-fail ----
+
+[cells.minions-gaia-qwen27b-opus-30]
+method = "minions"
+bench  = "gaia"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",  endpoint = "anthropic" }
+method_cfg = { mode = "minion", max_rounds = 5, worker_max_tokens = 4096 }
+
+[cells.minions-gaia-gemma31b-opus-30]
+method = "minions"
+bench  = "gaia"
+n      = 30
+local  = { model = "google/gemma-4-31B-it", endpoint = "http://localhost:8004/v1" }
+cloud  = { model = "claude-opus-4-7",        endpoint = "anthropic" }
+method_cfg = { mode = "minion", max_rounds = 5, worker_max_tokens = 4096 }
+
+[cells.minions-swebenchverified-qwen27b-opus-30]
+method = "minions"
+bench  = "swebench-verified"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",  endpoint = "anthropic" }
+method_cfg = { mode = "minion", max_rounds = 5, worker_max_tokens = 8192 }
+
+[cells.minions-swebenchverified-gemma31b-opus-30]
+method = "minions"
+bench  = "swebench-verified"
+n      = 30
+local  = { model = "google/gemma-4-31B-it", endpoint = "http://localhost:8004/v1" }
+cloud  = { model = "claude-opus-4-7",        endpoint = "anthropic" }
+method_cfg = { mode = "minion", max_rounds = 5, worker_max_tokens = 8192 }
+
+
+# ---- Stage 2 full ----
+
+[cells.minions-gaia-qwen27b-opus-165]
+method = "minions"
+bench  = "gaia"
+n      = 165
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",  endpoint = "anthropic" }
+method_cfg = { mode = "minion", max_rounds = 5, worker_max_tokens = 4096 }
+concurrency = 4
+
+[cells.minions-gaia-gemma31b-opus-165]
+method = "minions"
+bench  = "gaia"
+n      = 165
+local  = { model = "google/gemma-4-31B-it", endpoint = "http://localhost:8004/v1" }
+cloud  = { model = "claude-opus-4-7",        endpoint = "anthropic" }
+method_cfg = { mode = "minion", max_rounds = 5, worker_max_tokens = 4096 }
+
+[cells.minions-swebenchverified-qwen27b-opus-500]
+method = "minions"
+bench  = "swebench-verified"
+n      = 500
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",  endpoint = "anthropic" }
+method_cfg = { mode = "minion", max_rounds = 5, worker_max_tokens = 8192 }
+concurrency = 4
+
+[cells.minions-swebenchverified-gemma31b-opus-500]
+method = "minions"
+bench  = "swebench-verified"
+n      = 500
+local  = { model = "google/gemma-4-31B-it", endpoint = "http://localhost:8004/v1" }
+cloud  = { model = "claude-opus-4-7",        endpoint = "anthropic" }
+method_cfg = { mode = "minion", max_rounds = 5, worker_max_tokens = 8192 }

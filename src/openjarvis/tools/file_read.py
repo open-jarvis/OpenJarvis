@@ -29,10 +29,7 @@ class FileReadTool(BaseTool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="file_read",
-            description=(
-                "Read the contents of a file."
-                " Returns the text content."
-            ),
+            description=("Read the contents of a file. Returns the text content."),
             parameters={
                 "type": "object",
                 "properties": {
@@ -42,10 +39,7 @@ class FileReadTool(BaseTool):
                     },
                     "max_lines": {
                         "type": "integer",
-                        "description": (
-                            "Max lines to return"
-                            " (default: all)."
-                        ),
+                        "description": ("Max lines to return (default: all)."),
                     },
                 },
                 "required": ["path"],
@@ -59,8 +53,7 @@ class FileReadTool(BaseTool):
             return True
         resolved = path.resolve()
         return any(
-            resolved == d or str(resolved).startswith(str(d) + "/")
-            for d in self._allowed_dirs
+            resolved == d or resolved.is_relative_to(d) for d in self._allowed_dirs
         )
 
     def execute(self, **params: Any) -> ToolResult:
@@ -114,10 +107,16 @@ class FileReadTool(BaseTool):
                 content=f"File too large: {size} bytes (max {_MAX_SIZE_BYTES}).",
                 success=False,
             )
-        from openjarvis._rust_bridge import get_rust_module
-        _rust = get_rust_module()
         try:
+            from openjarvis._rust_bridge import get_rust_module
+
+            _rust = get_rust_module()
             text = _rust.FileReadTool().execute(str(path))
+        except ImportError:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                text = path.read_text(encoding="utf-8", errors="replace")
         except Exception as exc:
             return ToolResult(
                 tool_name="file_read",

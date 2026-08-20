@@ -204,8 +204,11 @@ class _ModelScore:
     """Accumulator for per-model scoring during policy update."""
 
     __slots__ = (
-        "count", "successes", "total_latency",
-        "feedback_sum", "feedback_count",
+        "count",
+        "successes",
+        "total_latency",
+        "feedback_sum",
+        "feedback_count",
     )
 
     def __init__(self) -> None:
@@ -218,10 +221,7 @@ class _ModelScore:
     def composite_score(self) -> float:
         """Weighted score combining success rate and feedback."""
         sr = self.successes / self.count if self.count else 0.0
-        fb = (
-            self.feedback_sum / self.feedback_count
-            if self.feedback_count else 0.5
-        )
+        fb = self.feedback_sum / self.feedback_count if self.feedback_count else 0.5
         return 0.6 * sr + 0.4 * fb
 
 

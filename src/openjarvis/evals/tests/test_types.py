@@ -21,7 +21,9 @@ from openjarvis.evals.core.types import (
 class TestEvalRecord:
     def test_creation(self):
         r = EvalRecord(
-            record_id="r1", problem="What?", reference="42",
+            record_id="r1",
+            problem="What?",
+            reference="42",
             category="reasoning",
         )
         assert r.record_id == "r1"
@@ -33,8 +35,11 @@ class TestEvalRecord:
 
     def test_with_subject_and_metadata(self):
         r = EvalRecord(
-            record_id="r2", problem="Q", reference="A",
-            category="chat", subject="greet",
+            record_id="r2",
+            problem="Q",
+            reference="A",
+            category="chat",
+            subject="greet",
             metadata={"key": "val"},
         )
         assert r.subject == "greet"
@@ -64,9 +69,14 @@ class TestEvalResult:
 
     def test_full(self):
         r = EvalResult(
-            record_id="r1", model_answer="42", is_correct=True,
-            score=1.0, latency_seconds=1.5, prompt_tokens=100,
-            completion_tokens=50, cost_usd=0.01,
+            record_id="r1",
+            model_answer="42",
+            is_correct=True,
+            score=1.0,
+            latency_seconds=1.5,
+            prompt_tokens=100,
+            completion_tokens=50,
+            cost_usd=0.01,
             scoring_metadata={"match": "exact"},
         )
         assert r.is_correct is True
@@ -75,11 +85,16 @@ class TestEvalResult:
 
     def test_telemetry_fields(self):
         r = EvalResult(
-            record_id="r1", model_answer="42",
-            energy_joules=100.5, power_watts=250.0,
-            gpu_utilization_pct=45.0, throughput_tok_per_sec=38.5,
-            mfu_pct=0.018, mbu_pct=27.5,
-            ipw=0.004, ipj=0.0001,
+            record_id="r1",
+            model_answer="42",
+            energy_joules=100.5,
+            power_watts=250.0,
+            gpu_utilization_pct=45.0,
+            throughput_tok_per_sec=38.5,
+            mfu_pct=0.018,
+            mbu_pct=27.5,
+            ipw=0.004,
+            ipj=0.0001,
         )
         assert r.energy_joules == 100.5
         assert r.power_watts == 250.0
@@ -107,8 +122,11 @@ class TestRunConfig:
 
     def test_with_agent(self):
         c = RunConfig(
-            benchmark="gaia", backend="jarvis-agent", model="gpt-4o",
-            engine_key="cloud", agent_name="orchestrator",
+            benchmark="gaia",
+            backend="jarvis-agent",
+            model="gpt-4o",
+            engine_key="cloud",
+            agent_name="orchestrator",
             tools=["calculator", "think"],
         )
         assert c.agent_name == "orchestrator"
@@ -117,7 +135,9 @@ class TestRunConfig:
     def test_with_metadata(self):
         meta = {"param_count_b": 30.0, "active_params_b": 3.0, "num_gpus": 4}
         c = RunConfig(
-            benchmark="supergpqa", backend="jarvis-direct", model="m",
+            benchmark="supergpqa",
+            backend="jarvis-direct",
+            model="m",
             metadata=meta,
         )
         assert c.metadata["param_count_b"] == 30.0
@@ -153,10 +173,16 @@ class TestMetricStats:
 class TestRunSummary:
     def test_creation(self):
         s = RunSummary(
-            benchmark="supergpqa", category="reasoning",
-            backend="jarvis-direct", model="qwen3:8b",
-            total_samples=100, scored_samples=95, correct=47,
-            accuracy=0.495, errors=5, mean_latency_seconds=2.1,
+            benchmark="supergpqa",
+            category="reasoning",
+            backend="jarvis-direct",
+            model="qwen3:8b",
+            total_samples=100,
+            scored_samples=95,
+            correct=47,
+            accuracy=0.495,
+            errors=5,
+            mean_latency_seconds=2.1,
             total_cost_usd=0.0,
             per_subject={"math": {"accuracy": 0.5}},
         )
@@ -167,10 +193,16 @@ class TestRunSummary:
     def test_metric_stats_fields(self):
         stats = MetricStats(mean=0.5, median=0.4, min=0.1, max=0.9, std=0.2)
         s = RunSummary(
-            benchmark="test", category="reasoning",
-            backend="jarvis-direct", model="m",
-            total_samples=10, scored_samples=10, correct=5,
-            accuracy=0.5, errors=0, mean_latency_seconds=1.0,
+            benchmark="test",
+            category="reasoning",
+            backend="jarvis-direct",
+            model="m",
+            total_samples=10,
+            scored_samples=10,
+            correct=5,
+            accuracy=0.5,
+            errors=0,
+            mean_latency_seconds=1.0,
             total_cost_usd=0.0,
             accuracy_stats=stats,
             energy_stats=stats,
@@ -191,10 +223,16 @@ class TestRunSummary:
 
     def test_metric_stats_defaults_none(self):
         s = RunSummary(
-            benchmark="test", category="test",
-            backend="mock", model="m",
-            total_samples=0, scored_samples=0, correct=0,
-            accuracy=0.0, errors=0, mean_latency_seconds=0.0,
+            benchmark="test",
+            category="test",
+            backend="mock",
+            model="m",
+            total_samples=0,
+            scored_samples=0,
+            correct=0,
+            accuracy=0.0,
+            errors=0,
+            mean_latency_seconds=0.0,
             total_cost_usd=0.0,
         )
         assert s.accuracy_stats is None
@@ -217,8 +255,10 @@ class TestEvalResultTraceFields:
 
     def test_trace_fields_set(self):
         r = EvalResult(
-            record_id="test", model_answer="hi",
-            trace_steps=5, trace_energy_joules=100.0,
+            record_id="test",
+            model_answer="hi",
+            trace_steps=5,
+            trace_energy_joules=100.0,
         )
         assert r.trace_steps == 5
         assert r.trace_energy_joules == 100.0
@@ -227,10 +267,17 @@ class TestEvalResultTraceFields:
 class TestRunSummaryTraceFields:
     def test_trace_aggregate_fields(self):
         s = RunSummary(
-            benchmark="test", category="test", backend="test",
-            model="test", total_samples=1, scored_samples=1,
-            correct=1, accuracy=1.0, errors=0,
-            mean_latency_seconds=1.0, total_cost_usd=0.0,
+            benchmark="test",
+            category="test",
+            backend="test",
+            model="test",
+            total_samples=1,
+            scored_samples=1,
+            correct=1,
+            accuracy=1.0,
+            errors=0,
+            mean_latency_seconds=1.0,
+            total_cost_usd=0.0,
         )
         assert s.avg_power_watts == 0.0
         assert s.trace_step_type_stats == {}
@@ -307,8 +354,11 @@ class TestModelConfig:
 
     def test_with_overrides(self):
         m = ModelConfig(
-            name="gpt-4o", engine="cloud", provider="openai",
-            temperature=0.5, max_tokens=4096,
+            name="gpt-4o",
+            engine="cloud",
+            provider="openai",
+            temperature=0.5,
+            max_tokens=4096,
         )
         assert m.engine == "cloud"
         assert m.provider == "openai"
@@ -317,9 +367,12 @@ class TestModelConfig:
 
     def test_hardware_params(self):
         m = ModelConfig(
-            name="GLM-4.7-Flash", engine="vllm",
-            param_count_b=30.0, active_params_b=3.0,
-            gpu_peak_tflops=312.0, gpu_peak_bandwidth_gb_s=2039.0,
+            name="GLM-4.7-Flash",
+            engine="vllm",
+            param_count_b=30.0,
+            active_params_b=3.0,
+            gpu_peak_tflops=312.0,
+            gpu_peak_bandwidth_gb_s=2039.0,
             num_gpus=4,
         )
         assert m.param_count_b == 30.0
@@ -344,10 +397,15 @@ class TestBenchmarkConfig:
 
     def test_with_overrides(self):
         b = BenchmarkConfig(
-            name="gaia", backend="jarvis-agent", max_samples=50,
-            split="test", agent="orchestrator",
-            tools=["calc", "think"], judge_model="custom-judge",
-            temperature=0.3, max_tokens=1024,
+            name="gaia",
+            backend="jarvis-agent",
+            max_samples=50,
+            split="test",
+            agent="orchestrator",
+            tools=["calc", "think"],
+            judge_model="custom-judge",
+            temperature=0.3,
+            max_tokens=1024,
         )
         assert b.backend == "jarvis-agent"
         assert b.max_samples == 50

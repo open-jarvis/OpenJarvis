@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -14,13 +16,31 @@ from openjarvis.core.registry import (
     BenchmarkRegistry,
     ChannelRegistry,
     CompressionRegistry,
+    ConnectorRegistry,
     EngineRegistry,
+    FactStoreRegistry,
     MemoryRegistry,
+    MinerRegistry,
     ModelRegistry,
     RouterPolicyRegistry,
+    SkillRegistry,
     SpeechRegistry,
     ToolRegistry,
+    TTSRegistry,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_update_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never let the CLI's PyPI update-check nag run during tests.
+
+    ``check_for_updates`` writes its banner to stderr, which ``CliRunner``
+    merges into ``result.output`` — polluting JSON/CSV output of any test
+    that invokes a CLI command. It already self-disables when ``CI`` is
+    set, but that only helps in CI; locally (e.g. a dev with a stale
+    version-check cache and network access) it fires for real.
+    """
+    monkeypatch.setenv("OPENJARVIS_NO_UPDATE_CHECK", "1")
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +49,8 @@ def _clean_registries() -> None:
     ModelRegistry.clear()
     EngineRegistry.clear()
     MemoryRegistry.clear()
+    FactStoreRegistry.clear()
+    MinerRegistry.clear()
     AgentRegistry.clear()
     ToolRegistry.clear()
     RouterPolicyRegistry.clear()
@@ -36,6 +58,9 @@ def _clean_registries() -> None:
     ChannelRegistry.clear()
     SpeechRegistry.clear()
     CompressionRegistry.clear()
+    ConnectorRegistry.clear()
+    TTSRegistry.clear()
+    SkillRegistry.clear()
     reset_event_bus()
 
 
@@ -242,3 +267,36 @@ def mock_engine():
 def event_bus() -> EventBus:
     """Fresh EventBus with history recording enabled."""
     return EventBus(record_history=True)
+
+
+# ---------------------------------------------------------------------------
+# Mining sidecar fixtures (shared across tests/mining/ and tests/engine/)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def sample_sidecar_payload() -> dict:
+    """A valid vllm-pearl sidecar payload with all expected fields."""
+    return {
+        "provider": "vllm-pearl",
+        "vllm_endpoint": "http://127.0.0.1:8000/v1",
+        "model": "pearl-ai/Llama-3.3-70B-Instruct-pearl",
+        "gateway_url": "http://127.0.0.1:8337",
+        "gateway_metrics_url": "http://127.0.0.1:8339",
+        "container_id": "abc123def456",
+        "wallet_address": "prl1qexampleaddress",
+        "started_at": 1714867200,
+    }
+
+
+@pytest.fixture
+def sidecar_path(tmp_path: Path) -> Path:
+    """Path to a (not-yet-written) mining sidecar JSON file."""
+    return tmp_path / "mining.json"
+
+
+@pytest.fixture
+def written_sidecar(sidecar_path: Path, sample_sidecar_payload: dict) -> Path:
+    """A written mining sidecar JSON file; returns the path."""
+    sidecar_path.write_text(json.dumps(sample_sidecar_payload))
+    return sidecar_path

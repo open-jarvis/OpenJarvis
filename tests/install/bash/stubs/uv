@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Stub for `uv` — records args, exits with $UV_STUB_EXIT.
+echo "$@" >> "${UV_STUB_LOG:-/dev/null}"
+exit "${UV_STUB_EXIT:-0}"

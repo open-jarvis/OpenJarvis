@@ -47,20 +47,15 @@ function StatCard({
   unit?: string;
 }) {
   return (
-    <div
-      className="rounded-lg p-4"
-      style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
-    >
+    <div className="hud-panel p-4">
       <div className="flex items-center gap-2 mb-2">
-        <Icon size={14} style={{ color: 'var(--color-accent)' }} />
-        <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-          {label}
-        </span>
+        <Icon size={12} style={{ color: 'var(--color-accent)' }} />
+        <span className="hud-label">{label}</span>
       </div>
-      <div className="text-xl font-semibold truncate" style={{ color: 'var(--color-text)' }}>
+      <div className="hud-mono text-2xl font-semibold truncate" style={{ color: 'var(--color-text)' }}>
         {value}
         {unit && (
-          <span className="text-xs font-normal ml-1" style={{ color: 'var(--color-text-tertiary)' }}>
+          <span className="hud-label ml-1" style={{ fontSize: '0.625rem', letterSpacing: '0.18em' }}>
             {unit}
           </span>
         )}
@@ -118,28 +113,22 @@ export function EnergyDashboard() {
 
   if (error || !energy) {
     return (
-      <div
-        className="rounded-xl p-6"
-        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-      >
-        <h3 className="text-sm font-medium mb-4 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <Zap size={16} style={{ color: 'var(--color-accent)' }} />
+      <div className="hud-panel p-6">
+        <h3 className="hud-label flex items-center gap-2 mb-4">
+          <Zap size={12} style={{ color: 'var(--color-accent)' }} />
           Energy Monitoring
         </h3>
         <div className="h-48 flex items-center justify-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-          {error || 'Waiting for energy data from the server...'}
+          <span className="hud-mono">{error || 'awaiting telemetry stream…'}</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      className="rounded-xl p-6"
-      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-    >
-      <h3 className="text-sm font-medium mb-4 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-        <Zap size={16} style={{ color: 'var(--color-accent)' }} />
+    <div className="hud-panel p-6">
+      <h3 className="hud-label flex items-center gap-2 mb-4">
+        <Zap size={12} style={{ color: 'var(--color-accent)' }} />
         Energy Monitoring
       </h3>
 

@@ -1,0 +1,51 @@
+# Morning Digest — Linux / Cloud GPU with Ollama or vLLM
+# Copy to ~/.openjarvis/config.toml and customize
+#
+# Requirements:
+#   - Ollama or vLLM running locally
+#   - Cartesia or OpenAI API key for TTS
+
+[engine]
+default = "ollama"
+# default = "vllm"     # Use vLLM for GPU servers
+
+[engine.ollama]
+host = "http://localhost:11434"
+
+# [engine.vllm]
+# host = "http://localhost:8001"
+
+[intelligence]
+default_model = "qwen3.5:9b"
+
+[agent]
+default_agent = "simple"
+
+[tools]
+enabled = ["code_interpreter", "web_search", "file_read", "shell_exec", "digest_collect", "text_to_speech"]
+
+# ─── Morning Digest ─────────────────────────────────────────
+
+[digest]
+enabled = true
+schedule = "0 7 * * *"
+timezone = "America/New_York"      # Change to your timezone
+persona = "jarvis"
+honorific = "sir"
+tts_backend = "openai"             # OpenAI TTS works everywhere
+voice_id = "onyx"                  # Deep male voice
+voice_speed = 1.1
+
+sections = ["health", "messages", "calendar", "world"]
+
+[digest.health]
+sources = ["oura"]
+
+[digest.messages]
+sources = ["gmail", "google_tasks", "slack"]
+
+[digest.calendar]
+sources = ["gcalendar"]
+
+[digest.world]
+sources = ["hackernews", "news_rss", "weather"]

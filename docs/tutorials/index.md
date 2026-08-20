@@ -44,6 +44,14 @@ Hands-on guides that walk through building real applications with OpenJarvis. Ea
 
     [:octicons-arrow-right-24: Get started](code-companion.md)
 
+- :material-puzzle:{ .lg .middle } **Skills Workflow**
+
+    ---
+
+    Install skills from Hermes Agent, use them with a local agent, discover patterns from traces, optimize with DSPy, and benchmark the impact — the complete skills lifecycle.
+
+    [:octicons-arrow-right-24: Get started](skills-workflow.md)
+
 </div>
 
 ## What You Will Learn

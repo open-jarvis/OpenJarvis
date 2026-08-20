@@ -1,0 +1,29 @@
+# ToolCall-15 eval: NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 (vLLM, 1 GPU)
+# Lightweight tool calling benchmark — 15 scenarios, 5 categories
+
+[meta]
+name = "toolcall15-nemotron-nano"
+description = "ToolCall-15 on nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 (temperature=0)"
+
+[defaults]
+temperature = 0.0
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/nemotron-nano/toolcall15/"
+seed = 42
+
+[[models]]
+name = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "toolcall15"
+backend = "jarvis-direct"

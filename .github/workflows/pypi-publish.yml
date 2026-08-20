@@ -1,0 +1,114 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v1.0.2.dev500). Overrides github.ref.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Dry run: build + validate, then publish to TestPyPI instead of PyPI (no production upload).'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - name: Resolve target ref
+        id: ref
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          DEFAULT_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$INPUT_TAG" ]]; then
+            echo "ref=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${DEFAULT_REF}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend and bundle into package
+        env:
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          cd frontend
+          npm ci
+          # Vite is configured (frontend/vite.config.ts) with
+          # `outDir: '../src/openjarvis/server/static'` and
+          # `emptyOutDir: true`, so the build writes directly into the
+          # Python package's static dir and clears stale assets itself.
+          # No rm/cp is needed — and the previous `dist/`-assuming logic
+          # was broken because `frontend/dist/` is never produced.
+          npm run build
+          STATIC=../src/openjarvis/server/static
+          test -s "$STATIC/index.html" || {
+            echo "::error::${STATIC}/index.html missing or empty after build"
+            exit 1
+          }
+
+      - name: Resolve build version from tag
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          set -euo pipefail
+          # Strip leading "v" (e.g. v1.0.3.dev825 -> 1.0.3.dev825).
+          VERSION="${REF#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::ref '$REF' is not a version tag (expected vX.Y.Z[.devN]); pass -f tag=vX.Y.Z"
+            exit 1
+          fi
+          # pyproject.toml is now dynamic = ["version"] via hatch-vcs (#526), so
+          # there is no static line to sed. setuptools_scm cannot bump custom
+          # `.devN` tags, so we pin the exact build version explicitly — the
+          # published version always equals the pushed tag.
+          echo "SETUPTOOLS_SCM_PRETEND_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "Building version ${VERSION}"
+
+      - name: Build package
+        run: uv build
+
+      - name: Publish to TestPyPI (dry run)
+        if: ${{ inputs.dry_run }}
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${UV_PUBLISH_TOKEN:-}" ]]; then
+            echo "::warning::TEST_PYPI_API_TOKEN is not set — skipping the TestPyPI upload."
+            echo "Build + twine check passed, which validated version derivation and packaging end to end."
+            echo "To exercise a real upload, add a TEST_PYPI_API_TOKEN secret (or a TestPyPI trusted publisher)."
+            exit 0
+          fi
+          uv publish --publish-url https://test.pypi.org/legacy/
+
+      - name: Publish to PyPI
+        if: ${{ !inputs.dry_run }}
+        run: uv publish

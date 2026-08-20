@@ -71,7 +71,9 @@ class SuperGPQADataset(DatasetProvider):
         return len(self._records)
 
     def _convert_row(
-        self, raw: MutableMapping[str, object], idx: int,
+        self,
+        raw: MutableMapping[str, object],
+        idx: int,
     ) -> Optional[EvalRecord]:
         question = str(raw.get("question") or "").strip()
         options_raw = raw.get("options") or []
@@ -79,20 +81,25 @@ class SuperGPQADataset(DatasetProvider):
         answer_letter = str(raw.get("answer_letter") or "").strip().upper()
         answer_text = str(raw.get("answer") or "").strip()
 
-        subject = str(
-            raw.get("subfield")
-            or raw.get("field")
-            or raw.get("discipline")
+        subject = (
+            str(
+                raw.get("subfield")
+                or raw.get("field")
+                or raw.get("discipline")
+                or "general"
+            ).strip()
             or "general"
-        ).strip() or "general"
+        )
 
         if not question or not options or not answer_letter:
             return None
 
         prompt_parts = [
-            question, "",
+            question,
+            "",
             "Options:",
-            _format_options(options), "",
+            _format_options(options),
+            "",
             "Respond with the correct letter only.",
         ]
         problem = "\n".join(part for part in prompt_parts if part).strip()

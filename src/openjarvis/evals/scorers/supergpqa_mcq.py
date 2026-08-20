@@ -49,15 +49,19 @@ class SuperGPQAScorer(LLMJudgeScorer):
 
         try:
             raw_response = self._ask_judge(
-                user_prompt, system=system_prompt,
-                temperature=0.0, max_tokens=2048,
+                user_prompt,
+                system=system_prompt,
+                temperature=0.0,
+                max_tokens=2048,
             )
 
             extracted = raw_response.strip().upper()
 
             # Handle "The answer is: A" etc.
             answer_match = re.search(
-                r"(?:THE ANSWER IS:?\s*)?([A-Z])", extracted, re.IGNORECASE,
+                r"(?:THE ANSWER IS:?\s*)?([A-Z])",
+                extracted,
+                re.IGNORECASE,
             )
             if answer_match:
                 extracted = answer_match.group(1).upper()
@@ -72,7 +76,9 @@ class SuperGPQAScorer(LLMJudgeScorer):
             return None
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         ref = record.reference.strip().upper()
         if not ref:
@@ -81,7 +87,9 @@ class SuperGPQAScorer(LLMJudgeScorer):
         valid_letters = self._valid_letters_from_options(record.metadata)
 
         candidate = self._extract_answer_with_llm(
-            record.problem, model_answer, valid_letters,
+            record.problem,
+            model_answer,
+            valid_letters,
         )
         if not candidate:
             return None, {"reason": "no_choice_letter_extracted"}

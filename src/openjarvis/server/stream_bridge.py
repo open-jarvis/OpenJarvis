@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from openjarvis.agents._stubs import AgentContext, BaseAgent
 from openjarvis.core.events import Event, EventBus, EventType
+from openjarvis.engine._base import looks_like_context_length_error
 from openjarvis.server.models import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -109,6 +110,12 @@ class AgentStreamBridge:
 
     def _format_named_event(self, name: str, data: dict) -> str:
         """Format an SSE event with an explicit ``event:`` field."""
+        if name == "tool_call_start" and not isinstance(data.get("arguments"), str):
+            # The in-process event bus uses parsed arguments for trace/eval
+            # consumers, while the web SSE contract expects their JSON text.
+            # Copy before normalizing so other subscribers keep the object.
+            data = dict(data)
+            data["arguments"] = json.dumps(data.get("arguments"))
         return f"event: {name}\ndata: {json.dumps(data)}\n\n"
 
     def _run_agent(self) -> object:
@@ -119,17 +126,15 @@ class AgentStreamBridge:
             from openjarvis.core.types import Message, Role
 
             for m in self._request.messages[:-1]:
-                role = (
-                    Role(m.role)
-                    if m.role in {r.value for r in Role}
-                    else Role.USER
+                role = Role(m.role) if m.role in {r.value for r in Role} else Role.USER
+                ctx.conversation.add(
+                    Message(
+                        role=role,
+                        content=m.content or "",
+                        name=m.name,
+                        tool_call_id=m.tool_call_id,
+                    )
                 )
-                ctx.conversation.add(Message(
-                    role=role,
-                    content=m.content or "",
-                    name=m.name,
-                    tool_call_id=m.tool_call_id,
-                ))
 
         input_text = (
             self._request.messages[-1].content if self._request.messages else ""
@@ -166,9 +171,11 @@ class AgentStreamBridge:
             first_chunk = ChatCompletionChunk(
                 id=self._chunk_id,
                 model=self._model,
-                choices=[StreamChoice(
-                    delta=DeltaMessage(role="assistant"),
-                )],
+                choices=[
+                    StreamChoice(
+                        delta=DeltaMessage(role="assistant"),
+                    )
+                ],
             )
             yield f"data: {first_chunk.model_dump_json()}\n\n"
 
@@ -194,26 +201,28 @@ class AgentStreamBridge:
                 logger.error("Agent stream error: %s", exc, exc_info=True)
 
                 error_str = str(exc)
-                if "context length" in error_str.lower() or (
-                    "400" in error_str and "too long" in error_str.lower()
+                if (
+                    getattr(exc, "is_context_length_error", False)
+                    or looks_like_context_length_error(error_str)
+                    or ("400" in error_str and "too long" in error_str.lower())
                 ):
                     error_content = (
                         "The input is too long for the model's context window. "
                         "Please try a shorter message."
                     )
                 elif "400" in error_str:
-                    error_content = (
-                        f"The model returned an error: {error_str}"
-                    )
+                    error_content = f"The model returned an error: {error_str}"
                 else:
                     error_content = f"Sorry, an error occurred: {error_str}"
                 error_chunk = ChatCompletionChunk(
                     id=self._chunk_id,
                     model=self._model,
-                    choices=[StreamChoice(
-                        delta=DeltaMessage(content=error_content),
-                        finish_reason="stop",
-                    )],
+                    choices=[
+                        StreamChoice(
+                            delta=DeltaMessage(content=error_content),
+                            finish_reason="stop",
+                        )
+                    ],
                 )
                 yield f"data: {error_chunk.model_dump_json()}\n\n"
                 yield "data: [DONE]\n\n"
@@ -222,20 +231,28 @@ class AgentStreamBridge:
             # Emit tool results metadata if any
             tool_results_data = []
             for tr in agent_result.tool_results:
-                tool_results_data.append({
-                    "tool_name": tr.tool_name,
-                    "success": tr.success,
-                    "output": tr.content,
-                    "latency_ms": tr.latency_seconds * 1000,
-                })
+                tool_results_data.append(
+                    {
+                        "tool_name": tr.tool_name,
+                        "success": tr.success,
+                        "output": tr.content,
+                        "latency_ms": tr.latency_seconds * 1000,
+                    }
+                )
 
             if tool_results_data:
                 yield self._format_named_event(
-                    "tool_results", {"results": tool_results_data},
+                    "tool_results",
+                    {"results": tool_results_data},
                 )
 
-            # Stream content progressively (word-by-word) for a
-            # real-time feel, then send a final chunk with usage.
+            # ``agent.run()`` already produced the authoritative, grounded
+            # response.  Do not call the engine again here: a second inference
+            # would not have the agent's system prompt, tool transcript, or
+            # other internal context and could therefore contradict the
+            # result reported by the agent events.  Replay the final content
+            # in chunks so the OpenAI-compatible streaming response stays
+            # consistent with the completed agent run.
             content = agent_result.content or ""
             if content:
                 words = content.split(" ")
@@ -244,9 +261,11 @@ class AgentStreamBridge:
                     chunk = ChatCompletionChunk(
                         id=self._chunk_id,
                         model=self._model,
-                        choices=[StreamChoice(
-                            delta=DeltaMessage(content=token),
-                        )],
+                        choices=[
+                            StreamChoice(
+                                delta=DeltaMessage(content=token),
+                            )
+                        ],
                     )
                     yield f"data: {chunk.model_dump_json()}\n\n"
                     await asyncio.sleep(0.012)
@@ -254,7 +273,8 @@ class AgentStreamBridge:
             # Final chunk: finish_reason + usage
             prompt_tokens = agent_result.metadata.get("prompt_tokens", 0)
             completion_tokens = agent_result.metadata.get(
-                "completion_tokens", 0,
+                "completion_tokens",
+                0,
             )
             total_tokens = agent_result.metadata.get("total_tokens", 0)
             if total_tokens == 0:
@@ -266,10 +286,12 @@ class AgentStreamBridge:
             final_chunk = ChatCompletionChunk(
                 id=self._chunk_id,
                 model=self._model,
-                choices=[StreamChoice(
-                    delta=DeltaMessage(),
-                    finish_reason="stop",
-                )],
+                choices=[
+                    StreamChoice(
+                        delta=DeltaMessage(),
+                        finish_reason="stop",
+                    )
+                ],
             )
             final_data = json.loads(final_chunk.model_dump_json())
             final_data["usage"] = UsageInfo(

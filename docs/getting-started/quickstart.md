@@ -7,6 +7,11 @@ search:
 
 # Quick Start
 
+!!! tip "Running `jarvis` commands"
+    Every `jarvis ...` example below assumes you have either activated the project venv
+    (`source .venv/bin/activate`) or are prefixing each command with `uv run`. A bare
+    `jarvis init --preset ...` from a fresh clone will fail with `command not found`.
+
 ## What You Can Build
 
 OpenJarvis is a modular AI assistant framework. Here's what developers build with it:
@@ -14,7 +19,7 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
 === "Chat with Any Model"
 
     ```bash
-    jarvis ask "Explain quantum entanglement" -m qwen3:8b
+    jarvis ask "Explain quantum entanglement" -m qwen3.5:4b   # use qwen3.5:9b or larger on GPU
     ```
 
 === "Agent + Tools"
@@ -29,6 +34,13 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
     jarvis memory index ./docs/
     jarvis ask "How do I configure the engine?"
     ```
+
+    !!! warning "Requires the Rust extension"
+        `jarvis memory index` and `jarvis memory search` import `openjarvis_rust`. If you
+        skipped the `uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml`
+        step in [Installation](installation.md), these commands fail with
+        `ModuleNotFoundError: No module named 'openjarvis_rust'`. Build the extension
+        once and any preset (including `deep-research`) will work.
 
 === "5-Line Python SDK"
 
@@ -45,7 +57,65 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
     # Now use any OpenAI-compatible client
     ```
 
+=== "Morning Digest"
+
+    ```bash
+    cp configs/openjarvis/examples/morning-digest-mac.toml ~/.openjarvis/config.toml
+    jarvis connect gdrive       # one OAuth flow for Gmail, Calendar, Tasks
+    CARTESIA_API_KEY="..." jarvis digest --fresh
+    # Plays a spoken daily briefing with your email, calendar, health, and news
+    ```
+
+=== "Deep Research"
+
+    ```bash
+    jarvis init --preset deep-research
+    jarvis memory index ~/Documents/papers/
+    jarvis ask "Summarize all documents about transformer architectures"
+    # Multi-hop search across your indexed docs with citations
+    ```
+
+=== "Code Assistant"
+
+    ```bash
+    jarvis init --preset code-assistant
+    jarvis ask "Write a Python script that parses CSV files"
+    # Orchestrator agent with code execution, file I/O, and shell access
+    ```
+
+=== "Scheduled Monitor"
+
+    ```bash
+    jarvis init --preset scheduled-monitor
+    jarvis memory index ~/Documents/
+    jarvis scheduler start
+    jarvis scheduler create \
+      --prompt "Check for new emails about Project X" \
+      --schedule "0 9 * * 1-5" --agent operative
+    # Persistent agent that runs on a cron schedule
+    ```
+
 For complete copy-paste patterns, see [Code Snippets](snippets.md).
+
+## Starter Configs
+
+Copy one of these to `~/.openjarvis/config.toml` to get a pre-configured setup:
+
+| Config | For | What it does |
+|--------|-----|-------------|
+| [`chat-simple.toml`](https://github.com/open-jarvis/OpenJarvis/blob/main/configs/openjarvis/examples/chat-simple.toml) | Any machine | Lightweight chat, no tools -- simplest setup |
+| [`code-assistant.toml`](https://github.com/open-jarvis/OpenJarvis/blob/main/configs/openjarvis/examples/code-assistant.toml) | Any machine | Orchestrator agent with code execution, file I/O, shell |
+| [`deep-research.toml`](https://github.com/open-jarvis/OpenJarvis/blob/main/configs/openjarvis/examples/deep-research.toml) | Any machine | Multi-hop research across indexed documents with citations |
+| [`scheduled-monitor.toml`](https://github.com/open-jarvis/OpenJarvis/blob/main/configs/openjarvis/examples/scheduled-monitor.toml) | Any machine | Persistent operative agent on a cron schedule |
+| [`morning-digest-mac.toml`](https://github.com/open-jarvis/OpenJarvis/blob/main/configs/openjarvis/examples/morning-digest-mac.toml) | Mac (Apple Silicon) | Daily spoken briefing from email, calendar, health, news |
+| [`morning-digest-linux.toml`](https://github.com/open-jarvis/OpenJarvis/blob/main/configs/openjarvis/examples/morning-digest-linux.toml) | Linux / GPU server | Same, with vLLM support |
+| [`morning-digest-minimal.toml`](https://github.com/open-jarvis/OpenJarvis/blob/main/configs/openjarvis/examples/morning-digest-minimal.toml) | Any machine | Just Gmail + Calendar |
+
+Or generate a config with digest included:
+
+```bash
+jarvis init --digest
+```
 
 This guide walks through the core workflows of OpenJarvis: the browser app, CLI, Python SDK, agents with tools, memory, benchmarks, and the API server.
 
@@ -64,6 +134,19 @@ cd OpenJarvis
 
 This launches the backend API server and a React frontend at [http://localhost:5173](http://localhost:5173).
 You get a ChatGPT-like interface with streaming responses, tool use, energy monitoring, and a telemetry dashboard — all running locally on your hardware.
+
+Web search is available through the built-in DuckDuckGo fallback. To use
+Tavily, add `TAVILY_API_KEY` under **Settings → Tools → Web Search** after the
+app starts, or export it before starting quickstart:
+
+```bash
+export TAVILY_API_KEY="tvly-..."
+./scripts/quickstart.sh
+```
+
+The script does not automatically source `.env` files. Run `source .env`
+first if that is where you keep the key. Stop any existing OpenJarvis server
+before restarting so it inherits the updated environment.
 
 To stop all services, press ++ctrl+c++ in the terminal.
 

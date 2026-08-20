@@ -76,6 +76,12 @@ def _run_git(
             content="git binary not found.",
             success=False,
         )
+    except NotADirectoryError as exc:
+        return ToolResult(
+            tool_name=tool_name,
+            content=f"Invalid repository path: {exc}",
+            success=False,
+        )
     except subprocess.TimeoutExpired:
         return ToolResult(
             tool_name=tool_name,
@@ -121,8 +127,7 @@ class GitStatusTool(BaseTool):
                     "repo_path": {
                         "type": "string",
                         "description": (
-                            "Path to the git repository."
-                            " Default: current directory."
+                            "Path to the git repository. Default: current directory."
                         ),
                     },
                 },
@@ -134,8 +139,8 @@ class GitStatusTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         repo_path = params.get("repo_path", ".")
-        _rust = get_rust_module()
         try:
+            _rust = get_rust_module()
             output = _rust.GitStatusTool().execute(repo_path)
             return ToolResult(
                 tool_name="git_status",
@@ -143,12 +148,16 @@ class GitStatusTool(BaseTool):
                 success=True,
                 metadata={"returncode": 0},
             )
+        except ImportError as exc:
+            logger.debug("Rust git_status fallback to CLI: %s", exc)
         except Exception as exc:
             return ToolResult(
                 tool_name="git_status",
                 content=f"Git status error: {exc}",
                 success=False,
             )
+
+        return _run_git(["git", "status", "--porcelain"], cwd=repo_path)
 
 
 # ---------------------------------------------------------------------------
@@ -176,22 +185,19 @@ class GitDiffTool(BaseTool):
                     "repo_path": {
                         "type": "string",
                         "description": (
-                            "Path to the git repository."
-                            " Default: current directory."
+                            "Path to the git repository. Default: current directory."
                         ),
                     },
                     "staged": {
                         "type": "boolean",
                         "description": (
-                            "Show staged changes instead of"
-                            " unstaged. Default: false."
+                            "Show staged changes instead of unstaged. Default: false."
                         ),
                     },
                     "path": {
                         "type": "string",
                         "description": (
-                            "Specific file path to diff."
-                            " Default: all files."
+                            "Specific file path to diff. Default: all files."
                         ),
                     },
                 },
@@ -206,9 +212,9 @@ class GitDiffTool(BaseTool):
         staged = params.get("staged", False)
         file_path = params.get("path")
 
-        _rust = get_rust_module()
         if not staged and not file_path:
             try:
+                _rust = get_rust_module()
                 output = _rust.GitDiffTool().execute(repo_path)
                 return ToolResult(
                     tool_name="git_diff",
@@ -216,6 +222,8 @@ class GitDiffTool(BaseTool):
                     success=True,
                     metadata={"returncode": 0},
                 )
+            except ImportError as exc:
+                logger.debug("Rust git_diff fallback to CLI: %s", exc)
             except Exception as exc:
                 return ToolResult(
                     tool_name="git_diff",
@@ -262,8 +270,7 @@ class GitCommitTool(BaseTool):
                     "repo_path": {
                         "type": "string",
                         "description": (
-                            "Path to the git repository."
-                            " Default: current directory."
+                            "Path to the git repository. Default: current directory."
                         ),
                     },
                     "files": {
@@ -304,7 +311,8 @@ class GitCommitTool(BaseTool):
                     success=False,
                 )
             add_result = _run_git(
-                ["git", "add"] + file_list, cwd=repo_path,
+                ["git", "add"] + file_list,
+                cwd=repo_path,
             )
             if not add_result.success:
                 return ToolResult(
@@ -316,7 +324,8 @@ class GitCommitTool(BaseTool):
 
         # Commit
         return _run_git(
-            ["git", "commit", "-m", message], cwd=repo_path,
+            ["git", "commit", "-m", message],
+            cwd=repo_path,
         )
 
 
@@ -345,23 +354,16 @@ class GitLogTool(BaseTool):
                     "repo_path": {
                         "type": "string",
                         "description": (
-                            "Path to the git repository."
-                            " Default: current directory."
+                            "Path to the git repository. Default: current directory."
                         ),
                     },
                     "count": {
                         "type": "integer",
-                        "description": (
-                            "Number of commits to show."
-                            " Default: 10."
-                        ),
+                        "description": ("Number of commits to show. Default: 10."),
                     },
                     "oneline": {
                         "type": "boolean",
-                        "description": (
-                            "Use --oneline format."
-                            " Default: true."
-                        ),
+                        "description": ("Use --oneline format. Default: true."),
                     },
                 },
                 "required": [],
@@ -375,8 +377,8 @@ class GitLogTool(BaseTool):
         count = params.get("count", 10)
         oneline = params.get("oneline", True)
 
-        _rust = get_rust_module()
         try:
+            _rust = get_rust_module()
             output = _rust.GitLogTool().execute(repo_path, count)
             return ToolResult(
                 tool_name="git_log",

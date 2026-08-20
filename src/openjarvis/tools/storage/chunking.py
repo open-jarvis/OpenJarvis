@@ -75,22 +75,21 @@ def chunk_text(
 
         # If adding this paragraph would exceed chunk_size and we already
         # have content, flush the current chunk first.
-        if (
-            current_tokens
-            and len(current_tokens) + len(para_tokens) > cfg.chunk_size
-        ):
+        if current_tokens and len(current_tokens) + len(para_tokens) > cfg.chunk_size:
             chunk_content = " ".join(current_tokens)
             if _count_tokens(chunk_content) >= cfg.min_chunk_size:
-                chunks.append(Chunk(
-                    content=chunk_content,
-                    source=source,
-                    offset=chunk_start_offset,
-                    index=len(chunks),
-                ))
+                chunks.append(
+                    Chunk(
+                        content=chunk_content,
+                        source=source,
+                        offset=chunk_start_offset,
+                        index=len(chunks),
+                    )
+                )
 
             # Keep the overlap tail for the next chunk
             if cfg.chunk_overlap > 0 and len(current_tokens) > cfg.chunk_overlap:
-                overlap = current_tokens[-cfg.chunk_overlap:]
+                overlap = current_tokens[-cfg.chunk_overlap :]
                 current_tokens = list(overlap)
             else:
                 current_tokens = []
@@ -102,26 +101,30 @@ def chunk_text(
             if current_tokens:
                 chunk_content = " ".join(current_tokens)
                 if _count_tokens(chunk_content) >= cfg.min_chunk_size:
-                    chunks.append(Chunk(
-                        content=chunk_content,
-                        source=source,
-                        offset=chunk_start_offset,
-                        index=len(chunks),
-                    ))
+                    chunks.append(
+                        Chunk(
+                            content=chunk_content,
+                            source=source,
+                            offset=chunk_start_offset,
+                            index=len(chunks),
+                        )
+                    )
                 current_tokens = []
 
             # Split the oversized paragraph into fixed windows
             idx = 0
             while idx < len(para_tokens):
-                window = para_tokens[idx:idx + cfg.chunk_size]
+                window = para_tokens[idx : idx + cfg.chunk_size]
                 chunk_content = " ".join(window)
                 if _count_tokens(chunk_content) >= cfg.min_chunk_size:
-                    chunks.append(Chunk(
-                        content=chunk_content,
-                        source=source,
-                        offset=current_offset + idx,
-                        index=len(chunks),
-                    ))
+                    chunks.append(
+                        Chunk(
+                            content=chunk_content,
+                            source=source,
+                            offset=current_offset + idx,
+                            index=len(chunks),
+                        )
+                    )
                 step = max(1, cfg.chunk_size - cfg.chunk_overlap)
                 idx += step
 
@@ -132,16 +135,25 @@ def chunk_text(
         current_tokens.extend(para_tokens)
         current_offset += len(para_tokens)
 
-    # Flush remaining tokens
+    # Flush remaining tokens.
+    #
+    # ``min_chunk_size`` exists to discard tiny *trailing* fragments once a
+    # document has already produced at least one chunk. It must NOT silently
+    # drop an entire short document: indexing a folder of short notes would
+    # otherwise report success while storing nothing (#502 follow-up). So if no
+    # chunk has been emitted yet, keep the remaining content regardless of the
+    # floor.
     if current_tokens:
         chunk_content = " ".join(current_tokens)
-        if _count_tokens(chunk_content) >= cfg.min_chunk_size:
-            chunks.append(Chunk(
-                content=chunk_content,
-                source=source,
-                offset=chunk_start_offset,
-                index=len(chunks),
-            ))
+        if not chunks or _count_tokens(chunk_content) >= cfg.min_chunk_size:
+            chunks.append(
+                Chunk(
+                    content=chunk_content,
+                    source=source,
+                    offset=chunk_start_offset,
+                    index=len(chunks),
+                )
+            )
 
     return chunks
 

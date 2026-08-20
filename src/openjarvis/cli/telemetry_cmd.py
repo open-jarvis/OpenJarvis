@@ -27,7 +27,11 @@ def telemetry() -> None:
 
 @telemetry.command()
 @click.option(
-    "-n", "--top", "top_n", default=10, type=int,
+    "-n",
+    "--top",
+    "top_n",
+    default=10,
+    type=int,
     help="Number of top models to show.",
 )
 def stats(top_n: int) -> None:
@@ -76,13 +80,9 @@ def stats(top_n: int) -> None:
         # Per-model table
         if summary.per_model:
             has_energy = any(
-                ms.total_energy_joules > 0
-                for ms in summary.per_model[:top_n]
+                ms.total_energy_joules > 0 for ms in summary.per_model[:top_n]
             )
-            has_itl = any(
-                ms.avg_mean_itl_ms > 0
-                for ms in summary.per_model[:top_n]
-            )
+            has_itl = any(ms.avg_mean_itl_ms > 0 for ms in summary.per_model[:top_n])
             model_table = Table(title=f"Top {top_n} Models")
             model_table.add_column("Model", style="cyan")
             model_table.add_column("Calls", justify="right")
@@ -121,13 +121,9 @@ def stats(top_n: int) -> None:
         # Per-engine table
         if summary.per_engine:
             has_engine_energy = any(
-                es.total_energy_joules > 0
-                for es in summary.per_engine
+                es.total_energy_joules > 0 for es in summary.per_engine
             )
-            has_engine_itl = any(
-                es.avg_mean_itl_ms > 0
-                for es in summary.per_engine
-            )
+            has_engine_itl = any(es.avg_mean_itl_ms > 0 for es in summary.per_engine)
             engine_table = Table(title="Engines")
             engine_table.add_column("Engine", style="cyan")
             engine_table.add_column("Calls", justify="right")
@@ -171,11 +167,19 @@ def stats(top_n: int) -> None:
 
 @telemetry.command()
 @click.option(
-    "-f", "--format", "fmt", default="json", type=click.Choice(["json", "csv"]),
+    "-f",
+    "--format",
+    "fmt",
+    default="json",
+    type=click.Choice(["json", "csv"]),
     help="Output format.",
 )
 @click.option(
-    "-o", "--output", "output_path", default=None, type=click.Path(),
+    "-o",
+    "--output",
+    "output_path",
+    default=None,
+    type=click.Path(),
     help="Output file path (default: stdout).",
 )
 def export(fmt: str, output_path: str | None) -> None:
@@ -207,7 +211,10 @@ def export(fmt: str, output_path: str | None) -> None:
 
 @telemetry.command()
 @click.option(
-    "-y", "--yes", "confirmed", is_flag=True,
+    "-y",
+    "--yes",
+    "confirmed",
+    is_flag=True,
     help="Skip confirmation prompt.",
 )
 def clear(confirmed: bool) -> None:

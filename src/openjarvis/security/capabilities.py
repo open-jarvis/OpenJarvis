@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class Capability(str, Enum):
     """Fine-grained capability labels."""
+
     FILE_READ = "file:read"
     FILE_WRITE = "file:write"
     NETWORK_FETCH = "network:fetch"
@@ -30,13 +31,15 @@ class Capability(str, Enum):
 @dataclass(slots=True)
 class CapabilityGrant:
     """A single capability grant for an agent."""
-    capability: str              # Capability value or glob pattern
-    pattern: str = "*"           # resource glob pattern
+
+    capability: str  # Capability value or glob pattern
+    pattern: str = "*"  # resource glob pattern
 
 
 @dataclass(slots=True)
 class AgentPolicy:
     """Policy for a specific agent."""
+
     agent_id: str
     grants: List[CapabilityGrant] = field(default_factory=list)
     deny: List[str] = field(default_factory=list)  # explicit denials
@@ -63,6 +66,7 @@ class CapabilityPolicy:
         self._default_deny = default_deny
 
         from openjarvis._rust_bridge import get_rust_module
+
         _rust = get_rust_module()
         self._rust_impl = _rust.CapabilityPolicy(default_deny=default_deny)
 
@@ -72,7 +76,8 @@ class CapabilityPolicy:
     def grant(self, agent_id: str, capability: str, pattern: str = "*") -> None:
         """Grant a capability to an agent."""
         policy = self._policies.setdefault(
-            agent_id, AgentPolicy(agent_id=agent_id),
+            agent_id,
+            AgentPolicy(agent_id=agent_id),
         )
         policy.grants.append(CapabilityGrant(capability=capability, pattern=pattern))
         self._rust_impl.grant(agent_id, capability, pattern)
@@ -80,7 +85,8 @@ class CapabilityPolicy:
     def deny(self, agent_id: str, capability: str) -> None:
         """Explicitly deny a capability to an agent."""
         policy = self._policies.setdefault(
-            agent_id, AgentPolicy(agent_id=agent_id),
+            agent_id,
+            AgentPolicy(agent_id=agent_id),
         )
         policy.deny.append(capability)
         self._rust_impl.deny(agent_id, capability)
@@ -148,14 +154,16 @@ class CapabilityPolicy:
         """Save policy to a JSON file."""
         agents = []
         for agent_id, policy in self._policies.items():
-            agents.append({
-                "agent_id": agent_id,
-                "grants": [
-                    {"capability": g.capability, "pattern": g.pattern}
-                    for g in policy.grants
-                ],
-                "deny": policy.deny,
-            })
+            agents.append(
+                {
+                    "agent_id": agent_id,
+                    "grants": [
+                        {"capability": g.capability, "pattern": g.pattern}
+                        for g in policy.grants
+                    ],
+                    "deny": policy.deny,
+                }
+            )
         path.write_text(json.dumps({"agents": agents}, indent=2))
 
 

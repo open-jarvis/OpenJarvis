@@ -169,6 +169,51 @@ class TestRLMReplCallbacks:
         output = repl.execute("llm_query('test')")
         assert "NameError" in output
 
+    def test_tool_call_callback(self):
+        calls = []
+
+        def mock_tool(tool_name, params):
+            calls.append((tool_name, params))
+            return "tool-output"
+
+        repl = RLMRepl(tool_call_fn=mock_tool)
+        out = repl.execute("result = tool_call('calculator', {'expression': '2+2'})")
+        assert out == ""
+        assert calls == [("calculator", {"expression": "2+2"})]
+        assert repl.get_variable("result") == "tool-output"
+
+    def test_direct_tool_wrapper_with_kwargs(self):
+        calls = []
+
+        def mock_tool(tool_name, params):
+            calls.append((tool_name, params))
+            return "file contents"
+
+        repl = RLMRepl(
+            tool_call_fn=mock_tool,
+            tool_arg_names={"file_read": "path"},
+        )
+        out = repl.execute('result = file_read(path="README.md")')
+        assert out == ""
+        assert calls == [("file_read", {"path": "README.md"})]
+        assert repl.get_variable("result") == "file contents"
+
+    def test_direct_tool_wrapper_with_positional_arg(self):
+        calls = []
+
+        def mock_tool(tool_name, params):
+            calls.append((tool_name, params))
+            return "cargo toml"
+
+        repl = RLMRepl(
+            tool_call_fn=mock_tool,
+            tool_arg_names={"file_read": "path"},
+        )
+        out = repl.execute('result = file_read("rust/Cargo.toml")')
+        assert out == ""
+        assert calls == [("file_read", {"path": "rust/Cargo.toml"})]
+        assert repl.get_variable("result") == "cargo toml"
+
 
 class TestRLMReplOutput:
     """Output truncation and error handling."""

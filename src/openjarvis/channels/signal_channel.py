@@ -44,7 +44,8 @@ class SignalChannel(BaseChannel):
     ) -> None:
         self._api_url = api_url or os.environ.get("SIGNAL_API_URL", "")
         self._phone_number = phone_number or os.environ.get(
-            "SIGNAL_PHONE_NUMBER", "",
+            "SIGNAL_PHONE_NUMBER",
+            "",
         )
         self._bus = bus
         self._handlers: List[ChannelHandler] = []
@@ -94,7 +95,8 @@ class SignalChannel(BaseChannel):
                 self._publish_sent(channel, content, conversation_id)
                 return True
             logger.warning(
-                "Signal API returned status %d", resp.status_code,
+                "Signal API returned status %d",
+                resp.status_code,
             )
             return False
         except Exception:

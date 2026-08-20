@@ -135,7 +135,9 @@ class ChecklistScorer:
         return score, details
 
     def _parse_response(
-        self, raw: str, checklist: List[str],
+        self,
+        raw: str,
+        checklist: List[str],
     ) -> List[Dict[str, Any]]:
         """Parse the judge response into per-item results."""
         details: List[Dict[str, Any]] = []
@@ -151,11 +153,13 @@ class ChecklistScorer:
                 passed = False
                 reasoning = "could not parse judge response"
 
-            details.append({
-                "item": item,
-                "passed": passed,
-                "reasoning": reasoning,
-            })
+            details.append(
+                {
+                    "item": item,
+                    "passed": passed,
+                    "reasoning": reasoning,
+                }
+            )
 
         return details
 

@@ -22,6 +22,7 @@ class A2AClient:
     def discover(self) -> AgentCard:
         """Fetch the agent card from /.well-known/agent.json."""
         import httpx
+
         resp = httpx.get(
             f"{self._base_url}/.well-known/agent.json",
             timeout=self._timeout,
@@ -41,6 +42,7 @@ class A2AClient:
     def send_task(self, input_text: str, **kwargs: Any) -> A2ATask:
         """Send a task to the remote agent and return the result."""
         import httpx
+
         request = A2ARequest(
             method="tasks/send",
             params={
@@ -69,6 +71,7 @@ class A2AClient:
     def get_task(self, task_id: str) -> A2ATask:
         """Get the status of a previously submitted task."""
         import httpx
+
         request = A2ARequest(
             method="tasks/get",
             params={"id": task_id},
@@ -90,6 +93,7 @@ class A2AClient:
     def cancel_task(self, task_id: str) -> A2ATask:
         """Cancel a running task."""
         import httpx
+
         request = A2ARequest(
             method="tasks/cancel",
             params={"id": task_id},

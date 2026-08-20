@@ -62,7 +62,8 @@ class DiscordChannel(BaseChannel):
             import discord  # noqa: F401
 
             self._listener_thread = threading.Thread(
-                target=self._gateway_loop, daemon=True,
+                target=self._gateway_loop,
+                daemon=True,
             )
             self._listener_thread.start()
             self._status = ChannelStatus.CONNECTED
@@ -93,6 +94,16 @@ class DiscordChannel(BaseChannel):
         if not self._token:
             logger.warning("Cannot send: no Discord bot token")
             return False
+        # Defensive guard for #459 follow-up: an empty `channel` arg would
+        # produce /channels//messages and silently 404. Better to fail
+        # explicitly so the upstream bug (wrong field passed in) surfaces
+        # in the warning log instead of silently blackholing the reply.
+        if not channel:
+            logger.warning(
+                "Cannot send: no Discord channel destination "
+                "(caller passed empty channel id)"
+            )
+            return False
 
         try:
             import httpx
@@ -107,7 +118,10 @@ class DiscordChannel(BaseChannel):
                 payload["message_reference"] = {"message_id": conversation_id}
 
             resp = httpx.post(
-                url, json=payload, headers=headers, timeout=10.0,
+                url,
+                json=payload,
+                headers=headers,
+                timeout=10.0,
             )
             if resp.status_code < 300:
                 self._publish_sent(channel, content, conversation_id)

@@ -32,13 +32,15 @@ class WorkflowBuilder:
         tools: Optional[List[str]] = None,
         config: Optional[Dict[str, Any]] = None,
     ) -> WorkflowBuilder:
-        self._nodes.append(WorkflowNode(
-            id=node_id,
-            node_type=NodeType.AGENT,
-            agent=agent,
-            tools=tools or [],
-            config=config or {},
-        ))
+        self._nodes.append(
+            WorkflowNode(
+                id=node_id,
+                node_type=NodeType.AGENT,
+                agent=agent,
+                tools=tools or [],
+                config=config or {},
+            )
+        )
         return self
 
     def add_tool(
@@ -48,11 +50,13 @@ class WorkflowBuilder:
         tool_name: str,
         tool_args: str = "{}",
     ) -> WorkflowBuilder:
-        self._nodes.append(WorkflowNode(
-            id=node_id,
-            node_type=NodeType.TOOL,
-            config={"tool_name": tool_name, "tool_args": tool_args},
-        ))
+        self._nodes.append(
+            WorkflowNode(
+                id=node_id,
+                node_type=NodeType.TOOL,
+                config={"tool_name": tool_name, "tool_args": tool_args},
+            )
+        )
         return self
 
     def add_condition(
@@ -61,11 +65,13 @@ class WorkflowBuilder:
         *,
         expr: str,
     ) -> WorkflowBuilder:
-        self._nodes.append(WorkflowNode(
-            id=node_id,
-            node_type=NodeType.CONDITION,
-            condition_expr=expr,
-        ))
+        self._nodes.append(
+            WorkflowNode(
+                id=node_id,
+                node_type=NodeType.CONDITION,
+                condition_expr=expr,
+            )
+        )
         return self
 
     def add_loop(
@@ -76,13 +82,15 @@ class WorkflowBuilder:
         max_iterations: int = 10,
         exit_condition: str = "",
     ) -> WorkflowBuilder:
-        self._nodes.append(WorkflowNode(
-            id=node_id,
-            node_type=NodeType.LOOP,
-            agent=agent,
-            max_iterations=max_iterations,
-            condition_expr=exit_condition,
-        ))
+        self._nodes.append(
+            WorkflowNode(
+                id=node_id,
+                node_type=NodeType.LOOP,
+                agent=agent,
+                max_iterations=max_iterations,
+                condition_expr=exit_condition,
+            )
+        )
         return self
 
     def add_transform(
@@ -91,11 +99,13 @@ class WorkflowBuilder:
         *,
         transform: str = "concatenate",
     ) -> WorkflowBuilder:
-        self._nodes.append(WorkflowNode(
-            id=node_id,
-            node_type=NodeType.TRANSFORM,
-            transform_expr=transform,
-        ))
+        self._nodes.append(
+            WorkflowNode(
+                id=node_id,
+                node_type=NodeType.TRANSFORM,
+                transform_expr=transform,
+            )
+        )
         return self
 
     def connect(
@@ -105,17 +115,24 @@ class WorkflowBuilder:
         *,
         condition: str = "",
     ) -> WorkflowBuilder:
-        self._edges.append(WorkflowEdge(
-            source=source, target=target, condition=condition,
-        ))
+        self._edges.append(
+            WorkflowEdge(
+                source=source,
+                target=target,
+                condition=condition,
+            )
+        )
         return self
 
     def sequential(self, *node_ids: str) -> WorkflowBuilder:
         """Connect nodes in sequential order."""
         for i in range(len(node_ids) - 1):
-            self._edges.append(WorkflowEdge(
-                source=node_ids[i], target=node_ids[i + 1],
-            ))
+            self._edges.append(
+                WorkflowEdge(
+                    source=node_ids[i],
+                    target=node_ids[i + 1],
+                )
+            )
         return self
 
     def build(self) -> WorkflowGraph:

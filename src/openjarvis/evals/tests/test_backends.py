@@ -4,6 +4,27 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import httpx
+import pytest
+import respx
+
+
+def _mock_builder() -> MagicMock:
+    """A SystemBuilder mock whose fluent methods chain like the real one."""
+    builder = MagicMock()
+    for method in (
+        "engine",
+        "engine_instance",
+        "model",
+        "agent",
+        "tools",
+        "telemetry",
+        "traces",
+    ):
+        getattr(builder, method).return_value = builder
+    builder.build.return_value = MagicMock()
+    return builder
+
 
 class TestJarvisDirectBackend:
     @patch("openjarvis.system.SystemBuilder")
@@ -99,7 +120,8 @@ class TestJarvisAgentBackend:
         from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
 
         backend = JarvisAgentBackend(
-            engine_key="cloud", agent_name="orchestrator",
+            engine_key="cloud",
+            agent_name="orchestrator",
             tools=["calculator", "think"],
         )
         assert backend.backend_id == "jarvis-agent"
@@ -136,3 +158,130 @@ class TestJarvisAgentBackend:
         assert result["content"] == "The answer is 4."
         assert result["turns"] == 2
         assert len(result["tool_results"]) == 1
+
+
+class TestJarvisDirectBackendBaseUrl:
+    """--base-url targeting for the jarvis-direct backend."""
+
+    @patch("openjarvis.system.SystemBuilder")
+    def test_base_url_injects_pinned_openai_compat_engine(self, mock_builder_cls):
+        from openjarvis.engine.openai_compat_engines import OpenAICompatEngine
+        from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
+
+        mock_builder = _mock_builder()
+        mock_builder_cls.return_value = mock_builder
+
+        with respx.mock:
+            respx.get("http://127.0.0.1:18999/v1/models").mock(
+                return_value=httpx.Response(200, json={"data": []})
+            )
+            JarvisDirectBackend(base_url="http://127.0.0.1:18999/v1", api_key="sk-x")
+
+        mock_builder.engine_instance.assert_called_once()
+        injected = mock_builder.engine_instance.call_args[0][0]
+        assert isinstance(injected, OpenAICompatEngine)
+        # Trailing /v1 is normalized away so request paths don't double up.
+        assert injected._host == "http://127.0.0.1:18999"
+        assert injected._api_key == "sk-x"
+        # The discovery path must not be engaged at all.
+        mock_builder.engine.assert_not_called()
+
+    @patch("openjarvis.system.SystemBuilder")
+    def test_unreachable_base_url_fails_fast_naming_url(self, mock_builder_cls):
+        from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
+
+        mock_builder = _mock_builder()
+        mock_builder_cls.return_value = mock_builder
+
+        with respx.mock:
+            respx.get("http://127.0.0.1:18998/v1/models").mock(
+                side_effect=httpx.ConnectError("connection refused")
+            )
+            with pytest.raises(RuntimeError, match=r"http://127\.0\.0\.1:18998"):
+                JarvisDirectBackend(base_url="http://127.0.0.1:18998")
+
+        # No silent engine substitution: the system is never built.
+        mock_builder.engine_instance.assert_not_called()
+        mock_builder.build.assert_not_called()
+
+    @patch("openjarvis.system.SystemBuilder")
+    def test_no_base_url_keeps_engine_key_path(self, mock_builder_cls):
+        from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
+
+        mock_builder = _mock_builder()
+        mock_builder_cls.return_value = mock_builder
+
+        JarvisDirectBackend(engine_key="vllm")
+        mock_builder.engine.assert_called_with("vllm")
+        mock_builder.engine_instance.assert_not_called()
+
+    @patch("openjarvis.system.SystemBuilder")
+    def test_base_url_wins_over_engine_key(self, mock_builder_cls):
+        from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
+
+        mock_builder = _mock_builder()
+        mock_builder_cls.return_value = mock_builder
+
+        with respx.mock:
+            respx.get("http://127.0.0.1:18999/v1/models").mock(
+                return_value=httpx.Response(200, json={"data": []})
+            )
+            JarvisDirectBackend(engine_key="vllm", base_url="http://127.0.0.1:18999")
+
+        mock_builder.engine.assert_not_called()
+        mock_builder.engine_instance.assert_called_once()
+        # The engine key is kept as the label for the injected engine.
+        assert mock_builder.engine_instance.call_args.kwargs["key"] == "vllm"
+
+
+class TestJarvisAgentBackendBaseUrl:
+    """--base-url targeting for the jarvis-agent backend."""
+
+    @patch("openjarvis.system.SystemBuilder")
+    def test_base_url_injects_pinned_openai_compat_engine(self, mock_builder_cls):
+        from openjarvis.engine.openai_compat_engines import OpenAICompatEngine
+        from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
+
+        mock_builder = _mock_builder()
+        mock_builder_cls.return_value = mock_builder
+
+        with respx.mock:
+            respx.get("http://127.0.0.1:18999/v1/models").mock(
+                return_value=httpx.Response(200, json={"data": []})
+            )
+            JarvisAgentBackend(base_url="http://127.0.0.1:18999/v1", api_key="sk-x")
+
+        mock_builder.engine_instance.assert_called_once()
+        injected = mock_builder.engine_instance.call_args[0][0]
+        assert isinstance(injected, OpenAICompatEngine)
+        assert injected._host == "http://127.0.0.1:18999"
+        assert injected._api_key == "sk-x"
+        mock_builder.engine.assert_not_called()
+
+    @patch("openjarvis.system.SystemBuilder")
+    def test_unreachable_base_url_fails_fast_naming_url(self, mock_builder_cls):
+        from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
+
+        mock_builder = _mock_builder()
+        mock_builder_cls.return_value = mock_builder
+
+        with respx.mock:
+            respx.get("http://127.0.0.1:18998/v1/models").mock(
+                side_effect=httpx.ConnectError("connection refused")
+            )
+            with pytest.raises(RuntimeError, match=r"http://127\.0\.0\.1:18998"):
+                JarvisAgentBackend(base_url="http://127.0.0.1:18998")
+
+        mock_builder.engine_instance.assert_not_called()
+        mock_builder.build.assert_not_called()
+
+    @patch("openjarvis.system.SystemBuilder")
+    def test_no_base_url_keeps_engine_key_path(self, mock_builder_cls):
+        from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
+
+        mock_builder = _mock_builder()
+        mock_builder_cls.return_value = mock_builder
+
+        JarvisAgentBackend(engine_key="vllm")
+        mock_builder.engine.assert_called_with("vllm")
+        mock_builder.engine_instance.assert_not_called()

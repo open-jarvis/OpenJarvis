@@ -12,15 +12,26 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 # Safe environment variables to pass through
-_SAFE_ENV_VARS = frozenset({
-    "PATH", "HOME", "USER", "LANG", "TERM", "SHELL",
-    "LC_ALL", "LC_CTYPE", "TMPDIR", "TZ",
-})
+_SAFE_ENV_VARS = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LANG",
+        "TERM",
+        "SHELL",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TMPDIR",
+        "TZ",
+    }
+)
 
 
 @dataclass(slots=True)
 class SandboxResult:
     """Result of a sandboxed subprocess execution."""
+
     stdout: str = ""
     stderr: str = ""
     returncode: int = -1

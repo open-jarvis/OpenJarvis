@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS traces (
     ended_at             REAL    NOT NULL DEFAULT 0.0,
     total_tokens         INTEGER NOT NULL DEFAULT 0,
     total_latency_seconds REAL   NOT NULL DEFAULT 0.0,
-    metadata             TEXT    NOT NULL DEFAULT '{}'
+    metadata             TEXT    NOT NULL DEFAULT '{}',
+    messages             TEXT    NOT NULL DEFAULT '[]'
 );
 """
 
@@ -64,8 +65,8 @@ _INSERT_TRACE = """\
 INSERT INTO traces (
     trace_id, query, agent, model, engine, result,
     outcome, feedback, started_at, ended_at,
-    total_tokens, total_latency_seconds, metadata
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    total_tokens, total_latency_seconds, metadata, messages
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _INSERT_STEP = """\
@@ -81,16 +82,39 @@ class TraceStore:
 
     def __init__(self, db_path: str | Path) -> None:
         self._db_path = str(db_path)
-        self._conn = sqlite3.connect(self._db_path)
+        if self._db_path != ":memory:":
+            from openjarvis.security.file_utils import secure_create
+
+            secure_create(Path(self._db_path))
+        # check_same_thread=False is safe with WAL mode.  The
+        # AgenticRunner dispatches agent work to a ThreadPoolExecutor
+        # (for Playwright compat), so trace writes may originate from
+        # a different thread than the one that opened the connection.
+        self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_CREATE_TRACES)
         self._conn.execute(_CREATE_STEPS)
         self._conn.execute(_CREATE_FTS)
         self._conn.execute(_FTS_SYNC_INSERT)
+        # Migrate: add messages column if missing (pre-existing databases)
+        try:
+            self._conn.execute(
+                "ALTER TABLE traces ADD COLUMN messages TEXT NOT NULL DEFAULT '[]'"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         self._conn.commit()
 
     def save(self, trace: Trace) -> None:
-        """Persist a complete trace with all its steps."""
+        """Persist a complete trace with all its steps.
+
+        ``trace_id`` is a primary key: saving a second, different trace under
+        an existing id raises ``sqlite3.IntegrityError`` (the external-corpus
+        adapter relies on this to surface duplicate record ids). The server
+        avoids re-saving the same trace by keeping the ``TraceCollector`` the
+        single writer — see ``server/app.py`` — rather than swallowing
+        collisions here.
+        """
         self._conn.execute(
             _INSERT_TRACE,
             (
@@ -107,6 +131,7 @@ class TraceStore:
                 trace.total_tokens,
                 trace.total_latency_seconds,
                 json.dumps(trace.metadata),
+                json.dumps(trace.messages),
             ),
         )
         for idx, step in enumerate(trace.steps):
@@ -198,8 +223,13 @@ class TraceStore:
         rows = self._conn.execute(sql, params).fetchall()
         return [
             {
-                "trace_id": r[0], "query": r[1], "result": r[2],
-                "agent": r[3], "model": r[4], "outcome": r[5], "started_at": r[6],
+                "trace_id": r[0],
+                "query": r[1],
+                "result": r[2],
+                "agent": r[3],
+                "model": r[4],
+                "outcome": r[5],
+                "started_at": r[6],
             }
             for r in rows
         ]
@@ -249,6 +279,9 @@ class TraceStore:
             )
             for sr in step_rows
         ]
+        # messages column (index 14) was added after metadata; handle
+        # databases created before the column existed.
+        messages_raw = row[14] if len(row) > 14 else "[]"
         return Trace(
             trace_id=trace_id,
             query=row[2],
@@ -263,6 +296,7 @@ class TraceStore:
             total_tokens=row[11],
             total_latency_seconds=row[12],
             metadata=json.loads(row[13]),
+            messages=json.loads(messages_raw),
             steps=steps,
         )
 

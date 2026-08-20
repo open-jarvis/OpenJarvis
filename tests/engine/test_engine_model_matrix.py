@@ -12,6 +12,7 @@ from openjarvis.engine.ollama import OllamaEngine
 from openjarvis.engine.openai_compat_engines import (
     AppleFmEngine,
     ExoEngine,
+    LemonadeEngine,
     LlamaCppEngine,
     LMStudioEngine,
     MLXEngine,
@@ -31,13 +32,16 @@ _OPENAI_COMPAT_ENGINES = [
     ("nexa", "http://testhost:18181", NexaEngine),
     ("uzu", "http://testhost:8000", UzuEngine),
     ("apple_fm", "http://testhost:8079", AppleFmEngine),
+    ("lemonade", "http://testhost:13305", LemonadeEngine),
 ]
 
 
 def _api_prefix(engine_key: str) -> str:
-    """Return the API prefix for an engine (Uzu uses no prefix)."""
+    """Return the API prefix for an engine."""
     if engine_key == "uzu":
         return ""
+    if engine_key == "lemonade":
+        return "/v1"
     return "/v1"
 
 

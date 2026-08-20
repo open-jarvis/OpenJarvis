@@ -66,7 +66,9 @@ class IPWDataset(DatasetProvider):
                 self._records.append(record)
 
         LOGGER.info(
-            "IPW dataset loaded: %d records from %s", len(self._records), data_path,
+            "IPW dataset loaded: %d records from %s",
+            len(self._records),
+            data_path,
         )
 
     def iter_records(self) -> Iterable[EvalRecord]:
@@ -166,14 +168,11 @@ class IPWDataset(DatasetProvider):
 
     @staticmethod
     def _convert_row(
-        raw: MutableMapping[str, Any], idx: int,
+        raw: MutableMapping[str, Any],
+        idx: int,
     ) -> Optional[EvalRecord]:
-        problem = str(
-            raw.get("problem") or raw.get("prompt") or ""
-        ).strip()
-        answer = str(
-            raw.get("answer") or raw.get("expected_answer") or ""
-        ).strip()
+        problem = str(raw.get("problem") or raw.get("prompt") or "").strip()
+        answer = str(raw.get("answer") or raw.get("expected_answer") or "").strip()
         subject = str(raw.get("subject") or "general").strip() or "general"
 
         # Require non-empty problem, answer, and subject

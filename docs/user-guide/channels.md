@@ -25,6 +25,7 @@ graph LR
 
 | Channel | Registry Key | Platform | Pip Extra | Auth |
 |---------|-------------|----------|-----------|------|
+| `SendBlueChannel` | `sendblue` | SendBlue iMessage/SMS API | — | API key + secret |
 | `TelegramChannel` | `telegram` | Telegram Bot API | `channel-telegram` | Bot token |
 | `DiscordChannel` | `discord` | Discord Bot API | `channel-discord` | Bot token |
 | `SlackChannel` | `slack` | Slack Web API | `channel-slack` | Bot + App tokens |
@@ -346,6 +347,181 @@ time.sleep(10)
 channel.disconnect()
 print(f"Total messages received: {len(received_messages)}")
 ```
+
+---
+
+## SendBlue (iMessage / SMS)
+
+`SendBlueChannel` is registered as `"sendblue"` in `ChannelRegistry` and gives your agent a **dedicated phone number** that people can text via iMessage (blue bubbles) or SMS. It uses the [SendBlue API](https://docs.sendblue.com/) -- no Apple hardware or BlueBubbles server required.
+
+### How It Works
+
+```
+Your phone  ──text──▶  SendBlue  ──webhook──▶  ngrok tunnel  ──▶  OpenJarvis
+                                                                       │
+Your phone  ◀──iMessage──  SendBlue  ◀──API call──  DeepResearch agent ◀┘
+```
+
+When someone texts the SendBlue number, SendBlue POSTs the message to your webhook. OpenJarvis sends an immediate "Message received!" acknowledgment, runs the DeepResearch agent, and sends the response back via iMessage.
+
+### Setup (Browser UI)
+
+The easiest way is through the Agents UI:
+
+1. Go to **Agents → your agent → Messaging** tab
+2. Click **Set Up** on "iMessage / SMS"
+3. Click **Open SendBlue signup** -- create a free account (no credit card required)
+4. In the SendBlue dashboard, copy your **API Key ID** and **API Secret Key**
+5. Paste them into the form and click **Verify & Find Number**
+6. If on the free tier (shared line), copy the phone number shown under "Send from" in your SendBlue dashboard and paste it
+7. Click **Activate Phone Number**
+
+### Tunnel Setup (Required)
+
+Since OpenJarvis runs locally, you need a tunnel so SendBlue can reach your webhook:
+
+```bash
+# Install ngrok (one time)
+brew install ngrok
+
+# Sign up at https://dashboard.ngrok.com/signup (free)
+# Then configure your auth token:
+ngrok config add-authtoken YOUR_TOKEN
+
+# Start the tunnel (keep this running)
+ngrok http 8222
+```
+
+Register the ngrok URL as your SendBlue webhook. You can do this via the API:
+
+```bash
+curl -X PUT https://api.sendblue.co/api/account/webhooks \
+  -H "sb-api-key-id: YOUR_KEY" \
+  -H "sb-api-secret-key: YOUR_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"webhooks": {"receive": ["https://YOUR-NGROK-URL.ngrok-free.dev/webhooks/sendblue"]}}'
+```
+
+Or set it in the SendBlue dashboard under **Webhooks**.
+
+### SendBlue Free Tier Notes
+
+- **Shared line**: Your agent uses a shared phone number (no dedicated number)
+- **Verified contacts only**: Recipients must be added as verified contacts in the SendBlue dashboard first
+- **10 contacts max**: Free tier allows up to 10 verified contacts
+- **iMessage preferred**: SendBlue sends via iMessage when possible, falls back to SMS
+
+To get a dedicated number, upgrade to a paid SendBlue plan.
+
+### Programmatic Setup
+
+```python title="sendblue_setup.py"
+from openjarvis.channels.sendblue import SendBlueChannel
+
+channel = SendBlueChannel(
+    api_key_id="YOUR_API_KEY_ID",         # or SENDBLUE_API_KEY_ID env var
+    api_secret_key="YOUR_API_SECRET_KEY", # or SENDBLUE_API_SECRET_KEY env var
+    from_number="+16452468235",           # or SENDBLUE_FROM_NUMBER env var
+)
+channel.connect()
+
+# Send a message
+ok = channel.send("+15551234567", "Hello from OpenJarvis!")
+```
+
+### Webhook Endpoint
+
+The server exposes `POST /webhooks/sendblue` which:
+
+1. Sends an instant acknowledgment: "Message received! Researching your data now..."
+2. Routes the message to the DeepResearch agent via the ChannelBridge
+3. If processing takes >45 seconds, sends: "Still working -- complex query, hang tight..."
+4. Sends the full research response back via iMessage/SMS
+
+### Constructor Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `api_key_id` | `str` | `""` | SendBlue API key ID (falls back to `SENDBLUE_API_KEY_ID` env var) |
+| `api_secret_key` | `str` | `""` | SendBlue API secret key (falls back to `SENDBLUE_API_SECRET_KEY` env var) |
+| `from_number` | `str` | `""` | SendBlue phone number to send from (falls back to `SENDBLUE_FROM_NUMBER` env var) |
+| `webhook_secret` | `str` | `""` | Optional secret for verifying incoming webhook requests |
+| `bus` | `EventBus` | `None` | Event bus for publishing channel events |
+
+### Configuration
+
+```toml title="~/.openjarvis/config.toml"
+[channel.sendblue]
+api_key_id = "YOUR_API_KEY_ID"
+api_secret_key = "YOUR_API_SECRET_KEY"
+from_number = "+16452468235"
+```
+
+### CLI Usage
+
+```bash
+# Set credentials via environment variables
+export SENDBLUE_API_KEY_ID="your_key"
+export SENDBLUE_API_SECRET_KEY="your_secret"
+export SENDBLUE_FROM_NUMBER="+16452468235"
+
+# Check channel status
+jarvis channel status --channel-type sendblue
+
+# Send a message
+jarvis channel send sendblue "+15551234567" "Hello from Jarvis!"
+```
+
+### Server Restart Behavior
+
+SendBlue bindings are **automatically restored on server restart**. When `jarvis serve` starts:
+
+1. The server checks the database for existing SendBlue channel bindings
+2. Re-creates the `SendBlueChannel` instance with stored credentials
+3. Re-wires the `ChannelBridge` with a `DeepResearchAgent`
+4. Incoming webhooks resume working immediately
+
+**However, if using ngrok:** The tunnel URL changes on every ngrok restart. You must re-register the new URL with SendBlue:
+
+```bash
+# Start ngrok (get new URL)
+ngrok http 8222
+
+# Register the new webhook URL
+curl -X PUT https://api.sendblue.co/api/account/webhooks \
+  -H "sb-api-key-id: YOUR_KEY" \
+  -H "sb-api-secret-key: YOUR_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"webhooks": {"receive": ["https://NEW-NGROK-URL.ngrok-free.dev/webhooks/sendblue"]}}'
+```
+
+!!! tip "Stable tunnel URL"
+    Ngrok paid plans provide a fixed subdomain that persists across restarts. Alternatively, use [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) for a free, stable URL.
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| "Message received!" ack sent but no response | DeepResearch agent timed out or errored | Check server logs for errors |
+| No ack, no response | Webhook URL not reachable | Verify ngrok is running; re-register webhook URL |
+| "Disconnected" badge in Messaging tab | Server restarted without restoring bindings | Click "Reconnect" in the UI |
+| SendBlue returns 401 | Invalid API credentials | Re-enter API key and secret in Messaging tab |
+| "Contacts must text this number first" | Free tier requires verified contacts | Add the recipient in SendBlue dashboard under Contacts |
+| Messages arrive but are not processed | Channel bridge not wired | Remove and re-add the SendBlue binding in Messaging tab |
+
+### Health Check
+
+The server exposes `GET /v1/channels/sendblue/health` which returns:
+
+```json
+{
+  "channel_connected": true,
+  "bridge_wired": true,
+  "ready": true
+}
+```
+
+If `ready` is `false`, the Messaging tab shows a "Disconnected" badge with a "Reconnect" button.
 
 ---
 

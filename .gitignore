@@ -39,17 +39,27 @@ Thumbs.db
 # Secrets
 .env
 .env.*
+# ...but keep checked-in example/templates (never contain real secrets)
+!.env.example
+!**/.env.example
 
 # Project
 *.sqlite
 *.db
 *.jsonl
 *.npz
+*.log
 results/
 logs/
-traces/
+# Anchored to repo root — DO NOT use the unanchored form `traces/`.
+# hatchling honors .gitignore when building the wheel; an unanchored
+# `traces/` pattern matches src/openjarvis/traces/ and silently drops
+# the runtime module from the wheel (issue #372).
+/traces/
 coding_task_*
 get-pip.py
+# Junk from mocked-path tests that write to their mock's __repr__ as a path
+MagicMock/
 
 # MkDocs build output
 site/
@@ -57,12 +67,14 @@ site/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+
+# Desktop
+desktop/node_modules/
+desktop/dist/
 src/openjarvis/server/static/
 
 # Desktop (Tauri)
-desktop/node_modules/
-desktop/dist/
-desktop/src-tauri/target/
+frontend/src-tauri/target/
 
 # Worktrees
 .worktrees/
@@ -89,3 +101,32 @@ CLAUDE.md
 # Research output
 research_mining_*
 .python-version
+src/openjarvis/channels/whatsapp_baileys_bridge/node_modules/
+
+# SQLite in-memory artifacts
+:memory:
+
+# Dogfood reports (regenerated locally; not for VCS)
+dogfood_report*.md
+
+# Second Repos
+Inline/
+scratch/
+
+# ---------------------------------------------------------------------------
+# Distillation runtime artifacts (defense in depth — these should always live
+# in ~/.openjarvis/, never inside the source tree, but we ignore them here in
+# case OPENJARVIS_HOME is misconfigured during dev)
+# ---------------------------------------------------------------------------
+.openjarvis/
+learning.db
+**/learning/sessions/
+**/learning/pending_review/
+**/learning/benchmarks/
+**/teacher_traces/
+*.session.json
+
+# Local dev artifacts (hybrid worker logs + cli debug dumps)
+minion_logs/
+*.oj-debug.json
+oj-debug.*.json

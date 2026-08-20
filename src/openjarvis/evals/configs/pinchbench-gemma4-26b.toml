@@ -1,0 +1,35 @@
+# PinchBench eval: Gemma-4-26B-A4B-it (vLLM, TP=4)
+# Agent: native_openhands — all PinchBench-required tools enabled
+
+[meta]
+name = "pinchbench-gemma4-26b"
+description = "PinchBench on google/gemma-4-26B-A4B-it (vLLM, TP=4)"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "claude-opus-4-5"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/gemma4-26b/pinchbench/"
+seed = 42
+
+[[models]]
+name = "google/gemma-4-26B-A4B-it"
+engine = "vllm"
+num_gpus = 4
+
+[[benchmarks]]
+name = "pinchbench"
+backend = "jarvis-agent"
+agent = "native_openhands"
+tools = [
+    "think", "file_read", "file_write", "web_search", "shell_exec",
+    "code_interpreter", "browser_navigate", "image_generate",
+    "calculator", "http_request", "pdf_extract",
+]

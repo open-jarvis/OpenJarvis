@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import statistics
 import time
+from collections.abc import AsyncIterator
 from typing import Any, Dict, List, Optional, Sequence
 
 from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import Message, TelemetryRecord
-from openjarvis.engine._stubs import InferenceEngine
+from openjarvis.core.types import TOKEN_COUNTING_VERSION, Message, TelemetryRecord
+from openjarvis.engine._stubs import InferenceEngine, StreamChunk
 from openjarvis.telemetry.gpu_monitor import GpuSample
 
 # ---------------------------------------------------------------------------
@@ -30,8 +31,14 @@ def _percentile(data: list[float], p: float) -> float:
 def _compute_itl_stats(itl_values_ms: list[float]) -> dict:
     """Compute ITL summary statistics from a list of inter-token latencies in ms."""
     if not itl_values_ms:
-        return {"mean": 0.0, "median": 0.0, "p90": 0.0,
-                "p95": 0.0, "p99": 0.0, "std": 0.0}
+        return {
+            "mean": 0.0,
+            "median": 0.0,
+            "p90": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "std": 0.0,
+        }
     return {
         "mean": statistics.mean(itl_values_ms),
         "median": statistics.median(itl_values_ms),
@@ -67,6 +74,7 @@ class InstrumentedEngine(InferenceEngine):
         self._bus = bus
         self._gpu_monitor = gpu_monitor
         self._energy_monitor = energy_monitor
+        self._publishes_events = True
 
     def generate(
         self,
@@ -78,9 +86,13 @@ class InstrumentedEngine(InferenceEngine):
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """Generate with telemetry recording."""
-        self._bus.publish(EventType.INFERENCE_START, {
-            "model": model, "message_count": len(messages),
-        })
+        self._bus.publish(
+            EventType.INFERENCE_START,
+            {
+                "model": model,
+                "message_count": len(messages),
+            },
+        )
 
         gpu_sample: Optional[GpuSample] = None
         energy_sample: Optional[Any] = None
@@ -90,19 +102,28 @@ class InstrumentedEngine(InferenceEngine):
         if self._energy_monitor is not None:
             with self._energy_monitor.sample() as energy_sample:
                 result = self._inner.generate(
-                    messages, model=model, temperature=temperature,
-                    max_tokens=max_tokens, **kwargs,
+                    messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs,
                 )
         elif self._gpu_monitor is not None:
             with self._gpu_monitor.sample() as gpu_sample:
                 result = self._inner.generate(
-                    messages, model=model, temperature=temperature,
-                    max_tokens=max_tokens, **kwargs,
+                    messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs,
                 )
         else:
             result = self._inner.generate(
-                messages, model=model, temperature=temperature,
-                max_tokens=max_tokens, **kwargs,
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs,
             )
 
         latency = time.time() - t0
@@ -155,9 +176,7 @@ class InstrumentedEngine(InferenceEngine):
         energy_per_output_token = (
             energy_joules / completion_tokens if completion_tokens > 0 else 0.0
         )
-        throughput_per_watt = (
-            throughput / power_watts if power_watts > 0 else 0.0
-        )
+        throughput_per_watt = throughput / power_watts if power_watts > 0 else 0.0
 
         # --- Tier 2.1: Phase energy split ---
         decode_latency = latency - prefill_latency if prefill_latency > 0 else 0.0
@@ -171,13 +190,15 @@ class InstrumentedEngine(InferenceEngine):
         # --- Tier 3: Non-streaming mean ITL approximation ---
         mean_itl_ms = (
             (decode_latency / completion_tokens) * 1000
-            if completion_tokens > 0 and decode_latency > 0 else 0.0
+            if completion_tokens > 0 and decode_latency > 0
+            else 0.0
         )
 
         # --- Tier 4: Per-inference efficiency ---
         tokens_per_joule = (
             completion_tokens / energy_joules
-            if energy_joules > 0 and completion_tokens > 0 else 0.0
+            if energy_joules > 0 and completion_tokens > 0
+            else 0.0
         )
 
         engine_id = getattr(self._inner, "engine_id", "unknown")
@@ -191,6 +212,7 @@ class InstrumentedEngine(InferenceEngine):
             completion_tokens=completion_tokens,
             total_tokens=prompt_tok + completion_tokens,
             latency_seconds=latency,
+            cost_usd=result.get("cost_usd", 0.0),
             ttft=ttft,
             throughput_tok_per_sec=throughput,
             energy_per_output_token_joules=energy_per_output_token,
@@ -212,6 +234,11 @@ class InstrumentedEngine(InferenceEngine):
             gpu_energy_joules=gpu_energy_joules,
             dram_energy_joules=dram_energy_joules,
             tokens_per_joule=tokens_per_joule,
+            # Stamp every new record with the current methodology version
+            # so the leaderboard aggregator can drop legacy rows (those
+            # left NULL by pre-fix builds) cleanly. Source of truth for
+            # the integer is `server/savings.py`.
+            token_counting_version=TOKEN_COUNTING_VERSION,
         )
 
         event_data = {
@@ -234,6 +261,12 @@ class InstrumentedEngine(InferenceEngine):
             "mean_itl_ms": mean_itl_ms,
             "energy_method": energy_method,
             "energy_vendor": energy_vendor,
+            # Rich trace data: model response content + structured blocks
+            "content": result.get("content", ""),
+            "tool_calls": result.get("tool_calls", []),
+            "tool_results": result.get("tool_results", []),
+            "content_blocks": result.get("content_blocks", []),
+            "finish_reason": result.get("finish_reason", ""),
         }
 
         self._bus.publish(EventType.INFERENCE_END, event_data)
@@ -275,9 +308,13 @@ class InstrumentedEngine(InferenceEngine):
         **kwargs: Any,
     ) -> Any:
         """Stream with per-token timing and full telemetry recording."""
-        self._bus.publish(EventType.INFERENCE_START, {
-            "model": model, "message_count": len(messages),
-        })
+        self._bus.publish(
+            EventType.INFERENCE_START,
+            {
+                "model": model,
+                "message_count": len(messages),
+            },
+        )
 
         t0 = time.time()
         token_timestamps: list[float] = []
@@ -289,8 +326,11 @@ class InstrumentedEngine(InferenceEngine):
         if self._energy_monitor is not None:
             with self._energy_monitor.sample() as energy_sample:
                 async for token in self._inner.stream(
-                    messages, model=model, temperature=temperature,
-                    max_tokens=max_tokens, **kwargs,
+                    messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs,
                 ):
                     token_timestamps.append(time.time())
                     token_count += 1
@@ -298,16 +338,22 @@ class InstrumentedEngine(InferenceEngine):
         elif self._gpu_monitor is not None:
             with self._gpu_monitor.sample() as gpu_sample:
                 async for token in self._inner.stream(
-                    messages, model=model, temperature=temperature,
-                    max_tokens=max_tokens, **kwargs,
+                    messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs,
                 ):
                     token_timestamps.append(time.time())
                     token_count += 1
                     yield token
         else:
             async for token in self._inner.stream(
-                messages, model=model, temperature=temperature,
-                max_tokens=max_tokens, **kwargs,
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs,
             ):
                 token_timestamps.append(time.time())
                 token_count += 1
@@ -362,9 +408,7 @@ class InstrumentedEngine(InferenceEngine):
         energy_per_output_token = (
             energy_joules / token_count if token_count > 0 else 0.0
         )
-        throughput_per_watt = (
-            throughput / power_watts if power_watts > 0 else 0.0
-        )
+        throughput_per_watt = throughput / power_watts if power_watts > 0 else 0.0
 
         # Phase energy split
         decode_latency = latency - prefill_latency if prefill_latency > 0 else 0.0
@@ -378,7 +422,8 @@ class InstrumentedEngine(InferenceEngine):
         # Per-inference efficiency
         tokens_per_joule = (
             token_count / energy_joules
-            if energy_joules > 0 and token_count > 0 else 0.0
+            if energy_joules > 0 and token_count > 0
+            else 0.0
         )
 
         engine_id = getattr(self._inner, "engine_id", "unknown")
@@ -415,6 +460,8 @@ class InstrumentedEngine(InferenceEngine):
             gpu_energy_joules=gpu_energy_joules,
             dram_energy_joules=dram_energy_joules,
             tokens_per_joule=tokens_per_joule,
+            # Stamp the methodology version on streaming records too.
+            token_counting_version=TOKEN_COUNTING_VERSION,
         )
 
         event_data = {
@@ -435,6 +482,25 @@ class InstrumentedEngine(InferenceEngine):
 
         self._bus.publish(EventType.INFERENCE_END, event_data)
         self._bus.publish(EventType.TELEMETRY_RECORD, {"record": record})
+
+    async def stream_full(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> AsyncIterator["StreamChunk"]:
+        """Delegate to inner engine's stream_full for tool-call support."""
+        async for chunk in self._inner.stream_full(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        ):
+            yield chunk
 
     def list_models(self) -> List[str]:
         return self._inner.list_models()

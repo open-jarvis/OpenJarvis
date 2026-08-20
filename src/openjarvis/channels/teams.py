@@ -46,9 +46,8 @@ class TeamsChannel(BaseChannel):
     ) -> None:
         self._app_id = app_id or os.environ.get("TEAMS_APP_ID", "")
         self._app_password = app_password or os.environ.get("TEAMS_APP_PASSWORD", "")
-        self._service_url = (
-            service_url
-            or os.environ.get("TEAMS_SERVICE_URL", "https://smba.trafficmanager.net/teams")
+        self._service_url = service_url or os.environ.get(
+            "TEAMS_SERVICE_URL", "https://smba.trafficmanager.net/teams"
         )
         self._bus = bus
         self._handlers: List[ChannelHandler] = []
@@ -99,13 +98,17 @@ class TeamsChannel(BaseChannel):
                 payload["replyToId"] = conversation_id
 
             resp = httpx.post(
-                url, json=payload, headers=headers, timeout=10.0,
+                url,
+                json=payload,
+                headers=headers,
+                timeout=10.0,
             )
             if resp.status_code < 300:
                 self._publish_sent(channel, content, conversation_id)
                 return True
             logger.warning(
-                "Teams API returned status %d", resp.status_code,
+                "Teams API returned status %d",
+                resp.status_code,
             )
             return False
         except Exception:

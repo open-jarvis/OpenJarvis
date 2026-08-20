@@ -46,9 +46,7 @@ class FAISSMemory(MemoryBackend):
             embedder = SentenceTransformerEmbedder()
         self._embedder = embedder
         self._index = faiss.IndexFlatIP(self._embedder.dim())
-        self._documents: Dict[
-            str, Tuple[str, str, Dict[str, Any]]
-        ] = {}
+        self._documents: Dict[str, Tuple[str, str, Dict[str, Any]]] = {}
         self._id_map: List[str] = []
         self._deleted: Set[str] = set()
 
@@ -116,9 +114,7 @@ class FAISSMemory(MemoryBackend):
         scores, indices = self._index.search(vec, k)
 
         results: List[RetrievalResult] = []
-        for score, idx in zip(
-            scores[0].tolist(), indices[0].tolist()
-        ):
+        for score, idx in zip(scores[0].tolist(), indices[0].tolist()):
             if idx < 0:
                 continue
             doc_id = self._id_map[idx]
@@ -149,10 +145,7 @@ class FAISSMemory(MemoryBackend):
 
     def delete(self, doc_id: str) -> bool:
         """Soft-delete *doc_id*.  Return True if it existed."""
-        if (
-            doc_id not in self._documents
-            or doc_id in self._deleted
-        ):
+        if doc_id not in self._documents or doc_id in self._deleted:
             return False
         self._deleted.add(doc_id)
         return True

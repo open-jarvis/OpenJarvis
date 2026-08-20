@@ -6,14 +6,21 @@ from pathlib import Path
 from typing import Optional
 
 import click
+import httpx
 from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 
+from openjarvis.cli._banner import print_banner
+from openjarvis.cli._bootstrap import detect_cloud_keys
+from openjarvis.cli.model import find_model_spec, hf_download, ollama_pull
+from openjarvis.cli.scan_cmd import PrivacyScanner
 from openjarvis.core.config import (
     DEFAULT_CONFIG_DIR,
     DEFAULT_CONFIG_PATH,
+    _available_memory_gb,
     detect_hardware,
+    estimated_download_gb,
     generate_default_toml,
     generate_minimal_toml,
     recommend_engine,
@@ -22,8 +29,14 @@ from openjarvis.core.config import (
 
 # Engines supported by ``jarvis init --engine``.
 _SUPPORTED_ENGINES = [
-    "ollama", "vllm", "sglang", "llamacpp", "mlx", "lmstudio",
-    "exo", "nexa",
+    "ollama",
+    "vllm",
+    "sglang",
+    "llamacpp",
+    "mlx",
+    "lmstudio",
+    "exo",
+    "nexa",
 ]
 
 
@@ -54,7 +67,7 @@ def _detect_running_engines() -> list[str]:
 
 def _next_steps_text(engine: str, model: str = "") -> str:
     """Return engine-specific next-steps guidance after init."""
-    pull_model = model or "qwen3.5:3b"
+    pull_model = model or "qwen3.5:2b"
     steps: dict[str, str] = {
         "ollama": (
             "Next steps:\n"
@@ -67,7 +80,7 @@ def _next_steps_text(engine: str, model: str = "") -> str:
             f"     ollama pull {pull_model}\n"
             "\n"
             "  3. Try it out:\n"
-            "     jarvis ask \"Hello\"\n"
+            '     jarvis ask "Hello"\n'
             "\n"
             "  Run `jarvis doctor` to verify your setup."
         ),
@@ -79,7 +92,7 @@ def _next_steps_text(engine: str, model: str = "") -> str:
             "     vllm serve Qwen/Qwen3-4B\n"
             "\n"
             "  2. Try it out:\n"
-            "     jarvis ask \"Hello\"\n"
+            '     jarvis ask "Hello"\n'
             "\n"
             "  Run `jarvis doctor` to verify your setup."
         ),
@@ -91,7 +104,7 @@ def _next_steps_text(engine: str, model: str = "") -> str:
             "     llama-server -m path/to/model.gguf\n"
             "\n"
             "  2. Try it out:\n"
-            "     jarvis ask \"Hello\"\n"
+            '     jarvis ask "Hello"\n'
             "\n"
             "  Run `jarvis doctor` to verify your setup."
         ),
@@ -103,7 +116,7 @@ def _next_steps_text(engine: str, model: str = "") -> str:
             "     python -m sglang.launch_server --model-path Qwen/Qwen3-8B\n"
             "\n"
             "  2. Try it out:\n"
-            "     jarvis ask \"Hello\"\n"
+            '     jarvis ask "Hello"\n'
             "\n"
             "  Run `jarvis doctor` to verify your setup."
         ),
@@ -115,7 +128,7 @@ def _next_steps_text(engine: str, model: str = "") -> str:
             "     mlx_lm.server --model mlx-community/Qwen2.5-7B-4bit\n"
             "\n"
             "  2. Try it out:\n"
-            "     jarvis ask \"Hello\"\n"
+            '     jarvis ask "Hello"\n'
             "\n"
             "  Run `jarvis doctor` to verify your setup."
         ),
@@ -128,12 +141,87 @@ def _next_steps_text(engine: str, model: str = "") -> str:
             "  2. Load a model and start the local server (port 1234)\n"
             "\n"
             "  3. Try it out:\n"
-            "     jarvis ask \"Hello\"\n"
+            '     jarvis ask "Hello"\n'
             "\n"
+            "  Run `jarvis doctor` to verify your setup."
+        ),
+        "exo": (
+            "Next steps:\n\n"
+            "  1. Install and start Exo:\n"
+            "     pip install exo\n"
+            "     exo\n\n"
+            "  2. Try it out:\n"
+            '     jarvis ask "Hello"\n\n'
+            "  Run `jarvis doctor` to verify your setup."
+        ),
+        "nexa": (
+            "Next steps:\n\n"
+            "  1. Install and start Nexa:\n"
+            "     pip install nexaai\n"
+            "     nexa server\n\n"
+            "  2. Try it out:\n"
+            '     jarvis ask "Hello"\n\n'
+            "  Run `jarvis doctor` to verify your setup."
+        ),
+        "lemonade": (
+            "Next steps:\n\n"
+            "  1. Install Lemonade for your platform:\n"
+            "     https://lemonade-server.ai/\n\n"
+            "  2. Start the Lemonade server\n\n"
+            "  3. Try it out:\n"
+            '     jarvis ask "Hello"\n\n'
             "  Run `jarvis doctor` to verify your setup."
         ),
     }
     return steps.get(engine, steps["ollama"])
+
+
+def _quick_privacy_check(console: Console) -> None:
+    """Run critical privacy checks and print compact summary."""
+    scanner = PrivacyScanner()
+    results = scanner.run_quick()
+    if results:
+        console.print("  [bold]Privacy check:[/bold]")
+        for r in results:
+            if r.status == "ok":
+                console.print(f"  [green]\u2713[/green] {r.message}")
+            elif r.status == "warn":
+                console.print(f"  [yellow]![/yellow] {r.message}")
+            elif r.status == "fail":
+                console.print(f"  [red]\u2717[/red] {r.message}")
+    console.print()
+    console.print("  Run [cyan]jarvis scan[/cyan] for a full environment audit.")
+
+
+def _do_download(engine: str, model: str, spec, console: Console) -> None:
+    """Dispatch model download based on engine type."""
+    import os
+
+    if engine == "ollama":
+        host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+        ollama_pull(host, model, console)
+    elif engine == "llamacpp":
+        repo = spec.metadata.get("hf_repo", "")
+        gguf = spec.metadata.get("gguf_file", "")
+        if repo and gguf:
+            console.print(f"  Downloading [cyan]{gguf}[/cyan] from {repo}...")
+            hf_download(repo, gguf, console)
+        else:
+            console.print(f"  [yellow]No GGUF download info for {model}[/yellow]")
+    elif engine == "mlx":
+        mlx_repo = spec.metadata.get("mlx_repo", "")
+        if mlx_repo:
+            console.print(f"  Downloading [cyan]{mlx_repo}[/cyan]...")
+            hf_download(mlx_repo, None, console)
+        else:
+            console.print(f"  [yellow]No MLX repo info for {model}[/yellow]")
+    elif engine in ("vllm", "sglang"):
+        console.print(
+            f"  [cyan]{model}[/cyan] will download automatically when "
+            f"{engine} starts serving it."
+        )
+    else:
+        console.print(f"  Download {model} through the {engine} interface.")
 
 
 @click.command()
@@ -157,14 +245,78 @@ def _next_steps_text(engine: str, model: str = "") -> str:
     default=None,
     help="Inference engine to use (skips interactive selection).",
 )
+@click.option(
+    "--no-download", is_flag=True, default=False, help="Skip the model download prompt."
+)
+@click.option(
+    "--no-scan",
+    "skip_scan",
+    is_flag=True,
+    default=False,
+    help="Skip the post-init security environment audit.",
+)
+@click.option(
+    "--host",
+    default=None,
+    help="Remote engine host URL (e.g. http://192.168.1.50:11434).",
+)
+@click.option(
+    "--digest",
+    "enable_digest",
+    is_flag=True,
+    default=False,
+    help="Include Morning Digest config section.",
+)
+@click.option(
+    "--preset",
+    type=click.Choice(
+        [
+            "morning-digest-mac",
+            "morning-digest-linux",
+            "morning-digest-minimal",
+            "deep-research",
+            "code-assistant",
+            "scheduled-monitor",
+            "chat-simple",
+        ],
+        case_sensitive=False,
+    ),
+    default=None,
+    help="Use a pre-built starter config instead of generating one.",
+)
+@click.option(
+    "--from-bare-jarvis",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help="Run init non-interactively; called by the bare-jarvis first-run guard.",
+)
+@click.pass_context
 def init(
+    ctx: click.Context,
     force: bool,
     config: Optional[Path],
     full_config: bool = False,
     engine: Optional[str] = None,
+    no_download: bool = False,
+    skip_scan: bool = False,
+    host: Optional[str] = None,
+    enable_digest: bool = False,
+    preset: Optional[str] = None,
+    from_bare_jarvis: bool = False,
 ) -> None:
     """Detect hardware and generate ~/.openjarvis/config.toml."""
+    print_banner(quiet=(ctx.obj or {}).get("quiet", False))
     console = Console()
+
+    # Cloud auto-detect — inform user if a key is in env.
+    detected_cloud = detect_cloud_keys()
+    if detected_cloud is not None:
+        console.print(
+            f"[cyan]Detected cloud key in env:[/cyan] {detected_cloud.env_var} "
+            f"(provider: {detected_cloud.provider}). "
+            f"Cloud inference is available via this key."
+        )
 
     if DEFAULT_CONFIG_PATH.exists() and not force:
         console.print(
@@ -172,6 +324,37 @@ def init(
         )
         console.print("Use [bold]--force[/bold] to overwrite.")
         raise SystemExit(1)
+
+    # Handle --preset: copy a starter config and return early
+    if preset:
+        examples_dir = (
+            Path(__file__).resolve().parents[2] / "configs" / "openjarvis" / "examples"
+        )
+        # Also check installed package location
+        if not examples_dir.exists():
+            examples_dir = (
+                Path(__file__).resolve().parents[3]
+                / "configs"
+                / "openjarvis"
+                / "examples"
+            )
+        preset_path = examples_dir / f"{preset}.toml"
+        if not preset_path.exists():
+            console.print(f"[red]Preset '{preset}' not found.[/red]")
+            console.print(f"  Looked in: {examples_dir}")
+            raise SystemExit(1)
+        DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        DEFAULT_CONFIG_PATH.write_text(
+            preset_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        console.print(
+            f"[green]Preset '{preset}' installed to {DEFAULT_CONFIG_PATH}[/green]"
+        )
+        console.print(
+            "\n  Edit the config to customize, then run "
+            "[bold]jarvis doctor[/bold] to verify."
+        )
+        return
 
     console.print("[bold]Detecting hardware...[/bold]")
     hw = detect_hardware()
@@ -191,63 +374,83 @@ def init(
     # Resolve engine: explicit flag > interactive selection > auto-detect
     if engine is None and config is None:
         recommended = recommend_engine(hw)
-        console.print()
-        console.print("[bold]Detecting running inference engines...[/bold]")
-        running = _detect_running_engines()
-        if running:
-            console.print(
-                f"  Found running: [green]{', '.join(running)}[/green]"
-            )
+        # Bare-jarvis cold path: use the recommended engine non-interactively.
+        if from_bare_jarvis:
+            engine = recommended
         else:
-            console.print("  No running engines detected.")
+            console.print()
+            console.print("[bold]Detecting running inference engines...[/bold]")
+            running = _detect_running_engines()
+            if running:
+                console.print(f"  Found running: [green]{', '.join(running)}[/green]")
+            else:
+                console.print("  No running engines detected.")
 
-        # Build choices: show running engines first, then recommended, then rest
-        seen: set[str] = set()
-        choices: list[str] = []
-        for r in running:
-            if r not in seen:
-                choices.append(r)
-                seen.add(r)
-        if recommended not in seen:
-            choices.append(recommended)
-            seen.add(recommended)
-        for e in _SUPPORTED_ENGINES:
-            if e not in seen:
-                choices.append(e)
-                seen.add(e)
+            # Build choices: show running engines first, then recommended, then rest
+            seen: set[str] = set()
+            choices: list[str] = []
+            for r in running:
+                if r not in seen:
+                    choices.append(r)
+                    seen.add(r)
+            if recommended not in seen:
+                choices.append(recommended)
+                seen.add(recommended)
+            for e in _SUPPORTED_ENGINES:
+                if e not in seen:
+                    choices.append(e)
+                    seen.add(e)
 
-        # Default: first running engine, or hardware recommendation
-        default = running[0] if running else recommended
+            # Default: first running engine, or hardware recommendation
+            default = running[0] if running else recommended
 
-        labels = []
-        for c in choices:
-            parts = [c]
-            if c in running:
-                parts.append("running")
-            if c == recommended:
-                parts.append("recommended")
-            labels.append(
-                f"  {c}" + (f"  ({', '.join(parts[1:])})" if len(parts) > 1 else "")
+            labels = []
+            for c in choices:
+                parts = [c]
+                if c in running:
+                    parts.append("running")
+                if c == recommended:
+                    parts.append("recommended")
+                labels.append(
+                    f"  {c}" + (f"  ({', '.join(parts[1:])})" if len(parts) > 1 else "")
+                )
+
+            console.print()
+            console.print("[bold]Available engines:[/bold]")
+            for label in labels:
+                console.print(label)
+
+            engine = click.prompt(
+                "\nSelect inference engine",
+                type=click.Choice(choices, case_sensitive=False),
+                default=default,
             )
 
-        console.print()
-        console.print("[bold]Available engines:[/bold]")
-        for label in labels:
-            console.print(label)
-
-        engine = click.prompt(
-            "\nSelect inference engine",
-            type=click.Choice(choices, case_sensitive=False),
-            default=default,
-        )
+    # Probe remote host if specified
+    if host:
+        console.print("\n[bold]Checking remote host...[/bold]")
+        try:
+            resp = httpx.get(host.rstrip("/") + "/", timeout=2.0)
+            if resp.status_code < 500:
+                console.print(f"  [green]Reachable[/green] ({host})")
+            else:
+                console.print(
+                    f"  [yellow]Warning:[/yellow] Host returned status "
+                    f"{resp.status_code} — writing config anyway."
+                )
+        except Exception:
+            console.print(
+                f"  [yellow]Warning:[/yellow] Host unreachable ({host}) "
+                f"— writing config anyway."
+            )
 
     if config:
         toml_content = config.read_text()
     else:
         if full_config:
-            toml_content = generate_default_toml(hw, engine=engine)
+            toml_content = generate_default_toml(hw, engine=engine, host=host)
         else:
-            toml_content = generate_minimal_toml(hw, engine=engine)
+            toml_content = generate_minimal_toml(hw, engine=engine, host=host)
 
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if config:
@@ -263,14 +466,50 @@ def init(
             border_style="green",
         )
     )
+    # Append Morning Digest section if requested
+    if enable_digest:
+        digest_section = """
+# ─── Morning Digest ─────────────────────────────────────────
+[digest]
+enabled = true
+schedule = "0 7 * * *"
+timezone = "America/Los_Angeles"
+persona = "jarvis"
+honorific = "sir"
+tts_backend = "cartesia"
+voice_id = "c8f7835e-28a3-4f0c-80d7-c1302ac62aae"
+voice_speed = 1.2
+sections = ["health", "messages", "calendar", "world"]
+
+[digest.health]
+sources = ["oura"]
+
+[digest.messages]
+sources = ["gmail", "google_tasks", "imessage"]
+
+[digest.calendar]
+sources = ["gcalendar"]
+
+[digest.world]
+sources = ["hackernews", "news_rss"]
+"""
+        target = config if config else DEFAULT_CONFIG_PATH
+        existing = target.read_text()
+        target.write_text(existing + digest_section)
+        toml_content = target.read_text()
+        console.print(
+            "[green]Morning Digest config added.[/green] "
+            "Run [bold]jarvis connect gdrive[/bold] to connect "
+            "Google services, then [bold]jarvis digest --fresh[/bold]."
+        )
+
     console.print("[green]Config written successfully.[/green]")
 
     # Create default memory files (skip if they already exist)
     soul_path = DEFAULT_CONFIG_DIR / "SOUL.md"
     if not soul_path.exists():
         soul_path.write_text(
-            "# Agent Persona\n\n"
-            "You are Jarvis, a helpful personal AI assistant.\n"
+            "# Agent Persona\n\nYou are Jarvis, a helpful personal AI assistant.\n"
         )
 
     memory_path = DEFAULT_CONFIG_DIR / "MEMORY.md"
@@ -286,8 +525,33 @@ def init(
 
     selected_engine = engine or recommend_engine(hw)
     model = recommend_model(hw, selected_engine)
-    if model:
-        console.print(f"\n  [bold]Recommended model:[/bold] {model}")
+
+    if not model:
+        console.print(
+            "\n  [yellow]! Not enough memory to run any local model.[/yellow]\n"
+            "  Consider a cloud engine or a machine with more RAM."
+        )
+    else:
+        spec = find_model_spec(model)
+        size_gb = estimated_download_gb(spec.parameter_count_b) if spec else 0
+        avail = _available_memory_gb(hw)
+        console.print(
+            f"\n  [bold]Recommended model:[/bold] {model} (~{size_gb:.1f} GB)"
+            f"  [dim](selected for {avail:.0f} GB available memory)[/dim]"
+        )
+
+        if not no_download and not from_bare_jarvis and spec:
+            prompt = f"  Download {model} (~{size_gb:.1f} GB) now?"
+            if click.confirm(prompt, default=True):
+                _do_download(selected_engine, model, spec, console)
+            else:
+                console.print(
+                    f"\n  Skipped. Download later with:\n"
+                    f"    [bold]jarvis model pull {model}[/bold]"
+                )
+
+    if not skip_scan:
+        _quick_privacy_check(console)
     console.print()
     console.print(
         Panel(

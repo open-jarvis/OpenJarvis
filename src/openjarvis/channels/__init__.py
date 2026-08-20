@@ -37,7 +37,11 @@ _CHANNEL_MODULES = [
     "rocketchat_channel",
     "zulip_channel",
     "twitch_channel",
+    "twitter_channel",
     "nostr_channel",
+    "twilio_sms",
+    "sendblue",
+    "gmail",
 ]
 
 for _mod in _CHANNEL_MODULES:

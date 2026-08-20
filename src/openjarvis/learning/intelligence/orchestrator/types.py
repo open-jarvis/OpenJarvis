@@ -57,9 +57,7 @@ def extract_answer(text: str) -> str:
     return text
 
 
-def grade_answer(
-    predicted: str, expected: str, tolerance: float = 1e-6
-) -> bool:
+def grade_answer(predicted: str, expected: str, tolerance: float = 1e-6) -> bool:
     """Grade an answer against expected, with smart matching.
 
     Handles:
@@ -286,9 +284,7 @@ class EpisodeState:
         """Return number of turns so far."""
         return len(self.history)
 
-    def to_episode(
-        self, task_id: str, ground_truth: str, correct: bool
-    ) -> Episode:
+    def to_episode(self, task_id: str, ground_truth: str, correct: bool) -> Episode:
         """Convert state to Episode for reward computation."""
         episode = Episode(
             task_id=task_id,

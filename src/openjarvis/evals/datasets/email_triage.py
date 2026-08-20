@@ -307,23 +307,22 @@ class EmailTriageDataset(DatasetProvider):
                 date=email["date"],
                 body=email["body"],
             )
-            reference = (
-                f"urgency: {email['urgency']}\n"
-                f"category: {email['category']}"
+            reference = f"urgency: {email['urgency']}\ncategory: {email['category']}"
+            self._records.append(
+                EvalRecord(
+                    record_id=f"email-triage-{idx}",
+                    problem=prompt,
+                    reference=reference,
+                    category="use-case",
+                    subject="email_triage",
+                    metadata={
+                        "urgency": email["urgency"],
+                        "category": email["category"],
+                        "sender": email["sender"],
+                        "subject_line": email["subject"],
+                    },
+                )
             )
-            self._records.append(EvalRecord(
-                record_id=f"email-triage-{idx}",
-                problem=prompt,
-                reference=reference,
-                category="use-case",
-                subject="email_triage",
-                metadata={
-                    "urgency": email["urgency"],
-                    "category": email["category"],
-                    "sender": email["sender"],
-                    "subject_line": email["subject"],
-                },
-            ))
 
     def iter_records(self) -> Iterable[EvalRecord]:
         return iter(self._records)

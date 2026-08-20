@@ -69,15 +69,11 @@ class EnergyBatch:
         total_requests = ctx._total_requests
         per_request_energy = list(ctx._per_request_energy)
 
-        energy_per_token = (
-            total_energy / total_tokens if total_tokens > 0 else 0.0
-        )
+        energy_per_token = total_energy / total_tokens if total_tokens > 0 else 0.0
         energy_per_request = (
             total_energy / total_requests if total_requests > 0 else 0.0
         )
-        mean_throughput = (
-            total_tokens / elapsed if elapsed > 0 else 0.0
-        )
+        mean_throughput = total_tokens / elapsed if elapsed > 0 else 0.0
 
         self.metrics = BatchMetrics(
             batch_id=self.batch_id,

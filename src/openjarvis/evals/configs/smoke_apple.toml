@@ -32,9 +32,9 @@ name = "mlx-community/Qwen2.5-7B-4bit"
 engine = "mlx"
 param_count_b = 7.0
 
-# Ollama GGUF — pull with: ollama pull qwen3.5:3b
+# Ollama GGUF — pull with: ollama pull qwen3.5:2b
 [[models]]
-name = "qwen3.5:3b"
+name = "qwen3.5:2b"
 engine = "ollama"
 
 # ── Benchmarks ────────────────────────────────────────────────────────────────

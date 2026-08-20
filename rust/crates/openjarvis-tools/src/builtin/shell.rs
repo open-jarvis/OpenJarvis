@@ -61,8 +61,7 @@ impl BaseTool for ShellExecTool {
                 let exit_code = output.status.code().unwrap_or(-1);
 
                 let content = format!(
-                    "Exit code: {}\n--- stdout ---\n{}\n--- stderr ---\n{}",
-                    exit_code, stdout, stderr
+                    "Exit code: {exit_code}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
                 );
 
                 if output.status.success() {
@@ -73,7 +72,7 @@ impl BaseTool for ShellExecTool {
             }
             Err(e) => Ok(ToolResult::failure(
                 "shell_exec",
-                format!("Failed to execute: {}", e),
+                format!("Failed to execute: {e}"),
             )),
         }
     }

@@ -136,9 +136,7 @@ def _install_backend(backend: str, console: Console) -> bool:
     display = info["display"]
 
     console.print()
-    console.print(
-        f"[yellow]Backend [bold]{display}[/bold] is not installed.[/yellow]"
-    )
+    console.print(f"[yellow]Backend [bold]{display}[/bold] is not installed.[/yellow]")
 
     uv_available = shutil.which("uv") is not None
     in_uv_project = os.path.exists("pyproject.toml") and os.path.exists("uv.lock")
@@ -168,9 +166,7 @@ def _install_backend(backend: str, console: Console) -> bool:
     console.print(f"[bold]Running:[/bold] {install_label}")
     result = subprocess.run(install_cmd)
     if result.returncode != 0:
-        console.print(
-            f"[red]Installation failed (exit {result.returncode}).[/red]"
-        )
+        console.print(f"[red]Installation failed (exit {result.returncode}).[/red]")
         return False
 
     console.print(f"[green]{display} installed successfully.[/green]\n")
@@ -208,11 +204,7 @@ def _install_binary_backend(backend: str, console: Console) -> bool:
             "  Or from source:\n"
             "    https://github.com/exo-explore/exo"
         ),
-        "uzu": (
-            "Install Uzu:\n"
-            "\n"
-            "  See https://uzu.ai for installation instructions."
-        ),
+        "uzu": ("Install Uzu:\n\n  See https://uzu.ai for installation instructions."),
     }
 
     console.print()
@@ -241,8 +233,7 @@ def _install_binary_backend(backend: str, console: Console) -> bool:
                     console.print("[green]Ollama installed successfully.[/green]\n")
                     return True
                 console.print(
-                    "[red]Installation may have failed. "
-                    "Check above for errors.[/red]"
+                    "[red]Installation may have failed. Check above for errors.[/red]"
                 )
                 return False
 
@@ -340,9 +331,7 @@ def host(
             raise SystemExit(1)
         backend = detected
         name = _BACKENDS[backend]["display"]
-        console.print(
-            f"Auto-detected backend: [bold cyan]{name}[/bold cyan]"
-        )
+        console.print(f"Auto-detected backend: [bold cyan]{name}[/bold cyan]")
 
     info = _BACKENDS[backend]
 
@@ -381,12 +370,9 @@ def host(
     console.print()
 
     if backend != "ollama":
+        console.print(f"[dim]The model server will be available at {host_url}[/dim]")
         console.print(
-            f"[dim]The model server will be available at {host_url}[/dim]"
-        )
-        console.print(
-            "[dim]OpenJarvis will auto-discover it. "
-            "Press Ctrl+C to stop.[/dim]\n"
+            "[dim]OpenJarvis will auto-discover it. Press Ctrl+C to stop.[/dim]\n"
         )
 
     try:

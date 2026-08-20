@@ -21,8 +21,7 @@ def _get_or_create_key() -> bytes:
         from cryptography.fernet import Fernet
     except ImportError:
         raise ImportError(
-            "cryptography not installed. Install with: "
-            "uv sync --extra security-signing"
+            "cryptography not installed. Install with: uv sync --extra security-signing"
         )
 
     if _VAULT_KEY_FILE.exists():
@@ -41,6 +40,7 @@ def _load_vault() -> dict:
         return {}
     try:
         from cryptography.fernet import Fernet
+
         key = _get_or_create_key()
         f = Fernet(key)
         encrypted = _VAULT_FILE.read_bytes()
@@ -53,6 +53,7 @@ def _load_vault() -> dict:
 def _save_vault(data: dict) -> None:
     """Encrypt and save vault contents."""
     from cryptography.fernet import Fernet
+
     key = _get_or_create_key()
     f = Fernet(key)
     plaintext = json.dumps(data).encode()

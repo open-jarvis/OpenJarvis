@@ -43,9 +43,7 @@ class HeuristicRewardFunction(RewardFunction):
 
         latency_score = max(0.0, 1.0 - latency / self.max_latency)
         cost_score = max(0.0, 1.0 - cost / self.max_cost)
-        efficiency_score = (
-            completion_tokens / total_tokens if total_tokens > 0 else 0.5
-        )
+        efficiency_score = completion_tokens / total_tokens if total_tokens > 0 else 0.5
 
         reward = (
             self.weight_latency * latency_score

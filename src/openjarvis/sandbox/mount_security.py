@@ -177,15 +177,11 @@ def validate_mounts(
     valid: List[str] = []
     for mount in mounts:
         if _is_blocked(mount, allowlist.blocked_patterns):
-            raise ValueError(
-                f"Mount path blocked by security policy: {mount}"
-            )
+            raise ValueError(f"Mount path blocked by security policy: {mount}")
         if _is_under_allowed_root(mount, allowlist.roots):
             valid.append(mount)
         else:
-            raise ValueError(
-                f"Mount path not under any allowed root: {mount}"
-            )
+            raise ValueError(f"Mount path not under any allowed root: {mount}")
     return valid
 
 

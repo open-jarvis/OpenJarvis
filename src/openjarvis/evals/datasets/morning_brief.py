@@ -196,14 +196,16 @@ class MorningBriefDataset(DatasetProvider):
                 news_topics=ctx["news_topics"],
                 messages=ctx["messages"],
             )
-            self._records.append(EvalRecord(
-                record_id=f"morning-brief-{idx}",
-                problem=prompt,
-                reference=ctx["key_priorities"],
-                category="use-case",
-                subject="morning_brief",
-                metadata={"date": ctx["date"]},
-            ))
+            self._records.append(
+                EvalRecord(
+                    record_id=f"morning-brief-{idx}",
+                    problem=prompt,
+                    reference=ctx["key_priorities"],
+                    category="use-case",
+                    subject="morning_brief",
+                    metadata={"date": ctx["date"]},
+                )
+            )
 
     def iter_records(self) -> Iterable[EvalRecord]:
         return iter(self._records)

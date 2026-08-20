@@ -8,6 +8,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.telemetry.energy_test_helpers import (
+    assert_sample_result_basics,
+)
+
 # ---------------------------------------------------------------------------
 # Helpers: build a fake zeus module
 # ---------------------------------------------------------------------------
@@ -112,8 +116,7 @@ class TestSampleComponentBreakdown:
         assert result.gpu_energy_joules == pytest.approx(3.0)
         assert result.dram_energy_joules == pytest.approx(0.5)
         assert result.ane_energy_joules == pytest.approx(2.0)
-        assert result.vendor == "apple"
-        assert result.energy_method == "zeus"
+        assert_sample_result_basics(result, vendor="apple", energy_method="zeus")
 
     def test_total_energy_is_sum_of_components(self):
         """total = cpu + gpu + dram + ane."""
@@ -168,6 +171,6 @@ class TestSampleUninitialized:
         assert result.gpu_energy_joules >= 0.0
         assert result.dram_energy_joules >= 0.0
         assert result.ane_energy_joules >= 0.0
-        assert result.duration_seconds >= 0
-        assert result.vendor == "apple"
-        assert result.energy_method == "cpu_time_estimate"
+        assert_sample_result_basics(
+            result, vendor="apple", energy_method="cpu_time_estimate"
+        )

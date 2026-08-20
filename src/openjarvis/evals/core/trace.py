@@ -28,6 +28,8 @@ class TurnTrace:
     cost_usd: Optional[float] = None
     # Per-action energy breakdown (lm_inference vs tool_call granularity)
     action_energy_breakdown: Optional[List[Dict[str, Any]]] = None
+    # Detailed tool call data: [{"name": str, "arguments": dict, "result": str}]
+    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -45,6 +47,7 @@ class TurnTrace:
             "cpu_power_avg_watts": self.cpu_power_avg_watts,
             "cost_usd": self.cost_usd,
             "action_energy_breakdown": self.action_energy_breakdown,
+            "tool_calls": [dict(tc) for tc in self.tool_calls],
         }
 
     @classmethod
@@ -64,6 +67,7 @@ class TurnTrace:
             cpu_power_avg_watts=d.get("cpu_power_avg_watts"),
             cost_usd=d.get("cost_usd"),
             action_energy_breakdown=d.get("action_energy_breakdown"),
+            tool_calls=d.get("tool_calls", []),
         )
 
 
@@ -87,6 +91,13 @@ class QueryTrace:
     is_resolved: Optional[bool] = None
     query_mbu_avg_pct: Optional[float] = None
     query_mbu_max_pct: Optional[float] = None
+    # Error taxonomy. ``error_kind`` distinguishes infrastructure failures
+    # ("harness_error": task env / Docker / tmux broke, or the agent never
+    # contacted the model) from agent failures ("agent_error"). Harness
+    # errors are excluded from resolve-rate by export/summary code so they
+    # are never silently counted as model misses.
+    error: Optional[str] = None
+    error_kind: Optional[str] = None
 
     @property
     def num_turns(self) -> int:
@@ -111,8 +122,7 @@ class QueryTrace:
     @property
     def total_gpu_energy_joules(self) -> Optional[float]:
         values = [
-            t.gpu_energy_joules for t in self.turns
-            if t.gpu_energy_joules is not None
+            t.gpu_energy_joules for t in self.turns if t.gpu_energy_joules is not None
         ]
         if values:
             return sum(values)
@@ -121,8 +131,7 @@ class QueryTrace:
     @property
     def total_cpu_energy_joules(self) -> Optional[float]:
         values = [
-            t.cpu_energy_joules for t in self.turns
-            if t.cpu_energy_joules is not None
+            t.cpu_energy_joules for t in self.turns if t.cpu_energy_joules is not None
         ]
         if values:
             return sum(values)
@@ -142,7 +151,8 @@ class QueryTrace:
     def avg_gpu_power_watts(self) -> Optional[float]:
         """Mean GPU power across turns; falls back to query-level power."""
         values = [
-            t.gpu_power_avg_watts for t in self.turns
+            t.gpu_power_avg_watts
+            for t in self.turns
             if t.gpu_power_avg_watts is not None
         ]
         if values:
@@ -153,7 +163,8 @@ class QueryTrace:
     def avg_cpu_power_watts(self) -> Optional[float]:
         """Mean CPU power across turns; falls back to query-level power."""
         values = [
-            t.cpu_power_avg_watts for t in self.turns
+            t.cpu_power_avg_watts
+            for t in self.turns
             if t.cpu_power_avg_watts is not None
         ]
         if values:
@@ -192,6 +203,8 @@ class QueryTrace:
             "is_resolved": self.is_resolved,
             "query_mbu_avg_pct": self.query_mbu_avg_pct,
             "query_mbu_max_pct": self.query_mbu_max_pct,
+            "error": self.error,
+            "error_kind": self.error_kind,
         }
 
     @classmethod
@@ -212,6 +225,8 @@ class QueryTrace:
             is_resolved=d.get("is_resolved"),
             query_mbu_avg_pct=d.get("query_mbu_avg_pct"),
             query_mbu_max_pct=d.get("query_mbu_max_pct"),
+            error=d.get("error"),
+            error_kind=d.get("error_kind"),
         )
 
     def save_jsonl(self, path: Path) -> None:
@@ -242,31 +257,33 @@ class QueryTrace:
 
         rows = []
         for trace in traces:
-            rows.append({
-                "query_id": trace.query_id,
-                "workload_type": trace.workload_type,
-                "query_text": trace.query_text,
-                "response_text": trace.response_text,
-                "num_turns": trace.num_turns,
-                "total_input_tokens": trace.total_input_tokens,
-                "total_output_tokens": trace.total_output_tokens,
-                "total_tool_calls": trace.total_tool_calls,
-                "total_wall_clock_s": trace.total_wall_clock_s,
-                "total_gpu_energy_joules": trace.total_gpu_energy_joules,
-                "total_cpu_energy_joules": trace.total_cpu_energy_joules,
-                "total_tokens": trace.total_tokens,
-                "total_cost_usd": trace.total_cost_usd,
-                "avg_gpu_power_watts": trace.avg_gpu_power_watts,
-                "avg_cpu_power_watts": trace.avg_cpu_power_watts,
-                "throughput_tokens_per_sec": trace.throughput_tokens_per_sec,
-                "energy_per_token_joules": trace.energy_per_token_joules,
-                "completed": trace.completed,
-                "timed_out": trace.timed_out,
-                "is_resolved": trace.is_resolved,
-                "query_mbu_avg_pct": trace.query_mbu_avg_pct,
-                "query_mbu_max_pct": trace.query_mbu_max_pct,
-                "trace_json": json.dumps(trace.to_dict()),
-            })
+            rows.append(
+                {
+                    "query_id": trace.query_id,
+                    "workload_type": trace.workload_type,
+                    "query_text": trace.query_text,
+                    "response_text": trace.response_text,
+                    "num_turns": trace.num_turns,
+                    "total_input_tokens": trace.total_input_tokens,
+                    "total_output_tokens": trace.total_output_tokens,
+                    "total_tool_calls": trace.total_tool_calls,
+                    "total_wall_clock_s": trace.total_wall_clock_s,
+                    "total_gpu_energy_joules": trace.total_gpu_energy_joules,
+                    "total_cpu_energy_joules": trace.total_cpu_energy_joules,
+                    "total_tokens": trace.total_tokens,
+                    "total_cost_usd": trace.total_cost_usd,
+                    "avg_gpu_power_watts": trace.avg_gpu_power_watts,
+                    "avg_cpu_power_watts": trace.avg_cpu_power_watts,
+                    "throughput_tokens_per_sec": trace.throughput_tokens_per_sec,
+                    "energy_per_token_joules": trace.energy_per_token_joules,
+                    "completed": trace.completed,
+                    "timed_out": trace.timed_out,
+                    "is_resolved": trace.is_resolved,
+                    "query_mbu_avg_pct": trace.query_mbu_avg_pct,
+                    "query_mbu_max_pct": trace.query_mbu_max_pct,
+                    "trace_json": json.dumps(trace.to_dict()),
+                }
+            )
         return Dataset.from_list(rows)
 
 

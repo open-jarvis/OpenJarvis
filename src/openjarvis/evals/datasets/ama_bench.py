@@ -130,7 +130,8 @@ class AMABenchDataset(DatasetProvider):
         return [dict(row) for row in rows]
 
     def _row_to_episode(
-        self, row: Dict[str, Any],
+        self,
+        row: Dict[str, Any],
     ) -> List[EvalRecord]:
         """Convert one AMA-Bench episode row to EvalRecord(s)."""
         episode_id = str(row.get("episode_id", "")).strip()
@@ -139,11 +140,15 @@ class AMABenchDataset(DatasetProvider):
 
         trajectory = row.get("trajectory")
         if not isinstance(trajectory, list):
-            raise ValueError(f"AMA-Bench episode {episode_id}: trajectory must be a list")
+            raise ValueError(
+                f"AMA-Bench episode {episode_id}: trajectory must be a list"
+            )
 
         qa_pairs = row.get("qa_pairs")
         if not isinstance(qa_pairs, list) or not qa_pairs:
-            raise ValueError(f"AMA-Bench episode {episode_id}: qa_pairs must be a non-empty list")
+            raise ValueError(
+                f"AMA-Bench episode {episode_id}: qa_pairs must be a non-empty list"
+            )
 
         task = str(row.get("task", "")).strip()
         domain = str(row.get("domain", "")).strip() or "general"
@@ -159,12 +164,15 @@ class AMABenchDataset(DatasetProvider):
         if len(trajectory_text) > max_chars:
             original_len = len(trajectory_text)
             trajectory_text = self._truncate_trajectory_text(
-                trajectory_text, max_chars,
+                trajectory_text,
+                max_chars,
             )
             LOGGER.info(
                 "AMA-Bench episode %s: trajectory truncated from %d to %d chars "
                 "(first 50%% + last 50%% of budget kept per Appendix B)",
-                episode_id, original_len, len(trajectory_text),
+                episode_id,
+                original_len,
+                len(trajectory_text),
             )
 
         records: List[EvalRecord] = []
@@ -194,31 +202,33 @@ class AMABenchDataset(DatasetProvider):
                 f"## Question\n{question}"
             )
 
-            records.append(EvalRecord(
-                record_id=(
-                    f"ama-{episode_id}-{q_uuid}"
-                    if q_uuid
-                    else f"ama-{episode_id}-q{question_index}"
-                ),
-                problem=problem,
-                reference=answer,
-                category="agentic",
-                subject=subject,
-                metadata={
-                    "episode_id": episode_id,
-                    "task": task,
-                    "task_type": task_type,
-                    "source": source,
-                    "domain": domain,
-                    "success": success,
-                    "num_turns": num_turns,
-                    "total_tokens": total_tokens,
-                    "question_index": question_index,
-                    "question_uuid": q_uuid,
-                    "question_type": q_type,
-                    "capability": subject,
-                },
-            ))
+            records.append(
+                EvalRecord(
+                    record_id=(
+                        f"ama-{episode_id}-{q_uuid}"
+                        if q_uuid
+                        else f"ama-{episode_id}-q{question_index}"
+                    ),
+                    problem=problem,
+                    reference=answer,
+                    category="agentic",
+                    subject=subject,
+                    metadata={
+                        "episode_id": episode_id,
+                        "task": task,
+                        "task_type": task_type,
+                        "source": source,
+                        "domain": domain,
+                        "success": success,
+                        "num_turns": num_turns,
+                        "total_tokens": total_tokens,
+                        "question_index": question_index,
+                        "question_uuid": q_uuid,
+                        "question_type": q_type,
+                        "capability": subject,
+                    },
+                )
+            )
 
         return records
 
@@ -240,7 +250,8 @@ class AMABenchDataset(DatasetProvider):
 
     @staticmethod
     def _truncate_trajectory_text(
-        trajectory_text: str, max_chars: int,
+        trajectory_text: str,
+        max_chars: int,
     ) -> str:
         """Truncate formatted trajectory text by keeping first 50% + last 50%
         of the character budget, discarding the middle.
@@ -254,9 +265,7 @@ class AMABenchDataset(DatasetProvider):
         if budget_each <= 0:
             return trajectory_text[:max_chars]
         return (
-            trajectory_text[:budget_each]
-            + separator
-            + trajectory_text[-budget_each:]
+            trajectory_text[:budget_each] + separator + trajectory_text[-budget_each:]
         )
 
 

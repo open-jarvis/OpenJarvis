@@ -81,12 +81,14 @@ def health() -> JSONResponse:
 
 @app.get("/v1/models")
 def list_models() -> JSONResponse:
-    return JSONResponse({
-        "object": "list",
-        "data": [
-            {"id": MODEL_ID, "object": "model", "owned_by": "nexa"},
-        ],
-    })
+    return JSONResponse(
+        {
+            "object": "list",
+            "data": [
+                {"id": MODEL_ID, "object": "model", "owned_by": "nexa"},
+            ],
+        }
+    )
 
 
 @app.post("/v1/chat/completions")
@@ -97,6 +99,7 @@ async def chat_completions(
     llm = _get_llm()
 
     if req.stream:
+
         async def generate():
             cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
             for token in llm.generate(prompt, max_tokens=req.max_tokens):
@@ -105,11 +108,13 @@ async def chat_completions(
                     "object": "chat.completion.chunk",
                     "created": int(time.time()),
                     "model": MODEL_ID,
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": token},
-                        "finish_reason": None,
-                    }],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": token},
+                            "finish_reason": None,
+                        }
+                    ],
                 }
                 yield f"data: {json.dumps(chunk)}\n\n"
             final = {
@@ -117,36 +122,43 @@ async def chat_completions(
                 "object": "chat.completion.chunk",
                 "created": int(time.time()),
                 "model": MODEL_ID,
-                "choices": [{
-                    "index": 0,
-                    "delta": {},
-                    "finish_reason": "stop",
-                }],
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    }
+                ],
             }
             yield f"data: {json.dumps(final)}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(
-            generate(), media_type="text/event-stream",
+            generate(),
+            media_type="text/event-stream",
         )
 
     text = llm.generate(prompt, max_tokens=req.max_tokens)
     if isinstance(text, list):
         text = "".join(text)
     cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-    return JSONResponse({
-        "id": cid,
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": MODEL_ID,
-        "choices": [{
-            "index": 0,
-            "message": {"role": "assistant", "content": text},
-            "finish_reason": "stop",
-        }],
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        },
-    })
+    return JSONResponse(
+        {
+            "id": cid,
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": MODEL_ID,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": text},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+        }
+    )

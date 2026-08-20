@@ -70,31 +70,37 @@ class MCPServer:
         # Built-in API tools
         try:
             from openjarvis.tools.calculator import CalculatorTool
+
             _tool_classes.append(CalculatorTool)
         except ImportError:
             pass
         try:
             from openjarvis.tools.think import ThinkTool
+
             _tool_classes.append(ThinkTool)
         except ImportError:
             pass
         try:
             from openjarvis.tools.file_read import FileReadTool
+
             _tool_classes.append(FileReadTool)
         except ImportError:
             pass
         try:
             from openjarvis.tools.web_search import WebSearchTool
+
             _tool_classes.append(WebSearchTool)
         except ImportError:
             pass
         try:
             from openjarvis.tools.code_interpreter import CodeInterpreterTool
+
             _tool_classes.append(CodeInterpreterTool)
         except ImportError:
             pass
         try:
             from openjarvis.tools.repl import ReplTool
+
             _tool_classes.append(ReplTool)
         except ImportError:
             pass
@@ -107,10 +113,15 @@ class MCPServer:
                 MemorySearchTool,
                 MemoryStoreTool,
             )
-            _tool_classes.extend([
-                MemoryStoreTool, MemoryRetrieveTool,
-                MemorySearchTool, MemoryIndexTool,
-            ])
+
+            _tool_classes.extend(
+                [
+                    MemoryStoreTool,
+                    MemoryRetrieveTool,
+                    MemorySearchTool,
+                    MemoryIndexTool,
+                ]
+            )
         except ImportError:
             pass
 
@@ -121,15 +132,21 @@ class MCPServer:
                 ChannelSendTool,
                 ChannelStatusTool,
             )
-            _tool_classes.extend([
-                ChannelSendTool, ChannelListTool, ChannelStatusTool,
-            ])
+
+            _tool_classes.extend(
+                [
+                    ChannelSendTool,
+                    ChannelListTool,
+                    ChannelStatusTool,
+                ]
+            )
         except ImportError:
             pass
 
         # LM tool (needs engine/model — instantiate with None)
         try:
             from openjarvis.tools.llm_tool import LLMTool
+
             _tool_classes.append(LLMTool)
         except ImportError:
             pass
@@ -137,6 +154,7 @@ class MCPServer:
         # Retrieval tool (needs backend — instantiate with None)
         try:
             from openjarvis.tools.retrieval import RetrievalTool
+
             _tool_classes.append(RetrievalTool)
         except ImportError:
             pass
@@ -150,6 +168,7 @@ class MCPServer:
         # Also check ToolRegistry for any user-registered tools
         try:
             from openjarvis.core.registry import ToolRegistry
+
             known_names = {t.spec.name for t in tools}
             for key in ToolRegistry.keys():
                 if key not in known_names:

@@ -1,0 +1,12 @@
+[template]
+id = "personal_deep_research"
+name = "Personal Deep Research"
+description = "Searches your personal data and produces cited reports."
+agent_type = "deep_research"
+schedule_type = "manual"
+schedule_value = ""
+tools = ["knowledge_search", "knowledge_sql", "scan_chunks", "think"]
+max_turns = 8
+temperature = 0.3
+max_tokens = 4096
+system_prompt = "You are a deep research agent. Search across the user's personal knowledge base and produce cited reports."

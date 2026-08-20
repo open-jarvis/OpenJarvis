@@ -10,9 +10,9 @@ import pytest
 
 from openjarvis.core.types import Trace
 from openjarvis.evals.core.types import EvalRecord
-from openjarvis.optimize.personal.dataset import PersonalBenchmarkDataset
-from openjarvis.optimize.personal.scorer import PersonalBenchmarkScorer
-from openjarvis.optimize.personal.synthesizer import (
+from openjarvis.learning.optimize.personal.dataset import PersonalBenchmarkDataset
+from openjarvis.learning.optimize.personal.scorer import PersonalBenchmarkScorer
+from openjarvis.learning.optimize.personal.synthesizer import (
     PersonalBenchmark,
     PersonalBenchmarkSample,
     PersonalBenchmarkSynthesizer,

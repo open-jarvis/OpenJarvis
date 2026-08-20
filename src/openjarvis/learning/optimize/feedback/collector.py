@@ -30,21 +30,25 @@ class FeedbackCollector:
         source: str = "api",
     ) -> None:
         """Record an explicit numeric score (0-1) for a trace."""
-        self._records.append({
-            "trace_id": trace_id,
-            "score": min(max(score, 0.0), 1.0),
-            "source": source,
-            "timestamp": time.time(),
-        })
+        self._records.append(
+            {
+                "trace_id": trace_id,
+                "score": min(max(score, 0.0), 1.0),
+                "source": source,
+                "timestamp": time.time(),
+            }
+        )
 
     def record_thumbs(self, trace_id: str, thumbs_up: bool) -> None:
         """Record a thumbs-up / thumbs-down signal (converted to 1.0/0.0)."""
-        self._records.append({
-            "trace_id": trace_id,
-            "score": 1.0 if thumbs_up else 0.0,
-            "source": "thumbs",
-            "timestamp": time.time(),
-        })
+        self._records.append(
+            {
+                "trace_id": trace_id,
+                "score": 1.0 if thumbs_up else 0.0,
+                "source": "thumbs",
+                "timestamp": time.time(),
+            }
+        )
 
     # ------------------------------------------------------------------
     # Judge-driven evaluation
@@ -78,7 +82,8 @@ class FeedbackCollector:
     # ------------------------------------------------------------------
 
     def get_records(
-        self, trace_id: Optional[str] = None,
+        self,
+        trace_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return stored records, optionally filtered by *trace_id*."""
         if trace_id is None:

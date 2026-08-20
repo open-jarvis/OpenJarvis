@@ -61,7 +61,7 @@ def _detect_stat_groups(metrics: dict[str, float]) -> dict[str, dict[str, float]
     for key, val in metrics.items():
         for pfx in _STATS_PREFIXES:
             if key.startswith(pfx):
-                base = key[len(pfx):]
+                base = key[len(pfx) :]
                 groups.setdefault(base, {})[pfx.rstrip("_")] = val
                 break
     return groups
@@ -152,27 +152,46 @@ def bench() -> None:
 @click.option("-m", "--model", "model_name", default=None, help="Model to benchmark.")
 @click.option("-e", "--engine", "engine_key", default=None, help="Engine backend.")
 @click.option(
-    "-n", "--samples", "num_samples", default=10, type=int,
+    "-n",
+    "--samples",
+    "num_samples",
+    default=10,
+    type=int,
     help="Number of samples per benchmark.",
 )
 @click.option(
-    "-b", "--benchmark", "benchmark_name", default=None,
+    "-b",
+    "--benchmark",
+    "benchmark_name",
+    default=None,
     help="Specific benchmark to run (default: all).",
 )
 @click.option(
-    "-o", "--output", "output_path", default=None, type=click.Path(),
+    "-o",
+    "--output",
+    "output_path",
+    default=None,
+    type=click.Path(),
     help="Write JSONL results to file.",
 )
 @click.option(
-    "--json", "output_json", is_flag=True,
+    "--json",
+    "output_json",
+    is_flag=True,
     help="Output JSON summary to stdout.",
 )
 @click.option(
-    "-w", "--warmup", "warmup", default=0, type=int,
+    "-w",
+    "--warmup",
+    "warmup",
+    default=0,
+    type=int,
     help="Number of warmup iterations before measurement.",
 )
 @click.option(
-    "--setup-energy", "setup_energy", is_flag=True,
+    "--setup-energy",
+    "setup_energy",
+    is_flag=True,
     help="Run energy monitor setup script when missing (for energy benchmark).",
 )
 def run(
@@ -250,16 +269,12 @@ def run(
         import platform
 
         setup_script = (
-            Path(__file__).resolve().parents[3]
-            / "scripts"
-            / "setup-energy-monitor.sh"
+            Path(__file__).resolve().parents[3] / "scripts" / "setup-energy-monitor.sh"
         )
-        is_darwin_arm = (
-            platform.system() == "Darwin"
-            and platform.machine() == "arm64"
-        )
+        is_darwin_arm = platform.system() == "Darwin" and platform.machine() == "arm64"
         extra_hint = (
-            "openjarvis[energy-apple]" if is_darwin_arm
+            "openjarvis[energy-apple]"
+            if is_darwin_arm
             else "openjarvis[gpu-metrics]"
             if platform.system() == "Linux"
             else "openjarvis[energy-all]"
@@ -314,8 +329,10 @@ def run(
         f"[bold cyan]Running {len(benchmarks)} benchmark(s)...[/bold cyan]",
     ):
         results = suite.run_all(
-            engine, model_name,
-            num_samples=num_samples, warmup_samples=warmup,
+            engine,
+            model_name,
+            num_samples=num_samples,
+            warmup_samples=warmup,
             energy_monitor=energy_monitor,
         )
 
@@ -341,3 +358,130 @@ def run(
             energy_monitor.close()
         except Exception as exc:
             logger.debug("Energy monitor cleanup failed: %s", exc)
+
+
+@bench.command("skills")
+@click.option(
+    "--condition",
+    "-c",
+    type=click.Choice(
+        [
+            "all",
+            "no_skills",
+            "skills_on",
+            "skills_optimized_dspy",
+            "skills_optimized_gepa",
+        ]
+    ),
+    default="all",
+    show_default=True,
+    help="Which condition(s) to run.",
+)
+@click.option(
+    "--seeds",
+    "-s",
+    multiple=True,
+    type=int,
+    default=(42, 43, 44),
+    show_default=True,
+    help="Random seeds to run per condition.",
+)
+@click.option(
+    "--max-samples",
+    "-n",
+    default=None,
+    type=int,
+    help="Limit number of PinchBench tasks (default: full benchmark).",
+)
+@click.option(
+    "--model",
+    "-m",
+    default="qwen3.5:9b",
+    show_default=True,
+    help="Model identifier.",
+)
+@click.option(
+    "--engine",
+    "-e",
+    default="ollama",
+    show_default=True,
+    help="Engine backend.",
+)
+@click.option(
+    "--output-dir",
+    "-o",
+    default="docs/superpowers/results/",
+    show_default=True,
+    help="Where the markdown report lands.",
+)
+def skills(
+    condition: str,
+    seeds: tuple,
+    max_samples: int,
+    model: str,
+    engine: str,
+    output_dir: str,
+) -> None:
+    """Run the PinchBench skills benchmark across one or all conditions."""
+    from rich.console import Console
+    from rich.table import Table
+
+    from openjarvis.evals.skill_benchmark import (
+        SkillBenchmarkConfig,
+        SkillBenchmarkRunner,
+    )
+
+    console = Console()
+
+    cfg = SkillBenchmarkConfig(
+        model=model,
+        engine=engine,
+        seeds=list(seeds),
+        max_samples=max_samples,
+        output_dir=Path(output_dir),
+    )
+    runner = SkillBenchmarkRunner(cfg)
+
+    if condition == "all":
+        comparison = runner.run_all_conditions()
+
+        # Print summary table
+        table = Table(title="PinchBench Skills Evaluation")
+        table.add_column("Condition", style="cyan")
+        table.add_column("Mean pass rate")
+        table.add_column("Stddev")
+        table.add_column("Tokens")
+        table.add_column("Runtime (s)")
+        for cond_name, result in comparison.results.items():
+            table.add_row(
+                cond_name,
+                f"{result.mean_pass_rate:.3f}",
+                f"{result.stddev_pass_rate:.3f}",
+                str(result.total_tokens),
+                f"{result.total_runtime_seconds:.1f}",
+            )
+        console.print(table)
+
+        if comparison.deltas:
+            console.print("\n[bold]Deltas:[/bold]")
+            for name, value in comparison.deltas.items():
+                sign = "+" if value >= 0 else ""
+                console.print(f"  {name}: {sign}{value:.3f}")
+
+        report_path = runner.write_report(comparison)
+        console.print(f"\n[green]Report written:[/green] {report_path}")
+    else:
+        result = runner.run_condition(condition)
+        table = Table(title=f"PinchBench Skills — {condition}")
+        table.add_column("Field", style="cyan")
+        table.add_column("Value")
+        table.add_row("Condition", result.condition)
+        table.add_row("Mean pass rate", f"{result.mean_pass_rate:.3f}")
+        table.add_row("Stddev", f"{result.stddev_pass_rate:.3f}")
+        table.add_row(
+            "Per-seed",
+            ", ".join(f"{s}={r:.3f}" for s, r in result.per_seed_pass_rate.items()),
+        )
+        table.add_row("Total tokens", str(result.total_tokens))
+        table.add_row("Runtime (s)", f"{result.total_runtime_seconds:.1f}")
+        console.print(table)

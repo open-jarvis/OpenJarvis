@@ -1,0 +1,18 @@
+# HELP pearl_gateway_shares_submitted_total Total mining shares submitted.
+# TYPE pearl_gateway_shares_submitted_total counter
+pearl_gateway_shares_submitted_total 12345
+# HELP pearl_gateway_shares_accepted_total Total mining shares accepted by pearld.
+# TYPE pearl_gateway_shares_accepted_total counter
+pearl_gateway_shares_accepted_total 12300
+# HELP pearl_gateway_blocks_found_total Total blocks found.
+# TYPE pearl_gateway_blocks_found_total counter
+pearl_gateway_blocks_found_total 7
+# HELP pearl_gateway_last_share_timestamp Unix timestamp of last share submission.
+# TYPE pearl_gateway_last_share_timestamp gauge
+pearl_gateway_last_share_timestamp 1714867500
+# HELP pearl_gateway_errors_total Total errors observed by the gateway.
+# TYPE pearl_gateway_errors_total counter
+pearl_gateway_errors_total 0
+# HELP process_start_time_seconds Process start time (Unix seconds).
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds 1714865000

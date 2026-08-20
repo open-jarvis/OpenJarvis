@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from openjarvis.optimize.store import OptimizationStore
-from openjarvis.optimize.types import (
+from openjarvis.learning.optimize.store import OptimizationStore
+from openjarvis.learning.optimize.types import (
     OptimizationRun,
     SampleScore,
     SearchDimension,

@@ -62,9 +62,7 @@ class ColBERTMemory(MemoryBackend):
         self._device = device
 
         # id -> (content, source, metadata)
-        self._documents: Dict[
-            str, Tuple[str, str, Dict[str, Any]]
-        ] = {}
+        self._documents: Dict[str, Tuple[str, str, Dict[str, Any]]] = {}
         # id -> token-level embedding tensor
         self._embeddings: Dict[str, Any] = {}
 
@@ -135,10 +133,12 @@ class ColBERTMemory(MemoryBackend):
 
         # Normalize to unit vectors for cosine similarity
         q_norm = _torch.nn.functional.normalize(
-            query_embs.float(), dim=-1,
+            query_embs.float(),
+            dim=-1,
         )
         d_norm = _torch.nn.functional.normalize(
-            doc_embs.float(), dim=-1,
+            doc_embs.float(),
+            dim=-1,
         )
 
         # (Q, D) x (D, N) -> (Q, N) cosine similarity matrix
@@ -166,11 +166,14 @@ class ColBERTMemory(MemoryBackend):
         self._embeddings[doc_id] = self._encode(content)
 
         bus = get_event_bus()
-        bus.publish(EventType.MEMORY_STORE, {
-            "backend": self.backend_id,
-            "doc_id": doc_id,
-            "source": source,
-        })
+        bus.publish(
+            EventType.MEMORY_STORE,
+            {
+                "backend": self.backend_id,
+                "doc_id": doc_id,
+                "source": source,
+            },
+        )
         return doc_id
 
     def retrieve(
@@ -183,11 +186,14 @@ class ColBERTMemory(MemoryBackend):
         """Search for *query* and return the top-k results."""
         if not query.strip() or not self._documents:
             bus = get_event_bus()
-            bus.publish(EventType.MEMORY_RETRIEVE, {
-                "backend": self.backend_id,
-                "query": query,
-                "num_results": 0,
-            })
+            bus.publish(
+                EventType.MEMORY_RETRIEVE,
+                {
+                    "backend": self.backend_id,
+                    "query": query,
+                    "num_results": 0,
+                },
+            )
             return []
 
         query_embs = self._encode(query)
@@ -202,19 +208,24 @@ class ColBERTMemory(MemoryBackend):
         results: List[RetrievalResult] = []
         for doc_id, score in scored[:top_k]:
             content, source, metadata = self._documents[doc_id]
-            results.append(RetrievalResult(
-                content=content,
-                score=score,
-                source=source,
-                metadata=dict(metadata),
-            ))
+            results.append(
+                RetrievalResult(
+                    content=content,
+                    score=score,
+                    source=source,
+                    metadata=dict(metadata),
+                )
+            )
 
         bus = get_event_bus()
-        bus.publish(EventType.MEMORY_RETRIEVE, {
-            "backend": self.backend_id,
-            "query": query,
-            "num_results": len(results),
-        })
+        bus.publish(
+            EventType.MEMORY_RETRIEVE,
+            {
+                "backend": self.backend_id,
+                "query": query,
+                "num_results": len(results),
+            },
+        )
         return results
 
     def delete(self, doc_id: str) -> bool:

@@ -65,8 +65,7 @@ class LineChannel(BaseChannel):
             import linebot  # noqa: F401
         except ImportError:
             raise ImportError(
-                "line-bot-sdk not installed. Install with: "
-                "uv sync --extra channel-line"
+                "line-bot-sdk not installed. Install with: uv sync --extra channel-line"
             )
         self._status = ChannelStatus.CONNECTED
 

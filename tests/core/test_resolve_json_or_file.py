@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.core.config import resolve_json_or_file
+from openjarvis.core.config import load_config, resolve_json_or_file
 
 
 class TestResolveJsonOrFile:
@@ -59,6 +59,13 @@ class TestResolveJsonOrFile:
         with pytest.raises(FileNotFoundError):
             resolve_json_or_file("nonexistent.json", tmp_path)
 
+    def test_directory_is_rejected(self, tmp_path: Path) -> None:
+        directory = tmp_path / "servers.json"
+        directory.mkdir()
+
+        with pytest.raises(ValueError, match="not a regular file"):
+            resolve_json_or_file("servers.json", tmp_path)
+
     def test_invalid_json_in_file(self, tmp_path: Path) -> None:
         bad_file = tmp_path / "broken.json"
         bad_file.write_text("{broken json", encoding="utf-8")
@@ -77,3 +84,22 @@ class TestResolveJsonOrFile:
         # Absolute paths bypass the traversal check
         result = resolve_json_or_file(str(data_file), config_dir)
         assert result == [42]
+
+    def test_load_config_records_explicit_source_directory(
+        self, tmp_path: Path
+    ) -> None:
+        config_dir = tmp_path / "nested"
+        config_dir.mkdir()
+        config_path = config_dir / "config.toml"
+        config_path.write_text(
+            '[tools.mcp]\nservers = "mcp-servers.json"\n',
+            encoding="utf-8",
+        )
+
+        load_config.cache_clear()
+        try:
+            config = load_config(config_path)
+        finally:
+            load_config.cache_clear()
+
+        assert config._config_dir == config_dir.resolve()

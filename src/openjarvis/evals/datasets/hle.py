@@ -76,7 +76,9 @@ class HLEDataset(DatasetProvider):
         return False
 
     def _convert_row(
-        self, raw: MutableMapping[str, object], idx: int,
+        self,
+        raw: MutableMapping[str, object],
+        idx: int,
     ) -> Optional[EvalRecord]:
         # Skip multimodal rows when text_only is enabled
         if self._text_only and self._is_multimodal(raw):
@@ -84,36 +86,31 @@ class HLEDataset(DatasetProvider):
 
         # Extract question text
         question_text = str(
-            raw.get("question")
-            or raw.get("instruction")
-            or raw.get("prompt")
-            or ""
+            raw.get("question") or raw.get("instruction") or raw.get("prompt") or ""
         ).strip()
         if not question_text:
             return None
 
         # Extract reference answer
         reference = str(
-            raw.get("answer")
-            or raw.get("gold_answer")
-            or raw.get("response")
-            or ""
+            raw.get("answer") or raw.get("gold_answer") or raw.get("response") or ""
         ).strip()
         if not reference:
             return None
 
         # Extract category
-        category_value = str(
-            raw.get("category")
-            or raw.get("subject")
-            or raw.get("type")
+        category_value = (
+            str(
+                raw.get("category")
+                or raw.get("subject")
+                or raw.get("type")
+                or "general"
+            ).strip()
             or "general"
-        ).strip() or "general"
+        )
 
         # Extract task_id for the record_id
-        task_id = str(
-            raw.get("id") or raw.get("task_id") or f"hle_{idx}"
-        ).strip()
+        task_id = str(raw.get("id") or raw.get("task_id") or f"hle_{idx}").strip()
 
         # Use question directly (no wrapper template)
         problem = question_text

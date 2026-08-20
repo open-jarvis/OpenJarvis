@@ -58,11 +58,11 @@ _THINKING_MODEL_PATTERNS = re.compile(
 # ---------------------------------------------------------------------------
 
 _TOKEN_TIERS = {
-    "trivial": 1024,    # greetings, yes/no, factoid lookups
-    "simple": 2048,     # short answers, definitions
-    "moderate": 4096,   # explanations, summaries
-    "complex": 8192,    # analysis, code generation, multi-step
-    "very_complex": 16384, # long-form, multi-part reasoning
+    "trivial": 1024,  # greetings, yes/no, factoid lookups
+    "simple": 2048,  # short answers, definitions
+    "moderate": 4096,  # explanations, summaries
+    "complex": 8192,  # analysis, code generation, multi-step
+    "very_complex": 16384,  # long-form, multi-part reasoning
 }
 
 # Thinking models need extra headroom for internal chain-of-thought.
@@ -204,9 +204,7 @@ def is_thinking_model(model_name: str) -> bool:
     return bool(_THINKING_MODEL_PATTERNS.search(model_name))
 
 
-def adjust_tokens_for_model(
-    suggested: int, model_name: Optional[str] = None
-) -> int:
+def adjust_tokens_for_model(suggested: int, model_name: Optional[str] = None) -> int:
     """Multiply the token budget when the target is a thinking model."""
     if model_name and is_thinking_model(model_name):
         return suggested * _THINKING_TOKEN_MULTIPLIER
@@ -226,9 +224,7 @@ class ComplexityQueryAnalyzer(QueryAnalyzer):
     to the returned ``RoutingContext``.
     """
 
-    def analyze(
-        self, query: str, **kwargs: object
-    ) -> RoutingContext:
+    def analyze(self, query: str, **kwargs: object) -> RoutingContext:
         urgency = kwargs.get("urgency", 0.5)
         if not isinstance(urgency, (int, float)):
             urgency = 0.5

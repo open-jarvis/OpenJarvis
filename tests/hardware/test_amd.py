@@ -131,7 +131,7 @@ class TestAMDDetection:
 
 
 class TestAMDEngineRecommendation:
-    """Tests that AMD cards map to vllm."""
+    """Tests that AMD datacenter cards map to vllm, consumer cards to lemonade."""
 
     def test_mi300x_recommends_vllm(self):
         hw = HardwareInfo(
@@ -148,7 +148,37 @@ class TestAMDEngineRecommendation:
         )
         assert recommend_engine(hw) == "vllm"
 
-    def test_amd_generic_recommends_vllm(self):
+    def test_mi350_recommends_vllm(self):
+        hw = HardwareInfo(
+            platform="linux",
+            cpu_brand="AMD EPYC 9654",
+            cpu_count=96,
+            ram_gb=768.0,
+            gpu=GpuInfo(
+                vendor="amd",
+                name="AMD Instinct MI350X",
+                vram_gb=288.0,
+                count=1,
+            ),
+        )
+        assert recommend_engine(hw) == "vllm"
+
+    def test_amd_consumer_recommends_lemonade(self):
+        hw = HardwareInfo(
+            platform="linux",
+            cpu_brand="AMD Ryzen 9 7950X",
+            cpu_count=32,
+            ram_gb=64.0,
+            gpu=GpuInfo(
+                vendor="amd",
+                name="AMD Radeon RX 7900 XTX",
+                vram_gb=24.0,
+                count=1,
+            ),
+        )
+        assert recommend_engine(hw) == "lemonade"
+
+    def test_amd_generic_recommends_lemonade(self):
         hw = HardwareInfo(
             platform="linux",
             cpu_brand="AMD EPYC",
@@ -156,7 +186,7 @@ class TestAMDEngineRecommendation:
             ram_gb=256.0,
             gpu=GpuInfo(vendor="amd", name="AMD GPU", vram_gb=0.0, count=1),
         )
-        assert recommend_engine(hw) == "vllm"
+        assert recommend_engine(hw) == "lemonade"
 
     def test_amd_multi_gpu_recommends_vllm(self):
         hw = HardwareInfo(

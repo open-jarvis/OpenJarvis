@@ -75,14 +75,16 @@ def recipe_to_eval_suite(
 
     bench_cfgs: list[BenchmarkConfig] = []
     for bname in bench_names:
-        bench_cfgs.append(BenchmarkConfig(
-            name=bname,
-            backend=backend,
-            max_samples=max_samples or recipe.eval_max_samples,
-            agent=recipe.agent_type if has_agent else None,
-            tools=list(recipe.tools) if has_agent else [],
-            judge_model=judge_model or recipe.eval_judge_model,
-        ))
+        bench_cfgs.append(
+            BenchmarkConfig(
+                name=bname,
+                backend=backend,
+                max_samples=max_samples or recipe.eval_max_samples,
+                agent=recipe.agent_type if has_agent else None,
+                tools=list(recipe.tools) if has_agent else [],
+                judge_model=judge_model or recipe.eval_judge_model,
+            )
+        )
 
     return EvalSuiteConfig(
         meta=MetaConfig(

@@ -108,9 +108,7 @@ class TestGAIAScorer:
     def test_llm_fallback_incorrect(self):
         backend = MockBackend()
         backend._default_response = (
-            "extracted_final_answer: 43\n"
-            "reasoning: Different number.\n"
-            "correct: no"
+            "extracted_final_answer: 43\nreasoning: Different number.\ncorrect: no"
         )
         scorer = GAIAScorer(backend, "gpt-4o")
 

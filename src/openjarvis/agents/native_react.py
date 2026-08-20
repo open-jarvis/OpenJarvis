@@ -10,9 +10,13 @@ import re
 from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
+from openjarvis.agents.prompt_loader import (
+    load_few_shot_exemplars,
+    load_system_prompt_override,
+)
 from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
-from openjarvis.core.types import Message, Role, ToolCall, ToolResult
+from openjarvis.core.types import Message, Role, ToolCall, ToolResult, _message_to_dict
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool, build_tool_descriptions
 
@@ -28,7 +32,25 @@ Action Input: <json arguments>
 Thought: <your reasoning>
 Final Answer: <your answer>
 
-{tool_descriptions}"""
+# Using Skills
+
+Tools whose names begin with `skill_` are SKILLS. When you call a skill tool,
+the response can take one of two forms:
+
+- **Computed result**: The skill ran a deterministic pipeline and returned a
+  value (number, string, JSON, etc.). Use the value directly in your answer.
+
+- **Procedural instructions**: The skill returned markdown text describing
+  HOW to accomplish a task. Recognize this when the response starts with
+  `#` headings, contains bullet lists, or uses phrases like "When asked
+  to...", "First...", "Steps:". When you receive instructions:
+  1. READ the instructions carefully — they are your playbook
+  2. FOLLOW the steps using your OTHER tools (e.g. calculator, web_search,
+     shell_exec, file_read) — not the same skill
+  3. DO NOT call the same skill again — you already have its instructions
+  4. Synthesize a Final Answer from what you learned
+
+{skill_examples}{tool_descriptions}"""
 
 
 @AgentRegistry.register("native_react")
@@ -52,6 +74,7 @@ class NativeReActAgent(ToolUsingAgent):
         max_tokens: Optional[int] = None,
         interactive: bool = False,
         confirm_callback=None,
+        skill_few_shot_examples: Optional[List[str]] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -63,6 +86,7 @@ class NativeReActAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            skill_few_shot_examples=skill_few_shot_examples,
         )
 
     def _parse_response(self, text: str) -> dict:
@@ -111,9 +135,38 @@ class NativeReActAgent(ToolUsingAgent):
 
         # Build system prompt with rich tool descriptions
         tool_desc = build_tool_descriptions(self._tools)
-        system_prompt = REACT_SYSTEM_PROMPT.format(tool_descriptions=tool_desc)
+        # Plan 2B I3: render optimized few-shot skill examples as a section
+        # before the tool descriptions. Empty string when not present.
+        if self._skill_few_shot_examples:
+            skill_examples_block = (
+                "## Skill Examples\n\n"
+                + "\n\n".join(self._skill_few_shot_examples)
+                + "\n\n"
+            )
+        else:
+            skill_examples_block = ""
+        # Respect $OPENJARVIS_HOME override for the base template (M2+ work).
+        prompt_template = (
+            load_system_prompt_override("native_react") or REACT_SYSTEM_PROMPT
+        )
+        # External overrides may not include the {skill_examples} slot.
+        try:
+            system_prompt = prompt_template.format(
+                tool_descriptions=tool_desc,
+                skill_examples=skill_examples_block,
+            )
+        except KeyError:
+            system_prompt = prompt_template.format(tool_descriptions=tool_desc)
+            if skill_examples_block:
+                system_prompt = system_prompt + "\n\n" + skill_examples_block
 
         messages = self._build_messages(input, context, system_prompt=system_prompt)
+
+        # Inject few-shot exemplars before the user input
+        for ex in load_few_shot_exemplars("native_react"):
+            if ex.get("input") and ex.get("output"):
+                messages.insert(-1, Message(role=Role.USER, content=ex["input"]))
+                messages.insert(-1, Message(role=Role.ASSISTANT, content=ex["output"]))
 
         all_tool_results: list[ToolResult] = []
         turns = 0
@@ -140,21 +193,23 @@ class NativeReActAgent(ToolUsingAgent):
             # Final answer?
             if parsed["final_answer"]:
                 self._emit_turn_end(turns=turns)
+                msg_dicts = [_message_to_dict(m) for m in messages]
                 return AgentResult(
                     content=parsed["final_answer"],
                     tool_results=all_tool_results,
                     turns=turns,
-                    metadata=total_usage,
+                    metadata={**total_usage, "messages": msg_dicts},
                 )
 
             # No action? Treat content as final answer
             if not parsed["action"]:
                 self._emit_turn_end(turns=turns)
+                msg_dicts = [_message_to_dict(m) for m in messages]
                 return AgentResult(
                     content=content,
                     tool_results=all_tool_results,
                     turns=turns,
-                    metadata=total_usage,
+                    metadata={**total_usage, "messages": msg_dicts},
                 )
 
             # Execute action
@@ -190,7 +245,12 @@ class NativeReActAgent(ToolUsingAgent):
             messages.append(Message(role=Role.USER, content=observation))
 
         # Max turns exceeded
-        return self._max_turns_result(all_tool_results, turns, metadata=total_usage)
+        msg_dicts = [_message_to_dict(m) for m in messages]
+        return self._max_turns_result(
+            all_tool_results,
+            turns,
+            metadata={**total_usage, "messages": msg_dicts},
+        )
 
 
 __all__ = ["NativeReActAgent", "REACT_SYSTEM_PROMPT"]

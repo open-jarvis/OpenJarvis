@@ -20,6 +20,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from openjarvis.evals.core.environment import TaskEnvironmentError
 from openjarvis.evals.core.event_recorder import AgentEvent, EventRecorder, EventType
 from openjarvis.evals.core.trace import QueryTrace, TurnTrace
 
@@ -36,10 +37,7 @@ def _compute_energy_delta(
     gpu_field: str = "gpu_energy_j",
 ) -> Optional[float]:
     """Compute energy delta from first to last reading for a field."""
-    values = [
-        getattr(s, gpu_field, None)
-        for s in readings
-    ]
+    values = [getattr(s, gpu_field, None) for s in readings]
     values = [v for v in values if v is not None and math.isfinite(v)]
     if len(values) >= 2:
         delta = values[-1] - values[0]
@@ -52,10 +50,7 @@ def _compute_power_avg(
     power_field: str = "gpu_power_w",
 ) -> Optional[float]:
     """Compute average power across readings for a field."""
-    values = [
-        getattr(s, power_field, None)
-        for s in readings
-    ]
+    values = [getattr(s, power_field, None) for s in readings]
     values = [v for v in values if v is not None and math.isfinite(v)]
     return statistics.mean(values) if values else None
 
@@ -64,9 +59,7 @@ def _compute_power_avg(
 # Patch extraction helpers
 # ---------------------------------------------------------------------------
 
-_FENCED_DIFF_RE = re.compile(
-    r"```(?:diff|patch)\s*\n(.*?)```", re.DOTALL
-)
+_FENCED_DIFF_RE = re.compile(r"```(?:diff|patch)\s*\n(.*?)```", re.DOTALL)
 _UNIFIED_DIFF_MARKERS = ("diff --git", "--- a/", "+++ b/", "@@ ")
 
 
@@ -160,16 +153,16 @@ class AgenticRunner:
                     index, record, model, self._agent, self._event_recorder
                 )
                 if self._query_timeout:
-                    trace = await asyncio.wait_for(
-                        fut, timeout=self._query_timeout
-                    )
+                    trace = await asyncio.wait_for(fut, timeout=self._query_timeout)
                 else:
                     trace = await fut
             except asyncio.TimeoutError:
                 elapsed = time.time() - start_time
                 LOGGER.warning(
                     "Query %s timed out after %.0fs (limit=%ss)",
-                    query_id, elapsed, self._query_timeout,
+                    query_id,
+                    elapsed,
+                    self._query_timeout,
                 )
                 workload_type = getattr(record, "category", "agentic")
                 trace = QueryTrace(
@@ -184,13 +177,17 @@ class AgenticRunner:
                 )
             self._traces.append(trace)
 
-            status = (
-                "TIMEOUT" if trace.timed_out
-                else ("OK" if trace.completed else "FAIL")
-            )
+            if trace.timed_out:
+                status = "TIMEOUT"
+            elif trace.error_kind == "harness_error":
+                status = "HARNESS_ERROR"
+            else:
+                status = "OK" if trace.completed else "FAIL"
             LOGGER.info(
                 "Task %s: %s in %.1fs",
-                query_id, status, trace.total_wall_clock_s,
+                query_id,
+                status,
+                trace.total_wall_clock_s,
             )
 
             if self._run_dir:
@@ -199,7 +196,8 @@ class AgenticRunner:
             if len(self._traces) % self._FLUSH_INTERVAL == 0:
                 LOGGER.debug(
                     "Processed %d/%d queries",
-                    len(self._traces), len(work_items),
+                    len(self._traces),
+                    len(work_items),
                 )
 
         return self._traces
@@ -213,7 +211,8 @@ class AgenticRunner:
         total = len(work_items)
         LOGGER.info(
             "Running %d queries with concurrency=%d",
-            total, self._concurrency,
+            total,
+            self._concurrency,
         )
 
         result_slots: list[Optional[QueryTrace]] = [None] * total
@@ -235,19 +234,23 @@ class AgenticRunner:
                     fut = loop.run_in_executor(
                         None,
                         self._run_single_query_sync,
-                        index, record, model, agent, recorder,
+                        index,
+                        record,
+                        model,
+                        agent,
+                        recorder,
                     )
                     if self._query_timeout:
-                        trace = await asyncio.wait_for(
-                            fut, timeout=self._query_timeout
-                        )
+                        trace = await asyncio.wait_for(fut, timeout=self._query_timeout)
                     else:
                         trace = await fut
                 except asyncio.TimeoutError:
                     elapsed = time.time() - start_time
                     LOGGER.warning(
                         "Query %s timed out after %.0fs (limit=%ss)",
-                        query_id, elapsed, self._query_timeout,
+                        query_id,
+                        elapsed,
+                        self._query_timeout,
                     )
                     workload_type = getattr(record, "category", "agentic")
                     trace = QueryTrace(
@@ -261,13 +264,17 @@ class AgenticRunner:
                         is_resolved=record.metadata.get("is_resolved"),
                     )
 
-                status = (
-                    "TIMEOUT" if trace.timed_out
-                    else ("OK" if trace.completed else "FAIL")
-                )
+                if trace.timed_out:
+                    status = "TIMEOUT"
+                elif trace.error_kind == "harness_error":
+                    status = "HARNESS_ERROR"
+                else:
+                    status = "OK" if trace.completed else "FAIL"
                 LOGGER.info(
                     "Task %s: %s in %.1fs",
-                    query_id, status, trace.total_wall_clock_s,
+                    query_id,
+                    status,
+                    trace.total_wall_clock_s,
                 )
 
                 if self._run_dir:
@@ -321,6 +328,21 @@ class AgenticRunner:
 
         event_recorder.clear()
 
+        # Bridge EventBus → EventRecorder so tool events are captured.
+        # ToolExecutor publishes to JarvisSystem.bus; we relay those into
+        # the EventRecorder for transcript building and trace enrichment.
+        _bus_unsubs: list[tuple] = []
+        agent_bus = getattr(agent, "bus", None)
+        if agent_bus is not None:
+            for etype in (EventType.TOOL_CALL_START, EventType.TOOL_CALL_END):
+
+                def _relay(event, _etype=etype):
+                    data = event.data if hasattr(event, "data") else {}
+                    event_recorder.record(_etype, **data)
+
+                agent_bus.subscribe(etype, _relay)
+                _bus_unsubs.append((etype, _relay))
+
         # Set up per-query workspace
         if self._run_dir and hasattr(agent, "set_workspace"):
             instance_id = record.metadata.get("instance_id", record.record_id)
@@ -330,6 +352,7 @@ class AgenticRunner:
             )
             workspace.mkdir(parents=True, exist_ok=True)
             agent.set_workspace(str(workspace))
+            record.metadata["workspace_path"] = str(workspace)
 
         # Create per-task execution environment (e.g. Docker for TerminalBench)
         task_env = None
@@ -350,6 +373,7 @@ class AgenticRunner:
                 # Envs with reset/step/evaluate use run_agent_loop
                 # for multi-turn interaction with conversation history.
                 if task_env is not None and hasattr(task_env, "run_agent_loop"):
+
                     def _generate(prompt: str) -> str:
                         if hasattr(agent, "ask"):
                             r = agent.ask(prompt)
@@ -388,14 +412,16 @@ class AgenticRunner:
                         result = agent.run(record.problem)
                         response_text = getattr(result, "content", str(result))
                         result_tokens = {
-                            "input_tokens": getattr(result, "input_tokens", 0)
-                            or 0,
-                            "output_tokens": getattr(result, "output_tokens", 0)
-                            or 0,
+                            "input_tokens": getattr(result, "input_tokens", 0) or 0,
+                            "output_tokens": getattr(result, "output_tokens", 0) or 0,
                             "cost_usd": getattr(result, "cost_usd", 0.0) or 0.0,
                         }
                     else:
                         response_text = str(agent(record.problem))
+
+                # Wire event recorder to task env if supported
+                if task_env is not None and hasattr(task_env, "set_event_recorder"):
+                    task_env.set_event_recorder(event_recorder)
 
                 # Run tests if task env supports it
                 if task_env is not None and hasattr(task_env, "run_tests"):
@@ -423,8 +449,31 @@ class AgenticRunner:
                 _run_body()
 
         except Exception as exc:
-            LOGGER.warning("Agent failed on query %s: %s", query_id, exc)
+            # Distinguish infrastructure breakage (task env failed to start,
+            # Docker/tmux death) from agent failures: harness errors must be
+            # recorded distinctly so scoring excludes them from resolve-rate
+            # instead of silently counting a model miss. Either way the run
+            # continues with the next record (fail THIS task, not the run).
+            is_harness_error = isinstance(exc, TaskEnvironmentError) or bool(
+                record.metadata.get("harness_error")
+            )
+            if is_harness_error:
+                LOGGER.error(
+                    "Harness/environment failure on query %s (record %s): %s",
+                    query_id,
+                    getattr(record, "record_id", "?"),
+                    exc,
+                )
+            else:
+                LOGGER.warning("Agent failed on query %s: %s", query_id, exc)
             end_time = time.time()
+            # Unsubscribe EventBus relays
+            if agent_bus is not None:
+                for etype, cb in _bus_unsubs:
+                    try:
+                        agent_bus.unsubscribe(etype, cb)
+                    except Exception:
+                        pass
             return QueryTrace(
                 query_id=query_id,
                 workload_type=str(workload_type),
@@ -433,7 +482,17 @@ class AgenticRunner:
                 total_wall_clock_s=end_time - start_time,
                 completed=False,
                 is_resolved=record.metadata.get("is_resolved"),
+                error=str(exc),
+                error_kind="harness_error" if is_harness_error else "agent_error",
             )
+
+        # Unsubscribe EventBus relays
+        if agent_bus is not None:
+            for etype, cb in _bus_unsubs:
+                try:
+                    agent_bus.unsubscribe(etype, cb)
+                except Exception:
+                    pass
 
         end_time = time.time()
         end_ns = time.monotonic_ns()
@@ -466,13 +525,15 @@ class AgenticRunner:
         out_tok = result_tokens.get("output_tokens", 0)
         cost = result_tokens.get("cost_usd", 0.0)
         if not turns and (in_tok > 0 or out_tok > 0):
-            turns = [TurnTrace(
-                turn_index=0,
-                input_tokens=in_tok,
-                output_tokens=out_tok,
-                wall_clock_s=end_time - start_time,
-                cost_usd=cost if cost else None,
-            )]
+            turns = [
+                TurnTrace(
+                    turn_index=0,
+                    input_tokens=in_tok,
+                    output_tokens=out_tok,
+                    wall_clock_s=end_time - start_time,
+                    cost_usd=cost if cost else None,
+                )
+            ]
 
         # Backfill tokens from result when turns have zero tokens
         if turns and in_tok > 0 and out_tok > 0:
@@ -481,9 +542,7 @@ class AgenticRunner:
             if total_turn_in == 0 and total_turn_out == 0:
                 turns[0].input_tokens = in_tok
                 turns[0].output_tokens = out_tok
-                turns[0].wall_clock_s = (
-                    turns[0].wall_clock_s or (end_time - start_time)
-                )
+                turns[0].wall_clock_s = turns[0].wall_clock_s or (end_time - start_time)
                 if cost and turns[0].cost_usd is None:
                     turns[0].cost_usd = cost
 
@@ -493,9 +552,52 @@ class AgenticRunner:
                 turn.input_tokens > 0 or turn.output_tokens > 0
             ):
                 from openjarvis.evals.core.pricing import compute_turn_cost
+
                 turn.cost_usd = compute_turn_cost(
                     model, turn.input_tokens, turn.output_tokens
                 )
+
+        # --- Zero-model-contact sanity check ----------------------------
+        # Failed in-container setups (e.g. an installed agent's SETUP phase
+        # hanging or dying) historically produced traces that looked like
+        # model results: completed=True, a synthetic 1-event turn,
+        # is_resolved=False from run_tests, and zero tokens — silently
+        # dragging resolve-rate down as a fake model miss. Signal choice:
+        # token usage plus LM inference events is the reliable discriminator
+        # here — a genuine model miss has token usage (and/or LM events),
+        # while "the agent never called the model" has neither. We do NOT
+        # key off completion status or is_resolved, which are identical in
+        # both cases. run_agent_loop envs drive the model directly
+        # (bypassing usage reporting), so their turn_wall_clocks count as
+        # model contact.
+        had_lm_events = any(
+            e.event_type in (EventType.LM_INFERENCE_START, EventType.LM_INFERENCE_END)
+            for e in events
+        )
+        had_loop_turns = bool(
+            task_env is not None and getattr(task_env, "turn_wall_clocks", None)
+        )
+        turn_tokens = sum(t.input_tokens + t.output_tokens for t in turns)
+        error: Optional[str] = None
+        error_kind: Optional[str] = None
+        if (
+            not had_lm_events
+            and not had_loop_turns
+            and in_tok + out_tok == 0
+            and turn_tokens == 0
+        ):
+            error = (
+                "zero_model_requests: the agent produced no LM inference "
+                "events and reported zero token usage — the model was never "
+                "contacted. This is a harness/infrastructure failure (e.g. "
+                "in-container agent setup hang/death), not a model miss, and "
+                "is excluded from resolve-rate. If your agent genuinely "
+                "contacted the model, make it report token usage or emit "
+                "LM_INFERENCE events. Response tail: "
+                f"{(response_text or '')[-500:]!r}"
+            )
+            error_kind = "harness_error"
+            LOGGER.error("Query %s: %s", query_id, error)
 
         # Query-level energy from telemetry window
         query_gpu_energy = _compute_energy_delta(readings, "gpu_energy_j")
@@ -505,16 +607,10 @@ class AgenticRunner:
 
         # Extract MBU from telemetry readings
         mbu_values = [
-            getattr(s, "gpu_memory_bandwidth_utilization_pct", None)
-            for s in readings
+            getattr(s, "gpu_memory_bandwidth_utilization_pct", None) for s in readings
         ]
-        mbu_values = [
-            v for v in mbu_values
-            if v is not None and v >= 0
-        ]
-        query_mbu_avg = (
-            statistics.mean(mbu_values) if mbu_values else None
-        )
+        mbu_values = [v for v in mbu_values if v is not None and v >= 0]
+        query_mbu_avg = statistics.mean(mbu_values) if mbu_values else None
         query_mbu_max = max(mbu_values) if mbu_values else None
 
         trace = QueryTrace(
@@ -532,6 +628,8 @@ class AgenticRunner:
             is_resolved=record.metadata.get("is_resolved"),
             query_mbu_avg_pct=query_mbu_avg,
             query_mbu_max_pct=query_mbu_max,
+            error=error,
+            error_kind=error_kind,
         )
 
         # Correlate energy with trace
@@ -552,10 +650,7 @@ class AgenticRunner:
         """
         start_ns = int(start_s * 1e9)
         end_ns = int(end_s * 1e9)
-        window = [
-            r for r in readings
-            if start_ns <= r.timestamp_ns <= end_ns
-        ]
+        window = [r for r in readings if start_ns <= r.timestamp_ns <= end_ns]
         gpu_energy = _compute_energy_delta(window, "gpu_energy_j")
         cpu_energy = _compute_energy_delta(window, "cpu_energy_j")
         avg_gpu_power = _compute_power_avg(window, "gpu_power_w")
@@ -578,6 +673,8 @@ class AgenticRunner:
         current_turn_start: Optional[float] = None
         current_tools: list[str] = []
         current_tool_latencies: dict[str, float] = {}
+        current_tool_calls: list[dict[str, Any]] = []
+        current_tool_args: dict[str, Any] = {}
         tool_start_times: dict[str, float] = {}
         input_tokens = 0
         output_tokens = 0
@@ -594,12 +691,14 @@ class AgenticRunner:
                 wall_clock = 0.0
                 if current_turn_start is not None:
                     wall_clock = event.timestamp - current_turn_start
-                    current_action_spans.append({
-                        "action_type": "lm_inference",
-                        "start_s": current_turn_start,
-                        "end_s": event.timestamp,
-                        "duration_s": wall_clock,
-                    })
+                    current_action_spans.append(
+                        {
+                            "action_type": "lm_inference",
+                            "start_s": current_turn_start,
+                            "end_s": event.timestamp,
+                            "duration_s": wall_clock,
+                        }
+                    )
 
                 input_tokens = event.metadata.get("prompt_tokens", 0)
                 output_tokens = event.metadata.get("completion_tokens", 0)
@@ -610,13 +709,17 @@ class AgenticRunner:
                     action_breakdown = []
                     for span in current_action_spans:
                         energy = self._action_energy_from_readings(
-                            readings, span["start_s"], span["end_s"],
+                            readings,
+                            span["start_s"],
+                            span["end_s"],
                         )
-                        action_breakdown.append({
-                            "action_type": span["action_type"],
-                            "duration_s": span["duration_s"],
-                            **energy,
-                        })
+                        action_breakdown.append(
+                            {
+                                "action_type": span["action_type"],
+                                "duration_s": span["duration_s"],
+                                **energy,
+                            }
+                        )
 
                 turn = TurnTrace(
                     turn_index=current_turn_index,
@@ -624,6 +727,7 @@ class AgenticRunner:
                     output_tokens=output_tokens,
                     tools_called=list(current_tools),
                     tool_latencies_s=dict(current_tool_latencies),
+                    tool_calls=list(current_tool_calls),
                     wall_clock_s=wall_clock,
                     action_energy_breakdown=action_breakdown,
                 )
@@ -633,6 +737,8 @@ class AgenticRunner:
                 current_turn_start = None
                 current_tools = []
                 current_tool_latencies = {}
+                current_tool_calls = []
+                current_tool_args = {}
                 current_action_spans = []
                 input_tokens = 0
                 output_tokens = 0
@@ -640,20 +746,30 @@ class AgenticRunner:
             elif etype == EventType.TOOL_CALL_START:
                 tool_name = event.metadata.get("tool", "unknown")
                 tool_start_times[tool_name] = event.timestamp
+                current_tool_args[tool_name] = event.metadata.get("arguments", {})
 
             elif etype == EventType.TOOL_CALL_END:
                 tool_name = event.metadata.get("tool", "unknown")
                 current_tools.append(tool_name)
+                current_tool_calls.append(
+                    {
+                        "name": tool_name,
+                        "arguments": current_tool_args.pop(tool_name, {}),
+                        "result": event.metadata.get("result", ""),
+                    }
+                )
                 start_ts = tool_start_times.pop(tool_name, None)
                 if start_ts is not None:
                     duration = event.timestamp - start_ts
                     current_tool_latencies[tool_name] = duration
-                    current_action_spans.append({
-                        "action_type": f"tool_call:{tool_name}",
-                        "start_s": start_ts,
-                        "end_s": event.timestamp,
-                        "duration_s": duration,
-                    })
+                    current_action_spans.append(
+                        {
+                            "action_type": f"tool_call:{tool_name}",
+                            "start_s": start_ts,
+                            "end_s": event.timestamp,
+                            "duration_s": duration,
+                        }
+                    )
 
         # Synthetic turn if events but no complete LM_START/END pair
         if not turns and events:
@@ -662,6 +778,7 @@ class AgenticRunner:
                     turn_index=0,
                     tools_called=current_tools,
                     tool_latencies_s=current_tool_latencies,
+                    tool_calls=list(current_tool_calls),
                 )
             )
 
@@ -679,9 +796,7 @@ class AgenticRunner:
         if not readings or not trace.turns:
             return trace
 
-        has_turn_energy = any(
-            t.gpu_energy_joules is not None for t in trace.turns
-        )
+        has_turn_energy = any(t.gpu_energy_joules is not None for t in trace.turns)
         if has_turn_energy:
             return trace
 
@@ -725,8 +840,11 @@ class AgenticRunner:
             "num_turns": trace.num_turns,
         }
         for key in (
-            "repo", "base_commit", "dataset_name",
-            "is_resolved", "test_results",
+            "repo",
+            "base_commit",
+            "dataset_name",
+            "is_resolved",
+            "test_results",
         ):
             val = record.metadata.get(key)
             if val is not None:

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# ollama-mock — minimal stand-in for `ollama` in CI integration tests.
+# Responds to: pull, serve, list.
+
+case "$1" in
+    pull)
+        mkdir -p "${OLLAMA_MOCK_DIR:-/tmp/ollama-mock}/models"
+        touch "${OLLAMA_MOCK_DIR:-/tmp/ollama-mock}/models/$2"
+        echo "pulling $2 (mocked)"
+        sleep 0.1
+        ;;
+    serve)
+        echo "ollama-mock serve started"
+        exec sleep infinity
+        ;;
+    list)
+        ls "${OLLAMA_MOCK_DIR:-/tmp/ollama-mock}/models" 2>/dev/null || true
+        ;;
+    stop)
+        ;;
+    *)
+        echo "ollama-mock: unsupported subcommand: $1" >&2
+        exit 1
+        ;;
+esac

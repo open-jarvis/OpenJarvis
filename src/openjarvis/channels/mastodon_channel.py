@@ -43,12 +43,8 @@ class MastodonChannel(BaseChannel):
         access_token: str = "",
         bus: Optional[EventBus] = None,
     ) -> None:
-        self._api_base_url = api_base_url or os.environ.get(
-            "MASTODON_API_BASE_URL", ""
-        )
-        self._access_token = access_token or os.environ.get(
-            "MASTODON_ACCESS_TOKEN", ""
-        )
+        self._api_base_url = api_base_url or os.environ.get("MASTODON_API_BASE_URL", "")
+        self._access_token = access_token or os.environ.get("MASTODON_ACCESS_TOKEN", "")
         self._bus = bus
         self._handlers: List[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED

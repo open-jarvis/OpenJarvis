@@ -21,6 +21,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from openjarvis.core.paths import get_cache_dir
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
 
@@ -56,8 +57,7 @@ class WebChoreArenaDataset(DatasetProvider):
     ) -> None:
         self._subset = subset  # "all", "small", or a site name
         self._cache_dir = (
-            Path(cache_dir) if cache_dir
-            else Path.home() / ".cache" / "webchorearena"
+            Path(cache_dir) if cache_dir else get_cache_dir() / "webchorearena"
         )
         self._headless = headless
         self._records: List[EvalRecord] = []
@@ -84,7 +84,9 @@ class WebChoreArenaDataset(DatasetProvider):
 
         self._records = [self._task_to_record(t, i) for i, t in enumerate(tasks)]
         logger.info(
-            "WebChoreArena[%s]: loaded %d tasks", self._subset, len(self._records),
+            "WebChoreArena[%s]: loaded %d tasks",
+            self._subset,
+            len(self._records),
         )
 
     def iter_records(self) -> Iterable[EvalRecord]:
@@ -107,11 +109,11 @@ class WebChoreArenaDataset(DatasetProvider):
 
         # Core services — eval fails without these
         _REQUIRED = {
-            "SHOPPING":       "http://localhost:7770",
+            "SHOPPING": "http://localhost:7770",
             "SHOPPING_ADMIN": "http://localhost:7780",
-            "REDDIT":         "http://localhost:9999",
-            "GITLAB":         "http://localhost:8023",
-            "WIKIPEDIA":      "http://localhost:8888",
+            "REDDIT": "http://localhost:9999",
+            "GITLAB": "http://localhost:8023",
+            "WIKIPEDIA": "http://localhost:8888",
         }
         # Optional — only needed for map tasks; requires a full OpenStreetMap
         # Docker Compose setup (AWS AMI or manual)
@@ -143,7 +145,8 @@ class WebChoreArenaDataset(DatasetProvider):
                     "Optional WebArena service %s (%s) is not reachable — "
                     "map-related tasks will fail. "
                     "See scripts/setup_webchorearena.sh for setup instructions.",
-                    env_var, url,
+                    env_var,
+                    url,
                 )
 
         return issues
@@ -154,6 +157,7 @@ class WebChoreArenaDataset(DatasetProvider):
             from openjarvis.evals.execution.webchorearena_env import (
                 WebChoreArenaTaskEnv,
             )
+
             return WebChoreArenaTaskEnv(record.metadata, headless=self._headless)
         except ImportError:
             return None
@@ -223,7 +227,9 @@ class WebChoreArenaDataset(DatasetProvider):
         return ids
 
     def _task_to_record(
-        self, task: Dict[str, Any], idx: int,
+        self,
+        task: Dict[str, Any],
+        idx: int,
     ) -> EvalRecord:
         """Convert an original WebChoreArena task config into an EvalRecord."""
         task_id = str(task.get("task_id", idx))
@@ -245,7 +251,9 @@ class WebChoreArenaDataset(DatasetProvider):
                 "sites": sites,
                 "start_url": task.get("start_url", ""),
                 "start_url_lite": task.get("start_url_lite", ""),
-                "storage_state": task.get("storage_state", task.get("strage_state", "")),
+                "storage_state": task.get(
+                    "storage_state", task.get("strage_state", "")
+                ),
                 "required_obs": task.get("required_obs", "text"),
                 "type_main": task.get("type_main", ""),
                 "type_sub": task.get("type_sub", ""),

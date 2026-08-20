@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +16,7 @@ from openjarvis.agents.errors import (
     classify_error,
     retry_delay,
 )
+from openjarvis.agents.tool_resolver import resolve_agent_tools
 from openjarvis.core.events import EventBus, EventType
 
 if TYPE_CHECKING:
@@ -22,6 +25,41 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
+
+# Default model for monitor_operative / long-horizon agent ticks. qwen3:8b
+# emits tool_calls but, when given the full MonitorOperative system prompt
+# alongside a `think` no-op tool, reliably picks `think` instead of the real
+# action tools — producing tickless prose from training-data memory.
+# gemma4:31b follows the function-calling protocol with the same prompt and
+# actually invokes web_search / memory_retrieve. Explicit ``config["model"]``
+# on an agent still wins.
+_AGENT_TICK_DEFAULT_MODEL = "gemma4:31b"
+
+
+def _tool_calls_for_storage(result: AgentResult) -> list[dict[str, Any]] | None:
+    """Convert executor tool results to the managed-message storage contract."""
+
+    calls: list[dict[str, Any]] = []
+    for tool_result in result.tool_results:
+        metadata = getattr(tool_result, "metadata", {}) or {}
+        arguments = metadata.get("arguments", "")
+        if not isinstance(arguments, str):
+            try:
+                arguments = json.dumps(arguments, sort_keys=True)
+            except (TypeError, ValueError):
+                arguments = json.dumps(str(arguments))
+        calls.append(
+            {
+                "tool": getattr(tool_result, "tool_name", ""),
+                "arguments": arguments,
+                "result": getattr(tool_result, "content", "") or "",
+                "success": bool(getattr(tool_result, "success", False)),
+                # SSE and the frontend persist/display latency in milliseconds.
+                "latency": float(getattr(tool_result, "latency_seconds", 0.0) or 0.0)
+                * 1000.0,
+            }
+        )
+    return calls or None
 
 
 class AgentExecutor:
@@ -42,10 +80,18 @@ class AgentExecutor:
         self._manager = manager
         self._bus = event_bus
         self._trace_store = trace_store
+        self._toolkit_local = threading.local()
 
     def set_system(self, system: Any) -> None:
         """Deferred system injection — called after JarvisSystem is constructed."""
         self._system = system
+
+    def _set_activity(self, agent_id: str, activity: str) -> None:
+        """Update the agent's current_activity for progress visibility."""
+        try:
+            self._manager.update_agent(agent_id, current_activity=activity)
+        except Exception:
+            pass  # Non-critical
 
     def run_ephemeral(
         self,
@@ -59,35 +105,49 @@ class AgentExecutor:
 
         agent_cls = AgentRegistry.get(agent_type)
         agent = agent_cls(
-            engine=getattr(self._manager, '_engine', None),
+            engine=getattr(self._manager, "_engine", None),
             system_prompt=system_prompt,
             bus=self._bus,
         )
         return agent.run(input_text)
 
-    def execute_tick(self, agent_id: str) -> None:
+    def execute_tick(self, agent_id: str, *, lock_already_held: bool = False) -> None:
         """Run one tick for the given agent.
 
         1. Acquire concurrency guard (start_tick)
         2. Invoke agent with retry logic
         3. Update stats
         4. Release guard (end_tick)
+
+        ``lock_already_held`` is set by callers that took the start_tick()
+        lock themselves before spawning the worker (e.g. the HTTP /run route
+        guards against concurrent POSTs by acquiring before threading).
+        Without this flag, the executor would re-acquire and trip its own
+        guard — bailing out with no end_tick(), leaving the agent stuck in
+        ``status='running'`` forever.
         """
-        try:
-            self._manager.start_tick(agent_id)
-        except ValueError:
-            logger.warning("Agent %s already running, skipping tick", agent_id)
-            return
+        if lock_already_held:
+            self._set_activity(agent_id, "Preparing tick...")
+        else:
+            try:
+                self._manager.start_tick(agent_id)
+                self._set_activity(agent_id, "Preparing tick...")
+            except ValueError:
+                logger.warning("Agent %s already running, skipping tick", agent_id)
+                return
 
         agent = self._manager.get_agent(agent_id)
         if agent is None:
             logger.error("Agent %s not found", agent_id)
             return
 
-        self._bus.publish(EventType.AGENT_TICK_START, {
-            "agent_id": agent_id,
-            "agent_name": agent["name"],
-        })
+        self._bus.publish(
+            EventType.AGENT_TICK_START,
+            {
+                "agent_id": agent_id,
+                "agent_name": agent["name"],
+            },
+        )
 
         # Activity tracking: subscribe to tool/inference events
         def _on_activity(event: Any) -> None:
@@ -102,14 +162,16 @@ class AgentExecutor:
 
         def _on_tool_start(event: Any) -> None:
             if event.data.get("agent") == agent_id:
-                trace_steps.append({
-                    "type": "tool_call",
-                    "input": {
-                        "tool": event.data.get("tool"),
-                        "args": event.data.get("args"),
-                    },
-                    "start_time": event.timestamp,
-                })
+                trace_steps.append(
+                    {
+                        "type": "tool_call",
+                        "input": {
+                            "tool": event.data.get("tool"),
+                            "args": event.data.get("args"),
+                        },
+                        "start_time": event.timestamp,
+                    }
+                )
 
         def _on_tool_end(event: Any) -> None:
             if event.data.get("agent") == agent_id and trace_steps:
@@ -146,8 +208,13 @@ class AgentExecutor:
 
             if self._trace_store:
                 self._save_trace(
-                    agent_id, agent, result, error_info,
-                    tick_start, tick_duration, trace_steps,
+                    agent_id,
+                    agent,
+                    result,
+                    error_info,
+                    tick_start,
+                    tick_duration,
+                    trace_steps,
                 )
 
     def _run_with_retries(self, agent: dict) -> AgentResult:
@@ -164,7 +231,11 @@ class AgentExecutor:
                 delay = retry_delay(attempt)
                 logger.info(
                     "Agent %s tick retry %d/%d in %ds: %s",
-                    agent["id"], attempt + 1, _MAX_RETRIES, delay, e,
+                    agent["id"],
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    delay,
+                    e,
                 )
                 time.sleep(delay)
             except Exception as e:
@@ -174,7 +245,11 @@ class AgentExecutor:
                 delay = retry_delay(attempt)
                 logger.info(
                     "Agent %s tick retry %d/%d in %ds: %s",
-                    agent["id"], attempt + 1, _MAX_RETRIES, delay, e,
+                    agent["id"],
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    delay,
+                    e,
                 )
                 time.sleep(delay)
 
@@ -182,7 +257,20 @@ class AgentExecutor:
         raise last_error or FatalError("max retries exhausted")
 
     def _invoke_agent(self, agent: dict) -> AgentResult:
-        """Invoke the actual agent run. Tests mock this method."""
+        """Invoke one agent while owning every resource its resolver opens."""
+
+        previous = getattr(self._toolkit_local, "current", None)
+        self._toolkit_local.current = None
+        try:
+            return self._invoke_agent_impl(agent)
+        finally:
+            current = getattr(self._toolkit_local, "current", None)
+            if current is not None:
+                current.close()
+            self._toolkit_local.current = previous
+
+    def _invoke_agent_impl(self, agent: dict) -> AgentResult:
+        """Implementation split out so the wrapper owns resolver lifetime."""
         from openjarvis.agents import AgentRegistry
 
         agent_type = agent.get("agent_type", "monitor_operative")
@@ -191,24 +279,38 @@ class AgentExecutor:
             raise FatalError(f"Unknown agent type: {agent_type}")
 
         config = agent.get("config", {})
+        agent_accepts_tools = bool(getattr(agent_cls, "accepts_tools", False))
+        supports_tool_fallback = bool(
+            getattr(agent_cls, "supports_managed_tool_fallback", False)
+        )
 
         # Resolve engine + model from JarvisSystem
         engine = self._system.engine if self._system else None
         if engine is None:
             raise FatalError("No engine available in JarvisSystem")
-        model = config.get("model") or (
-            self._system.model
-            if self._system else ""
+        model = (
+            config.get("model")
+            or _AGENT_TICK_DEFAULT_MODEL
+            or (self._system.model if self._system else "")
         )
         if not model:
             raise FatalError("No model configured for agent")
+
+        logger.info(
+            "Agent %s [%s]: using model=%s, engine=%s",
+            agent["name"],
+            agent["id"],
+            model,
+            type(engine).__name__,
+        )
+        self._set_activity(agent["id"], f"Loading model {model}...")
 
         # Optionally override model via router policy
         router_policy_key = config.get("router_policy")
         if router_policy_key and self._system:
             try:
                 from openjarvis.core.registry import RouterPolicyRegistry
-                from openjarvis.learning.routing.types import (
+                from openjarvis.learning.routing.router import (
                     build_routing_context,
                 )
 
@@ -224,29 +326,258 @@ class AgentExecutor:
             except Exception:
                 pass  # Fall back to configured model
 
-        # Construct agent instance (BaseAgent requires engine, model as positional args)
-        agent_instance = agent_cls(
-            engine,
-            model,
-            system_prompt=config.get("system_prompt"),
-            tools=[],
+        mcp_tools: list[Any] = []
+        mcp_clients: list[Any] = []
+        if (
+            config.get("mcp_tools", True) is not False
+            and self._system is not None
+            and (agent_accepts_tools or supports_tool_fallback)
+        ):
+            provider = getattr(
+                self._system,
+                "get_managed_agent_mcp_tools",
+                None,
+            )
+            if callable(provider):
+                try:
+                    mcp_tools, mcp_clients = provider()
+                except Exception as exc:
+                    logger.warning("Managed-agent MCP discovery failed: %s", exc)
+            else:
+                mcp_tools = list(getattr(self._system, "mcp_tools", []) or [])
+                mcp_clients = list(getattr(self._system, "_mcp_clients", []) or [])
+
+            if not mcp_tools:
+                try:
+                    from openjarvis.tools.mcp_adapter import MCPToolAdapter
+
+                    pool = (
+                        getattr(
+                            getattr(self._system, "tool_executor", None),
+                            "_tools",
+                            {},
+                        )
+                        or {}
+                    )
+                    mcp_tools = [
+                        tool
+                        for tool in pool.values()
+                        if isinstance(tool, MCPToolAdapter)
+                    ]
+                except Exception:
+                    mcp_tools = []
+
+        resolved_toolkit = resolve_agent_tools(
+            agent,
+            engine=engine,
+            model=model,
+            memory_backend=getattr(self._system, "memory_backend", None),
+            channel_backend=getattr(self._system, "channel_backend", None),
+            mcp_tools=mcp_tools,
+            mcp_clients=mcp_clients,
+            knowledge_db_path=getattr(self._system, "knowledge_db_path", None),
+        )
+        self._toolkit_local.current = resolved_toolkit
+        tool_instances = resolved_toolkit.instances
+        logger.info(
+            "Agent %s: resolved %d tools (%s)",
+            agent["name"],
+            len(tool_instances),
+            ", ".join(resolved_toolkit.by_name) or "none",
         )
 
-        # Build input from instruction + summary_memory + pending messages
+        execution_agent_cls = agent_cls
+        if tool_instances and not agent_accepts_tools and supports_tool_fallback:
+            # Managed SSE already runs configured tools through a native
+            # function-calling loop regardless of the selected class. Use the
+            # same capability for immediate/scheduled ticks instead of
+            # silently discarding the resolved toolkit for SimpleAgent and
+            # other explicitly compatible non-tool classes.
+            from openjarvis.agents.orchestrator import OrchestratorAgent
+
+            execution_agent_cls = OrchestratorAgent
+            logger.info(
+                "Agent %s: %s does not accept tools; using %s for this "
+                "tool-enabled tick",
+                agent["name"],
+                agent_cls.__name__,
+                execution_agent_cls.__name__,
+            )
+
+        # Construct agent instance
+        agent_kwargs: dict[str, Any] = {}
+        sys_prompt = config.get("system_prompt")
+        if getattr(execution_agent_cls, "accepts_tools", False) and tool_instances:
+            agent_kwargs["tools"] = tool_instances
+        # Hand the agent our EventBus so its ToolExecutor can publish
+        # TOOL_CALL_START/END — without this, ToolExecutor's ``self._bus``
+        # is None and every tool call executes silently, which is why
+        # traces previously reported "0 steps" even when the model was
+        # actively invoking web_search/memory_*/etc.
+        if self._bus is not None:
+            agent_kwargs["bus"] = self._bus
+        # Propagate confirmation policy from the AgentExecutor down to the
+        # agent's own ToolExecutor. Set by CLI paths like `jarvis agents ask`
+        # so non-interactive runs can auto-approve tool execution.
+        if getattr(self, "_confirm_callback", None) is not None:
+            agent_kwargs["interactive"] = True
+            agent_kwargs["confirm_callback"] = self._confirm_callback
+
+        # Wire cross-tick state plumbing into agent classes that accept it.
+        # Without this, MonitorOperative/Operative agents have no working
+        # session_store or memory_backend and silently no-op their state
+        # recall / persistence paths.
+        import inspect
+
+        init_sig = inspect.signature(execution_agent_cls.__init__)
+        accepts_var_kw = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in init_sig.parameters.values()
+        )
+
+        def _accepts(name: str) -> bool:
+            return accepts_var_kw or name in init_sig.parameters
+
+        # Unsupported kwargs used to trigger the broad TypeError fallback
+        # below, which retried with a bare constructor and silently discarded
+        # valid prompt/state wiring. Filter by the selected class's signature
+        # before construction instead.
+        if sys_prompt is not None and _accepts("system_prompt"):
+            agent_kwargs["system_prompt"] = sys_prompt
+        agent_kwargs = {
+            name: value for name, value in agent_kwargs.items() if _accepts(name)
+        }
+
+        state_kwargs: dict[str, Any] = {}
+        if _accepts("operator_id"):
+            state_kwargs["operator_id"] = agent["id"]
+        if self._system is not None:
+            if _accepts("session_store"):
+                state_kwargs["session_store"] = getattr(
+                    self._system, "session_store", None
+                )
+            if _accepts("memory_backend"):
+                state_kwargs["memory_backend"] = getattr(
+                    self._system, "memory_backend", None
+                )
+            # Wire SOUL.md / MEMORY.md / USER.md persona files into persistent
+            # agents, mirroring the one-shot `jarvis ask` path so they no
+            # longer apply to CLI calls only (#376).
+            cfg = getattr(self._system, "config", None)
+            if _accepts("prompt_builder") and (
+                cfg is not None or sys_prompt is not None
+            ):
+                from openjarvis.prompt.builder import SystemPromptBuilder
+
+                state_kwargs["prompt_builder"] = SystemPromptBuilder(
+                    agent_template=(
+                        sys_prompt
+                        if sys_prompt is not None
+                        else getattr(
+                            getattr(cfg, "agent", None),
+                            "default_system_prompt",
+                            "",
+                        )
+                        or ""
+                    ),
+                    memory_files_config=getattr(cfg, "memory_files", None),
+                    system_prompt_config=getattr(cfg, "system_prompt", None),
+                )
+
+        try:
+            try:
+                agent_instance = execution_agent_cls(
+                    engine,
+                    model,
+                    **agent_kwargs,
+                    **state_kwargs,
+                )
+            except TypeError:
+                try:
+                    agent_instance = execution_agent_cls(
+                        engine,
+                        model,
+                        **agent_kwargs,
+                    )
+                except TypeError:
+                    agent_instance = execution_agent_cls(engine, model)
+        except Exception:
+            resolved_toolkit.close()
+            raise
+
+        if resolved_toolkit.mcp_clients:
+            agent_instance._mcp_clients = resolved_toolkit.mcp_clients
+
+        # Inject the managed-agent UUID into the agent's ToolExecutor so
+        # emitted TOOL_CALL_START/END events carry it; the trace subscriber
+        # below filters by ``event.data["agent"] == agent_id`` and would
+        # otherwise drop every tool call (the class-level agent_id like
+        # "monitor_operative" doesn't match the runtime UUID).
+        inner_executor = getattr(agent_instance, "_executor", None)
+        if inner_executor is not None and hasattr(inner_executor, "_agent_id"):
+            inner_executor._agent_id = agent["id"]
+
+        logger.info(
+            "Agent %s: tool wiring — %d tools resolved (%s), agent class %s",
+            agent["name"],
+            len(tool_instances),
+            ", ".join(t.spec.name for t in tool_instances) or "none",
+            execution_agent_cls.__name__,
+        )
+
+        # Build input from instruction + summary_memory + pending messages.
+        # NB: we deliberately do NOT inject the full previous response back
+        # in as "Previous context" — that caused the model to parrot its
+        # own prior output verbatim. Cross-tick continuity now lives in the
+        # agent's session_store / memory_backend; here we only surface a
+        # short tick-boundary marker so the model knows time has passed.
+        import datetime
+        import re
+
+        today = datetime.date.today().strftime("%A, %B %d, %Y")
         instruction = config.get("instruction", "")
-        memory = agent.get("summary_memory", "")
+        memory = (agent.get("summary_memory") or "").strip()
+        last_run_at = agent.get("last_run_at")
+
+        tick_note = ""
+        if memory:
+            first_sentence = re.split(r"(?<=[.!?])\s+", memory, maxsplit=1)[0]
+            first_sentence = first_sentence.strip()[:200]
+            if last_run_at:
+                ts = datetime.datetime.fromtimestamp(last_run_at).strftime(
+                    "%Y-%m-%d %H:%M"
+                )
+                tick_note = f"Last tick at {ts}: {first_sentence}"
+            else:
+                tick_note = f"Previous tick: {first_sentence}"
+
         if instruction:
-            input_text = f"Standing instruction: {instruction}"
-            if memory:
-                input_text += f"\n\nPrevious context: {memory}"
+            input_text = f"Current date: {today}\n\nStanding instruction: {instruction}"
+            if tick_note:
+                input_text += f"\n\n{tick_note}"
         else:
-            input_text = memory or "Continue your assigned task."
+            base = tick_note or "Continue your assigned task."
+            input_text = f"Current date: {today}\n\n{base}"
         pending = self._manager.get_pending_messages(agent["id"])
         if pending:
             user_msgs = "\n".join(f"User: {m['content']}" for m in pending)
             input_text = f"{input_text}\n\nNew instructions:\n{user_msgs}"
             for m in pending:
                 self._manager.mark_message_delivered(m["id"])
+            logger.info(
+                "Agent %s: delivering %d pending message(s)",
+                agent["name"],
+                len(pending),
+            )
+            self._set_activity(
+                agent["id"],
+                f"Delivering {len(pending)} message(s)...",
+            )
+        else:
+            logger.info(
+                "Agent %s: no pending messages, running with instruction only",
+                agent["name"],
+            )
 
         # Build AgentContext with memory results from FTS5 backend
         from openjarvis.agents._stubs import AgentContext
@@ -281,7 +612,8 @@ class AgentExecutor:
 
                 if query:
                     results = self._system.memory_backend.retrieve(
-                        query, top_k=ctx_cfg.top_k,
+                        query,
+                        top_k=ctx_cfg.top_k,
                     )
                     memory_results = [
                         r for r in results if r.score >= ctx_cfg.min_score
@@ -298,7 +630,42 @@ class AgentExecutor:
                 pass  # Don't break agent tick if memory retrieval fails
 
         agent_ctx.memory_results = memory_results
-        return agent_instance.run(input_text, context=agent_ctx)
+        self._set_activity(agent["id"], "Generating response...")
+        logger.info(
+            "Agent %s: calling agent.run() with %d chars input",
+            agent["name"],
+            len(input_text),
+        )
+        _t0 = time.time()
+        try:
+            result = agent_instance.run(input_text, context=agent_ctx)
+
+            # Retry once if the model returned empty content (common with
+            # Qwen3.5 thinking mode consuming all tokens).
+            if not (result.content or "").strip():
+                self._set_activity(
+                    agent["id"],
+                    "Retrying (empty response)...",
+                )
+                logger.warning(
+                    "Agent %s: empty content, retrying once",
+                    agent["name"],
+                )
+                result = agent_instance.run(input_text, context=agent_ctx)
+        finally:
+            resolved_toolkit.close()
+
+        _elapsed = time.time() - _t0
+        logger.info(
+            "Agent %s: agent.run() completed in %.1fs, "
+            "content_len=%d, turns=%d, tokens=%s",
+            agent["name"],
+            _elapsed,
+            len(result.content or ""),
+            result.turns,
+            result.metadata.get("total_tokens", "?"),
+        )
+        return result
 
     def _build_error_detail(self, error: AgentTickError) -> dict[str, Any]:
         """Build structured error detail for trace metadata."""
@@ -323,7 +690,9 @@ class AgentExecutor:
             "suggested_action": suggest_action(error),
             "stack_trace_summary": "".join(
                 traceback.format_exception(type(error), error, error.__traceback__)[-3:]
-            )[:1000] if error.__traceback__ else "",
+            )[:1000]
+            if error.__traceback__
+            else "",
         }
 
     def _finalize_tick(
@@ -334,26 +703,52 @@ class AgentExecutor:
         duration: float,
     ) -> None:
         """Update agent state after tick completion or failure."""
+        self._set_activity(agent_id, "Finalizing...")
         if error is None:
             # Success
+            logger.info(
+                "Tick succeeded for agent %s in %.1fs, response_len=%d",
+                agent_id,
+                duration,
+                len(result.content or "") if result else 0,
+            )
             self._manager.end_tick(agent_id)
             self._manager.update_agent(agent_id, total_runs_increment=1)
 
             # Accumulate budget metrics from AgentResult metadata
             if result:
-                tokens = result.metadata.get("tokens_used", 0)
+                tokens = (
+                    result.metadata.get("total_tokens")
+                    or result.metadata.get("tokens_used")
+                    or 0
+                )
+                in_tokens = result.metadata.get("prompt_tokens", 0)
+                out_tokens = result.metadata.get(
+                    "completion_tokens",
+                    0,
+                )
                 cost = result.metadata.get("cost", 0.0)
                 budget_kwargs: dict[str, Any] = {"stall_retries": 0}
                 if tokens > 0:
                     budget_kwargs["total_tokens_increment"] = tokens
+                if in_tokens > 0:
+                    budget_kwargs["input_tokens_increment"] = in_tokens
+                if out_tokens > 0:
+                    budget_kwargs["output_tokens_increment"] = out_tokens
                 if cost > 0:
                     budget_kwargs["total_cost_increment"] = cost
                 self._manager.update_agent(agent_id, **budget_kwargs)
 
-                self._manager.update_summary_memory(
-                    agent_id, result.content[:2000],
+                # Store the full response. update_summary_memory enforces the
+                # rolling-summary cap (_SUMMARY_MAX) itself, and the chat
+                # message keeps the complete report. The old [:2000] slices
+                # double-truncated and cut findings off mid-sentence.
+                self._manager.update_summary_memory(agent_id, result.content)
+                self._manager.store_agent_response(
+                    agent_id,
+                    result.content,
+                    tool_calls=_tool_calls_for_storage(result),
                 )
-                self._manager.store_agent_response(agent_id, result.content[:2000])
 
             # Budget enforcement (post-tick check)
             agent_data = self._manager.get_agent(agent_id)
@@ -368,41 +763,68 @@ class AgentExecutor:
                     exceeded = True
                 if exceeded:
                     self._manager.update_agent(agent_id, status="budget_exceeded")
-                    self._bus.publish(EventType.AGENT_BUDGET_EXCEEDED, {
-                        "agent_id": agent_id,
-                        "total_cost": agent_data["total_cost"],
-                        "total_tokens": agent_data["total_tokens"],
-                        "max_cost": max_cost,
-                        "max_tokens": max_tokens,
-                    })
-            self._bus.publish(EventType.AGENT_TICK_END, {
-                "agent_id": agent_id,
-                "duration": duration,
-                "status": "ok",
-            })
+                    self._bus.publish(
+                        EventType.AGENT_BUDGET_EXCEEDED,
+                        {
+                            "agent_id": agent_id,
+                            "total_cost": agent_data["total_cost"],
+                            "total_tokens": agent_data["total_tokens"],
+                            "max_cost": max_cost,
+                            "max_tokens": max_tokens,
+                        },
+                    )
+            self._bus.publish(
+                EventType.AGENT_TICK_END,
+                {
+                    "agent_id": agent_id,
+                    "duration": duration,
+                    "status": "ok",
+                },
+            )
         elif isinstance(error, EscalateError):
+            logger.warning(
+                "Tick escalated for agent %s after %.1fs: %s",
+                agent_id,
+                duration,
+                error,
+            )
             self._manager.end_tick(agent_id)
             self._manager.update_agent(agent_id, status="needs_attention")
-            self._bus.publish(EventType.AGENT_TICK_ERROR, {
-                "agent_id": agent_id,
-                "error": str(error),
-                "error_type": "escalate",
-                "duration": duration,
-            })
+            self._bus.publish(
+                EventType.AGENT_TICK_ERROR,
+                {
+                    "agent_id": agent_id,
+                    "error": str(error),
+                    "error_type": "escalate",
+                    "duration": duration,
+                },
+            )
         else:
+            logger.error(
+                "Tick failed for agent %s after %.1fs: %s",
+                agent_id,
+                duration,
+                error,
+                exc_info=error,
+            )
             self._manager.end_tick(agent_id)
             self._manager.update_agent(agent_id, status="error")
             # Write error detail to summary_memory so frontend can display it
             error_msg = str(error)[:2000]
             self._manager.update_summary_memory(agent_id, f"ERROR: {error_msg}")
-            self._bus.publish(EventType.AGENT_TICK_ERROR, {
-                "agent_id": agent_id,
-                "error": str(error),
-                "error_type": (
-                    "fatal" if isinstance(error, FatalError) else "retryable_exhausted"
-                ),
-                "duration": duration,
-            })
+            self._bus.publish(
+                EventType.AGENT_TICK_ERROR,
+                {
+                    "agent_id": agent_id,
+                    "error": str(error),
+                    "error_type": (
+                        "fatal"
+                        if isinstance(error, FatalError)
+                        else "retryable_exhausted"
+                    ),
+                    "duration": duration,
+                },
+            )
 
     def _save_trace(
         self,
@@ -419,17 +841,19 @@ class AgentExecutor:
 
         steps = []
         for s in trace_steps:
-            steps.append(TraceStep(
-                step_type=(
-                    StepType.TOOL_CALL
-                    if s["type"] == "tool_call"
-                    else StepType.GENERATE
-                ),
-                input=s.get("input", {}),
-                output=s.get("output", {}),
-                duration_seconds=s.get("duration", 0),
-                timestamp=s.get("start_time", tick_start),
-            ))
+            steps.append(
+                TraceStep(
+                    step_type=(
+                        StepType.TOOL_CALL
+                        if s["type"] == "tool_call"
+                        else StepType.GENERATE
+                    ),
+                    input=s.get("input", {}),
+                    output=s.get("output", {}),
+                    duration_seconds=s.get("duration", 0),
+                    timestamp=s.get("start_time", tick_start),
+                )
+            )
 
         metadata: dict[str, Any] = {}
         if error is not None:
@@ -452,5 +876,7 @@ class AgentExecutor:
             self._trace_store.save(trace)
         except Exception:
             logger.warning(
-                "Failed to save trace for agent %s", agent_id, exc_info=True,
+                "Failed to save trace for agent %s",
+                agent_id,
+                exc_info=True,
             )

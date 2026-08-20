@@ -1,0 +1,86 @@
+name: Track Git Clones
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  track-clones:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.TRAFFIC_TOKEN }}
+
+      - name: Fetch clone traffic
+        env:
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/traffic/clones > /tmp/traffic.json
+
+      - name: Update accumulated data
+        run: |
+          python3 - <<'PYEOF'
+          import json
+          from datetime import datetime, timezone
+
+          # Load current traffic data from API
+          with open("/tmp/traffic.json") as f:
+              traffic = json.load(f)
+
+          # Load accumulated data
+          data_path = ".github/clone-stats/clone-data.json"
+          with open(data_path) as f:
+              accumulated = json.load(f)
+
+          daily = accumulated.get("daily", {})
+
+          # Merge new daily entries (keyed by date to avoid double-counting)
+          for entry in traffic.get("clones", []):
+              date_key = entry["timestamp"][:10]  # "2026-03-26"
+              daily[date_key] = entry["count"]  # total clones, not unique
+
+          # Recalculate total from all daily data
+          total = sum(daily.values())
+
+          # Update accumulated data
+          accumulated["daily"] = dict(sorted(daily.items()))
+          accumulated["total_clones"] = total
+          accumulated["last_updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          with open(data_path, "w") as f:
+              json.dump(accumulated, f, indent=2)
+              f.write("\n")
+
+          # Update shields.io endpoint badge
+          badge = {
+              "schemaVersion": 1,
+              "label": "Git Clones",
+              "message": f"{total:,}",
+              "color": "green",
+              "namedLogo": "git"
+          }
+
+          with open(".github/clone-stats/badge.json", "w") as f:
+              json.dump(badge, f, indent=2)
+              f.write("\n")
+
+          print(f"Updated: {total:,} total clones across {len(daily)} days")
+          PYEOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/clone-stats/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update clone traffic data [skip ci]"
+            git push
+          fi

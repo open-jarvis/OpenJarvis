@@ -41,3 +41,15 @@ class TestResolveMcpServers:
         assert len(result) == 2
         assert result[0]["name"] == "s1"
         assert result[1]["name"] == "s2"
+
+    def test_legacy_json_string_entries_are_normalized(self, tmp_path: Path) -> None:
+        raw = '["{\\"name\\": \\"legacy\\", \\"url\\": \\"http://a\\"}"]'
+
+        assert resolve_mcp_servers(raw, tmp_path) == [
+            {"name": "legacy", "url": "http://a"}
+        ]
+
+    @pytest.mark.parametrize("raw", ["[1]", "[null]", '["not-json"]'])
+    def test_non_object_entries_are_rejected(self, raw: str, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="entry 0"):
+            resolve_mcp_servers(raw, tmp_path)

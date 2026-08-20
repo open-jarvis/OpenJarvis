@@ -25,11 +25,11 @@ processing happens on your local machine — the app connects to the backend you
 
 | Platform | Download | Notes |
 |----------|----------|-------|
-| macOS (Apple Silicon) | [:material-download: **OpenJarvis.dmg**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis_0.1.0_aarch64.dmg) | M1/M2/M3/M4 Macs |
-| Windows (64-bit) | [:material-download: **OpenJarvis-setup.exe**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis_0.1.0_x64-setup.exe) | Windows 10+ |
-| Linux (DEB) | [:material-download: **OpenJarvis.deb**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis_0.1.0_amd64.deb) | Ubuntu, Debian |
-| Linux (RPM) | [:material-download: **OpenJarvis.rpm**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis-0.1.0-1.x86_64.rpm) | Fedora, RHEL |
-| Linux (AppImage) | [:material-download: **OpenJarvis.AppImage**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis_0.1.0_amd64.AppImage) | Any distro |
+| macOS (Universal) | [:material-download: **OpenJarvis.dmg**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_universal.dmg) | Apple Silicon + Intel |
+| Windows (64-bit) | [:material-download: **OpenJarvis-setup.exe**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_x64-setup.exe) | Windows 10+ |
+| Linux (DEB) | [:material-download: **OpenJarvis.deb**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_amd64.deb) | Ubuntu, Debian |
+| Linux (RPM) | [:material-download: **OpenJarvis.rpm**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis-1.0.1-1.x86_64.rpm) | Fedora, RHEL |
+| Linux (AppImage) | [:material-download: **OpenJarvis.AppImage**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_amd64.AppImage) | Any distro |
 
 !!! tip "All releases"
     Browse all versions on the [GitHub Releases](https://github.com/open-jarvis/OpenJarvis/releases) page.
@@ -75,7 +75,7 @@ npm install
 npm run tauri build
 ```
 
-The built installer will be in `desktop/src-tauri/target/release/bundle/`.
+The built installer will be in `frontend/src-tauri/target/release/bundle/`.
 
 ---
 
@@ -94,7 +94,7 @@ cd OpenJarvis
 
 The script handles everything:
 
-1. Checks for Python 3.10+ and Node.js 18+
+1. Checks for Python 3.10–3.13 and Node.js 18+
 2. Installs Ollama if not present and pulls a starter model
 3. Installs Python and frontend dependencies
 4. Starts the backend API server and frontend dev server
@@ -109,7 +109,7 @@ If you prefer to run each step yourself:
     ```bash
     git clone https://github.com/open-jarvis/OpenJarvis.git
     cd OpenJarvis
-    uv sync --extra server
+    uv sync --extra desktop
     cd frontend && npm install && cd ..
     ```
 

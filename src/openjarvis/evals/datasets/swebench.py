@@ -63,6 +63,11 @@ class SWEBenchDataset(DatasetProvider):
     _default_split = "test"
 
     def __init__(self, variant: str = "verified_mini") -> None:
+        # NOTE: default is the 50-task mini variant. The full 500-task set is
+        # "verified" (princeton-nlp/SWE-bench_Verified). If your subset JSON
+        # references task_ids from the full set (e.g. subsets/swebench_*_n100*),
+        # pass variant="verified" explicitly — otherwise the 450 missing tasks
+        # are silently dropped. See agents/hybrid/runner.py:_load_swebench_tasks.
         if variant not in _HF_PATHS:
             raise ValueError(
                 f"Unknown SWE-bench variant {variant!r}; "
@@ -111,7 +116,9 @@ class SWEBenchDataset(DatasetProvider):
         return len(self._records)
 
     def _convert_row(
-        self, raw: MutableMapping[str, object], idx: int,
+        self,
+        raw: MutableMapping[str, object],
+        idx: int,
     ) -> Optional[EvalRecord]:
         instance_id = str(raw.get("instance_id") or "")
         repo = str(raw.get("repo") or "")
@@ -140,6 +147,7 @@ class SWEBenchDataset(DatasetProvider):
 
         metadata: dict[str, Any] = {
             "instance_id": instance_id,
+            "problem_statement": problem_statement,
             "repo": repo,
             "base_commit": base_commit,
             "hints_text": hints_text,

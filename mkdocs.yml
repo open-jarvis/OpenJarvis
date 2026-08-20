@@ -56,6 +56,7 @@ plugins:
   - gen-files:
       scripts:
         - docs/gen_ref_pages.py
+        - docs/gen_install_script.py
   - literate-nav:
       nav_file: SUMMARY.md
   - mkdocstrings:
@@ -126,11 +127,14 @@ markdown_extensions:
   - pymdownx.tilde
 
 extra_javascript:
+  - javascripts/leaderboard-config.js
   - javascripts/leaderboard.js
   - https://cdn.jsdelivr.net/npm/@docsearch/js@3
   - javascripts/docsearch-init.js
 
 extra:
+  version:
+    default: v1.0.0
   algolia:
     app_id: ""       # Fill after DocSearch approval
     api_key: ""      # Search-only key
@@ -143,9 +147,18 @@ nav:
   - Home: index.md
   - Getting Started:
       - Installation: getting-started/installation.md
+      - macOS Guide: getting-started/macos.md
       - Quick Start: getting-started/quickstart.md
       - Code Snippets: getting-started/snippets.md
       - Configuration: getting-started/configuration.md
+  - Showcase:
+      - Overview: showcase/index.md
+      - Morning Brief: showcase/morning-brief.md
+      - Memory That Doesn't Reset: showcase/persistent-memory.md
+      - Track Your Savings: showcase/cost-savings.md
+      - Discord Companion: showcase/discord-companion.md
+      - Offline Code Reviewer: showcase/coding-assistant.md
+      - Contributing: showcase/CONTRIBUTING.md
   - Tutorials:
       - Overview: tutorials/index.md
       - Deep Research Assistant: tutorials/deep-research.md
@@ -163,5 +176,32 @@ nav:
       - Security: architecture/security.md
       - Design Principles: architecture/design-principles.md
   - API Reference: api-reference/
+  - User Guide:
+      - CLI: user-guide/cli.md
+      - Pearl CLI: user-guide/pearl.md
+      - Pearl Mining: user-guide/mining.md
+      - Pearl Mining on Apple Silicon: user-guide/mining-apple-silicon.md
+      - Python SDK: user-guide/python-sdk.md
+      - Morning Digest: user-guide/morning-digest.md
+      - Deep Research: user-guide/deep-research.md
+      - Code Assistant: user-guide/code-assistant.md
+      - Scheduled Monitor: user-guide/scheduled-monitor.md
+      - Simple Chat: user-guide/chat-simple.md
+      - Agents: user-guide/agents.md
+      - Channels & Connectors: user-guide/channels-and-connectors.md
+      - Tools: user-guide/tools.md
+      - Memory: user-guide/memory.md
+      - External MCP Servers: user-guide/mcp-external-servers.md
+      - Scheduler: user-guide/scheduler.md
+      - Telemetry: user-guide/telemetry.md
+      - Evaluations: user-guide/evaluations.md
+      - Benchmarks: user-guide/benchmarks.md
+      - System Access: user-guide/system-access.md
+      - Security: user-guide/security.md
+      - Data Boundary Scan: user-guide/data-boundary-scan.md
+      - LLM-guided spec search: user-guide/llm-guided-spec-search.md
   - Leaderboard: leaderboard.md
   - Roadmap: development/roadmap.md
+  - Development:
+      - Mining: development/mining.md
+      - Pearl Model Enablement: development/pearl-model-enablement.md

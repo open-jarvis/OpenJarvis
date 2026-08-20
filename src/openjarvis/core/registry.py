@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Tuple, Type, Typ
 if TYPE_CHECKING:
     from openjarvis.agents._stubs import BaseAgent
     from openjarvis.engine._stubs import InferenceEngine
+    from openjarvis.memory.store import FactStore
     from openjarvis.tools.storage._stubs import MemoryBackend
 
 T = TypeVar("T")
@@ -109,6 +110,10 @@ class MemoryRegistry(RegistryBase[Type["MemoryBackend"]]):
     """Registry for memory / retrieval backends."""
 
 
+class FactStoreRegistry(RegistryBase[Type["FactStore"]]):
+    """Registry for automatic-memory fact store backends."""
+
+
 class AgentRegistry(RegistryBase[Type["BaseAgent"]]):
     """Registry for agent implementations."""
 
@@ -145,18 +150,40 @@ class CompressionRegistry(RegistryBase[Any]):
     """Registry for context compression strategies."""
 
 
+class TTSRegistry(RegistryBase[Any]):
+    """Registry for text-to-speech backend implementations."""
+
+
+class ConnectorRegistry(RegistryBase[Any]):
+    """Registry for data source connectors (Gmail, Slack, etc.)."""
+
+
+class MinerRegistry(RegistryBase[Any]):
+    """Registry for Pearl mining provider implementations.
+
+    Each provider implements the ``MiningProvider`` ABC defined in
+    ``openjarvis.mining._stubs``. Registry keys are short lowercase strings
+    such as ``"vllm-pearl"`` (CUDA + Hopper) and (future) ``"mlx-pearl"``,
+    ``"llamacpp-pearl-metal"``, ``"ollama-pearl"``.
+    """
+
+
 __all__ = [
     "AgentRegistry",
     "BenchmarkRegistry",
     "ChannelRegistry",
     "CompressionRegistry",
+    "ConnectorRegistry",
     "EngineRegistry",
+    "FactStoreRegistry",
     "LearningRegistry",
     "MemoryRegistry",
+    "MinerRegistry",
     "ModelRegistry",
     "RegistryBase",
     "RouterPolicyRegistry",
     "SkillRegistry",
     "SpeechRegistry",
+    "TTSRegistry",
     "ToolRegistry",
 ]

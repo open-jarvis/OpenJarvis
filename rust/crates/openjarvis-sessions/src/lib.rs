@@ -230,7 +230,7 @@ impl SessionStore {
             params![session_id, remove_up_to as i64],
         );
 
-        let summary = format!("[consolidated {} earlier messages]", remove_up_to);
+        let summary = format!("[consolidated {remove_up_to} earlier messages]");
         let now = now_secs();
         let _ = self.conn.execute(
             "INSERT INTO session_messages (session_id, role, content, channel, timestamp)
@@ -292,15 +292,13 @@ impl SessionStore {
             let cutoff = now_secs() - self.max_age_hours * 3600.0;
             format!(
                 "SELECT session_id FROM sessions
-                 WHERE last_activity >= {}
-                 ORDER BY last_activity DESC LIMIT {}",
-                cutoff, limit
+                 WHERE last_activity >= {cutoff}
+                 ORDER BY last_activity DESC LIMIT {limit}"
             )
         } else {
             format!(
                 "SELECT session_id FROM sessions
-                 ORDER BY last_activity DESC LIMIT {}",
-                limit
+                 ORDER BY last_activity DESC LIMIT {limit}"
             )
         };
 
@@ -356,7 +354,7 @@ impl SessionStore {
                 params![checkpoint_id, session_id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
-            .map_err(|e| format!("Checkpoint not found: {}", e))?;
+            .map_err(|e| format!("Checkpoint not found: {e}"))?;
 
         let deleted: usize = self
             .conn
@@ -573,7 +571,7 @@ mod tests {
 
         for i in 0..10 {
             store
-                .save_message(&s.session_id, "user", &format!("msg {}", i), "irc")
+                .save_message(&s.session_id, "user", &format!("msg {i}"), "irc")
                 .unwrap();
         }
 

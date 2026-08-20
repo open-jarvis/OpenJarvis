@@ -31,7 +31,10 @@ def compose() -> None:
 
 @compose.command("list")
 @click.option(
-    "-k", "--kind", "kind", default=None,
+    "-k",
+    "--kind",
+    "kind",
+    default=None,
     type=click.Choice(["discrete", "operator"]),
     help="Filter by recipe kind.",
 )
@@ -194,8 +197,6 @@ def compose_run(name: str, query: tuple[str, ...], output_json: bool) -> None:
             agent_kwargs = {}
             if kwargs.get("system_prompt"):
                 agent_kwargs["system_prompt"] = kwargs["system_prompt"]
-            if kwargs.get("max_turns"):
-                agent_kwargs["max_turns"] = kwargs["max_turns"]
             if kwargs.get("temperature"):
                 agent_kwargs["temperature"] = kwargs["temperature"]
 
@@ -203,15 +204,28 @@ def compose_run(name: str, query: tuple[str, ...], output_json: bool) -> None:
 
             if output_json:
                 import json as json_mod
-                if isinstance(result, str):
+
+                if isinstance(result, dict):
+                    click.echo(json_mod.dumps(result, indent=2, default=str))
+                elif isinstance(result, str):
                     click.echo(json_mod.dumps({"content": result}, indent=2))
                 else:
-                    click.echo(json_mod.dumps({
-                        "content": result.content,
-                        "turns": getattr(result, "turns", 1),
-                    }, indent=2))
+                    click.echo(
+                        json_mod.dumps(
+                            {
+                                "content": result.content,
+                                "turns": getattr(result, "turns", 1),
+                            },
+                            indent=2,
+                        )
+                    )
             else:
-                content = result if isinstance(result, str) else result.content
+                if isinstance(result, dict):
+                    content = result.get("content", "")
+                elif isinstance(result, str):
+                    content = result
+                else:
+                    content = result.content
                 click.echo(content)
         finally:
             system.close()
@@ -228,19 +242,33 @@ def compose_run(name: str, query: tuple[str, ...], output_json: bool) -> None:
 @compose.command("bench")
 @click.argument("name")
 @click.option(
-    "-b", "--benchmark", "benchmark", default=None, multiple=True,
+    "-b",
+    "--benchmark",
+    "benchmark",
+    default=None,
+    multiple=True,
     help="Override benchmarks (can specify multiple).",
 )
 @click.option(
-    "-n", "--max-samples", "max_samples", type=int, default=None,
+    "-n",
+    "--max-samples",
+    "max_samples",
+    type=int,
+    default=None,
     help="Maximum samples per benchmark.",
 )
 @click.option(
-    "--judge", "judge_model", default=None,
+    "--judge",
+    "judge_model",
+    default=None,
     help="LLM judge model override.",
 )
 @click.option(
-    "-v", "--verbose", "verbose", is_flag=True, default=False,
+    "-v",
+    "--verbose",
+    "verbose",
+    is_flag=True,
+    default=False,
     help="Verbose logging.",
 )
 def compose_bench(
@@ -302,11 +330,9 @@ def compose_bench(
         results_table.add_column("Errors", justify="right", style="red")
 
         for i, rc in enumerate(run_configs, 1):
-            console.print(
-                f"\n[bold]Run {i}/{len(run_configs)}:[/bold] {rc.benchmark}"
-            )
+            console.print(f"\n[bold]Run {i}/{len(run_configs)}:[/bold] {rc.benchmark}")
             try:
-                summary = _run_single(rc, console=console)
+                summary = _run_single(rc, console=console, suite_mode=True)
                 results_table.add_row(
                     rc.benchmark,
                     f"{summary.accuracy:.4f}",

@@ -104,8 +104,7 @@ TOOL_DESCRIPTIONS: Dict[str, dict] = {
             {
                 "task": "Find all prime numbers less than 50",
                 "thought": (
-                    "Need a prime-checking algorithm"
-                    " - code_interpreter is ideal."
+                    "Need a prime-checking algorithm - code_interpreter is ideal."
                 ),
                 "input": (
                     "def is_prime(n):\n"
@@ -278,9 +277,7 @@ def build_system_prompt(
     by_cat_names: Dict[str, List[str]] = {}
     for name in tool_names:
         cat = (
-            TOOL_DESCRIPTIONS[name]["category"]
-            if name in TOOL_DESCRIPTIONS
-            else "llm"
+            TOOL_DESCRIPTIONS[name]["category"] if name in TOOL_DESCRIPTIONS else "llm"
         )
         by_cat_names.setdefault(cat, []).append(name)
 
@@ -295,9 +292,7 @@ def build_system_prompt(
             "- Simple arithmetic/algebra -> calculator (instant, accurate)"
         )
     if "code_interpreter" in tool_names:
-        math_lines.append(
-            "- Numerical algorithms -> code_interpreter (programmable)"
-        )
+        math_lines.append("- Numerical algorithms -> code_interpreter (programmable)")
     if math_lines:
         guide.append("MATH PROBLEMS:")
         guide.extend(math_lines)
@@ -306,9 +301,7 @@ def build_system_prompt(
     # Coding
     code_lines: list[str] = []
     if "code_interpreter" in tool_names:
-        code_lines.append(
-            "- Algorithm implementation/execution -> code_interpreter"
-        )
+        code_lines.append("- Algorithm implementation/execution -> code_interpreter")
     if code_lines:
         guide.append("CODING TASKS:")
         guide.extend(code_lines)
@@ -322,9 +315,7 @@ def build_system_prompt(
         )
     llm_tools = by_cat_names.get("llm", [])
     if llm_tools:
-        reasoning_lines.append(
-            f"- Complex reasoning -> {', '.join(llm_tools)}"
-        )
+        reasoning_lines.append(f"- Complex reasoning -> {', '.join(llm_tools)}")
     if reasoning_lines:
         guide.append("REASONING/LOGIC:")
         guide.extend(reasoning_lines)
@@ -336,9 +327,7 @@ def build_system_prompt(
         general_lines.append("- Current events/recent info -> web_search")
     memory_tools = by_cat_names.get("memory", [])
     if memory_tools:
-        general_lines.append(
-            f"- Stored knowledge -> {', '.join(memory_tools)}"
-        )
+        general_lines.append(f"- Stored knowledge -> {', '.join(memory_tools)}")
     if general_lines:
         guide.append("GENERAL Q&A / FACTUAL:")
         guide.extend(general_lines)

@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # Optional dependency
 try:
     import gepa
+
     HAS_GEPA = True
 except ImportError:
     HAS_GEPA = False
@@ -71,20 +72,22 @@ class OpenJarvisGEPAAdapter:
                 best = max(matching, key=lambda t: t.feedback or 0.0)
                 scores.append(best.feedback or 0.0)
                 if capture_traces:
-                    trace_data.append({
-                        "query": query,
-                        "result": best.result,
-                        "feedback": best.feedback,
-                        "outcome": best.outcome,
-                        "steps": [
-                            {
-                                "type": str(s.step_type),
-                                "input": s.input,
-                                "output": s.output,
-                            }
-                            for s in best.steps
-                        ],
-                    })
+                    trace_data.append(
+                        {
+                            "query": query,
+                            "result": best.result,
+                            "feedback": best.feedback,
+                            "outcome": best.outcome,
+                            "steps": [
+                                {
+                                    "type": str(s.step_type),
+                                    "input": s.input,
+                                    "output": s.output,
+                                }
+                                for s in best.steps
+                            ],
+                        }
+                    )
             else:
                 scores.append(0.0)
 
@@ -126,16 +129,18 @@ class OpenJarvisGEPAAdapter:
                 if is_error:
                     errors.append(step.output["error"])
 
-            dataset.append({
-                "query": query,
-                "result": best.result,
-                "feedback": best.feedback,
-                "outcome": best.outcome,
-                "tool_calls": tool_calls,
-                "reasoning_steps": reasoning_steps,
-                "errors": errors,
-                "components_to_update": components_to_update,
-            })
+            dataset.append(
+                {
+                    "query": query,
+                    "result": best.result,
+                    "feedback": best.feedback,
+                    "outcome": best.outcome,
+                    "tool_calls": tool_calls,
+                    "reasoning_steps": reasoning_steps,
+                    "errors": errors,
+                    "components_to_update": components_to_update,
+                }
+            )
 
         return dataset
 
@@ -170,8 +175,7 @@ class GEPAAgentOptimizer:
             return {
                 "status": "skipped",
                 "reason": (
-                    f"only {len(traces)} traces, "
-                    f"min_traces={self.config.min_traces}"
+                    f"only {len(traces)} traces, min_traces={self.config.min_traces}"
                 ),
             }
 
@@ -179,8 +183,7 @@ class GEPAAgentOptimizer:
             return {
                 "status": "error",
                 "reason": (
-                    "gepa not installed"
-                    " (pip install 'openjarvis[learning-gepa]')"
+                    "gepa not installed (pip install 'openjarvis[learning-gepa]')"
                 ),
             }
 
@@ -206,7 +209,9 @@ class GEPAAgentOptimizer:
         }
 
     def _run_gepa(
-        self, adapter: OpenJarvisGEPAAdapter, traces: List[Any],
+        self,
+        adapter: OpenJarvisGEPAAdapter,
+        traces: List[Any],
     ) -> Dict[str, Any]:
         """Run the GEPA evolutionary optimization loop."""
         # Build search space from config flags
@@ -236,7 +241,7 @@ class GEPAAgentOptimizer:
         # Run optimization
         result = optimizer.optimize(
             initial_candidate=initial_candidate,
-            test_cases=queries[:self.config.assessment_batch_size],
+            test_cases=queries[: self.config.assessment_batch_size],
             components=components,
         )
 

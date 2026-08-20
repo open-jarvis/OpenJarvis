@@ -1,0 +1,28 @@
+# ToolCall-15 eval: Claude Opus 4.6 (cloud)
+# Lightweight tool calling benchmark — 15 scenarios, 5 categories
+
+[meta]
+name = "toolcall15-claude-opus"
+description = "ToolCall-15 on claude-opus-4-6 (temperature=0)"
+
+[defaults]
+temperature = 0.0
+max_tokens = 2048
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/toolcall15-claude-opus/"
+seed = 42
+
+[[models]]
+name = "claude-opus-4-6"
+engine = "cloud"
+
+[[benchmarks]]
+name = "toolcall15"
+backend = "jarvis-direct"

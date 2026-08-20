@@ -1,0 +1,31 @@
+# Morning Digest — Minimal setup (just Ollama + Gmail)
+# The simplest possible config to get a working digest.
+# Copy to ~/.openjarvis/config.toml
+#
+# Requirements:
+#   - Ollama installed with any model
+#   - Google OAuth credentials (jarvis connect gdrive)
+#   - OpenAI API key for TTS (or skip audio with --text-only)
+
+[engine]
+default = "ollama"
+
+[intelligence]
+default_model = "qwen3.5:4b"      # Small, fast, runs on any machine
+
+[tools]
+enabled = ["digest_collect", "text_to_speech"]
+
+[digest]
+enabled = true
+persona = "jarvis"
+honorific = "sir"
+tts_backend = "openai"
+voice_id = "onyx"
+sections = ["messages", "calendar"]
+
+[digest.messages]
+sources = ["gmail"]
+
+[digest.calendar]
+sources = ["gcalendar"]

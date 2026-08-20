@@ -44,7 +44,8 @@ class WhatsAppChannel(BaseChannel):
     ) -> None:
         self._token = access_token or os.environ.get("WHATSAPP_ACCESS_TOKEN", "")
         self._phone_number_id = phone_number_id or os.environ.get(
-            "WHATSAPP_PHONE_NUMBER_ID", "",
+            "WHATSAPP_PHONE_NUMBER_ID",
+            "",
         )
         self._bus = bus
         self._handlers: List[ChannelHandler] = []
@@ -82,10 +83,7 @@ class WhatsAppChannel(BaseChannel):
         try:
             import httpx
 
-            url = (
-                f"https://graph.facebook.com/v21.0/"
-                f"{self._phone_number_id}/messages"
-            )
+            url = f"https://graph.facebook.com/v21.0/{self._phone_number_id}/messages"
             headers = {
                 "Authorization": f"Bearer {self._token}",
                 "Content-Type": "application/json",
@@ -98,13 +96,17 @@ class WhatsAppChannel(BaseChannel):
             }
 
             resp = httpx.post(
-                url, json=payload, headers=headers, timeout=10.0,
+                url,
+                json=payload,
+                headers=headers,
+                timeout=10.0,
             )
             if resp.status_code < 300:
                 self._publish_sent(channel, content, conversation_id)
                 return True
             logger.warning(
-                "WhatsApp API returned status %d", resp.status_code,
+                "WhatsApp API returned status %d",
+                resp.status_code,
             )
             return False
         except Exception:

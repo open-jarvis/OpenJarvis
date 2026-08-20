@@ -16,12 +16,17 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
+from openjarvis.agents.prompt_loader import (
+    load_few_shot_exemplars,
+    load_system_prompt_override,
+)
 from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
-from openjarvis.core.types import Message, Role, ToolCall, ToolResult
+from openjarvis.core.types import Message, Role, ToolCall, ToolResult, _message_to_dict
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool
 
@@ -44,9 +49,18 @@ MONITOR_OPERATIVE_SYSTEM_PROMPT = """\
 You are a Monitor Operative Agent designed for long-horizon tasks.
 
 ## Capabilities
-1. TOOLS: Call any available tool via function calling
-2. STATE: Your previous findings and state are automatically restored
-3. MEMORY: Store important findings for future recall
+1. TOOLS: You have access to tools via native function calling. The list
+   below shows what is available — invoke them through the function-calling
+   API, not by writing tool names into your text response.
+2. STATE: Your previous findings and state are automatically restored from memory.
+3. MEMORY: Store important findings via memory_store; recall via memory_retrieve.
+
+## Critical Operating Rule
+Your training data is frozen and out of date. For ANY question about recent,
+current, or evolving information, you MUST call a substantive retrieval tool
+(web_search, memory_retrieve, or an equivalent) BEFORE composing a response.
+Writing fact claims about recent events from memory alone produces
+hallucinations and is a failure mode.
 
 ## Strategy
 - Memory extraction: {memory_extraction}
@@ -56,6 +70,9 @@ You are a Monitor Operative Agent designed for long-horizon tasks.
 
 ## Protocol
 - Break complex tasks into phases and track progress
+- Prefer substantive tools (web_search, memory_retrieve) over reasoning-only
+  tools (think) — `think` does not gather new information, only reorganises
+  what you already have
 - Store causal relationships and key findings in memory
 - Compress long tool outputs before adding to context
 - Self-evaluate retrieved context for relevance
@@ -110,6 +127,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
         memory_backend: Optional[Any] = None,
         interactive: bool = False,
         confirm_callback=None,
+        prompt_builder: Optional[Any] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -122,6 +140,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            prompt_builder=prompt_builder,
         )
         # Validate strategies
         if memory_extraction not in VALID_MEMORY_EXTRACTION:
@@ -169,14 +188,19 @@ class MonitorOperativeAgent(ToolUsingAgent):
         self._emit_turn_start(input)
 
         # 1. Build system prompt with state context
+        #    Priority: constructor arg > file override > hardcoded default
         sys_parts: list[str] = []
         if self._system_prompt:
             sys_parts.append(self._system_prompt)
         else:
             tool_desc = self._build_tool_descriptions()
+            prompt_template = (
+                load_system_prompt_override("monitor_operative")
+                or MONITOR_OPERATIVE_SYSTEM_PROMPT
+            )
             try:
                 sys_parts.append(
-                    MONITOR_OPERATIVE_SYSTEM_PROMPT.format(
+                    prompt_template.format(
                         memory_extraction=self._memory_extraction,
                         observation_compression=self._observation_compression,
                         retrieval_strategy=self._retrieval_strategy,
@@ -185,7 +209,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
                     ),
                 )
             except KeyError:
-                sys_parts.append(MONITOR_OPERATIVE_SYSTEM_PROMPT)
+                sys_parts.append(prompt_template)
 
         # 2. State recall from memory backend
         previous_state = self._recall_state()
@@ -193,6 +217,9 @@ class MonitorOperativeAgent(ToolUsingAgent):
             sys_parts.append(f"\n## Previous State\n{previous_state}")
 
         system_prompt = "\n\n".join(sys_parts) if sys_parts else None
+        # Honor SOUL.md / MEMORY.md / USER.md persona files like `jarvis ask`,
+        # appended so the monitor's own instructions are preserved (#376).
+        system_prompt = self._apply_persona(system_prompt)
 
         # 3. Load session history
         session_messages = self._load_session()
@@ -204,6 +231,12 @@ class MonitorOperativeAgent(ToolUsingAgent):
             system_prompt=system_prompt,
             session_messages=session_messages,
         )
+
+        # 4b. Inject few-shot exemplars before the user input
+        for ex in load_few_shot_exemplars("monitor_operative"):
+            if ex.get("input") and ex.get("output"):
+                messages.insert(-1, Message(role=Role.USER, content=ex["input"]))
+                messages.insert(-1, Message(role=Role.ASSISTANT, content=ex["output"]))
 
         # 5. Run function-calling tool loop
         openai_tools = self._executor.get_openai_tools() if self._tools else []
@@ -229,34 +262,59 @@ class MonitorOperativeAgent(ToolUsingAgent):
             for k in total_usage:
                 total_usage[k] += usage.get(k, 0)
             content = result.get("content", "")
+            # Strip think tags so they don't interfere with parsing
+            content = self._strip_think_tags(content)
             raw_tool_calls = result.get("tool_calls", [])
 
-            # No tool calls -> check continuation, then final answer
-            if not raw_tool_calls:
+            # --- Native function-calling path ---
+            if raw_tool_calls:
+                tool_calls = [
+                    ToolCall(
+                        id=tc.get("id", f"call_{i}"),
+                        name=tc.get("name", ""),
+                        arguments=tc.get("arguments", "{}"),
+                    )
+                    for i, tc in enumerate(raw_tool_calls)
+                ]
+                messages.append(
+                    Message(
+                        role=Role.ASSISTANT,
+                        content=content,
+                        tool_calls=tool_calls,
+                    )
+                )
+            else:
+                # --- Text-based fallback ---
+                tool_info = self._extract_tool_call(content)
+                if tool_info:
+                    action, action_input = tool_info
+                    messages.append(Message(role=Role.ASSISTANT, content=content))
+                    tc = ToolCall(
+                        id=f"text_call_{turns}",
+                        name=action,
+                        arguments=action_input,
+                    )
+                    tool_result = self._executor.execute(tc)
+                    all_tool_results.append(tool_result)
+                    observation_content = self._compress_observation(
+                        tool_result.content
+                    )
+                    messages.append(
+                        Message(
+                            role=Role.USER,
+                            content=f"Result: {observation_content}",
+                        )
+                    )
+                    self._extract_and_store(tc.name, tool_result.content)
+                    continue
+
+                # No tool calls at all -> check continuation, then final answer
                 content = self._check_continuation(result, messages)
                 break
 
-            # Build ToolCall objects from raw dicts
-            tool_calls = [
-                ToolCall(
-                    id=tc.get("id", f"call_{i}"),
-                    name=tc.get("name", ""),
-                    arguments=tc.get("arguments", "{}"),
-                )
-                for i, tc in enumerate(raw_tool_calls)
-            ]
-
-            # Append assistant message with tool calls
-            messages.append(
-                Message(
-                    role=Role.ASSISTANT,
-                    content=content,
-                    tool_calls=tool_calls,
-                )
-            )
-
-            # Execute each tool
-            for tc in tool_calls:
+            # Execute each native tool call
+            tool_calls_to_exec = tool_calls
+            for tc in tool_calls_to_exec:
                 # Loop guard check
                 if self._loop_guard:
                     verdict = self._loop_guard.check_call(
@@ -314,11 +372,12 @@ class MonitorOperativeAgent(ToolUsingAgent):
         else:
             # Max turns exceeded
             self._save_session(input, content)
+            msg_dicts = [_message_to_dict(m) for m in messages]
             return self._max_turns_result(
                 all_tool_results,
                 turns,
                 content=content,
-                metadata=total_usage,
+                metadata={**total_usage, "messages": msg_dicts},
             )
 
         # 6. Save session
@@ -329,12 +388,96 @@ class MonitorOperativeAgent(ToolUsingAgent):
             self._auto_persist_state(content)
 
         self._emit_turn_end(turns=turns, content_length=len(content))
+        msg_dicts = [_message_to_dict(m) for m in messages]
         return AgentResult(
             content=content,
             tool_results=all_tool_results,
             turns=turns,
-            metadata=total_usage,
+            metadata={**total_usage, "messages": msg_dicts},
         )
+
+    # ------------------------------------------------------------------
+    # Text-based tool call extraction (fallback for non-function-calling models)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_tool_call(text: str) -> tuple[str, str] | None:
+        """Extract tool call from text output.
+
+        Supports three formats:
+        1. Action: tool_name / Action Input: {"key": "value"}
+        2. <tool_call>tool_name\\n$key=value</tool_call> (XML-style)
+        3. <tool_name query="..."> or <tool_name>...</tool_name> (inline XML)
+        """
+        # Format 1: Action / Action Input
+        action_match = re.search(r"Action:\s*(.+)", text, re.IGNORECASE)
+        input_match = re.search(
+            r"Action Input:\s*(.+?)(?=\n\n|\Z)", text, re.DOTALL | re.IGNORECASE
+        )
+        if action_match:
+            return (
+                action_match.group(1).strip(),
+                input_match.group(1).strip() if input_match else "{}",
+            )
+
+        # Format 2: <tool_call>tool_name ... </tool_call>
+        xml_match = re.search(
+            r"<tool_call>\s*(\w+)\s*(.*?)</\w+>",
+            text,
+            re.DOTALL,
+        )
+        if xml_match:
+            tool_name = xml_match.group(1).strip()
+            raw_params = xml_match.group(2).strip()
+            params: dict[str, Any] = {}
+            for m in re.finditer(
+                r"\$(\w+)=(.+?)(?=\$|\n<|</|$)", raw_params, re.DOTALL
+            ):
+                params[m.group(1)] = m.group(2).strip().rstrip("</>\n")
+            for m in re.finditer(r"<(\w+)>(.*?)</\1>", raw_params, re.DOTALL):
+                key, val = m.group(1), m.group(2).strip()
+                try:
+                    params[key] = int(val)
+                except ValueError:
+                    params[key] = val
+            if not params:
+                for m in re.finditer(
+                    r"(\w+)\s*:\s*(.+?)(?=\n\w+\s*:|$)", raw_params, re.DOTALL
+                ):
+                    key, val = m.group(1), m.group(2).strip().strip("\"'")
+                    try:
+                        params[key] = int(val)
+                    except ValueError:
+                        params[key] = val
+            if params:
+                return (tool_name, json.dumps(params))
+            return (tool_name, "{}")
+
+        # Format 3: <web_search query="..."> or <tool_name>args</tool_name>
+        # Handles Qwen-style XML tool output like <web_search query="...">
+        inline_match = re.search(
+            r"<(\w+)\s+(.*?)/?>",
+            text,
+            re.DOTALL,
+        )
+        if inline_match:
+            tool_name = inline_match.group(1).strip()
+            # Skip common non-tool tags
+            if tool_name.lower() in ("think", "br", "hr", "p", "div", "span", "b", "i"):
+                return None
+            attr_str = inline_match.group(2).strip()
+            params = {}
+            for m in re.finditer(r'(\w+)=["\']([^"\']*)["\']', attr_str):
+                params[m.group(1)] = m.group(2)
+            # Also handle unquoted: <web_search query=something>
+            if not params:
+                for m in re.finditer(r"(\w+)=(\S+)", attr_str):
+                    params[m.group(1)] = m.group(2).rstrip(">")
+            if params:
+                return (tool_name, json.dumps(params))
+            return (tool_name, "{}")
+
+        return None
 
     # ------------------------------------------------------------------
     # Message building

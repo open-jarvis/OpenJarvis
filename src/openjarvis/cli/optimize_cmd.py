@@ -11,6 +11,18 @@ from rich.console import Console
 from rich.table import Table
 
 
+def _get_trace_store():
+    """Return a TraceStore from user config, or None on failure."""
+    try:
+        from openjarvis.core.config import load_config
+        from openjarvis.traces.store import TraceStore
+
+        cfg = load_config()
+        return TraceStore(cfg.traces.db_path)
+    except Exception:
+        return None
+
+
 @click.group("optimize")
 def optimize_group() -> None:
     """LLM-driven configuration optimization."""
@@ -18,27 +30,43 @@ def optimize_group() -> None:
 
 @optimize_group.command("run")
 @click.option(
-    "-c", "--config", "config_path", type=str, default=None,
+    "-c",
+    "--config",
+    "config_path",
+    type=str,
+    default=None,
     help="TOML config file for the optimization run.",
 )
 @click.option(
-    "-b", "--benchmark", type=str, default=None,
+    "-b",
+    "--benchmark",
+    type=str,
+    default=None,
     help="Benchmark name (e.g. supergpqa, mmlu-pro).",
 )
 @click.option(
-    "-t", "--trials", type=int, default=20,
+    "-t",
+    "--trials",
+    type=int,
+    default=20,
     help="Maximum number of trials.",
 )
 @click.option(
-    "--optimizer-model", type=str, default="claude-sonnet-4-6",
+    "--optimizer-model",
+    type=str,
+    default="claude-sonnet-4-6",
     help="Model used by the LLM optimizer.",
 )
 @click.option(
-    "--max-samples", type=int, default=50,
+    "--max-samples",
+    type=int,
+    default=50,
     help="Maximum samples per trial evaluation.",
 )
 @click.option(
-    "--output-dir", type=str, default="results/optimize/",
+    "--output-dir",
+    type=str,
+    default="results/optimize/",
     help="Directory for trial output files.",
 )
 def optimize_run(
@@ -58,9 +86,7 @@ def optimize_run(
         try:
             from openjarvis.learning.optimize.config import load_optimize_config
         except ImportError:
-            console.print(
-                "[red]Optimization framework not available.[/red]"
-            )
+            console.print("[red]Optimization framework not available.[/red]")
             sys.exit(1)
 
         try:
@@ -167,7 +193,8 @@ def optimize_run(
         early_stop = 5
         if data is not None:
             early_stop = data.get("optimize", {}).get(
-                "early_stop_patience", early_stop,
+                "early_stop_patience",
+                early_stop,
             )
 
         engine = OptimizationEngine(
@@ -200,9 +227,7 @@ def optimize_run(
                 f"(accuracy={run.best_trial.accuracy:.4f})"
             )
     except ImportError as exc:
-        console.print(
-            f"[red]Missing dependency for optimization: {exc}[/red]"
-        )
+        console.print(f"[red]Missing dependency for optimization: {exc}[/red]")
         sys.exit(1)
     except Exception as exc:
         console.print(f"[red]Optimization failed: {exc}[/red]")
@@ -321,7 +346,10 @@ def optimize_results(run_id: str) -> None:
 @optimize_group.command("best")
 @click.argument("run_id")
 @click.option(
-    "-o", "--output", type=str, default=None,
+    "-o",
+    "--output",
+    type=str,
+    default=None,
     help="Output recipe path (TOML).",
 )
 def optimize_best(run_id: str, output: Optional[str]) -> None:
@@ -350,15 +378,11 @@ def optimize_best(run_id: str, output: Optional[str]) -> None:
             console.print("[yellow]No best trial found in this run.[/yellow]")
             return
 
-        output_path = Path(
-            output or f"results/optimize/best_{run_id}.toml"
-        )
+        output_path = Path(output or f"results/optimize/best_{run_id}.toml")
         engine = OptimizationEngine.__new__(OptimizationEngine)
         engine.export_best_recipe(run, output_path)
 
-        console.print(
-            f"[green]Best recipe exported to:[/green] {output_path}"
-        )
+        console.print(f"[green]Best recipe exported to:[/green] {output_path}")
         console.print(
             f"  Trial: {run.best_trial.trial_id} "
             f"(accuracy={run.best_trial.accuracy:.4f})"
@@ -370,11 +394,16 @@ def optimize_best(run_id: str, output: Optional[str]) -> None:
 @optimize_group.command("personal")
 @click.argument("action", type=click.Choice(["synthesize", "run"]))
 @click.option(
-    "--workflow", type=str, default="default",
+    "--workflow",
+    type=str,
+    default="default",
     help="Workflow ID for personal optimization.",
 )
 @click.option(
-    "-t", "--trials", type=int, default=10,
+    "-t",
+    "--trials",
+    type=int,
+    default=10,
     help="Maximum trials for personal optimization.",
 )
 def optimize_personal(action: str, workflow: str, trials: int) -> None:
@@ -396,9 +425,89 @@ def optimize_personal(action: str, workflow: str, trials: int) -> None:
             f"workflow '{workflow}' (max {trials} trials)...[/cyan]"
         )
         console.print(
-            "[yellow]Personal optimization is not yet "
-            "fully implemented.[/yellow]"
+            "[yellow]Personal optimization is not yet fully implemented.[/yellow]"
         )
+
+
+@optimize_group.command("skills")
+@click.option(
+    "--policy",
+    "-p",
+    type=click.Choice(["dspy", "gepa"]),
+    default="dspy",
+    show_default=True,
+    help="Optimization policy to use.",
+)
+@click.option(
+    "--min-traces",
+    "-n",
+    default=20,
+    show_default=True,
+    type=int,
+    help="Minimum traces required per skill.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Show planned work without invoking the optimizer LM.",
+)
+def skills(policy: str, min_traces: int, dry_run: bool) -> None:
+    """Optimize per-skill descriptions and few-shot examples from traces."""
+    from rich.console import Console
+    from rich.table import Table
+
+    from openjarvis.core.events import EventBus
+    from openjarvis.learning.agents.skill_optimizer import SkillOptimizer
+    from openjarvis.skills.manager import SkillManager
+
+    console = Console()
+    store = _get_trace_store()
+    if store is None:
+        console.print("[red]No trace store found. Enable tracing first.[/red]")
+        raise SystemExit(1)
+
+    if dry_run:
+        # Just bucket and report counts
+        traces = store.list_traces(limit=10000)
+        opt = SkillOptimizer(min_traces_per_skill=min_traces, optimizer=policy)
+        buckets = opt._bucket_traces_by_skill(traces)
+        if not buckets:
+            console.print("[dim]No skill-tagged traces found.[/dim]")
+            return
+        table = Table(title="Optimization plan (dry run)")
+        table.add_column("Skill", style="cyan")
+        table.add_column("Trace count")
+        table.add_column("Action")
+        for name, bucket in buckets.items():
+            action = (
+                "would optimize"
+                if len(bucket) >= min_traces
+                else f"skip (< {min_traces} traces)"
+            )
+            table.add_row(name, str(len(bucket)), action)
+        console.print(table)
+        return
+
+    # Real run
+    mgr = SkillManager(bus=EventBus())
+    mgr.discover()
+    optimizer = SkillOptimizer(min_traces_per_skill=min_traces, optimizer=policy)
+    results = optimizer.optimize(store, mgr)
+
+    if not results:
+        console.print("[dim]No skill-tagged traces found.[/dim]")
+        return
+
+    table = Table(title=f"Skill optimization ({policy})")
+    table.add_column("Skill", style="cyan")
+    table.add_column("Status")
+    table.add_column("Traces")
+    table.add_column("Overlay path")
+    for name, res in results.items():
+        path_str = str(res.overlay_path) if res.overlay_path else "—"
+        table.add_row(name, res.status, str(res.trace_count), path_str)
+    console.print(table)
 
 
 __all__ = ["optimize_group"]

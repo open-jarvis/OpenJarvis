@@ -70,7 +70,9 @@ _MCP_TEMPLATES = {
 @click.argument("server_name")
 @click.option("--key", default=None, help="API key or token for the server.")
 @click.option(
-    "--args", "extra_args", default=None,
+    "--args",
+    "extra_args",
+    default=None,
     help="Additional arguments (comma-separated).",
 )
 def add(server_name: str, key: str | None, extra_args: str | None) -> None:

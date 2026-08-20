@@ -218,10 +218,13 @@ class TaskScheduler:
 
         try:
             if self._system is not None:
+                raw_tools = (
+                    task.tools
+                    if isinstance(task.tools, list)
+                    else task.tools.split(",")
+                )
                 tools_list = (
-                    [t.strip() for t in task.tools.split(",") if t.strip()]
-                    if task.tools
-                    else []
+                    [t.strip() for t in raw_tools if t.strip()] if task.tools else []
                 )
                 ask_kwargs: Dict[str, Any] = {
                     "agent": task.agent,
@@ -302,9 +305,7 @@ class TaskScheduler:
         return None
 
     @staticmethod
-    def _compute_next_cron(
-        cron_expr: str, now: datetime
-    ) -> Optional[str]:
+    def _compute_next_cron(cron_expr: str, now: datetime) -> Optional[str]:
         """Compute the next run time from a cron expression.
 
         Uses ``croniter`` if available, otherwise falls back to a basic

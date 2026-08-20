@@ -5,8 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from openjarvis.evals.core.types import RunConfig, RunSummary
-from openjarvis.optimize.trial_runner import TrialRunner
-from openjarvis.optimize.types import TrialConfig, TrialResult
+from openjarvis.learning.optimize.trial_runner import TrialRunner
+from openjarvis.learning.optimize.types import TrialConfig, TrialResult
 
 
 class TestTrialRunnerInit:

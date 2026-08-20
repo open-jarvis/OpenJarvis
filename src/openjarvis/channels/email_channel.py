@@ -86,7 +86,8 @@ class EmailChannel(BaseChannel):
 
         if self._imap_host:
             self._listener_thread = threading.Thread(
-                target=self._imap_poll_loop, daemon=True,
+                target=self._imap_poll_loop,
+                daemon=True,
             )
             self._listener_thread.start()
 
@@ -121,7 +122,8 @@ class EmailChannel(BaseChannel):
             msg["From"] = self._username
             msg["To"] = channel
             msg["Subject"] = (metadata or {}).get(
-                "subject", "Message from OpenJarvis",
+                "subject",
+                "Message from OpenJarvis",
             )
             if conversation_id:
                 msg["In-Reply-To"] = conversation_id
@@ -166,7 +168,8 @@ class EmailChannel(BaseChannel):
             try:
                 if self._use_tls:
                     imap = imaplib.IMAP4_SSL(
-                        self._imap_host, self._imap_port,
+                        self._imap_host,
+                        self._imap_port,
                     )
                 else:
                     imap = imaplib.IMAP4(self._imap_host, self._imap_port)

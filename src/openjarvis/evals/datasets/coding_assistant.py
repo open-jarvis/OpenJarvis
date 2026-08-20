@@ -64,7 +64,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             "def test_empty_page():\n"
             "    assert paginate(list(range(10)), 5, 3) == []\n"
         ),
-        "bugs": [{"description": "Off-by-one: end = start + per_page - 1 should be start + per_page", "file": "solution.py", "line": 3}],
+        "bugs": [
+            {
+                "description": "Off-by-one: end = start + per_page - 1 should be start + per_page",
+                "file": "solution.py",
+                "line": 3,
+            }
+        ],
         "originally_failing_tests": ["test_first_page", "test_second_page"],
         "originally_passing_tests": ["test_last_page", "test_empty_page"],
     },
@@ -91,20 +97,20 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             "def test_empty():\n"
             "    assert is_palindrome('') is True\n"
         ),
-        "bugs": [{"description": "Unnecessary len(s) > 1 check rejects single chars and empty strings", "file": "solution.py", "line": 3}],
+        "bugs": [
+            {
+                "description": "Unnecessary len(s) > 1 check rejects single chars and empty strings",
+                "file": "solution.py",
+                "line": 3,
+            }
+        ],
         "originally_failing_tests": ["test_single_char", "test_empty"],
         "originally_passing_tests": ["test_racecar", "test_hello"],
     },
     {
         "bug_report": "The celsius_to_fahrenheit function returns wrong values.",
-        "buggy_code": (
-            "def celsius_to_fahrenheit(c):\n"
-            "    return c * 9 / 5 + 23\n"
-        ),
-        "fixed_code": (
-            "def celsius_to_fahrenheit(c):\n"
-            "    return c * 9 / 5 + 32\n"
-        ),
+        "buggy_code": ("def celsius_to_fahrenheit(c):\n    return c * 9 / 5 + 23\n"),
+        "fixed_code": ("def celsius_to_fahrenheit(c):\n    return c * 9 / 5 + 32\n"),
         "test_code": (
             "from solution import celsius_to_fahrenheit\n\n"
             "def test_freezing():\n"
@@ -114,7 +120,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             "def test_body_temp():\n"
             "    assert abs(celsius_to_fahrenheit(37) - 98.6) < 0.01\n"
         ),
-        "bugs": [{"description": "Wrong constant: +23 should be +32", "file": "solution.py", "line": 2}],
+        "bugs": [
+            {
+                "description": "Wrong constant: +23 should be +32",
+                "file": "solution.py",
+                "line": 2,
+            }
+        ],
         "originally_failing_tests": ["test_freezing", "test_boiling", "test_body_temp"],
         "originally_passing_tests": [],
     },
@@ -151,7 +163,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             "def test_deeply_nested():\n"
             "    assert flatten([[[1]], [[2]], [[3]]]) == [1, 2, 3]\n"
         ),
-        "bugs": [{"description": "append should be extend for recursive flattening", "file": "solution.py", "line": 5}],
+        "bugs": [
+            {
+                "description": "append should be extend for recursive flattening",
+                "file": "solution.py",
+                "line": 5,
+            }
+        ],
         "originally_failing_tests": ["test_nested", "test_deeply_nested"],
         "originally_passing_tests": ["test_flat", "test_empty"],
     },
@@ -194,9 +212,19 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             "def test_not_found():\n"
             "    assert binary_search([1, 3, 5, 7, 9], 4) == -1\n"
         ),
-        "bugs": [{"description": "lo starts at 1 instead of 0, skipping first element", "file": "solution.py", "line": 2}],
+        "bugs": [
+            {
+                "description": "lo starts at 1 instead of 0, skipping first element",
+                "file": "solution.py",
+                "line": 2,
+            }
+        ],
         "originally_failing_tests": ["test_find_first"],
-        "originally_passing_tests": ["test_find_middle", "test_find_last", "test_not_found"],
+        "originally_passing_tests": [
+            "test_find_middle",
+            "test_find_last",
+            "test_not_found",
+        ],
     },
     {
         "bug_report": "The clamp function doesn't work when value equals min_val.",
@@ -231,9 +259,21 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             "def test_at_max():\n"
             "    assert clamp(10, 0, 10) == 10\n"
         ),
-        "bugs": [{"description": "Actually no bug — this is a control task to test false positive rate", "file": "solution.py", "line": 0}],
+        "bugs": [
+            {
+                "description": "Actually no bug — this is a control task to test false positive rate",
+                "file": "solution.py",
+                "line": 0,
+            }
+        ],
         "originally_failing_tests": [],
-        "originally_passing_tests": ["test_below", "test_above", "test_within", "test_at_min", "test_at_max"],
+        "originally_passing_tests": [
+            "test_below",
+            "test_above",
+            "test_within",
+            "test_at_min",
+            "test_at_max",
+        ],
     },
     {
         "bug_report": "The count_vowels function misses uppercase vowels.",
@@ -264,7 +304,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             "def test_empty():\n"
             "    assert count_vowels('') == 0\n"
         ),
-        "bugs": [{"description": "Does not handle uppercase — should lowercase first", "file": "solution.py", "line": 3}],
+        "bugs": [
+            {
+                "description": "Does not handle uppercase — should lowercase first",
+                "file": "solution.py",
+                "line": 3,
+            }
+        ],
         "originally_failing_tests": ["test_uppercase", "test_mixed"],
         "originally_passing_tests": ["test_lowercase", "test_empty"],
     },
@@ -303,7 +349,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             "def test_two_elements():\n"
             "    assert max_profit([1, 5]) == 4\n"
         ),
-        "bugs": [{"description": "Subtraction order reversed: min_price - price should be price - min_price", "file": "solution.py", "line": 7}],
+        "bugs": [
+            {
+                "description": "Subtraction order reversed: min_price - price should be price - min_price",
+                "file": "solution.py",
+                "line": 7,
+            }
+        ],
         "originally_failing_tests": ["test_basic", "test_two_elements"],
         "originally_passing_tests": ["test_declining", "test_single"],
     },
@@ -333,7 +385,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             "def test_already_title():\n"
             "    assert title_case('Hello') == 'Hello'\n"
         ),
-        "bugs": [{"description": "Does not handle hyphenated words", "file": "solution.py", "line": 2}],
+        "bugs": [
+            {
+                "description": "Does not handle hyphenated words",
+                "file": "solution.py",
+                "line": 2,
+            }
+        ],
         "originally_failing_tests": ["test_hyphenated"],
         "originally_passing_tests": ["test_simple", "test_already_title"],
     },
@@ -364,7 +422,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             "def test_type_error():\n"
             "    assert safe_divide(10, 'a') == 0\n"
         ),
-        "bugs": [{"description": "Catches TypeError but not ZeroDivisionError", "file": "solution.py", "line": 4}],
+        "bugs": [
+            {
+                "description": "Catches TypeError but not ZeroDivisionError",
+                "file": "solution.py",
+                "line": 4,
+            }
+        ],
         "originally_failing_tests": ["test_zero_div", "test_zero_div_custom"],
         "originally_passing_tests": ["test_normal", "test_type_error"],
     },
@@ -438,8 +502,16 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             "    assert c.get(1) == 10\n"
         ),
         "bugs": [
-            {"description": "order.pop() removes last (MRU) instead of order.pop(0) for LRU", "file": "solution.py", "line": 17},
-            {"description": "get/put don't remove old position before re-appending", "file": "solution.py", "line": 9},
+            {
+                "description": "order.pop() removes last (MRU) instead of order.pop(0) for LRU",
+                "file": "solution.py",
+                "line": 17,
+            },
+            {
+                "description": "get/put don't remove old position before re-appending",
+                "file": "solution.py",
+                "line": 9,
+            },
         ],
         "originally_failing_tests": ["test_basic", "test_update"],
         "originally_passing_tests": [],
@@ -488,7 +560,13 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             "def test_duplicates():\n"
             "    assert merge_sorted([1, 2], [2, 3]) == [1, 2, 2, 3]\n"
         ),
-        "bugs": [{"description": "Duplicate result.extend(a[i:]) on line 13 causes extra elements", "file": "solution.py", "line": 13}],
+        "bugs": [
+            {
+                "description": "Duplicate result.extend(a[i:]) on line 13 causes extra elements",
+                "file": "solution.py",
+                "line": 13,
+            }
+        ],
         "originally_failing_tests": ["test_basic", "test_duplicates"],
         "originally_passing_tests": ["test_one_empty", "test_both_empty"],
     },
@@ -535,7 +613,13 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             "    b = [[4], [5], [6]]\n"
             "    assert matrix_multiply(a, b) == [[32]]\n"
         ),
-        "bugs": [{"description": "Wrong index: b[j][k] should be b[k][j]", "file": "solution.py", "line": 10}],
+        "bugs": [
+            {
+                "description": "Wrong index: b[j][k] should be b[k][j]",
+                "file": "solution.py",
+                "line": 10,
+            }
+        ],
         "originally_failing_tests": ["test_basic", "test_non_square"],
         "originally_passing_tests": ["test_identity"],
     },
@@ -582,7 +666,13 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             "def test_no_repeats():\n"
             "    assert run_length_encode('abc') == 'a1b1c1'\n"
         ),
-        "bugs": [{"description": "In else branch, appends s[i] (next char) instead of s[i-1] (current char)", "file": "solution.py", "line": 10}],
+        "bugs": [
+            {
+                "description": "In else branch, appends s[i] (next char) instead of s[i-1] (current char)",
+                "file": "solution.py",
+                "line": 10,
+            }
+        ],
         "originally_failing_tests": ["test_basic", "test_no_repeats"],
         "originally_passing_tests": ["test_single", "test_empty"],
     },
@@ -627,9 +717,20 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             "def test_extra_close():\n"
             "    assert validate_brackets(')') is False\n"
         ),
-        "bugs": [{"description": "Does not check that closing bracket matches the top of stack", "file": "solution.py", "line": 10}],
+        "bugs": [
+            {
+                "description": "Does not check that closing bracket matches the top of stack",
+                "file": "solution.py",
+                "line": 10,
+            }
+        ],
         "originally_failing_tests": ["test_mismatched"],
-        "originally_passing_tests": ["test_valid", "test_unclosed", "test_empty", "test_extra_close"],
+        "originally_passing_tests": [
+            "test_valid",
+            "test_unclosed",
+            "test_empty",
+            "test_extra_close",
+        ],
     },
     {
         "bug_report": "The group_by function loses entries when multiple items have the same key.",
@@ -660,7 +761,13 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             "def test_empty():\n"
             "    assert group_by([], lambda x: x) == {}\n"
         ),
-        "bugs": [{"description": "Overwrites group with [item] instead of appending to list", "file": "solution.py", "line": 5}],
+        "bugs": [
+            {
+                "description": "Overwrites group with [item] instead of appending to list",
+                "file": "solution.py",
+                "line": 5,
+            }
+        ],
         "originally_failing_tests": ["test_basic", "test_strings"],
         "originally_passing_tests": ["test_empty"],
     },
@@ -697,8 +804,18 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             "def test_window_too_large():\n"
             "    assert moving_average([1], 5) == []\n"
         ),
-        "bugs": [{"description": "Off-by-one in range: should be len(data) - window + 1", "file": "solution.py", "line": 5}],
-        "originally_failing_tests": ["test_basic", "test_window_equals_length", "test_window_one"],
+        "bugs": [
+            {
+                "description": "Off-by-one in range: should be len(data) - window + 1",
+                "file": "solution.py",
+                "line": 5,
+            }
+        ],
+        "originally_failing_tests": [
+            "test_basic",
+            "test_window_equals_length",
+            "test_window_one",
+        ],
         "originally_passing_tests": ["test_window_too_large"],
     },
     {
@@ -763,7 +880,13 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             "    t = Trie()\n"
             "    assert t.search('hello') is False\n"
         ),
-        "bugs": [{"description": "search returns False instead of node.is_end", "file": "solution.py", "line": 24}],
+        "bugs": [
+            {
+                "description": "search returns False instead of node.is_end",
+                "file": "solution.py",
+                "line": 24,
+            }
+        ],
         "originally_failing_tests": ["test_insert_search"],
         "originally_passing_tests": ["test_search_missing", "test_search_not_inserted"],
     },
@@ -803,7 +926,13 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             "    expected = {'a': {'b': {'c': 3, 'd': 2}}}\n"
             "    assert deep_merge(base, over) == expected\n"
         ),
-        "bugs": [{"description": "Shallow merge: overwrites nested dicts instead of recursively merging", "file": "solution.py", "line": 4}],
+        "bugs": [
+            {
+                "description": "Shallow merge: overwrites nested dicts instead of recursively merging",
+                "file": "solution.py",
+                "line": 4,
+            }
+        ],
         "originally_failing_tests": ["test_nested", "test_deeply_nested"],
         "originally_passing_tests": ["test_flat", "test_override"],
     },
@@ -864,9 +993,18 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             "    debounced(2)  # fires after wait\n"
             "    assert len(calls) == 2\n"
         ),
-        "bugs": [{"description": "Missing time check: calls func every time instead of only after wait_seconds", "file": "solution.py", "line": 9}],
+        "bugs": [
+            {
+                "description": "Missing time check: calls func every time instead of only after wait_seconds",
+                "file": "solution.py",
+                "line": 9,
+            }
+        ],
         "originally_failing_tests": ["test_debounce_suppresses"],
-        "originally_passing_tests": ["test_debounce_fires_first", "test_debounce_fires_after_wait"],
+        "originally_passing_tests": [
+            "test_debounce_fires_first",
+            "test_debounce_fires_after_wait",
+        ],
     },
 ]
 
@@ -908,16 +1046,19 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             "    # 19.99 * 1.0875 * 0.95 = 20.6496...\n"
             "    assert financial_round(19.99, 0.0875, 0.05) == 20.65\n"
         ),
-        "bugs": [{"description": "Float arithmetic causes precision errors — should use Decimal", "file": "solution.py", "line": 2}],
+        "bugs": [
+            {
+                "description": "Float arithmetic causes precision errors — should use Decimal",
+                "file": "solution.py",
+                "line": 2,
+            }
+        ],
         "originally_failing_tests": ["test_precision", "test_rounding_boundary"],
         "originally_passing_tests": ["test_basic", "test_no_discount"],
     },
     {
         "bug_report": "The csv_parser doesn't handle quoted fields with commas inside.",
-        "buggy_code": (
-            "def parse_csv_line(line):\n"
-            "    return line.split(',')\n"
-        ),
+        "buggy_code": ("def parse_csv_line(line):\n    return line.split(',')\n"),
         "fixed_code": (
             "import csv\nimport io\n\n"
             "def parse_csv_line(line):\n"
@@ -935,7 +1076,13 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             "def test_empty_fields():\n"
             "    assert parse_csv_line('a,,c') == ['a', '', 'c']\n"
         ),
-        "bugs": [{"description": "Naive split(',') doesn't handle quoted fields", "file": "solution.py", "line": 2}],
+        "bugs": [
+            {
+                "description": "Naive split(',') doesn't handle quoted fields",
+                "file": "solution.py",
+                "line": 2,
+            }
+        ],
         "originally_failing_tests": ["test_quoted_comma"],
         "originally_passing_tests": ["test_simple", "test_empty_fields"],
     },
@@ -1003,7 +1150,13 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             "    except RuntimeError:\n"
             "        pass\n"
         ),
-        "bugs": [{"description": "Success path doesn't return immediately and sleeps unnecessarily; runs all attempts", "file": "solution.py", "line": 8}],
+        "bugs": [
+            {
+                "description": "Success path doesn't return immediately and sleeps unnecessarily; runs all attempts",
+                "file": "solution.py",
+                "line": 8,
+            }
+        ],
         "originally_failing_tests": ["test_succeeds_first_try"],
         "originally_passing_tests": ["test_exhausts_retries"],
     },
@@ -1040,7 +1193,13 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             "    result = parse_url_params('http://example.com?data=a=b')\n"
             "    assert result['data'] == 'a=b'\n"
         ),
-        "bugs": [{"description": "split('=') breaks on values containing '='; doesn't decode URL encoding", "file": "solution.py", "line": 7}],
+        "bugs": [
+            {
+                "description": "split('=') breaks on values containing '='; doesn't decode URL encoding",
+                "file": "solution.py",
+                "line": 7,
+            }
+        ],
         "originally_failing_tests": ["test_encoded_value", "test_value_with_equals"],
         "originally_passing_tests": ["test_basic", "test_no_params"],
     },
@@ -1093,8 +1252,17 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             "    time.sleep(0.1)\n"
             "    assert rl.allow() is True\n"
         ),
-        "bugs": [{"description": "Never removes old requests; always appends even when over limit", "file": "solution.py", "line": 10}],
-        "originally_failing_tests": ["test_blocks_over_limit", "test_allows_after_window"],
+        "bugs": [
+            {
+                "description": "Never removes old requests; always appends even when over limit",
+                "file": "solution.py",
+                "line": 10,
+            }
+        ],
+        "originally_failing_tests": [
+            "test_blocks_over_limit",
+            "test_allows_after_window",
+        ],
         "originally_passing_tests": ["test_allows_within_limit"],
     },
     {
@@ -1148,7 +1316,13 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             "    greet(name='Alice', greeting='hey')\n"
             "    assert len(calls) == 2\n"
         ),
-        "bugs": [{"description": "Wrapper doesn't accept or cache kwargs", "file": "solution.py", "line": 3}],
+        "bugs": [
+            {
+                "description": "Wrapper doesn't accept or cache kwargs",
+                "file": "solution.py",
+                "line": 3,
+            }
+        ],
         "originally_failing_tests": ["test_kwargs", "test_different_kwargs"],
         "originally_passing_tests": ["test_positional"],
     },
@@ -1194,7 +1368,13 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             "    ee = EventEmitter()\n"
             "    ee.emit('missing')  # should not raise\n"
         ),
-        "bugs": [{"description": "on() overwrites listener instead of appending to list", "file": "solution.py", "line": 6}],
+        "bugs": [
+            {
+                "description": "on() overwrites listener instead of appending to list",
+                "file": "solution.py",
+                "line": 6,
+            }
+        ],
         "originally_failing_tests": ["test_multiple_listeners"],
         "originally_passing_tests": ["test_single_listener", "test_no_listeners"],
     },
@@ -1240,7 +1420,13 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             "    result = json_flatten(obj)\n"
             "    assert result == {'a.b.c[0]': 1, 'a.b.c[1]': 2}\n"
         ),
-        "bugs": [{"description": "Does not handle list values, only dicts", "file": "solution.py", "line": 5}],
+        "bugs": [
+            {
+                "description": "Does not handle list values, only dicts",
+                "file": "solution.py",
+                "line": 5,
+            }
+        ],
         "originally_failing_tests": ["test_with_array", "test_deeply_nested"],
         "originally_passing_tests": ["test_flat", "test_nested"],
     },
@@ -1295,7 +1481,13 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             "    assert len(results) == 2\n"
             "    assert all(r[0] == 'error' for r in results)\n"
         ),
-        "bugs": [{"description": "Silently swallows exceptions instead of recording them", "file": "solution.py", "line": 9}],
+        "bugs": [
+            {
+                "description": "Silently swallows exceptions instead of recording them",
+                "file": "solution.py",
+                "line": 9,
+            }
+        ],
         "originally_failing_tests": ["test_one_fails", "test_all_fail"],
         "originally_passing_tests": ["test_all_succeed"],
     },
@@ -1354,7 +1546,13 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             "    with pytest.raises(ValueError, match='Cycle'):\n"
             "        topological_sort(graph)\n"
         ),
-        "bugs": [{"description": "No cycle detection — infinite recursion on cyclic graphs", "file": "solution.py", "line": 5}],
+        "bugs": [
+            {
+                "description": "No cycle detection — infinite recursion on cyclic graphs",
+                "file": "solution.py",
+                "line": 5,
+            }
+        ],
         "originally_failing_tests": ["test_cycle_detection"],
         "originally_passing_tests": ["test_linear", "test_diamond"],
     },

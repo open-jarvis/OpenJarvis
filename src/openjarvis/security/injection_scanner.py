@@ -103,6 +103,7 @@ _INJECTION_PATTERNS = [
 @dataclass(slots=True)
 class InjectionScanResult:
     """Result of an injection scan."""
+
     is_clean: bool
     findings: List[ScanFinding]
     threat_level: ThreatLevel  # highest threat found
@@ -125,12 +126,14 @@ class InjectionScanner:
             for pat, name, level, desc in _INJECTION_PATTERNS
         ]
         from openjarvis._rust_bridge import get_rust_module
+
         _rust = get_rust_module()
         self._rust_impl = _rust.InjectionScanner()
 
     def scan(self, text: str) -> InjectionScanResult:
         """Scan text for injection patterns — always via Rust backend."""
         from openjarvis._rust_bridge import injection_result_from_json
+
         return injection_result_from_json(self._rust_impl.scan(text))
 
 

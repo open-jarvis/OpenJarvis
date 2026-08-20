@@ -30,7 +30,9 @@ class PaperArenaScorer(LLMJudgeScorer):
     scorer_id = "paperarena"
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
@@ -46,7 +48,9 @@ class PaperArenaScorer(LLMJudgeScorer):
             return self._score_open(record, model_answer)
 
     def _score_mc(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         """Score multiple-choice via letter extraction."""
         ref_letter = record.reference.strip().upper()
@@ -60,7 +64,8 @@ class PaperArenaScorer(LLMJudgeScorer):
         if extracted is None:
             # Fall back to LLM extraction
             extracted = self._extract_letter_with_llm(
-                record.problem, model_answer,
+                record.problem,
+                model_answer,
             )
 
         if extracted is None:
@@ -99,7 +104,9 @@ class PaperArenaScorer(LLMJudgeScorer):
         return None
 
     def _extract_letter_with_llm(
-        self, problem: str, model_answer: str,
+        self,
+        problem: str,
+        model_answer: str,
     ) -> Optional[str]:
         """Use LLM to extract answer letter."""
         prompt = (
@@ -119,7 +126,9 @@ class PaperArenaScorer(LLMJudgeScorer):
         return None
 
     def _score_open(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         """Score CA/OA via LLM judge."""
         question = record.problem

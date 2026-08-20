@@ -29,10 +29,7 @@ class FileWriteTool(BaseTool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="file_write",
-            description=(
-                "Write content to a file."
-                " Supports write and append modes."
-            ),
+            description=("Write content to a file. Supports write and append modes."),
             parameters={
                 "type": "object",
                 "properties": {
@@ -72,8 +69,7 @@ class FileWriteTool(BaseTool):
             return True
         resolved = path.resolve()
         return any(
-            resolved == d or str(resolved).startswith(str(d) + "/")
-            for d in self._allowed_dirs
+            resolved == d or resolved.is_relative_to(d) for d in self._allowed_dirs
         )
 
     def execute(self, **params: Any) -> ToolResult:
@@ -155,21 +151,22 @@ class FileWriteTool(BaseTool):
                     success=False,
                 )
 
-        from openjarvis._rust_bridge import get_rust_module
-        _rust = get_rust_module()
         if mode == "write":
             try:
+                from openjarvis._rust_bridge import get_rust_module
+
+                _rust = get_rust_module()
                 _rust.FileWriteTool().execute(str(path), content)
+            except ImportError:
+                try:
+                    path.write_text(content, encoding="utf-8")
+                except OSError as exc:
+                    return ToolResult(
+                        tool_name="file_write",
+                        content=f"Write error: {exc}",
+                        success=False,
+                    )
             except Exception as exc:
-                return ToolResult(
-                    tool_name="file_write",
-                    content=f"Write error: {exc}",
-                    success=False,
-                )
-        elif False:  # dead code — all write modes go through Rust
-            try:
-                path.write_text(content, encoding="utf-8")
-            except OSError as exc:
                 return ToolResult(
                     tool_name="file_write",
                     content=f"Write error: {exc}",

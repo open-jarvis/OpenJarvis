@@ -75,9 +75,13 @@ def _sources_cited(model_answer: str) -> bool:
     # Check for common source reference patterns
     ans_lower = model_answer.lower()
     source_indicators = [
-        "source:", "reference:", "according to",
-        "official documentation", "official docs",
-        "cited from", "as stated in",
+        "source:",
+        "reference:",
+        "according to",
+        "official documentation",
+        "official docs",
+        "cited from",
+        "as stated in",
     ]
     return any(ind in ans_lower for ind in source_indicators)
 
@@ -88,13 +92,17 @@ class BrowserAssistantScorer(Scorer):
     scorer_id = "browser_assistant"
 
     def __init__(
-        self, judge_backend=None, judge_model: str = "",
+        self,
+        judge_backend=None,
+        judge_model: str = "",
     ) -> None:
         self._judge_backend = judge_backend
         self._judge_model = judge_model
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
@@ -110,7 +118,8 @@ class BrowserAssistantScorer(Scorer):
         exact_details: List[Dict[str, Any]] = []
         if exact_facts:
             exact_score, exact_details = _exact_match_score(
-                model_answer, exact_facts,
+                model_answer,
+                exact_facts,
             )
 
         # --- Tier 2: Semantic checklist ---
@@ -119,17 +128,13 @@ class BrowserAssistantScorer(Scorer):
         if semantic_facts:
             if self._judge_backend and self._judge_model:
                 scorer = ChecklistScorer(
-                    self._judge_backend, self._judge_model,
+                    self._judge_backend,
+                    self._judge_model,
                 )
-                semantic_score, semantic_details = (
-                    scorer.score_checklist(
-                        model_answer,
-                        [
-                            f"The answer covers: {fact}"
-                            for fact in semantic_facts
-                        ],
-                        context=record.problem,
-                    )
+                semantic_score, semantic_details = scorer.score_checklist(
+                    model_answer,
+                    [f"The answer covers: {fact}" for fact in semantic_facts],
+                    context=record.problem,
                 )
             else:
                 # Heuristic fallback: word-level matching
@@ -137,21 +142,15 @@ class BrowserAssistantScorer(Scorer):
                 matched = 0
                 for fact in semantic_facts:
                     words = normalize_str(fact).split()
-                    word_matches = sum(
-                        1 for w in words if w in ans_norm
-                    )
-                    found = (
-                        word_matches / len(words) >= 0.4
-                        if words else False
-                    )
+                    word_matches = sum(1 for w in words if w in ans_norm)
+                    found = word_matches / len(words) >= 0.4 if words else False
                     semantic_details.append(
                         {"item": fact, "passed": found},
                     )
                     if found:
                         matched += 1
                 semantic_score = (
-                    matched / len(semantic_facts)
-                    if semantic_facts else 1.0
+                    matched / len(semantic_facts) if semantic_facts else 1.0
                 )
 
         # --- Quality checklist ---
@@ -164,20 +163,20 @@ class BrowserAssistantScorer(Scorer):
                 "Answer directly addresses the question",
             ]
             scorer = ChecklistScorer(
-                self._judge_backend, self._judge_model,
+                self._judge_backend,
+                self._judge_model,
             )
-            quality_score, quality_details = (
-                scorer.score_checklist(
-                    model_answer, items, context=record.problem,
-                )
+            quality_score, quality_details = scorer.score_checklist(
+                model_answer,
+                items,
+                context=record.problem,
             )
         else:
             # Heuristic
             has_numbers = bool(re.search(r"\d+", model_answer))
             has_sources = _sources_cited(model_answer)
-            quality_score = (
-                (0.5 if has_numbers else 0.0)
-                + (0.5 if has_sources else 0.0)
+            quality_score = (0.5 if has_numbers else 0.0) + (
+                0.5 if has_sources else 0.0
             )
 
         # --- Sources ---
@@ -213,9 +212,7 @@ class BrowserAssistantScorer(Scorer):
         )
 
         exact_found = sum(1 for d in exact_details if d["found"])
-        semantic_passed = sum(
-            1 for d in semantic_details if d.get("passed")
-        )
+        semantic_passed = sum(1 for d in semantic_details if d.get("passed"))
 
         is_correct = final_score >= 0.7
 

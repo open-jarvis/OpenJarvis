@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
@@ -14,16 +15,16 @@ from openjarvis.tools._stubs import BaseTool, ToolSpec
 class UserProfileManageTool(BaseTool):
     """Manage persistent user profile (USER.md)."""
 
-    def __init__(self, user_path: Path | str = "~/.openjarvis/USER.md") -> None:
+    def __init__(self, user_path: Path | str | None = None) -> None:
+        if user_path is None:
+            user_path = get_config_dir() / "USER.md"
         self._user_path = Path(user_path).expanduser()
 
     @property
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="user_profile_manage",
-            description=(
-                "Read, add, update, or remove entries in user profile."
-            ),
+            description=("Read, add, update, or remove entries in user profile."),
             parameters={
                 "type": "object",
                 "properties": {
@@ -86,9 +87,7 @@ class UserProfileManageTool(BaseTool):
                 content="Entry cannot be empty.",
             )
         self._user_path.parent.mkdir(parents=True, exist_ok=True)
-        existing = (
-            self._user_path.read_text() if self._user_path.exists() else ""
-        )
+        existing = self._user_path.read_text() if self._user_path.exists() else ""
         self._user_path.write_text(existing.rstrip() + f"\n- {entry}\n")
         return ToolResult(
             tool_name=self.spec.name,

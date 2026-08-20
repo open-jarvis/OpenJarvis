@@ -1,0 +1,29 @@
+# ToolCall-15 eval: Gemma-4-26B-A4B-it (vLLM, TP=4)
+# Lightweight tool calling benchmark — 15 scenarios, 5 categories
+
+[meta]
+name = "toolcall15-gemma4-26b"
+description = "ToolCall-15 on google/gemma-4-26B-A4B-it (temperature=0)"
+
+[defaults]
+temperature = 0.0
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/gemma4-26b/toolcall15/"
+seed = 42
+
+[[models]]
+name = "google/gemma-4-26B-A4B-it"
+engine = "vllm"
+num_gpus = 4
+
+[[benchmarks]]
+name = "toolcall15"
+backend = "jarvis-direct"

@@ -41,6 +41,7 @@ except ImportError as _e:
     def get_all_tasks_agents(**kwargs):  # type: ignore[misc]
         return []
 
+
 _VALID_LEVELS = ("l1", "l2", "l3")
 
 
@@ -84,7 +85,11 @@ class WorkArenaDataset(DatasetProvider):
         seed: Optional[int] = None,
     ) -> None:
         if not _HAS_WORKARENA:
-            detail = f"\n\nUnderlying error: {_WORKARENA_IMPORT_ERROR}" if _WORKARENA_IMPORT_ERROR else ""
+            detail = (
+                f"\n\nUnderlying error: {_WORKARENA_IMPORT_ERROR}"
+                if _WORKARENA_IMPORT_ERROR
+                else ""
+            )
             raise ImportError(
                 "The 'browsergym-workarena' package is required for "
                 "WorkArena evaluation. Install with:\n"
@@ -110,7 +115,9 @@ class WorkArenaDataset(DatasetProvider):
             self._episodes.append([record])
 
         logger.info(
-            "WorkArena[%s]: loaded %d task instances", self._level, len(self._records),
+            "WorkArena[%s]: loaded %d task instances",
+            self._level,
+            len(self._records),
         )
 
     def _enumerate_tasks(self) -> List[tuple]:
@@ -134,7 +141,10 @@ class WorkArenaDataset(DatasetProvider):
         return task_tuples
 
     def _task_to_record(
-        self, task_class: type, task_seed: int, idx: int,
+        self,
+        task_class: type,
+        task_seed: int,
+        idx: int,
     ) -> EvalRecord:
         """Convert a (task_class, seed) pair into an EvalRecord."""
         task_id = task_class.get_task_id()

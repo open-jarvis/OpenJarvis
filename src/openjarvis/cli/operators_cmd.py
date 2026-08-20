@@ -29,10 +29,10 @@ def list_operators() -> None:
         from openjarvis.operators.loader import load_operator
 
         config = load_config()
-        manifests_dir = Path(
-            config.operators.manifests_dir
-        ).expanduser() if hasattr(config, "operators") else (
-            DEFAULT_CONFIG_DIR / "operators"
+        manifests_dir = (
+            Path(config.operators.manifests_dir).expanduser()
+            if hasattr(config, "operators")
+            else (DEFAULT_CONFIG_DIR / "operators")
         )
 
         # Also check project-local operators/ directory
@@ -55,8 +55,7 @@ def list_operators() -> None:
         if not found:
             console.print("[dim]No operators discovered.[/dim]")
             console.print(
-                f"[dim]Place TOML manifests in {manifests_dir} "
-                f"or ./operators/[/dim]"
+                f"[dim]Place TOML manifests in {manifests_dir} or ./operators/[/dim]"
             )
             return
 
@@ -189,6 +188,7 @@ def logs(operator_id: str, lines: int) -> None:
         db_path = config.scheduler.db_path
         if not db_path:
             from openjarvis.core.config import DEFAULT_CONFIG_DIR
+
             db_path = str(DEFAULT_CONFIG_DIR / "scheduler.db")
 
         store = SchedulerStore(db_path=db_path)

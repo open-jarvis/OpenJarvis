@@ -1,8 +1,6 @@
 name: Claude PR Review
 
 on:
-  pull_request:
-    types: [opened, synchronize]
   issue_comment:
     types: [created]
   pull_request_review_comment:
@@ -13,28 +11,37 @@ concurrency:
   group: claude-review-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
   cancel-in-progress: true
 
+# Least-privilege: PR review only needs to post comments on the PR.
+# id-token (OIDC) is omitted — claude-code-action@v1 is passed github_token
+# directly, so OIDC is unused here.
 permissions:
   contents: read
   pull-requests: write
   issues: write
-  id-token: write
 
 jobs:
   review:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Security gate: this job reaches secrets.ANTHROPIC_API_KEY. Both
+    # issue_comment and pull_request_review_comment are public,
+    # attacker-controllable events that run in the base-repo context with full
+    # secret access, so the @claude paths are restricted to actors with
+    # write-level association (OWNER / MEMBER / COLLABORATOR). External /
+    # first-time contributors cannot trigger the key; maintainers are unaffected.
     if: |
-      github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
        github.event.issue.pull_request &&
        contains(github.event.comment.body, '@claude') &&
        github.actor != 'claude[bot]') ||
       (github.event_name == 'pull_request_review_comment' &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
        contains(github.event.comment.body, '@claude') &&
        github.actor != 'claude[bot]')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Read review instructions
         id: review
@@ -47,4 +54,5 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: ${{ steps.review.outputs.instructions }}

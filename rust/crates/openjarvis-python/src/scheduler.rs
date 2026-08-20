@@ -20,8 +20,7 @@ impl PySchedulerStore {
     fn create_task(&self, name: &str, schedule_type: &str, schedule_value: &str) -> PyResult<String> {
         let st = openjarvis_scheduler::ScheduleType::parse(schedule_type).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "invalid schedule_type '{}', expected cron/interval/once",
-                schedule_type
+                "invalid schedule_type '{schedule_type}', expected cron/interval/once"
             ))
         })?;
         let task = self.inner.create_task(name, st, schedule_value);
@@ -41,8 +40,7 @@ impl PySchedulerStore {
     fn update_status(&self, id: &str, status: &str) -> PyResult<bool> {
         let s = openjarvis_scheduler::TaskStatus::parse(status).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "invalid status '{}', expected active/paused/cancelled/completed",
-                status
+                "invalid status '{status}', expected active/paused/cancelled/completed"
             ))
         })?;
         Ok(self.inner.update_status(id, s))

@@ -16,6 +16,7 @@ import {
   Monitor,
   Loader2,
   ScrollText,
+  Database,
 } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { useAppStore } from '../../lib/store';
@@ -32,6 +33,7 @@ export function Sidebar() {
   const serverInfo = useAppStore((s) => s.serverInfo);
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
   const modelLoading = useAppStore((s) => s.modelLoading);
+  const deepResearch = useAppStore((s) => s.deepResearch);
 
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
@@ -53,6 +55,7 @@ export function Sidebar() {
   const navItems = [
     { path: '/', icon: MessageSquare, label: 'Chat' },
     { path: '/dashboard', icon: BarChart3, label: 'Dashboard' },
+    { path: '/data-sources', icon: Database, label: 'Data Sources' },
     { path: '/agents', icon: Bot, label: 'Agents' },
     { path: '/logs', icon: ScrollText, label: 'Logs' },
     { path: '/settings', icon: Settings, label: 'Settings' },
@@ -141,8 +144,13 @@ export function Sidebar() {
               <Cpu size={14} />
             )}
             <div className="flex-1 min-w-0">
-              <span className="truncate block text-left" style={{ color: 'var(--color-text)' }}>
-                {selectedModel || serverInfo?.model || 'Select model'}
+              <span
+                className="truncate block text-left"
+                style={{ color: deepResearch ? 'var(--color-accent)' : 'var(--color-text)' }}
+              >
+                {deepResearch
+                  ? 'Deep Research'
+                  : selectedModel || serverInfo?.model || 'Select model'}
               </span>
               {modelLoading && (
                 <span className="text-[10px] block text-left" style={{ color: 'var(--color-accent)' }}>
@@ -191,7 +199,7 @@ export function Sidebar() {
                 <button
                   key={item.path}
                   onClick={() => navigate(item.path)}
-                  className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors w-full text-left cursor-pointer"
+                  className="relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors w-full text-left cursor-pointer"
                   style={{
                     background: isActive ? 'var(--color-accent-subtle)' : 'transparent',
                     color: isActive ? 'var(--color-text)' : 'var(--color-text-secondary)',
@@ -204,7 +212,17 @@ export function Sidebar() {
                     if (!isActive) e.currentTarget.style.background = 'transparent';
                   }}
                 >
-                  <item.icon size={16} />
+                  {isActive && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full"
+                      style={{
+                        background: 'var(--color-accent)',
+                        boxShadow: '0 0 8px var(--color-accent-glow)',
+                      }}
+                    />
+                  )}
+                  <item.icon size={16} style={isActive ? { color: 'var(--color-accent)' } : undefined} />
                   {item.label}
                 </button>
               );

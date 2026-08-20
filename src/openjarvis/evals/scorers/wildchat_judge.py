@@ -69,7 +69,9 @@ class WildChatScorer(LLMJudgeScorer):
     scorer_id = "wildchat"
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         reference = record.reference
         if not reference or not reference.strip():
@@ -77,10 +79,14 @@ class WildChatScorer(LLMJudgeScorer):
 
         # Two comparisons: (model vs reference) and (reference vs model)
         verdict1, response1 = self._get_judge_verdict(
-            record.problem, model_answer, reference,
+            record.problem,
+            model_answer,
+            reference,
         )
         verdict2, response2 = self._get_judge_verdict(
-            record.problem, reference, model_answer,
+            record.problem,
+            reference,
+            model_answer,
         )
 
         if verdict1 is None or verdict2 is None:
@@ -105,7 +111,10 @@ class WildChatScorer(LLMJudgeScorer):
         return final_result, meta
 
     def _get_judge_verdict(
-        self, problem: str, response_a: str, response_b: str,
+        self,
+        problem: str,
+        response_a: str,
+        response_b: str,
     ) -> Tuple[Optional[str], Optional[str]]:
         prompt = (
             f"<|User Prompt|>\n{problem}\n\n"
@@ -117,8 +126,10 @@ class WildChatScorer(LLMJudgeScorer):
 
         try:
             raw = self._ask_judge(
-                prompt, system=SYSTEM_PROMPT,
-                temperature=0.0, max_tokens=2048,
+                prompt,
+                system=SYSTEM_PROMPT,
+                temperature=0.0,
+                max_tokens=2048,
             )
         except Exception as exc:
             LOGGER.error("WildChat judge call failed: %s", exc)
@@ -133,7 +144,8 @@ class WildChatScorer(LLMJudgeScorer):
 
     @staticmethod
     def _verdict_to_bool(
-        verdict: Optional[str], generated_is_a: bool,
+        verdict: Optional[str],
+        generated_is_a: bool,
     ) -> Optional[bool]:
         if not verdict:
             return None

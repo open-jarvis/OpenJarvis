@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 _CHANNEL_TYPE_HELP = (
-    "Channel type (telegram, discord, slack, webhook, email, "
+    "Channel type (sendblue, telegram, discord, slack, webhook, email, "
     "whatsapp, whatsapp_baileys, signal, google_chat, irc, webchat, teams, "
     "matrix, mattermost, feishu, bluebubbles)."
 )
@@ -134,6 +134,20 @@ def _get_channel(
         if wbc.assistant_name:
             kwargs["assistant_name"] = wbc.assistant_name
         kwargs["assistant_has_own_number"] = wbc.assistant_has_own_number
+    elif key == "sendblue":
+        import os
+
+        kwargs["api_key_id"] = os.environ.get("SENDBLUE_API_KEY_ID", "")
+        kwargs["api_secret_key"] = os.environ.get("SENDBLUE_API_SECRET_KEY", "")
+        kwargs["from_number"] = os.environ.get("SENDBLUE_FROM_NUMBER", "")
+        sbc = getattr(config.channel, "sendblue", None)
+        if sbc:
+            if getattr(sbc, "api_key_id", ""):
+                kwargs["api_key_id"] = sbc.api_key_id
+            if getattr(sbc, "api_secret_key", ""):
+                kwargs["api_secret_key"] = sbc.api_secret_key
+            if getattr(sbc, "from_number", ""):
+                kwargs["from_number"] = sbc.from_number
 
     if not ChannelRegistry.contains(key):
         raise click.ClickException(f"Unknown channel type: {key}")
@@ -148,7 +162,9 @@ def channel() -> None:
 
 @channel.command("list")
 @click.option(
-    "--channel-type", default=None, help=_CHANNEL_TYPE_HELP,
+    "--channel-type",
+    default=None,
+    help=_CHANNEL_TYPE_HELP,
 )
 def channel_list(
     channel_type: Optional[str],
@@ -186,7 +202,9 @@ def channel_list(
 @click.argument("target")
 @click.argument("message")
 @click.option(
-    "--channel-type", default=None, help=_CHANNEL_TYPE_HELP,
+    "--channel-type",
+    default=None,
+    help=_CHANNEL_TYPE_HELP,
 )
 def channel_send(
     target: str,
@@ -216,7 +234,9 @@ def channel_send(
 
 @channel.command("status")
 @click.option(
-    "--channel-type", default=None, help=_CHANNEL_TYPE_HELP,
+    "--channel-type",
+    default=None,
+    help=_CHANNEL_TYPE_HELP,
 )
 def channel_status(
     channel_type: Optional[str],

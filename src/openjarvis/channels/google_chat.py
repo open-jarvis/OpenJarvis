@@ -39,7 +39,8 @@ class GoogleChatChannel(BaseChannel):
         bus: Optional[EventBus] = None,
     ) -> None:
         self._webhook_url = webhook_url or os.environ.get(
-            "GOOGLE_CHAT_WEBHOOK_URL", "",
+            "GOOGLE_CHAT_WEBHOOK_URL",
+            "",
         )
         self._bus = bus
         self._handlers: List[ChannelHandler] = []
@@ -80,13 +81,16 @@ class GoogleChatChannel(BaseChannel):
             payload: Dict[str, Any] = {"text": content}
 
             resp = httpx.post(
-                self._webhook_url, json=payload, timeout=10.0,
+                self._webhook_url,
+                json=payload,
+                timeout=10.0,
             )
             if resp.status_code < 300:
                 self._publish_sent(channel, content, conversation_id)
                 return True
             logger.warning(
-                "Google Chat API returned status %d", resp.status_code,
+                "Google Chat API returned status %d",
+                resp.status_code,
             )
             return False
         except Exception:

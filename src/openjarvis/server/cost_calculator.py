@@ -11,6 +11,7 @@ from openjarvis.server.savings import CLOUD_PRICING
 @dataclass(slots=True)
 class CostEstimate:
     """Estimated cost for a provider given a usage scenario."""
+
     provider: str
     label: str
     monthly_cost: float
@@ -23,6 +24,7 @@ class CostEstimate:
 @dataclass(slots=True)
 class Scenario:
     """A prebuilt usage scenario."""
+
     name: str
     label: str
     description: str

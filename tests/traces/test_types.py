@@ -60,24 +60,30 @@ class TestTrace:
 
     def test_add_multiple_steps(self) -> None:
         trace = Trace(query="test")
-        trace.add_step(TraceStep(
-            step_type=StepType.RETRIEVE,
-            timestamp=0.0,
-            duration_seconds=0.3,
-            output={"tokens": 0},
-        ))
-        trace.add_step(TraceStep(
-            step_type=StepType.GENERATE,
-            timestamp=0.0,
-            duration_seconds=1.0,
-            output={"tokens": 100},
-        ))
-        trace.add_step(TraceStep(
-            step_type=StepType.TOOL_CALL,
-            timestamp=0.0,
-            duration_seconds=0.5,
-            output={"tokens": 0},
-        ))
+        trace.add_step(
+            TraceStep(
+                step_type=StepType.RETRIEVE,
+                timestamp=0.0,
+                duration_seconds=0.3,
+                output={"tokens": 0},
+            )
+        )
+        trace.add_step(
+            TraceStep(
+                step_type=StepType.GENERATE,
+                timestamp=0.0,
+                duration_seconds=1.0,
+                output={"tokens": 100},
+            )
+        )
+        trace.add_step(
+            TraceStep(
+                step_type=StepType.TOOL_CALL,
+                timestamp=0.0,
+                duration_seconds=0.5,
+                output={"tokens": 0},
+            )
+        )
         assert len(trace.steps) == 3
         assert trace.total_latency_seconds == 1.8
         assert trace.total_tokens == 100

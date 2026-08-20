@@ -59,7 +59,7 @@ _DB_SYSTEM_PROMPT = (
     "operate with one SQL statement at a time.\n"
     "Every time you can only execute one SQL statement. I will execute "
     "the SQL statement on the MySQL database and return the result to you.\n\n"
-    "If the question cannot be answered, respond with \"N/A\".\n\n"
+    'If the question cannot be answered, respond with "N/A".\n\n'
     "To execute SQL, respond with:\n"
     "Action: Operation\n"
     "```sql\n<SQL statement>\n```\n\n"
@@ -173,10 +173,7 @@ class LifelongAgentDataset(DatasetProvider):
         split: Optional[str] = None,
         seed: Optional[int] = None,
     ) -> None:
-        subsets = (
-            list(_VALID_SUBSETS) if self._subset == "all"
-            else [self._subset]
-        )
+        subsets = list(_VALID_SUBSETS) if self._subset == "all" else [self._subset]
         self._records = []
         load_failures: List[str] = []
 
@@ -209,15 +206,16 @@ class LifelongAgentDataset(DatasetProvider):
                     subset_count += 1
 
             logger.info(
-                "LifelongAgentBench[%s]: loaded %d records", subset, subset_count,
+                "LifelongAgentBench[%s]: loaded %d records",
+                subset,
+                subset_count,
             )
 
         # Fail loudly if nothing loaded
         if not self._records:
             raise RuntimeError(
                 "LifelongAgentBench: loaded 0 records across all subsets. "
-                "The benchmark cannot run. Failures:\n"
-                + "\n".join(load_failures)
+                "The benchmark cannot run. Failures:\n" + "\n".join(load_failures)
             )
 
         # NOTE: Do NOT shuffle records.  The original LifelongAgentBench
@@ -228,7 +226,8 @@ class LifelongAgentDataset(DatasetProvider):
         if seed is not None:
             logger.info(
                 "LifelongAgentBench: seed=%d ignored — lifelong protocol "
-                "requires strict sample_index ordering.", seed,
+                "requires strict sample_index ordering.",
+                seed,
             )
 
         if max_samples is not None:
@@ -269,6 +268,7 @@ class LifelongAgentDataset(DatasetProvider):
         from openjarvis.evals.environments.lifelong_agent_env import (
             create_task_environment,
         )
+
         return create_task_environment(
             record,
             sparql_endpoint=self._sparql_endpoint,
@@ -283,9 +283,7 @@ class LifelongAgentDataset(DatasetProvider):
         try:
             import datasets  # noqa: F401
         except ImportError:
-            missing.append(
-                "The 'datasets' library is required: pip install datasets"
-            )
+            missing.append("The 'datasets' library is required: pip install datasets")
         return missing
 
     # ------------------------------------------------------------------
@@ -326,7 +324,11 @@ class LifelongAgentDataset(DatasetProvider):
                     "FAILED to load %s[%s] from HuggingFace: %s\n"
                     "Tried both data_files='%s/*.parquet' and name='%s'.\n"
                     "Check your network connection and 'datasets' installation.",
-                    _HF_REPO_ID, subset, exc2, subset, subset,
+                    _HF_REPO_ID,
+                    subset,
+                    exc2,
+                    subset,
+                    subset,
                 )
                 return []
 

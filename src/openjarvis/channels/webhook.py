@@ -95,14 +95,18 @@ class WebhookChannel(BaseChannel):
                 headers["X-Webhook-Secret"] = self._secret
 
             resp = httpx.request(
-                self._method, self._url, json=payload,
-                headers=headers, timeout=10.0,
+                self._method,
+                self._url,
+                json=payload,
+                headers=headers,
+                timeout=10.0,
             )
             if resp.status_code < 300:
                 self._publish_sent(channel, content, conversation_id)
                 return True
             logger.warning(
-                "Webhook returned status %d", resp.status_code,
+                "Webhook returned status %d",
+                resp.status_code,
             )
             return False
         except Exception:

@@ -51,9 +51,7 @@ class TwitchChannel(BaseChannel):
         initial_channels: str = "",
         bus: Optional[EventBus] = None,
     ) -> None:
-        self._access_token = access_token or os.environ.get(
-            "TWITCH_ACCESS_TOKEN", ""
-        )
+        self._access_token = access_token or os.environ.get("TWITCH_ACCESS_TOKEN", "")
         self._client_id = client_id or os.environ.get("TWITCH_CLIENT_ID", "")
         self._nick = nick or os.environ.get("TWITCH_NICK", "")
         self._initial_channels = initial_channels or os.environ.get(
@@ -75,8 +73,7 @@ class TwitchChannel(BaseChannel):
             import twitchio  # noqa: F401
         except ImportError:
             raise ImportError(
-                "twitchio not installed. Install with: "
-                "uv sync --extra channel-twitch"
+                "twitchio not installed. Install with: uv sync --extra channel-twitch"
             )
         self._status = ChannelStatus.CONNECTED
 

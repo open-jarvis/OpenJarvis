@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from openjarvis.core.events import EventBus, EventType
@@ -15,6 +16,35 @@ class TestTelemetryStore:
         store = TelemetryStore(tmp_path / "test.db")
         rows = store._fetchall()
         assert rows == []
+        store.close()
+
+    def test_uses_wal_with_normal_synchronous(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        journal_mode = store._conn.execute("PRAGMA journal_mode").fetchone()[0]
+        synchronous = store._conn.execute("PRAGMA synchronous").fetchone()[0]
+        busy_timeout = store._conn.execute("PRAGMA busy_timeout").fetchone()[0]
+
+        assert journal_mode.lower() == "wal"
+        assert synchronous == 1
+        assert busy_timeout == 5000
+        store.close()
+
+    def test_concurrent_record_writes_are_serialized(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+
+        def write_one(i: int) -> None:
+            store.record(
+                TelemetryRecord(
+                    timestamp=time.time(),
+                    model_id=f"model-{i}",
+                    engine="test",
+                )
+            )
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(write_one, range(32)))
+
+        assert len(store._fetchall()) == 32
         store.close()
 
     def test_record_values(self, tmp_path: Path) -> None:
@@ -80,3 +110,128 @@ class TestTelemetryStore:
         assert meta["key"] == "value"
         assert meta["nested"] == [1, 2, 3]
         store.close()
+
+    def test_recent_row_has_mining_session_id_column(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        rec = TelemetryRecord(
+            timestamp=time.time(),
+            model_id="test-model",
+            engine="test-engine",
+            prompt_tokens=10,
+            completion_tokens=5,
+            latency_seconds=0.1,
+        )
+        store.record(rec)
+
+        rows = store.list_recent(limit=1)
+
+        assert rows[0]["mining_session_id"] is None
+        store.close()
+
+    def test_recent_row_can_be_tagged_with_mining_session_id(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        rec = TelemetryRecord(
+            timestamp=time.time(),
+            model_id="test-model",
+            engine="vllm-pearl-mining",
+            prompt_tokens=10,
+            completion_tokens=5,
+            latency_seconds=0.1,
+            mining_session_id="abc123",
+        )
+        store.record(rec)
+
+        rows = store.list_recent(limit=1)
+
+        assert rows[0]["mining_session_id"] == "abc123"
+        store.close()
+
+    def test_record_mining_stats_persists(self, tmp_path: Path) -> None:
+        from openjarvis.mining._stubs import MiningStats
+
+        store = TelemetryStore(tmp_path / "test.db")
+        store.record_mining_stats(
+            MiningStats(
+                provider_id="vllm-pearl",
+                shares_submitted=42,
+                shares_accepted=40,
+            )
+        )
+
+        snapshots = store.list_recent_mining_stats(limit=1)
+
+        assert snapshots[0]["provider_id"] == "vllm-pearl"
+        assert snapshots[0]["shares_submitted"] == 42
+        assert snapshots[0]["shares_accepted"] == 40
+        store.close()
+
+
+class TestTelemetryRecordFields:
+    def test_tokens_per_joule_field_exists(self):
+        rec = TelemetryRecord(timestamp=1.0, model_id="test")
+        assert hasattr(rec, "tokens_per_joule")
+        assert rec.tokens_per_joule == 0.0
+
+    def test_tokens_per_joule_set(self):
+        rec = TelemetryRecord(timestamp=1.0, model_id="test", tokens_per_joule=80.0)
+        assert rec.tokens_per_joule == 80.0
+
+    def test_batching_delays_commit(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        # flush_interval_seconds=0 disables the background flusher so the
+        # buffered/flushed states below are deterministic, not a race.
+        store = TelemetryStore(db_path, batch_size=2, flush_interval_seconds=0)
+        rec = TelemetryRecord(timestamp=time.time(), model_id="m1", engine="e1")
+
+        store.record(rec)
+        # Should not be in DB yet because batch_size is 2 and we haven't flushed
+        # Need a separate connection to check because store._fetchall() calls flush()!
+        assert _count_rows_via_own_connection(db_path) == 0
+
+        # Hit batch size
+        store.record(rec)
+        assert _count_rows_via_own_connection(db_path) == 2
+        store.close()
+
+    def test_background_flush_makes_records_visible(self, tmp_path: Path) -> None:
+        # A partial batch must become visible to OTHER connections within the
+        # flush interval even if no further write ever arrives — the background
+        # flusher covers the "traffic stopped mid-batch" case that per-record
+        # stale checks cannot.
+        db_path = tmp_path / "test.db"
+        store = TelemetryStore(db_path, batch_size=50, flush_interval_seconds=0.05)
+        rec = TelemetryRecord(timestamp=time.time(), model_id="m1", engine="e1")
+        store.record(rec)
+
+        deadline = time.time() + 5.0
+        rows = 0
+        while time.time() < deadline:
+            rows = _count_rows_via_own_connection(db_path)
+            if rows:
+                break
+            time.sleep(0.02)
+        assert rows == 1
+        store.close()
+
+    def test_close_flushes_and_is_idempotent(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        store = TelemetryStore(db_path, batch_size=50, flush_interval_seconds=0)
+        rec = TelemetryRecord(timestamp=time.time(), model_id="m1", engine="e1")
+        store.record(rec)
+        store.close()
+        assert _count_rows_via_own_connection(db_path) == 1
+        store.close()  # second close must be a no-op, not a ProgrammingError
+
+
+def _count_rows_via_own_connection(db_path: Path) -> int:
+    """Count telemetry rows through a separate connection (like the aggregator)."""
+    import contextlib
+    import sqlite3
+
+    # NB: sqlite3's ``with conn`` is a TRANSACTION context (it does not close);
+    # ``contextlib.closing`` actually closes the connection.
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        return len(conn.execute("SELECT * FROM telemetry").fetchall())

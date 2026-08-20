@@ -1,0 +1,26 @@
+[meta]
+name = "pinchbench"
+description = "PinchBench real-world agent benchmark"
+
+[defaults]
+temperature = 0.0
+
+[judge]
+model = "anthropic/claude-opus-4-5"
+temperature = 0.0
+
+[run]
+output_dir = "results/pinchbench"
+
+[[models]]
+name = "anthropic/claude-sonnet-4"
+
+[[benchmarks]]
+name = "pinchbench"
+backend = "jarvis-agent"
+agent = "native_react"
+tools = [
+    "file_read", "file_write", "web_search", "shell_exec",
+    "code_interpreter", "browser_navigate", "image_generate",
+    "calculator", "http_request", "pdf_extract",
+]

@@ -77,14 +77,13 @@ class TerminalBenchDataset(DatasetProvider):
         return len(self._records)
 
     def _convert_row(
-        self, raw: MutableMapping[str, object], idx: int,
+        self,
+        raw: MutableMapping[str, object],
+        idx: int,
     ) -> Optional[EvalRecord]:
         # Try multiple field name variants for question
         question = str(
-            raw.get("prompt")
-            or raw.get("question")
-            or raw.get("instruction")
-            or ""
+            raw.get("prompt") or raw.get("question") or raw.get("instruction") or ""
         ).strip()
 
         # Try multiple field name variants for answer

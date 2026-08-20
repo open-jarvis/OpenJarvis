@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Any, Callable, Dict, List, Optional
 
 from openjarvis.a2a.protocol import (
@@ -17,6 +18,11 @@ class A2AServer:
     """A2A server that processes incoming tasks via agent execution.
 
     Can be mounted as routes in the FastAPI server.
+
+    When *auth_token* is set, every :meth:`handle_request` call must present a
+    matching bearer token or it is rejected before any agent runs. The token
+    is advertised on the agent card's ``authentication`` field. When unset,
+    the server is unauthenticated — only mount it on a trusted network.
     """
 
     def __init__(
@@ -25,21 +31,51 @@ class A2AServer:
         *,
         handler: Optional[Callable[[str], str]] = None,
         bus: Optional[EventBus] = None,
+        auth_token: Optional[str] = None,
     ) -> None:
         self._card = agent_card
         self._handler = handler
         self._bus = bus
+        self._auth_token = auth_token or None
         self._tasks: Dict[str, A2ATask] = {}
+        if self._auth_token:
+            # Advertise the required scheme on the discovery card.
+            self._card.authentication = {"schemes": ["bearer"]}
 
     @property
     def agent_card(self) -> AgentCard:
         return self._card
 
-    def handle_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a JSON-RPC 2.0 A2A request."""
+    def authenticate(self, token: Optional[str]) -> bool:
+        """Constant-time check of a presented bearer *token*.
+
+        Returns ``True`` when no ``auth_token`` is configured (auth disabled).
+        """
+        if not self._auth_token:
+            return True
+        return bool(token) and secrets.compare_digest(token, self._auth_token)
+
+    def handle_request(
+        self,
+        request_data: Dict[str, Any],
+        *,
+        token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Process a JSON-RPC 2.0 A2A request.
+
+        *token* is the bearer credential extracted by the transport (e.g. the
+        HTTP ``Authorization`` header). It is validated before dispatch when
+        the server is configured with an ``auth_token``.
+        """
+        req_id = request_data.get("id", "")
+        if not self.authenticate(token):
+            return A2AResponse(
+                error={"code": -32001, "message": "Unauthorized"},
+                request_id=req_id,
+            ).to_dict()
+
         method = request_data.get("method", "")
         params = request_data.get("params", {})
-        req_id = request_data.get("id", "")
 
         if method == "tasks/send":
             return self._handle_task_send(params, req_id)
@@ -102,7 +138,9 @@ class A2AServer:
         return A2AResponse(result=task.to_dict(), request_id=req_id).to_dict()
 
     def _handle_task_cancel(
-        self, params: Dict[str, Any], req_id: str,
+        self,
+        params: Dict[str, Any],
+        req_id: str,
     ) -> Dict[str, Any]:
         """Handle tasks/cancel — cancel a running task."""
         task_id = params.get("id", "")

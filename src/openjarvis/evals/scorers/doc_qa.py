@@ -42,11 +42,13 @@ def _fact_match_score(
         matched = sum(1 for w in words if w in ans_norm)
         found = matched / len(words) >= 0.6 if words else False
 
-        details.append({
-            "fact": fact,
-            "expected_source": fact_entry.get("source_doc_index"),
-            "found": found,
-        })
+        details.append(
+            {
+                "fact": fact,
+                "expected_source": fact_entry.get("source_doc_index"),
+                "found": found,
+            }
+        )
 
     total = len(required_facts)
     found_count = sum(1 for d in details if d["found"])
@@ -81,10 +83,12 @@ def _citation_check_score(
         is_cited = src in cited_indices
         if is_cited:
             correct += 1
-        details.append({
-            "expected_doc_index": src,
-            "cited": is_cited,
-        })
+        details.append(
+            {
+                "expected_doc_index": src,
+                "cited": is_cited,
+            }
+        )
 
     total = len(expected_sources)
     score = correct / total if total > 0 else 0.0
@@ -98,13 +102,17 @@ class DocQAScorer(Scorer):
     scorer_id = "doc_qa"
 
     def __init__(
-        self, judge_backend=None, judge_model: str = "",
+        self,
+        judge_backend=None,
+        judge_model: str = "",
     ) -> None:
         self._judge_backend = judge_backend
         self._judge_model = judge_model
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
@@ -115,12 +123,14 @@ class DocQAScorer(Scorer):
 
         # --- Tier 1: Fact match ---
         fact_score, fact_details = _fact_match_score(
-            model_answer, required_facts,
+            model_answer,
+            required_facts,
         )
 
         # --- Tier 1: Citation check ---
         citation_score, citation_details = _citation_check_score(
-            model_answer, required_facts,
+            model_answer,
+            required_facts,
         )
 
         # --- Tier 2: Checklist ---
@@ -136,40 +146,28 @@ class DocQAScorer(Scorer):
                 "Answer is well-organized and clear",
             ]
             scorer = ChecklistScorer(
-                self._judge_backend, self._judge_model,
+                self._judge_backend,
+                self._judge_model,
             )
-            checklist_score, checklist_details = (
-                scorer.score_checklist(
-                    model_answer, items, context=record.problem,
-                )
+            checklist_score, checklist_details = scorer.score_checklist(
+                model_answer,
+                items,
+                context=record.problem,
             )
         else:
             # Heuristic fallback
             ans_lower = model_answer.lower()
-            has_citations = bool(
-                _CITATION_PATTERN.search(model_answer)
-            )
-            has_structure = any(
-                m in ans_lower for m in ["##", "**", "- ", "1."]
-            )
-            checklist_score = (
-                (0.5 if has_citations else 0.0)
-                + (0.5 if has_structure else 0.0)
+            has_citations = bool(_CITATION_PATTERN.search(model_answer))
+            has_structure = any(m in ans_lower for m in ["##", "**", "- ", "1."])
+            checklist_score = (0.5 if has_citations else 0.0) + (
+                0.5 if has_structure else 0.0
             )
 
         # --- Composite score ---
-        final_score = (
-            fact_score * 0.5
-            + citation_score * 0.3
-            + checklist_score * 0.2
-        )
+        final_score = fact_score * 0.5 + citation_score * 0.3 + checklist_score * 0.2
 
         facts_found = sum(1 for d in fact_details if d["found"])
-        is_correct = (
-            fact_score >= 0.8
-            and citation_score >= 0.5
-            and final_score >= 0.7
-        )
+        is_correct = fact_score >= 0.8 and citation_score >= 0.5 and final_score >= 0.7
 
         return is_correct, {
             "match_type": "doc_qa",

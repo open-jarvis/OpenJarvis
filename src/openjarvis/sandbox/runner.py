@@ -114,9 +114,12 @@ class ContainerRunner:
             runtime,
             "run",
             "--rm",
-            "--name", container_name,
-            "--label", "openjarvis-sandbox=true",
-            "--network", "none",
+            "--name",
+            container_name,
+            "--label",
+            "openjarvis-sandbox=true",
+            "--network",
+            "none",
             "-i",
         ]
 
@@ -171,7 +174,9 @@ class ContainerRunner:
             payload["_workspace"] = workspace
 
         args = self._build_docker_args(
-            container_name, validated_mounts, env,
+            container_name,
+            validated_mounts,
+            env,
         )
 
         try:
@@ -186,9 +191,7 @@ class ContainerRunner:
             # Kill the container on timeout
             self.stop(container_name)
             return {
-                "content": (
-                    f"Container timed out after {self._timeout}s."
-                ),
+                "content": (f"Container timed out after {self._timeout}s."),
                 "error": True,
                 "error_type": "timeout",
             }
@@ -197,7 +200,9 @@ class ContainerRunner:
             stderr = proc.stderr.strip() if proc.stderr else ""
             logger.error(
                 "Container %s exited %d: %s",
-                container_name, proc.returncode, stderr,
+                container_name,
+                proc.returncode,
+                stderr,
             )
             return {
                 "content": f"Container failed: {stderr}",
@@ -216,7 +221,7 @@ class ContainerRunner:
         if start == -1 or end == -1:
             return {"content": stdout.strip()}
 
-        json_str = stdout[start + len(_OUTPUT_START):end].strip()
+        json_str = stdout[start + len(_OUTPUT_START) : end].strip()
         try:
             return json.loads(json_str)
         except json.JSONDecodeError:
@@ -233,7 +238,8 @@ class ContainerRunner:
             )
         except Exception:
             logger.debug(
-                "Failed to stop container %s", container_name,
+                "Failed to stop container %s",
+                container_name,
                 exc_info=True,
             )
 
@@ -243,8 +249,11 @@ class ContainerRunner:
             runtime = shutil.which(self._runtime) or self._runtime
             result = subprocess.run(
                 [
-                    runtime, "ps", "-aq",
-                    "--filter", "label=openjarvis-sandbox=true",
+                    runtime,
+                    "ps",
+                    "-aq",
+                    "--filter",
+                    "label=openjarvis-sandbox=true",
                 ],
                 capture_output=True,
                 text=True,
@@ -263,7 +272,8 @@ class ContainerRunner:
                 )
         except Exception:
             logger.debug(
-                "Orphan cleanup failed", exc_info=True,
+                "Orphan cleanup failed",
+                exc_info=True,
             )
 
 

@@ -1,0 +1,30 @@
+# Liveresearch: Qwen/Qwen3.5-122B-A10B-FP8
+[meta]
+name = "liveresearch-qwen-122b"
+description = "liveresearch on Qwen/Qwen3.5-122B-A10B-FP8"
+
+[defaults]
+temperature = 0.6
+max_tokens = 16384
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/qwen-122b/liveresearch/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-122B-A10B-FP8"
+engine = "vllm"
+num_gpus = 2
+
+[[benchmarks]]
+name = "liveresearch"
+backend = "jarvis-agent"
+max_samples = 50
+agent = "monitor_operative"
+tools = ["web_search", "file_read", "file_write", "code_interpreter", "think"]

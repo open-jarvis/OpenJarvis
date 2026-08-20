@@ -35,17 +35,13 @@ def _check_python_version() -> CheckResult:
     version_str = f"{ver.major}.{ver.minor}.{ver.micro}"
     if (ver.major, ver.minor) >= (3, 10):
         return CheckResult("Python version", "ok", version_str)
-    return CheckResult(
-        "Python version", "fail", f"{version_str} (requires >= 3.10)"
-    )
+    return CheckResult("Python version", "fail", f"{version_str} (requires >= 3.10)")
 
 
 def _check_config_exists() -> CheckResult:
     """Check that the config file exists."""
     if DEFAULT_CONFIG_PATH.exists():
-        return CheckResult(
-            "Config file", "ok", str(DEFAULT_CONFIG_PATH)
-        )
+        return CheckResult("Config file", "ok", str(DEFAULT_CONFIG_PATH))
     return CheckResult(
         "Config file",
         "warn",
@@ -57,16 +53,12 @@ def _check_config_exists() -> CheckResult:
 def _check_config_parses() -> CheckResult:
     """Check that the config file parses successfully."""
     if not DEFAULT_CONFIG_PATH.exists():
-        return CheckResult(
-            "Config parsing", "warn", "Skipped (no config file)"
-        )
+        return CheckResult("Config parsing", "warn", "Skipped (no config file)")
     try:
         load_config()
         return CheckResult("Config parsing", "ok", "Config loaded successfully")
     except Exception as exc:
-        return CheckResult(
-            "Config parsing", "fail", f"Parse error: {exc}"
-        )
+        return CheckResult("Config parsing", "fail", f"Parse error: {exc}")
 
 
 def _ensure_engines_imported() -> None:
@@ -102,22 +94,16 @@ def _check_engines() -> List[CheckResult]:
         try:
             engine = _discovery._make_engine(key, config)
             if engine.health():
-                results.append(
-                    CheckResult(f"Engine: {key}", "ok", "Reachable")
-                )
+                results.append(CheckResult(f"Engine: {key}", "ok", "Reachable"))
             else:
-                results.append(
-                    CheckResult(f"Engine: {key}", "warn", "Unreachable")
-                )
+                results.append(CheckResult(f"Engine: {key}", "warn", "Unreachable"))
         except Exception as exc:
             results.append(
                 CheckResult(f"Engine: {key}", "warn", f"Unreachable ({exc})")
             )
 
     if not results:
-        results.append(
-            CheckResult("Engines", "warn", "No engines registered")
-        )
+        results.append(CheckResult("Engines", "warn", "No engines registered"))
 
     return results
 
@@ -154,7 +140,7 @@ def _check_models() -> List[CheckResult]:
                             f"Models: {key}",
                             "warn",
                             "No models available",
-                            details="Pull a model (e.g. `ollama pull qwen3.5:3b`).",
+                            details="Pull a model (e.g. `ollama pull qwen3.5:2b`).",
                         )
                     )
         except Exception:
@@ -168,9 +154,7 @@ def _check_default_model() -> CheckResult:
     try:
         config = load_config()
     except Exception:
-        return CheckResult(
-            "Default model", "warn", "Skipped (config unavailable)"
-        )
+        return CheckResult("Default model", "warn", "Skipped (config unavailable)")
 
     default_model = config.intelligence.default_model
     if not default_model:
@@ -186,7 +170,13 @@ def _check_default_model() -> CheckResult:
     from openjarvis.core.registry import EngineRegistry
     from openjarvis.engine import _discovery
 
-    for key in sorted(EngineRegistry.keys()):
+    preferred = config.intelligence.preferred_engine or config.engine.default
+    check_order = []
+    if preferred:
+        check_order.append(preferred)
+    check_order += [k for k in sorted(EngineRegistry.keys()) if k != preferred]
+
+    for key in check_order:
         try:
             engine = _discovery._make_engine(key, config)
             if engine.health():
@@ -221,9 +211,7 @@ def _check_optional_deps() -> List[CheckResult]:
     for pkg, install_hint, description in optional_packages:
         try:
             __import__(pkg)
-            results.append(
-                CheckResult(f"Optional: {description}", "ok", "Installed")
-            )
+            results.append(CheckResult(f"Optional: {description}", "ok", "Installed"))
         except Exception:
             results.append(
                 CheckResult(
@@ -233,6 +221,73 @@ def _check_optional_deps() -> List[CheckResult]:
                 )
             )
     return results
+
+
+def _check_speech_backend() -> CheckResult:
+    """Check whether the configured speech backend can load."""
+    try:
+        from openjarvis.speech._discovery import get_speech_backend
+
+        config = _get_config()
+        backend = get_speech_backend(config)
+        if backend is None:
+            return CheckResult(
+                "Speech backend",
+                "warn",
+                "Not configured",
+                details="Install desktop dependencies with `uv sync --extra desktop`.",
+            )
+
+        if backend.health():
+            return CheckResult(
+                "Speech backend",
+                "ok",
+                f"{backend.backend_id} ready",
+            )
+
+        details = None
+        last_error = getattr(backend, "last_error", None)
+        if callable(last_error):
+            details = last_error()
+        return CheckResult(
+            "Speech backend",
+            "warn",
+            f"{backend.backend_id} unavailable",
+            details=details
+            or "Install desktop dependencies with `uv sync --extra desktop`.",
+        )
+    except Exception as exc:
+        return CheckResult(
+            "Speech backend",
+            "warn",
+            f"Could not check: {exc}",
+        )
+
+
+def _check_security_profile() -> CheckResult:
+    """Check if a security profile is configured."""
+    try:
+        from openjarvis.core.config import load_config
+
+        config = load_config()
+        if config.security.profile:
+            return CheckResult(
+                name="Security profile",
+                status="ok",
+                message=f"Profile '{config.security.profile}' active",
+            )
+        return CheckResult(
+            name="Security profile",
+            status="warn",
+            message="No security profile set",
+            details="Recommended: add security.profile = 'personal' to config.toml",
+        )
+    except Exception as exc:
+        return CheckResult(
+            name="Security profile",
+            status="fail",
+            message=f"Could not check: {exc}",
+        )
 
 
 def _check_nodejs() -> CheckResult:
@@ -266,8 +321,7 @@ def _check_nodejs() -> CheckResult:
             "warn",
             f"{version_str} (requires >= v22)",
             details=(
-                "Upgrade Node.js for ClaudeCodeAgent and WhatsApp "
-                "Baileys support."
+                "Upgrade Node.js for ClaudeCodeAgent and WhatsApp Baileys support."
             ),
         )
     except Exception as exc:
@@ -293,7 +347,9 @@ def _run_all_checks() -> List[CheckResult]:
     checks.extend(_check_models())
     checks.append(_check_default_model())
     checks.extend(_check_optional_deps())
+    checks.append(_check_speech_backend())
     checks.append(_check_nodejs())
+    checks.append(_check_security_profile())
     return checks
 
 
@@ -335,7 +391,43 @@ def doctor(as_json: bool) -> None:
     warn_count = sum(1 for c in checks if c.status == "warn")
     fail_count = sum(1 for c in checks if c.status == "fail")
     console.print()
-    console.print(
-        f"  {ok_count} passed, {warn_count} warnings, {fail_count} failures"
-    )
+    console.print(f"  {ok_count} passed, {warn_count} warnings, {fail_count} failures")
     console.print()
+
+    # Background tasks section
+    from openjarvis.cli._bg_state import get_status
+    from openjarvis.core.paths import get_config_dir
+
+    scripts_dir = get_config_dir() / ".scripts"
+    console.print("[bold]Background tasks[/bold]")
+    bg = get_status()
+    bg_failed = False
+
+    if bg.rust_extension == "ready":
+        console.print("  [green]✓[/green] Rust extension: ready")
+    elif bg.rust_extension == "failed":
+        console.print(f"  [red]✗[/red] Rust extension: failed — {bg.rust_error[:80]}")
+        console.print(
+            f"    retry: {scripts_dir}/install-rust.sh && "
+            f"{scripts_dir}/build-extension.sh"
+        )
+        bg_failed = True
+    else:
+        console.print(
+            "  [yellow]…[/yellow] Rust extension: building (run in background)"
+        )
+
+    if not bg.models:
+        console.print("  [dim]no model downloads tracked[/dim]")
+    for model_id, state in bg.models.items():
+        if state == "ready":
+            console.print(f"  [green]✓[/green] {model_id}: ready")
+        elif state == "failed":
+            console.print(f"  [red]✗[/red] {model_id}: failed")
+            console.print(f"    retry: {scripts_dir}/pull-model.sh {model_id}")
+            bg_failed = True
+        else:
+            console.print(f"  [yellow]…[/yellow] {model_id}: downloading")
+
+    if bg_failed:
+        raise click.exceptions.Exit(code=1)

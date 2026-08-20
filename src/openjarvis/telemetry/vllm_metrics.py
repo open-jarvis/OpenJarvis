@@ -134,7 +134,9 @@ class VLLMMetricsScraper:
             resp = httpx.get(f"{self._host}/metrics", timeout=5.0)
             resp.raise_for_status()
         except (
-            httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError,
+            httpx.ConnectError,
+            httpx.TimeoutException,
+            httpx.HTTPStatusError,
         ) as exc:
             logger.debug("Failed to fetch vLLM metrics: %s", exc)
             return VLLMMetrics()

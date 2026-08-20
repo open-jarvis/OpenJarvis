@@ -58,23 +58,18 @@ class AgentSpawnTool(BaseTool):
                     },
                     "query": {
                         "type": "string",
-                        "description": (
-                            "Optional initial query to send to"
-                            " the agent."
-                        ),
+                        "description": ("Optional initial query to send to the agent."),
                     },
                     "tools": {
                         "type": "string",
                         "description": (
-                            "Comma-separated tool names to"
-                            " attach to the agent."
+                            "Comma-separated tool names to attach to the agent."
                         ),
                     },
                     "agent_id": {
                         "type": "string",
                         "description": (
-                            "Custom agent ID. Auto-generated"
-                            " if not provided."
+                            "Custom agent ID. Auto-generated if not provided."
                         ),
                     },
                 },
@@ -140,9 +135,7 @@ class AgentSendTool(BaseTool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="agent_send",
-            description=(
-                "Send a message to a running agent by its ID."
-            ),
+            description=("Send a message to a running agent by its ID."),
             parameters={
                 "type": "object",
                 "properties": {
@@ -203,11 +196,13 @@ class AgentSendTool(BaseTool):
 
         return ToolResult(
             tool_name="agent_send",
-            content=json.dumps({
-                "agent_id": agent_id,
-                "delivered": True,
-                "message": message,
-            }),
+            content=json.dumps(
+                {
+                    "agent_id": agent_id,
+                    "delivered": True,
+                    "message": message,
+                }
+            ),
             success=True,
         )
 
@@ -228,8 +223,7 @@ class AgentListTool(BaseTool):
         return ToolSpec(
             name="agent_list",
             description=(
-                "List all spawned agents with their status,"
-                " type, and creation time."
+                "List all spawned agents with their status, type, and creation time."
             ),
             parameters={
                 "type": "object",
@@ -249,12 +243,14 @@ class AgentListTool(BaseTool):
 
         agents = []
         for agent_id, info in _SPAWNED_AGENTS.items():
-            agents.append({
-                "agent_id": agent_id,
-                "agent_type": info["agent_type"],
-                "status": info["status"],
-                "created_at": info["created_at"],
-            })
+            agents.append(
+                {
+                    "agent_id": agent_id,
+                    "agent_type": info["agent_type"],
+                    "status": info["status"],
+                    "created_at": info["created_at"],
+                }
+            )
 
         return ToolResult(
             tool_name="agent_list",
@@ -278,10 +274,7 @@ class AgentKillTool(BaseTool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="agent_kill",
-            description=(
-                "Stop a running agent by its ID. Requires"
-                " confirmation."
-            ),
+            description=("Stop a running agent by its ID. Requires confirmation."),
             parameters={
                 "type": "object",
                 "properties": {
@@ -318,10 +311,12 @@ class AgentKillTool(BaseTool):
 
         return ToolResult(
             tool_name="agent_kill",
-            content=json.dumps({
-                "agent_id": agent_id,
-                "status": "stopped",
-            }),
+            content=json.dumps(
+                {
+                    "agent_id": agent_id,
+                    "status": "stopped",
+                }
+            ),
             success=True,
         )
 

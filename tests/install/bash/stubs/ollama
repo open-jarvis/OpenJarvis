@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Stub for `ollama` — records args to OLLAMA_STUB_LOG and exits with $OLLAMA_STUB_EXIT.
+echo "$@" >> "${OLLAMA_STUB_LOG:-/dev/null}"
+exit "${OLLAMA_STUB_EXIT:-0}"

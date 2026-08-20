@@ -1,6 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2, CheckCircle2, XCircle, Cpu, Server, Database } from 'lucide-react';
-import { getSetupStatus, type SetupStatus } from '../lib/api';
+import {
+  getSetupStatus,
+  fetchModels,
+  fetchRecommendedModel,
+  type SetupStatus,
+} from '../lib/api';
+import { useAppStore } from '../lib/store';
+import { isEmbedOnlyModel } from '../lib/model-capabilities';
 
 const STEPS = [
   { key: 'ollama_ready', label: 'Inference Engine', icon: Cpu, detail: 'Starting Ollama...' },
@@ -70,12 +77,36 @@ function StepRow({
 
 export function SetupScreen({ onReady }: { onReady: () => void }) {
   const [status, setStatus] = useState<SetupStatus | null>(null);
-
+  const handedOffRef = useRef(false);
   const poll = useCallback(async () => {
     const s = await getSetupStatus();
     if (s) setStatus(s);
-    if (s?.phase === 'ready') {
-      setTimeout(onReady, 600);
+    if (s?.phase === 'ready' && !handedOffRef.current) {
+      handedOffRef.current = true;
+      // Pre-select a model BEFORE handing off so the chat is usable on
+      // first send. Without this, the main app's post-mount fetch can
+      // lose a race to a fast first message and Ollama 400s.
+      try {
+        const [models, rec] = await Promise.all([
+          fetchModels().catch(() => []),
+          fetchRecommendedModel().catch(() => ({ model: '', reason: '' })),
+        ]);
+        const store = useAppStore.getState();
+        const hadSelection = !!store.selectedModel;
+        store.setModels(models);
+        store.setModelsLoading(false);
+        const chatModels = models.filter((m) => !isEmbedOnlyModel(m.id));
+        const recommended = rec.model && chatModels.some((m) => m.id === rec.model)
+          ? rec.model
+          : chatModels[0]?.id || '';
+        if (recommended && !hadSelection) {
+          store.setSelectedModel(recommended);
+        }
+      } catch {
+        // Non-fatal: store.setModels auto-selects on later fetch, and
+        // the InputArea guards the empty-model case with a toast.
+      }
+      setTimeout(() => onReady(), 600);
     }
   }, [onReady]);
 
@@ -118,7 +149,14 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
 
         {/* Steps */}
         <div className="flex flex-col gap-2 mb-8">
-          {STEPS.map((step) => (
+          {(status?.source === 'custom'
+            ? [
+                { key: 'ollama_ready' as const, label: 'Inference Engine', icon: Cpu, detail: 'Connecting to your server...' },
+                { key: 'model_ready' as const, label: 'Endpoint', icon: Database, detail: 'Checking endpoint...' },
+                { key: 'server_ready' as const, label: 'API Server', icon: Server, detail: 'Starting server...' },
+              ]
+            : STEPS
+          ).map((step) => (
             <StepRow
               key={step.key}
               icon={step.icon}
@@ -139,9 +177,9 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
           <div
             className="flex items-start gap-3 px-4 py-3 rounded-xl text-sm"
             style={{
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.2)',
-              color: '#ef4444',
+              background: 'color-mix(in srgb, var(--color-error) 10%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--color-error) 20%, transparent)',
+              color: 'var(--color-error)',
             }}
           >
             <XCircle size={16} className="shrink-0 mt-0.5" />

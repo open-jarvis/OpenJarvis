@@ -52,9 +52,7 @@ class LLMOptimizer:
     def propose_initial(self) -> TrialConfig:
         """Propose a reasonable starting config from the search space."""
         if self.optimizer_backend is None:
-            raise ValueError(
-                "optimizer_backend is required to propose configurations"
-            )
+            raise ValueError("optimizer_backend is required to propose configurations")
 
         prompt = self._build_initial_prompt()
         response = self.optimizer_backend.generate(
@@ -74,9 +72,7 @@ class LLMOptimizer:
     ) -> TrialConfig:
         """Ask the LLM to propose the next config to evaluate."""
         if self.optimizer_backend is None:
-            raise ValueError(
-                "optimizer_backend is required to propose configurations"
-            )
+            raise ValueError("optimizer_backend is required to propose configurations")
 
         prompt = self._build_propose_prompt(history, traces, frontier_ids=frontier_ids)
         response = self.optimizer_backend.generate(
@@ -98,12 +94,14 @@ class LLMOptimizer:
     ) -> TrialFeedback:
         """Ask the LLM to analyze a completed trial. Returns structured feedback."""
         if self.optimizer_backend is None:
-            raise ValueError(
-                "optimizer_backend is required to analyze trials"
-            )
+            raise ValueError("optimizer_backend is required to analyze trials")
 
         prompt = self._build_analyze_prompt(
-            trial, summary, traces, sample_scores, per_benchmark,
+            trial,
+            summary,
+            traces,
+            sample_scores,
+            per_benchmark,
         )
         response = self.optimizer_backend.generate(
             prompt,
@@ -121,15 +119,11 @@ class LLMOptimizer:
     def _build_initial_prompt(self) -> str:
         """Construct the prompt for the initial config proposal."""
         lines: List[str] = []
-        lines.append(
-            "You are optimizing an OpenJarvis AI system configuration."
-        )
+        lines.append("You are optimizing an OpenJarvis AI system configuration.")
         lines.append("")
         lines.append(self.search_space.to_prompt_description())
         lines.append("## Objective")
-        lines.append(
-            "Maximize accuracy while minimizing latency and cost."
-        )
+        lines.append("Maximize accuracy while minimizing latency and cost.")
         lines.append("")
         lines.append("## Your Task")
         lines.append(
@@ -138,12 +132,9 @@ class LLMOptimizer:
             "accuracy, latency, and cost."
         )
         lines.append("")
+        lines.append("Return a JSON object inside a ```json code block with:")
         lines.append(
-            "Return a JSON object inside a ```json code block with:"
-        )
-        lines.append(
-            '1. "params": dict of config params (dotted keys matching '
-            "the search space)"
+            '1. "params": dict of config params (dotted keys matching the search space)'
         )
         lines.append(
             '2. "reasoning": string explaining why this is a good '
@@ -159,9 +150,7 @@ class LLMOptimizer:
     ) -> str:
         """Construct the full prompt for propose_next."""
         lines: List[str] = []
-        lines.append(
-            "You are optimizing an OpenJarvis AI system configuration."
-        )
+        lines.append("You are optimizing an OpenJarvis AI system configuration.")
         lines.append("")
         lines.append(self.search_space.to_prompt_description())
 
@@ -178,9 +167,7 @@ class LLMOptimizer:
             lines.append("")
 
         lines.append("## Objective")
-        lines.append(
-            "Maximize accuracy while minimizing latency and cost."
-        )
+        lines.append("Maximize accuracy while minimizing latency and cost.")
         lines.append("")
         lines.append("## Your Task")
         lines.append(
@@ -188,16 +175,12 @@ class LLMOptimizer:
             "previous trials to improve results."
         )
         lines.append("")
+        lines.append("Return a JSON object inside a ```json code block with:")
         lines.append(
-            "Return a JSON object inside a ```json code block with:"
+            '1. "params": dict of config params (dotted keys matching the search space)'
         )
         lines.append(
-            '1. "params": dict of config params (dotted keys matching '
-            "the search space)"
-        )
-        lines.append(
-            '2. "reasoning": string explaining why this config should '
-            "improve results"
+            '2. "reasoning": string explaining why this config should improve results'
         )
         return "\n".join(lines)
 
@@ -242,9 +225,7 @@ class LLMOptimizer:
 
         lines.append("## Aggregate Results")
         lines.append(f"- accuracy: {summary.accuracy:.4f}")
-        lines.append(
-            f"- mean_latency_seconds: {summary.mean_latency_seconds:.4f}"
-        )
+        lines.append(f"- mean_latency_seconds: {summary.mean_latency_seconds:.4f}")
         lines.append(f"- total_cost_usd: {summary.total_cost_usd:.4f}")
         lines.append(f"- total_samples: {summary.total_samples}")
         lines.append(f"- scored_samples: {summary.scored_samples}")
@@ -299,31 +280,24 @@ class LLMOptimizer:
             lines.append(f"### Trial {i} (id={result.trial_id}){tag}")
             lines.append(f"Params: {json.dumps(result.config.params)}")
             lines.append(f"Accuracy: {result.accuracy:.4f}")
-            lines.append(
-                f"Latency: {result.mean_latency_seconds:.4f}s"
-            )
+            lines.append(f"Latency: {result.mean_latency_seconds:.4f}s")
             lines.append(f"Cost: ${result.total_cost_usd:.4f}")
             lines.append(f"Energy: {result.total_energy_joules:.4f}J")
             if result.per_benchmark:
                 bench_parts = [
-                    f"{b.benchmark}={b.accuracy:.4f}"
-                    for b in result.per_benchmark
+                    f"{b.benchmark}={b.accuracy:.4f}" for b in result.per_benchmark
                 ]
                 lines.append(f"Per-benchmark accuracy: {', '.join(bench_parts)}")
             if result.summary:
                 s = result.summary
                 if s.throughput_stats:
-                    lines.append(
-                        f"Throughput: {s.throughput_stats.mean:.2f} tok/s"
-                    )
+                    lines.append(f"Throughput: {s.throughput_stats.mean:.2f} tok/s")
                 if s.ipw_stats:
                     lines.append(f"IPW: {s.ipw_stats.mean:.4f}")
             if result.structured_feedback:
                 fb = result.structured_feedback
                 if fb.failure_patterns:
-                    lines.append(
-                        f"Failure patterns: {', '.join(fb.failure_patterns)}"
-                    )
+                    lines.append(f"Failure patterns: {', '.join(fb.failure_patterns)}")
                 if fb.primitive_ratings:
                     ratings = ", ".join(
                         f"{k}={v}" for k, v in sorted(fb.primitive_ratings.items())
@@ -334,9 +308,7 @@ class LLMOptimizer:
             elif result.analysis:
                 lines.append(f"Analysis: {result.analysis}")
             if result.failure_modes:
-                lines.append(
-                    f"Failure modes: {', '.join(result.failure_modes)}"
-                )
+                lines.append(f"Failure modes: {', '.join(result.failure_modes)}")
             lines.append("")
         return "\n".join(lines)
 
@@ -355,8 +327,7 @@ class LLMOptimizer:
 
         for trace in recent:
             lines.append(
-                f"### Trace {trace.trace_id} "
-                f"(agent={trace.agent}, model={trace.model})"
+                f"### Trace {trace.trace_id} (agent={trace.agent}, model={trace.model})"
             )
             lines.append(f"Query: {trace.query}")
             if trace.outcome:
@@ -387,8 +358,7 @@ class LLMOptimizer:
                     )
                 if len(trace.steps) > max_steps_per_trace:
                     lines.append(
-                        f"  ... ({len(trace.steps) - max_steps_per_trace} "
-                        "more steps)"
+                        f"  ... ({len(trace.steps) - max_steps_per_trace} more steps)"
                     )
 
             result_text = trace.result
@@ -408,12 +378,13 @@ class LLMOptimizer:
     ) -> TrialConfig:
         """Propose a config that only changes one primitive."""
         if self.optimizer_backend is None:
-            raise ValueError(
-                "optimizer_backend is required to propose configurations"
-            )
+            raise ValueError("optimizer_backend is required to propose configurations")
 
         prompt = self._build_targeted_prompt(
-            history, base_config, target_primitive, frontier_ids,
+            history,
+            base_config,
+            target_primitive,
+            frontier_ids,
         )
         response = self.optimizer_backend.generate(
             prompt,
@@ -442,9 +413,7 @@ class LLMOptimizer:
     ) -> TrialConfig:
         """Combine best aspects of frontier members into one config."""
         if self.optimizer_backend is None:
-            raise ValueError(
-                "optimizer_backend is required to propose configurations"
-            )
+            raise ValueError("optimizer_backend is required to propose configurations")
 
         prompt = self._build_merge_prompt(candidates, history, frontier_ids)
         response = self.optimizer_backend.generate(
@@ -469,9 +438,7 @@ class LLMOptimizer:
     ) -> str:
         """Build prompt for primitive-targeted mutation."""
         lines: List[str] = []
-        lines.append(
-            "You are optimizing an OpenJarvis AI system configuration."
-        )
+        lines.append("You are optimizing an OpenJarvis AI system configuration.")
         lines.append("")
         lines.append(self.search_space.to_prompt_description())
 
@@ -508,9 +475,7 @@ class LLMOptimizer:
     ) -> str:
         """Build prompt for merging frontier configs."""
         lines: List[str] = []
-        lines.append(
-            "You are optimizing an OpenJarvis AI system configuration."
-        )
+        lines.append("You are optimizing an OpenJarvis AI system configuration.")
         lines.append("")
         lines.append(self.search_space.to_prompt_description())
 
@@ -600,7 +565,8 @@ class LLMOptimizer:
                             break
                     except json.JSONDecodeError as exc:
                         logger.debug(
-                            "Failed to parse LLM optimizer JSON response: %s", exc,
+                            "Failed to parse LLM optimizer JSON response: %s",
+                            exc,
                         )
                         continue
 
@@ -641,9 +607,7 @@ class LLMOptimizer:
                 logger.debug("Failed to parse LLM optimizer JSON response: %s", exc)
 
         # Try to extract from a generic ``` code block
-        code_block_match = re.search(
-            r"```\s*\n?(.*?)\n?\s*```", response, re.DOTALL
-        )
+        code_block_match = re.search(r"```\s*\n?(.*?)\n?\s*```", response, re.DOTALL)
         if code_block_match:
             raw_json = code_block_match.group(1).strip()
             try:
@@ -673,9 +637,7 @@ class LLMOptimizer:
             reasoning="Failed to parse LLM response.",
         )
 
-    def _config_from_dict(
-        self, data: Dict[str, Any], trial_id: str
-    ) -> TrialConfig:
+    def _config_from_dict(self, data: Dict[str, Any], trial_id: str) -> TrialConfig:
         """Build a TrialConfig from a parsed JSON dict.
 
         Merges fixed parameters from the search space so that fixed values

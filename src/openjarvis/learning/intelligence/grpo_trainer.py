@@ -294,9 +294,7 @@ class GRPOTrainer:
                     )
 
                 response_ids = gen_ids[0, inputs["input_ids"].shape[1] :]
-                response = tokenizer.decode(
-                    response_ids, skip_special_tokens=True
-                )
+                response = tokenizer.decode(response_ids, skip_special_tokens=True)
 
                 # Score with reward function
                 reward = self.reward_fn.score(prompt, response, gt)
@@ -305,27 +303,19 @@ class GRPOTrainer:
                 # Compute log probabilities
                 full_ids = gen_ids[0].unsqueeze(0)
                 policy_logits = policy_model(full_ids).logits
-                policy_lp = torch.nn.functional.log_softmax(
-                    policy_logits, dim=-1
-                )
+                policy_lp = torch.nn.functional.log_softmax(policy_logits, dim=-1)
                 token_lps = torch.gather(
                     policy_lp[:, :-1, :], 2, full_ids[:, 1:].unsqueeze(-1)
                 ).squeeze(-1)
                 log_probs.append(token_lps.sum())
 
                 with torch.no_grad():
-                    ref_logits = ref_model(
-                        full_ids.to(ref_model.device)
-                    ).logits
-                    ref_lp = torch.nn.functional.log_softmax(
-                        ref_logits, dim=-1
-                    )
+                    ref_logits = ref_model(full_ids.to(ref_model.device)).logits
+                    ref_lp = torch.nn.functional.log_softmax(ref_logits, dim=-1)
                     ref_token_lps = torch.gather(
                         ref_lp[:, :-1, :],
                         2,
-                        full_ids[:, 1:]
-                        .to(ref_model.device)
-                        .unsqueeze(-1),
+                        full_ids[:, 1:].to(ref_model.device).unsqueeze(-1),
                     ).squeeze(-1)
                     ref_lps.append(ref_token_lps.sum())
 
@@ -334,9 +324,7 @@ class GRPOTrainer:
             all_ref_log_probs.append(ref_lps)
 
         # Compute group-relative advantages and loss
-        total_loss = torch.tensor(
-            0.0, device=policy_model.device, requires_grad=True
-        )
+        total_loss = torch.tensor(0.0, device=policy_model.device, requires_grad=True)
 
         for rewards, log_probs, ref_lps in zip(
             all_rewards, all_log_probs, all_ref_log_probs

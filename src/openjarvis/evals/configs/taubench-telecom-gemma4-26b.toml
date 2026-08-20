@@ -1,0 +1,29 @@
+# TauBench V2 Telecom: Gemma-4-26B-A4B-it (vLLM, 1 GPU)
+[meta]
+name = "taubench-telecom-gemma4-26b"
+description = "TauBench V2 Telecom domain on google/gemma-4-26B-A4B-it"
+
+[defaults]
+temperature = 0.7
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/gemma4-26b/taubench-telecom/"
+seed = 42
+
+[[models]]
+name = "google/gemma-4-26B-A4B-it"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "taubench"
+backend = "jarvis-direct"
+max_samples = 20
+split = "telecom"

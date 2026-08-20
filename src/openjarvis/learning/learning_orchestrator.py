@@ -66,9 +66,7 @@ class LearningOrchestrator:
         self._model_name = model_name
 
         self._miner = TrainingDataMiner(trace_store, min_quality=min_quality)
-        self._evolver = AgentConfigEvolver(
-            trace_store, config_dir=self._config_dir
-        )
+        self._evolver = AgentConfigEvolver(trace_store, config_dir=self._config_dir)
 
     # ------------------------------------------------------------------
     # public API
@@ -99,6 +97,32 @@ class LearningOrchestrator:
         result: Dict[str, Any] = {
             "timestamp": time.time(),
         }
+
+        # 0. Skill optimization (Plan 2A C2) — runs INDEPENDENTLY of the
+        # routing/agent SFT pipeline.  Skills are tagged via trace metadata
+        # rather than mined as SFT pairs, so they can be optimized even when
+        # there's no other training data available.
+        try:
+            from openjarvis.core.config import load_config
+
+            cfg = load_config()
+            skills_cfg = getattr(cfg.learning, "skills", None)
+            if skills_cfg is not None and skills_cfg.auto_optimize:
+                skill_results = self._maybe_optimize_skills(
+                    auto_optimize=True,
+                    optimizer=skills_cfg.optimizer,
+                    min_traces_per_skill=skills_cfg.min_traces_per_skill,
+                )
+                if skill_results is not None:
+                    result["skill_optimization"] = {
+                        name: {
+                            "status": r.status,
+                            "trace_count": r.trace_count,
+                        }
+                        for name, r in skill_results.items()
+                    }
+        except Exception as exc:
+            logger.warning("Skill auto-optimize probe failed: %s", exc)
 
         # 1. Mine training data from traces
         sft_pairs = self._miner.extract_sft_pairs(agent=agent_id)
@@ -132,16 +156,11 @@ class LearningOrchestrator:
             agent_name = rec.get("recommended_agent", "default")
             tools = rec.get("recommended_tools", [])
             max_turns = rec.get("recommended_max_turns", 10)
-            self._evolver.write_config(
-                agent_name, tools=tools, max_turns=max_turns
-            )
+            self._evolver.write_config(agent_name, tools=tools, max_turns=max_turns)
 
         # 6. LoRA training (optional)
         result["lora_training"] = None
-        if (
-            self._lora_config is not None
-            and len(sft_pairs) >= self._min_sft_pairs
-        ):
+        if self._lora_config is not None and len(sft_pairs) >= self._min_sft_pairs:
             lora_result = self._try_lora_training(sft_pairs)
             result["lora_training"] = lora_result
 
@@ -195,13 +214,43 @@ class LearningOrchestrator:
 
         try:
             model_name = self._model_name or "Qwen/Qwen3-0.6B"
-            trainer = LoRATrainer(
-                self._lora_config, model_name=model_name
-            )
+            trainer = LoRATrainer(self._lora_config, model_name=model_name)
             return trainer.train(sft_pairs)
         except Exception as exc:
             logger.warning("LoRA training failed: %s", exc)
             return {"status": "error", "reason": str(exc)}
+
+    def _maybe_optimize_skills(
+        self,
+        *,
+        auto_optimize: bool = False,
+        optimizer: str = "dspy",
+        min_traces_per_skill: int = 20,
+    ) -> Optional[dict]:
+        """Optionally run the skill optimizer.
+
+        Called from :meth:`run` when ``learning.skills.auto_optimize`` is
+        true.  Returns the per-skill result dict or ``None`` if disabled.
+        """
+        if not auto_optimize:
+            return None
+        try:
+            from openjarvis.core.events import EventBus
+            from openjarvis.learning.agents.skill_optimizer import SkillOptimizer
+            from openjarvis.skills.manager import SkillManager
+
+            mgr = SkillManager(bus=EventBus())
+            mgr.discover()
+            opt = SkillOptimizer(
+                min_traces_per_skill=min_traces_per_skill,
+                optimizer=optimizer,
+            )
+            return opt.optimize(self._trace_store, mgr)
+        except Exception as exc:
+            import logging
+
+            logging.getLogger(__name__).warning("Skill auto-optimize failed: %s", exc)
+            return None
 
 
 __all__ = ["LearningOrchestrator"]

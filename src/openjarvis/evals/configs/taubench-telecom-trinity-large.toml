@@ -1,0 +1,28 @@
+# TauBench V2 Telecom eval: Trinity-Large-Thinking-FP8-Block (vLLM, TP=8)
+[meta]
+name = "taubench-telecom-trinity-large"
+description = "TauBench V2 Telecom on arcee-ai/Trinity-Large-Thinking-FP8-Block (temperature=0.7)"
+
+[defaults]
+temperature = 0.7
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 16
+output_dir = "results/neurips-2026/baselines/taubench-telecom-trinity-large/"
+seed = 42
+
+[[models]]
+name = "arcee-ai/Trinity-Large-Thinking-FP8-Block"
+engine = "vllm"
+num_gpus = 8
+
+[[benchmarks]]
+name = "taubench"
+backend = "jarvis-direct"
+split = "telecom"

@@ -94,13 +94,17 @@ class MatrixChannel(BaseChannel):
             }
 
             resp = httpx.put(
-                url, json=payload, headers=headers, timeout=10.0,
+                url,
+                json=payload,
+                headers=headers,
+                timeout=10.0,
             )
             if resp.status_code < 300:
                 self._publish_sent(channel, content, conversation_id)
                 return True
             logger.warning(
-                "Matrix API returned status %d", resp.status_code,
+                "Matrix API returned status %d",
+                resp.status_code,
             )
             return False
         except Exception:

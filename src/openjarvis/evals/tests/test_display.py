@@ -19,12 +19,21 @@ from openjarvis.evals.core.types import MetricStats, RunSummary
 
 def _make_summary(**overrides) -> RunSummary:
     defaults = dict(
-        benchmark="gaia", category="agentic", backend="jarvis-agent",
-        model="qwen3:8b", total_samples=100, scored_samples=100,
-        correct=42, accuracy=0.42, errors=0,
-        mean_latency_seconds=15.0, total_cost_usd=0.0,
-        total_energy_joules=9300.0, avg_power_watts=880.0,
-        total_input_tokens=50000, total_output_tokens=12000,
+        benchmark="gaia",
+        category="agentic",
+        backend="jarvis-agent",
+        model="qwen3:8b",
+        total_samples=100,
+        scored_samples=100,
+        correct=42,
+        accuracy=0.42,
+        errors=0,
+        mean_latency_seconds=15.0,
+        total_cost_usd=0.0,
+        total_energy_joules=9300.0,
+        avg_power_watts=880.0,
+        total_input_tokens=50000,
+        total_output_tokens=12000,
         per_subject={"level_1": {"accuracy": 0.58, "correct": 40, "scored": 68}},
     )
     defaults.update(overrides)
@@ -33,9 +42,14 @@ def _make_summary(**overrides) -> RunSummary:
 
 def _make_stats(mean=10.0) -> MetricStats:
     return MetricStats(
-        mean=mean, median=mean * 0.9, min=mean * 0.2,
-        max=mean * 3.0, std=mean * 0.5, p90=mean * 1.5,
-        p95=mean * 2.0, p99=mean * 2.5,
+        mean=mean,
+        median=mean * 0.9,
+        min=mean * 0.2,
+        max=mean * 3.0,
+        std=mean * 0.5,
+        p90=mean * 1.5,
+        p95=mean * 2.0,
+        p99=mean * 2.5,
     )
 
 
@@ -91,14 +105,18 @@ class TestTraceSummary:
         summary = _make_summary(
             trace_step_type_stats={
                 "generate": {
-                    "count": 580, "avg_duration": 8.2,
+                    "count": 580,
+                    "avg_duration": 8.2,
                     "total_energy": 22000.0,
-                    "avg_input_tokens": 890.0, "avg_output_tokens": 256.0,
+                    "avg_input_tokens": 890.0,
+                    "avg_output_tokens": 256.0,
                 },
                 "tool_call": {
-                    "count": 420, "avg_duration": 3.1,
+                    "count": 420,
+                    "avg_duration": 3.1,
                     "total_energy": 0.0,
-                    "avg_input_tokens": 0.0, "avg_output_tokens": 0.0,
+                    "avg_input_tokens": 0.0,
+                    "avg_output_tokens": 0.0,
                 },
             },
         )

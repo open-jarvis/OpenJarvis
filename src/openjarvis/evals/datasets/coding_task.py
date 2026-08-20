@@ -200,7 +200,7 @@ _TASKS = [
     {
         "spec": "Implement a function that serializes and deserializes a binary tree. The tree node has val, left, right attributes.",
         "signature": "def serialize(root) -> str\ndef deserialize(data: str) -> TreeNode",
-        "examples": 'serialize a tree [1,2,3,null,null,4,5] -> some string\ndeserialize that string -> same tree',
+        "examples": "serialize a tree [1,2,3,null,null,4,5] -> some string\ndeserialize that string -> same tree",
         "test_cases": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val, self.left, self.right = val, left, right\nroot = TreeNode(1, TreeNode(2), TreeNode(3, TreeNode(4), TreeNode(5)))\ns = serialize(root)\nnew_root = deserialize(s)\nassert new_root.val == 1\nassert new_root.left.val == 2\nassert new_root.right.val == 3\nassert new_root.right.left.val == 4",
         "reference": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val, self.left, self.right = val, left, right\ndef serialize(root):\n    if not root: return 'null'\n    return f'{root.val},{serialize(root.left)},{serialize(root.right)}'\ndef deserialize(data):\n    vals = iter(data.split(','))\n    def build():\n        v = next(vals)\n        if v == 'null': return None\n        node = TreeNode(int(v))\n        node.left = build()\n        node.right = build()\n        return node\n    return build()",
     },
@@ -260,17 +260,19 @@ class CodingTaskDataset(DatasetProvider):
                 signature=task["signature"],
                 examples=task["examples"],
             )
-            self._records.append(EvalRecord(
-                record_id=f"coding-task-{idx}",
-                problem=prompt,
-                reference=task["reference"],
-                category="use-case",
-                subject="coding_task",
-                metadata={
-                    "test_cases": task["test_cases"],
-                    "signature": task["signature"],
-                },
-            ))
+            self._records.append(
+                EvalRecord(
+                    record_id=f"coding-task-{idx}",
+                    problem=prompt,
+                    reference=task["reference"],
+                    category="use-case",
+                    subject="coding_task",
+                    metadata={
+                        "test_cases": task["test_cases"],
+                        "signature": task["signature"],
+                    },
+                )
+            )
 
     def iter_records(self) -> Iterable[EvalRecord]:
         return iter(self._records)

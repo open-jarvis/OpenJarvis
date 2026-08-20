@@ -193,9 +193,7 @@ class TestMiniMaxGenerate:
         )
         assert actual_temp >= 0.01, "Temperature should be clamped above zero"
 
-    def test_temperature_clamped_at_max(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_temperature_clamped_at_max(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """MiniMax requires temperature <= 1.0; verify high values are clamped."""
         engine = _make_cloud_engine(monkeypatch)
         fake_client = mock.MagicMock()
@@ -236,9 +234,7 @@ class TestMiniMaxGenerate:
         assert tc["id"] == "call_minimax_123"
         assert tc["name"] == "search"
 
-    def test_no_tool_calls_when_absent(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_no_tool_calls_when_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
         engine = _make_cloud_engine(monkeypatch)
         fake_client = mock.MagicMock()
         fake_client.chat.completions.create.return_value = _fake_minimax_response(
@@ -255,9 +251,7 @@ class TestMiniMaxGenerate:
         engine = _make_cloud_engine(monkeypatch)
         assert engine._minimax_client is None
 
-        with pytest.raises(
-            EngineConnectionError, match="MiniMax client not available"
-        ):
+        with pytest.raises(EngineConnectionError, match="MiniMax client not available"):
             engine.generate(
                 [Message(role=Role.USER, content="Hi")], model="MiniMax-M2.5"
             )

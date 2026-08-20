@@ -36,6 +36,7 @@ _MATH_FUNCS = {
     "max": max,
     "sqrt": math.sqrt,
     "log": math.log,
+    "ln": math.log,  # alias: ln(x) == log(x)
     "log10": math.log10,
     "log2": math.log2,
     "sin": math.sin,
@@ -84,15 +85,30 @@ def _safe_eval_node(node: ast.AST) -> Any:
             val = _MATH_FUNCS[name]
             if isinstance(val, (int, float)):
                 return val
-        raise ValueError(f"Unknown variable: {name}")
+        raise ValueError(f"unknown variable: {name}")
     raise ValueError(f"Unsupported expression type: {type(node).__name__}")
 
 
 def safe_eval(expression: str) -> float:
-    """Evaluate a math expression safely — always via Rust backend."""
-    from openjarvis._rust_bridge import get_rust_module
-    _rust = get_rust_module()
-    return float(_rust.CalculatorTool().execute(expression))
+    """Evaluate a math expression safely — Rust backend with Python fallback."""
+    try:
+        from openjarvis._rust_bridge import get_rust_module
+
+        _rust = get_rust_module()
+        return float(_rust.CalculatorTool().execute(expression))
+    except ImportError:
+        import ast as _ast
+
+        # Support ^ as the power operator (common math/calculator notation).
+        expression = expression.replace("^", "**")
+        try:
+            tree = _ast.parse(expression, mode="eval")
+        except SyntaxError as exc:
+            raise ValueError(f"Syntax error in expression: {exc}") from exc
+        try:
+            return float(_safe_eval_node(tree.body))
+        except ZeroDivisionError:
+            return math.inf
 
 
 @ToolRegistry.register("calculator")
@@ -116,8 +132,7 @@ class CalculatorTool(BaseTool):
                     "expression": {
                         "type": "string",
                         "description": (
-                            "Math expression to evaluate"
-                            " (e.g. '2+3*4', 'sqrt(16)')"
+                            "Math expression to evaluate (e.g. '2+3*4', 'sqrt(16)')"
                         ),
                     },
                 },

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, List
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
@@ -14,7 +15,9 @@ from openjarvis.tools._stubs import BaseTool, ToolSpec
 class SkillManageTool(BaseTool):
     """Manage agent-authored procedural skills."""
 
-    def __init__(self, skills_dir: Path | str = "~/.openjarvis/skills/") -> None:
+    def __init__(self, skills_dir: Path | str | None = None) -> None:
+        if skills_dir is None:
+            skills_dir = get_config_dir() / "skills"
         self._skills_dir = Path(skills_dir).expanduser()
 
     @property
@@ -70,9 +73,7 @@ class SkillManageTool(BaseTool):
             content=f"Unknown action: {action}",
         )
 
-    def _create(
-        self, name: str, description: str, steps: List[dict]
-    ) -> ToolResult:
+    def _create(self, name: str, description: str, steps: List[dict]) -> ToolResult:
         if not name:
             return ToolResult(
                 tool_name=self.spec.name,
@@ -91,9 +92,7 @@ class SkillManageTool(BaseTool):
             lines.append("[[skill.steps]]")
             lines.append(f'tool_name = "{step.get("tool_name", "")}"')
             if "arguments_template" in step:
-                lines.append(
-                    f"arguments_template = '{step['arguments_template']}'"
-                )
+                lines.append(f"arguments_template = '{step['arguments_template']}'")
             if "output_key" in step:
                 lines.append(f'output_key = "{step["output_key"]}"')
             lines.append("")
@@ -123,8 +122,7 @@ class SkillManageTool(BaseTool):
         return ToolResult(
             tool_name=self.spec.name,
             success=True,
-            content="Available skills:\n"
-            + "\n".join(f"- {s}" for s in skills),
+            content="Available skills:\n" + "\n".join(f"- {s}" for s in skills),
         )
 
     def _load(self, name: str) -> ToolResult:

@@ -71,8 +71,7 @@ class ZulipChannel(BaseChannel):
             import zulip  # noqa: F401
         except ImportError:
             raise ImportError(
-                "zulip not installed. Install with: "
-                "uv sync --extra channel-zulip"
+                "zulip not installed. Install with: uv sync --extra channel-zulip"
             )
         self._status = ChannelStatus.CONNECTED
 

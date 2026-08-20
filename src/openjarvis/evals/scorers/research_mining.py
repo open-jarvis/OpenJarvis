@@ -51,13 +51,17 @@ class ResearchMiningScorer(LLMJudgeScorer):
     scorer_id = "research_mining"
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 
         # Extract original question from the prompt
-        question = record.problem.split("Research question: ")[-1].split("\n")[0].strip()
+        question = (
+            record.problem.split("Research question: ")[-1].split("\n")[0].strip()
+        )
 
         try:
             prompt = _JUDGE_PROMPT.format(

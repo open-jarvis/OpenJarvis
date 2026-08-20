@@ -70,14 +70,12 @@ class SimpleQADataset(DatasetProvider):
         return len(self._records)
 
     def _convert_row(
-        self, raw: MutableMapping[str, object], idx: int,
+        self,
+        raw: MutableMapping[str, object],
+        idx: int,
     ) -> Optional[EvalRecord]:
-        question = str(
-            raw.get("problem") or raw.get("question") or ""
-        ).strip()
-        answer = str(
-            raw.get("answer") or raw.get("gold_answer") or ""
-        ).strip()
+        question = str(raw.get("problem") or raw.get("question") or "").strip()
+        answer = str(raw.get("answer") or raw.get("gold_answer") or "").strip()
 
         if not question or not answer:
             return None

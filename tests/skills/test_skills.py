@@ -148,6 +148,179 @@ class TestSkillExecutor:
         assert EventType.SKILL_EXECUTE_END in event_types
 
 
+class TestSkillExecutorCapabilities:
+    def _manifest(self):
+        return SkillManifest(
+            name="capskill",
+            required_capabilities=["network:fetch"],
+            steps=[
+                SkillStep(
+                    tool_name="echo",
+                    arguments_template='{"text": "hello"}',
+                    output_key="result",
+                )
+            ],
+        )
+
+    def test_no_policy_runs_capability_skills(self):
+        """Default construction (no allowed_capabilities) must not enforce —
+        this is the pre-enforcement behavior every manager.py call site relies on."""
+        executor = SkillExecutor(ToolExecutor([EchoTool()]))
+        result = executor.run(self._manifest())
+        assert result.success
+        assert result.context.get("result") == "hello"
+
+    def test_policy_blocks_missing_capability(self):
+        executor = SkillExecutor(ToolExecutor([EchoTool()]), allowed_capabilities=set())
+        result = executor.run(self._manifest())
+        assert not result.success
+        assert len(result.step_results) == 1
+        assert "Blocked" in result.step_results[0].content
+        assert "network:fetch" in result.step_results[0].content
+
+    def test_policy_allows_granted_capability(self):
+        executor = SkillExecutor(
+            ToolExecutor([EchoTool()]),
+            allowed_capabilities={"network:fetch"},
+        )
+        result = executor.run(self._manifest())
+        assert result.success
+        assert result.context.get("result") == "hello"
+
+    def test_blocked_run_publishes_events(self):
+        bus = EventBus(record_history=True)
+        executor = SkillExecutor(
+            ToolExecutor([EchoTool()]), bus=bus, allowed_capabilities=set()
+        )
+        executor.run(self._manifest())
+        event_types = {e.event_type for e in bus.history}
+        assert EventType.SKILL_EXECUTE_START in event_types
+        assert EventType.SKILL_EXECUTE_END in event_types
+
+
+class TestSkillStepExtended:
+    def test_step_with_skill_name(self):
+        step = SkillStep(skill_name="summarize", output_key="result")
+        assert step.skill_name == "summarize"
+        assert step.tool_name == ""
+
+    def test_step_either_tool_or_skill(self):
+        step_tool = SkillStep(tool_name="web_search")
+        step_skill = SkillStep(skill_name="summarize")
+        assert step_tool.tool_name == "web_search"
+        assert step_tool.skill_name == ""
+        assert step_skill.skill_name == "summarize"
+        assert step_skill.tool_name == ""
+
+
+class TestSkillManifestExtended:
+    def test_manifest_with_tags_and_depends(self):
+        manifest = SkillManifest(
+            name="test",
+            tags=["research"],
+            depends=["summarize"],
+        )
+        assert manifest.tags == ["research"]
+        assert manifest.depends == ["summarize"]
+
+    def test_manifest_with_invocation_flags(self):
+        manifest = SkillManifest(
+            name="test",
+            user_invocable=False,
+            disable_model_invocation=True,
+        )
+        assert not manifest.user_invocable
+        assert manifest.disable_model_invocation
+
+    def test_manifest_with_markdown_content(self):
+        manifest = SkillManifest(
+            name="test",
+            markdown_content="When asked to research...",
+        )
+        assert manifest.markdown_content == "When asked to research..."
+
+    def test_manifest_bytes_includes_new_fields(self):
+        manifest = SkillManifest(
+            name="test",
+            tags=["a"],
+            depends=["b"],
+            steps=[],
+        )
+        data = manifest.manifest_bytes()
+        assert b"tags" in data
+        assert b"depends" in data
+
+
+class TestSkillExecutorSubSkills:
+    def test_sub_skill_delegation(self):
+        """Executor delegates skill_name steps to a skill resolver."""
+        tools = [EchoTool(), UpperTool()]
+        tool_executor = ToolExecutor(tools)
+        executor = SkillExecutor(tool_executor)
+
+        child_manifest = SkillManifest(
+            name="upper_skill",
+            steps=[
+                SkillStep(
+                    tool_name="upper",
+                    arguments_template='{"text": "{text}"}',
+                    output_key="uppered",
+                ),
+            ],
+        )
+
+        def resolve_skill(name, context):
+            from openjarvis.skills.executor import SkillResult
+
+            if name == "upper_skill":
+                return executor.run(child_manifest, initial_context=context)
+            return SkillResult(skill_name=name, success=False)
+
+        executor.set_skill_resolver(resolve_skill)
+
+        parent_manifest = SkillManifest(
+            name="parent",
+            steps=[
+                SkillStep(
+                    tool_name="echo",
+                    arguments_template='{"text": "hello"}',
+                    output_key="echoed",
+                ),
+                SkillStep(
+                    skill_name="upper_skill",
+                    arguments_template='{"text": "{echoed}"}',
+                    output_key="result",
+                ),
+            ],
+        )
+        result = executor.run(parent_manifest)
+        assert result.success
+        assert result.context.get("result") == "HELLO"
+
+    def test_sub_skill_failure_stops_pipeline(self):
+        tools = [EchoTool()]
+        tool_executor = ToolExecutor(tools)
+        executor = SkillExecutor(tool_executor)
+
+        def resolve_skill(name, context):
+            from openjarvis.skills.executor import SkillResult
+
+            return SkillResult(skill_name=name, success=False)
+
+        executor.set_skill_resolver(resolve_skill)
+
+        manifest = SkillManifest(
+            name="parent",
+            steps=[
+                SkillStep(skill_name="nonexistent", output_key="x"),
+                SkillStep(tool_name="echo", output_key="y"),
+            ],
+        )
+        result = executor.run(manifest)
+        assert not result.success
+        assert len(result.step_results) == 1
+
+
 class TestSkillTool:
     def test_skill_as_tool(self):
         from openjarvis.skills.tool_adapter import SkillTool

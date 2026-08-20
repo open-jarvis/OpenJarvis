@@ -1,0 +1,44 @@
+# PinchBench eval: Kimi-K2.5 (Ollama, IQ4_XS GGUF)
+# Agent: native_openhands -- all PinchBench-required tools enabled
+# Pull model: ollama pull hf.co/unsloth/Kimi-K2.5-GGUF:IQ4_XS
+#
+# WARNING: Kimi-K2.5 is a 1T-param MoE (32B active). ALL GGUF quants are
+# sharded (smallest is 240 GB), and Ollama does not support sharded GGUFs
+# yet (see github.com/ollama/ollama/issues/5245). This config is a
+# placeholder -- use vLLM or wait for Ollama sharded GGUF support.
+# The IQ4_XS GGUF is 547 GB and would require 7x H100 80GB GPUs.
+
+[meta]
+name = "pinchbench-kimi-k25"
+description = "PinchBench on Kimi-K2.5 IQ4_XS via Ollama"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "claude-opus-4-5"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/kimi-k25-ollama/pinchbench/"
+seed = 42
+
+[[models]]
+name = "hf.co/unsloth/Kimi-K2.5-GGUF:IQ4_XS"
+engine = "ollama"
+param_count_b = 1000.0
+active_params_b = 32.0
+num_gpus = 7
+
+[[benchmarks]]
+name = "pinchbench"
+backend = "jarvis-agent"
+agent = "native_openhands"
+tools = [
+    "think", "file_read", "file_write", "web_search", "shell_exec",
+    "code_interpreter", "browser_navigate", "image_generate",
+    "calculator", "http_request", "pdf_extract",
+]

@@ -55,6 +55,11 @@ except ImportError:
     pass
 
 try:
+    import openjarvis.agents.opencode  # noqa: F401
+except ImportError:
+    pass
+
+try:
     import openjarvis.agents.operative  # noqa: F401
 except ImportError:
     pass
@@ -66,6 +71,24 @@ except ImportError:
 
 try:
     import openjarvis.agents.monitor_operative  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.agents.deep_research  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.agents.morning_digest  # noqa: F401
+except ImportError:
+    pass
+
+# Hybrid local+cloud paradigm agents (Minions, Conductor, Archon, Advisors,
+# SkillOrchestra, ToolOrchestra). Each module registers under its own name
+# via @AgentRegistry.register(). Optional deps may make some unavailable.
+try:
+    import openjarvis.agents.hybrid  # noqa: F401
 except ImportError:
     pass
 

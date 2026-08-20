@@ -103,7 +103,8 @@ class TraceJudge:
         return score, response
 
     def batch_evaluate(
-        self, traces: List[Trace],
+        self,
+        traces: List[Trace],
     ) -> List[Tuple[float, str]]:
         """Evaluate multiple traces sequentially.
 

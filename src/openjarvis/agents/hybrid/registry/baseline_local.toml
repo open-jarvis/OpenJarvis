@@ -1,0 +1,82 @@
+# n=100 ablation — local-only baseline (no cloud teacher / router).
+#
+# Paradigm is `baseline_local` (see baseline_local.py). On GAIA the agent
+# makes one local vLLM call with the FINAL-ANSWER-formatted prompt. On
+# SWE-bench-Verified the agent runs the mini-SWE bash agent loop with
+# `backbone="local"` so the local model drives turns directly.
+#
+# Cell `cloud` is set to a dummy model purely so the hybrid runner doesn't
+# choke on missing fields; `baseline_local` ignores `cloud_*` entirely
+# and cost_usd is always 0.0 (local inference is free).
+
+# ============================================================
+# :8004 — Gemma-4-31B (TP=4 on GPUs 0-3)
+# ============================================================
+
+[cells.baseline-local-gemma31b-gaia-n100]
+method = "baseline_local"
+bench  = "gaia"
+n      = 100
+subset = "gaia_n100_seed42.json"
+local  = { model = "google/gemma-4-31B-it", endpoint = "http://localhost:8004/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { local_max_tokens = 4096 }
+concurrency = 4
+
+[cells.baseline-local-gemma31b-swe-n100]
+method = "baseline_local"
+bench  = "swebench-verified"
+n      = 100
+subset = "swebench_verified_n100_seed42.json"
+local  = { model = "google/gemma-4-31B-it", endpoint = "http://localhost:8004/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { local_max_tokens = 4096, swe_use_agent_loop = true, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+concurrency = 4
+
+# ============================================================
+# :8002 — Qwen-3.6-27B-FP8 (PP=2 on GPUs 5-6)
+# ============================================================
+
+[cells.baseline-local-qwen36-gaia-n100]
+method = "baseline_local"
+bench  = "gaia"
+n      = 100
+subset = "gaia_n100_seed42.json"
+local  = { model = "Qwen/Qwen3.6-27B-FP8", endpoint = "http://localhost:8002/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { local_max_tokens = 4096 }
+concurrency = 4
+
+[cells.baseline-local-qwen36-swe-n100]
+method = "baseline_local"
+bench  = "swebench-verified"
+n      = 100
+subset = "swebench_verified_n100_seed42.json"
+local  = { model = "Qwen/Qwen3.6-27B-FP8", endpoint = "http://localhost:8002/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { local_max_tokens = 4096, swe_use_agent_loop = true, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+concurrency = 4
+
+# ============================================================
+# :8001 — Qwen-3.5-27B-FP8 (GPU 7) — the Qwen-3.5 solo floor
+# ============================================================
+
+[cells.baseline-local-qwen27b-gaia-n100]
+method = "baseline_local"
+bench  = "gaia"
+n      = 100
+subset = "gaia_n100_seed42.json"
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { local_max_tokens = 4096 }
+concurrency = 4
+
+[cells.baseline-local-qwen27b-swe-n100]
+method = "baseline_local"
+bench  = "swebench-verified"
+n      = 100
+subset = "swebench_verified_n100_seed42.json"
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { local_max_tokens = 4096, swe_use_agent_loop = true, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+concurrency = 4

@@ -65,14 +65,11 @@ class OrchestratorEnvironment:
 
         if action.tool_name not in available:
             raise ValueError(
-                f"Tool '{action.tool_name}' not available. "
-                f"Available: {available}"
+                f"Tool '{action.tool_name}' not available. Available: {available}"
             )
 
         if state.num_turns() >= self._max_turns:
-            raise ValueError(
-                f"Max turns ({self._max_turns}) exceeded"
-            )
+            raise ValueError(f"Max turns ({self._max_turns}) exceeded")
 
         # Execute tool via ToolExecutor
         tool_call = ToolCall(

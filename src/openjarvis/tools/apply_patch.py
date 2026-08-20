@@ -16,9 +16,7 @@ from openjarvis.tools._stubs import BaseTool, ToolSpec
 # Hunk / patch parsing helpers
 # ---------------------------------------------------------------------------
 
-_HUNK_HEADER_RE = re.compile(
-    r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@"
-)
+_HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
 @dataclass
@@ -168,7 +166,7 @@ def _apply_hunks(original: str, hunks: List[_Hunk]) -> str:
 
         # Splice the new lines into orig_lines
         consumed = check_pos - pos
-        orig_lines[pos:pos + consumed] = new_lines
+        orig_lines[pos : pos + consumed] = new_lines
         offset += len(new_lines) - consumed
 
     return "".join(orig_lines)
@@ -199,9 +197,7 @@ class ApplyPatchTool(BaseTool):
                 "properties": {
                     "patch": {
                         "type": "string",
-                        "description": (
-                            "The unified diff patch text to apply."
-                        ),
+                        "description": ("The unified diff patch text to apply."),
                     },
                     "path": {
                         "type": "string",
@@ -213,8 +209,7 @@ class ApplyPatchTool(BaseTool):
                     "backup": {
                         "type": "boolean",
                         "description": (
-                            "Create a .bak backup before applying"
-                            " (default: true)."
+                            "Create a .bak backup before applying (default: true)."
                         ),
                     },
                 },

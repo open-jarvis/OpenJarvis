@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass(slots=True)
 class KeyPair:
     """Ed25519 key pair."""
+
     private_key: bytes
     public_key: bytes
 
@@ -100,6 +101,7 @@ def verify_b64(data: bytes, signature_b64: str, public_key: bytes) -> bool:
 def load_public_key(path: str) -> bytes:
     """Load a raw 32-byte Ed25519 public key from a file."""
     from pathlib import Path
+
     raw = Path(path).read_bytes()
     # If base64-encoded (common), decode
     if len(raw) > 32:
@@ -113,6 +115,7 @@ def load_public_key(path: str) -> bytes:
 def save_keypair(keypair: KeyPair, private_path: str, public_path: str) -> None:
     """Save keypair to files (base64-encoded)."""
     from pathlib import Path
+
     Path(private_path).write_text(base64.b64encode(keypair.private_key).decode())
     Path(public_path).write_text(base64.b64encode(keypair.public_key).decode())
 

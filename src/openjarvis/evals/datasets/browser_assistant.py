@@ -81,7 +81,10 @@ _EASY_TASKS: List[Dict[str, Any]] = [
     {
         "question": "How many attention heads does GPT-4 use (as reported in public documentation)?",
         "expected_facts": [
-            {"fact": "architecture details not publicly disclosed by OpenAI", "type": "semantic"},
+            {
+                "fact": "architecture details not publicly disclosed by OpenAI",
+                "type": "semantic",
+            },
         ],
     },
     {
@@ -116,9 +119,18 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
     {
         "question": "Compare vLLM and TensorRT-LLM for serving large language models.",
         "expected_facts": [
-            {"fact": "vLLM uses PagedAttention for memory efficiency", "type": "semantic"},
-            {"fact": "TensorRT-LLM optimizes for NVIDIA GPUs specifically", "type": "semantic"},
-            {"fact": "vLLM is easier to set up, TensorRT-LLM has higher throughput on supported hardware", "type": "semantic"},
+            {
+                "fact": "vLLM uses PagedAttention for memory efficiency",
+                "type": "semantic",
+            },
+            {
+                "fact": "TensorRT-LLM optimizes for NVIDIA GPUs specifically",
+                "type": "semantic",
+            },
+            {
+                "fact": "vLLM is easier to set up, TensorRT-LLM has higher throughput on supported hardware",
+                "type": "semantic",
+            },
         ],
     },
     {
@@ -133,8 +145,14 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
         "question": "Compare PostgreSQL and MySQL for JSON document storage.",
         "expected_facts": [
             {"fact": "PostgreSQL has JSONB with GIN indexes", "type": "semantic"},
-            {"fact": "MySQL has JSON type with generated columns for indexing", "type": "semantic"},
-            {"fact": "PostgreSQL JSONB is generally more feature-rich for JSON operations", "type": "semantic"},
+            {
+                "fact": "MySQL has JSON type with generated columns for indexing",
+                "type": "semantic",
+            },
+            {
+                "fact": "PostgreSQL JSONB is generally more feature-rich for JSON operations",
+                "type": "semantic",
+            },
         ],
     },
     {
@@ -142,15 +160,24 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
         "expected_facts": [
             {"fact": "Podman is daemonless", "type": "semantic"},
             {"fact": "Podman runs rootless by default", "type": "semantic"},
-            {"fact": "Docker uses a client-server architecture with dockerd", "type": "semantic"},
+            {
+                "fact": "Docker uses a client-server architecture with dockerd",
+                "type": "semantic",
+            },
         ],
     },
     {
         "question": "Compare Terraform and Pulumi for infrastructure as code.",
         "expected_facts": [
-            {"fact": "Terraform uses HCL, Pulumi uses general-purpose languages", "type": "semantic"},
+            {
+                "fact": "Terraform uses HCL, Pulumi uses general-purpose languages",
+                "type": "semantic",
+            },
             {"fact": "both support multiple cloud providers", "type": "semantic"},
-            {"fact": "Pulumi has native support for Python, TypeScript, Go, C#", "type": "semantic"},
+            {
+                "fact": "Pulumi has native support for Python, TypeScript, Go, C#",
+                "type": "semantic",
+            },
         ],
     },
     {
@@ -164,9 +191,15 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
     {
         "question": "Compare FastAPI, Flask, and Django for building REST APIs.",
         "expected_facts": [
-            {"fact": "FastAPI is async-first with automatic OpenAPI docs", "type": "semantic"},
+            {
+                "fact": "FastAPI is async-first with automatic OpenAPI docs",
+                "type": "semantic",
+            },
             {"fact": "Flask is lightweight and flexible", "type": "semantic"},
-            {"fact": "Django includes ORM, admin, and batteries-included approach", "type": "semantic"},
+            {
+                "fact": "Django includes ORM, admin, and batteries-included approach",
+                "type": "semantic",
+            },
         ],
     },
     {
@@ -187,33 +220,63 @@ _HARD_TASKS: List[Dict[str, Any]] = [
         "question": "What is the current state of the art for code generation benchmarks (HumanEval, MBPP)? Which models lead and what are their scores?",
         "expected_facts": [
             {"fact": "recent top models score 90%+ on HumanEval", "type": "semantic"},
-            {"fact": "MBPP scores are generally lower than HumanEval", "type": "semantic"},
+            {
+                "fact": "MBPP scores are generally lower than HumanEval",
+                "type": "semantic",
+            },
             {"fact": "mentions specific model names and scores", "type": "semantic"},
         ],
     },
     {
         "question": "Explain the trade-offs between different attention mechanisms: multi-head attention, grouped-query attention, and multi-query attention.",
         "expected_facts": [
-            {"fact": "MHA uses separate K,V heads per attention head", "type": "semantic"},
-            {"fact": "GQA groups multiple query heads to share K,V heads", "type": "semantic"},
-            {"fact": "MQA uses single K,V head for all query heads", "type": "semantic"},
+            {
+                "fact": "MHA uses separate K,V heads per attention head",
+                "type": "semantic",
+            },
+            {
+                "fact": "GQA groups multiple query heads to share K,V heads",
+                "type": "semantic",
+            },
+            {
+                "fact": "MQA uses single K,V head for all query heads",
+                "type": "semantic",
+            },
             {"fact": "GQA balances quality and inference speed", "type": "semantic"},
         ],
     },
     {
         "question": "What are the latest developments in mixture-of-experts (MoE) architectures for LLMs? Compare Mixtral, DeepSeek-V2, and Grok-1.",
         "expected_facts": [
-            {"fact": "Mixtral 8x7B routes to 2 of 8 experts per token", "type": "semantic"},
-            {"fact": "DeepSeek-V2 uses fine-grained expert segmentation", "type": "semantic"},
-            {"fact": "MoE reduces compute cost per token vs dense models", "type": "semantic"},
+            {
+                "fact": "Mixtral 8x7B routes to 2 of 8 experts per token",
+                "type": "semantic",
+            },
+            {
+                "fact": "DeepSeek-V2 uses fine-grained expert segmentation",
+                "type": "semantic",
+            },
+            {
+                "fact": "MoE reduces compute cost per token vs dense models",
+                "type": "semantic",
+            },
         ],
     },
     {
         "question": "How do different quantization methods (GPTQ, AWQ, GGUF/GGML, bitsandbytes) compare for LLM inference?",
         "expected_facts": [
-            {"fact": "GPTQ uses post-training quantization with calibration data", "type": "semantic"},
-            {"fact": "AWQ preserves salient weights for better quality", "type": "semantic"},
-            {"fact": "GGUF is the llama.cpp format for CPU and mixed inference", "type": "semantic"},
+            {
+                "fact": "GPTQ uses post-training quantization with calibration data",
+                "type": "semantic",
+            },
+            {
+                "fact": "AWQ preserves salient weights for better quality",
+                "type": "semantic",
+            },
+            {
+                "fact": "GGUF is the llama.cpp format for CPU and mixed inference",
+                "type": "semantic",
+            },
             {"fact": "bitsandbytes supports QLoRA for fine-tuning", "type": "semantic"},
         ],
     },
@@ -221,17 +284,35 @@ _HARD_TASKS: List[Dict[str, Any]] = [
         "question": "What are the security implications of running LLMs in production? Cover prompt injection, data exfiltration, and model poisoning.",
         "expected_facts": [
             {"fact": "prompt injection can bypass system prompts", "type": "semantic"},
-            {"fact": "data exfiltration via tool use or function calling", "type": "semantic"},
-            {"fact": "model poisoning through training data contamination", "type": "semantic"},
-            {"fact": "mitigations include input filtering and output scanning", "type": "semantic"},
+            {
+                "fact": "data exfiltration via tool use or function calling",
+                "type": "semantic",
+            },
+            {
+                "fact": "model poisoning through training data contamination",
+                "type": "semantic",
+            },
+            {
+                "fact": "mitigations include input filtering and output scanning",
+                "type": "semantic",
+            },
         ],
     },
     {
         "question": "Compare the architectures and capabilities of major embedding models: OpenAI ada-002/3, Cohere embed-v3, and open-source alternatives like BGE and E5.",
         "expected_facts": [
-            {"fact": "OpenAI text-embedding-3 supports Matryoshka dimensions", "type": "semantic"},
-            {"fact": "Cohere embed-v3 supports multiple input types", "type": "semantic"},
-            {"fact": "BGE and E5 are open-source alternatives with competitive performance", "type": "semantic"},
+            {
+                "fact": "OpenAI text-embedding-3 supports Matryoshka dimensions",
+                "type": "semantic",
+            },
+            {
+                "fact": "Cohere embed-v3 supports multiple input types",
+                "type": "semantic",
+            },
+            {
+                "fact": "BGE and E5 are open-source alternatives with competitive performance",
+                "type": "semantic",
+            },
         ],
     },
     {
@@ -246,10 +327,22 @@ _HARD_TASKS: List[Dict[str, Any]] = [
     {
         "question": "How do different RAG (Retrieval-Augmented Generation) strategies compare? Cover naive RAG, advanced RAG with re-ranking, and GraphRAG.",
         "expected_facts": [
-            {"fact": "naive RAG does simple similarity search then generate", "type": "semantic"},
-            {"fact": "re-ranking improves retrieval precision with cross-encoder", "type": "semantic"},
-            {"fact": "GraphRAG uses knowledge graphs for structured retrieval", "type": "semantic"},
-            {"fact": "hybrid search combines dense and sparse retrieval", "type": "semantic"},
+            {
+                "fact": "naive RAG does simple similarity search then generate",
+                "type": "semantic",
+            },
+            {
+                "fact": "re-ranking improves retrieval precision with cross-encoder",
+                "type": "semantic",
+            },
+            {
+                "fact": "GraphRAG uses knowledge graphs for structured retrieval",
+                "type": "semantic",
+            },
+            {
+                "fact": "hybrid search combines dense and sparse retrieval",
+                "type": "semantic",
+            },
         ],
     },
     {
@@ -257,17 +350,32 @@ _HARD_TASKS: List[Dict[str, Any]] = [
         "expected_facts": [
             {"fact": "LoRA adds low-rank adapter matrices", "type": "semantic"},
             {"fact": "QLoRA combines quantization with LoRA", "type": "semantic"},
-            {"fact": "DoRA decomposes weights into magnitude and direction", "type": "semantic"},
-            {"fact": "full fine-tuning updates all parameters but needs more memory", "type": "semantic"},
+            {
+                "fact": "DoRA decomposes weights into magnitude and direction",
+                "type": "semantic",
+            },
+            {
+                "fact": "full fine-tuning updates all parameters but needs more memory",
+                "type": "semantic",
+            },
         ],
     },
     {
         "question": "Explain the evolution of position encoding in transformers: absolute, RoPE, ALiBi, and YaRN. What are the trade-offs for long-context extension?",
         "expected_facts": [
-            {"fact": "absolute position embeddings are fixed length", "type": "semantic"},
-            {"fact": "RoPE encodes relative position through rotation", "type": "semantic"},
+            {
+                "fact": "absolute position embeddings are fixed length",
+                "type": "semantic",
+            },
+            {
+                "fact": "RoPE encodes relative position through rotation",
+                "type": "semantic",
+            },
             {"fact": "ALiBi adds linear bias to attention scores", "type": "semantic"},
-            {"fact": "YaRN extends context through interpolation of RoPE", "type": "semantic"},
+            {
+                "fact": "YaRN extends context through interpolation of RoPE",
+                "type": "semantic",
+            },
         ],
     },
 ]
@@ -305,29 +413,27 @@ class BrowserAssistantDataset(DatasetProvider):
             )
 
             exact_facts = [
-                f["fact"] for f in task["expected_facts"]
-                if f["type"] == "exact"
+                f["fact"] for f in task["expected_facts"] if f["type"] == "exact"
             ]
             semantic_facts = [
-                f["fact"] for f in task["expected_facts"]
-                if f["type"] == "semantic"
+                f["fact"] for f in task["expected_facts"] if f["type"] == "semantic"
             ]
 
-            self._records.append(EvalRecord(
-                record_id=f"browser-assistant-{idx:03d}",
-                problem=prompt,
-                reference="; ".join(
-                    f["fact"] for f in task["expected_facts"]
-                ),
-                category="agentic",
-                subject=diff,
-                metadata={
-                    "question": task["question"],
-                    "expected_facts": task["expected_facts"],
-                    "exact_facts": exact_facts,
-                    "semantic_facts": semantic_facts,
-                },
-            ))
+            self._records.append(
+                EvalRecord(
+                    record_id=f"browser-assistant-{idx:03d}",
+                    problem=prompt,
+                    reference="; ".join(f["fact"] for f in task["expected_facts"]),
+                    category="agentic",
+                    subject=diff,
+                    metadata={
+                        "question": task["question"],
+                        "expected_facts": task["expected_facts"],
+                        "exact_facts": exact_facts,
+                        "semantic_facts": semantic_facts,
+                    },
+                )
+            )
 
     def iter_records(self) -> Iterable[EvalRecord]:
         return iter(self._records)

@@ -62,7 +62,8 @@ class DeepgramSpeechBackend(SpeechBackend):
             options = options_kwargs
 
         response = self._client.listen.rest.v("1").transcribe_file(
-            payload, options,
+            payload,
+            options,
         )
 
         # Extract transcript from response

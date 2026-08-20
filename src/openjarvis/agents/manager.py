@@ -7,12 +7,16 @@ to the five existing primitives (Intelligence, Agent, Tools, Engine, Learning).
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import time
 import uuid
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+
+from openjarvis.core.paths import get_config_dir
+
+logger = logging.getLogger(__name__)
 
 _CREATE_AGENTS = """\
 CREATE TABLE IF NOT EXISTS managed_agents (
@@ -84,13 +88,24 @@ CREATE TABLE IF NOT EXISTS agent_learning_log (
 );
 """
 
-_SUMMARY_MAX = 2000
+# Rolling summary fed back into the next tick's prompt, so it stays bounded —
+# but 2000 chars clipped real research reports mid-sentence (the findings the
+# UI/CLI show come from here). 16k (~4k tokens) holds a full report while
+# keeping per-tick prompt growth in check.
+_SUMMARY_MAX = 16000
 
 
 class AgentManager:
     """Persistent agent lifecycle manager with SQLite backing."""
 
-    def __init__(self, db_path: str) -> None:
+    # A tick that hasn't touched its DB row in this many seconds is treated
+    # as a zombie (its worker died without running end_tick). start_tick()
+    # will overtake such a lock instead of refusing forever. The executor
+    # bumps updated_at at start and on every tool/inference event, so a live
+    # tick stays well under this window.
+    _STALE_TICK_SECONDS = 600
+
+    def __init__(self, db_path: str, *, clear_stale_running: bool = False) -> None:
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
@@ -111,6 +126,11 @@ class AgentManager:
             "ALTER TABLE managed_agents ADD COLUMN last_run_at REAL",
             "ALTER TABLE managed_agents ADD COLUMN last_activity_at REAL",
             "ALTER TABLE managed_agents ADD COLUMN stall_retries INTEGER DEFAULT 0",
+            "ALTER TABLE managed_agents ADD COLUMN current_activity TEXT DEFAULT ''",
+            "ALTER TABLE managed_agents ADD COLUMN input_tokens INTEGER DEFAULT 0",
+            "ALTER TABLE managed_agents ADD COLUMN output_tokens INTEGER DEFAULT 0",
+            # JSON-encoded array of {tool, arguments, result, success, latency}
+            "ALTER TABLE agent_messages ADD COLUMN tool_calls TEXT",
         ]
         for migration in _MIGRATIONS:
             try:
@@ -118,6 +138,42 @@ class AgentManager:
             except sqlite3.OperationalError:
                 pass  # Column already exists
         self._conn.commit()
+        # Only the authoritative long-running process (the API server, which
+        # owns the scheduler) may sweep running→idle on boot. Short-lived CLI
+        # commands (`jarvis agents list/info/...`) and the SystemBuilder path
+        # used by `run`/`ask` MUST NOT: they share this DB with a server that
+        # may be mid-tick, and an unconditional sweep here flips an actively
+        # running agent back to "idle" — which is exactly why `list` reported
+        # "idle" while a tick was running elsewhere. Zombies left by a crashed
+        # worker are recovered lazily by start_tick()'s stale-lock overtake.
+        if clear_stale_running:
+            self._clear_stale_running_state()
+
+    def _clear_stale_running_state(self) -> None:
+        """Reset any agent stuck in ``status='running'`` on startup.
+
+        Tick worker threads are ``daemon=True`` — when the server process
+        exits (SIGTERM, crash, restart), they die without running the
+        ``finally`` clause that calls :meth:`end_tick`, leaving the DB row
+        in ``running`` forever. The :meth:`start_tick` guard then rejects
+        every subsequent run with "Agent is already running".
+
+        The server boot holds zero tick locks by definition, so any persisted
+        ``running`` is a zombie. Sweep it back to ``idle`` and clear the
+        activity string so the UI doesn't show a stale "Preparing tick..."
+        indicator. Call this only from a process that owns tick execution.
+        """
+        cur = self._conn.execute(
+            "UPDATE managed_agents SET status = 'idle', current_activity = '',"
+            " updated_at = ? WHERE status = 'running'",
+            (time.time(),),
+        )
+        self._conn.commit()
+        if cur.rowcount:
+            logger.info(
+                "AgentManager: cleared stale 'running' status on %d agent(s)",
+                cur.rowcount,
+            )
 
     def close(self) -> None:
         self._conn.close()
@@ -132,7 +188,17 @@ class AgentManager:
     ) -> Dict[str, Any]:
         agent_id = uuid.uuid4().hex[:12]
         now = time.time()
-        config_json = json.dumps(config or {})
+        # Pin the model the executor will actually use into the agent's config
+        # so the UI reflects what runs. Without this, config has no "model" and
+        # the executor silently falls back to _AGENT_TICK_DEFAULT_MODEL while
+        # the Overview shows a stale/default value. Lazy import avoids any
+        # import-order coupling with the executor module.
+        from openjarvis.agents.executor import _AGENT_TICK_DEFAULT_MODEL
+
+        config = dict(config or {})
+        if not config.get("model"):
+            config["model"] = _AGENT_TICK_DEFAULT_MODEL
+        config_json = json.dumps(config)
         self._conn.execute(
             "INSERT INTO managed_agents"
             " (id, name, agent_type, config_json,"
@@ -160,7 +226,7 @@ class AgentManager:
     def update_agent(self, agent_id: str, **kwargs: Any) -> Dict[str, Any]:
         sets: List[str] = []
         vals: List[Any] = []
-        for key in ("name", "agent_type", "status"):
+        for key in ("name", "agent_type", "status", "current_activity"):
             if key in kwargs:
                 sets.append(f"{key} = ?")
                 vals.append(kwargs[key])
@@ -181,6 +247,14 @@ class AgentManager:
         if total_tokens_increment:
             sets.append("total_tokens = total_tokens + ?")
             vals.append(total_tokens_increment)
+        input_tokens_increment = kwargs.get("input_tokens_increment", 0)
+        if input_tokens_increment:
+            sets.append("input_tokens = input_tokens + ?")
+            vals.append(input_tokens_increment)
+        output_tokens_increment = kwargs.get("output_tokens_increment", 0)
+        if output_tokens_increment:
+            sets.append("output_tokens = output_tokens + ?")
+            vals.append(output_tokens_increment)
         if "last_activity_at" in kwargs:
             sets.append("last_activity_at = ?")
             vals.append(kwargs["last_activity_at"])
@@ -215,14 +289,32 @@ class AgentManager:
     # ── Tick concurrency guard ────────────────────────────────────
 
     def start_tick(self, agent_id: str) -> None:
-        """Mark agent as running. Raises ValueError if already running."""
+        """Mark agent as running. Raises ValueError if already running.
+
+        A row that has been ``running`` longer than ``_STALE_TICK_SECONDS``
+        without any update is treated as a zombie left by a dead worker and
+        overtaken rather than refused — otherwise a crash with no server
+        around to sweep it would wedge the agent forever.
+        """
         agent = self.get_agent(agent_id)
         if agent and agent["status"] == "running":
-            raise ValueError(f"Agent {agent_id} is already executing a tick")
+            age = time.time() - (agent.get("updated_at") or 0)
+            if age < self._STALE_TICK_SECONDS:
+                raise ValueError(f"Agent {agent_id} is already executing a tick")
+            logger.warning(
+                "Agent %s: overtaking stale tick lock (running, idle for %.0fs)",
+                agent_id,
+                age,
+            )
         self._set_status(agent_id, "running")
 
     def end_tick(self, agent_id: str) -> None:
-        self._set_status(agent_id, "idle")
+        self._conn.execute(
+            "UPDATE managed_agents SET status = 'idle', "
+            "current_activity = '', updated_at = ? WHERE id = ?",
+            (time.time(), agent_id),
+        )
+        self._conn.commit()
 
     # ── Checkpoints ───────────────────────────────────────────────
 
@@ -446,7 +538,7 @@ class AgentManager:
             pass
 
         # User templates
-        user_dir = Path("~/.openjarvis/templates").expanduser()
+        user_dir = get_config_dir() / "templates"
         if user_dir.is_dir():
             for f in user_dir.glob("*.toml"):
                 try:
@@ -472,6 +564,15 @@ class AgentManager:
         if overrides:
             config.update(overrides)
         agent_type = config.pop("agent_type", "monitor_operative")
+
+        # Expand system_prompt_template with instruction
+        prompt_tpl = config.pop("system_prompt_template", "")
+        if prompt_tpl:
+            instruction = config.get("instruction", "")
+            config["system_prompt"] = prompt_tpl.format(
+                instruction=instruction or "(No specific instruction provided)",
+            )
+
         return self.create_agent(name=name, agent_type=agent_type, config=config)
 
     # ── Message queue ─────────────────────────────────────────────
@@ -496,15 +597,28 @@ class AgentManager:
             "created_at": now,
         }
 
-    def store_agent_response(self, agent_id: str, content: str) -> dict:
-        """Store an agent-to-user response message."""
+    def store_agent_response(
+        self,
+        agent_id: str,
+        content: str,
+        tool_calls: Optional[list] = None,
+    ) -> dict:
+        """Store an agent-to-user response message.
+
+        ``tool_calls`` is an optional list of ``{tool, arguments, result,
+        success, latency}`` dicts captured during the turn. They are stored
+        as JSON alongside the message so the UI can replay them after a
+        page reload.
+        """
         msg_id = uuid4().hex[:16]
         now = time.time()
+        tool_calls_json = json.dumps(tool_calls) if tool_calls else None
         self._conn.execute(
             "INSERT INTO agent_messages"
-            " (id, agent_id, direction, content, mode, status, created_at)"
-            " VALUES (?, ?, 'agent_to_user', ?, 'immediate', 'delivered', ?)",
-            (msg_id, agent_id, content, now),
+            " (id, agent_id, direction, content, mode, status, created_at,"
+            " tool_calls)"
+            " VALUES (?, ?, 'agent_to_user', ?, 'immediate', 'delivered', ?, ?)",
+            (msg_id, agent_id, content, now, tool_calls_json),
         )
         self._conn.commit()
         return {
@@ -515,6 +629,7 @@ class AgentManager:
             "mode": "immediate",
             "status": "delivered",
             "created_at": now,
+            "tool_calls": tool_calls or None,
         }
 
     def list_messages(self, agent_id: str, limit: int = 50) -> list[dict]:
@@ -563,6 +678,16 @@ class AgentManager:
 
     @staticmethod
     def _row_to_message(row: sqlite3.Row) -> dict:
+        tool_calls = None
+        try:
+            raw = row["tool_calls"]
+        except (IndexError, KeyError):
+            raw = None
+        if raw:
+            try:
+                tool_calls = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                tool_calls = None
         return {
             "id": row["id"],
             "agent_id": row["agent_id"],
@@ -571,6 +696,7 @@ class AgentManager:
             "mode": row["mode"],
             "status": row["status"],
             "created_at": row["created_at"],
+            "tool_calls": tool_calls,
         }
 
     # ── Learning log ──────────────────────────────────────────
@@ -638,6 +764,9 @@ class AgentManager:
             "last_run_at": row["last_run_at"],
             "last_activity_at": row["last_activity_at"],
             "stall_retries": row["stall_retries"] or 0,
+            "current_activity": row["current_activity"] or "",
+            "input_tokens": row["input_tokens"] or 0,
+            "output_tokens": row["output_tokens"] or 0,
         }
 
     @staticmethod

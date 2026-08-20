@@ -17,9 +17,9 @@ def _get_store() -> "SchedulerStore":  # noqa: F821
     from openjarvis.scheduler.store import SchedulerStore
 
     config = load_config()
-    db_path = getattr(
-        getattr(config, "scheduler", None), "db_path", None
-    ) or str(DEFAULT_CONFIG_DIR / "scheduler.db")
+    db_path = getattr(getattr(config, "scheduler", None), "db_path", None) or str(
+        DEFAULT_CONFIG_DIR / "scheduler.db"
+    )
     return SchedulerStore(db_path)
 
 
@@ -38,13 +38,15 @@ def scheduler() -> None:
 @scheduler.command("create")
 @click.argument("prompt")
 @click.option(
-    "--type", "schedule_type",
+    "--type",
+    "schedule_type",
     required=True,
     type=click.Choice(["cron", "interval", "once"]),
     help="Schedule type.",
 )
 @click.option(
-    "--value", "schedule_value",
+    "--value",
+    "schedule_value",
     required=True,
     help="Schedule value (cron expr, seconds, or ISO datetime).",
 )
@@ -82,7 +84,8 @@ def scheduler_create(
 
 @scheduler.command("list")
 @click.option(
-    "--status", default=None,
+    "--status",
+    default=None,
     type=click.Choice(["active", "paused", "completed", "cancelled"]),
     help="Filter by status.",
 )
@@ -197,14 +200,10 @@ def scheduler_logs(task_id: str, limit: int) -> None:
         table.add_column("Error", max_width=30)
 
         for log in logs:
-            success_str = (
-                "[green]yes[/green]" if log["success"] else "[red]no[/red]"
-            )
+            success_str = "[green]yes[/green]" if log["success"] else "[red]no[/red]"
             result_text = log["result"]
             result_short = (
-                (result_text[:37] + "...")
-                if len(result_text) > 40
-                else result_text
+                (result_text[:37] + "...") if len(result_text) > 40 else result_text
             )
             table.add_row(
                 str(log["id"]),
@@ -219,9 +218,88 @@ def scheduler_logs(task_id: str, limit: int) -> None:
         store.close()
 
 
+@scheduler.command("run-task")
+@click.argument("agent_name")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print what would run without executing.",
+)
+def scheduler_run_task(agent_name: str, dry_run: bool) -> None:
+    """Immediately execute the active task for AGENT_NAME.
+
+    Finds the first active scheduled task whose agent matches AGENT_NAME
+    and runs it right now — useful for testing and for launchd invocation
+    when OpenJarvis is not running as a persistent daemon.
+
+    Example (launchd plist ProgramArguments):
+        jarvis scheduler run-task proactive
+    """
+    console = Console()
+    store = _get_store()
+    try:
+        sched = _get_scheduler(store)
+        tasks = sched.list_tasks(status="active")
+        match = next((t for t in tasks if t.agent == agent_name), None)
+
+        if match is None:
+            console.print(
+                f"[yellow]No active task found for agent '{agent_name}'. "
+                "Register it first with 'jarvis scheduler create'.[/yellow]"
+            )
+            return
+
+        if dry_run:
+            console.print("[dim]Dry run — would execute:[/dim]")
+            console.print(f"  Task : {match.id}")
+            console.print(f"  Agent: {match.agent}")
+            console.print(f"  Prompt: {match.prompt[:80]}")
+            return
+
+        console.print(f"Running task [cyan]{match.id}[/cyan] (agent: {match.agent})…")
+
+        from openjarvis.core.config import load_config
+        from openjarvis.system import SystemBuilder
+
+        system = SystemBuilder(load_config()).build()
+        result = system.ask(match.prompt, agent=match.agent)
+
+        # Log the run result in the scheduler store
+        from datetime import datetime, timezone
+
+        if isinstance(result, (dict, list)):
+            import json as _json
+
+            result_str = _json.dumps(result, default=str)
+        else:
+            result_str = str(result) if result is not None else ""
+
+        now = datetime.now(timezone.utc).isoformat()
+        store.log_run(
+            task_id=match.id,
+            started_at=now,
+            finished_at=now,
+            success=True,
+            result=result_str,
+            error="",
+        )
+
+        console.print("[green]Done.[/green]")
+        if result:
+            console.print(result)
+    except Exception as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise SystemExit(1)
+    finally:
+        store.close()
+
+
 @scheduler.command("start")
 @click.option(
-    "--poll-interval", default=60, type=int,
+    "--poll-interval",
+    default=60,
+    type=int,
     help="Seconds between poll cycles.",
 )
 def scheduler_start(poll_interval: int) -> None:

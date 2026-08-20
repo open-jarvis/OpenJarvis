@@ -9,15 +9,16 @@ These are the areas where active development is happening and contributions are 
 - **Energy-aware routing** — using power consumption data from telemetry to optimize for energy efficiency alongside latency and quality
 - **Plugin ecosystem** — community-contributed engines, tools, and agents distributed as Python packages
 - **Federated memory** — memory backends that synchronize across devices
+- **LLM-guided spec search:** Frontier-driven harness learning — a frontier model analyzes your traces and proposes config improvements. See [user guide](../user-guide/llm-guided-spec-search.md) and [architecture](../architecture/learning.md#llm-guided-spec-search-frontier-driven-harness-learning).
 
 ---
 
 ## How to Get Involved
 
-1. Browse the workstreams below for items that interest you
-2. Look for **Ready** items and **good first issue** tags
-3. Find the matching [GitHub issue](https://github.com/open-jarvis/OpenJarvis/issues) and comment **"take"** to claim it — if no issue exists yet, [open one](https://github.com/open-jarvis/OpenJarvis/issues/new/choose) describing what you'd like to work on
-4. Read the [Contributing Guide](https://github.com/open-jarvis/OpenJarvis/blob/main/CONTRIBUTING.md) for the full development setup, PR process, and code conventions
+1. Browse the workstreams below for an item that interests you
+2. Check if a [GitHub issue](https://github.com/open-jarvis/OpenJarvis/issues) already exists for it — if not, [open one](https://github.com/open-jarvis/OpenJarvis/issues/new/choose)
+3. Comment **"take"** on the issue to get auto-assigned
+4. Read the [Contributing Guide](https://github.com/open-jarvis/OpenJarvis/blob/main/CONTRIBUTING.md) for development setup and PR process
 
 ---
 
@@ -56,19 +57,25 @@ Operators are OpenJarvis's key differentiator — persistent, scheduled, statefu
 
 ### Workstream 2: Mobile & Messaging Clients
 
-Personal AI must be accessible from the devices people actually carry. OpenJarvis runs on laptops, workstations, and servers — users interact via their phones. Channels bridge that gap. Today, WhatsApp (Baileys), Slack, and Telegram are bidirectional; iMessage is send-only; Android SMS does not exist.
+Personal AI must be accessible from the devices people actually carry. OpenJarvis runs on laptops, workstations, and servers — users interact via their phones.
+
+**Currently supported:**
+
+- **iMessage + SMS** via SendBlue — bidirectional, auto-detects iMessage vs SMS, thread replies, progress updates
+- **Slack** via Socket Mode (slack-bolt) — bidirectional DMs, thread replies, Slack formatting, progress updates
+- **Desktop/Browser** — Interact tab with real-time streaming, tool progress, telemetry footer
 
 #### Where you can help
 
 | Item | Maturity | Details |
 |------|----------|---------|
-| iMessage bidirectional via BlueBubbles | **Ready** | Current implementation is send-only. Add webhook/polling listener for incoming messages using the BlueBubbles API. **Good first issue.** |
-| WhatsApp Baileys media support | **Ready** | Currently text-only. Add image, audio, and file handling to the Node.js bridge and Python channel. **Good first issue.** |
-| Slack rich messages | **Ready** | Current implementation is plain text. Add Slack Block Kit support for formatted responses, buttons, and attachments. |
-| Android SMS via Twilio/Vonage | **Design Needed** | No SMS implementation exists. Requires provider selection, two-way webhook architecture, and phone number provisioning flow. |
+| WhatsApp via Meta Cloud API | **Design Needed** | Baileys protocol is blocked by WhatsApp (405 errors). Need to implement via the official Meta WhatsApp Business API. Requires Meta Business account registration. |
+| WhatsApp via Baileys (workaround) | **Blocked** | WhatsApp is actively blocking unofficial Baileys connections (405 Method Not Allowed). Monitor the [Baileys repo](https://github.com/WhiskeySockets/Baileys) for protocol updates. |
+| Slack rich messages (Block Kit) | **Ready** | Current Slack responses use mrkdwn formatting. Add Block Kit support for structured responses with buttons, sections, and attachments. **Good first issue.** |
 | Unified notification system | **Design Needed** | Push notifications when operators complete tasks or need user attention. Requires per-channel notification adapters. |
 | Signal bidirectional | **Design Needed** | Currently send-only via signal-cli REST API. Add incoming message listener with background polling. |
 | Voice interface | **Research-Stage** | Speech-to-text (Whisper) → agent → text-to-speech loop over phone channels. Existing `speech/` module provides a foundation. |
+| Auto-restore channels on restart | **Ready** | Slack daemon and SendBlue auto-restore from saved bindings on server restart. Need to make this more robust for edge cases. |
 
 ---
 

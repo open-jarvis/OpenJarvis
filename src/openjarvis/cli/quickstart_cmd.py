@@ -106,8 +106,7 @@ def quickstart(force: bool) -> None:
     console.print("[bold cyan][2/5][/bold cyan] Writing config...")
     if DEFAULT_CONFIG_PATH.exists() and not force:
         console.print(
-            f"  [dim]Config already exists at"
-            f" {DEFAULT_CONFIG_PATH} (skip)[/dim]"
+            f"  [dim]Config already exists at {DEFAULT_CONFIG_PATH} (skip)[/dim]"
         )
     else:
         toml_content = generate_default_toml(hw)
@@ -144,7 +143,7 @@ def quickstart(force: bool) -> None:
     if not _check_model_available(active_engine):
         console.print("  [yellow]No models found.[/yellow]")
         console.print(
-            "  Pull a model first (e.g. [bold]ollama pull qwen3.5:3b[/bold])."
+            "  Pull a model first (e.g. [bold]ollama pull qwen3.5:2b[/bold])."
         )
         raise SystemExit(1)
     console.print("  [green]Models available.[/green]")
@@ -157,6 +156,5 @@ def quickstart(force: bool) -> None:
 
     console.print()
     console.print(
-        '[bold green]Setup complete![/bold green]'
-        ' Try: [bold]jarvis ask "Hello"[/bold]'
+        '[bold green]Setup complete![/bold green] Try: [bold]jarvis ask "Hello"[/bold]'
     )

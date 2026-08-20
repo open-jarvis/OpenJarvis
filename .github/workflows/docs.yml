@@ -28,25 +28,45 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8.0.0
 
       - name: Install dependencies
         run: uv sync --extra docs
+
+      # Inject the public Supabase anon key so the savings leaderboard works on
+      # the published docs site. Missing/empty (e.g. fork PRs) leaves the
+      # leaderboard gracefully disabled. The key is read from env (not inlined)
+      # and JSON-encoded into a JS string literal to avoid any injection.
+      - name: Inject leaderboard Supabase anon key
+        env:
+          OPENJARVIS_LEADERBOARD_ANON: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+
+          key = os.environ.get("OPENJARVIS_LEADERBOARD_ANON", "")
+          pathlib.Path("docs/javascripts/leaderboard-config.js").write_text(
+              "// Generated at docs-build time from the VITE_SUPABASE_ANON_KEY secret.\n"
+              "window.OPENJARVIS_SUPABASE_ANON_KEY = " + json.dumps(key) + ";\n",
+              encoding="utf-8",
+          )
+          print("leaderboard anon key:", "set" if key else "empty (leaderboard disabled)")
+          PY
 
       - name: Build documentation
         run: uv run mkdocs build
 
       - name: Upload artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5.0.0
         with:
           path: site/
 
@@ -60,4 +80,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
