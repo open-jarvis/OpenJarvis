@@ -173,9 +173,7 @@ class TestMiniMaxGenerate:
         )
         engine._minimax_client = fake_client
 
-        result = engine.generate(
-            [Message(role=Role.USER, content="Hi")], model=model
-        )
+        result = engine.generate([Message(role=Role.USER, content="Hi")], model=model)
 
         assert result["content"] == "I am MiniMax M2.5"
         assert result["model"] == model
@@ -329,9 +327,7 @@ class TestMiniMaxPricing:
 
     def test_catalog_matches_official_context_windows(self) -> None:
         specs = {
-            spec.model_id: spec
-            for spec in BUILTIN_MODELS
-            if spec.provider == "minimax"
+            spec.model_id: spec for spec in BUILTIN_MODELS if spec.provider == "minimax"
         }
         assert specs["MiniMax-M3"].context_length == 1_000_000
         for model_id in (
