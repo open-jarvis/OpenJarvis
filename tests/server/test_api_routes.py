@@ -121,14 +121,11 @@ class TestBudgetRoutes:
 
 class TestMetricsRoute:
     def test_metrics_endpoint(self, tmp_path, monkeypatch):
-        """Regression for #792: /metrics has three valid response states
-        (Prometheus output, "No metrics available" for a reachable-but-
-        empty store, or "no telemetry data" when no telemetry.db exists
-        at all), but the old assertion only covered two of them. Pin
-        DEFAULT_CONFIG_DIR to an empty directory so this deterministically
-        exercises the third state instead of depending on whether the
-        machine running the test happens to already have telemetry data
-        under its real ~/.openjarvis.
+        """An isolated empty config dir returns the exact no-data response.
+
+        Pinning ``DEFAULT_CONFIG_DIR`` keeps the test independent of the
+        machine's real telemetry database and makes any other response a
+        regression rather than accepting all possible production states.
         """
         import openjarvis.core.config as config_mod
 
@@ -137,11 +134,8 @@ class TestMetricsRoute:
         client = TestClient(_make_app())
         resp = client.get("/metrics")
         assert resp.status_code == 200
-        assert (
-            "openjarvis" in resp.text
-            or "No metrics" in resp.text
-            or "no telemetry data" in resp.text
-        )
+        assert resp.text == "# no telemetry data\n"
+        assert resp.headers["content-type"].startswith("text/plain")
 
 
 class TestSkillRoutes:
