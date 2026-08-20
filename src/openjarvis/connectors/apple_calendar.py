@@ -89,7 +89,9 @@ SELECT
     0 AS is_occurrence
 """
 
-_EVENTS_QUERY = _EVENT_COLUMNS + """\
+_EVENTS_QUERY = (
+    _EVENT_COLUMNS
+    + """\
 FROM CalendarItem ci
 JOIN Calendar c ON ci.calendar_id = c.ROWID
 WHERE ci.start_date BETWEEN ? AND ?
@@ -97,8 +99,11 @@ WHERE ci.start_date BETWEEN ? AND ?
   AND ci.hidden = 0
 ORDER BY ci.start_date ASC
 """
+)
 
-_EVENTS_WITH_OCCURRENCES_QUERY = _EVENT_COLUMNS + """\
+_EVENTS_WITH_OCCURRENCES_QUERY = (
+    _EVENT_COLUMNS
+    + """\
 FROM CalendarItem ci
 JOIN Calendar c ON ci.calendar_id = c.ROWID
 WHERE ci.start_date BETWEEN ? AND ?
@@ -129,6 +134,7 @@ WHERE oc.occurrence_end_date >= ?
   AND ci.hidden = 0
 ORDER BY start_date ASC
 """
+)
 
 _LOCATION_QUERY = """\
 SELECT title, address FROM Location WHERE ROWID = ?
@@ -207,8 +213,19 @@ class AppleCalendarConnector(BaseConnector):
 
     def _build_content(self, row: tuple, location: str) -> str:
         (
-            _rowid, summary, description, start_ts, end_ts, all_day,
-            start_tz, _loc_id, has_attendees, _last_mod, _uuid, cal_title, _color,
+            _rowid,
+            summary,
+            description,
+            start_ts,
+            end_ts,
+            all_day,
+            start_tz,
+            _loc_id,
+            has_attendees,
+            _last_mod,
+            _uuid,
+            cal_title,
+            _color,
             _is_occurrence,
         ) = row
 
@@ -305,9 +322,20 @@ class AppleCalendarConnector(BaseConnector):
 
             for row in rows:
                 (
-                    rowid, summary, description, start_date, end_date, all_day,
-                    start_tz, loc_id, has_attendees, last_mod, uuid,
-                    cal_title, color, is_occurrence,
+                    rowid,
+                    summary,
+                    description,
+                    start_date,
+                    end_date,
+                    all_day,
+                    start_tz,
+                    loc_id,
+                    has_attendees,
+                    last_mod,
+                    uuid,
+                    cal_title,
+                    color,
+                    is_occurrence,
                 ) = row
 
                 timestamp = _apple_ts(last_mod) if last_mod else _apple_ts(start_date)
