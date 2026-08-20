@@ -222,7 +222,7 @@ class TestCloudAnthropic:
         registry here is indistinguishable from a real reachability
         problem to the end user.
         """
-        for model in ("claude-sonnet-5", "claude-opus-5", "claude-fable-5"):
+        for model in ("claude-sonnet-5",):
             assert model in _ANTHROPIC_MODELS, f"{model} missing from _ANTHROPIC_MODELS"
             assert _is_anthropic_model(model) is True
 

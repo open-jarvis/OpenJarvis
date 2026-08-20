@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
 
 import pytest
@@ -81,6 +82,7 @@ def hermetic_connectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     conn_dir.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(config_mod, "DEFAULT_CONFIG_DIR", tmp_path)
+    monkeypatch.setenv("OPENJARVIS_OAUTH_CALLBACK_BASE_URL", "http://127.0.0.1:8765")
     monkeypatch.setattr(oauth_mod, "_CONNECTORS_DIR", conn_dir)
     monkeypatch.setattr(
         oauth_mod, "_SHARED_GOOGLE_CREDENTIALS_PATH", str(conn_dir / "google.json")
@@ -89,6 +91,7 @@ def hermetic_connectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     # Force the connector modules to re-derive their default paths from the
     # patched DEFAULT_CONFIG_DIR now, before any request, and register them so
     # the router's lazy reload-on-empty-registry path is a no-op.
+    ConnectorRegistry.clear()
     google_mods = [
         "openjarvis.connectors.gdrive",
         "openjarvis.connectors.gcalendar",
@@ -278,6 +281,25 @@ def test_oauth_start_without_creds_returns_400(client: TestClient) -> None:
     assert "client credentials" in resp.json()["detail"].lower()
 
 
+def test_oauth_start_requires_configured_base_for_non_loopback_host(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Do not let a hostile Host header select a public redirect URI."""
+    client.post("/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR})
+    monkeypatch.delenv("OPENJARVIS_OAUTH_CALLBACK_BASE_URL")
+    response = client.get("/v1/connectors/gdrive/oauth/start", follow_redirects=False)
+    assert response.status_code == 400
+    assert "callback" in response.json()["detail"].lower()
+
+
+def _start_state(client: TestClient) -> str:
+    response = client.get("/v1/connectors/gdrive/oauth/start", follow_redirects=False)
+    assert response.status_code in {302, 307}
+    state = parse_qs(urlparse(response.headers["location"]).query).get("state", [""])[0]
+    assert len(state) >= 32
+    return state
+
+
 # ---------------------------------------------------------------------------
 # Defect C-2 — GET /oauth/callback must exchange + persist (was 500 on None)
 # ---------------------------------------------------------------------------
@@ -289,6 +311,7 @@ def test_oauth_callback_exchanges_and_connects(
     import openjarvis.connectors.oauth as oauth_mod
 
     client.post("/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR})
+    state = _start_state(client)
 
     fake_tokens = {
         "access_token": "ya29.REAL",
@@ -297,7 +320,7 @@ def test_oauth_callback_exchanges_and_connects(
         "expires_in": 3600,
     }
     with patch.object(oauth_mod, "_exchange_token", return_value=fake_tokens) as ex:
-        resp = client.get("/v1/connectors/gdrive/oauth/callback?code=authcode123")
+        resp = client.get(f"/v1/connectors/gdrive/oauth/callback?code=authcode123&state={state}")
 
     assert resp.status_code == 200, resp.text
     assert "Connected!" in resp.text
@@ -320,7 +343,9 @@ def test_oauth_callback_exchanges_and_connects(
 
 
 def test_oauth_callback_error_param_renders_failure(client: TestClient) -> None:
-    resp = client.get("/v1/connectors/gdrive/oauth/callback?error=access_denied")
+    client.post("/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR})
+    state = _start_state(client)
+    resp = client.get(f"/v1/connectors/gdrive/oauth/callback?error=access_denied&state={state}")
     assert resp.status_code == 400
     assert "access_denied" in resp.text
 
@@ -331,12 +356,37 @@ def test_oauth_callback_exchange_failure_renders_error(
     import openjarvis.connectors.oauth as oauth_mod
 
     client.post("/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR})
+    state = _start_state(client)
 
     def _boom(*_a: Any, **_k: Any) -> dict[str, Any]:
         raise RuntimeError("token endpoint 400")
 
     with patch.object(oauth_mod, "_exchange_token", side_effect=_boom):
-        resp = client.get("/v1/connectors/gdrive/oauth/callback?code=bad")
+        resp = client.get(f"/v1/connectors/gdrive/oauth/callback?code=bad&state={state}")
 
     assert resp.status_code == 500
     assert "Token Exchange Failed" in resp.text
+
+
+def test_oauth_callback_rejects_missing_or_reused_state(client: TestClient) -> None:
+    """A public callback cannot be used to attach an unsolicited OAuth login."""
+    client.post("/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR})
+    state = _start_state(client)
+    missing = client.get("/v1/connectors/gdrive/oauth/callback?code=untrusted")
+    assert missing.status_code == 400
+    with patch("openjarvis.connectors.oauth._exchange_token", return_value={"access_token": "ok"}):
+        first = client.get(f"/v1/connectors/gdrive/oauth/callback?code=ok&state={state}")
+    assert first.status_code == 200
+    reused = client.get(f"/v1/connectors/gdrive/oauth/callback?code=again&state={state}")
+    assert reused.status_code == 400
+
+
+def test_oauth_callback_escapes_provider_error(client: TestClient) -> None:
+    client.post("/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR})
+    state = _start_state(client)
+    response = client.get(
+        f"/v1/connectors/gdrive/oauth/callback?state={state}&error=%3Cscript%3Ealert(1)%3C%2Fscript%3E"
+    )
+    assert response.status_code == 400
+    assert "<script>alert(1)</script>" not in response.text
+    assert "&lt;script&gt;" in response.text

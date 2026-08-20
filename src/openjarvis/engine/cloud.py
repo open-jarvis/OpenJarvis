@@ -48,9 +48,9 @@ PRICING: Dict[str, tuple[float, float]] = {
     "gemini-3.1-flash-lite-preview": (0.30, 2.50),
     "gemini-3-flash-preview": (0.50, 3.00),
     "claude-haiku-4-5-20251001": (1.00, 5.00),
-    "claude-sonnet-5": (3.00, 15.00),
-    "claude-opus-5": (15.00, 75.00),
-    "claude-fable-5": (3.00, 15.00),
+    # Introductory API price through 2026-08-31.  Source: Anthropic's
+    # Sonnet 5 announcement (standard price becomes $3/$15 afterwards).
+    "claude-sonnet-5": (2.00, 10.00),
     "MiniMax-M2.7": (0.30, 1.20),
     "MiniMax-M2.7-highspeed": (0.60, 2.40),
     "MiniMax-M2.5": (0.30, 1.20),
@@ -77,8 +77,6 @@ _ANTHROPIC_MODELS = [
     "claude-haiku-4-5",
     "claude-haiku-4-5-20251001",
     "claude-sonnet-5",
-    "claude-opus-5",
-    "claude-fable-5",
 ]
 _GOOGLE_MODELS = [
     "gemini-2.5-pro",

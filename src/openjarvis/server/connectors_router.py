@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import logging
+import os
+import secrets
+import time
+from html import escape
 from typing import TYPE_CHECKING, Any, Dict, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 # ``Request`` must be importable at *module* scope so that FastAPI can resolve
 # the stringized ``request: Request`` annotations on the OAuth endpoints below.
@@ -25,6 +30,14 @@ logger = logging.getLogger(__name__)
 
 # Module-level cache of connector instances (keyed by connector_id).
 _instances: Dict[str, Any] = {}
+
+# OAuth callbacks deliberately bypass API-key authentication because an OAuth
+# provider cannot send our bearer header.  Bind each authorization request to
+# a short-lived, single-use state value so that exemption cannot be used for
+# login CSRF.  This process-local store is appropriate for the local desktop
+# server; deployments with multiple workers must use a shared session store.
+_oauth_states: Dict[str, Dict[str, Any]] = {}
+_OAUTH_STATE_TTL_SECONDS = 600
 
 
 def _ensure_connectors_registered() -> None:
@@ -122,25 +135,73 @@ def create_connectors_router():
             _instances[connector_id] = cls()
         return _instances[connector_id]
 
-    def _build_oauth_callback_url(request: Request, connector_id: str) -> str:
+    def _build_oauth_callback_url(request: Request, connector_id: str) -> Optional[str]:
         """Build this server's own OAuth callback URL for *connector_id*.
 
-        Built dynamically from the incoming request's own base_url (the
-        server's actual port isn't known statically) rather than any
-        per-provider config, so this is the single source of truth GET
-        /oauth/start and the connector-detail endpoint's oauth_setup must
-        both call -- they used to compute this independently and drifted.
-
-        Normalises a "localhost" host to the explicit loopback IP
+        A deployed server must set ``OPENJARVIS_OAUTH_CALLBACK_BASE_URL``;
+        accepting an arbitrary Host header there would turn the callback into
+        an attacker-controlled redirect URI.  The only safe fallback is the
+        local desktop server's loopback request.  It normalises "localhost"
+        to the explicit loopback IP
         127.0.0.1: providers increasingly reject "localhost" outright
         (Spotify enforces this for every app created after April 2025,
         requiring an explicit loopback IP literal instead) even though the
         two are equivalent for local traffic, and the frontend happens to
         reach this API via "http://localhost:<port>".
         """
-        base = str(request.base_url).rstrip("/")
-        base = base.replace("://localhost", "://127.0.0.1", 1)
+        configured = os.environ.get("OPENJARVIS_OAUTH_CALLBACK_BASE_URL", "").strip()
+        base = configured or str(request.base_url).rstrip("/")
+        parsed = urlsplit(base)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return None
+        if configured and (parsed.query or parsed.fragment or parsed.username or parsed.password):
+            return None
+        host = parsed.hostname or ""
+        if not configured and host not in {"localhost", "127.0.0.1", "::1"}:
+            return None
+        if host == "localhost":
+            netloc = parsed.netloc.replace("localhost", "127.0.0.1", 1)
+            parsed = parsed._replace(netloc=netloc)
+        base = urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
         return f"{base}/v1/connectors/{connector_id}/oauth/callback"
+
+    def _create_oauth_state(connector_id: str, provider_name: str, redirect_uri: str) -> str:
+        now = time.monotonic()
+        for key, value in list(_oauth_states.items()):
+            if value["expires_at"] <= now:
+                _oauth_states.pop(key, None)
+        state = secrets.token_urlsafe(32)
+        _oauth_states[state] = {
+            "connector_id": connector_id,
+            "provider_name": provider_name,
+            "redirect_uri": redirect_uri,
+            "expires_at": now + _OAUTH_STATE_TTL_SECONDS,
+        }
+        return state
+
+    def _consume_oauth_state(state: str, connector_id: str, provider_name: str) -> Optional[Dict[str, Any]]:
+        saved = _oauth_states.pop(state, None)
+        if not saved or saved["expires_at"] <= time.monotonic():
+            return None
+        if not secrets.compare_digest(saved["connector_id"], connector_id):
+            return None
+        if not secrets.compare_digest(saved["provider_name"], provider_name):
+            return None
+        return saved
+
+    def _oauth_html(title: str, message: str, *, status_code: int = 200) -> Any:
+        from fastapi.responses import HTMLResponse
+
+        style = "font-family:system-ui;text-align:center;padding:60px"
+        color = "#22c55e" if status_code < 400 else "#ef4444"
+        return HTMLResponse(
+            content=(
+                f"<html><body style='{style}'><h2 style='color:{color}'>"
+                f"{escape(title)}</h2><p>{escape(message)}</p>"
+                "<script>setTimeout(()=>window.close(),3000)</script></body></html>"
+            ),
+            status_code=status_code,
+        )
 
     def _connector_summary(connector_id: str, instance: Any) -> Dict[str, Any]:
         """Build the dict returned by GET /connectors."""
@@ -393,7 +454,7 @@ def create_connectors_router():
                     "provider": provider.name,
                     "setup_url": provider.setup_url,
                     "setup_hint": provider.setup_hint,
-                    "redirect_uri": redirect_uri,
+                    "redirect_uri": redirect_uri or "",
                     "has_credentials": has_creds,
                 }
         except Exception:
@@ -564,12 +625,19 @@ def create_connectors_router():
 
         client_id, _ = creds
         callback_url = _build_oauth_callback_url(request, connector_id)
+        if not callback_url:
+            raise HTTPException(
+                400,
+                "Configure OPENJARVIS_OAUTH_CALLBACK_BASE_URL to a trusted absolute callback base URL",
+            )
+        state = _create_oauth_state(connector_id, provider.name, callback_url)
 
         params = {
             "client_id": client_id,
             "redirect_uri": callback_url,
             "response_type": "code",
             "scope": " ".join(provider.scopes),
+            "state": state,
             **provider.extra_auth_params,
         }
         auth_url = f"{provider.auth_endpoint}?{urlencode(params)}"
@@ -584,10 +652,9 @@ def create_connectors_router():
         request: Request,
         code: str = "",
         error: str = "",
+        state: str = "",
     ):
         """Handle OAuth callback from the provider."""
-        from fastapi.responses import HTMLResponse
-
         from openjarvis.connectors.oauth import (
             _CONNECTORS_DIR,
             _exchange_token,
@@ -598,48 +665,37 @@ def create_connectors_router():
 
         _ensure_connectors_registered()
 
-        if error:
-            _style = "font-family:system-ui;text-align:center;padding:60px"
-            return HTMLResponse(
-                content=(
-                    f"<html><body style='{_style}'>"
-                    f"<h2 style='color:#ef4444'>Authorization Failed</h2>"
-                    f"<p>{error}</p>"
-                    "<script>setTimeout(()=>window.close(),3000)</script>"
-                    "</body></html>"
-                ),
-                status_code=400,
-            )
-
-        if not code:
-            raise HTTPException(400, "Missing authorization code")
-
         provider = get_provider_for_connector(connector_id)
         if not provider:
             raise HTTPException(400, f"No OAuth provider for '{connector_id}'")
+
+        saved_state = _consume_oauth_state(state, connector_id, provider.name) if state else None
+        if not saved_state:
+            return _oauth_html(
+                "Authorization Failed",
+                "The sign-in request is missing, expired, or has already been used. Start the connection again.",
+                status_code=400,
+            )
+
+        if error:
+            return _oauth_html("Authorization Failed", error, status_code=400)
+
+        if not code:
+            return _oauth_html("Authorization Failed", "Missing authorization code", status_code=400)
 
         creds = get_client_credentials(provider)
         if not creds:
             raise HTTPException(400, "No client credentials configured")
 
         client_id, client_secret = creds
-        redirect_uri = _build_oauth_callback_url(request, connector_id)
+        redirect_uri = saved_state["redirect_uri"]
 
         try:
             tokens = _exchange_token(
                 provider, code, client_id, client_secret, redirect_uri
             )
         except Exception as exc:
-            _style = "font-family:system-ui;text-align:center;padding:60px"
-            return HTMLResponse(
-                content=(
-                    f"<html><body style='{_style}'>"
-                    f"<h2 style='color:#ef4444'>Token Exchange Failed</h2>"
-                    f"<p>{exc}</p>"
-                    "</body></html>"
-                ),
-                status_code=500,
-            )
+            return _oauth_html("Token Exchange Failed", str(exc), status_code=500)
 
         payload = {
             "access_token": tokens.get("access_token", ""),
@@ -656,16 +712,7 @@ def create_connectors_router():
         # Clear cached instance so it picks up new credentials
         _instances.pop(connector_id, None)
 
-        _style = "font-family:system-ui;text-align:center;padding:60px"
-        return HTMLResponse(
-            content=(
-                f"<html><body style='{_style}'>"
-                "<h2 style='color:#22c55e'>Connected!</h2>"
-                "<p>You can close this tab and return to OpenJarvis.</p>"
-                "<script>setTimeout(()=>window.close(),2000)</script>"
-                "</body></html>"
-            )
-        )
+        return _oauth_html("Connected!", "You can close this tab and return to OpenJarvis.")
 
     @router.post("/{connector_id}/sync")
     def trigger_sync(connector_id: str) -> Dict[str, Any]:
