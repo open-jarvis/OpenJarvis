@@ -208,14 +208,6 @@ def create_app(
             "https://tauri.localhost",
         ]
     )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
     # Store dependencies in app state
     app.state.engine = engine
     app.state.model = model
@@ -456,6 +448,18 @@ def create_app(
             app.add_middleware(AuthMiddleware, api_key=api_key)
         except Exception as exc:
             logger.debug("Auth middleware init skipped: %s", exc)
+
+    # Register CORS last so it is the outermost middleware. In addition to
+    # handling preflights, this ensures browser clients can read 401 responses
+    # produced directly by AuthMiddleware instead of seeing an opaque CORS
+    # network error.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # Mount webhook routes (always — SendBlue may be configured dynamically)
     if webhook_config:

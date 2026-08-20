@@ -120,12 +120,21 @@ class TestBudgetRoutes:
 
 
 class TestMetricsRoute:
-    def test_metrics_endpoint(self, monkeypatch, tmp_path):
-        monkeypatch.setattr("openjarvis.core.config.DEFAULT_CONFIG_DIR", tmp_path)
+    def test_metrics_endpoint(self, tmp_path, monkeypatch):
+        """An isolated empty config dir returns the exact no-data response.
+
+        Pinning ``DEFAULT_CONFIG_DIR`` keeps the test independent of the
+        machine's real telemetry database and makes any other response a
+        regression rather than accepting all possible production states.
+        """
+        import openjarvis.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "DEFAULT_CONFIG_DIR", tmp_path)
         client = TestClient(_make_app())
         resp = client.get("/metrics")
         assert resp.status_code == 200
         assert resp.text == "# no telemetry data\n"
+        assert resp.headers["content-type"].startswith("text/plain")
 
 
 class TestSkillRoutes:
