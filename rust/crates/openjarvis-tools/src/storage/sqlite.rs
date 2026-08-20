@@ -94,6 +94,57 @@ impl SQLiteMemory {
     pub fn in_memory() -> Result<Self, OpenJarvisError> {
         Self::new(Path::new(":memory:"))
     }
+
+    /// Atomically replace every document for *source* with *documents*.
+    pub fn replace_source(
+        &self,
+        source: &str,
+        documents: &[(&str, Option<&Value>)],
+    ) -> Result<Vec<String>, OpenJarvisError> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction().map_err(|e| {
+            OpenJarvisError::Io(std::io::Error::other(e.to_string()))
+        })?;
+
+        tx.execute(
+            "DELETE FROM documents_fts
+             WHERE rowid IN (SELECT rowid FROM documents WHERE source = ?1)",
+            rusqlite::params![source],
+        )
+        .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+        tx.execute(
+            "DELETE FROM documents WHERE source = ?1",
+            rusqlite::params![source],
+        )
+        .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+
+        let mut doc_ids = Vec::with_capacity(documents.len());
+        for (content, metadata) in documents {
+            let doc_id = Uuid::new_v4().to_string();
+            let meta_str = metadata
+                .map(|m| serde_json::to_string(m).unwrap_or_default())
+                .unwrap_or_else(|| "{}".to_string());
+
+            tx.execute(
+                "INSERT INTO documents (id, content, source, metadata)
+                 VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![doc_id, content, source, meta_str],
+            )
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+
+            let rowid = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO documents_fts (rowid, content, source) VALUES (?1, ?2, ?3)",
+                rusqlite::params![rowid, content, source],
+            )
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+            doc_ids.push(doc_id);
+        }
+
+        tx.commit()
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+        Ok(doc_ids)
+    }
 }
 
 impl MemoryBackend for SQLiteMemory {
@@ -304,6 +355,40 @@ mod tests {
         assert_eq!(mem.count().unwrap(), 2);
         mem.clear().unwrap();
         assert_eq!(mem.count().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_sqlite_replace_source_is_idempotent() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+
+        mem.replace_source("notes.txt", &[("old project notes", None)])
+            .unwrap();
+        assert_eq!(mem.count().unwrap(), 1);
+
+        mem.replace_source("notes.txt", &[("updated project notes", None)])
+            .unwrap();
+        assert_eq!(mem.count().unwrap(), 1);
+
+        assert!(mem.retrieve("old", 5).unwrap().is_empty());
+        let updated = mem.retrieve("updated", 5).unwrap();
+        assert_eq!(updated.len(), 1);
+        assert_eq!(updated[0].source, "notes.txt");
+    }
+
+    #[test]
+    fn test_sqlite_replace_source_preserves_other_sources() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+        mem.store("keep this manual", "manual.txt", None).unwrap();
+        mem.replace_source("notes.txt", &[("old project notes", None)])
+            .unwrap();
+
+        mem.replace_source("notes.txt", &[("updated project notes", None)])
+            .unwrap();
+
+        assert_eq!(mem.count().unwrap(), 2);
+        let manual = mem.retrieve("manual", 5).unwrap();
+        assert_eq!(manual.len(), 1);
+        assert_eq!(manual[0].source, "manual.txt");
     }
 
     #[test]

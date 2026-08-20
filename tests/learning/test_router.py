@@ -88,12 +88,24 @@ class TestHeuristicRouter:
         router = HeuristicRouter(
             available_models=["small", "large", "coder"],
         )
-        ctx = RoutingContext(
-            query="solve x",
-            query_length=7,
-            has_math=True,
-        )
+        ctx = build_routing_context("solve the integral of x^2 dx")
+        assert ctx.has_math is True
+        assert ctx.complexity_score > 0.20
         assert router.select_model(ctx) == "large"
+
+    def test_low_complexity_math_prefers_small(self) -> None:
+        """Regression test: a trivial math query ("calculate 2+2") must not
+        escalate to the largest model just because it contains a math
+        keyword — the low-complexity rule takes priority over the math rule.
+        """
+        _register_models()
+        router = HeuristicRouter(
+            available_models=["small", "large", "coder"],
+        )
+        ctx = build_routing_context("calculate 2+2")
+        assert ctx.has_math is True
+        assert ctx.complexity_score == 0.20
+        assert router.select_model(ctx) == "small"
 
     def test_high_complexity_prefers_large(self) -> None:
         _register_models()

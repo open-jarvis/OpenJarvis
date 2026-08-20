@@ -147,6 +147,7 @@ export interface ConversationStore {
 // --- Stream State ---
 
 export interface StreamState {
+  conversationId: string | null;
   isStreaming: boolean;
   phase: string;
   elapsedMs: number;

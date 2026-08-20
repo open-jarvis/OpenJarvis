@@ -4,27 +4,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any, Optional
 
 from openjarvis.core.events import EventBus
-from openjarvis.security._stubs import BaseScanner
-from openjarvis.security.audit import AuditLogger
-from openjarvis.security.file_policy import (
-    DEFAULT_SENSITIVE_PATTERNS,
-    filter_sensitive_paths,
-    is_sensitive_file,
-)
-from openjarvis.security.guardrails import GuardrailsEngine, SecurityBlockError
-from openjarvis.security.scanner import PIIScanner, SecretScanner
-from openjarvis.security.ssrf import check_ssrf, is_private_ip
-from openjarvis.security.types import (
-    RedactionMode,
-    ScanFinding,
-    ScanResult,
-    SecurityEvent,
-    SecurityEventType,
-    ThreatLevel,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +32,12 @@ def setup_security(
     """
     if not config.security.enabled:
         return SecurityContext(engine=engine)
+
+    from openjarvis.security._stubs import BaseScanner
+    from openjarvis.security.audit import AuditLogger
+    from openjarvis.security.guardrails import GuardrailsEngine
+    from openjarvis.security.scanner import PIIScanner, SecretScanner
+    from openjarvis.security.types import RedactionMode
 
     # Scanners + engine wrapping
     try:
@@ -121,3 +110,46 @@ __all__ = [
     "is_sensitive_file",
     "setup_security",
 ]
+
+_LAZY_EXPORTS = {
+    "AuditLogger": ("openjarvis.security.audit", "AuditLogger"),
+    "BaseScanner": ("openjarvis.security._stubs", "BaseScanner"),
+    "DEFAULT_SENSITIVE_PATTERNS": (
+        "openjarvis.security.file_policy",
+        "DEFAULT_SENSITIVE_PATTERNS",
+    ),
+    "GuardrailsEngine": ("openjarvis.security.guardrails", "GuardrailsEngine"),
+    "PIIScanner": ("openjarvis.security.scanner", "PIIScanner"),
+    "RedactionMode": ("openjarvis.security.types", "RedactionMode"),
+    "ScanFinding": ("openjarvis.security.types", "ScanFinding"),
+    "ScanResult": ("openjarvis.security.types", "ScanResult"),
+    "SecretScanner": ("openjarvis.security.scanner", "SecretScanner"),
+    "SecurityBlockError": (
+        "openjarvis.security.guardrails",
+        "SecurityBlockError",
+    ),
+    "SecurityEvent": ("openjarvis.security.types", "SecurityEvent"),
+    "SecurityEventType": ("openjarvis.security.types", "SecurityEventType"),
+    "ThreatLevel": ("openjarvis.security.types", "ThreatLevel"),
+    "check_ssrf": ("openjarvis.security.ssrf", "check_ssrf"),
+    "filter_sensitive_paths": (
+        "openjarvis.security.file_policy",
+        "filter_sensitive_paths",
+    ),
+    "is_private_ip": ("openjarvis.security.ssrf", "is_private_ip"),
+    "is_sensitive_file": ("openjarvis.security.file_policy", "is_sensitive_file"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attribute = target
+    value = getattr(import_module(module_name), attribute)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))

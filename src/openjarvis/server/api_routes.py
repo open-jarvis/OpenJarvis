@@ -667,14 +667,15 @@ async def websocket_chat_stream(websocket: WebSocket):
         {"type": "done",  "content": "..."}   -- final assembled response
         {"type": "error", "detail": "..."}    -- on failure
     """
-    from openjarvis.server.auth_middleware import websocket_authorized
+    from openjarvis.server.auth_middleware import authenticate_websocket
 
     expected_key = getattr(websocket.app.state, "api_key", "")
-    if not websocket_authorized(websocket, expected_key):
-        # 1008 = policy violation; reject before accepting the connection.
+    authorized, subprotocol = authenticate_websocket(websocket, expected_key)
+    if not authorized:
+        # Closing before accept rejects the HTTP upgrade request.
         await websocket.close(code=1008)
         return
-    await websocket.accept()
+    await websocket.accept(subprotocol=subprotocol)
     try:
         while True:
             raw = await websocket.receive_text()
@@ -1087,12 +1088,16 @@ def include_all_routes(app) -> None:
     except ImportError:
         pass
 
-    # WebSocket bridge for real-time agent events
+    # WebSocket bridge for real-time agent events. Must subscribe on the
+    # same EventBus instance channels/agents actually publish to
+    # (app.state.bus, set in server/app.py) — the get_event_bus() global
+    # singleton is a *different* bus that nothing in `jarvis serve` ever
+    # publishes to, so events silently never reached this endpoint.
     try:
         from openjarvis.core.events import get_event_bus
         from openjarvis.server.ws_bridge import create_ws_router
 
-        ws_router = create_ws_router(get_event_bus())
+        ws_router = create_ws_router(getattr(app.state, "bus", None) or get_event_bus())
         app.include_router(ws_router)
     except Exception:
         logger.debug("WebSocket bridge not available", exc_info=True)

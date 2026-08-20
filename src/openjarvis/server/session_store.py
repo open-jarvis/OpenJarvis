@@ -25,9 +25,11 @@ class SessionStore:
     def __init__(self, db_path: str = "") -> None:
         if not db_path:
             db_path = str(get_config_dir() / "sessions.db")
-        from openjarvis.security.file_utils import secure_create
+        # Ensure the parent directory exists (skip for :memory:)
+        if db_path != ":memory:":
+            from openjarvis.security.file_utils import secure_create
 
-        secure_create(Path(db_path))
+            secure_create(Path(db_path))
         self._db = sqlite3.connect(db_path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._create_tables()
