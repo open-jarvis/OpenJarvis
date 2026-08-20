@@ -95,6 +95,9 @@ def test_kokoro_lang_for_voice_english_and_other_languages():
     assert KokoroTTSBackend._lang_for_voice("am_adam") == "a"
     assert KokoroTTSBackend._lang_for_voice("bf_emma") == "b"
     assert KokoroTTSBackend._lang_for_voice("jf_alpha") == "j"
+    # Kokoro 0.9.x has no Korean KPipeline language code. Do not route a
+    # catalog-style Korean voice ID to an unsupported ``lang_code='k'``.
+    assert KokoroTTSBackend._lang_for_voice("kf_example") == "a"
 
 
 def test_kokoro_lang_for_voice_unknown_falls_back_to_english():
@@ -132,11 +135,18 @@ def test_kokoro_missing_chinese_deps_gives_actionable_error(monkeypatch):
     from openjarvis.speech.kokoro_tts import KokoroTTSBackend
 
     class FakeKPipeline:
-        def __init__(self, lang_code):
+        def __init__(self, lang_code, model):
             # Mimic what happens inside Kokoro when misaki.zh can't import.
             raise ImportError("No module named 'ordered_set'")
 
-    fake_kokoro = types.SimpleNamespace(KPipeline=FakeKPipeline)
+    class FakeKModel:
+        def to(self, _device):
+            return self
+
+        def eval(self):
+            return self
+
+    fake_kokoro = types.SimpleNamespace(KModel=FakeKModel, KPipeline=FakeKPipeline)
     monkeypatch.setitem(sys.modules, "kokoro", fake_kokoro)
 
     backend = KokoroTTSBackend()
@@ -156,11 +166,22 @@ def test_kokoro_pipeline_cached_per_language(monkeypatch):
 
     init_calls = []
 
-    class FakeKPipeline:
-        def __init__(self, lang_code):
-            init_calls.append(lang_code)
+    class FakeKModel:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
 
-    fake_kokoro = types.SimpleNamespace(KPipeline=FakeKPipeline)
+        def to(self, _device):
+            return self
+
+        def eval(self):
+            return self
+
+    class FakeKPipeline:
+        def __init__(self, lang_code, model):
+            init_calls.append(lang_code)
+            self.model = model
+
+    fake_kokoro = types.SimpleNamespace(KModel=FakeKModel, KPipeline=FakeKPipeline)
     monkeypatch.setitem(sys.modules, "kokoro", fake_kokoro)
 
     backend = KokoroTTSBackend()
@@ -183,15 +204,22 @@ def test_kokoro_pipeline_cache_is_thread_safe(monkeypatch):
 
     init_calls = []
 
+    class FakeKModel:
+        def to(self, _device):
+            return self
+
+        def eval(self):
+            return self
+
     class FakeKPipeline:
-        def __init__(self, lang_code):
+        def __init__(self, lang_code, model):
             init_calls.append(lang_code)
             time.sleep(0.02)
 
     monkeypatch.setitem(
         sys.modules,
         "kokoro",
-        types.SimpleNamespace(KPipeline=FakeKPipeline),
+        types.SimpleNamespace(KModel=FakeKModel, KPipeline=FakeKPipeline),
     )
     backend = KokoroTTSBackend()
     pipelines = []
@@ -219,8 +247,15 @@ def test_kokoro_pipeline_cache_evicts_lru_and_cleans_up(monkeypatch):
 
     instances = {}
 
+    class FakeKModel:
+        def to(self, _device):
+            return self
+
+        def eval(self):
+            return self
+
     class FakeKPipeline:
-        def __init__(self, lang_code):
+        def __init__(self, lang_code, model):
             self.closed = False
             instances[lang_code] = self
 
@@ -230,7 +265,7 @@ def test_kokoro_pipeline_cache_evicts_lru_and_cleans_up(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         "kokoro",
-        types.SimpleNamespace(KPipeline=FakeKPipeline),
+        types.SimpleNamespace(KModel=FakeKModel, KPipeline=FakeKPipeline),
     )
     backend = KokoroTTSBackend(max_cached_pipelines=2)
 
@@ -272,15 +307,24 @@ def test_kokoro_synthesize_routes_voice_to_correct_language(monkeypatch):
     init_args = []
     call_args = []
 
+    class FakeKModel:
+        def to(self, device):
+            self.device = device
+            return self
+
+        def eval(self):
+            return self
+
     class FakeKPipeline:
-        def __init__(self, lang_code):
+        def __init__(self, lang_code, model):
             init_args.append(lang_code)
+            self.model = model
 
         def __call__(self, text, voice, speed):
             call_args.append({"text": text, "voice": voice, "speed": speed})
             yield (None, None, np.zeros(2400, dtype=np.float32))
 
-    fake_kokoro = types.SimpleNamespace(KPipeline=FakeKPipeline)
+    fake_kokoro = types.SimpleNamespace(KModel=FakeKModel, KPipeline=FakeKPipeline)
     monkeypatch.setitem(sys.modules, "kokoro", fake_kokoro)
 
     # ``soundfile`` is a kokoro-runtime dep; stub it so we can test the
@@ -302,6 +346,47 @@ def test_kokoro_synthesize_routes_voice_to_correct_language(monkeypatch):
     assert result.metadata["backend"] == "kokoro"
     assert result.format == "wav"
     assert len(result.audio) > 0
+
+
+def test_kokoro_reuses_model_and_honors_path_and_device(monkeypatch):
+    """All language pipelines share the configured model instance."""
+    import sys
+    import types
+
+    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    model_inits = []
+    model_devices = []
+    pipeline_models = []
+
+    class FakeKModel:
+        def __init__(self, **kwargs):
+            model_inits.append(kwargs)
+
+        def to(self, device):
+            model_devices.append(device)
+            return self
+
+        def eval(self):
+            return self
+
+    class FakeKPipeline:
+        def __init__(self, lang_code, model):
+            pipeline_models.append((lang_code, model))
+
+    monkeypatch.setitem(
+        sys.modules,
+        "kokoro",
+        types.SimpleNamespace(KModel=FakeKModel, KPipeline=FakeKPipeline),
+    )
+
+    backend = KokoroTTSBackend(model_path="/models/kokoro.pth", device="cpu")
+    backend._ensure_pipeline("a")
+    backend._ensure_pipeline("z")
+
+    assert model_inits == [{"model": "/models/kokoro.pth"}]
+    assert model_devices == ["cpu"]
+    assert pipeline_models[0][1] is pipeline_models[1][1]
 
 
 # ---------------------------------------------------------------------------

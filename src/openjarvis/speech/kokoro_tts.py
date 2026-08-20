@@ -21,14 +21,14 @@ from typing import Any, Dict, List
 from openjarvis.core.registry import TTSRegistry
 from openjarvis.speech.tts import TTSBackend, TTSResult
 
-# Kokoro's voice-prefix → ``lang_code`` mapping. Each lang_code spins up
-# a separate KPipeline; pipelines are cached for the backend's lifetime.
+# Kokoro's voice-prefix → ``lang_code`` mapping. Keep this in sync with
+# ``kokoro.pipeline.LANG_CODES``: Kokoro 0.9.x does not expose a Korean
+# pipeline, even though Korean voice files have appeared in some catalogs.
 _VOICE_PREFIX_TO_LANG: Dict[str, str] = {
     "a": "a",  # American English
     "b": "b",  # British English
     "z": "z",  # Mandarin Chinese
     "j": "j",  # Japanese
-    "k": "k",  # Korean
     "f": "f",  # French
     "i": "i",  # Italian
     "p": "p",  # Brazilian Portuguese
@@ -58,6 +58,7 @@ class KokoroTTSBackend(TTSBackend):
         self._model_path = model_path
         self._device = device
         self._max_cached_pipelines = max_cached_pipelines
+        self._model: Any | None = None
         self._pipelines: OrderedDict[str, Any] = OrderedDict()
         # Pipeline creation and inference are both guarded: KPipeline is not
         # documented as thread-safe, and an LRU entry must not be evicted and
@@ -91,7 +92,9 @@ class KokoroTTSBackend(TTSBackend):
                     "kokoro package not installed. Install with: pip install kokoro"
                 ) from exc
             try:
-                pipeline = KPipeline(lang_code=lang_code)
+                # KModel is language-blind and is by far the heaviest part of
+                # Kokoro. Reuse one model across every language pipeline.
+                pipeline = KPipeline(lang_code=lang_code, model=self._ensure_model())
             except ImportError as exc:
                 # Kokoro loads language-specific G2P resources at init time and
                 # several languages need extra dependencies that aren't pulled in
@@ -103,7 +106,6 @@ class KokoroTTSBackend(TTSBackend):
                 hints = {
                     "z": 'pip install "misaki[zh]"',
                     "j": 'pip install "misaki[ja]"',
-                    "k": 'pip install "misaki[ko]"',
                 }
                 hint = hints.get(
                     lang_code,
@@ -119,6 +121,45 @@ class KokoroTTSBackend(TTSBackend):
                 _, evicted = self._pipelines.popitem(last=False)
                 self._cleanup_pipeline(evicted)
             return pipeline
+
+    def _ensure_model(self) -> Any:
+        """Load the configured Kokoro model once and move it to the device."""
+        if self._model is not None:
+            return self._model
+
+        try:
+            from kokoro import KModel
+        except ImportError as exc:
+            raise RuntimeError(
+                "kokoro package not installed. Install with: pip install kokoro"
+            ) from exc
+
+        device = self._device
+        if device == "auto":
+            # A real Kokoro install always brings torch. Keeping this fallback
+            # makes dependency probes and lightweight mocked tests graceful.
+            try:
+                import torch
+            except ImportError:
+                device = "cpu"
+            else:
+                if torch.cuda.is_available():
+                    device = "cuda"
+                elif getattr(torch.backends, "mps", None) is not None and (
+                    torch.backends.mps.is_available()
+                ):
+                    device = "mps"
+                else:
+                    device = "cpu"
+
+        model_kwargs = {"model": self._model_path} if self._model_path else {}
+        try:
+            self._model = KModel(**model_kwargs).to(device).eval()
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"Failed to initialize Kokoro on device {device!r}: {exc}"
+            ) from exc
+        return self._model
 
     @staticmethod
     def _cleanup_pipeline(pipeline: Any) -> None:
@@ -137,6 +178,7 @@ class KokoroTTSBackend(TTSBackend):
             self._pipelines.clear()
             for pipeline in pipelines:
                 self._cleanup_pipeline(pipeline)
+            self._model = None
 
     def synthesize(
         self,
