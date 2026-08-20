@@ -44,7 +44,7 @@ jobs:
             libdbus-1-dev
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -243,7 +243,7 @@ jobs:
           workspaces: 'frontend/src-tauri -> target'
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
