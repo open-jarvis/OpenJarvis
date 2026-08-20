@@ -117,11 +117,7 @@ def _validate_feed_url(url: str) -> _FeedTarget:
         if ":" in connection_hostname
         else connection_hostname
     )
-    host_header = (
-        displayed_host
-        if port == default_port
-        else f"{displayed_host}:{port}"
-    )
+    host_header = displayed_host if port == default_port else f"{displayed_host}:{port}"
     request_target = parsed.path or "/"
     if parsed.query:
         request_target = f"{request_target}?{parsed.query}"
@@ -199,9 +195,7 @@ def _request_feed(url: str, target: _FeedTarget) -> httpx.Response:
             raw_response = connection.getresponse()
             body = raw_response.read(_MAX_FEED_BYTES + 1)
             if len(body) > _MAX_FEED_BYTES:
-                raise ValueError(
-                    f"RSS feed exceeded {_MAX_FEED_BYTES} response bytes"
-                )
+                raise ValueError(f"RSS feed exceeded {_MAX_FEED_BYTES} response bytes")
             return httpx.Response(
                 raw_response.status,
                 headers=raw_response.getheaders(),

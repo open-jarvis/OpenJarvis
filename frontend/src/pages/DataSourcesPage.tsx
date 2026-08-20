@@ -24,7 +24,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
-import { listConnectors, connectSource, disconnectSource, getConnector, getSyncStatus, triggerSync, startServerOAuth } from '../lib/connectors-api';
+import { listConnectors, connectSource, disconnectSourceUntilComplete, getConnector, getSyncStatus, triggerSync, startServerOAuth } from '../lib/connectors-api';
 import type { SyncStatus, OAuthSetupInfo } from '../types/connectors';
 
 // ---------------------------------------------------------------------------
@@ -34,10 +34,12 @@ import type { SyncStatus, OAuthSetupInfo } from '../types/connectors';
 function InlineConnectForm({
   fields,
   loading,
+  disabled = false,
   onSubmit,
 }: {
   fields: Array<{ name: string; placeholder: string; type?: string }>;
   loading: boolean;
+  disabled?: boolean;
   onSubmit: (req: ConnectRequest) => void;
 }) {
   const [inputs, setInputs] = useState<Record<string, string>>({});
@@ -46,6 +48,7 @@ function InlineConnectForm({
     setInputs((p) => ({ ...p, [name]: value }));
 
   const allFilled = fields.every((f) => inputs[f.name]?.trim());
+  const submitDisabled = loading || disabled || !allFilled;
 
   const submit = () => {
     const req: ConnectRequest = {};
@@ -85,12 +88,13 @@ function InlineConnectForm({
       ))}
       <button
         onClick={submit}
-        disabled={loading || !allFilled}
+        disabled={submitDisabled}
         style={{
           width: '100%', padding: 8,
-          background: loading || !allFilled ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
+          background: submitDisabled ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
           color: 'var(--color-on-accent)', border: 'none',
-          borderRadius: 6, fontSize: 12, cursor: 'pointer',
+          borderRadius: 6, fontSize: 12,
+          cursor: submitDisabled ? 'default' : 'pointer',
         }}
       >
         Connect
@@ -114,6 +118,7 @@ function GenericConnectPanel({
   displayName,
   authType,
   loading,
+  disabled = false,
   onConnect,
   onOAuthStart,
 }: {
@@ -121,6 +126,7 @@ function GenericConnectPanel({
   displayName: string;
   authType: string;
   loading: boolean;
+  disabled?: boolean;
   onConnect: (req: ConnectRequest) => void;
   onOAuthStart: () => void;
 }) {
@@ -161,8 +167,8 @@ function GenericConnectPanel({
           />
           <button
             onClick={() => onConnect({ config: { feeds } })}
-            disabled={loading || feeds.length === 0}
-            style={{ width: '100%', padding: 8, background: loading || feeds.length === 0 ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)', color: 'var(--color-on-accent)', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}
+            disabled={loading || disabled || feeds.length === 0}
+            style={{ width: '100%', padding: 8, background: loading || disabled || feeds.length === 0 ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)', color: 'var(--color-on-accent)', border: 'none', borderRadius: 6, fontSize: 12, cursor: loading || disabled || feeds.length === 0 ? 'default' : 'pointer' }}
           >
             {loading ? 'Connecting...' : 'Save feeds'}
           </button>
@@ -177,12 +183,13 @@ function GenericConnectPanel({
         </div>
         <button
           onClick={() => onConnect({})}
-          disabled={loading}
+          disabled={loading || disabled}
           style={{
             width: '100%', padding: 8,
-            background: loading ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
+            background: loading || disabled ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
             color: 'var(--color-on-accent)', border: 'none',
-            borderRadius: 6, fontSize: 12, cursor: 'pointer',
+            borderRadius: 6, fontSize: 12,
+            cursor: loading || disabled ? 'default' : 'pointer',
           }}
         >
           {loading ? 'Connecting...' : `Connect ${displayName}`}
@@ -205,6 +212,7 @@ function GenericConnectPanel({
               ]
             : [{ name: 'token', placeholder: `${displayName} API token`, type: 'password' }]}
           loading={loading}
+          disabled={disabled}
           onSubmit={onConnect}
         />
       </div>
@@ -221,12 +229,13 @@ function GenericConnectPanel({
         </div>
         <button
           onClick={onOAuthStart}
-          disabled={loading}
+          disabled={loading || disabled}
           style={{
             width: '100%', padding: 8,
-            background: loading ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
+            background: loading || disabled ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
             color: 'var(--color-on-accent)', border: 'none',
-            borderRadius: 6, fontSize: 12, cursor: 'pointer',
+            borderRadius: 6, fontSize: 12,
+            cursor: loading || disabled ? 'default' : 'pointer',
           }}
         >
           {loading ? 'Connecting...' : `Continue with ${oauthSetup.provider || displayName}`}
@@ -266,6 +275,7 @@ function GenericConnectPanel({
           { name: 'password', placeholder: 'Client Secret', type: 'password' },
         ]}
         loading={loading}
+        disabled={disabled}
         onSubmit={onConnect}
       />
     </div>
@@ -501,9 +511,11 @@ function metaFor(connectorId: string) {
 // because the Gmail card is the only one with a dual-flow shape.
 function GmailOAuthAdvanced({
   loading,
+  disabled = false,
   onConnect,
 }: {
   loading: boolean;
+  disabled?: boolean;
   onConnect: (req: ConnectRequest) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -512,13 +524,15 @@ function GmailOAuthAdvanced({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        disabled={disabled}
         style={{
           background: 'transparent',
           border: 'none',
           padding: 0,
           fontSize: 11,
           color: 'var(--color-text-tertiary)',
-          cursor: 'pointer',
+          cursor: disabled ? 'default' : 'pointer',
+          opacity: disabled ? 0.5 : 1,
           textDecoration: 'underline',
         }}
       >
@@ -553,6 +567,7 @@ function GmailOAuthAdvanced({
               { name: 'password', placeholder: 'Client Secret', type: 'password' },
             ]}
             loading={loading}
+            disabled={disabled}
             onSubmit={onConnect}
           />
         </div>
@@ -600,23 +615,26 @@ function formatBacklogRange(iso: string | null | undefined): string | null {
   return `past ${years} year${years === 1 ? '' : 's'}`;
 }
 
-function SyncStatusDisplay({
+export function SyncStatusDisplay({
   chunks,
   sync,
   unitLabel,
   connectorId,
+  disabled = false,
   onSyncTriggered,
 }: {
   chunks: number;
   sync: SyncStatus | undefined;
   unitLabel: string;
   connectorId: string;
+  disabled?: boolean;
   onSyncTriggered: () => void;
 }) {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState('');
 
   const handleSync = async () => {
+    if (disabled || sync?.state === 'stopping') return;
     setSyncing(true);
     setSyncError('');
     try {
@@ -629,6 +647,22 @@ function SyncStatusDisplay({
     }
   };
 
+  // Disconnect cleanup only begins after the active sync worker exits. Keep
+  // every competing lifecycle action unavailable while the backend reports
+  // this transitional state; the disconnect handler retries automatically.
+  if (sync?.state === 'stopping') {
+    return (
+      <div>
+        <div style={{ fontSize: 12, color: 'var(--color-warning)', marginBottom: 4 }}>
+          Disconnect pending — waiting for the active sync to stop.
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--color-text-tertiary)' }}>
+          Indexed data will be cleaned up before this source disconnects.
+        </div>
+      </div>
+    );
+  }
+
   // Error state
   if (sync?.error) {
     return (
@@ -638,13 +672,13 @@ function SyncStatusDisplay({
         </div>
         <button
           onClick={handleSync}
-          disabled={syncing}
+          disabled={syncing || disabled}
           style={{
             fontSize: 10, padding: '2px 10px',
             background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
             border: 'none', borderRadius: 3,
-            cursor: 'pointer', fontWeight: 600,
-            opacity: syncing ? 0.5 : 1,
+            cursor: syncing || disabled ? 'default' : 'pointer', fontWeight: 600,
+            opacity: syncing || disabled ? 0.5 : 1,
           }}
         >{syncing ? 'Retrying...' : 'Retry Sync'}</button>
       </div>
@@ -713,13 +747,15 @@ function SyncStatusDisplay({
           </span>
           <button
             onClick={handleSync}
-            disabled={syncing}
+            disabled={syncing || disabled}
             style={{
               fontSize: 9, padding: '1px 6px',
               background: 'transparent',
               color: 'var(--color-text-tertiary)',
               border: '1px solid var(--color-border)',
-              borderRadius: 3, cursor: 'pointer',
+              borderRadius: 3,
+              cursor: syncing || disabled ? 'default' : 'pointer',
+              opacity: syncing || disabled ? 0.5 : 1,
             }}
           >{syncing ? '...' : 'Re-sync'}</button>
         </div>
@@ -744,13 +780,13 @@ function SyncStatusDisplay({
         </span>
         <button
           onClick={handleSync}
-          disabled={syncing}
+          disabled={syncing || disabled}
           style={{
             fontSize: 10, padding: '2px 10px',
             background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
             border: 'none', borderRadius: 3,
-            cursor: 'pointer', fontWeight: 600,
-            opacity: syncing ? 0.5 : 1,
+            cursor: syncing || disabled ? 'default' : 'pointer', fontWeight: 600,
+            opacity: syncing || disabled ? 0.5 : 1,
           }}
         >{syncing ? 'Syncing...' : hasSynced ? 'Re-sync' : 'Sync Now'}</button>
       </div>
@@ -776,21 +812,25 @@ function DataSourcesSection() {
   const [syncStatuses, setSyncStatuses] = useState<Record<string, SyncStatus>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
+  const [disconnectError, setDisconnectError] = useState<{ id: string; message: string } | null>(null);
+  const disconnectAbortRef = useRef<AbortController | null>(null);
 
-  const loadConnectors = useCallback(() => {
-    listConnectors()
-      .then((list) =>
-        setCachedConnectors(
-          list.map((c) => ({
-            connector_id: c.connector_id,
-            display_name: c.display_name,
-            connected: c.connected,
-            chunks: (c as any).chunks || 0,
-            auth_type: c.auth_type,
-          })),
-        ),
-      )
-      .catch(() => {});
+  const loadConnectors = useCallback(async () => {
+    try {
+      const list = await listConnectors();
+      setCachedConnectors(
+        list.map((c) => ({
+          connector_id: c.connector_id,
+          display_name: c.display_name,
+          connected: c.connected,
+          chunks: (c as any).chunks || 0,
+          auth_type: c.auth_type,
+        })),
+      );
+    } catch {
+      // The periodic refresh will try again.
+    }
   }, [setCachedConnectors]);
 
   const setConnectors = setCachedConnectors;
@@ -810,8 +850,8 @@ function DataSourcesSection() {
   }, [connectors]);
 
   useEffect(() => {
-    loadConnectors();
-    const interval = setInterval(loadConnectors, 10000);
+    void loadConnectors();
+    const interval = setInterval(() => void loadConnectors(), 10000);
     return () => clearInterval(interval);
   }, [loadConnectors]);
 
@@ -826,23 +866,59 @@ function DataSourcesSection() {
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connectStage, setConnectStage] = useState<string>('');
   const [connectError, setConnectError] = useState<string>('');
-  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
+
+  useEffect(() => () => disconnectAbortRef.current?.abort(), []);
 
   const handleDisconnect = async (id: string) => {
-    if (disconnectingId) return;
+    if (disconnectAbortRef.current || loading) return;
+    const controller = new AbortController();
+    disconnectAbortRef.current = controller;
     setDisconnectingId(id);
+    setDisconnectError(null);
     try {
-      await disconnectSource(id);
-      loadConnectors();
-    } catch {
-      // Surface failures silently — the connector list will refresh on the
-      // next poll and reflect the true state regardless.
+      await disconnectSourceUntilComplete(id, {
+        signal: controller.signal,
+        onPending: () => {
+          setSyncStatuses((prev) => {
+            const current = prev[id];
+            return {
+              ...prev,
+              [id]: {
+                state: 'stopping',
+                items_synced: current?.items_synced ?? 0,
+                items_total: current?.items_total ?? 0,
+                new_items_synced: current?.new_items_synced ?? null,
+                oldest_item_date: current?.oldest_item_date ?? null,
+                last_sync: current?.last_sync ?? null,
+                error: null,
+              },
+            };
+          });
+        },
+      });
+      setSyncStatuses((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      await loadConnectors();
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        setDisconnectError({
+          id,
+          message: err instanceof Error ? err.message : 'Disconnect failed',
+        });
+      }
     } finally {
-      setDisconnectingId(null);
+      if (disconnectAbortRef.current === controller) {
+        disconnectAbortRef.current = null;
+        setDisconnectingId(null);
+      }
     }
   };
 
   const handleConnect = async (id: string, req: ConnectRequest | null) => {
+    if (loading || disconnectAbortRef.current) return;
     setLoading(true);
     setConnectingId(id);
     setConnectStage('Connecting...');
@@ -937,6 +1013,7 @@ function DataSourcesSection() {
   const notConnected = notConnectedBase.some((c) => c.connector_id === 'upload')
     ? notConnectedBase
     : [...notConnectedBase, uploadEntry];
+  const connectorActionsBusy = loading || disconnectingId !== null;
 
   if (isFirstLoad) {
     return (
@@ -1001,12 +1078,18 @@ function DataSourcesSection() {
                       sync={sync}
                       unitLabel={unit}
                       connectorId={c.connector_id}
+                      disabled={connectorActionsBusy}
                       onSyncTriggered={loadConnectors}
                     />
+                    {disconnectError?.id === c.connector_id && (
+                      <div style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 4 }}>
+                        Disconnect failed: {disconnectError.message}
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={() => handleDisconnect(c.connector_id)}
-                    disabled={disconnectingId === c.connector_id}
+                    disabled={connectorActionsBusy}
                     className="hud-label"
                     style={{
                       padding: '6px 12px',
@@ -1014,12 +1097,14 @@ function DataSourcesSection() {
                       color: 'var(--color-text-secondary)',
                       border: '1px solid var(--color-border)',
                       borderRadius: 4,
-                      cursor: disconnectingId === c.connector_id ? 'default' : 'pointer',
+                      cursor: connectorActionsBusy ? 'default' : 'pointer',
                       letterSpacing: '0.15em',
-                      opacity: disconnectingId === c.connector_id ? 0.5 : 1,
+                      opacity: connectorActionsBusy ? 0.5 : 1,
                     }}
                   >
-                    {disconnectingId === c.connector_id ? 'Disconnecting…' : 'Disconnect'}
+                    {disconnectingId === c.connector_id
+                      ? sync?.state === 'stopping' ? 'Cleaning up…' : 'Disconnecting…'
+                      : sync?.state === 'stopping' ? 'Finish disconnect' : 'Disconnect'}
                   </button>
                 </div>
               </div>
@@ -1113,12 +1198,14 @@ function DataSourcesSection() {
                       <InlineConnectForm
                         fields={meta.inputFields}
                         loading={loading && connectingId === c.connector_id}
+                        disabled={connectorActionsBusy}
                         onSubmit={(req) => handleConnect(c.connector_id, req)}
                       />
                     )}
                     {c.connector_id === 'gmail_imap' && (
                       <GmailOAuthAdvanced
                         loading={loading && connectingId === 'gmail'}
+                        disabled={connectorActionsBusy}
                         onConnect={(req) => handleConnect('gmail', req)}
                       />
                     )}
@@ -1179,6 +1266,7 @@ function DataSourcesSection() {
                       displayName={meta?.display_name ?? c.display_name}
                       authType={c.auth_type || 'oauth'}
                       loading={loading && connectingId === c.connector_id}
+                      disabled={connectorActionsBusy}
                       onConnect={(req) => handleConnect(c.connector_id, req)}
                       onOAuthStart={() => handleConnect(c.connector_id, null)}
                     />

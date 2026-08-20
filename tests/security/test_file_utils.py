@@ -18,9 +18,7 @@ def test_secure_write_json_is_owner_only(tmp_path: Path) -> None:
 
     secure_write_json(path, {"access_token": "secret"})
 
-    assert json.loads(path.read_text(encoding="utf-8")) == {
-        "access_token": "secret"
-    }
+    assert json.loads(path.read_text(encoding="utf-8")) == {"access_token": "secret"}
     if os.name != "nt":
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
@@ -40,7 +38,5 @@ def test_secure_write_json_preserves_old_file_when_replace_fails(
     ):
         secure_write_json(path, {"access_token": "new"})
 
-    assert json.loads(path.read_text(encoding="utf-8")) == {
-        "access_token": "old"
-    }
+    assert json.loads(path.read_text(encoding="utf-8")) == {"access_token": "old"}
     assert list(tmp_path.glob(".credentials.json.*.tmp")) == []

@@ -41,7 +41,7 @@ export interface ConnectorInfo {
 }
 
 export interface SyncStatus {
-  state: "idle" | "syncing" | "paused" | "error";
+  state: "idle" | "syncing" | "stopping" | "paused" | "error";
   items_synced: number;
   items_total: number;
   /** Items processed in the current (or most recent) run only. `null`

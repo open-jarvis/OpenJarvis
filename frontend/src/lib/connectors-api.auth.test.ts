@@ -95,6 +95,51 @@ describe('connectors-api sends the Bearer auth header', () => {
     expect(authHeaderSent()).toBe('Bearer sk-local-123');
   });
 
+  it('disconnectSource surfaces a 409 with its actionable backend detail', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: "Sync for 'gmail' is still stopping; indexed content was not purged",
+        }),
+        {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+    const { ConnectorApiError, disconnectSource } = await freshConnectorsApi();
+
+    await expect(disconnectSource('gmail')).rejects.toEqual(
+      expect.objectContaining({
+        name: ConnectorApiError.name,
+        status: 409,
+        message: expect.stringContaining('still stopping'),
+      }),
+    );
+  });
+
+  it('keeps a pending disconnect active and retries until cleanup succeeds', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: 'Sync is still stopping' }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(okJson({ status: 'disconnected' }));
+    const onPending = vi.fn();
+    const { disconnectSourceUntilComplete } = await freshConnectorsApi();
+
+    await disconnectSourceUntilComplete('gmail', {
+      retryDelayMs: 0,
+      onPending,
+    });
+
+    expect(onPending).toHaveBeenCalledOnce();
+    expect(onPending).toHaveBeenCalledWith('Sync is still stopping');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('getSyncStatus', async () => {
     fetchMock.mockResolvedValue(okJson({}));
     const { getSyncStatus } = await freshConnectorsApi();

@@ -298,9 +298,7 @@ def test_fetch_feed_rejects_private_answer_after_initial_ssrf_check():
             "openjarvis.connectors.news_rss.socket.getaddrinfo",
             return_value=private_answer,
         ),
-        patch(
-            "openjarvis.connectors.news_rss._PinnedHTTPConnection"
-        ) as connection,
+        patch("openjarvis.connectors.news_rss._PinnedHTTPConnection") as connection,
         pytest.raises(ValueError, match="non-public IP"),
     ):
         _fetch_feed("http://feeds.example/rss.xml")
