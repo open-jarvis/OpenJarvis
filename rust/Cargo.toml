@@ -49,7 +49,7 @@ meval = "0.2"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 tokio-stream = "0.1"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "3", features = ["rand_core"] }
 fnmatch-regex = "0.2"
 url = "2"
 sysinfo = "0.33"
