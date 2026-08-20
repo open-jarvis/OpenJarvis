@@ -289,6 +289,26 @@ class TestDisconnectStopsRealListener:
         assert ch._loop is None
         assert ch.status() == ChannelStatus.DISCONNECTED
 
+    def test_disconnect_is_serialized_with_connect_lifecycle(self):
+        """A disconnect cannot slip through while connect owns lifecycle state."""
+        ch = DiscordChannel(bot_token="my-bot-token")
+        attempted = threading.Event()
+
+        def disconnect() -> None:
+            attempted.set()
+            ch.disconnect()
+
+        with ch._lifecycle_lock:
+            worker = threading.Thread(target=disconnect)
+            worker.start()
+            assert attempted.wait(timeout=2)
+            assert not ch._stop_event.wait(timeout=0.05)
+
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert ch._stop_event.is_set()
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
 
 class TestWireChannelEndToEnd:
     """Regression for #515/#516 — the full inbound→reply path through

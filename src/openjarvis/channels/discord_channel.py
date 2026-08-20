@@ -46,6 +46,9 @@ class DiscordChannel(BaseChannel):
         self._status = ChannelStatus.DISCONNECTED
         self._listener_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        # Serialize listener registration and shutdown so a concurrent
+        # connect() cannot clear a stop request after disconnect() returns.
+        self._lifecycle_lock = threading.RLock()
         # Published by _gateway_loop while it's running so disconnect()
         # can actually interrupt client.start() (#784).
         self._client: Optional[Any] = None
@@ -55,35 +58,41 @@ class DiscordChannel(BaseChannel):
 
     def connect(self) -> None:
         """Start listening for incoming messages via discord.py gateway."""
-        if self._listener_thread is not None and self._listener_thread.is_alive():
-            # A gateway connection is already running; starting another
-            # one duplicates message handling (#784).
-            logger.warning(
-                "Discord channel already connected; ignoring duplicate connect()"
-            )
-            return
+        with self._lifecycle_lock:
+            if self._listener_thread is not None and self._listener_thread.is_alive():
+                # A gateway connection is already running; starting another
+                # one duplicates message handling (#784).
+                logger.warning(
+                    "Discord channel already connected; ignoring duplicate connect()"
+                )
+                return
 
-        if not self._token:
-            logger.warning("No Discord bot token configured")
-            self._status = ChannelStatus.ERROR
-            return
+            if not self._token:
+                logger.warning("No Discord bot token configured")
+                self._status = ChannelStatus.ERROR
+                return
 
-        self._stop_event.clear()
-        self._status = ChannelStatus.CONNECTING
+            self._stop_event.clear()
+            self._status = ChannelStatus.CONNECTING
 
-        try:
-            import discord  # noqa: F401
+            try:
+                import discord  # noqa: F401
 
-            self._listener_thread = threading.Thread(
-                target=self._gateway_loop,
-                daemon=True,
-            )
-            self._listener_thread.start()
-            self._status = ChannelStatus.CONNECTED
-            logger.info("Discord channel connected (gateway)")
-        except ImportError:
-            logger.info("discord.py not installed; send-only mode")
-            self._status = ChannelStatus.CONNECTED
+                listener = threading.Thread(
+                    target=self._gateway_loop,
+                    daemon=True,
+                )
+                self._listener_thread = listener
+                self._status = ChannelStatus.CONNECTED
+                listener.start()
+                logger.info("Discord channel connected (gateway)")
+            except ImportError:
+                logger.info("discord.py not installed; send-only mode")
+                self._status = ChannelStatus.CONNECTED
+            except Exception:
+                self._listener_thread = None
+                self._status = ChannelStatus.ERROR
+                logger.exception("Failed to start Discord listener")
 
     def disconnect(self) -> None:
         """Stop the listener thread.
@@ -96,29 +105,30 @@ class DiscordChannel(BaseChannel):
         once the thread has actually terminated; otherwise a later
         ``connect()`` would spawn a duplicate gateway connection.
         """
-        self._stop_event.set()
+        with self._lifecycle_lock:
+            self._stop_event.set()
 
-        client = self._client
-        loop = self._loop
-        if client is not None and loop is not None:
-            try:
-                future = asyncio.run_coroutine_threadsafe(client.close(), loop)
-                future.result(timeout=5.0)
-            except Exception:
-                logger.debug("Discord client.close() failed", exc_info=True)
+            client = self._client
+            loop = self._loop
+            if client is not None and loop is not None:
+                try:
+                    future = asyncio.run_coroutine_threadsafe(client.close(), loop)
+                    future.result(timeout=5.0)
+                except Exception:
+                    logger.debug("Discord client.close() failed", exc_info=True)
 
-        if self._listener_thread is not None:
-            self._listener_thread.join(timeout=5.0)
-            if self._listener_thread.is_alive():
-                logger.warning(
-                    "Discord listener thread did not stop within timeout;"
-                    " leaving status unchanged to avoid a duplicate"
-                    " gateway connection"
-                )
-                return
-            self._listener_thread = None
+            if self._listener_thread is not None:
+                self._listener_thread.join(timeout=5.0)
+                if self._listener_thread.is_alive():
+                    logger.warning(
+                        "Discord listener thread did not stop within timeout;"
+                        " leaving status unchanged to avoid a duplicate"
+                        " gateway connection"
+                    )
+                    return
+                self._listener_thread = None
 
-        self._status = ChannelStatus.DISCONNECTED
+            self._status = ChannelStatus.DISCONNECTED
 
     # -- send / receive --------------------------------------------------------
 

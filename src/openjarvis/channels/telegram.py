@@ -54,6 +54,11 @@ class TelegramChannel(BaseChannel):
         self._status = ChannelStatus.DISCONNECTED
         self._listener_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        # Serialize connect/disconnect all the way through listener
+        # registration and shutdown.  Without this lock, disconnect() can
+        # complete just before a concurrent connect() clears the shared stop
+        # event, losing the stop request and leaving a fresh poller behind.
+        self._lifecycle_lock = threading.RLock()
         # Published by _poll_loop while it's running so disconnect() can
         # actually interrupt Application.run_polling() (#784).
         self._app: Optional[Any] = None
@@ -63,39 +68,48 @@ class TelegramChannel(BaseChannel):
 
     def connect(self) -> None:
         """Start listening for incoming messages via long polling."""
-        if self._listener_thread is not None and self._listener_thread.is_alive():
-            # A poller is already running against this bot token; starting
-            # another one causes Telegram's getUpdates API to return 409
-            # Conflict for one or both pollers (#784).
-            logger.warning(
-                "Telegram channel already connected; ignoring duplicate connect()"
-            )
-            return
+        with self._lifecycle_lock:
+            if self._listener_thread is not None and self._listener_thread.is_alive():
+                # A poller is already running against this bot token; starting
+                # another one causes Telegram's getUpdates API to return 409
+                # Conflict for one or both pollers (#784).
+                logger.warning(
+                    "Telegram channel already connected; ignoring duplicate connect()"
+                )
+                return
 
-        if not self._token:
-            logger.warning("No Telegram bot token configured")
-            self._status = ChannelStatus.ERROR
-            return
+            if not self._token:
+                logger.warning("No Telegram bot token configured")
+                self._status = ChannelStatus.ERROR
+                return
 
-        self._stop_event.clear()
-        self._status = ChannelStatus.CONNECTING
+            self._stop_event.clear()
+            self._status = ChannelStatus.CONNECTING
 
-        try:
-            from telegram.ext import ApplicationBuilder  # noqa: F401
+            try:
+                from telegram.ext import ApplicationBuilder  # noqa: F401
 
-            self._listener_thread = threading.Thread(
-                target=self._poll_loop,
-                daemon=True,
-            )
-            self._listener_thread.start()
-            self._status = ChannelStatus.CONNECTED
-            logger.info("Telegram channel connected (long polling)")
-        except ImportError:
-            # python-telegram-bot not installed — send-only mode
-            logger.info(
-                "python-telegram-bot not installed; send-only mode",
-            )
-            self._status = ChannelStatus.CONNECTED
+                listener = threading.Thread(
+                    target=self._poll_loop,
+                    daemon=True,
+                )
+                self._listener_thread = listener
+                # Publish CONNECTED before starting.  A listener that fails
+                # immediately can then reliably overwrite it with ERROR;
+                # connect() must not race afterward and hide that failure.
+                self._status = ChannelStatus.CONNECTED
+                listener.start()
+                logger.info("Telegram channel connected (long polling)")
+            except ImportError:
+                # python-telegram-bot not installed — send-only mode
+                logger.info(
+                    "python-telegram-bot not installed; send-only mode",
+                )
+                self._status = ChannelStatus.CONNECTED
+            except Exception:
+                self._listener_thread = None
+                self._status = ChannelStatus.ERROR
+                logger.exception("Failed to start Telegram listener")
 
     def disconnect(self) -> None:
         """Stop the listener thread.
@@ -109,27 +123,28 @@ class TelegramChannel(BaseChannel):
         DISCONNECTED once the thread has actually terminated; otherwise a
         later ``connect()`` would spawn a duplicate poller.
         """
-        self._stop_event.set()
+        with self._lifecycle_lock:
+            self._stop_event.set()
 
-        app = self._app
-        loop = self._loop
-        if app is not None and loop is not None:
-            try:
-                loop.call_soon_threadsafe(app.stop_running)
-            except RuntimeError:
-                logger.debug("Telegram poll loop's event loop already closed")
+            app = self._app
+            loop = self._loop
+            if app is not None and loop is not None:
+                try:
+                    loop.call_soon_threadsafe(app.stop_running)
+                except RuntimeError:
+                    logger.debug("Telegram poll loop's event loop already closed")
 
-        if self._listener_thread is not None:
-            self._listener_thread.join(timeout=5.0)
-            if self._listener_thread.is_alive():
-                logger.warning(
-                    "Telegram listener thread did not stop within timeout;"
-                    " leaving status unchanged to avoid a duplicate poller"
-                )
-                return
-            self._listener_thread = None
+            if self._listener_thread is not None:
+                self._listener_thread.join(timeout=5.0)
+                if self._listener_thread.is_alive():
+                    logger.warning(
+                        "Telegram listener thread did not stop within timeout;"
+                        " leaving status unchanged to avoid a duplicate poller"
+                    )
+                    return
+                self._listener_thread = None
 
-        self._status = ChannelStatus.DISCONNECTED
+            self._status = ChannelStatus.DISCONNECTED
 
     # -- send / receive --------------------------------------------------------
 
