@@ -5,7 +5,9 @@ import os
 import pytest
 
 from openjarvis.core.credentials import (
+    delete_credential,
     get_credential_status,
+    inject_credentials,
     load_credentials,
     save_credential,
 )
@@ -54,3 +56,26 @@ def test_file_permissions(cred_path):
     save_credential("web_search", "TAVILY_API_KEY", "tvly-x", path=cred_path)
     mode = oct(cred_path.stat().st_mode & 0o777)
     assert mode == "0o600"
+
+
+def test_inject_credentials_restores_saved_value(cred_path, monkeypatch):
+    save_credential("web_search", "TAVILY_API_KEY", "tvly-persisted", path=cred_path)
+    monkeypatch.delenv("TAVILY_API_KEY")
+
+    inject_credentials(path=cred_path)
+
+    assert os.environ["TAVILY_API_KEY"] == "tvly-persisted"
+
+
+def test_delete_credential_removes_file_value_and_env(cred_path, monkeypatch):
+    save_credential("web_search", "TAVILY_API_KEY", "tvly-delete", path=cred_path)
+
+    delete_credential("web_search", "TAVILY_API_KEY", path=cred_path)
+
+    assert load_credentials(path=cred_path) == {}
+    assert "TAVILY_API_KEY" not in os.environ
+
+
+def test_delete_rejects_unknown_key(cred_path):
+    with pytest.raises(ValueError, match="Unknown credential key"):
+        delete_credential("web_search", "BOGUS_KEY", path=cred_path)

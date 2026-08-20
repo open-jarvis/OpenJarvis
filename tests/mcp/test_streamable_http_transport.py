@@ -155,9 +155,7 @@ class TestStreamableHTTPTransport:
         mock_client = _mock_httpx_client
         mock_client.post.return_value = _make_http_response({})
 
-        transport = StreamableHTTPTransport(
-            "http://localhost:9583/mcp", token="abc123"
-        )
+        transport = StreamableHTTPTransport("http://localhost:9583/mcp", token="abc123")
         for i in range(3):
             transport.send(MCPRequest(method="tools/list", id=i))
 

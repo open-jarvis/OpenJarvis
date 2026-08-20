@@ -174,12 +174,15 @@ def _is_retryable(exc: BaseException) -> bool:
         import openai
     except ImportError:
         return False
-    if isinstance(exc, (
-        openai.RateLimitError,
-        openai.APITimeoutError,
-        openai.APIConnectionError,
-        openai.InternalServerError,
-    )):
+    if isinstance(
+        exc,
+        (
+            openai.RateLimitError,
+            openai.APITimeoutError,
+            openai.APIConnectionError,
+            openai.InternalServerError,
+        ),
+    ):
         return True
     if isinstance(exc, openai.APIStatusError):
         status = getattr(exc, "status_code", None)
@@ -196,7 +199,7 @@ def _sleep_for(attempt: int, exc: BaseException) -> float:
         # Respect a server-provided hint, but clamp to our cap so a
         # pathological header can't stall the run for hours.
         return min(_RETRY_CAP, hinted) + random.uniform(0, 0.5)
-    base = min(_RETRY_CAP, _RETRY_BASE * (2 ** attempt))
+    base = min(_RETRY_CAP, _RETRY_BASE * (2**attempt))
     # Full jitter — better tail behavior than equal jitter when many
     # workers wake at the same moment.
     return random.uniform(0.0, base)
@@ -237,16 +240,19 @@ def _wrap_create(orig: Callable[..., Any]) -> Callable[..., Any]:
                         import openai
                     except ImportError:
                         raise
-                    if not isinstance(exc, (
-                        openai.APIConnectionError,
-                        openai.APITimeoutError,
-                        openai.InternalServerError,
-                    )):
+                    if not isinstance(
+                        exc,
+                        (
+                            openai.APIConnectionError,
+                            openai.APITimeoutError,
+                            openai.InternalServerError,
+                        ),
+                    ):
                         raise
                     local_last_exc = exc
                     if attempt >= 2:
                         break
-                    time.sleep(2 ** attempt)
+                    time.sleep(2**attempt)
             assert local_last_exc is not None
             raise local_last_exc
 
@@ -266,6 +272,7 @@ def _wrap_create(orig: Callable[..., Any]) -> Callable[..., Any]:
                 # stay parseable in the runner log.
                 try:
                     import sys
+
                     print(
                         f"[openai-retry] attempt {attempt + 1}/{_MAX_RETRIES} "
                         f"{type(exc).__name__}: {str(exc)[:120]} — "
@@ -333,9 +340,7 @@ def patch_openai_globally() -> None:
             from openai.resources.chat import completions as _comp_mod_async
 
             cls = getattr(_comp_mod_async, "AsyncCompletions", None)
-            if cls is not None and not getattr(
-                cls.create, "_hybrid_patched", False
-            ):
+            if cls is not None and not getattr(cls.create, "_hybrid_patched", False):
                 # Async wrapper is structurally different — only patch
                 # the bumped defaults via __init__; full retry loop on
                 # async would need an async wrapper. Leave that for the

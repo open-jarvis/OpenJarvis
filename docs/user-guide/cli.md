@@ -66,6 +66,8 @@ jarvis ask "What is the capital of France?"
 | `--no-context`                | flag    | off        | Disable memory context injection                       |
 | `-a`, `--agent AGENT`         | string  | none       | Agent to use (`simple`, `orchestrator`)                |
 | `--tools TOOLS`               | string  | none       | Comma-separated tool names to enable                   |
+| `-i`, `--image PATH`          | path    | none       | Image file for a vision model (e.g. `gemma3:4b`); repeatable |
+| `-S`, `--screen`              | flag    | off        | Capture the current screen and send it to the vision model  |
 
 ### Direct Mode vs Agent Mode
 
@@ -104,6 +106,39 @@ jarvis ask --no-context "Tell me about Python"
 # Set maximum token generation
 jarvis ask --max-tokens 2048 "Write a detailed essay about AI"
 ```
+
+### Vision Input
+
+Vision-capable models (such as `gemma3:4b`) can read images alongside your
+text prompt. Attach one or more image files with `-i`/`--image`, or capture
+the current screen with `-S`/`--screen`:
+
+```bash
+# Ask about a local image
+jarvis ask -i screenshot.png "What is shown in this image?"
+
+# Send multiple images (the flag is repeatable)
+jarvis ask -i chart-a.png -i chart-b.png "Compare these two charts"
+
+# Capture the current screen and ask about it
+jarvis ask --screen "Summarize what's on my screen"
+```
+
+Vision runs in **direct mode** only. If you also pass `--agent`, the image is
+ignored and a note is printed — re-run with `--agent ""` to force direct mode.
+
+The Ollama context window can be tuned for large images or long prompts with
+the `JARVIS_NUM_CTX` environment variable (default `16384`):
+
+```bash
+JARVIS_NUM_CTX=8192 jarvis ask --screen "What's on my screen?"
+```
+
+!!! note "Keep vision on-device"
+    Images are sensitive. OpenJarvis prints a privacy warning before sending
+    an image to a non-local engine, so a screenshot never leaves your machine
+    unnoticed. Use a local engine (e.g. `ollama` with `gemma3:4b`) to keep
+    vision fully local.
 
 ### JSON Output Format
 

@@ -16,9 +16,9 @@ The TOML file format (written by the applier) is::
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 from typing import Dict, Optional
+
+from openjarvis.core.paths import get_config_dir
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ _cache: Optional[Dict[str, str]] = None
 
 def _load_overrides() -> Dict[str, str]:
     """Parse descriptions.toml and return {tool_name: description}."""
-    home = Path(os.environ.get("OPENJARVIS_HOME", "~/.openjarvis")).expanduser()
+    home = get_config_dir()
     desc_path = home / "tools" / "descriptions.toml"
     if not desc_path.exists():
         return {}

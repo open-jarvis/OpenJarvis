@@ -24,9 +24,22 @@ serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["full"] }
 
+# Cloud API keys are stored in the OS credential store via `keyring`. keyring v3
+# enables NO backend by default — without an explicit per-platform feature it
+# silently falls back to a non-persistent in-memory mock, so keys would not
+# survive an app restart. Each desktop target opts into its native store.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
 dispatch = "0.2"
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Blocking Secret Service backend (no internal async runtime, so it is safe to
+# call from the tokio-driven Tauri commands). Needs libdbus-1-dev at build time.
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 [features]
 default = ["custom-protocol"]

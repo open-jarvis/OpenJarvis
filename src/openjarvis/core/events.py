@@ -27,6 +27,7 @@ class EventType(str, Enum):
     TOOL_CALL_END = "tool_call_end"
     MEMORY_STORE = "memory_store"
     MEMORY_RETRIEVE = "memory_retrieve"
+    CHAT_EXCHANGE_COMPLETED = "chat_exchange_completed"
     AGENT_TURN_START = "agent_turn_start"
     AGENT_TURN_END = "agent_turn_end"
     TELEMETRY_RECORD = "telemetry_record"

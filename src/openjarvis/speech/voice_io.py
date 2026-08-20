@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import io
 import wave
-from typing import Optional
 
 _SAMPLE_RATE = 16000
 _CHANNELS = 1
 _CHUNK = 1024
 _SILENCE_THRESHOLD = 500      # RMS below this → silence
 _SILENCE_SECONDS = 1.5        # seconds of silence before auto-stop
+_STARTUP_SILENCE_SECONDS = 5.0  # give up early if speech never begins
 _MAX_RECORD_SECONDS = 30      # safety ceiling
 
 
@@ -30,24 +30,25 @@ def record_until_silence(
     sample_rate: int = _SAMPLE_RATE,
     silence_threshold: int = _SILENCE_THRESHOLD,
     silence_seconds: float = _SILENCE_SECONDS,
+    startup_silence_seconds: float = _STARTUP_SILENCE_SECONDS,
     max_seconds: float = _MAX_RECORD_SECONDS,
 ) -> bytes:
     """Record from the default microphone until silence is detected.
 
     Returns raw WAV bytes (16-bit mono).
-    Raises RuntimeError if sounddevice/numpy are not installed.
+    Raises RuntimeError if sounddevice is not installed.
     """
     try:
-        import numpy as np
         import sounddevice as sd
     except ImportError:
         raise RuntimeError(
-            "sounddevice and numpy are required for voice input. "
-            "Install with: pip install sounddevice numpy"
+            "sounddevice is required for voice input. "
+            "Install with: pip install sounddevice"
         )
 
     chunks_per_second = sample_rate / _CHUNK
     silence_chunks = int(silence_seconds * chunks_per_second)
+    startup_silence_chunks = max(1, int(startup_silence_seconds * chunks_per_second))
     max_chunks = int(max_seconds * chunks_per_second)
 
     frames: list[bytes] = []
@@ -69,6 +70,8 @@ def record_until_silence(
             if amplitude > silence_threshold:
                 has_speech = True
                 silence_count = 0
+            elif not has_speech and len(frames) >= startup_silence_chunks:
+                break
             elif has_speech:
                 silence_count += 1
                 if silence_count >= silence_chunks:
@@ -111,7 +114,10 @@ def play_wav(audio: bytes, sample_rate: int = 24000) -> None:
         import struct
 
         n = len(audio) // 2
-        data = np.array(struct.unpack(f"{n}h", audio[:n * 2]), dtype="float32") / 32768.0
+        data = (
+            np.array(struct.unpack(f"{n}h", audio[: n * 2]), dtype="float32")
+            / 32768.0
+        )
         sr = sample_rate
 
     sd.play(data, sr)

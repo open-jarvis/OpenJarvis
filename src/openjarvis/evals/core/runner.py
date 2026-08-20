@@ -175,8 +175,7 @@ class EvalRunner:
             before = len(records)
             records = [r for r in records if r.record_id in wanted]
             LOGGER.info(
-                "Filtering %s to %d/%d records via record_ids "
-                "(first 3: %s)",
+                "Filtering %s to %d/%d records via record_ids (first 3: %s)",
                 cfg.benchmark,
                 len(records),
                 before,
@@ -324,8 +323,7 @@ class EvalRunner:
                 energy_joules=energy_j,
                 power_watts=power_w,
                 gpu_utilization_pct=full.get("gpu_utilization_pct", 0.0) or 0.0,
-                throughput_tok_per_sec=full.get("throughput_tok_per_sec", 0.0)
-                or 0.0,
+                throughput_tok_per_sec=full.get("throughput_tok_per_sec", 0.0) or 0.0,
                 trace_data=full.get("trace_data"),
                 framework=full.get(
                     "framework",
@@ -960,9 +958,7 @@ class EvalRunner:
 
         # Continuous-score reporting: skip None (errored) entries; clamp values
         # outside [0,1] are already handled in _extract_continuous_score.
-        cont_scores = [
-            float(r.score) for r in results if r.score is not None
-        ]
+        cont_scores = [float(r.score) for r in results if r.score is not None]
         if cont_scores:
             mean_cont = sum(cont_scores) / len(cont_scores)
             median_cont = statistics.median(cont_scores)
