@@ -44,6 +44,8 @@ EXPECTED_KNOWLEDGE_ENGINE_TOOLS = {"scan_chunks"}
 EXPECTED_LOCAL_ACCESS_TOOLS = {
     "file_write",
     "apply_patch",
+    "calendar_search",
+    "calendar_upcoming",
     "docker_shell_exec",
     "db_query",
     "knowledge_sql",
