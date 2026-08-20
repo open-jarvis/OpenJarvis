@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 @EngineRegistry.register("nim")
 class NIMEngine(InferenceEngine):
     """NVIDIA NIM inference engine.
-    
+
     Supports local and remote NIM deployments with OpenAI-compatible API.
     Requires NIM_API_KEY for NVIDIA-hosted NIM endpoints, optional for self-hosted.
     """
@@ -38,14 +38,15 @@ class NIMEngine(InferenceEngine):
     def __init__(self, host: str | None = None, *, timeout: float = 600.0) -> None:
         env_host = os.environ.get("NIM_HOST")
         self._host = (host or env_host or self._default_host).rstrip("/")
-        
+
         api_key = os.environ.get("NIM_API_KEY", "")
         self._api_key = api_key if api_key else None
-        
+
         headers = {}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
-        
+
+        self._timeout = timeout
         self._client = httpx.Client(
             base_url=self._host,
             timeout=timeout,
@@ -81,10 +82,6 @@ class NIMEngine(InferenceEngine):
         try:
             url = f"{self._api_prefix}/chat/completions"
             resp = self._client.post(url, json=payload, headers=self._get_headers())
-            if resp.status_code == 400 and "tools" in payload:
-                payload.pop("tools", None)
-                payload.pop("tool_choice", None)
-                resp = self._client.post(url, json=payload, headers=self._get_headers())
             resp.raise_for_status()
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             raise EngineConnectionError(
@@ -149,26 +146,30 @@ class NIMEngine(InferenceEngine):
             payload["tool_choice"] = "auto"
         try:
             url = f"{self._api_prefix}/chat/completions"
-            headers = self._get_headers()
-            with self._client.stream("POST", url, json=payload, headers=headers) as resp:
-                resp.raise_for_status()
-                for line in resp.iter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    data_str = line[len("data:"):].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-                    choices = chunk.get("choices", [])
-                    if not choices:
-                        continue
-                    delta = choices[0].get("delta", {})
-                    content = delta.get("content")
-                    if content:
-                        yield content
+            async with httpx.AsyncClient(
+                base_url=self._host,
+                timeout=self._timeout,
+                headers=self._get_headers(),
+            ) as client:
+                async with client.stream("POST", url, json=payload) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        data_str = line[len("data:") :].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        choices = chunk.get("choices", [])
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield content
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             raise EngineConnectionError(
                 f"NIM engine not reachable at {self._host}"
@@ -197,36 +198,40 @@ class NIMEngine(InferenceEngine):
             payload["tool_choice"] = "auto"
         try:
             url = f"{self._api_prefix}/chat/completions"
-            headers = self._get_headers()
-            with self._client.stream("POST", url, json=payload, headers=headers) as resp:
-                resp.raise_for_status()
-                for line in resp.iter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    data_str = line[len("data:"):].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-                    choices = chunk.get("choices", [])
-                    if not choices:
-                        continue
-                    choice = choices[0]
-                    delta = choice.get("delta", {})
-                    finish = choice.get("finish_reason")
-                    content = delta.get("content")
-                    tool_calls = delta.get("tool_calls")
-                    usage = chunk.get("usage")
+            async with httpx.AsyncClient(
+                base_url=self._host,
+                timeout=self._timeout,
+                headers=self._get_headers(),
+            ) as client:
+                async with client.stream("POST", url, json=payload) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        data_str = line[len("data:") :].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        choices = chunk.get("choices", [])
+                        if not choices:
+                            continue
+                        choice = choices[0]
+                        delta = choice.get("delta", {})
+                        finish = choice.get("finish_reason")
+                        content = delta.get("content")
+                        tool_calls = delta.get("tool_calls")
+                        usage = chunk.get("usage")
 
-                    if content or tool_calls or finish or usage:
-                        yield StreamChunk(
-                            content=content,
-                            tool_calls=tool_calls,
-                            finish_reason=finish,
-                            usage=usage,
-                        )
+                        if content or tool_calls or finish or usage:
+                            yield StreamChunk(
+                                content=content,
+                                tool_calls=tool_calls,
+                                finish_reason=finish,
+                                usage=usage,
+                            )
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             raise EngineConnectionError(
                 f"NIM engine not reachable at {self._host}"
@@ -236,7 +241,7 @@ class NIMEngine(InferenceEngine):
         try:
             resp = self._client.get(
                 f"{self._api_prefix}/models",
-                headers=self._get_headers()
+                headers=self._get_headers(),
             )
             resp.raise_for_status()
         except (
@@ -254,7 +259,7 @@ class NIMEngine(InferenceEngine):
             resp = self._client.get(
                 f"{self._api_prefix}/health/ready",
                 timeout=2.0,
-                headers=self._get_headers()
+                headers=self._get_headers(),
             )
             if resp.status_code == 200:
                 return True
@@ -264,7 +269,7 @@ class NIMEngine(InferenceEngine):
             resp = self._client.get(
                 f"{self._api_prefix}/models",
                 timeout=2.0,
-                headers=self._get_headers()
+                headers=self._get_headers(),
             )
             return resp.status_code == 200
         except Exception as exc:
