@@ -15,7 +15,12 @@ from openjarvis.core.events import EventBus, EventType
 from openjarvis.speech.voice_service import VoiceService
 
 
-def _wait_until(predicate, timeout=2.0, interval=0.01):
+def _wait_until(predicate, timeout=15.0, interval=0.01):
+    # Generous timeout: _speak() imports openjarvis.speech (real backend
+    # modules once the optional speech-wakeword/speech extras are
+    # installed), which can take real wall-clock time — this must not be
+    # tight enough to flake under load, even though it never adds latency
+    # to the fast path (the predicate returns as soon as it's true).
     deadline = time.time() + timeout
     while time.time() < deadline:
         if predicate():
