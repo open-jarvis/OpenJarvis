@@ -292,7 +292,7 @@ class TestSanitizedEnvWindowsKeys:
     """
 
     def test_base_env_keys_include_windows_essentials(self):
-        from openjarvis.tools.shell_exec import _BASE_ENV_KEYS
+        from openjarvis.tools.shell_exec import _WINDOWS_ENV_KEYS
 
         for key in (
             "SystemRoot",
@@ -305,8 +305,17 @@ class TestSanitizedEnvWindowsKeys:
             "LOCALAPPDATA",
             "APPDATA",
         ):
-            assert key in _BASE_ENV_KEYS, f"{key} missing from _BASE_ENV_KEYS"
+            assert key in _WINDOWS_ENV_KEYS, f"{key} missing from Windows keys"
 
+    def test_windows_keys_are_only_enabled_on_windows(self):
+        from openjarvis.tools.shell_exec import _BASE_ENV_KEYS, _WINDOWS_ENV_KEYS
+
+        if os.name == "nt":
+            assert set(_WINDOWS_ENV_KEYS) <= set(_BASE_ENV_KEYS)
+        else:
+            assert set(_WINDOWS_ENV_KEYS).isdisjoint(_BASE_ENV_KEYS)
+
+    @pytest.mark.skipif(os.name != "nt", reason="requires a real Windows child")
     def test_windows_env_vars_reach_the_subprocess(self, monkeypatch):
         """End-to-end: with the Rust backend unavailable (forcing the
         Python sanitised-env fallback), a Windows-critical variable
@@ -336,3 +345,35 @@ class TestSanitizedEnvWindowsKeys:
         assert env is not None
         assert env.get("SystemRoot") == r"C:\Windows"
         assert env.get("LOCALAPPDATA") == r"C:\Users\tester\AppData\Local"
+
+    @pytest.mark.skipif(os.name != "nt", reason="requires a real Windows child")
+    def test_real_windows_child_bootstraps_and_resolves_localhost(
+        self, tmp_path, monkeypatch
+    ):
+        """Exercise the actual sanitized environment and Windows process path."""
+        import json
+
+        local_app_data = str(tmp_path / "LocalAppData")
+        monkeypatch.setenv("LOCALAPPDATA", local_app_data)
+        probe = (
+            "import json, os, socket; "
+            "addresses = socket.getaddrinfo('localhost', 80); "
+            "print(json.dumps({"
+            "'SystemRoot': os.environ.get('SystemRoot'), "
+            "'LOCALAPPDATA': os.environ.get('LOCALAPPDATA'), "
+            "'dns_ok': bool(addresses)}))"
+        )
+        command = subprocess.list2cmdline([sys.executable, "-c", probe])
+
+        with patch(
+            "openjarvis._rust_bridge.get_rust_module",
+            side_effect=ImportError("force Python fallback"),
+        ):
+            result = ShellExecTool().execute(command=command)
+
+        assert result.success is True, result.content
+        stdout = result.content.split("=== STDOUT ===\n", 1)[1].splitlines()[0]
+        payload = json.loads(stdout)
+        assert payload["SystemRoot"] == os.environ["SystemRoot"]
+        assert payload["LOCALAPPDATA"] == local_app_data
+        assert payload["dns_ok"] is True

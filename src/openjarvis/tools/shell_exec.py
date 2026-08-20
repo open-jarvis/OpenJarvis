@@ -20,20 +20,21 @@ _MAX_TIMEOUT = 300
 # Default timeout (seconds)
 _DEFAULT_TIMEOUT = 30
 
-# Environment variables always passed through. The Windows-specific
-# entries are harmless on POSIX (os.environ.get() returns None for them
-# and they're skipped below) but essential on Windows: missing SystemRoot
-# breaks Winsock/DNS initialization for any network-touching command
-# (git, curl, pip, npm all fail with "getaddrinfo() thread failed to
-# start"), and missing LOCALAPPDATA makes the Windows Store Python
-# launcher provision a fresh ~170MB Python\ folder in the cwd instead of
-# finding the real interpreter (#789).
-_BASE_ENV_KEYS = (
+# Environment variables always passed through on every platform.
+_PORTABLE_ENV_KEYS = (
     "PATH",
     "HOME",
     "USER",
     "LANG",
     "TERM",
+)
+
+# Windows needs these to bootstrap ordinary child processes: missing
+# SystemRoot breaks Winsock/DNS initialization, while missing LOCALAPPDATA
+# can make the Store Python launcher provision a fresh interpreter in cwd.
+# Keep them conditional so a POSIX host that happens to define similarly
+# named variables does not expand the tool's minimal environment.
+_WINDOWS_ENV_KEYS = (
     "SystemRoot",
     "SystemDrive",
     "COMSPEC",
@@ -44,6 +45,7 @@ _BASE_ENV_KEYS = (
     "LOCALAPPDATA",
     "APPDATA",
 )
+_BASE_ENV_KEYS = _PORTABLE_ENV_KEYS + (_WINDOWS_ENV_KEYS if os.name == "nt" else ())
 
 
 @ToolRegistry.register("shell_exec")
