@@ -7,6 +7,7 @@ import logging
 import threading
 import uuid
 import weakref
+from dataclasses import replace
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -58,7 +59,7 @@ def _to_messages(chat_messages) -> list[Message]:
 
 
 def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message]:
-    """Prepend OpenJarvis's identity system prompt when the client omits one.
+    """Return one leading system message, adding identity when needed.
 
     The desktop UI's chat backend posts only user/assistant turns to
     ``/v1/chat/completions`` (see ``frontend/.../Chat/InputArea.tsx``), so
@@ -69,9 +70,10 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     did not. This mirrors the agent fallback in ``agents/_stubs.py``.
 
     If any caller-supplied message already carries a system role, the caller
-    has supplied their own grounding and we leave the list untouched (no
-    double-prompting). Internally tagged memory context does not count as
-    caller grounding.
+    has supplied their own grounding and we do not add the server identity.
+    All system messages are still folded into one leading entry because some
+    chat templates reject multiple or mid-history system roles. Internally
+    tagged memory context does not count as caller grounding.
 
     Resolution of the identity text: the config comes from ``app.state`` when
     wired, otherwise ``load_config()``; the prompt itself is assembled by
@@ -86,48 +88,71 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     def _is_caller_system_prompt(m: Message) -> bool:
         return m.role == Role.SYSTEM and not m.metadata.get("memory_context")
 
-    if any(_is_caller_system_prompt(m) for m in messages):
-        return messages
+    system_messages = [message for message in messages if message.role == Role.SYSTEM]
+    caller_supplied_system = any(
+        _is_caller_system_prompt(message) for message in system_messages
+    )
+    identity_already_applied = any(
+        message.metadata.get("openjarvis_identity_prompt")
+        for message in system_messages
+    )
 
     prompt = ""
-    try:
-        cfg = app_config
-        if cfg is None:
-            from openjarvis.core.config import load_config
+    if not caller_supplied_system and not identity_already_applied:
+        try:
+            cfg = app_config
+            if cfg is None:
+                from openjarvis.core.config import load_config
 
-            cfg = load_config()
+                cfg = load_config()
 
-        from openjarvis.prompt.builder import SystemPromptBuilder
+            from openjarvis.prompt.builder import SystemPromptBuilder
 
-        builder = SystemPromptBuilder(
-            agent_template=cfg.agent.default_system_prompt or "",
-            memory_files_config=getattr(cfg, "memory_files", None),
-            system_prompt_config=getattr(cfg, "system_prompt", None),
+            builder = SystemPromptBuilder(
+                agent_template=cfg.agent.default_system_prompt or "",
+                memory_files_config=getattr(cfg, "memory_files", None),
+                system_prompt_config=getattr(cfg, "system_prompt", None),
+            )
+            prompt = builder.build()
+        except Exception:
+            logging.getLogger("openjarvis.server").debug(
+                "Identity system prompt resolution failed; "
+                "serving request without identity grounding",
+                exc_info=True,
+            )
+
+    system_parts = []
+    if prompt:
+        system_parts.append(prompt)
+    system_parts.extend(message.text for message in system_messages if message.text)
+    non_system_messages = [
+        message for message in messages if message.role != Role.SYSTEM
+    ]
+
+    if not system_parts:
+        return non_system_messages
+
+    if system_messages:
+        first_system = system_messages[0]
+        metadata = dict(first_system.metadata)
+        if prompt:
+            # Preserve the first system message's metadata while tagging the
+            # server-built identity so BaseAgent does not build it a second
+            # time if this normalized conversation later reaches agent code.
+            metadata["openjarvis_identity_prompt"] = True
+        combined_system = replace(
+            first_system,
+            content="\n\n".join(system_parts),
+            metadata=metadata,
         )
-        prompt = builder.build()
-    except Exception:
-        logging.getLogger("openjarvis.server").debug(
-            "Identity system prompt resolution failed; "
-            "serving request without identity grounding",
-            exc_info=True,
-        )
-        return messages
-
-    if not prompt:
-        return messages
-
-    # Mark prompts assembled by this server layer.  Memory injection preserves
-    # the first system message's metadata when it folds retrieved context into
-    # it, allowing BaseAgent to recognize that its own SystemPromptBuilder
-    # output is already present instead of prepending the same identity again.
-    return [
-        Message(
+    else:
+        combined_system = Message(
             role=Role.SYSTEM,
             content=prompt,
             metadata={"openjarvis_identity_prompt": True},
-        ),
-        *messages,
-    ]
+        )
+
+    return [combined_system, *non_system_messages]
 
 
 @router.post("/v1/chat/completions")
@@ -139,10 +164,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     use_server_agent = (
         agent is not None
         and not request_body.tools
-        and (
-            not request_body.stream
-            or bool(getattr(agent, "_tools", None))
-        )
+        and (not request_body.stream or bool(getattr(agent, "_tools", None)))
     )
 
     # Inject memory context into messages before dispatching

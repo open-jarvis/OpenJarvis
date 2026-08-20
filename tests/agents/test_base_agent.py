@@ -308,9 +308,7 @@ class TestBuildMessages:
         messages = agent._build_messages("new", AgentContext(conversation=conv))
 
         assert [message.role for message in messages] == [Role.SYSTEM, Role.USER]
-        assert messages[0].content == (
-            "OpenJarvis identity.\n\nRemembered preference."
-        )
+        assert messages[0].content == ("OpenJarvis identity.\n\nRemembered preference.")
         assert messages[0].content.count("OpenJarvis identity.") == 1
 
     def test_only_empty_context_system_messages_emit_no_system_message(self):
