@@ -127,6 +127,12 @@ class TelegramChannel(BaseChannel):
                 break_long_words=True,
                 replace_whitespace=False,
             )
+            if not chunks:
+                # Empty content wraps to an empty chunk list -- there is
+                # nothing to send, so this must not fall through to the
+                # success path below and report a message that was never
+                # transmitted (#783).
+                return False
             for chunk in chunks:
                 payload: Dict[str, Any] = {
                     "chat_id": chat_id,
@@ -139,12 +145,28 @@ class TelegramChannel(BaseChannel):
 
                 resp = httpx.post(url, json=payload, timeout=10.0)
                 if resp.status_code >= 300:
-                    logger.warning(
-                        "Telegram API returned status %d: %s",
-                        resp.status_code,
-                        resp.text,
-                    )
-                    return False
+                    # Telegram rejects unparseable Markdown (lone asterisks,
+                    # unclosed code fences, unescaped snake_case
+                    # identifiers, etc.) with a 400 naming the cause in the
+                    # response body. Retry once as plain text instead of
+                    # dropping the message outright (#783).
+                    if self._parse_mode and "can't parse entities" in resp.text.lower():
+                        logger.warning(
+                            "Telegram rejected Markdown formatting, "
+                            "retrying as plain text: %s",
+                            resp.text,
+                        )
+                        plain_payload = {
+                            k: v for k, v in payload.items() if k != "parse_mode"
+                        }
+                        resp = httpx.post(url, json=plain_payload, timeout=10.0)
+                    if resp.status_code >= 300:
+                        logger.warning(
+                            "Telegram API returned status %d: %s",
+                            resp.status_code,
+                            resp.text,
+                        )
+                        return False
             self._publish_sent(channel, content, conversation_id)
             return True
         except Exception:
