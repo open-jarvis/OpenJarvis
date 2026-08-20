@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import stat
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -171,3 +173,48 @@ def test_sync_filters_by_since(connector):
 def test_disconnect(connector):
     connector.disconnect()
     assert connector.is_connected() is False
+
+
+def test_configure_rejects_private_network_feed(tmp_path):
+    from openjarvis.connectors.news_rss import NewsRSSConnector
+
+    connector = NewsRSSConnector(config_path=str(tmp_path / "feeds.json"))
+    with pytest.raises(ValueError, match="not allowed"):
+        connector.configure([{"url": "http://127.0.0.1:8080/private.xml"}])
+    assert not (tmp_path / "feeds.json").exists()
+
+
+def test_fetch_feed_rechecks_redirect_target():
+    from openjarvis.connectors.news_rss import _fetch_feed
+
+    redirect = MagicMock()
+    redirect.status_code = 302
+    redirect.headers = {"location": "http://169.254.169.254/latest/meta-data"}
+
+    with (
+        patch(
+            "openjarvis.security.ssrf.check_ssrf",
+            side_effect=[None, "Blocked host: 169.254.169.254"],
+        ),
+        patch(
+            "openjarvis.connectors.news_rss.httpx.get",
+            return_value=redirect,
+        ) as get,
+        pytest.raises(ValueError, match="not allowed"),
+    ):
+        _fetch_feed("https://example.com/feed.xml")
+
+    get.assert_called_once()
+
+
+def test_configure_writes_private_atomic_config(tmp_path):
+    from openjarvis.connectors.news_rss import NewsRSSConnector
+
+    path = tmp_path / "feeds.json"
+    connector = NewsRSSConnector(config_path=str(path))
+    with patch("openjarvis.security.ssrf.check_ssrf", return_value=None):
+        connector.configure([{"url": "https://example.com/feed.xml"}])
+
+    assert connector.is_connected()
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600

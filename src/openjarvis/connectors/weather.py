@@ -45,16 +45,22 @@ class WeatherConnector(BaseConnector):
         return data
 
     def configure(self, *, api_key: str, location: str) -> None:
-        """Persist the API key and the explicit location required for sync."""
+        """Validate and persist the API key and required location."""
         api_key = api_key.strip()
         location = location.strip()
         if not api_key:
             raise ValueError("An OpenWeather API key is required")
         if not location:
             raise ValueError("A weather location is required")
-        self._token_path.parent.mkdir(parents=True, exist_ok=True)
-        self._token_path.write_text(
-            json.dumps({"api_key": api_key, "location": location}), encoding="utf-8"
+        _weather_api_get(
+            "https://api.openweathermap.org/data/2.5/weather",
+            params={"q": location, "appid": api_key, "units": "imperial"},
+        )
+        from openjarvis.security.file_utils import secure_write_json
+
+        secure_write_json(
+            self._token_path,
+            {"api_key": api_key, "location": location},
         )
 
     def is_connected(self) -> bool:

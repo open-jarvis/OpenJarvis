@@ -6,8 +6,11 @@ through these helpers to ensure consistent, restrictive permissions.
 
 from __future__ import annotations
 
+import json
 import os
+import tempfile
 from pathlib import Path
+from typing import Any
 
 
 def secure_mkdir(path: Path, mode: int = 0o700) -> Path:
@@ -32,3 +35,53 @@ def secure_create(path: Path, mode: int = 0o600) -> Path:
         path.touch()
     os.chmod(path, mode)
     return path
+
+
+def secure_write_text(
+    path: Path,
+    content: str,
+    *,
+    mode: int = 0o600,
+    encoding: str = "utf-8",
+) -> Path:
+    """Atomically replace *path* with owner-only text content.
+
+    The temporary file is created in the destination directory so
+    :func:`os.replace` remains atomic. Permissions are restricted before
+    secret bytes are written, then re-applied after replacement for platforms
+    whose replace semantics preserve the destination's prior mode.
+    """
+    secure_mkdir(path.parent, mode=0o700)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, mode)
+        with os.fdopen(fd, "w", encoding=encoding) as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        os.chmod(path, mode)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return path
+
+
+def secure_write_json(path: Path, payload: Any, *, mode: int = 0o600) -> Path:
+    """Atomically persist JSON with restrictive permissions."""
+    return secure_write_text(
+        path,
+        json.dumps(payload, indent=2),
+        mode=mode,
+        encoding="utf-8",
+    )

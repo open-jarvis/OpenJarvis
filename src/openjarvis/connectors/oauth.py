@@ -262,10 +262,9 @@ def save_tokens(path: str, tokens: Dict[str, Any]) -> None:
 
     Creates parent directories as needed.
     """
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(tokens, indent=2), encoding="utf-8")
-    os.chmod(path, 0o600)
+    from openjarvis.security.file_utils import secure_write_json
+
+    secure_write_json(Path(path), tokens)
 
 
 def delete_tokens(path: str) -> None:

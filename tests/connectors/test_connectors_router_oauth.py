@@ -102,18 +102,24 @@ def hermetic_connectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
         "openjarvis.connectors.strava",
     ]
     for name in google_mods:
-        if name in sys.modules:
-            importlib.reload(sys.modules[name])
+        module = importlib.import_module(name)
+        # Always execute each decorator under the patched config root. Merely
+        # reloading modules that happen to be cached made this fixture depend
+        # on collection order and could leave the registry empty.
+        importlib.reload(module)
 
     router_mod._instances.clear()
     yield conn_dir
     router_mod._instances.clear()
     ConnectorRegistry.clear()
-    # Restore the connector modules to their real (unpatched) default paths so
-    # subsequent tests in the same process see ~/.openjarvis again.
+    # Restore the config root before reloading. Fixture finalizers otherwise
+    # run in dependency order (this teardown before monkeypatch's), which used
+    # to bake the temporary directory back into module-level defaults.
+    monkeypatch.undo()
     for name in google_mods:
-        if name in sys.modules:
-            importlib.reload(sys.modules[name])
+        module = sys.modules.get(name)
+        if module is not None:
+            importlib.reload(module)
 
 
 @pytest.fixture()

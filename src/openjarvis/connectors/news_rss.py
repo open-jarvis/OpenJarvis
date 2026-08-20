@@ -13,7 +13,7 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -22,13 +22,36 @@ from openjarvis.core.config import DEFAULT_CONFIG_DIR
 from openjarvis.core.registry import ConnectorRegistry
 
 _DEFAULT_CONFIG_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "news_rss.json")
+_MAX_REDIRECTS = 5
+
+
+def _validate_feed_url(url: str) -> None:
+    """Reject malformed and private-network feed targets."""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Each RSS feed must be an http(s) URL")
+    from openjarvis.security.ssrf import check_ssrf
+
+    error = check_ssrf(url)
+    if error:
+        raise ValueError(f"RSS feed URL is not allowed: {error}")
 
 
 def _fetch_feed(url: str) -> str:
-    """Download raw XML from a feed URL."""
-    resp = httpx.get(url, timeout=30.0, follow_redirects=True)
-    resp.raise_for_status()
-    return resp.text
+    """Download feed XML while validating every redirect target."""
+    current_url = url
+    for _ in range(_MAX_REDIRECTS + 1):
+        _validate_feed_url(current_url)
+        resp = httpx.get(current_url, timeout=30.0, follow_redirects=False)
+        if resp.status_code not in {301, 302, 303, 307, 308}:
+            resp.raise_for_status()
+            return resp.text
+        location = resp.headers.get("location", "")
+        if not location:
+            resp.raise_for_status()
+            return resp.text
+        current_url = urljoin(current_url, location)
+    raise ValueError(f"RSS feed exceeded {_MAX_REDIRECTS} redirects")
 
 
 def _parse_rss_items(xml_text: str, max_items: int = 5) -> List[Dict[str, str]]:
@@ -111,17 +134,15 @@ class NewsRSSConnector(BaseConnector):
             if not isinstance(feed, dict):
                 continue
             url = str(feed.get("url", "")).strip()
+            _validate_feed_url(url)
             parsed = urlparse(url)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise ValueError("Each RSS feed must be an http(s) URL")
             name = str(feed.get("name", "")).strip() or parsed.netloc
             normalized.append({"name": name, "url": url})
         if not normalized:
             raise ValueError("At least one RSS feed URL is required")
-        self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        self._config_path.write_text(
-            json.dumps({"feeds": normalized}), encoding="utf-8"
-        )
+        from openjarvis.security.file_utils import secure_write_json
+
+        secure_write_json(self._config_path, {"feeds": normalized})
 
     def is_connected(self) -> bool:
         if not self._config_path.exists():

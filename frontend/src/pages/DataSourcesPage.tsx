@@ -115,12 +115,14 @@ function GenericConnectPanel({
   authType,
   loading,
   onConnect,
+  onOAuthStart,
 }: {
   connectorId: string;
   displayName: string;
   authType: string;
   loading: boolean;
   onConnect: (req: ConnectRequest) => void;
+  onOAuthStart: () => void;
 }) {
   const [oauthSetup, setOauthSetup] = useState<OAuthSetupInfo | null>(null);
   const [feedUrls, setFeedUrls] = useState('');
@@ -210,6 +212,29 @@ function GenericConnectPanel({
   }
 
   // auth_type === 'oauth' (default for anything else without a catalog entry)
+  if (oauthSetup?.has_credentials) {
+    return (
+      <div>
+        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
+          OAuth app credentials are already configured. Continue directly to
+          {oauthSetup.provider ? ` ${oauthSetup.provider}` : ' the provider'} sign-in.
+        </div>
+        <button
+          onClick={onOAuthStart}
+          disabled={loading}
+          style={{
+            width: '100%', padding: 8,
+            background: loading ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
+            color: 'var(--color-on-accent)', border: 'none',
+            borderRadius: 6, fontSize: 12, cursor: 'pointer',
+          }}
+        >
+          {loading ? 'Connecting...' : `Continue with ${oauthSetup.provider || displayName}`}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div>
       {oauthSetup && !oauthSetup.has_credentials && (
@@ -817,13 +842,13 @@ function DataSourcesSection() {
     }
   };
 
-  const handleConnect = async (id: string, req: ConnectRequest) => {
+  const handleConnect = async (id: string, req: ConnectRequest | null) => {
     setLoading(true);
     setConnectingId(id);
     setConnectStage('Connecting...');
     setConnectError('');
     try {
-      const resp = await connectSource(id, req);
+      const resp = req === null ? null : await connectSource(id, req);
 
       // OAuth connectors (Google Drive/Calendar/Contacts/Gmail/Tasks): pasting
       // a Client ID / Secret only registers the app credentials. The backend
@@ -831,9 +856,9 @@ function DataSourcesSection() {
       // which is the only path that actually mints an access token. Open it now
       // and wait for the callback to flip the connector to connected. Without
       // this the connector would stay "pending" forever — the exact #512 bug.
-      if (resp.status === 'oauth_required') {
-        setConnectStage('Opening Google sign-in...');
-        await startServerOAuth(id, resp.oauth_start);
+      if (req === null || resp?.status === 'oauth_required') {
+        setConnectStage('Opening provider sign-in...');
+        await startServerOAuth(id, resp?.oauth_start);
       }
 
       setConnectStage('Connected! Starting sync...');
@@ -1155,6 +1180,7 @@ function DataSourcesSection() {
                       authType={c.auth_type || 'oauth'}
                       loading={loading && connectingId === c.connector_id}
                       onConnect={(req) => handleConnect(c.connector_id, req)}
+                      onOAuthStart={() => handleConnect(c.connector_id, null)}
                     />
                     {connectingId === c.connector_id && connectStage && (
                       <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-warning)' }}>

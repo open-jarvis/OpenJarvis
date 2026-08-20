@@ -53,15 +53,20 @@ class OuraConnector(BaseConnector):
         return data["token"]
 
     def set_token(self, token: str) -> None:
-        """Persist an Oura personal access token supplied at connect time."""
+        """Validate and persist an Oura personal access token."""
         token = token.strip()
         if not token:
             raise ValueError("An Oura personal access token is required")
-        self._token_path.parent.mkdir(parents=True, exist_ok=True)
-        self._token_path.write_text(json.dumps({"token": token}), encoding="utf-8")
+        _oura_api_get(token, "personal_info")
+        from openjarvis.security.file_utils import secure_write_json
+
+        secure_write_json(self._token_path, {"token": token})
 
     def is_connected(self) -> bool:
-        return self._token_path.exists()
+        try:
+            return bool(self._load_token())
+        except (OSError, KeyError, json.JSONDecodeError):
+            return False
 
     def disconnect(self) -> None:
         if self._token_path.exists():

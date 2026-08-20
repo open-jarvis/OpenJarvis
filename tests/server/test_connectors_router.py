@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -181,13 +183,20 @@ def test_connect_granola_invalid_key_returns_400_keeps_existing(
     ],
 )
 def test_connect_persists_generic_token_connector_credentials(
-    app, tmp_path: Path, connector_id: str, filename: str, payload: dict, expected: dict
+    app,
+    tmp_path: Path,
+    monkeypatch,
+    connector_id: str,
+    filename: str,
+    payload: dict,
+    expected: dict,
 ) -> None:
     """The generic token panel must actually configure each token connector."""
 
     from openjarvis.connectors.github_notifications import GitHubNotificationsConnector
     from openjarvis.connectors.oura import OuraConnector
     from openjarvis.connectors.weather import WeatherConnector
+    from openjarvis.core.registry import ConnectorRegistry
     from openjarvis.server.connectors_router import _instances
 
     path = tmp_path / filename
@@ -199,6 +208,17 @@ def test_connect_persists_generic_token_connector_credentials(
         "weather": lambda: WeatherConnector(token_path=str(path)),
     }
     instance = constructors[connector_id]()
+    ConnectorRegistry.register_value(connector_id, type(instance))
+    validators = {
+        "github_notifications": (
+            "openjarvis.connectors.github_notifications._github_api_get",
+            [],
+        ),
+        "oura": ("openjarvis.connectors.oura._oura_api_get", {}),
+        "weather": ("openjarvis.connectors.weather._weather_api_get", {}),
+    }
+    target, result = validators[connector_id]
+    monkeypatch.setattr(target, lambda *args, **kwargs: result)
     # The endpoint deliberately starts an asynchronous initial sync.  Replace
     # it with an empty iterator so this endpoint test never reaches a real API.
     instance.sync = lambda **_kwargs: iter(())
@@ -208,8 +228,48 @@ def test_connect_persists_generic_token_connector_credentials(
         assert resp.status_code == 200, resp.text
         assert resp.json()["connected"] is True
         assert json.loads(path.read_text()) == expected
+        if os.name != "nt":
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
     finally:
         _instances.pop(connector_id, None)
+
+
+def test_invalid_token_is_not_persisted_or_synced(app, tmp_path, monkeypatch) -> None:
+    """Validation failure preserves an existing credential byte-for-byte."""
+    from openjarvis.connectors.github_notifications import (
+        GitHubNotificationsConnector,
+    )
+    from openjarvis.core.registry import ConnectorRegistry
+    from openjarvis.server.connectors_router import _instances
+
+    path = tmp_path / "github.json"
+    original = '{"token":"known-good"}'
+    path.write_text(original, encoding="utf-8")
+    instance = GitHubNotificationsConnector(token_path=str(path))
+    ConnectorRegistry.register_value("github_notifications", type(instance))
+    sync_called = False
+
+    def sync(**kwargs):
+        nonlocal sync_called
+        sync_called = True
+        return iter(())
+
+    instance.sync = sync
+    monkeypatch.setattr(
+        "openjarvis.connectors.github_notifications._github_api_get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("401 Unauthorized")),
+    )
+    _instances["github_notifications"] = instance
+    try:
+        response = app.post(
+            "/v1/connectors/github_notifications/connect",
+            json={"token": "bad-token"},
+        )
+        assert response.status_code == 400
+        assert path.read_text(encoding="utf-8") == original
+        assert sync_called is False
+    finally:
+        _instances.pop("github_notifications", None)
 
 
 def test_connect_weather_requires_location(app, tmp_path: Path) -> None:
