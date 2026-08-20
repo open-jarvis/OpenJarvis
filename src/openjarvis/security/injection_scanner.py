@@ -8,6 +8,9 @@ from typing import List
 
 from openjarvis.security.types import ScanFinding, ThreatLevel
 
+# Longest ``matched_text`` retained on a finding (mirrors the Rust backend).
+_MAX_MATCH_CHARS = 100
+
 # Threat level ordering for comparison
 _THREAT_ORDER = [
     ThreatLevel.LOW,
@@ -145,7 +148,14 @@ class InjectionScanner:
         return self._scan_python(text)
 
     def _scan_python(self, text: str) -> InjectionScanResult:
-        """Pure-Python scan using ``_INJECTION_PATTERNS``."""
+        """Pure-Python scan using ``_INJECTION_PATTERNS``.
+
+        Kept behaviourally identical to the Rust backend: same patterns, the
+        same 100-character cap on ``matched_text``, and ``ThreatLevel.LOW`` on
+        a clean result. ``start``/``end`` are character offsets here versus
+        byte offsets in Rust — they agree on ASCII and are only ever used for
+        display.
+        """
         findings: List[ScanFinding] = []
         highest = -1
         for regex, name, level, desc in self._patterns:
@@ -153,7 +163,7 @@ class InjectionScanner:
                 findings.append(
                     ScanFinding(
                         pattern_name=name,
-                        matched_text=m.group(0),
+                        matched_text=m.group(0)[:_MAX_MATCH_CHARS],
                         threat_level=level,
                         start=m.start(),
                         end=m.end(),

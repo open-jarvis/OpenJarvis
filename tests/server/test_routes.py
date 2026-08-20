@@ -971,7 +971,7 @@ class TestIdentityPromptInjection:
         class _MemoryService:
             def list_facts(self):
                 return [
-                    Fact(text="User prefers tea", trust="trusted"),
+                    Fact(text="User prefers tea", source="auto", trust="auto"),
                     Fact(text=hostile, source="auto", trust="untrusted"),
                 ]
 

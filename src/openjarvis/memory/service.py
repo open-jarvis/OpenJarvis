@@ -22,9 +22,18 @@ from typing import Any, List, Optional
 
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.memory.extractor import FactExtractor
-from openjarvis.memory.store import Fact, FactStore, create_fact_store
+from openjarvis.memory.store import (
+    TRUST_AUTO,
+    TRUST_UNTRUSTED,
+    Fact,
+    FactStore,
+    create_fact_store,
+)
 
 logger = logging.getLogger(__name__)
+
+# Only these severities suppress a whole exchange; see _blocks_exchange().
+_BLOCKING_THREAT_LEVELS = frozenset({"high", "critical"})
 
 # Sentinel pushed onto the queue to wake the worker for shutdown.
 _STOP = object()
@@ -157,37 +166,71 @@ class MemoryService:
             if not self._running.is_set() and self._queue.empty():
                 break
 
-    def _exchange_is_malicious(self, user_text: str, assistant_text: str) -> bool:
-        """True if the injection scanner flags the exchange. Fails *open* (returns
-        False on any scanner error) — the provenance tag still records untrusted
-        origin, so a scanner outage must not block legitimate memory."""
+    def _scan(self, text: str) -> Optional[Any]:
+        """Run the injection scanner, or return ``None`` when it is absent or
+        errors. Scanning fails *open*: an outage must not silently switch off
+        memory capture."""
         if self._scanner is None:
-            return False
+            return None
         try:
-            result = self._scanner.scan(f"{user_text}\n{assistant_text}")
-            return not result.is_clean
+            return self._scanner.scan(text)
         except Exception:  # noqa: BLE001 — scanning is best-effort
             logger.debug("Injection scan failed; proceeding (fail-open)", exc_info=True)
+            return None
+
+    @staticmethod
+    def _flagged(result: Any) -> bool:
+        """True if *result* carries any finding at all."""
+        return result is not None and not getattr(result, "is_clean", True)
+
+    @classmethod
+    def _blocks_exchange(cls, result: Any) -> bool:
+        """True only for a *severe* finding.
+
+        Dropping an exchange is destructive and unrecoverable, so it is
+        reserved for HIGH/CRITICAL hits. Lower-severity patterns (a pasted
+        shell one-liner, a role-delimiter fence quoted in a code discussion)
+        are ordinary developer traffic; those exchanges are still extracted,
+        and anything suspicious is caught per-fact by the quarantine tier.
+        """
+        if not cls._flagged(result):
             return False
+        level = getattr(result, "threat_level", "")
+        name = str(getattr(level, "value", level) or "").strip().lower()
+        return name in _BLOCKING_THREAT_LEVELS
 
     def _process(self, job: Any) -> None:
         user_text, assistant_text = job
         # Scan BEFORE extraction so an overt injection attempt never reaches the
         # extraction model or the store at all.
-        if self._exchange_is_malicious(user_text, assistant_text):
+        if self._blocks_exchange(self._scan(f"{user_text}\n{assistant_text}")):
             # info, not debug: a silently-dropped exchange must be distinguishable
             # from "nothing to extract" in the logs.
             logger.info("Memory extraction skipped: injection detected in exchange")
             return
         facts = self._extractor.extract(user_text, assistant_text)
-        if facts:
-            # Auto-extracted from a raw exchange that may carry untrusted input →
-            # quarantine every fact. Model-facing recall filters this tier in
-            # both load_configured_facts() and inject_context(); FactStore.list()
-            # intentionally retains it for auditing in `jarvis memory list`.
-            stored = self._store.add_many(facts, source="auto", trust="untrusted")
-            if stored:
-                logger.debug("Memory service stored %d new fact(s)", stored)
+        if not facts:
+            return
+        # Provenance is per fact, not per exchange: a fact whose own text trips
+        # the scanner is quarantined (stored for audit, filtered out of every
+        # model-facing path), while clean facts stay recallable — otherwise
+        # tagging everything "untrusted" would make automatic memory write-only.
+        clean: List[str] = []
+        quarantined: List[str] = []
+        for fact in facts:
+            target = quarantined if self._flagged(self._scan(fact)) else clean
+            target.append(fact)
+        stored = self._store.add_many(clean, source="auto", trust=TRUST_AUTO)
+        if quarantined:
+            stored += self._store.add_many(
+                quarantined, source="auto", trust=TRUST_UNTRUSTED
+            )
+            logger.info(
+                "Memory: quarantined %d extracted fact(s) as untrusted",
+                len(quarantined),
+            )
+        if stored:
+            logger.debug("Memory service stored %d new fact(s)", stored)
 
     # -- store passthroughs -------------------------------------------------
 

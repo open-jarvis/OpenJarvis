@@ -27,6 +27,16 @@ def _default_fact_path() -> Path:
     return get_config_dir() / "memory_facts.jsonl"
 
 
+# Provenance tiers, recorded on every fact.
+TRUST_AUTO = "auto"  # auto-extracted and scanner-clean → recallable
+TRUST_TRUSTED = "trusted"  # explicitly vouched for by the user
+TRUST_UNTRUSTED = "untrusted"  # scanner flagged the text → quarantined
+
+# "" is the legacy on-disk value, written before provenance existed. It stays
+# recallable so upgrading does not silently erase a user's existing memory.
+_RECALLABLE_TIERS = frozenset({"", TRUST_AUTO, TRUST_TRUSTED})
+
+
 @dataclass(slots=True)
 class Fact:
     """A single durable memory entry."""
@@ -34,26 +44,18 @@ class Fact:
     text: str
     source: str = ""
     created_at: float = 0.0
-    # Provenance tier. "" = trusted/legacy; "untrusted" = auto-derived from a
-    # raw exchange that may contain hostile input → quarantined when surfaced.
+    # Provenance tier: one of the TRUST_* constants above ("" for legacy rows).
     trust: str = ""
 
     @property
     def trusted_for_recall(self) -> bool:
         """Whether this fact may be placed in model-facing context.
 
-        Empty is the legacy on-disk value. Legacy facts explicitly marked as
-        auto-extracted are quarantined because they predate provenance tagging;
-        other legacy/manual facts remain trusted for backwards compatibility.
-        Unknown future tiers fail closed instead of silently becoming prompt
-        input.
+        Only ``untrusted`` — the tier the memory service assigns when the
+        injection scanner flags a fact's own text — is withheld. Unknown
+        future tiers fail closed rather than silently becoming prompt input.
         """
-        tier = (self.trust or "").strip().lower()
-        if tier == "trusted":
-            return True
-        if tier:
-            return False
-        return (self.source or "").strip().lower() != "auto"
+        return (self.trust or "").strip().lower() in _RECALLABLE_TIERS
 
 
 class FactStore(ABC):
@@ -62,6 +64,11 @@ class FactStore(ABC):
     @abstractmethod
     def add(self, text: str, source: str = "", trust: str = "") -> bool:
         """Store *text* as a fact. Returns True if a new fact was stored."""
+
+    def set_trust(self, index: int, trust: str) -> bool:
+        """Set the provenance tier of the *index*-th fact (0-based) as returned
+        by :meth:`list`. Returns True if a fact was updated."""
+        raise NotImplementedError
 
     def add_many(self, texts: Iterable[str], source: str = "", trust: str = "") -> int:
         """Store several facts, returning the count of newly stored ones."""
@@ -172,6 +179,15 @@ class LocalFactStore(FactStore):
             self._flush()
         return True
 
+    def set_trust(self, index: int, trust: str) -> bool:
+        with self._lock:
+            self._sync_from_disk_locked()
+            if not 0 <= index < len(self._facts):
+                return False
+            self._facts[index].trust = trust
+            self._flush()
+        return True
+
     def list(self) -> List[Fact]:
         with self._lock:
             self._sync_from_disk_locked()
@@ -252,6 +268,9 @@ def load_configured_facts(config: Any) -> List[Fact]:
 
 
 __all__ = [
+    "TRUST_AUTO",
+    "TRUST_TRUSTED",
+    "TRUST_UNTRUSTED",
     "Fact",
     "FactStore",
     "LocalFactStore",
