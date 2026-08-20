@@ -245,6 +245,75 @@ class TelegramChannel(BaseChannel):
     def _stop_requested(self, async_stop_event: asyncio.Event) -> bool:
         return self._stop_event.is_set() or async_stop_event.is_set()
 
+    async def _run_stage_until_stopped(
+        self,
+        awaitable: Any,
+        async_stop_event: asyncio.Event,
+    ) -> bool:
+        """Run one startup stage, cancelling it when disconnect wins the race."""
+        if self._stop_requested(async_stop_event):
+            close = getattr(awaitable, "close", None)
+            if callable(close):
+                close()
+            return False
+
+        stage_task = asyncio.create_task(awaitable)
+        stop_task = asyncio.create_task(async_stop_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {stage_task, stop_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if stop_task in done or self._stop_event.is_set():
+                stage_task.cancel()
+                await asyncio.gather(stage_task, return_exceptions=True)
+                return False
+
+            await stage_task
+            return True
+        finally:
+            stop_task.cancel()
+            await asyncio.gather(stop_task, return_exceptions=True)
+
+    async def _shutdown_partially_initialized_app(
+        self,
+        app: Any,
+        updater: Any,
+    ) -> None:
+        """Release PTB resources even when ``Application.initialize`` was cut short.
+
+        PTB intentionally makes ``Application.shutdown`` a no-op until its
+        initialize method reaches the final bookkeeping assignment.  A stop can
+        arrive after the bot's HTTP clients are initialized but before that
+        assignment, so explicitly shut down the partially initialized
+        components in that narrow state.
+        """
+        app_initialized = getattr(app, "_initialized", None)
+        try:
+            await app.shutdown()
+        finally:
+            if app_initialized is False:
+                seen: set[int] = set()
+                for component in (
+                    updater,
+                    getattr(app, "update_processor", None),
+                    getattr(app, "bot", None),
+                ):
+                    if component is None or id(component) in seen:
+                        continue
+                    seen.add(id(component))
+                    shutdown = getattr(component, "shutdown", None)
+                    if not callable(shutdown):
+                        continue
+                    try:
+                        await shutdown()
+                    except Exception:
+                        logger.debug(
+                            "Failed to clean up partially initialized "
+                            "Telegram component",
+                            exc_info=True,
+                        )
+
     async def _run_polling_lifecycle(
         self,
         app: Any,
@@ -262,22 +331,23 @@ class TelegramChannel(BaseChannel):
             raise RuntimeError("Telegram application has no updater")
 
         try:
-            if self._stop_requested(async_stop_event):
-                return
-            await app.initialize()
-            if self._stop_requested(async_stop_event):
+            if not await self._run_stage_until_stopped(
+                app.initialize(), async_stop_event
+            ):
                 return
             if getattr(app, "post_init", None) is not None:
-                await app.post_init(app)
-            if self._stop_requested(async_stop_event):
+                if not await self._run_stage_until_stopped(
+                    app.post_init(app), async_stop_event
+                ):
+                    return
+
+            if not await self._run_stage_until_stopped(
+                updater.start_polling(drop_pending_updates=True),
+                async_stop_event,
+            ):
                 return
 
-            await updater.start_polling(drop_pending_updates=True)
-            if self._stop_requested(async_stop_event):
-                return
-
-            await app.start()
-            if self._stop_requested(async_stop_event):
+            if not await self._run_stage_until_stopped(app.start(), async_stop_event):
                 return
 
             await async_stop_event.wait()
@@ -288,7 +358,7 @@ class TelegramChannel(BaseChannel):
                 await app.stop()
                 if getattr(app, "post_stop", None) is not None:
                     await app.post_stop(app)
-            await app.shutdown()
+            await self._shutdown_partially_initialized_app(app, updater)
             if getattr(app, "post_shutdown", None) is not None:
                 await app.post_shutdown(app)
 
@@ -354,9 +424,7 @@ class TelegramChannel(BaseChannel):
                     )
 
             app.add_handler(MessageHandler(filters.TEXT, _handle_msg))
-            loop.run_until_complete(
-                self._run_polling_lifecycle(app, async_stop_event)
-            )
+            loop.run_until_complete(self._run_polling_lifecycle(app, async_stop_event))
         except Exception:
             logger.debug("Telegram poll loop error", exc_info=True)
             if not self._stop_event.is_set():
@@ -369,6 +437,8 @@ class TelegramChannel(BaseChannel):
             if loop is not None and not loop.is_closed():
                 asyncio.set_event_loop(None)
                 loop.close()
+            if self._stop_event.is_set():
+                self._status = ChannelStatus.DISCONNECTED
 
     def _publish_sent(self, channel: str, content: str, conversation_id: str) -> None:
         """Publish a CHANNEL_MESSAGE_SENT event on the bus."""

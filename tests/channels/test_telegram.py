@@ -353,9 +353,8 @@ class TestDisconnectStopsRealListener:
         ["initialize", "post_init", "start_polling", "start", "steady"],
     )
     def test_disconnect_during_every_async_startup_boundary(self, blocked_stage):
-        """A stop remains observable across every awaited PTB boundary."""
+        """A stop cancels every awaited PTB boundary without outside release."""
         entered = threading.Event()
-        release = threading.Event()
         calls: list[str] = []
         loops: list[asyncio.AbstractEventLoop] = []
         new_event_loop = asyncio.new_event_loop
@@ -364,8 +363,10 @@ class TestDisconnectStopsRealListener:
             calls.append(f"{name}:enter")
             if name == blocked_stage:
                 entered.set()
-                while not release.is_set():
-                    await asyncio.sleep(0.001)
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    calls.append(f"{name}:cancelled")
             calls.append(f"{name}:exit")
 
         class FakeUpdater:
@@ -454,21 +455,104 @@ class TestDisconnectStopsRealListener:
             ch.connect()
             assert entered.wait(timeout=2), calls
 
-            disconnect_thread = threading.Thread(target=ch.disconnect)
+            disconnect_thread = threading.Thread(target=ch.disconnect, daemon=True)
             disconnect_thread.start()
             assert ch._stop_event.wait(timeout=2)
-            release.set()
             disconnect_thread.join(timeout=2)
 
         assert not disconnect_thread.is_alive(), calls
         stage_order = ["initialize", "post_init", "start_polling", "start"]
         if blocked_stage in stage_order:
+            assert f"{blocked_stage}:cancelled" in calls
+            assert f"{blocked_stage}:exit" not in calls
             for later_stage in stage_order[stage_order.index(blocked_stage) + 1 :]:
                 assert f"{later_stage}:enter" not in calls
         assert "app:shutdown" in calls
         assert "app:post_shutdown" in calls
         assert len(loops) == 1
         assert loops[0].is_closed()
+        assert ch._listener_thread is None
+        assert ch._app is None
+        assert ch._async_stop_event is None
+        assert ch._loop is None
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
+    def test_cancelled_initialize_releases_partially_initialized_components(self):
+        """PTB's pre-bookkeeping HTTP resources are explicitly shut down."""
+        entered = threading.Event()
+        calls: list[str] = []
+
+        class FakeComponent:
+            def __init__(self, name):
+                self.name = name
+
+            async def shutdown(self):
+                calls.append(f"{self.name}:shutdown")
+
+        class FakeUpdater(FakeComponent):
+            running = False
+
+            def __init__(self):
+                super().__init__("updater")
+
+            async def start_polling(self, *, drop_pending_updates):
+                raise AssertionError("polling must not start")
+
+        class FakeApp:
+            def __init__(self):
+                self._initialized = False
+                self.running = False
+                self.updater = FakeUpdater()
+                self.update_processor = FakeComponent("processor")
+                self.bot = FakeComponent("bot")
+
+            def add_handler(self, handler):
+                pass
+
+            async def initialize(self):
+                calls.append("app:initialize")
+                entered.set()
+                await asyncio.Event().wait()
+
+            async def shutdown(self):
+                # This mirrors PTB: Application.shutdown() is a no-op while
+                # _initialized is false, even if Bot.initialize opened clients.
+                calls.append("app:shutdown")
+
+        app = FakeApp()
+
+        class FakeBuilder:
+            def token(self, token):
+                return self
+
+            def build(self):
+                return app
+
+        telegram_ext = SimpleNamespace(
+            ApplicationBuilder=FakeBuilder,
+            MessageHandler=lambda *args: args,
+            filters=SimpleNamespace(TEXT=object()),
+        )
+        ch = TelegramChannel(bot_token="123:ABC")
+
+        with patch.dict(
+            sys.modules,
+            {
+                "telegram": SimpleNamespace(ext=telegram_ext),
+                "telegram.ext": telegram_ext,
+            },
+        ):
+            ch.connect()
+            assert entered.wait(timeout=2)
+            ch.disconnect()
+
+        assert calls == [
+            "app:initialize",
+            "app:shutdown",
+            "updater:shutdown",
+            "processor:shutdown",
+            "bot:shutdown",
+        ]
         assert ch._listener_thread is None
         assert ch._app is None
         assert ch._async_stop_event is None
