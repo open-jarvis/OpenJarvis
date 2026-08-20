@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
@@ -187,6 +188,51 @@ class TestVoiceInput:
         assert result.startswith("[link=https://attacker.invalid]")
         assert "\x1b]8;" not in output.getvalue()
         assert "[link=https://attacker.invalid]trusted[/link]" in output.getvalue()
+
+    def test_microphone_oserror_is_sanitized_and_ends_voice_session(self) -> None:
+        backend = MagicMock()
+        session = VoiceSession(JarvisConfig())
+        output = StringIO()
+        console = Console(file=output, force_terminal=True)
+        error = OSError(
+            "[link=https://attacker.invalid]permission denied[/link]\x1b]8;;evil\x07"
+        )
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                side_effect=error,
+            ),
+        ):
+            result = record_voice(console, session)
+
+        rendered = output.getvalue()
+        assert result is VOICE_EXIT
+        assert "Mic error:" in rendered
+        assert "\x1b]8;" not in rendered
+        assert "[link=https://attacker.invalid]permission denied[/link]" in rendered
+
+    @pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit])
+    def test_microphone_base_exceptions_are_not_swallowed(self, error_type) -> None:
+        backend = MagicMock()
+        session = VoiceSession(JarvisConfig())
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                side_effect=error_type(),
+            ),
+            pytest.raises(error_type),
+        ):
+            record_voice(MagicMock(), session)
 
     def test_tts_backend_is_cached_for_the_chat_session(self) -> None:
         from openjarvis.core.registry import TTSRegistry

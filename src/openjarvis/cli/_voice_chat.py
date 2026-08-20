@@ -100,10 +100,12 @@ def record_voice(
     console.print("[dim cyan]Listening… (speak now, stops on silence)[/dim cyan]")
     try:
         audio_bytes = record_until_silence()
-    except RuntimeError as exc:
+    except Exception as exc:
+        # PortAudio failures are regular Exceptions (and can surface as
+        # OSError), so report them without letting terminal control sequences
+        # through. BaseException subclasses such as KeyboardInterrupt and
+        # SystemExit deliberately continue to propagate.
         console.print(f"[red]Mic error: {_terminal_safe_text(exc)}[/red]")
-        return VOICE_EXIT
-    except KeyboardInterrupt:
         return VOICE_EXIT
 
     console.print("[dim]Transcribing…[/dim]")
