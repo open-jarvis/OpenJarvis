@@ -23,13 +23,15 @@ def _make_trace(
     now = time.time()
     steps = []
     for i in range(num_steps):
-        steps.append(TraceStep(
-            step_type=StepType.GENERATE if i % 2 == 0 else StepType.TOOL_CALL,
-            timestamp=now + i * 0.1,
-            duration_seconds=0.1 * (i + 1),
-            input={"model": model} if i % 2 == 0 else {"tool": "calculator"},
-            output={"tokens": 50} if i % 2 == 0 else {"success": True},
-        ))
+        steps.append(
+            TraceStep(
+                step_type=StepType.GENERATE if i % 2 == 0 else StepType.TOOL_CALL,
+                timestamp=now + i * 0.1,
+                duration_seconds=0.1 * (i + 1),
+                input={"model": model} if i % 2 == 0 else {"tool": "calculator"},
+                output={"tokens": 50} if i % 2 == 0 else {"success": True},
+            )
+        )
     trace = Trace(
         query=query,
         agent=agent,

@@ -8,10 +8,12 @@ from openjarvis.core.config import JarvisConfig
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.engine._base import InferenceEngine
 from openjarvis.engine._discovery import (
+    _make_engine,
     discover_engines,
     discover_models,
     get_engine,
 )
+from openjarvis.engine.litellm import LiteLLMEngine
 
 
 class _FakeEngine(InferenceEngine):
@@ -129,6 +131,24 @@ class TestDiscoverModels:
         e2 = _FakeEngine(models=["m3"])
         result = discover_models([("ollama", e1), ("vllm", e2)])
         assert result == {"ollama": ["m1", "m2"], "vllm": ["m3"]}
+
+
+class TestLiteLLMDiscovery:
+    def test_configured_default_model_is_advertised(self) -> None:
+        """Regression for #713: discovery must configure LiteLLM's model.
+
+        LiteLLM cannot enumerate every model supported by every provider, so
+        ``LiteLLMEngine.list_models()`` advertises the configured default
+        model.  Dropping that value while constructing the engine leaves the
+        API and Web UI with an empty model list.
+        """
+        cfg = JarvisConfig()
+        cfg.intelligence.default_model = "groq/llama-3.3-70b-versatile"
+        EngineRegistry.register_value("litellm", LiteLLMEngine)
+
+        engine = _make_engine("litellm", cfg)
+
+        assert engine.list_models() == ["groq/llama-3.3-70b-versatile"]
 
 
 class TestGetEngine:

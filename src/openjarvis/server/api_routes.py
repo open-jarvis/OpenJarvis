@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import logging
@@ -305,9 +306,7 @@ async def memory_index(req: MemoryIndexRequest, request: Request):
                 for d in workspace.split(os.pathsep)
                 if d.strip()
             ]
-            if not any(
-                target == root or root in target.parents for root in roots
-            ):
+            if not any(target == root or root in target.parents for root in roots):
                 raise HTTPException(
                     status_code=403,
                     detail="Path is outside the allowed workspace directories.",
@@ -668,14 +667,15 @@ async def websocket_chat_stream(websocket: WebSocket):
         {"type": "done",  "content": "..."}   -- final assembled response
         {"type": "error", "detail": "..."}    -- on failure
     """
-    from openjarvis.server.auth_middleware import websocket_authorized
+    from openjarvis.server.auth_middleware import authenticate_websocket
 
     expected_key = getattr(websocket.app.state, "api_key", "")
-    if not websocket_authorized(websocket, expected_key):
-        # 1008 = policy violation; reject before accepting the connection.
+    authorized, subprotocol = authenticate_websocket(websocket, expected_key)
+    if not authorized:
+        # Closing before accept rejects the HTTP upgrade request.
         await websocket.close(code=1008)
         return
-    await websocket.accept()
+    await websocket.accept(subprotocol=subprotocol)
     try:
         while True:
             raw = await websocket.receive_text()
@@ -742,8 +742,11 @@ async def websocket_chat_stream(websocket: WebSocket):
                                 )
                     except TypeError:
                         # stream() didn't return an iterable; fall back to
-                        # generate()
-                        result = engine.generate(messages, model=model)
+                        # generate(). It makes a blocking upstream call, so run
+                        # it in a worker thread to keep the event loop free.
+                        result = await asyncio.to_thread(
+                            engine.generate, messages, model=model
+                        )
                         content = (
                             result.get("content", "")
                             if isinstance(
@@ -768,8 +771,11 @@ async def websocket_chat_stream(websocket: WebSocket):
                         ended_at=_time.time(),
                     )
                 else:
-                    # No stream method — single-shot generate
-                    result = engine.generate(messages, model=model)
+                    # No stream method — single-shot generate. Blocking upstream
+                    # call, so run in a worker thread to keep the event loop free.
+                    result = await asyncio.to_thread(
+                        engine.generate, messages, model=model
+                    )
                     content = (
                         result.get("content", "")
                         if isinstance(
@@ -893,7 +899,20 @@ async def transcribe_speech(request: Request):
     filename = getattr(audio_file, "filename", "audio.wav")
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "wav"
 
-    result = backend.transcribe(audio_bytes, format=ext, language=language or None)
+    try:
+        result = await asyncio.to_thread(
+            backend.transcribe,
+            audio_bytes,
+            format=ext,
+            language=language or None,
+        )
+    except Exception as exc:
+        logger.exception("Speech transcription failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Speech transcription failed: {exc}",
+        ) from exc
+
     return {
         "text": result.text,
         "language": result.language,
@@ -908,9 +927,23 @@ async def speech_health(request: Request):
     backend = getattr(request.app.state, "speech_backend", None)
     if backend is None:
         return {"available": False, "reason": "No speech backend configured"}
+    try:
+        available = backend.health()
+        reason = None
+    except Exception as exc:
+        logger.exception("Speech health check failed")
+        available = False
+        reason = str(exc)
+
+    if not available and reason is None:
+        last_error = getattr(backend, "last_error", None)
+        if callable(last_error):
+            reason = last_error()
+
     return {
-        "available": backend.health(),
+        "available": available,
         "backend": backend.backend_id,
+        **({"reason": reason} if reason else {}),
     }
 
 
@@ -1055,12 +1088,16 @@ def include_all_routes(app) -> None:
     except ImportError:
         pass
 
-    # WebSocket bridge for real-time agent events
+    # WebSocket bridge for real-time agent events. Must subscribe on the
+    # same EventBus instance channels/agents actually publish to
+    # (app.state.bus, set in server/app.py) — the get_event_bus() global
+    # singleton is a *different* bus that nothing in `jarvis serve` ever
+    # publishes to, so events silently never reached this endpoint.
     try:
         from openjarvis.core.events import get_event_bus
         from openjarvis.server.ws_bridge import create_ws_router
 
-        ws_router = create_ws_router(get_event_bus())
+        ws_router = create_ws_router(getattr(app.state, "bus", None) or get_event_bus())
         app.include_router(ws_router)
     except Exception:
         logger.debug("WebSocket bridge not available", exc_info=True)

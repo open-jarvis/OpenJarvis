@@ -199,7 +199,16 @@ def _get_resolver(source: str, url: str = ""):
     default="",
     help="Repo URL (required when source is 'github').",
 )
-def install(query: str, with_scripts: bool, force: bool, url: str):
+@click.option(
+    "--yes-dangerous",
+    is_flag=True,
+    default=False,
+    help=(
+        "Confirm installing an unreviewed skill that requests dangerous "
+        "capabilities (shell/network-listen/filesystem-write)."
+    ),
+)
+def install(query: str, with_scripts: bool, force: bool, url: str, yes_dangerous: bool):
     """Install a skill from a source.
 
     Example: ``jarvis skill install hermes:apple-notes``
@@ -233,7 +242,12 @@ def install(query: str, with_scripts: bool, force: bool, url: str):
     from openjarvis.skills.tool_translator import ToolTranslator
 
     importer = SkillImporter(parser=SkillParser(), tool_translator=ToolTranslator())
-    result = importer.import_skill(matches[0], with_scripts=with_scripts, force=force)
+    result = importer.import_skill(
+        matches[0],
+        with_scripts=with_scripts,
+        force=force,
+        confirm_dangerous=yes_dangerous,
+    )
 
     if result.success:
         if result.skipped:
@@ -270,6 +284,15 @@ def install(query: str, with_scripts: bool, force: bool, url: str):
     help="Import scripts/ directories.",
 )
 @click.option("--force", is_flag=True, default=False, help="Re-import existing skills.")
+@click.option(
+    "--yes-dangerous",
+    is_flag=True,
+    default=False,
+    help=(
+        "Confirm installing unreviewed skills that request dangerous "
+        "capabilities (shell/network-listen/filesystem-write)."
+    ),
+)
 def sync(
     source: str,
     category: str,
@@ -277,6 +300,7 @@ def sync(
     search: str,
     with_scripts: bool,
     force: bool,
+    yes_dangerous: bool,
 ):
     """Bulk install + update from a source (or all configured sources)."""
     console = Console()
@@ -343,9 +367,20 @@ def sync(
 
         installed_count = 0
         for resolved in skills_to_import:
-            r = importer.import_skill(resolved, with_scripts=with_scripts, force=force)
+            r = importer.import_skill(
+                resolved,
+                with_scripts=with_scripts,
+                force=force,
+                confirm_dangerous=yes_dangerous,
+            )
             if r.success and not r.skipped:
                 installed_count += 1
+            elif not r.success and r.requires_confirmation:
+                console.print(
+                    f"  [yellow]Skipped {resolved.name}: requests dangerous "
+                    f"capabilities {r.dangerous_capabilities} "
+                    "(re-run with --yes-dangerous to install)[/yellow]"
+                )
         console.print(f"  Imported {installed_count}/{len(skills_to_import)} skills")
         total_installed += installed_count
 

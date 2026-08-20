@@ -74,9 +74,7 @@ class TestAuthMiddleware:
         assert resp.status_code == 401
 
     def test_metrics_accepts_valid_key(self, client):
-        resp = client.get(
-            "/metrics", headers={"Authorization": "Bearer oj_sk_test123"}
-        )
+        resp = client.get("/metrics", headers={"Authorization": "Bearer oj_sk_test123"})
         assert resp.status_code == 200
 
     def test_no_key_configured_allows_all(self):

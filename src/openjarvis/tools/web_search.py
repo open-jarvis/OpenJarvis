@@ -165,7 +165,10 @@ class WebSearchTool(BaseTool):
 
             client = TavilyClient(api_key=self._api_key)
             response = client.search(
-                query, max_results=max_results, search_depth="advanced"
+                query,
+                max_results=max_results,
+                search_depth="advanced",
+                include_usage=True,
             )
             results = response.get("results", [])
             formatted_parts = []
@@ -182,7 +185,11 @@ class WebSearchTool(BaseTool):
                 tool_name="web_search",
                 content=formatted or "No results found.",
                 success=True,
-                metadata={"num_results": len(results), "engine": "tavily"},
+                metadata={
+                    "num_results": len(results),
+                    "engine": "tavily",
+                    "credits": (response.get("usage") or {}).get("credits"),
+                },
             )
         except Exception as exc:
             logger.debug(

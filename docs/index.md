@@ -215,7 +215,7 @@ OpenJarvis is built around five composable layers. Each has a clean interface an
 
 OpenJarvis is part of [Intelligence Per Watt](https://www.intelligence-per-watt.ai/), a research initiative studying the efficiency of on-device AI systems. Developed at [Hazy Research](https://hazyresearch.stanford.edu/) and the [Scaling Intelligence Lab](https://scalingintelligence.stanford.edu/) at [Stanford SAIL](https://ai.stanford.edu/).
 
-Read the [blog post](https://scalingintelligence.stanford.edu/blogs/openjarvis/) for the full research motivation, architecture details, and experimental results.
+Read the [blog post](https://openjarvis.stanford.edu/) for the full research motivation, architecture details, and experimental results.
 
 ## Citation
 

@@ -33,7 +33,7 @@ def test_path_traversal_rejected(bad):
         SystemPromptBuilder._resolve_persona(MemoryFilesConfig(persona_name=bad))
 
 
-def test_none_persona_build_does_not_raise():
+def test_none_persona_build_does_not_raise(tmp_path, monkeypatch):
     """Regression (#497): `--persona none` resolves to empty file paths; building
     the prompt must not raise IsADirectoryError when those empty paths are read
     (Path("") is "." — reading a directory raised before the empty-path guard).
@@ -42,7 +42,8 @@ def test_none_persona_build_does_not_raise():
 
     from openjarvis.core.config import load_config
 
-    cfg = load_config()
+    monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "home"))
+    cfg = load_config(tmp_path / "missing-config.toml")
     mf = dataclasses.replace(cfg.memory_files, persona_name="none")
     builder = SystemPromptBuilder(
         agent_template=cfg.agent.default_system_prompt or "",

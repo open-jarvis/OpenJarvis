@@ -213,12 +213,13 @@ def _parse_event_timestamp(event: Dict[str, Any]) -> datetime:
     """
     start = event.get("start", {})
     date_time_str: str = start.get("dateTime", "")
-    if not date_time_str:
+    date_str: str = start.get("date", "")
+    if not date_time_str and not date_str:
         return datetime.now()
     try:
         # RFC3339 — Python 3.11+ fromisoformat handles the trailing 'Z'.
         # For older versions we replace 'Z' with '+00:00'.
-        normalized = date_time_str.replace("Z", "+00:00")
+        normalized = (date_time_str or date_str).replace("Z", "+00:00")
         return datetime.fromisoformat(normalized)
     except (ValueError, TypeError):
         return datetime.now()

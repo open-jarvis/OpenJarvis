@@ -12,9 +12,18 @@ import os
 import platform
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from openjarvis.core.paths import (
     ConfigurationError,
@@ -594,6 +603,14 @@ class IntelligenceConfig:
 
 
 @dataclass(slots=True)
+class DeepResearchConfig:
+    """Planner settings for the web Deep Research endpoint."""
+
+    engine: str = ""  # Empty means use the active chat engine.
+    model: str = ""  # Empty means use the active chat model.
+
+
+@dataclass(slots=True)
 class RoutingLearningConfig:
     """Routing sub-policy config within Learning."""
 
@@ -910,7 +927,13 @@ class LearningConfig:
 
 @dataclass(slots=True)
 class StorageConfig:
-    """Storage (memory) backend settings."""
+    """Storage (memory) backend settings.
+
+    Covers both the retrieval/document store (``default_backend``, ``db_path``,
+    chunking, context injection) and the automatic long-term memory service
+    (``enabled``, ``backend``, ``extraction_model``, ``max_facts``,
+    ``facts_path``) configured under ``[memory]`` in ``config.toml``.
+    """
 
     default_backend: str = "sqlite"
     db_path: str = field(default_factory=lambda: str(get_config_dir() / "memory.db"))
@@ -919,6 +942,16 @@ class StorageConfig:
     context_max_tokens: int = 2048
     chunk_size: int = 512
     chunk_overlap: int = 64
+
+    # Automatic memory service — extracts durable facts from conversations in
+    # the background and persists them across sessions (see openjarvis.memory).
+    enabled: bool = False  # start the memory service with serve/chat
+    backend: str = "local"  # fact-store backend ("local" = on-disk JSONL)
+    extraction_model: str = ""  # model for fact extraction ("" = active model)
+    max_facts: int = 1000  # cap on stored facts (oldest evicted past the cap)
+    facts_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "memory_facts.jsonl")
+    )
 
 
 # Backward-compatibility alias
@@ -1562,6 +1595,7 @@ class JarvisConfig:
     hardware: HardwareInfo = field(default_factory=HardwareInfo)
     engine: EngineConfig = field(default_factory=EngineConfig)
     intelligence: IntelligenceConfig = field(default_factory=IntelligenceConfig)
+    deep_research: DeepResearchConfig = field(default_factory=DeepResearchConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
@@ -1685,10 +1719,16 @@ def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
     """Overlay TOML key/value pairs onto a dataclass instance.
 
     Recursively handles nested dicts when the target attribute is itself
-    a dataclass.  Normalises TOML arrays to comma-separated strings — both
-    for dataclass fields annotated as ``str`` and for backward-compat
-    property setters that expect string input.
+    a dataclass, including dict entries in lists of dataclasses.  Normalises
+    TOML arrays to comma-separated strings — both for dataclass fields annotated
+    as ``str`` and for backward-compat property setters that expect string input.
     """
+    try:
+        type_hints = get_type_hints(type(target))
+    except (NameError, TypeError):
+        # Some config types contain optional runtime-only forward references.
+        type_hints = {}
+
     for key, value in section.items():
         if hasattr(target, key):
             if isinstance(value, dict):
@@ -1703,14 +1743,35 @@ def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
                 # property setters (e.g. reward_weights, default_tools).
                 if isinstance(value, list):
                     is_str_field = False
+                    item_dataclass = None
                     if hasattr(target, "__dataclass_fields__"):
                         field_obj = target.__dataclass_fields__.get(key)
-                        if field_obj is not None and field_obj.type in ("str", str):
-                            is_str_field = True
-                        elif field_obj is None:
+                        if field_obj is not None:
+                            field_type = type_hints.get(key, field_obj.type)
+                            type_args = get_args(field_type)
+                            if (
+                                get_origin(field_type) is list
+                                and len(type_args) == 1
+                                and is_dataclass(type_args[0])
+                            ):
+                                item_dataclass = type_args[0]
+                            elif field_obj.type in ("str", str):
+                                is_str_field = True
+                        else:
                             # Property, not a real field — normalise to string
                             is_str_field = True
-                    if is_str_field:
+
+                    if item_dataclass is not None:
+                        converted = []
+                        for item in value:
+                            if isinstance(item, dict):
+                                nested = item_dataclass()
+                                _apply_toml_section(nested, item)
+                                converted.append(nested)
+                            else:
+                                converted.append(item)
+                        value = converted
+                    elif is_str_field:
                         value = ",".join(str(v) for v in value)
                 setattr(target, key, value)
 
@@ -1823,6 +1884,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         top_sections = (
             "engine",
             "intelligence",
+            "deep_research",
             "learning",
             "agent",
             "server",
@@ -1991,6 +2053,10 @@ max_tokens = 1024
 # repetition_penalty = 1.0
 # stop_sequences = ""
 
+# [deep_research]
+# engine = ""                  # empty = use [engine].default
+# model = ""                   # empty = use [intelligence].default_model
+
 [agent]
 default_agent = "simple"
 max_turns = 10
@@ -2002,6 +2068,15 @@ context_from_memory = true
 
 [tools.storage]
 default_backend = "sqlite"
+
+# Automatic long-term memory: extracts durable facts from conversations in the
+# background and persists them. Starts/stops with `jarvis serve` and
+# `jarvis chat`; manage stored facts with `jarvis memory list` / `clear`.
+[memory]
+enabled = false               # set true to enable the memory service
+backend = "local"             # fact-store backend (local = on-disk JSONL)
+extraction_model = ""         # model for fact extraction ("" = active model)
+max_facts = 1000              # cap on stored facts
 
 [tools.mcp]
 enabled = true
@@ -2152,6 +2227,7 @@ __all__ = [
     "DEFAULT_CONFIG_DIR",
     "DEFAULT_CONFIG_PATH",
     "DiscordChannelConfig",
+    "DeepResearchConfig",
     "get_cache_dir",
     "get_config_dir",
     "get_config_path",
