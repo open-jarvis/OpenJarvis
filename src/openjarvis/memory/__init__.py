@@ -19,6 +19,7 @@ from openjarvis.memory.store import (
     FactStore,
     LocalFactStore,
     create_fact_store,
+    load_configured_facts,
 )
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     "MemoryService",
     "build_memory_service",
     "create_fact_store",
+    "load_configured_facts",
     "publish_completed_exchange",
 ]

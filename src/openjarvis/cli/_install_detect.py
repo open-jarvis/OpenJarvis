@@ -11,7 +11,9 @@ Three install paths are supported today:
 - **Editable git checkout** (``uv sync`` / ``pip install -e .`` from a
   cloned repo). The package's ``__file__`` is inside a working tree
   with a ``.git`` directory at the repo root. Upgrade with
-  ``git pull && uv sync`` from the checkout.
+  ``git pull && uv sync --inexact`` from the checkout. ``--inexact`` is
+  important here: a bare ``uv sync`` removes packages installed by extras or
+  dependency groups that are not part of the base project.
 
 We detect by inspecting ``openjarvis.__file__``. If we can't tell with
 confidence we fall back to the PyPI command — that's the most common
@@ -68,7 +70,7 @@ def detect_install() -> InstallInfo:
         if (candidate / ".git").exists() and (candidate / "pyproject.toml").exists():
             return InstallInfo(
                 kind="editable-git",
-                upgrade_command=f"cd {candidate} && git pull && uv sync",
+                upgrade_command=(f"cd {candidate} && git pull && uv sync --inexact"),
                 repo_root=candidate,
             )
         if candidate.parent == candidate:

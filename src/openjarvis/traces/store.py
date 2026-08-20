@@ -223,8 +223,13 @@ class TraceStore:
         rows = self._conn.execute(sql, params).fetchall()
         return [
             {
-                "trace_id": r[0], "query": r[1], "result": r[2],
-                "agent": r[3], "model": r[4], "outcome": r[5], "started_at": r[6],
+                "trace_id": r[0],
+                "query": r[1],
+                "result": r[2],
+                "agent": r[3],
+                "model": r[4],
+                "outcome": r[5],
+                "started_at": r[6],
             }
             for r in rows
         ]

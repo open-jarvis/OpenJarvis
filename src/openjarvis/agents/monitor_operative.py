@@ -127,6 +127,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
         memory_backend: Optional[Any] = None,
         interactive: bool = False,
         confirm_callback=None,
+        prompt_builder: Optional[Any] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -139,7 +140,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
-            prompt_builder=kwargs.get("prompt_builder"),
+            prompt_builder=prompt_builder,
         )
         # Validate strategies
         if memory_extraction not in VALID_MEMORY_EXTRACTION:

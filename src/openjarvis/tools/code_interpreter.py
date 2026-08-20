@@ -56,6 +56,7 @@ class CodeInterpreterTool(BaseTool):
                 "required": ["code"],
             },
             category="code",
+            metadata={"structured_allow_object_text": True},
         )
 
     def execute(self, **params: Any) -> ToolResult:

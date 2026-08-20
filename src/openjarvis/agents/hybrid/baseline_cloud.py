@@ -82,7 +82,11 @@ class BaselineCloudAgent(LocalCloudAgent):
                 max_turns=int(cfg.get("swe_max_turns", 30)),
                 bash_timeout=int(cfg.get("swe_bash_timeout_s", 120)),
                 output_cap=int(cfg.get("swe_output_cap", 10_000)),
-                turn_max_tokens=int(cfg.get("cloud_max_tokens", default_max_output_tokens(self._cloud_model))),
+                turn_max_tokens=int(
+                    cfg.get(
+                        "cloud_max_tokens", default_max_output_tokens(self._cloud_model)
+                    )
+                ),
                 trace_prefix="baseline_cloud",
             )
             meta = {
@@ -112,7 +116,11 @@ class BaselineCloudAgent(LocalCloudAgent):
             text, p_tok, c_tok, n_searches, turns = self._call_anthropic_agent(
                 self._cloud_model,
                 user=input,
-                max_tokens=int(cfg.get("cloud_max_tokens", default_max_output_tokens(self._cloud_model))),
+                max_tokens=int(
+                    cfg.get(
+                        "cloud_max_tokens", default_max_output_tokens(self._cloud_model)
+                    )
+                ),
                 temperature=0.0,
                 tools=[build_web_search_tool(ws_max_uses)],
                 max_turns=gaia_max_turns,
@@ -145,17 +153,23 @@ class BaselineCloudAgent(LocalCloudAgent):
             # wired here. Skip cleanly rather than fake one. Cells that
             # want web_search must run on Anthropic until those backends
             # are wired.
-            self.record_trace_event({
-                "kind": "web_search_skipped",
-                "reason": "non_anthropic_endpoint",
-                "endpoint": self._cloud_endpoint,
-            })
+            self.record_trace_event(
+                {
+                    "kind": "web_search_skipped",
+                    "reason": "non_anthropic_endpoint",
+                    "endpoint": self._cloud_endpoint,
+                }
+            )
 
         # One-shot direct cloud call. GAIA only — SWE goes through the
         # mini-SWE-agent loop above (now supports anthropic/openai/gemini).
         text, p_tok, c_tok = self._call_cloud(
             user=input,
-            max_tokens=int(cfg.get("cloud_max_tokens", default_max_output_tokens(self._cloud_model))),
+            max_tokens=int(
+                cfg.get(
+                    "cloud_max_tokens", default_max_output_tokens(self._cloud_model)
+                )
+            ),
             temperature=0.0,
         )
         meta = {

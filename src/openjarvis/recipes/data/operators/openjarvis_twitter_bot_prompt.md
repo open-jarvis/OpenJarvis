@@ -15,7 +15,7 @@ HARD RULE: Every reply MUST be ≤280 characters. Count before sending.
 - GitHub: https://github.com/open-jarvis/OpenJarvis
 - Docs: https://open-jarvis.github.io/OpenJarvis/
 - Discord: https://discord.gg/wfXEkpPX
-- Blog: https://scalingintelligence.stanford.edu/blogs/openjarvis/
+- Blog: https://openjarvis.stanford.edu/
 - Install: `git clone https://github.com/open-jarvis/OpenJarvis.git && cd OpenJarvis && uv sync`
 - CLI commands (ONLY these exist):
   - `jarvis init` — auto-detects hardware, configures engine

@@ -89,19 +89,20 @@ CONDUCTOR_STRICTER = (
     "Your previous response was not valid JSON or was missing required fields. "
     "Reply with ONLY a single JSON object — no prose, no code fences, no commentary "
     "— containing exactly the three keys model_id (list[int]), subtasks (list[str]), "
-    "and access_list (list[list[int] or \"all\"]) of equal length, at most 5 entries, "
+    'and access_list (list[list[int] or "all"]) of equal length, at most 5 entries, '
     "and access_list[0] must be [] (an empty list)."
 )
 
 
 # ---------- Plan parsing ----------
 
+
 def _strip_fences(s: str) -> str:
     s = s.strip()
     if s.startswith("```"):
         first_nl = s.find("\n")
         if first_nl != -1:
-            s = s[first_nl + 1:]
+            s = s[first_nl + 1 :]
         if s.endswith("```"):
             s = s[:-3]
         s = s.strip()
@@ -119,9 +120,7 @@ def _try_literal(s: str):
     """Fallback for the paper's literal Python-list output style."""
     out = {}
     for key in ("model_id", "subtasks", "access_list"):
-        m = re.search(
-            rf"{key}\s*=\s*(\[[^\]]*\](?:\s*\+\s*\[[^\]]*\])*)", s, re.DOTALL
-        )
+        m = re.search(rf"{key}\s*=\s*(\[[^\]]*\](?:\s*\+\s*\[[^\]]*\])*)", s, re.DOTALL)
         if not m:
             return None
         try:
@@ -154,7 +153,7 @@ def _validate_plan(plan: Any, n_workers: int) -> Optional[str]:
         if a == "all":
             continue
         if not isinstance(a, list):
-            return f"access_list[{i}] must be list or \"all\""
+            return f'access_list[{i}] must be list or "all"'
         for j in a:
             if not isinstance(j, int) or not (0 <= j < i):
                 return f"access_list[{i}] has bad ref {j!r}"
@@ -174,17 +173,18 @@ def _parse_plan(text: str, n_workers: int):
 
 # ---------- Worker pool ----------
 
+
 def _vllm_alive(base_url: str) -> bool:
     try:
-        with urllib.request.urlopen(
-            base_url.rstrip("/") + "/models", timeout=3
-        ) as r:
+        with urllib.request.urlopen(base_url.rstrip("/") + "/models", timeout=3) as r:
             return r.status == 200
     except Exception:
         return False
 
 
-def _default_pool(local_model: Optional[str], local_endpoint: Optional[str]) -> List[Dict[str, Any]]:
+def _default_pool(
+    local_model: Optional[str], local_endpoint: Optional[str]
+) -> List[Dict[str, Any]]:
     """Default worker pool — faithful to the Sakana Conductor paper (arXiv 2512.04388).
 
     The paper composes a heterogeneous 7-worker pool spanning three frontier
@@ -206,98 +206,112 @@ def _default_pool(local_model: Optional[str], local_endpoint: Optional[str]) -> 
     del local_model, local_endpoint  # paper default carries no local worker
     pool: List[Dict[str, Any]] = []
     if not os.environ.get("OJ_CONDUCTOR_DISABLE_GEMINI"):
-        pool.append({
-            "id": len(pool),
-            "name": "gemini-pro",
-            "endpoint": "gemini",
-            "model": "gemini-2.5-pro",
-            "description": (
-                "Google Gemini 2.5 Pro. Frontier multimodal reasoner with a "
-                "very large context window. Strong at long-document synthesis, "
-                "multi-hop factual reasoning, and tasks that benefit from "
-                "wide retrieval. Slower and pricier than mid-tier workers."
-            ),
-        })
+        pool.append(
+            {
+                "id": len(pool),
+                "name": "gemini-pro",
+                "endpoint": "gemini",
+                "model": "gemini-2.5-pro",
+                "description": (
+                    "Google Gemini 2.5 Pro. Frontier multimodal reasoner with a "
+                    "very large context window. Strong at long-document synthesis, "
+                    "multi-hop factual reasoning, and tasks that benefit from "
+                    "wide retrieval. Slower and pricier than mid-tier workers."
+                ),
+            }
+        )
     if not os.environ.get("OJ_CONDUCTOR_DISABLE_ANTHROPIC"):
-        pool.append({
-            "id": len(pool),
-            "name": "claude-sonnet-4",
-            "endpoint": "anthropic",
-            "model": "claude-sonnet-4-6",
-            "description": (
-                "Anthropic Claude Sonnet 4. Strong general-purpose reasoner "
-                "with careful instruction following and reliable formatting. "
-                "Good default for code, structured writing, and decisive "
-                "steps where accuracy matters more than raw throughput."
-            ),
-        })
+        pool.append(
+            {
+                "id": len(pool),
+                "name": "claude-sonnet-4",
+                "endpoint": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "description": (
+                    "Anthropic Claude Sonnet 4. Strong general-purpose reasoner "
+                    "with careful instruction following and reliable formatting. "
+                    "Good default for code, structured writing, and decisive "
+                    "steps where accuracy matters more than raw throughput."
+                ),
+            }
+        )
     if not os.environ.get("OJ_CONDUCTOR_DISABLE_OPENAI"):
-        pool.append({
-            "id": len(pool),
-            "name": "gpt-5",
-            "endpoint": "openai",
-            "model": "gpt-5",
-            "description": (
-                "OpenAI GPT-5. Frontier-tier broad-knowledge model. Best for "
-                "open-domain factual recall, creative generation, and "
-                "ambiguous questions where coverage matters. Expensive; use "
-                "for steps where breadth of world knowledge is the bottleneck."
-            ),
-        })
+        pool.append(
+            {
+                "id": len(pool),
+                "name": "gpt-5",
+                "endpoint": "openai",
+                "model": "gpt-5",
+                "description": (
+                    "OpenAI GPT-5. Frontier-tier broad-knowledge model. Best for "
+                    "open-domain factual recall, creative generation, and "
+                    "ambiguous questions where coverage matters. Expensive; use "
+                    "for steps where breadth of world knowledge is the bottleneck."
+                ),
+            }
+        )
     if not os.environ.get("OJ_CONDUCTOR_DISABLE_OPENROUTER"):
-        pool.append({
-            "id": len(pool),
-            "name": "deepseek-r1-distill-qwen-32b",
-            "endpoint": "openrouter",
-            "model": "deepseek/deepseek-r1-distill-qwen-32b",
-            "description": (
-                "DeepSeek R1 distilled into Qwen-32B (open weights via "
-                "OpenRouter). Specialized for chain-of-thought math, logic, "
-                "and competitive-programming-style problems. Verbose; "
-                "produces extensive reasoning traces before the final answer."
-            ),
-        })
-        pool.append({
-            "id": len(pool),
-            "name": "gemma3-27b-it",
-            "endpoint": "openrouter",
-            "model": "google/gemma-3-27b-it",
-            "description": (
-                "Google Gemma 3 27B Instruct (open weights via OpenRouter). "
-                "Mid-size instruction-tuned model. Cheap and fast; solid at "
-                "concise summarization, extraction, and short-form Q&A on "
-                "given context. Weaker than the frontier workers on multi-step "
-                "reasoning."
-            ),
-        })
-        pool.append({
-            "id": len(pool),
-            "name": "qwen3-32b",
-            "endpoint": "openrouter",
-            "model": "qwen/qwen3-32b",
-            "description": (
-                "Qwen3-32B in non-thinking mode (open weights via OpenRouter). "
-                "Fast general-purpose dialogue and instruction following. "
-                "Use when the step is straightforward generation, "
-                "summarization, or formatting — does NOT spend tokens on "
-                "internal reasoning."
-            ),
-        })
-        pool.append({
-            "id": len(pool),
-            "name": "qwen3-32b-thinking",
-            "endpoint": "openrouter",
-            "model": "qwen/qwen3-32b",
-            "extra_body": {"reasoning": {"effort": "medium"}},
-            "description": (
-                "Qwen3-32B with reasoning enabled (open weights via "
-                "OpenRouter). Same backbone as 'qwen3-32b' but spends tokens "
-                "on an internal chain of thought before answering. Stronger "
-                "on math, code, and multi-step logic; slower and consumes "
-                "more completion tokens. Prefer this for hard reasoning "
-                "steps; prefer the non-thinking variant for plain dialogue."
-            ),
-        })
+        pool.append(
+            {
+                "id": len(pool),
+                "name": "deepseek-r1-distill-qwen-32b",
+                "endpoint": "openrouter",
+                "model": "deepseek/deepseek-r1-distill-qwen-32b",
+                "description": (
+                    "DeepSeek R1 distilled into Qwen-32B (open weights via "
+                    "OpenRouter). Specialized for chain-of-thought math, logic, "
+                    "and competitive-programming-style problems. Verbose; "
+                    "produces extensive reasoning traces before the final answer."
+                ),
+            }
+        )
+        pool.append(
+            {
+                "id": len(pool),
+                "name": "gemma3-27b-it",
+                "endpoint": "openrouter",
+                "model": "google/gemma-3-27b-it",
+                "description": (
+                    "Google Gemma 3 27B Instruct (open weights via OpenRouter). "
+                    "Mid-size instruction-tuned model. Cheap and fast; solid at "
+                    "concise summarization, extraction, and short-form Q&A on "
+                    "given context. Weaker than the frontier workers on multi-step "
+                    "reasoning."
+                ),
+            }
+        )
+        pool.append(
+            {
+                "id": len(pool),
+                "name": "qwen3-32b",
+                "endpoint": "openrouter",
+                "model": "qwen/qwen3-32b",
+                "description": (
+                    "Qwen3-32B in non-thinking mode (open weights via OpenRouter). "
+                    "Fast general-purpose dialogue and instruction following. "
+                    "Use when the step is straightforward generation, "
+                    "summarization, or formatting — does NOT spend tokens on "
+                    "internal reasoning."
+                ),
+            }
+        )
+        pool.append(
+            {
+                "id": len(pool),
+                "name": "qwen3-32b-thinking",
+                "endpoint": "openrouter",
+                "model": "qwen/qwen3-32b",
+                "extra_body": {"reasoning": {"effort": "medium"}},
+                "description": (
+                    "Qwen3-32B with reasoning enabled (open weights via "
+                    "OpenRouter). Same backbone as 'qwen3-32b' but spends tokens "
+                    "on an internal chain of thought before answering. Stronger "
+                    "on math, code, and multi-step logic; slower and consumes "
+                    "more completion tokens. Prefer this for hard reasoning "
+                    "steps; prefer the non-thinking variant for plain dialogue."
+                ),
+            }
+        )
     # Reassign ids contiguously in case env-gates skipped some entries.
     for new_id, entry in enumerate(pool):
         entry["id"] = new_id
@@ -363,16 +377,17 @@ def _resolve_worker_pool(
                 f"Invalid worker_pool entry [{wid_repr}]: 'id' must be an int"
             )
         if wid in seen_ids:
-            raise ValueError(
-                f"Invalid worker_pool entry [{wid}]: duplicate id"
-            )
+            raise ValueError(f"Invalid worker_pool entry [{wid}]: duplicate id")
         seen_ids.add(wid)
         if not entry.get("name") or not isinstance(entry["name"], str):
             raise ValueError(
                 f"Invalid worker_pool entry [{wid}]: 'name' must be a non-empty string"
             )
         endpoint = entry.get("endpoint") or entry.get("type")
-        if not isinstance(endpoint, str) or endpoint.lower() not in _CONDUCTOR_VALID_ENDPOINTS:
+        if (
+            not isinstance(endpoint, str)
+            or endpoint.lower() not in _CONDUCTOR_VALID_ENDPOINTS
+        ):
             raise ValueError(
                 f"Invalid worker_pool entry [{wid}]: 'endpoint' must be one of "
                 f"{_CONDUCTOR_VALID_ENDPOINTS} (got {endpoint!r})"
@@ -466,9 +481,9 @@ def _search_capable_indices(
     if search_backend == "tavily":
         return [w["id"] for w in workers]
     return [
-        w["id"] for w in workers
-        if (w.get("endpoint") or "openai").lower()
-        in _SEARCH_CAPABLE_WORKER_ENDPOINTS
+        w["id"]
+        for w in workers
+        if (w.get("endpoint") or "openai").lower() in _SEARCH_CAPABLE_WORKER_ENDPOINTS
     ]
 
 
@@ -497,7 +512,9 @@ def _build_conductor_prompt(
     if capable:
         cap_str = ", ".join(str(i) for i in capable)
         if search_backend == "tavily":
-            capability = "External Tavily search results will be prepended to worker prompts"
+            capability = (
+                "External Tavily search results will be prepended to worker prompts"
+            )
         else:
             capability = "Only these model indices can perform live web search"
         constraint = (
@@ -687,12 +704,18 @@ def _swe_worker_step(
     ep = (worker.get("endpoint") or "openai").lower()
     if ep == "vllm":
         backbone, model, endpoint, is_local = (
-            "local", worker["model"], worker.get("base_url"), True,
+            "local",
+            worker["model"],
+            worker.get("base_url"),
+            True,
         )
         cloud_endpoint = "anthropic"  # unused on the local path
     elif ep == "anthropic":
         backbone, model, endpoint, is_local = (
-            "cloud", worker["model"], None, False,
+            "cloud",
+            worker["model"],
+            None,
+            False,
         )
         cloud_endpoint = "anthropic"
     else:
@@ -718,7 +741,11 @@ def _swe_worker_step(
     )
     return (
         out["final_summary"] or out["answer"],
-        out["tokens_in"], out["tokens_out"], is_local, 0, int(out["turns"]),
+        out["tokens_in"],
+        out["tokens_out"],
+        is_local,
+        0,
+        int(out["turns"]),
     )
 
 
@@ -819,21 +846,22 @@ class ConductorAgent(LocalCloudAgent):
         if plan is None:
             fallback_used = True
             plan = {
-                "model_id":    [len(workers) - 1],
-                "subtasks":    [question],
+                "model_id": [len(workers) - 1],
+                "subtasks": [question],
                 "access_list": [[]],
             }
 
-        self.record_trace_event({
-            "kind": "conductor_plan",
-            "plan": plan,
-            "fallback_used": fallback_used,
-            "parse_attempts": parse_attempts,
-            "workers": [
-                {k: v for k, v in w.items() if k != "api_key"}
-                for w in workers
-            ],
-        })
+        self.record_trace_event(
+            {
+                "kind": "conductor_plan",
+                "plan": plan,
+                "fallback_used": fallback_used,
+                "parse_attempts": parse_attempts,
+                "workers": [
+                    {k: v for k, v in w.items() if k != "api_key"} for w in workers
+                ],
+            }
+        )
 
         # 2. Execute
         # If we're on a SWE-bench task AND cfg["swe_use_agent_loop"] is on,
@@ -867,14 +895,15 @@ class ConductorAgent(LocalCloudAgent):
         # constraint — reuse them here.
         if ws_enabled and search_backend != "tavily" and not swe_mode:
             search_workers = [
-                w for w in workers
+                w
+                for w in workers
                 if (w.get("endpoint") or "openai").lower()
                 in _SEARCH_CAPABLE_WORKER_ENDPOINTS
             ]
             if not search_workers:
-                endpoints = sorted({
-                    (w.get("endpoint") or "openai").lower() for w in workers
-                })
+                endpoints = sorted(
+                    {(w.get("endpoint") or "openai").lower() for w in workers}
+                )
                 raise ValueError(
                     f"web_search.enabled=true but the worker pool has no "
                     f"search-capable worker (endpoints present: {endpoints}); "
@@ -885,39 +914,43 @@ class ConductorAgent(LocalCloudAgent):
                 )
         # ``ws_tool`` doubles as the enable marker passed to `_call_worker`
         # (truthy => route search-capable workers through their agent loop).
-        ws_tool = (
-            build_web_search_tool(ws_max_uses) if ws_enabled else None
-        )
+        ws_tool = build_web_search_tool(ws_max_uses) if ws_enabled else None
 
         try:
             if swe_mode:
-                shared_workdir = Path(tempfile.mkdtemp(
-                    prefix=f"conductor-swe-{task_meta.get('task_id','x')}-"
-                ))
+                shared_workdir = Path(
+                    tempfile.mkdtemp(
+                        prefix=f"conductor-swe-{task_meta.get('task_id', 'x')}-"
+                    )
+                )
                 _clone_repo(task_meta["repo"], task_meta["base_commit"], shared_workdir)
-                self.record_trace_event({
-                    "kind": "conductor_swe_workdir",
-                    "workdir": str(shared_workdir),
-                    "repo": task_meta["repo"],
-                    "base_commit": task_meta["base_commit"],
-                })
+                self.record_trace_event(
+                    {
+                        "kind": "conductor_swe_workdir",
+                        "workdir": str(shared_workdir),
+                        "repo": task_meta["repo"],
+                        "base_commit": task_meta["base_commit"],
+                    }
+                )
 
             for i, (mid, subtask, access) in enumerate(
                 zip(plan["model_id"], plan["subtasks"], plan["access_list"])
             ):
                 worker = workers[mid]
                 prompt = _build_step_prompt(question, subtask, steps, access)
-                self.record_trace_event({
-                    "kind": "conductor_step_dispatch",
-                    "step_idx": i,
-                    "worker_id": mid,
-                    "worker_name": worker["name"],
-                    "worker_model": worker["model"],
-                    "subtask": subtask,
-                    "access": access,
-                    "prompt": prompt,
-                    "swe_mode": swe_mode,
-                })
+                self.record_trace_event(
+                    {
+                        "kind": "conductor_step_dispatch",
+                        "step_idx": i,
+                        "worker_id": mid,
+                        "worker_name": worker["name"],
+                        "worker_model": worker["model"],
+                        "subtask": subtask,
+                        "access": access,
+                        "prompt": prompt,
+                        "swe_mode": swe_mode,
+                    }
+                )
 
                 worker_ep = (worker.get("endpoint") or "openai").lower()
                 # Post-hoc routing check: if web_search is on but the
@@ -926,38 +959,49 @@ class ConductorAgent(LocalCloudAgent):
                 # may legitimately not need search; see Task-3 planner
                 # constraint that tries to prevent this upfront).
                 if (
-                    ws_enabled and search_backend != "tavily" and not swe_mode
+                    ws_enabled
+                    and search_backend != "tavily"
+                    and not swe_mode
                     and worker_ep not in _SEARCH_CAPABLE_WORKER_ENDPOINTS
                 ):
-                    self.record_trace_event({
-                        "kind": "conductor_search_routing_warning",
-                        "step_idx": i,
-                        "worker_id": mid,
-                        "worker_name": worker["name"],
-                        "worker_endpoint": worker_ep,
-                        "warning": (
-                            f"web_search enabled but step {i} routed to "
-                            f"search-incapable worker {worker['name']!r} "
-                            f"(endpoint {worker_ep!r}); this step cannot "
-                            "ground and may answer blind."
-                        ),
-                    })
+                    self.record_trace_event(
+                        {
+                            "kind": "conductor_search_routing_warning",
+                            "step_idx": i,
+                            "worker_id": mid,
+                            "worker_name": worker["name"],
+                            "worker_endpoint": worker_ep,
+                            "warning": (
+                                f"web_search enabled but step {i} routed to "
+                                f"search-incapable worker {worker['name']!r} "
+                                f"(endpoint {worker_ep!r}); this step cannot "
+                                "ground and may answer blind."
+                            ),
+                        }
+                    )
 
                 extra_cost = 0.0
                 if swe_mode:
                     text, w_in, w_out, is_local, n_searches, bash_turns = (
                         _swe_worker_step(
-                            worker, task_meta, prompt, cfg, shared_workdir, i,
+                            worker,
+                            task_meta,
+                            prompt,
+                            cfg,
+                            shared_workdir,
+                            i,
                         )
                     )
                     tool_calls += bash_turns
                 else:
-                    (
-                        text, w_in, w_out, is_local, n_searches, extra_cost
-                    ) = _call_worker(
-                        worker, prompt, cfg,
-                        web_search_tool=ws_tool,
-                        web_search_max_uses=ws_max_uses,
+                    (text, w_in, w_out, is_local, n_searches, extra_cost) = (
+                        _call_worker(
+                            worker,
+                            prompt,
+                            cfg,
+                            web_search_tool=ws_tool,
+                            web_search_max_uses=ws_max_uses,
+                        )
                     )
 
                 if is_local:
@@ -971,17 +1015,19 @@ class ConductorAgent(LocalCloudAgent):
                     cost += extra_cost
                 n_web_searches_total += n_searches
                 tool_calls += n_searches
-                steps.append({
-                    "step_idx": i,
-                    "model_id": mid,
-                    "worker_name": worker["name"],
-                    "worker_model": worker["model"],
-                    "subtask": subtask,
-                    "access": access,
-                    "output": text,
-                    "tokens_in": w_in,
-                    "tokens_out": w_out,
-                })
+                steps.append(
+                    {
+                        "step_idx": i,
+                        "model_id": mid,
+                        "worker_name": worker["name"],
+                        "worker_model": worker["model"],
+                        "subtask": subtask,
+                        "access": access,
+                        "output": text,
+                        "tokens_in": w_in,
+                        "tokens_out": w_out,
+                    }
+                )
                 final_answer = text
 
             # For SWE mode, the authoritative patch is whatever lives in
@@ -992,7 +1038,8 @@ class ConductorAgent(LocalCloudAgent):
                 if patch.strip():
                     final_answer = (
                         f"{final_answer}\n\n```diff\n{patch}```"
-                        if final_answer else f"```diff\n{patch}```"
+                        if final_answer
+                        else f"```diff\n{patch}```"
                     )
         finally:
             if shared_workdir is not None:
@@ -1003,8 +1050,7 @@ class ConductorAgent(LocalCloudAgent):
         tokens_cloud += conductor_p_in + conductor_p_out
 
         traces = [
-            (s["step_idx"], s["model_id"], s["subtask"], s["output"])
-            for s in steps
+            (s["step_idx"], s["model_id"], s["subtask"], s["output"]) for s in steps
         ]
 
         meta = {
@@ -1023,8 +1069,7 @@ class ConductorAgent(LocalCloudAgent):
                 "n_web_searches": n_web_searches_total,
                 "parse_attempts": parse_attempts,
                 "workers": [
-                    {k: v for k, v in w.items() if k != "api_key"}
-                    for w in workers
+                    {k: v for k, v in w.items() if k != "api_key"} for w in workers
                 ],
             },
         }

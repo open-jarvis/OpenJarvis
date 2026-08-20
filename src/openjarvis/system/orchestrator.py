@@ -40,8 +40,9 @@ class QueryOrchestrator:
 
         messages = [Message(role=Role.USER, content=query)]
 
-        if context and s.memory_backend and s.config.agent.context_from_memory:
+        if context and s.config.agent.context_from_memory:
             try:
+                from openjarvis.memory import load_configured_facts
                 from openjarvis.tools.storage.context import (
                     ContextConfig,
                     inject_context,
@@ -52,11 +53,13 @@ class QueryOrchestrator:
                     min_score=s.config.memory.context_min_score,
                     max_context_tokens=s.config.memory.context_max_tokens,
                 )
+                facts = load_configured_facts(s.config)
                 messages = inject_context(
                     query,
                     messages,
                     s.memory_backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
             except Exception as exc:
                 logger.warning("Failed to inject memory context: %s", exc)

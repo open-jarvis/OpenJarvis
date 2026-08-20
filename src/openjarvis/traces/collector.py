@@ -154,7 +154,8 @@ class TraceCollector:
                     "completion_tokens": usage.get("completion_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
                     "tokens": usage.get(
-                        "total_tokens", data.get("total_tokens", 0),
+                        "total_tokens",
+                        data.get("total_tokens", 0),
                     ),
                     "content": data.get("content", ""),
                     "tool_calls": data.get("tool_calls", []),
@@ -168,10 +169,12 @@ class TraceCollector:
                     "energy_joules": data.get("energy_joules", 0.0),
                     "power_watts": data.get("power_watts", 0.0),
                     "gpu_utilization_pct": data.get(
-                        "gpu_utilization_pct", 0.0,
+                        "gpu_utilization_pct",
+                        0.0,
                     ),
                     "throughput_tok_per_sec": data.get(
-                        "throughput_tok_per_sec", 0.0,
+                        "throughput_tok_per_sec",
+                        0.0,
                     ),
                 },
             )
@@ -193,7 +196,8 @@ class TraceCollector:
                 step_type=StepType.TOOL_CALL,
                 timestamp=start,
                 duration_seconds=event.data.get(
-                    "latency", event.timestamp - start,
+                    "latency",
+                    event.timestamp - start,
                 ),
                 input={
                     "tool": event.data.get("tool", ""),
