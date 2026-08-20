@@ -136,7 +136,8 @@ def test_base_synthesize_stream_yields_full_audio():
 
 
 def test_base_synthesize_stream_skips_empty_audio():
-    from openjarvis.speech.tts import TTSBackend, TTSResult as _R
+    from openjarvis.speech.tts import TTSBackend
+    from openjarvis.speech.tts import TTSResult as _R
 
     class _Empty(_StubTTS):
         def synthesize(self, text, *, voice_id="", speed=1.0, output_format="mp3"):

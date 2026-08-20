@@ -69,7 +69,9 @@ class NewsTool(BaseTool):
     def execute(self, **params: Any) -> ToolResult:
         query = str(params.get("query", "")).strip()
         try:
-            max_results = int(params.get("max_results", _DEFAULT_RESULTS) or _DEFAULT_RESULTS)
+            max_results = int(
+                params.get("max_results", _DEFAULT_RESULTS) or _DEFAULT_RESULTS
+            )
         except (TypeError, ValueError):
             max_results = _DEFAULT_RESULTS
         max_results = max(1, min(max_results, _MAX_RESULTS))

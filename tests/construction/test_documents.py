@@ -8,7 +8,12 @@ from openjarvis.construction import documents as docs
 def test_normalize_line_items_with_direct_cost():
     items = docs.normalize_line_items(
         [
-            {"description": "Drywall", "quantity": 20, "unit": "sheet", "unit_cost": 12.5},
+            {
+                "description": "Drywall",
+                "quantity": 20,
+                "unit": "sheet",
+                "unit_cost": 12.5,
+            },
             {"description": "", "quantity": 1},  # dropped (no description)
         ]
     )
@@ -57,9 +62,7 @@ def test_render_quote_html_contains_key_fields():
 def test_render_quote_html_escapes_input():
     items = [docs.LineItem("<script>x</script>", 1, "each", 1.0)]
     totals = docs.compute_quote_totals(items)
-    html = docs.render_quote_html(
-        title="T", client="C", items=items, totals=totals
-    )
+    html = docs.render_quote_html(title="T", client="C", items=items, totals=totals)
     assert "<script>x</script>" not in html
     assert "&lt;script&gt;" in html
 

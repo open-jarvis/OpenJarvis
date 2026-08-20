@@ -161,9 +161,7 @@ def test_paper_trade_buy_and_account(mem_store):
 def test_paper_trade_insufficient_cash(mem_store):
     mem_store.ensure_account(100.0)
     with patch.object(ft.prices, "get_price", return_value=100.0):
-        result = PaperTradeTool().execute(
-            action="buy", symbol="AAPL", quantity=10
-        )
+        result = PaperTradeTool().execute(action="buy", symbol="AAPL", quantity=10)
     assert result.success is False
     assert "Insufficient cash" in result.content
 

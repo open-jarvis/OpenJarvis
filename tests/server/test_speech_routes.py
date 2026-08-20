@@ -183,9 +183,7 @@ def test_synthesize_buffered_when_streaming_disabled(mock_tts_backend):
     from types import SimpleNamespace
 
     config = SimpleNamespace(
-        speech=SimpleNamespace(
-            tts_voice_id="onyx", tts_speed=1.0, tts_stream=False
-        )
+        speech=SimpleNamespace(tts_voice_id="onyx", tts_speed=1.0, tts_stream=False)
     )
     client = _tts_client(mock_tts_backend, config=config)
     response = client.post("/v1/speech/synthesize", json={"text": "hello"})

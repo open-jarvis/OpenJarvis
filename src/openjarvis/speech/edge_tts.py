@@ -91,9 +91,7 @@ class EdgeTTSBackend(TTSBackend):
         output_format: str = "mp3",
     ) -> TTSResult:
         voice = self._resolve_voice(voice_id)
-        audio = self._run_async(
-            self._synthesize_async(text, voice=voice, speed=speed)
-        )
+        audio = self._run_async(self._synthesize_async(text, voice=voice, speed=speed))
         return TTSResult(
             audio=audio,
             format=output_format or "mp3",

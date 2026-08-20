@@ -126,7 +126,8 @@ def send_email_alert(
         missing.append("EMAIL_TO")
     if missing:
         return NotificationResult(
-            "email", False,
+            "email",
+            False,
             error=f"Email not configured. Set: {', '.join(sorted(set(missing)))}",
         )
 
@@ -160,7 +161,8 @@ def send_email_alert(
     except smtplib.SMTPAuthenticationError:
         # Deliberately do not echo the server message (can include the account).
         return NotificationResult(
-            "email", False,
+            "email",
+            False,
             error="SMTP authentication failed. Check SMTP_USERNAME / SMTP_PASSWORD.",
         )
     except Exception as exc:  # noqa: BLE001 - never let an alert crash the app
@@ -189,7 +191,8 @@ def send_sms_alert(message: str, *, to: Optional[str] = None) -> NotificationRes
         missing.append("MY_PHONE_NUMBER")
     if missing:
         return NotificationResult(
-            "sms", False,
+            "sms",
+            False,
             error=f"SMS not configured. Set: {', '.join(sorted(set(missing)))}",
         )
 
@@ -227,7 +230,8 @@ def send_sms_alert(message: str, *, to: Optional[str] = None) -> NotificationRes
     except Exception:  # noqa: BLE001
         detail = resp.text[:200]
     return NotificationResult(
-        "sms", False,
+        "sms",
+        False,
         error=f"Twilio returned HTTP {resp.status_code}: {detail or 'unknown error'}",
     )
 
@@ -246,7 +250,8 @@ def send_push_alert(title: str, message: str) -> NotificationResult:
         import httpx
     except ImportError:
         return NotificationResult(
-            "push", False,
+            "push",
+            False,
             error="httpx is required for push alerts (pip install httpx).",
         )
 
@@ -254,13 +259,15 @@ def send_push_alert(title: str, message: str) -> NotificationResult:
     if topic:
         return _send_ntfy(httpx, topic, title, message)
 
-    if os.environ.get("PUSHOVER_TOKEN", "").strip() and os.environ.get(
-        "PUSHOVER_USER", ""
-    ).strip():
+    if (
+        os.environ.get("PUSHOVER_TOKEN", "").strip()
+        and os.environ.get("PUSHOVER_USER", "").strip()
+    ):
         return _send_pushover(httpx, title, message)
 
     return NotificationResult(
-        "push", False,
+        "push",
+        False,
         error="Push not configured. Set NTFY_TOPIC (recommended) "
         "or PUSHOVER_TOKEN + PUSHOVER_USER.",
     )
@@ -332,8 +339,8 @@ def send_alert(
     title + message into one body. Returns a ``{channel: NotificationResult}``
     map; unconfigured channels simply report a failure result (no exception).
     """
-    requested = ["email", "sms", "push"] if "all" in channels else list(
-        dict.fromkeys(channels)
+    requested = (
+        ["email", "sms", "push"] if "all" in channels else list(dict.fromkeys(channels))
     )
     results: Dict[str, NotificationResult] = {}
     for ch in requested:

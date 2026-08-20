@@ -200,9 +200,7 @@ class WeatherTool(BaseTool):
             "timezone": "auto",
         }
         if days > 0:
-            params["daily"] = (
-                "temperature_2m_max,temperature_2m_min,weather_code"
-            )
+            params["daily"] = "temperature_2m_max,temperature_2m_min,weather_code"
             params["forecast_days"] = days
         resp = client.get(_FORECAST_URL, params=params)
         resp.raise_for_status()
@@ -242,8 +240,7 @@ class WeatherTool(BaseTool):
                 lo = lows[i] if i < len(lows) else "?"
                 code = codes[i] if i < len(codes) else None
                 lines.append(
-                    f"  {date}: {lo}{temp_unit}–{hi}{temp_unit},"
-                    f" {_describe(code)}"
+                    f"  {date}: {lo}{temp_unit}–{hi}{temp_unit}, {_describe(code)}"
                 )
 
         return "\n".join(lines)

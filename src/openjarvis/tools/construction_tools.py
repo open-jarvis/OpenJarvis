@@ -182,7 +182,9 @@ class ProjectCreateTool(BaseTool):
                     "client": {"type": "string", "description": "Client name."},
                     "status": {
                         "type": "string",
-                        "description": "lead | quoted | active | completed | cancelled.",
+                        "description": (
+                            "lead | quoted | active | completed | cancelled."
+                        ),
                     },
                     "notes": {"type": "string", "description": "Optional notes."},
                 },
@@ -246,8 +248,7 @@ class ProjectListTool(BaseTool):
                 metadata={"count": 0},
             )
         lines = [
-            f"- [{p.status}] {p.name}"
-            f"{f' — {p.client}' if p.client else ''} (id {p.id})"
+            f"- [{p.status}] {p.name}{f' — {p.client}' if p.client else ''} (id {p.id})"
             for p in projects
         ]
         return ToolResult(

@@ -116,7 +116,9 @@ def get_crypto_price(symbol: str, vs_currency: str = "usd") -> Dict[str, Any]:
     }
 
 
-def get_crypto_series(symbol: str, days: int = 30, vs_currency: str = "usd") -> List[float]:
+def get_crypto_series(
+    symbol: str, days: int = 30, vs_currency: str = "usd"
+) -> List[float]:
     """Return a list of historical closing prices (oldest → newest)."""
     coin_id = resolve_crypto_id(symbol)
     data = _coingecko_get(
@@ -124,7 +126,9 @@ def get_crypto_series(symbol: str, days: int = 30, vs_currency: str = "usd") -> 
         {"vs_currency": vs_currency.strip().lower(), "days": max(1, int(days))},
     )
     prices = (data or {}).get("prices") or []
-    series = [float(p[1]) for p in prices if isinstance(p, (list, tuple)) and len(p) >= 2]
+    series = [
+        float(p[1]) for p in prices if isinstance(p, (list, tuple)) and len(p) >= 2
+    ]
     if not series:
         raise PriceError(f"No price history for crypto '{coin_id}'.")
     return series

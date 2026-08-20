@@ -13,6 +13,7 @@ from openjarvis.tools._stubs import ToolExecutor
 @pytest.fixture
 def ok(monkeypatch):
     """Force all underlying alert sends to succeed."""
+
     def _email(subject, message, **k):
         return alerts_mod.NotificationResult("email", True, detail="sent")
 
@@ -25,13 +26,17 @@ def ok(monkeypatch):
     monkeypatch.setattr(nt, "send_email_alert", _email)
     monkeypatch.setattr(nt, "send_sms_alert", _sms)
     monkeypatch.setattr(nt, "send_push_alert", _push)
+
     # the unified tool imports send_alert lazily from the package
     def _send_alert(title, message, *, channels=("push",)):
-        return {c: alerts_mod.NotificationResult(c, True, detail="sent")
-                for c in (["email", "sms", "push"] if "all" in channels else channels)}
+        return {
+            c: alerts_mod.NotificationResult(c, True, detail="sent")
+            for c in (["email", "sms", "push"] if "all" in channels else channels)
+        }
 
     monkeypatch.setattr(alerts_mod, "send_alert", _send_alert, raising=False)
     import openjarvis.notifications as pkg
+
     monkeypatch.setattr(pkg, "send_alert", _send_alert, raising=False)
     yield
 
@@ -137,12 +142,16 @@ def test_notification_send_runs_after_confirmation(ok, tool, arguments):
 
 def test_notify_tool_reports_failure_cleanly(monkeypatch):
     """A failed send yields success=False with the clean error, no exception."""
+
     def _failing(title, message, *, channels=("push",)):
-        return {"push": alerts_mod.NotificationResult(
-            "push", False, error="Push not configured."
-        )}
+        return {
+            "push": alerts_mod.NotificationResult(
+                "push", False, error="Push not configured."
+            )
+        }
 
     import openjarvis.notifications as pkg
+
     monkeypatch.setattr(pkg, "send_alert", _failing, raising=False)
 
     res = nt.NotifyTool().execute(title="T", message="M", channels=["push"])

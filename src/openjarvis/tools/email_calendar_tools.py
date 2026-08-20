@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, List, Optional
+from typing import Any, List
 
 from openjarvis.core.registry import ConnectorRegistry, ToolRegistry
 from openjarvis.core.types import ToolResult

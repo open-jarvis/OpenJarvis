@@ -1044,6 +1044,7 @@ async def synthesize_speech(req: SynthesizeRequest, request: Request):
         stream = getattr(config.speech, "tts_stream", True)
 
     if stream:
+
         def _gen():
             try:
                 yield from backend.synthesize_stream(

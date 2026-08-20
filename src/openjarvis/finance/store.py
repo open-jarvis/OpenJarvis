@@ -136,9 +136,7 @@ class FinanceStore:
                 (symbol, asset_type),
             )
         else:
-            cur = self._conn.execute(
-                "DELETE FROM holdings WHERE symbol = ?", (symbol,)
-            )
+            cur = self._conn.execute("DELETE FROM holdings WHERE symbol = ?", (symbol,))
         self._conn.commit()
         return cur.rowcount
 
@@ -216,19 +214,14 @@ class FinanceStore:
 
         if side == "buy":
             if cost > cash + 1e-9:
-                raise ValueError(
-                    f"Insufficient cash: need {cost:.2f}, have {cash:.2f}"
-                )
+                raise ValueError(f"Insufficient cash: need {cost:.2f}, have {cash:.2f}")
             new_cash = cash - cost
             new_qty = held_qty + quantity
-            new_avg = (
-                (held_qty * held_avg + cost) / new_qty if new_qty > 0 else 0.0
-            )
+            new_avg = (held_qty * held_avg + cost) / new_qty if new_qty > 0 else 0.0
         else:  # sell
             if quantity > held_qty + 1e-9:
                 raise ValueError(
-                    f"Insufficient position: trying to sell {quantity}, "
-                    f"hold {held_qty}"
+                    f"Insufficient position: trying to sell {quantity}, hold {held_qty}"
                 )
             new_cash = cash + cost
             new_qty = held_qty - quantity

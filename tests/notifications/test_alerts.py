@@ -14,12 +14,21 @@ from openjarvis.notifications import alerts
 def _clear_env(monkeypatch):
     """Start every test from a clean slate for all alert-related env vars."""
     for key in [
-        "EMAIL_FROM", "EMAIL_TO", "SMTP_HOST", "SMTP_PORT",
-        "SMTP_USERNAME", "SMTP_PASSWORD",
-        "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER",
+        "EMAIL_FROM",
+        "EMAIL_TO",
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "SMTP_USERNAME",
+        "SMTP_PASSWORD",
+        "TWILIO_ACCOUNT_SID",
+        "TWILIO_AUTH_TOKEN",
+        "TWILIO_FROM_NUMBER",
         "MY_PHONE_NUMBER",
-        "NTFY_TOPIC", "NTFY_SERVER", "NTFY_TOKEN",
-        "PUSHOVER_TOKEN", "PUSHOVER_USER",
+        "NTFY_TOPIC",
+        "NTFY_SERVER",
+        "NTFY_TOKEN",
+        "PUSHOVER_TOKEN",
+        "PUSHOVER_USER",
     ]:
         monkeypatch.delenv(key, raising=False)
     yield
@@ -180,9 +189,7 @@ def test_sms_success(monkeypatch):
 
 
 def test_sms_provider_error(monkeypatch):
-    _install_fake_httpx(
-        monkeypatch, status=400, payload={"message": "bad number"}
-    )
+    _install_fake_httpx(monkeypatch, status=400, payload={"message": "bad number"})
     monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACxxxx")
     monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok")
     monkeypatch.setenv("TWILIO_FROM_NUMBER", "+15550000000")
@@ -238,6 +245,7 @@ def test_load_env_file_does_not_override_existing(monkeypatch, tmp_path):
     count = alerts.load_env_file(env)
     assert count == 1  # only EMAIL_FROM was set; NTFY_TOPIC kept its value
     import os
+
     assert os.environ["NTFY_TOPIC"] == "already-set"
     assert os.environ["EMAIL_FROM"] == "a@b.com"
 

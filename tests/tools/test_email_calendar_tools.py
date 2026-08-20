@@ -84,12 +84,11 @@ def test_email_send_missing_recipient():
 def test_email_send_not_connected():
     conn = MagicMock()
     conn.is_connected.return_value = False
-    with patch.object(ConnectorRegistry, "contains", return_value=True), patch.object(
-        ConnectorRegistry, "get", return_value=lambda: conn
+    with (
+        patch.object(ConnectorRegistry, "contains", return_value=True),
+        patch.object(ConnectorRegistry, "get", return_value=lambda: conn),
     ):
-        result = EmailSendTool().execute(
-            to="a@example.com", subject="x", body="y"
-        )
+        result = EmailSendTool().execute(to="a@example.com", subject="x", body="y")
     assert result.success is False
     assert "not connected" in result.content.lower()
 
@@ -152,9 +151,7 @@ def test_calendar_create_missing_fields():
 
 
 def test_calendar_list_success():
-    doc = SimpleNamespace(
-        title="Meeting", timestamp=datetime(2026, 6, 6, 14, 0)
-    )
+    doc = SimpleNamespace(title="Meeting", timestamp=datetime(2026, 6, 6, 14, 0))
     conn = _connected(sync=MagicMock(return_value=iter([doc])))
     c1, c2 = _patch_registry(conn)
     with c1, c2:

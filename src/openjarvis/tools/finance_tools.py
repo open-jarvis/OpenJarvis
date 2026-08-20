@@ -90,7 +90,9 @@ class CryptoPriceTool(BaseTool):
                 success=False,
             )
         change = data.get("change_24h")
-        change_str = f" ({change:+.2f}% 24h)" if isinstance(change, (int, float)) else ""
+        change_str = (
+            f" ({change:+.2f}% 24h)" if isinstance(change, (int, float)) else ""
+        )
         return ToolResult(
             tool_name="crypto_price",
             content=(
@@ -227,7 +229,8 @@ class TechnicalAnalysisTool(BaseTool):
 
         lines = [
             f"Technical analysis for {symbol.upper()} ({asset_type}):",
-            f"  Last: {_r(s['last'])}  SMA20: {_r(s['sma20'])}  SMA50: {_r(s['sma50'])}",
+            f"  Last: {_r(s['last'])}  SMA20: {_r(s['sma20'])}  "
+            f"SMA50: {_r(s['sma50'])}",
             f"  RSI14: {_r(s['rsi14'])}  MACD: {macd_str}",
             f"  Signals: {', '.join(s['signals']) or 'none'}",
             f"  Bias: {s['bias'].upper()}",
@@ -236,7 +239,11 @@ class TechnicalAnalysisTool(BaseTool):
             tool_name="technical_analysis",
             content="\n".join(lines),
             success=True,
-            metadata={"symbol": symbol.upper(), "asset_type": asset_type, "bias": s["bias"]},
+            metadata={
+                "symbol": symbol.upper(),
+                "asset_type": asset_type,
+                "bias": s["bias"],
+            },
         )
 
 
@@ -253,9 +260,7 @@ class PortfolioAddTool(BaseTool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="portfolio_add",
-            description=(
-                "Add or update a tracked holding in the user's portfolio."
-            ),
+            description=("Add or update a tracked holding in the user's portfolio."),
             parameters={
                 "type": "object",
                 "properties": {
@@ -344,7 +349,10 @@ class PortfolioViewTool(BaseTool):
                 continue
             value = price * h.quantity
             total_value += value
-            line = f"  {h.symbol} ({h.asset_type}): {h.quantity} @ {price:,.2f} = {value:,.2f}"
+            line = (
+                f"  {h.symbol} ({h.asset_type}): {h.quantity} @ "
+                f"{price:,.2f} = {value:,.2f}"
+            )
             if h.cost_basis:
                 cost = h.cost_basis * h.quantity
                 total_cost += cost
@@ -489,9 +497,7 @@ class PaperTradeTool(BaseTool):
                 action, symbol, asset_type, quantity, price
             )
         except ValueError as exc:
-            return ToolResult(
-                tool_name="paper_trade", content=str(exc), success=False
-            )
+            return ToolResult(tool_name="paper_trade", content=str(exc), success=False)
 
         cash = _store().get_cash()
         return ToolResult(

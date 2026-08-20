@@ -28,8 +28,7 @@ def _resolve_ffmpeg() -> str | None:
         _FFMPEG_CACHED = found
         return found
     for candidate in (
-        Path(os.environ.get("LOCALAPPDATA", ""))
-        / "Microsoft/WinGet/Links/ffmpeg.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft/WinGet/Links/ffmpeg.exe",
         Path(os.environ.get("ProgramFiles", "")) / "ffmpeg/bin/ffmpeg.exe",
     ):
         if candidate.is_file():
