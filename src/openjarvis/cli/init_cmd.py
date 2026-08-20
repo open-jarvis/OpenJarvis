@@ -344,7 +344,9 @@ def init(
             console.print(f"  Looked in: {examples_dir}")
             raise SystemExit(1)
         DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        DEFAULT_CONFIG_PATH.write_text(preset_path.read_text())
+        DEFAULT_CONFIG_PATH.write_text(
+            preset_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
         console.print(
             f"[green]Preset '{preset}' installed to {DEFAULT_CONFIG_PATH}[/green]"
         )

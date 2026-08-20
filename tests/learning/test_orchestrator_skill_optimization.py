@@ -102,9 +102,7 @@ class TestOrchestratorRunSkillTrigger:
                 orchestrator.run()
                 mock_optimize.assert_not_called()
 
-    def test_run_calls_skill_optimizer_when_enabled(
-        self, tmp_path: Path
-    ) -> None:
+    def test_run_calls_skill_optimizer_when_enabled(self, tmp_path: Path) -> None:
         from openjarvis.learning.agents.skill_optimizer import (
             SkillOptimizationResult,
         )

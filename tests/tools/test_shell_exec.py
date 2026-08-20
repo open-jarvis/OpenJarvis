@@ -219,8 +219,7 @@ class TestShellExecTool:
         tool = ShellExecTool()
         result = tool.execute(
             command=(
-                f"{shlex.quote(get_python_executable())} "
-                "-c \"print('A' * 200000)\""
+                f"{shlex.quote(get_python_executable())} -c \"print('A' * 200000)\""
             ),
         )
         assert "truncated" in result.content

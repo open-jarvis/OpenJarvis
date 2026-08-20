@@ -216,7 +216,7 @@ def test_research_route_passes_live_engine_and_selected_model(
         captured.update(kwargs)
 
         async def gen():
-            yield "data: {\"type\":\"done\",\"usage\":{}}\n\n"
+            yield 'data: {"type":"done","usage":{}}\n\n'
 
         return gen()
 

@@ -96,6 +96,7 @@ class EnergyCollector:
             return self
         try:
             import pynvml  # type: ignore[import-not-found]
+
             pynvml.nvmlInit()
             total = pynvml.nvmlDeviceGetCount()
             self.gpu_indices = _resolve_gpu_indices(total)

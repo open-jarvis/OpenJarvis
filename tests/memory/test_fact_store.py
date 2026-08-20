@@ -7,7 +7,11 @@ import json
 import pytest
 
 from openjarvis.core.registry import FactStoreRegistry
-from openjarvis.memory.store import LocalFactStore, create_fact_store
+from openjarvis.memory.store import (
+    LocalFactStore,
+    create_fact_store,
+    load_configured_facts,
+)
 
 
 def test_add_and_list(tmp_path):
@@ -145,3 +149,28 @@ def test_create_fact_store_default_path_uses_openjarvis_home(tmp_path, monkeypat
 def test_create_fact_store_unknown_backend(tmp_path):
     with pytest.raises(ValueError):
         create_fact_store("cloud", path=tmp_path / "f.jsonl")
+
+
+def test_load_configured_facts_reads_enabled_store(tmp_path):
+    from types import SimpleNamespace
+
+    path = tmp_path / "facts.jsonl"
+    LocalFactStore(path).add("User likes jazz", source="auto")
+    config = SimpleNamespace(
+        memory=SimpleNamespace(
+            enabled=True,
+            backend="local",
+            facts_path=str(path),
+            max_facts=1000,
+        )
+    )
+
+    assert [fact.text for fact in load_configured_facts(config)] == ["User likes jazz"]
+
+
+def test_load_configured_facts_skips_disabled_memory():
+    from types import SimpleNamespace
+
+    config = SimpleNamespace(memory=SimpleNamespace(enabled=False))
+
+    assert load_configured_facts(config) == []

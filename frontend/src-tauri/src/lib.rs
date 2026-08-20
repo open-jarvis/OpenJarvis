@@ -8,6 +8,8 @@ use tokio::sync::Mutex;
 
 const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8000;
+const DESKTOP_UV_SYNC_COMMAND: &str =
+    "uv sync --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
 
 /// Small, fast model used when startup needs a default Ollama tag.
 const STARTUP_MODEL: &str = "qwen3.5:4b";
@@ -740,10 +742,11 @@ fn format_uv_sync_failure(
     format!(
         "`uv sync` failed in {} (exit {}). Last output:\n\n{}\n\n\
          Try opening a terminal in that directory and running \
-         `uv sync --extra desktop` manually for the full output.{}",
+         `{}` manually for the full output.{}",
         root.display(),
         code,
         tail,
+        DESKTOP_UV_SYNC_COMMAND,
         rust_hint,
     )
 }
@@ -829,7 +832,7 @@ fn format_extension_import_failure(root: &std::path::Path, stderr: &str) -> Stri
         "`openjarvis_rust` is still not importable after building. Last output:\n\n{}\n\n\
          Run these manually for the full build log:\n\n\
            cd {}\n\
-           uv sync --extra desktop\n\
+           {}\n\
            uv run python -c \"import openjarvis_rust\"",
         if tail.is_empty() {
             "(no stderr output)"
@@ -837,6 +840,7 @@ fn format_extension_import_failure(root: &std::path::Path, stderr: &str) -> Stri
             &tail
         },
         root.display(),
+        DESKTOP_UV_SYNC_COMMAND,
     )
 }
 
@@ -1350,6 +1354,9 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             "--extra", "desktop",
             "--extra", "inference-cloud",
             "--extra", "inference-google",
+            // openjarvis_rust lives in a uv dependency group (not the published
+            // `desktop` extra) so pip installs from PyPI don't require it (#584).
+            "--group", "desktop-native",
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -2866,7 +2873,7 @@ mod tests {
         format_uv_sync_spawn_error, matching_installed_model, model_names_match, normalize_host,
         parse_inference_config, parse_ollama_model_names, preferred_installed_model,
         should_persist_resolved_model, startup_installed_model, upsert_engine_host,
-        uv_sync_stderr_tail, InferenceConfig, SourceKind,
+        uv_sync_stderr_tail, InferenceConfig, SourceKind, DESKTOP_UV_SYNC_COMMAND,
     };
     use std::path::Path;
 
@@ -2910,7 +2917,7 @@ mod tests {
         assert!(msg.contains("exit 2"));
         assert!(msg.contains("/home/u/.openjarvis/src"));
         assert!(msg.contains("failed to resolve numpy==2.1.3"));
-        assert!(msg.contains("uv sync --extra desktop")); // actionable next step
+        assert!(msg.contains(DESKTOP_UV_SYNC_COMMAND)); // actionable next step
     }
 
     #[test]
@@ -2962,7 +2969,7 @@ mod tests {
             "ModuleNotFoundError: No module named 'openjarvis_rust'",
         );
         assert!(msg.contains("openjarvis_rust"));
-        assert!(msg.contains("uv sync --extra desktop"));
+        assert!(msg.contains(DESKTOP_UV_SYNC_COMMAND));
         assert!(msg.contains("uv run python -c \"import openjarvis_rust\""));
         assert!(msg.contains("ModuleNotFoundError"));
     }

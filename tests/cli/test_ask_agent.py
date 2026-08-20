@@ -212,9 +212,7 @@ class TestAskAgentOption:
         )
         assert result.exit_code != 0
 
-    def test_no_agent_flag_falls_back_to_config_default_agent(
-        self, runner, mock_setup
-    ):
+    def test_no_agent_flag_falls_back_to_config_default_agent(self, runner, mock_setup):
         """When --agent is omitted, ``config.agent.default_agent`` is used.
 
         The default ``JarvisConfig`` sets ``default_agent = "simple"``, so
@@ -227,9 +225,7 @@ class TestAskAgentOption:
         assert result.exit_code == 0
         assert "Hello from engine" in result.output
 
-    def test_explicit_empty_agent_opts_out_of_agent_mode(
-        self, runner, mock_setup
-    ):
+    def test_explicit_empty_agent_opts_out_of_agent_mode(self, runner, mock_setup):
         """``--agent ""`` is the explicit opt-out: use direct-to-engine."""
         result = runner.invoke(cli, ["ask", "--agent", "", "Hello"])
         assert result.exit_code == 0
@@ -374,9 +370,7 @@ class TestPersonaFilesReachModel:
         _register_tools()
         with (
             patch.object(_ask_mod, "load_config", return_value=cfg),
-            patch.object(
-                _ask_mod, "get_engine", return_value=("mock", engine)
-            ),
+            patch.object(_ask_mod, "get_engine", return_value=("mock", engine)),
             patch.object(_ask_mod, "discover_engines", return_value=[("mock", engine)]),
             patch.object(
                 _ask_mod, "discover_models", return_value={"mock": ["test-model"]}
@@ -391,9 +385,7 @@ class TestPersonaFilesReachModel:
         engine.generate.assert_called()
         call_args = engine.generate.call_args
         messages = (
-            call_args.args[0]
-            if call_args.args
-            else call_args.kwargs.get("messages")
+            call_args.args[0] if call_args.args else call_args.kwargs.get("messages")
         )
         assert messages is not None and len(messages) >= 2
         system_messages = [m for m in messages if str(m.role).endswith("SYSTEM")]
@@ -404,11 +396,10 @@ class TestPersonaFilesReachModel:
         assert "MEMORY_SENTINEL" in joined
         assert "USER_SENTINEL" in joined
 
-    def test_orchestrator_keeps_its_own_system_prompt(
+    def test_orchestrator_accepts_persona_prompt_builder(
         self, runner, monkeypatch, tmp_path
     ):
-        """OrchestratorAgent's __init__ doesn't accept ``prompt_builder``;
-        the wiring must skip it silently rather than crash."""
+        """Orchestrator explicitly accepts and applies persona wiring."""
         from openjarvis.core.config import JarvisConfig
 
         soul = tmp_path / "SOUL.md"
@@ -423,9 +414,7 @@ class TestPersonaFilesReachModel:
         _register_tools()
         with (
             patch.object(_ask_mod, "load_config", return_value=cfg),
-            patch.object(
-                _ask_mod, "get_engine", return_value=("mock", engine)
-            ),
+            patch.object(_ask_mod, "get_engine", return_value=("mock", engine)),
             patch.object(_ask_mod, "discover_engines", return_value=[("mock", engine)]),
             patch.object(
                 _ask_mod, "discover_models", return_value={"mock": ["test-model"]}
@@ -435,5 +424,6 @@ class TestPersonaFilesReachModel:
         ):
             result = runner.invoke(cli, ["ask", "--agent", "orchestrator", "Hello"])
 
-        # Pass condition: doesn't crash with TypeError on prompt_builder kwarg.
         assert result.exit_code == 0, result.output
+        messages = engine.generate.call_args.args[0]
+        assert "ORCH_PERSONA_SENTINEL" in messages[0].content
