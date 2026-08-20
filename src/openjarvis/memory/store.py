@@ -9,6 +9,7 @@ caps the total number of facts, and is safe to call from multiple threads.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import sys
@@ -24,10 +25,50 @@ from typing import Any, Iterable, Iterator, List
 from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import FactStoreRegistry
 
-if sys.platform == "win32":
-    import msvcrt
-else:
+if sys.platform != "win32":
     import fcntl
+
+
+_WINDOWS_LOCK_RETRY_SECONDS = 0.01
+_WINDOWS_LOCK_RETRY_ERRNOS = {errno.EACCES, errno.EAGAIN, errno.EDEADLK}
+_WINDOWS_LOCK_RETRY_WINERRORS = {33}  # ERROR_LOCK_VIOLATION
+
+
+def _lock_windows_blocking(
+    file_obj: Any,
+    *,
+    locking_api: Any | None = None,
+    retry_interval: float = _WINDOWS_LOCK_RETRY_SECONDS,
+) -> None:
+    """Acquire the first-byte Windows lock, retrying until it is available.
+
+    ``msvcrt.LK_LOCK`` only retries a fixed number of times before raising.
+    Use the non-blocking operation in our own retry loop so contention never
+    turns an otherwise valid store operation into a spurious failure.
+    """
+    if locking_api is None:
+        import msvcrt as locking_api
+
+    while True:
+        file_obj.seek(0)
+        try:
+            locking_api.locking(file_obj.fileno(), locking_api.LK_NBLCK, 1)
+            return
+        except OSError as exc:
+            if (
+                exc.errno not in _WINDOWS_LOCK_RETRY_ERRNOS
+                and getattr(exc, "winerror", None) not in _WINDOWS_LOCK_RETRY_WINERRORS
+            ):
+                raise
+            time.sleep(retry_interval)
+
+
+def _unlock_windows(file_obj: Any, *, locking_api: Any | None = None) -> None:
+    if locking_api is None:
+        import msvcrt as locking_api
+
+    file_obj.seek(0)
+    locking_api.locking(file_obj.fileno(), locking_api.LK_UNLCK, 1)
 
 
 def _default_fact_path() -> Path:
@@ -55,16 +96,14 @@ def _cross_process_lock(lock_path: Path) -> Iterator[None]:
             if f.tell() == 0:
                 f.write(b"\0")
                 f.flush()
-            f.seek(0)
-            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+            _lock_windows_blocking(f)
         else:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
             yield
         finally:
             if sys.platform == "win32":
-                f.seek(0)
-                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                _unlock_windows(f)
             else:
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     finally:
