@@ -8,10 +8,10 @@ import wave
 _SAMPLE_RATE = 16000
 _CHANNELS = 1
 _CHUNK = 1024
-_SILENCE_THRESHOLD = 500      # RMS below this → silence
-_SILENCE_SECONDS = 1.5        # seconds of silence before auto-stop
+_SILENCE_THRESHOLD = 500  # RMS below this → silence
+_SILENCE_SECONDS = 1.5  # seconds of silence before auto-stop
 _STARTUP_SILENCE_SECONDS = 5.0  # give up early if speech never begins
-_MAX_RECORD_SECONDS = 30      # safety ceiling
+_MAX_RECORD_SECONDS = 30  # safety ceiling
 
 
 def _rms(data: bytes) -> float:
@@ -21,7 +21,7 @@ def _rms(data: bytes) -> float:
     n = len(data) // 2
     if n == 0:
         return 0.0
-    shorts = struct.unpack(f"{n}h", data[:n * 2])
+    shorts = struct.unpack(f"{n}h", data[: n * 2])
     return (sum(s * s for s in shorts) / n) ** 0.5
 
 
@@ -115,8 +115,7 @@ def play_wav(audio: bytes, sample_rate: int = 24000) -> None:
 
         n = len(audio) // 2
         data = (
-            np.array(struct.unpack(f"{n}h", audio[: n * 2]), dtype="float32")
-            / 32768.0
+            np.array(struct.unpack(f"{n}h", audio[: n * 2]), dtype="float32") / 32768.0
         )
         sr = sample_rate
 
