@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import uuid
+import weakref
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -511,6 +513,35 @@ def _handle_direct(
     )
 
 
+# _handle_agent runs on a worker thread (via asyncio.to_thread) for both
+# the streaming and non-streaming routes, so concurrent requests against
+# the same shared agent execute on real OS threads and can genuinely
+# interleave. A lock per agent *instance* serializes the
+# override-run-restore critical section below so one request's temporary
+# `model` override can never be read as another's "original" value (#759).
+# Key by object identity rather than by the agent itself: custom agents may be
+# unhashable or may not support weak references.  The values are weak so this
+# registry retains neither the agent nor an idle lock.  A caller keeps the lock
+# alive from lookup through the full override/run/restore critical section.
+_agent_model_locks: "weakref.WeakValueDictionary[int, threading.Lock]" = (
+    weakref.WeakValueDictionary()
+)
+_agent_model_locks_guard = threading.Lock()
+
+
+def _get_agent_model_lock(agent: Any) -> threading.Lock:
+    """Return the lock serializing model overrides for *agent*, creating it
+    on first use. One lock per agent instance, not global, so unrelated
+    agents don't serialize against each other."""
+    agent_id = id(agent)
+    with _agent_model_locks_guard:
+        lock = _agent_model_locks.get(agent_id)
+        if lock is None:
+            lock = threading.Lock()
+            _agent_model_locks[agent_id] = lock
+        return lock
+
+
 def _handle_agent(
     agent,
     model: str,
@@ -541,20 +572,24 @@ def _handle_agent(
     # Last message is the input
     input_text = req.messages[-1].content if req.messages else ""
 
-    # Override agent model for this request if the caller specified one
-    original_model = agent._model
-    if model:
-        agent._model = model
-    try:
-        if trace_store is not None:
-            from openjarvis.traces.collector import TraceCollector
+    # Override agent model for this request if the caller specified one.
+    # Locked for the full override-run-restore cycle (#759): only the
+    # override/restore lines racing wouldn't be enough, since agent.run()
+    # itself reads self._model throughout the call.
+    with _get_agent_model_lock(agent):
+        original_model = agent._model
+        if model:
+            agent._model = model
+        try:
+            if trace_store is not None:
+                from openjarvis.traces.collector import TraceCollector
 
-            collector = TraceCollector(agent, store=trace_store, bus=bus)
-            result = collector.run(input_text, context=ctx)
-        else:
-            result = agent.run(input_text, context=ctx)
-    finally:
-        agent._model = original_model
+                collector = TraceCollector(agent, store=trace_store, bus=bus)
+                result = collector.run(input_text, context=ctx)
+            else:
+                result = agent.run(input_text, context=ctx)
+        finally:
+            agent._model = original_model
 
     usage = UsageInfo(
         prompt_tokens=result.metadata.get("prompt_tokens", 0),

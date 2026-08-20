@@ -14,16 +14,27 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from openjarvis.evals.comparison.table_gen import (
-    _build_t1,
-    load_results,
-)
+import pytest
+
+
+@pytest.fixture
+def table_gen():
+    """Load the optional Polars-backed helpers only for tests that need them."""
+    pytest.importorskip("polars")
+    from openjarvis.evals.comparison.table_gen import _build_t1, load_results
+
+    return _build_t1, load_results
 
 
 class TestExportToTableGenRoundtrip:
-    def test_summary_json_loads_via_table_gen(self, tmp_path: Path) -> None:
+    def test_summary_json_loads_via_table_gen(
+        self,
+        tmp_path: Path,
+        table_gen,
+    ) -> None:
         """Construct a summary.json mimicking _summary_to_dict output;
         verify table_gen.load_results parses it without skipping."""
+        _, load_results = table_gen
         summary = {
             # Existing rich schema (unchanged)
             "hardware_info": {"gpu": "H100"},
@@ -79,8 +90,13 @@ class TestExportToTableGenRoundtrip:
         assert frame.df["framework"].to_list()[0] == "hermes"
         assert frame.df["framework_commit"].to_list()[0] == "5d3be898a"
 
-    def test_table_gen_builds_t1_from_export_schema(self, tmp_path: Path) -> None:
+    def test_table_gen_builds_t1_from_export_schema(
+        self,
+        tmp_path: Path,
+        table_gen,
+    ) -> None:
         """T1 builder produces non-empty LaTeX from realistic schema."""
+        _build_t1, load_results = table_gen
         for fwk, acc in [("hermes", 0.30), ("openjarvis", 0.45)]:
             summary = {
                 "framework": fwk,

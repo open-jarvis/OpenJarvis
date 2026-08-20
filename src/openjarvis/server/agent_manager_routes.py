@@ -679,9 +679,7 @@ def _get_mcp_tools_locked(
         app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
         return app_state._mcp_tools_cache
 
-    import json as _json
-
-    from openjarvis.core.config import load_config
+    from openjarvis.core.config import load_config, resolve_mcp_servers
 
     openai_tools: List[Dict[str, Any]] = []
     adapters_by_name: Dict[str, Any] = {}
@@ -700,16 +698,16 @@ def _get_mcp_tools_locked(
     from openjarvis.tools.mcp_adapter import MCPToolProvider
 
     try:
-        server_list = _json.loads(app_config.tools.mcp.servers)
-    except (_json.JSONDecodeError, TypeError) as exc:
+        server_list = resolve_mcp_servers(
+            app_config.tools.mcp.servers,
+            app_config._config_dir,
+        )
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
         logger.warning("Failed to parse MCP server config: %s", exc)
         return openai_tools, adapters_by_name
 
-    if not isinstance(server_list, list):
-        return openai_tools, adapters_by_name
-
     for server_cfg in server_list:
-        cfg = _json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
+        cfg = server_cfg
         name = cfg.get("name", "<unnamed>")
         url = cfg.get("url")
         # Bearer token from config — mirrors the builder.py fix for #461.

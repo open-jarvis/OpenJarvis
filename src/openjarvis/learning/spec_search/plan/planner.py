@@ -45,7 +45,8 @@ INTELLIGENCE pillar:
 
 AGENT pillar:
 - replace_system_prompt: {{"new_content": "You are a helpful assistant.\\n..."}}
-- patch_system_prompt: {{"diff": "--- a/prompt.md\\n+++ b/prompt.md\\n@@ ...\\n"}}
+- patch_system_prompt: {{"diff": "--- a/prompt.md\\n+++ b/prompt.md\\n\
+@@ -3,1 +3,1 @@\\n-Old line\\n+New line\\n"}}
 - set_agent_class: {{"agent": "simple", "new_class": "react"}}
 - set_agent_param: {{"agent": "native_react", "param": "max_turns", "value": 10}}
 - edit_few_shot_exemplars: {{"agent": "native_react", \
