@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from openjarvis.cli._tool_names import resolve_tool_names
+from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, read_voice_input, speak
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
@@ -25,89 +26,6 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
         return input(prompt)
     except (EOFError, KeyboardInterrupt):
         return None
-
-
-_VOICE_EXIT = object()  # sentinel: user wants to quit
-
-
-def _read_voice_input(console: "Console") -> "Optional[str] | object":
-    """Accept a typed command/message, or record after an empty submission."""
-    typed = _read_input("You> [type, or press Enter to speak] ")
-    if typed is None:
-        return _VOICE_EXIT
-    typed = typed.strip()
-    return typed if typed else _record_voice(console)
-
-
-def _record_voice(console: "Console") -> "Optional[str] | object":
-    """Record from mic, transcribe, and return text.
-
-    Returns:
-        str  — transcribed text to use as input
-        None — nothing heard / transcription empty, try again
-        _VOICE_EXIT — Ctrl-C / fatal error, caller should exit
-    """
-    from openjarvis.core.config import load_config
-    from openjarvis.speech._discovery import get_speech_backend
-    from openjarvis.speech.voice_io import record_until_silence
-
-    config = load_config()
-    backend = get_speech_backend(config)
-    if backend is None:
-        console.print(
-            "[red]No speech-to-text backend available. "
-            "Install the voice dependencies with: "
-            "pip install 'OpenJarvis[speech]', or configure a healthy "
-            "OpenAI/Deepgram backend.[/red]"
-        )
-        return _VOICE_EXIT
-
-    console.print("[dim cyan]Listening… (speak now, stops on silence)[/dim cyan]")
-    try:
-        audio_bytes = record_until_silence()
-    except RuntimeError as exc:
-        console.print(f"[red]Mic error: {exc}[/red]")
-        return _VOICE_EXIT
-    except KeyboardInterrupt:
-        return _VOICE_EXIT
-
-    console.print("[dim]Transcribing…[/dim]")
-    try:
-        result = backend.transcribe(audio_bytes, format="wav")
-        text = result.text.strip()
-        if text:
-            console.print(f"[bold]You (voice):[/bold] {text}")
-            return text
-        console.print("[dim]Nothing heard — try again.[/dim]")
-        return None
-    except Exception as exc:
-        console.print(f"[red]Transcription error: {exc}[/red]")
-        return None
-
-
-def _speak(text: str, console: "Console") -> None:
-    """Synthesize text and play it back; silently skip on missing deps."""
-    from openjarvis.core.registry import TTSRegistry
-    from openjarvis.speech.voice_io import play_wav
-
-    # Try kokoro first (local), then any registered TTS backend
-    for key in ("kokoro", "openai_tts", "cartesia"):
-        if TTSRegistry.contains(key):
-            try:
-                backend = TTSRegistry.get(key)()
-                if not backend.health():
-                    continue
-                result = backend.synthesize(text, output_format="wav")
-                if result.audio:
-                    play_wav(result.audio, sample_rate=result.sample_rate)
-                return
-            except Exception:
-                continue
-
-    console.print(
-        "[dim yellow]No TTS backend available — install kokoro: "
-        "pip install kokoro[/dim yellow]"
-    )
 
 
 @click.command()
@@ -257,8 +175,9 @@ def chat(
         except Exception as exc:
             console.print(f"[yellow]Agent '{agent_key}' failed: {exc}[/yellow]")
 
-    # Trigger TTS backend registration so _speak can find backends
-    import openjarvis.speech  # noqa: F401
+    # Keep voice state outside the core chat path so picker/runtime changes can
+    # be layered independently. Loaded speech models live for this session.
+    voice_session = VoiceSession(config) if voice_mode else None
 
     # Print banner
     voice_hint = (
@@ -331,8 +250,9 @@ def chat(
             console.print(f"[dim cyan]{note}[/dim cyan]")
 
         if voice_mode:
-            result = _read_voice_input(console)
-            if result is _VOICE_EXIT:
+            assert voice_session is not None
+            result = read_voice_input(console, voice_session)
+            if result is VOICE_EXIT:
                 console.print("\n[dim]Goodbye![/dim]")
                 break
             if result is None:
@@ -448,7 +368,8 @@ def chat(
             console.print(Markdown(content))
             console.print()
             if voice_mode:
-                _speak(content, console)
+                assert voice_session is not None
+                speak(content, console, voice_session)
 
             publish_completed_exchange(
                 bus,

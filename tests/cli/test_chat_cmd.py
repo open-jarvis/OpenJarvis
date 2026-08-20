@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from io import StringIO
+from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
+from rich.console import Console
 
 from openjarvis.agents._stubs import (
     AgentContext,
@@ -13,7 +16,8 @@ from openjarvis.agents._stubs import (
     BaseAgent,
     ToolUsingAgent,
 )
-from openjarvis.cli.chat_cmd import _VOICE_EXIT, _read_input, _record_voice, chat
+from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, record_voice, speak
+from openjarvis.cli.chat_cmd import _read_input, chat
 from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.core.registry import AgentRegistry, ToolRegistry
@@ -90,7 +94,7 @@ class TestChatCommand:
             patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
             patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
             patch("openjarvis.intelligence.register_builtin_models"),
-            patch("openjarvis.cli.chat_cmd._record_voice") as record_voice,
+            patch("openjarvis.cli._voice_chat.record_voice") as record_voice,
         ):
             result = CliRunner().invoke(
                 chat,
@@ -129,10 +133,85 @@ class TestVoiceInput:
             ),
             patch("openjarvis.speech.voice_io.record_until_silence") as record,
         ):
-            assert _record_voice(console) is _VOICE_EXIT
+            assert record_voice(console) is VOICE_EXIT
 
         record.assert_not_called()
         assert "OpenJarvis[speech]" in str(console.print.call_args)
+
+    def test_stt_backend_is_cached_for_the_chat_session(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.side_effect = [
+            SimpleNamespace(text="first message"),
+            SimpleNamespace(text="second message"),
+        ]
+        session = VoiceSession(JarvisConfig())
+        console = MagicMock()
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ) as discover,
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+        ):
+            assert record_voice(console, session) == "first message"
+            assert record_voice(console, session) == "second message"
+
+        discover.assert_called_once()
+        assert backend.transcribe.call_count == 2
+
+    def test_voice_transcript_cannot_inject_rich_hyperlink(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(
+            text="[link=https://attacker.invalid]trusted[/link]\x1b]8;;evil\x07"
+        )
+        session = VoiceSession(JarvisConfig())
+        output = StringIO()
+        console = Console(file=output, force_terminal=True)
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+        ):
+            result = record_voice(console, session)
+
+        assert result.startswith("[link=https://attacker.invalid]")
+        assert "\x1b]8;" not in output.getvalue()
+        assert "[link=https://attacker.invalid]trusted[/link]" in output.getvalue()
+
+    def test_tts_backend_is_cached_for_the_chat_session(self) -> None:
+        from openjarvis.core.registry import TTSRegistry
+
+        backend = MagicMock()
+        backend.health.return_value = True
+        backend.synthesize.return_value = SimpleNamespace(
+            audio=b"wav",
+            sample_rate=24000,
+        )
+        factory = MagicMock(return_value=backend)
+        session = VoiceSession(JarvisConfig())
+
+        with (
+            patch.object(TTSRegistry, "contains", return_value=True),
+            patch.object(TTSRegistry, "get", return_value=factory),
+            patch("openjarvis.speech.voice_io.play_wav") as play,
+        ):
+            speak("first", MagicMock(), session)
+            speak("second", MagicMock(), session)
+
+        factory.assert_called_once()
+        backend.health.assert_called_once()
+        assert backend.synthesize.call_count == 2
+        assert play.call_count == 2
 
 
 class TestChatAgents:
