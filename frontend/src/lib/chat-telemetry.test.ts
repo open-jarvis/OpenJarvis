@@ -32,6 +32,29 @@ describe('chat engine telemetry', () => {
     ).toBe('litellm');
   });
 
+  it('carries the per-request finish label through the streamed chat flow', () => {
+    const chunks = [
+      { choices: [{ delta: { role: 'assistant' } }] },
+      { choices: [{ delta: { content: 'local answer' } }] },
+      {
+        choices: [{ delta: {}, finish_reason: 'stop' }],
+        telemetry: { engine: 'ollama' },
+      },
+    ];
+    let routedEngine: string | undefined;
+    for (const chunk of chunks) {
+      routedEngine = engineFromCompletionChunk(chunk) ?? routedEngine;
+    }
+
+    expect(
+      resolveChatEngine({
+        routedEngine,
+        serverEngine: 'multi',
+        selectedModel: 'qwen3:8b',
+      }),
+    ).toBe('ollama');
+  });
+
   it('falls back to server info, then the legacy model heuristic', () => {
     expect(
       resolveChatEngine({

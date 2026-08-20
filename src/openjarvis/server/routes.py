@@ -906,6 +906,9 @@ async def _handle_stream(
     async def generate():
         started_at = time.time()
         full_content = ""
+        # Start with the configured route, then correct it below if the
+        # MultiEngine safety path deliberately bypasses that route.
+        actual_telemetry_engine = telemetry_engine
         # Send role chunk first
         first_chunk = ChatCompletionChunk(
             id=chunk_id,
@@ -947,6 +950,7 @@ async def _handle_stream(
                 except Exception:
                     pass
                 if _use_local_fallback:
+                    actual_telemetry_engine = "ollama"
                     token_iter = stream_local(
                         model, messages, req.temperature, req.max_tokens
                     )
@@ -1006,7 +1010,7 @@ async def _handle_stream(
                 query=query_text,
                 result=full_content,
                 model=model,
-                engine=telemetry_engine,
+                engine=actual_telemetry_engine,
                 started_at=started_at,
                 ended_at=time.time(),
             )
@@ -1035,11 +1039,10 @@ async def _handle_stream(
         )
         finish_dict = _json.loads(finish_data.model_dump_json())
 
-        # Tag the finish chunk with the correct engine label.
-        # We use the routing decision (use_cloud) directly rather than
-        # unwrapping the engine chain, which can be in a broken state.
+        # Tag the finish chunk with the backend that actually yielded tokens,
+        # including the explicit local fallback around a stale MultiEngine map.
         finish_dict.setdefault("telemetry", {})
-        finish_dict["telemetry"]["engine"] = telemetry_engine
+        finish_dict["telemetry"]["engine"] = actual_telemetry_engine
 
         if complexity_info is not None:
             finish_dict["complexity"] = complexity_info.model_dump()

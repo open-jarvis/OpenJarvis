@@ -535,6 +535,51 @@ class TestChatCompletions:
                     content += delta_content
         assert content == "Hello world"
 
+    def test_multi_engine_local_fallback_reports_actual_ollama_route(self):
+        """Finish telemetry follows the backend that produced the tokens."""
+        from openjarvis.engine.multi import MultiEngine
+
+        routed_cloud = MagicMock()
+        routed_cloud.is_cloud = True
+        routed_cloud.list_models.return_value = ["qwen3:8b"]
+        routed_cloud.health.return_value = True
+        engine = MultiEngine([("cloud", routed_cloud)])
+
+        async def local_stream(model, messages, temperature, max_tokens):
+            yield "actual-local"
+
+        app = create_app(engine, "qwen3:8b", config=_test_config())
+        with patch(
+            "openjarvis.server.cloud_router.stream_local",
+            side_effect=local_stream,
+        ):
+            resp = TestClient(app).post(
+                "/v1/chat/completions",
+                json={
+                    "model": "qwen3:8b",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                    "stream": True,
+                },
+            )
+
+        assert resp.status_code == 200
+        chunks = [
+            json.loads(line.removeprefix("data: "))
+            for line in resp.text.splitlines()
+            if line.startswith("data: {")
+        ]
+        content = "".join(
+            chunk["choices"][0]["delta"].get("content") or "" for chunk in chunks
+        )
+        finish = next(
+            chunk
+            for chunk in chunks
+            if chunk["choices"][0].get("finish_reason") == "stop"
+        )
+        assert content == "actual-local"
+        assert finish["telemetry"]["engine"] == "ollama"
+        routed_cloud.stream.assert_not_called()
+
     def test_streaming_without_client_tools_uses_configured_agent(self):
         """Server-side tools remain available to streaming web clients (#735)."""
         from openjarvis.agents.orchestrator import OrchestratorAgent
