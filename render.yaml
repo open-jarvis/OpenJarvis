@@ -11,35 +11,31 @@ services:
     dockerContext: .
     # Override the Dockerfile CMD so the server binds to Render's injected $PORT.
     # The Dockerfile entrypoint is "jarvis", so we pass `serve` plus its flags.
-    dockerCommand: serve --host 0.0.0.0 --port $PORT --engine cloud
+    # Pin a cloud model as well as the engine. The repository's default model
+    # is local-only, so omitting this would make `jarvis serve` reject the
+    # otherwise healthy cloud engine during startup.
+    dockerCommand: serve --host 0.0.0.0 --port $PORT --engine cloud --model gpt-4o-mini
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       # Force the cloud engine path. The free Render plan has no GPU and the
-      # bundled Rust extension/local backends (Ollama/vLLM) cannot run here, so
-      # OpenJarvis must route inference to a hosted provider. The Docker
-      # command above selects the cloud engine explicitly. Set at least one of
-      # the *_API_KEY values below so that engine has a provider to use.
+      # bundled local backends (Ollama/vLLM) cannot run here. The command above
+      # selects the OpenAI-backed cloud engine and a model it can serve.
 
       # Auth for the OpenJarvis API itself. Required because the server refuses
       # to bind to a non-loopback host without an API key (check_bind_safety).
       - key: OPENJARVIS_API_KEY
         generateValue: true
 
-      # Cloud inference providers — set at least one in the Dashboard.
+      # Required at initial Blueprint creation. Render's `sync: false` fields
+      # are operator-supplied secrets; using one provider here keeps the
+      # one-click contract deterministic instead of incorrectly requiring a
+      # key for every supported cloud provider.
       - key: OPENAI_API_KEY
         sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: OPENROUTER_API_KEY
-        sync: false
 
-      # Optional channel/webhook secrets — leave blank unless you wire them up.
-      - key: TWILIO_AUTH_TOKEN
-        sync: false
-      - key: WHATSAPP_VERIFY_TOKEN
-        sync: false
-      - key: WHATSAPP_APP_SECRET
-        sync: false
+      # The free service filesystem is ephemeral. OpenJarvis state under this
+      # directory is lost on every restart, spin-down, or deploy. See
+      # docs/deployment/render.md before storing credentials or durable state.
+      - key: OPENJARVIS_HOME
+        value: /home/openjarvis/.openjarvis
