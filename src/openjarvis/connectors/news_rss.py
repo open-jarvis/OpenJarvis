@@ -119,7 +119,9 @@ class NewsRSSConnector(BaseConnector):
         if not normalized:
             raise ValueError("At least one RSS feed URL is required")
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        self._config_path.write_text(json.dumps({"feeds": normalized}), encoding="utf-8")
+        self._config_path.write_text(
+            json.dumps({"feeds": normalized}), encoding="utf-8"
+        )
 
     def is_connected(self) -> bool:
         if not self._config_path.exists():

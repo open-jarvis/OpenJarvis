@@ -451,16 +451,22 @@ def create_connectors_router():
 
             elif connector_id == "weather":
                 if not req.token:
-                    raise HTTPException(status_code=400, detail="An OpenWeather API key is required")
+                    raise HTTPException(
+                        status_code=400, detail="An OpenWeather API key is required"
+                    )
                 location = (req.config or {}).get("location")
                 if not isinstance(location, str) or not location.strip():
-                    raise HTTPException(status_code=400, detail="A weather location is required")
+                    raise HTTPException(
+                        status_code=400, detail="A weather location is required"
+                    )
                 instance.configure(api_key=req.token, location=location)
 
             elif connector_id == "news_rss":
                 feeds = (req.config or {}).get("feeds")
                 if not isinstance(feeds, list):
-                    raise HTTPException(status_code=400, detail="At least one RSS feed URL is required")
+                    raise HTTPException(
+                        status_code=400, detail="At least one RSS feed URL is required"
+                    )
                 instance.configure(feeds)
 
             else:
