@@ -183,8 +183,26 @@ class BrowserClickTool(BaseTool):
                             " instead of CSS selector. Default: false."
                         ),
                     },
+                    "target": {
+                        "type": "string",
+                        "description": "Alias for selector.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Alias for selector, for visible element text.",
+                    },
+                    "element": {
+                        "type": "string",
+                        "description": "Alias for selector.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Alias for selector.",
+                    },
                 },
-                "required": ["selector"],
+                # ``selector`` has accepted aliases, so requiring that exact
+                # key would make the advertised aliases invalid JSON Schema.
+                "required": [],
             },
             category="browser",
         )
@@ -266,7 +284,9 @@ class BrowserClickTool(BaseTool):
         import re
 
         words = [w for w in re.split(r"\W+", selector.lower()) if w]
-        nth = next((self._ORDINALS[w] for w in words if w in self._ORDINALS), 0)
+        ordinal = next(
+            (self._ORDINALS[w] for w in words if w in self._ORDINALS), None
+        )
 
         def candidates(frame: Any) -> list:
             cands = []
@@ -290,22 +310,49 @@ class BrowserClickTool(BaseTool):
                 pat = re.compile(".*".join(re.escape(k) for k in keywords), re.I)
                 for role in ("link", "button"):
                     cands.append((f"role-{role}", frame.get_by_role(role, name=pat)))
-            return [(n, loc.nth(nth) if nth else loc.first) for n, loc in cands]
+            return cands
+
+        def actionable_matches(locator: Any) -> list[Any]:
+            """Return click-ordered matches, excluding hidden or disabled ones."""
+            count = locator.count()
+            if ordinal is not None:
+                index = count - 1 if ordinal == -1 else ordinal
+                indexes = [index] if 0 <= index < count else []
+            else:
+                # A locator can match a hidden mobile/desktop duplicate before
+                # the visible control.  Inspect every match instead of calling
+                # ``.first`` repeatedly for each strategy.
+                indexes = range(count)
+
+            matches = []
+            for index in indexes:
+                match = locator.nth(index)
+                try:
+                    if not match.is_visible() or not match.is_enabled():
+                        continue
+                except Exception:
+                    # The click remains the final Playwright actionability
+                    # check, including stability and event-receivability.
+                    pass
+                matches.append(match)
+            return matches
 
         last_error: Exception | None = None
         for index, frame in enumerate(page.frames):
             for strategy, locator in candidates(frame):
                 try:
-                    if locator.count() == 0:
+                    matches = actionable_matches(locator)
+                    if not matches:
                         continue
                 except Exception:
                     continue  # e.g. selector isn't valid CSS — next rung
-                try:
-                    locator.click(timeout=8000 if index == 0 else 4000)
-                    return strategy
-                except Exception as exc:
-                    last_error = exc
-                    continue
+                for match in matches:
+                    try:
+                        match.click(timeout=8000 if index == 0 else 4000)
+                        return strategy
+                    except Exception as exc:
+                        last_error = exc
+                        continue
 
         hint = ""
         try:
