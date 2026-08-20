@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import textwrap
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -265,9 +266,8 @@ class TestStdioTransport:
         finally:
             transport.close()
 
-    def test_gives_up_after_max_skipped_lines(self, tmp_path):
-        """A server that never sends a matching response must raise instead
-        of hanging send() in an infinite skip loop (#751)."""
+    def test_response_deadline_bounds_nonmatching_lines(self, tmp_path):
+        """Noise cannot keep extending the wall-clock response deadline."""
         script = tmp_path / "never_replies_server.py"
         script.write_text(
             textwrap.dedent("""\
@@ -285,11 +285,88 @@ class TestStdioTransport:
         """)
         )
 
-        transport = StdioTransport([sys.executable, str(script)])
+        transport = StdioTransport([sys.executable, str(script)], response_timeout=0.25)
         try:
             req = MCPRequest(method="test/echo", id=1)
-            with pytest.raises(RuntimeError, match="No response matching"):
+            started = time.monotonic()
+            with pytest.raises(RuntimeError, match="Timed out waiting"):
                 transport.send(req)
+            assert time.monotonic() - started < 2
+        finally:
+            transport.close()
+
+    def test_response_deadline_bounds_blank_line_flood(self, tmp_path):
+        """Blank lines are ignored, but cannot make send() wait forever."""
+        script = tmp_path / "blank_line_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            for line in sys.stdin:
+                while True:
+                    sys.stdout.write("\\n")
+                    sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)], response_timeout=0.25)
+        try:
+            started = time.monotonic()
+            with pytest.raises(RuntimeError, match="Timed out waiting"):
+                transport.send(MCPRequest(method="test/echo", id=1))
+            assert time.monotonic() - started < 2
+        finally:
+            transport.close()
+
+    def test_valid_response_survives_large_notification_burst(self, tmp_path):
+        """Valid protocol traffic is not rejected by an arbitrary line cap."""
+        script = tmp_path / "notification_burst_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import json
+            import sys
+            for line in sys.stdin:
+                request = json.loads(line)
+                for index in range(1200):
+                    notification = {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/progress",
+                        "params": {"progress": index},
+                    }
+                    sys.stdout.write(json.dumps(notification) + "\\n")
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {"complete": True},
+                }
+                sys.stdout.write(json.dumps(response) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)], response_timeout=5)
+        try:
+            response = transport.send(MCPRequest(method="test/echo", id=1))
+            assert response.result == {"complete": True}
+        finally:
+            transport.close()
+
+    def test_response_deadline_bounds_silent_server(self, tmp_path):
+        script = tmp_path / "silent_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import time
+            for line in sys.stdin:
+                time.sleep(300)
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)], response_timeout=0.25)
+        try:
+            started = time.monotonic()
+            with pytest.raises(RuntimeError, match="Timed out waiting"):
+                transport.send(MCPRequest(method="test/echo", id=1))
+            assert time.monotonic() - started < 2
         finally:
             transport.close()
 

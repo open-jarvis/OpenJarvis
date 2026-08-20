@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import queue
 import subprocess
+import threading
+import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, List, Optional
 
@@ -59,9 +62,25 @@ class StdioTransport(MCPTransport):
     stdin/stdout.
     """
 
-    def __init__(self, command: List[str]) -> None:
+    _STDOUT_QUEUE_SIZE = 1024
+    _STDOUT_EOF = object()
+
+    def __init__(
+        self,
+        command: List[str],
+        *,
+        response_timeout: float = 600.0,
+    ) -> None:
+        if response_timeout <= 0:
+            raise ValueError("response_timeout must be positive")
         self._command = command
+        self._response_timeout = response_timeout
         self._process: Optional[subprocess.Popen[str]] = None
+        self._stdout_queue: queue.Queue[Any] = queue.Queue(
+            maxsize=self._STDOUT_QUEUE_SIZE
+        )
+        self._reader_stop = threading.Event()
+        self._reader_thread: Optional[threading.Thread] = None
         self._start()
 
     def _start(self) -> None:
@@ -73,11 +92,57 @@ class StdioTransport(MCPTransport):
             stderr=subprocess.PIPE,
             text=True,
         )
+        self._reader_thread = threading.Thread(
+            target=self._read_stdout,
+            name="openjarvis-mcp-stdout",
+            daemon=True,
+        )
+        self._reader_thread.start()
 
-    # Cap on non-matching lines skipped while hunting for a response, so a
-    # chatty or misbehaving server can't hang send() in an infinite read
-    # loop (#751).
-    _MAX_SKIPPED_LINES = 1000
+    def _read_stdout(self) -> None:
+        """Read the subprocess pipe without tying up the request thread.
+
+        A dedicated reader is portable to Windows, where ``select`` cannot
+        wait on an anonymous subprocess pipe. The bounded queue also applies
+        backpressure if a server writes stdout while no request is reading.
+        """
+        proc = self._process
+        stdout = proc.stdout if proc is not None else None
+        if stdout is None:
+            return
+
+        try:
+            while not self._reader_stop.is_set():
+                line = stdout.readline()
+                if not line:
+                    break
+                while not self._reader_stop.is_set():
+                    try:
+                        self._stdout_queue.put(line, timeout=0.1)
+                        break
+                    except queue.Full:
+                        continue
+        finally:
+            while not self._reader_stop.is_set():
+                try:
+                    self._stdout_queue.put(self._STDOUT_EOF, timeout=0.1)
+                    break
+                except queue.Full:
+                    continue
+
+    def _next_stdout_line(self, deadline: float, request_id: Any) -> str:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError(f"Timed out waiting for MCP response id {request_id!r}")
+        try:
+            item = self._stdout_queue.get(timeout=remaining)
+        except queue.Empty as exc:
+            raise RuntimeError(
+                f"Timed out waiting for MCP response id {request_id!r}"
+            ) from exc
+        if item is self._STDOUT_EOF:
+            raise RuntimeError("No response from subprocess")
+        return item
 
     def send(self, request: MCPRequest) -> MCPResponse:
         """Write request as JSON line, read lines until the matching response.
@@ -95,11 +160,12 @@ class StdioTransport(MCPTransport):
         proc.stdin.write(line)
         proc.stdin.flush()
 
-        skipped = 0
+        deadline = time.monotonic() + self._response_timeout
         while True:
-            response_line = proc.stdout.readline()
-            if not response_line:
-                raise RuntimeError("No response from subprocess")
+            # Check the wall-clock deadline even when a server continuously
+            # floods stdout, so queued blank/noise/notification lines cannot
+            # keep extending the request forever.
+            response_line = self._next_stdout_line(deadline, request.id)
             response_line = response_line.strip()
             if not response_line:
                 continue
@@ -118,13 +184,6 @@ class StdioTransport(MCPTransport):
             if is_response:
                 return MCPResponse.from_json(response_line)
 
-            skipped += 1
-            if skipped > self._MAX_SKIPPED_LINES:
-                raise RuntimeError(
-                    f"No response matching request id {request.id!r} after "
-                    f"skipping {skipped} stdout lines from the MCP server"
-                )
-
     def send_notification(self, request: MCPRequest) -> None:
         """Send a JSON-RPC notification — write only, never read.
 
@@ -142,8 +201,25 @@ class StdioTransport(MCPTransport):
     def close(self) -> None:
         """Terminate the subprocess."""
         if self._process is not None:
+            self._reader_stop.set()
+            # Wake a request waiting on the queue before stopping the process.
+            try:
+                self._stdout_queue.put_nowait(self._STDOUT_EOF)
+            except queue.Full:
+                try:
+                    self._stdout_queue.get_nowait()
+                    self._stdout_queue.put_nowait(self._STDOUT_EOF)
+                except (queue.Empty, queue.Full):
+                    pass
             self._process.terminate()
-            self._process.wait(timeout=5)
+            try:
+                self._process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait(timeout=5)
+            if self._reader_thread is not None:
+                self._reader_thread.join(timeout=1)
+                self._reader_thread = None
             self._process = None
 
 
