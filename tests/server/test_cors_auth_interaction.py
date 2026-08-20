@@ -1,11 +1,8 @@
 """Regression tests for #758: CORS preflight broken when an API key is set.
 
-AuthMiddleware is added after CORSMiddleware in create_app(), and Starlette
-runs middleware in reverse registration order, so AuthMiddleware sits
-outermost. A browser preflight (OPTIONS, no Authorization header) used to be
-rejected with a bare 401 by AuthMiddleware before ever reaching
-CORSMiddleware, so the response carried no Access-Control-Allow-Origin
-header and the browser treated the whole cross-origin request as blocked.
+CORSMiddleware is the outermost layer so it can both answer real preflights
+and decorate AuthMiddleware's 401 responses. Without that ordering, browsers
+surface an opaque CORS network failure instead of the actionable auth error.
 """
 
 from __future__ import annotations
@@ -72,3 +69,31 @@ class TestCorsPreflightWithApiKey:
 
         resp = client.get("/v1/models", headers={"Origin": "https://example.com"})
         assert resp.status_code == 401
+        assert resp.headers.get("access-control-allow-origin") == "https://example.com"
+
+    def test_plain_options_is_not_an_auth_bypass(self):
+        app = create_app(
+            _make_engine(),
+            "test-model",
+            config=_test_config(),
+            api_key="oj_sk_test123",
+            cors_origins=["https://example.com"],
+        )
+        client = TestClient(app)
+
+        resp = client.options("/v1/models")
+        assert resp.status_code == 401
+
+    def test_disallowed_origin_gets_no_cors_header(self):
+        app = create_app(
+            _make_engine(),
+            "test-model",
+            config=_test_config(),
+            api_key="oj_sk_test123",
+            cors_origins=["https://example.com"],
+        )
+        client = TestClient(app)
+
+        resp = client.get("/v1/models", headers={"Origin": "https://evil.example"})
+        assert resp.status_code == 401
+        assert "access-control-allow-origin" not in resp.headers
