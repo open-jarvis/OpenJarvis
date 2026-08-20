@@ -153,6 +153,18 @@ async def _lifespan(app: FastAPI):
     services such as the analytics bridge/client.
     """
     yield
+
+    shutdown_managed_runtime = getattr(app.state, "_shutdown_managed_runtime", None)
+    if callable(shutdown_managed_runtime):
+        await shutdown_managed_runtime()
+
+    memory_service = getattr(app.state, "memory_service", None)
+    if memory_service is not None:
+        try:
+            memory_service.stop()
+        except Exception:
+            logger.debug("Memory service shutdown failed", exc_info=True)
+
     bridge = getattr(app.state, "analytics_bridge", None)
     if bridge is not None:
         try:
@@ -275,7 +287,6 @@ def create_app(
     # AuthMiddleware never sees WS upgrade requests). Empty = auth disabled.
     app.state.api_key = api_key
 
-    @app.on_event("shutdown")
     async def _shutdown_managed_runtime() -> None:
         # Quiesce every producer before touching the shared MCP pool. Route
         # workers are registered under this lock, so none can slip in after
@@ -379,6 +390,8 @@ def create_app(
             except Exception:
                 logger.debug("Memory backend shutdown failed", exc_info=True)
 
+    app.state._shutdown_managed_runtime = _shutdown_managed_runtime
+
     # Wire up trace store if traces are enabled.
     #
     # We deliberately do NOT subscribe the trace store to the bus. The chat
@@ -426,18 +439,6 @@ def create_app(
                 app.state.analytics_bridge = _bridge
     except Exception as _exc:
         logger.debug("Analytics init skipped: %s", _exc)
-
-    # Stop the background memory service cleanly when the server shuts down.
-    if memory_service is not None:
-
-        @app.on_event("shutdown")
-        async def _shutdown_memory_service() -> None:
-            svc = getattr(app.state, "memory_service", None)
-            if svc is not None:
-                try:
-                    svc.stop()
-                except Exception:
-                    pass
 
     app.include_router(router)
     app.include_router(dashboard_router)

@@ -205,8 +205,27 @@ BROWSER_TOOLS = {
     "browser_type",
     "web_browser",
 }
-GENERIC_NETWORK_TOOLS = {"http_request"}
-CHANNEL_OUTBOUND_TOOLS = {"channel_send"}
+GENERIC_NETWORK_TOOLS = {
+    "calendar_list_events",
+    "crypto_price",
+    "email_list",
+    "http_request",
+    "news",
+    "paper_trade",
+    "portfolio_view",
+    "stock_quote",
+    "technical_analysis",
+    "weather",
+}
+CHANNEL_OUTBOUND_TOOLS = {
+    "calendar_create_event",
+    "channel_send",
+    "email_send",
+    "notify",
+    "notify_email",
+    "notify_push",
+    "notify_sms",
+}
 CLOUD_MEDIA_TOOLS = {"audio_transcribe", "image_generate", "text_to_speech"}
 CLOUD_TTS_BACKENDS = {"cartesia", "openai", "openai_tts"}
 # Local knowledge chunks scanned by an inference engine (Deep Research path).
@@ -229,6 +248,9 @@ LOCAL_ACCESS_TOOLS = {
     "channel_status",
     "code_interpreter",
     "code_interpreter_docker",
+    "contract_create",
+    "cost_add",
+    "cost_lookup",
     "db_query",
     "docker_shell_exec",
     "file_read",
@@ -247,7 +269,16 @@ LOCAL_ACCESS_TOOLS = {
     "memory_retrieve",
     "memory_search",
     "memory_store",
+    "paper_account",
+    "paper_trade",
     "pdf_extract",
+    "portfolio_add",
+    "portfolio_remove",
+    "portfolio_view",
+    "project_create",
+    "project_list",
+    "project_update_status",
+    "quote_create",
     "repl",
     "retrieval",
     "shell_exec",

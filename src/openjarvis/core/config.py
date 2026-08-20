@@ -1460,7 +1460,7 @@ class SpeechConfig:
 
     backend: str = "auto"  # "auto", "faster-whisper", "openai", "deepgram"
     model: str = "base"  # Whisper model size: tiny, base, small, medium, large-v3
-    language: str = "en"  # ISO code; "en" avoids silence hallucinations like "you"
+    language: str = ""  # Empty lets the speech backend auto-detect.
     task: str = "transcribe"  # "transcribe" or "translate" (translate → English)
     device: str = "auto"  # "auto", "cpu", "cuda"
     compute_type: str = "float16"  # "float16", "int8", "float32"

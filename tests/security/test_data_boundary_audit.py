@@ -32,8 +32,27 @@ EXPECTED_BROWSER_TOOLS = {
     "browser_extract",
 }
 
-EXPECTED_GENERIC_NETWORK_TOOLS = {"http_request"}
-EXPECTED_CHANNEL_OUTBOUND_TOOLS = {"channel_send"}
+EXPECTED_GENERIC_NETWORK_TOOLS = {
+    "calendar_list_events",
+    "crypto_price",
+    "email_list",
+    "http_request",
+    "news",
+    "paper_trade",
+    "portfolio_view",
+    "stock_quote",
+    "technical_analysis",
+    "weather",
+}
+EXPECTED_CHANNEL_OUTBOUND_TOOLS = {
+    "calendar_create_event",
+    "channel_send",
+    "email_send",
+    "notify",
+    "notify_email",
+    "notify_push",
+    "notify_sms",
+}
 EXPECTED_CLOUD_MEDIA_TOOLS = {
     "audio_transcribe",
     "image_generate",
@@ -50,6 +69,9 @@ EXPECTED_LOCAL_ACCESS_TOOLS = {
     "memory_manage",
     "repl",
     "code_interpreter_docker",
+    "contract_create",
+    "cost_add",
+    "cost_lookup",
     "git_status",
     "git_diff",
     "git_commit",
@@ -64,6 +86,15 @@ EXPECTED_LOCAL_ACCESS_TOOLS = {
     "channel_list",
     "channel_status",
     "pdf_extract",
+    "paper_account",
+    "paper_trade",
+    "portfolio_add",
+    "portfolio_remove",
+    "portfolio_view",
+    "project_create",
+    "project_list",
+    "project_update_status",
+    "quote_create",
     "kg_add_entity",
     "kg_add_relation",
     "kg_query",
