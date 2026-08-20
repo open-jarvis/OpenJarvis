@@ -9,7 +9,7 @@ section 7.3 for the rev-bump workflow.
 
 from __future__ import annotations
 
-from pathlib import Path
+from openjarvis.core.paths import get_config_dir
 
 PEARL_REPO = "https://github.com/pearl-research-labs/pearl.git"
 # TODO at implementation time: replace with the specific commit/tag verified
@@ -47,9 +47,9 @@ DEFAULT_PEARLD_RPC_URL = "http://localhost:44107"
 MIN_FREE_DISK_GB = 200
 
 # Runtime sidecar location (single-session assumption — see spec §8.8).
-RUNTIME_DIR = Path.home() / ".openjarvis" / "runtime"
+RUNTIME_DIR = get_config_dir() / "runtime"
 SIDECAR_PATH = RUNTIME_DIR / "mining.json"
 SIDECAR_LOCK_PATH = RUNTIME_DIR / "mining.lock"
 
 # Pearl source cache for build-from-pin path (see spec §7.2).
-PEARL_CACHE_DIR = Path.home() / ".openjarvis" / "cache" / "pearl"
+PEARL_CACHE_DIR = get_config_dir() / "cache" / "pearl"

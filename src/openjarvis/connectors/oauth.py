@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
+from openjarvis.core import open_browser
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
 
 # ---------------------------------------------------------------------------
@@ -419,7 +420,6 @@ def run_oauth_flow(
     RuntimeError
         If the user denies authorization or the callback times out.
     """
-    import webbrowser
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from urllib.parse import parse_qs, urlparse
 
@@ -492,7 +492,7 @@ def run_oauth_flow(
     server.timeout = 120  # 2 minute timeout
 
     # Open the consent page in the user's default browser
-    webbrowser.open(auth_url)
+    open_browser(auth_url)
 
     # Wait for the callback (blocking, with per-request timeout)
     while not auth_code and not error:
@@ -661,7 +661,6 @@ def run_connector_oauth(
 
     Returns the raw token response dict.
     """
-    import webbrowser
 
     provider = get_provider_for_connector(connector_id)
     if provider is None:
@@ -694,7 +693,7 @@ def run_connector_oauth(
     auth_url = f"{provider.auth_endpoint}?{urlencode(params)}"
 
     # Open browser and wait for callback
-    webbrowser.open(auth_url)
+    open_browser(auth_url)
     code = _wait_for_callback_code(
         host=provider.callback_host,
         port=provider.callback_port,

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from openjarvis.analytics.aggregator import SessionAggregator
@@ -126,15 +127,19 @@ class EventBridge:
                 engine=self._normalise_engine(data.get("engine")),
             )
 
-            # One-shot first_chat_sent per process lifetime.
-            # Note: we don't set "platform" here — the backend can't reliably
-            # tell whether the call came from CLI, desktop, or web. The
-            # frontend owns platform-aware events; this one is just the
-            # activation marker.
+            # One-shot first_chat_sent per install (persisted to disk so it
+            # survives server restarts — not just per process lifetime).
             with self._lock:
                 if not self._first_chat_emitted:
-                    self._first_chat_emitted = True
-                    self.client.capture("first_chat_sent", {})
+                    flag = (
+                        Path(self.client.config.anon_id_path).parent / "first_chat_sent"
+                    )
+                    if not flag.exists():
+                        flag.touch()
+                        self._first_chat_emitted = True
+                        self.client.capture("first_chat_sent", {})
+                    else:
+                        self._first_chat_emitted = True  # skip next check
         except Exception as exc:
             logger.debug("Bridge _on_inference_end error: %s", exc)
 

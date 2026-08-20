@@ -12,7 +12,21 @@ from typing import Dict, Generator, List, Optional
 logger = logging.getLogger(__name__)
 
 try:
-    import pynvml
+    # The legacy `pynvml` PyPI package installs a meta-path-finder shim
+    # that prints a FutureWarning on every `import pynvml`, even though
+    # our pyproject.toml depends on `nvidia-ml-py` (the official NVIDIA
+    # package, same module name, no shim). The warning still fires if
+    # `pynvml` gets pulled in transitively by torch/vllm/etc. Suppress
+    # it narrowly here so user output stays clean (issue #389).
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"The pynvml package is deprecated.*",
+            category=FutureWarning,
+        )
+        import pynvml
     _PYNVML_AVAILABLE = True
 except ImportError:
     _PYNVML_AVAILABLE = False
@@ -21,6 +35,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Hardware spec database
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class GpuHardwareSpec:
@@ -88,6 +103,7 @@ def lookup_gpu_spec(name: str) -> Optional[GpuHardwareSpec]:
 # Snapshot & aggregated sample
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class GpuSnapshot:
     """A single point-in-time reading from one GPU device."""
@@ -119,6 +135,7 @@ class GpuSample:
 # ---------------------------------------------------------------------------
 # Monitor
 # ---------------------------------------------------------------------------
+
 
 class GpuMonitor:
     """Background GPU poller using pynvml.

@@ -135,14 +135,13 @@ pub fn check_ssrf(url_str: &str) -> Option<String> {
 
     if BLOCKED_HOSTS.contains(canonical_host.as_str()) {
         return Some(format!(
-            "Blocked host: {} (cloud metadata endpoint)",
-            canonical_host
+            "Blocked host: {canonical_host} (cloud metadata endpoint)"
         ));
     }
 
     if let Some(ip) = literal_ip {
         if is_private_ip(&ip) {
-            return Some(format!("URL resolves to private IP: {}", ip));
+            return Some(format!("URL resolves to private IP: {ip}"));
         }
         return None;
     }
@@ -153,7 +152,7 @@ pub fn check_ssrf(url_str: &str) -> Option<String> {
         _ => 80,
     });
 
-    let addr_str = format!("{}:{}", canonical_host, port);
+    let addr_str = format!("{canonical_host}:{port}");
     if let Ok(addrs) = addr_str.to_socket_addrs() {
         for addr in addrs {
             if is_private_ip(&addr.ip()) {
@@ -207,7 +206,7 @@ mod tests {
     fn test_ipv4_mapped_ipv6_rfc1918_is_private() {
         for s in ["::ffff:10.0.0.1", "::ffff:172.16.0.1", "::ffff:192.168.1.1"] {
             let v6: Ipv6Addr = s.parse().unwrap();
-            assert!(is_private_ip(&IpAddr::V6(v6)), "{} should be private", s);
+            assert!(is_private_ip(&IpAddr::V6(v6)), "{s} should be private");
         }
     }
 
@@ -244,7 +243,7 @@ mod tests {
             "http://[::ffff:172.16.0.1]/",
         ] {
             let result = check_ssrf(url);
-            assert!(result.is_some(), "{} must be blocked", url);
+            assert!(result.is_some(), "{url} must be blocked");
         }
     }
 

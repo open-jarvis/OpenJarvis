@@ -8,13 +8,19 @@ services:
     environment:
       - OPENJARVIS_ENGINE_DEFAULT=ollama
       - OLLAMA_HOST=http://ollama:11434
+      # The container binds 0.0.0.0, so an API key is REQUIRED. Compose fails
+      # fast if OPENJARVIS_API_KEY is unset (set it in deploy/docker/.env —
+      # see .env.example, or `export` it). Generate one: `jarvis auth generate-key`.
+      - OPENJARVIS_API_KEY=${OPENJARVIS_API_KEY:?OPENJARVIS_API_KEY must be set (see deploy/docker/.env.example)}
     depends_on:
       ollama:
         condition: service_healthy
     restart: unless-stopped
 
   ollama:
-    image: ollama/ollama:latest
+    # Pinned to a fixed version + digest for reproducible deployments and
+    # predictable rollbacks (#563). Bump deliberately, not implicitly via :latest.
+    image: ollama/ollama:0.30.10@sha256:bfc9c6d53cc6989aa5131a6fde6b162b2802d4d337657f3253b5f69579bddeee
     ports:
       - "11434:11434"
     volumes:

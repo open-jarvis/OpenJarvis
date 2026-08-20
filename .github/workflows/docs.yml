@@ -41,6 +41,26 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra docs
 
+      # Inject the public Supabase anon key so the savings leaderboard works on
+      # the published docs site. Missing/empty (e.g. fork PRs) leaves the
+      # leaderboard gracefully disabled. The key is read from env (not inlined)
+      # and JSON-encoded into a JS string literal to avoid any injection.
+      - name: Inject leaderboard Supabase anon key
+        env:
+          OPENJARVIS_LEADERBOARD_ANON: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+
+          key = os.environ.get("OPENJARVIS_LEADERBOARD_ANON", "")
+          pathlib.Path("docs/javascripts/leaderboard-config.js").write_text(
+              "// Generated at docs-build time from the VITE_SUPABASE_ANON_KEY secret.\n"
+              "window.OPENJARVIS_SUPABASE_ANON_KEY = " + json.dumps(key) + ";\n",
+              encoding="utf-8",
+          )
+          print("leaderboard anon key:", "set" if key else "empty (leaderboard disabled)")
+          PY
+
       - name: Build documentation
         run: uv run mkdocs build
 

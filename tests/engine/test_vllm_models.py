@@ -204,10 +204,14 @@ class TestVLLMErrors:
         respx_mock.post(f"{VLLM_HOST}/v1/chat/completions").mock(
             return_value=httpx.Response(404, json={"error": "model not found"})
         )
-        with pytest.raises(httpx.HTTPStatusError):
+        # The OpenAI-compatible engine wraps upstream HTTP errors (incl. 404)
+        # in EngineConnectionError with an actionable message (see #463); the
+        # raw httpx.HTTPStatusError is the chained cause.
+        with pytest.raises(EngineConnectionError) as exc_info:
             engine.generate(
                 [Message(role=Role.USER, content="Hi")], model="nonexistent"
             )
+        assert isinstance(exc_info.value.__cause__, httpx.HTTPStatusError)
 
     def test_timeout_raises_connection_error(self) -> None:
         engine = _make_engine()

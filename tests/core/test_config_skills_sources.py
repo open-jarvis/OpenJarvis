@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from openjarvis.core.config import SkillsConfig, SkillSourceConfig
+from pathlib import Path
+
+from openjarvis.core.config import SkillsConfig, SkillSourceConfig, load_config
 
 
 class TestSkillSourceConfig:
@@ -41,3 +43,36 @@ class TestSkillsConfigWithSources:
         )
         assert len(cfg.sources) == 2
         assert cfg.sources[0].source == "hermes"
+
+    def test_loads_source_tables_as_config_objects(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "home"))
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(
+            "[[skills.sources]]\n"
+            'source = "hermes"\n'
+            'filter = { category = ["productivity"] }\n\n'
+            "[[skills.sources]]\n"
+            'source = "github"\n'
+            'url = "https://github.com/example/skill-library"\n'
+            "auto_update = true\n"
+        )
+
+        load_config.cache_clear()
+        try:
+            cfg = load_config(toml_file)
+        finally:
+            load_config.cache_clear()
+
+        assert cfg.skills.sources == [
+            SkillSourceConfig(
+                source="hermes",
+                filter={"category": ["productivity"]},
+            ),
+            SkillSourceConfig(
+                source="github",
+                url="https://github.com/example/skill-library",
+                auto_update=True,
+            ),
+        ]

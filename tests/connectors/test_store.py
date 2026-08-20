@@ -371,8 +371,7 @@ def test_deleted_at_filters_retrieve(ks: KnowledgeStore) -> None:
     _store(ks, content="Tombstoned document about quarterly research")
 
     ks._conn.execute(
-        "UPDATE knowledge_chunks SET deleted_at = ? "
-        "WHERE content LIKE 'Tombstoned%'",
+        "UPDATE knowledge_chunks SET deleted_at = ? WHERE content LIKE 'Tombstoned%'",
         (_time.time(),),
     )
     ks._conn.commit()
@@ -435,9 +434,7 @@ def test_embedding_blob_round_trip(ks: KnowledgeStore) -> None:
         source="test",
         embedding=payload,
     )
-    row = ks._conn.execute(
-        "SELECT embedding FROM knowledge_chunks LIMIT 1"
-    ).fetchone()
+    row = ks._conn.execute("SELECT embedding FROM knowledge_chunks LIMIT 1").fetchone()
     assert bytes(row[0]) == payload
 
 

@@ -33,25 +33,32 @@ under `plugins.updater`.
 
 The `Desktop Build & Release` GitHub Action
 ([`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml))
-publishes signed binaries plus a `latest.json` manifest to the
-`desktop-latest` GitHub release on every push to `main`. The
-`tauri-action` step with `includeUpdaterJson: true` generates the
-manifest automatically.
+builds signed binaries plus a `latest.json` manifest with the
+`tauri-action` step (`includeUpdaterJson: true` generates the manifest
+automatically). Where it publishes depends on the trigger.
 
-Two release streams exist:
+Three release streams exist:
 
-- **`desktop-latest`** (rolling pre-release): updated on every push to
-  `main`. This is the channel the desktop app currently polls. Users
-  on this channel get the most recent build the CI produced.
+- **`desktop-latest`** (stable auto-update channel): **this is the
+  channel the installed app polls.** It is *not* built directly —
+  instead, when a stable `desktop-vX.Y.Z` release is published, the
+  `refresh-stable-channel` job copies that release's `latest.json`
+  into `desktop-latest`. So the app is only ever offered vetted stable
+  builds, and `latest.json` here points at the current `desktop-v*`
+  assets.
 - **`desktop-vX.Y.Z`** (tagged stable): created when someone pushes a
-  `desktop-v*` git tag. Has the same artifacts but is marked as a
-  proper release rather than a pre-release.
+  `desktop-v*` git tag. The user-facing stable release with full
+  installers; also the source of truth the stable channel mirrors.
+- **`desktop-edge`** (rolling pre-release): rebuilt on every push to
+  `main` (via the `autotag` → `desktop.yml` dispatch) and on manual
+  `workflow_dispatch`. Carries the most recent CI build for testers.
+  The shipped app does **not** poll this stream, so dev builds never
+  auto-install onto stable users.
 
-The current updater endpoint points at the rolling `desktop-latest`
-stream so that bug fixes (especially security and telemetry-policy
-changes) reach users without waiting for a manual stable tag. A future
-release may introduce a stable channel that points at
-`desktop-v*` tags only.
+This split means security and telemetry-policy fixes reach users on
+the next **stable** `desktop-v*` tag — cut one to ship an update.
+Edge builds are available for anyone who wants to test `main` ahead of
+a stable tag, without risking the stable population.
 
 ## Signing
 

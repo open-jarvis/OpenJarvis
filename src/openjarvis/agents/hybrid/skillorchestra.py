@@ -47,33 +47,33 @@ from openjarvis.core.registry import AgentRegistry
 # would seed before any oracle update.
 
 SKILL_CATALOG: Dict[str, str] = {
-    "factual_recall":     "Recall named entities, dates, places, well-known facts from training data without external lookup.",
+    "factual_recall": "Recall named entities, dates, places, well-known facts from training data without external lookup.",
     "multi_step_reasoning": "Chain several inference steps together (e.g. compose dates, traverse relationships, decompose then aggregate).",
-    "arithmetic":         "Exact numeric computation on values already given in the question.",
-    "web_grounding":      "Question needs information likely NOT in a small model's parametric memory (rare facts, recent events, niche sources).",
+    "arithmetic": "Exact numeric computation on values already given in the question.",
+    "web_grounding": "Question needs information likely NOT in a small model's parametric memory (rare facts, recent events, niche sources).",
     "long_text_extraction": "Read a long supplied document/context and extract a specific piece.",
-    "format_compliance":  "Strict output formatting (e.g. GAIA's `FINAL ANSWER: <answer>` rule, comma-separated lists with no units).",
-    "code_or_logic":      "Write or trace code, or apply logical/symbolic constraints precisely.",
+    "format_compliance": "Strict output formatting (e.g. GAIA's `FINAL ANSWER: <answer>` rule, comma-separated lists with no units).",
+    "code_or_logic": "Write or trace code, or apply logical/symbolic constraints precisely.",
 }
 
 DEFAULT_AGENT_COMPETENCE: Dict[str, Dict[str, float]] = {
     "local-qwen-27b": {
-        "factual_recall":       0.25,
+        "factual_recall": 0.25,
         "multi_step_reasoning": 0.30,
-        "arithmetic":           0.55,
-        "web_grounding":        0.10,
+        "arithmetic": 0.55,
+        "web_grounding": 0.10,
         "long_text_extraction": 0.55,
-        "format_compliance":    0.65,
-        "code_or_logic":        0.45,
+        "format_compliance": 0.65,
+        "code_or_logic": 0.45,
     },
     "cloud-opus-4-7": {
-        "factual_recall":       0.85,
+        "factual_recall": 0.85,
         "multi_step_reasoning": 0.88,
-        "arithmetic":           0.85,
-        "web_grounding":        0.70,
+        "arithmetic": 0.85,
+        "web_grounding": 0.70,
         "long_text_extraction": 0.90,
-        "format_compliance":    0.92,
-        "code_or_logic":        0.90,
+        "format_compliance": 0.92,
+        "code_or_logic": 0.90,
     },
 }
 
@@ -149,6 +149,17 @@ def _build_router_schema(agent_ids: List[str]) -> Dict[str, Any]:
     }
 
 
+def _openai_response_format(schema: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "skillorchestra_route",
+            "schema": schema["format"]["schema"],
+            "strict": True,
+        },
+    }
+
+
 def _parse_router_json(text: str) -> Dict[str, Any]:
     s = (text or "").strip()
     try:
@@ -178,9 +189,7 @@ def _score_agents(
     lam = 0.5
     scores: Dict[str, Dict[str, float]] = {}
     for aid, comps in competence.items():
-        comp = sum(
-            skill_weights.get(sid, 0.0) * comps[sid] for sid in SKILL_CATALOG
-        )
+        comp = sum(skill_weights.get(sid, 0.0) * comps[sid] for sid in SKILL_CATALOG)
         cost_pen = lam * cost.get(aid, 0.0)
         scores[aid] = {
             "competence": comp,
@@ -195,6 +204,70 @@ class SkillOrchestraAgent(LocalCloudAgent):
     """Inference-time skill-aware router. See module docstring."""
 
     agent_id = "skillorchestra"
+
+    def _route_call(
+        self,
+        *,
+        question: str,
+        router_sys: str,
+        router_schema: Dict[str, Any],
+        router_max: int,
+    ) -> Tuple[str, int, int]:
+        user = f"Question:\n{question}"
+        if self._cloud_endpoint == "anthropic":
+            kwargs: Dict[str, Any] = {
+                "user": user,
+                "system": router_sys,
+                "max_tokens": router_max,
+                "output_config": router_schema,
+            }
+            if supports_temperature(self._cloud_model):
+                kwargs["temperature"] = 0.0
+            text, r_in, r_out, _ = self._call_anthropic(
+                self._cloud_model,
+                **kwargs,
+            )
+            return text, r_in, r_out
+        if self._cloud_endpoint == "openai":
+            return self._call_openai(
+                self._cloud_model,
+                user=user,
+                system=router_sys,
+                max_tokens=router_max,
+                temperature=0.0,
+                response_format=_openai_response_format(router_schema),
+            )
+        if self._cloud_endpoint == "gemini":
+            return self._call_gemini(
+                self._cloud_model,
+                user=user,
+                system=router_sys,
+                max_tokens=router_max,
+                temperature=0.0,
+            )
+        raise ValueError(
+            f"SkillOrchestra router unsupported cloud_endpoint={self._cloud_endpoint!r}"
+        )
+
+    def _executor_call(
+        self,
+        *,
+        question: str,
+        max_tokens: int,
+    ) -> Tuple[str, int, int]:
+        if self._cloud_endpoint == "anthropic":
+            text, w_in, w_out, _ = self._call_anthropic(
+                self._cloud_model,
+                user=question,
+                max_tokens=max_tokens,
+                temperature=0.0,
+            )
+            return text, w_in, w_out
+        return self._call_cloud(
+            user=question,
+            max_tokens=max_tokens,
+            temperature=0.0,
+        )
 
     def _is_soft_failure(self, exc: BaseException) -> Optional[str]:
         # Empty/unbalanced router JSON — treat as soft failure to match the
@@ -220,33 +293,13 @@ class SkillOrchestraAgent(LocalCloudAgent):
         router_sys = _build_router_sys(competence, cost)
         router_schema = _build_router_schema(agent_ids)
 
-        # 1. Route — Anthropic only (output_config schema is Anthropic-specific
-        # in the hybrid adapter). If you need OpenAI routing, swap the prompt
-        # to JSON-mode and bypass output_config.
-        if self._cloud_endpoint != "anthropic":
-            raise ValueError(
-                "SkillOrchestra router requires cloud_endpoint='anthropic'; "
-                f"got {self._cloud_endpoint!r}"
-            )
         router_max = int(cfg.get("router_max_tokens", 1024))
-        # Strip temperature for Opus 4.7+; Anthropic's output_config does the schema.
-        if supports_temperature(self._cloud_model):
-            router_text, r_in, r_out, _ = self._call_anthropic(
-                self._cloud_model,
-                user=f"Question:\n{question}",
-                system=router_sys,
-                max_tokens=router_max,
-                temperature=0.0,
-                output_config=router_schema,
-            )
-        else:
-            router_text, r_in, r_out, _ = self._call_anthropic(
-                self._cloud_model,
-                user=f"Question:\n{question}",
-                system=router_sys,
-                max_tokens=router_max,
-                output_config=router_schema,
-            )
+        router_text, r_in, r_out = self._route_call(
+            question=question,
+            router_sys=router_sys,
+            router_schema=router_schema,
+            router_max=router_max,
+        )
 
         decision = _parse_router_json(router_text)
         skill_weights: Dict[str, float] = decision.get("skill_weights") or {}
@@ -258,14 +311,16 @@ class SkillOrchestraAgent(LocalCloudAgent):
         if chosen not in competence:
             chosen = max(scored, key=lambda a: scored[a]["final_score"])
 
-        self.record_trace_event({
-            "kind": "skillorchestra_route",
-            "chosen_agent": chosen,
-            "skill_weights": skill_weights,
-            "agent_scores": scored,
-            "reasoning": decision.get("reasoning", ""),
-            "router_raw": router_text,
-        })
+        self.record_trace_event(
+            {
+                "kind": "skillorchestra_route",
+                "chosen_agent": chosen,
+                "skill_weights": skill_weights,
+                "agent_scores": scored,
+                "reasoning": decision.get("reasoning", ""),
+                "router_raw": router_text,
+            }
+        )
 
         tokens_local = 0
         tokens_cloud = r_in + r_out
@@ -329,11 +384,9 @@ class SkillOrchestraAgent(LocalCloudAgent):
                 tokens_cloud += out["tokens_in"] + out["tokens_out"]
                 run_cost += out["cost_usd"]
             else:
-                ans, w_in, w_out, _ = self._call_anthropic(
-                    self._cloud_model,
-                    user=question,
+                ans, w_in, w_out = self._executor_call(
+                    question=question,
                     max_tokens=int(cfg.get("cloud_max_tokens", 4096)),
-                    temperature=0.0,
                 )
                 tokens_cloud += w_in + w_out
                 run_cost += self.cost_usd(self._cloud_model, w_in, w_out)

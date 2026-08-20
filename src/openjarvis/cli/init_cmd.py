@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 
+from openjarvis.cli._banner import print_banner
 from openjarvis.cli._bootstrap import detect_cloud_keys
 from openjarvis.cli.model import find_model_spec, hf_download, ollama_pull
 from openjarvis.cli.scan_cmd import PrivacyScanner
@@ -290,7 +291,9 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
     hidden=True,
     help="Run init non-interactively; called by the bare-jarvis first-run guard.",
 )
+@click.pass_context
 def init(
+    ctx: click.Context,
     force: bool,
     config: Optional[Path],
     full_config: bool = False,
@@ -303,6 +306,7 @@ def init(
     from_bare_jarvis: bool = False,
 ) -> None:
     """Detect hardware and generate ~/.openjarvis/config.toml."""
+    print_banner(quiet=(ctx.obj or {}).get("quiet", False))
     console = Console()
 
     # Cloud auto-detect — inform user if a key is in env.
@@ -340,7 +344,9 @@ def init(
             console.print(f"  Looked in: {examples_dir}")
             raise SystemExit(1)
         DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        DEFAULT_CONFIG_PATH.write_text(preset_path.read_text())
+        DEFAULT_CONFIG_PATH.write_text(
+            preset_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
         console.print(
             f"[green]Preset '{preset}' installed to {DEFAULT_CONFIG_PATH}[/green]"
         )

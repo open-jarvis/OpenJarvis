@@ -8,6 +8,87 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+**Vision input for `jarvis ask`** — attach images to a query with
+`-i`/`--image` (repeatable) or capture the current screen with
+`-S`/`--screen`, for vision-capable models such as `gemma3:4b`. Images flow
+through `Message.images` into Ollama's `/api/chat` `images` field; text-only
+requests are unaffected. A privacy guard warns before any image is sent to a
+non-local engine, and the security guardrail now preserves images when it
+sanitizes a flagged prompt. Screen capture uses the built-in Windows .NET
+stack with `mss`/`Pillow` fallbacks on other platforms. Adds the
+`JARVIS_NUM_CTX` environment variable to tune the Ollama context window
+(default `16384`).
+
+### Security
+
+**WebSocket API keys no longer appear in request URLs.** Browser clients now
+send a marked, base64url-encoded credential through
+`Sec-WebSocket-Protocol`; programmatic clients can continue to use an
+`Authorization: Bearer <key>` handshake header. The encoding only makes the
+credential safe for WebSocket protocol syntax and does not encrypt it, so use
+`wss://` for remote connections.
+
+The former `?token=<key>` WebSocket authentication path is no longer accepted.
+Custom browser clients must migrate to the `openjarvis.auth.v1` subprotocol
+format documented in the API server guide.
+
+## [1.0.2] - 2026-05-24
+
+A patch release that fixes a packaging bug which broke the v1.0.1
+wheel on PyPI, silences a noisy startup warning, restores a working
+install path while `openjarvis.ai` is down, improves desktop
+first-boot diagnostics on Windows, and ships the RAM-detection fix
+for Windows that missed the v1.0.1 cutoff.
+
+### Fixed
+
+**`openjarvis/traces/` missing from the v1.0.1 PyPI wheel** (#372).
+The `.gitignore` carried an unanchored `traces/` pattern, which
+hatchling honored at wheel-build time and matched the runtime module
+`src/openjarvis/traces/` — silently dropping the whole package. Every
+fresh `pip install openjarvis==1.0.1` then failed at import with
+`ModuleNotFoundError: No module named 'openjarvis.traces'` on the
+first `jarvis ask`, learning, or server call. Anchored the pattern to
+`/traces/`. Verified: a clean `uv build` now produces a wheel
+containing all four `traces/` files.
+
+**`pynvml` deprecation `FutureWarning` on every command** (#389).
+Switched the dependency from the legacy `pynvml` package to NVIDIA's
+official `nvidia-ml-py` (same `pynvml` module name, no warning shim),
+and added defensive `warnings.filterwarnings` at every `import pynvml`
+site to suppress the warning even when `pynvml` is pulled in
+transitively.
+
+**Windows RAM detection returning `0.0 GB`** (#373). The Windows
+branch of `_total_ram_gb()` (via `GlobalMemoryStatusEx`) landed after
+the v1.0.1 cutoff, so v1.0.1 users still saw `0.0 GB` from `jarvis
+init`. Now shipping in the wheel. A new `windows-latest` CI job runs
+the real `GlobalMemoryStatusEx` path on every PR as a regression
+guard.
+
+**Desktop first-boot hung on "did not become healthy in time"**
+(#331). The Tauri boot path ran `uv sync` with stderr discarded and
+the exit code ignored, so a failed dependency install surfaced only
+as a generic 600-second health-check timeout. Now captures stderr,
+checks the exit status, and surfaces the actual `uv sync` error
+(with the diagnostic tail) before the long wait. The error-formatting
+logic is covered by unit tests.
+
+### Changed
+
+**Install URL moved to GitHub Pages** (#337, #352). The documented
+`openjarvis.ai/install.sh` URL was failing with `sslv3 alert
+handshake failure` (the domain is community-operated and had a broken
+TLS config). The canonical installer is now served from the
+project-controlled GitHub Pages site at
+`https://open-jarvis.github.io/OpenJarvis/install.sh`, generated from
+the same `scripts/install/install.sh` at docs-build time. The README
+also documents the WSL2 path for Windows and the `uv` prerequisite
+for the desktop binary, and the installer bails early with a clear
+message when run under Git Bash / MSYS2 / Cygwin.
+
 ## [1.0.1] - 2026-05-17
 
 A patch release that closes the auto-update gap so the analytics

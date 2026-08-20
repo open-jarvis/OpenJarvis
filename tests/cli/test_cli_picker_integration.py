@@ -110,33 +110,25 @@ class TestRuntimePanelBranches:
             "builtins.input",
             side_effect=["65536", "0"],
         ):
-            opts = interactive_pick_runtime_options(
-                console, engine_name="ollama"
-            )
+            opts = interactive_pick_runtime_options(console, engine_name="ollama")
         assert opts.num_ctx == 65536
         assert opts.num_gpu == 0
 
     def test_interactive_runtime_non_ollama_ctx_only(self) -> None:
         console = MagicMock()
         with patch("builtins.input", side_effect=["8192", "99"]):
-            opts = interactive_pick_runtime_options(
-                console, engine_name="vllm"
-            )
+            opts = interactive_pick_runtime_options(console, engine_name="vllm")
         assert opts.num_ctx == 8192
         assert opts.num_gpu is None
 
     def test_interactive_runtime_ctx_interrupt(self) -> None:
         with patch("builtins.input", side_effect=KeyboardInterrupt):
-            opts = interactive_pick_runtime_options(
-                MagicMock(), engine_name="ollama"
-            )
+            opts = interactive_pick_runtime_options(MagicMock(), engine_name="ollama")
         assert opts == ChatRuntimeOptions()
 
     def test_interactive_runtime_gpu_interrupt_keeps_ctx(self) -> None:
         with patch("builtins.input", side_effect=["4096", KeyboardInterrupt]):
-            opts = interactive_pick_runtime_options(
-                MagicMock(), engine_name="ollama"
-            )
+            opts = interactive_pick_runtime_options(MagicMock(), engine_name="ollama")
         assert opts.num_ctx == 4096
         assert opts.num_gpu is None
 
@@ -322,4 +314,3 @@ class TestChatPickerIntegration:
             )
         assert result.exit_code == 0
         assert "preset-chat" in result.output
-

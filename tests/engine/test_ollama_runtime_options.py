@@ -15,11 +15,12 @@ def test_with_explicit_runtime_kwargs() -> None:
     assert opts["num_gpu"] == 12
 
 
-def test_default_num_ctx_when_omitted() -> None:
+def test_default_num_ctx_when_omitted(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("JARVIS_NUM_CTX", "24576")
     opts = _ollama_request_options(
         temperature=0.7,
         max_tokens=1024,
         kwargs={},
     )
-    assert opts["num_ctx"] == 8192
+    assert opts["num_ctx"] == 24576
     assert "num_gpu" not in opts

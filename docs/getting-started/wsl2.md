@@ -1,6 +1,9 @@
 # WSL2 Install
 
-OpenJarvis runs in WSL2 on Windows. Native Windows is not supported.
+OpenJarvis on Windows installs two ways: **WSL2** (this page — the
+recommended path; identical to native Linux) or **[native Windows
+(advanced)](windows-native.md)** (Phase-1; PowerShell installer, no
+WSL2 / no Docker). Pick WSL2 for the smoothest experience.
 
 ## One-time WSL setup
 
@@ -15,7 +18,7 @@ Then open the Ubuntu (or Debian) shell that gets installed.
 ## Install OpenJarvis
 
 ```bash
-curl -fsSL https://openjarvis.ai/install.sh | bash
+curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
 ```
 
 About 3 minutes. Type `jarvis` to start.

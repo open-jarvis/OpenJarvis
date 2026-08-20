@@ -10,6 +10,31 @@ ExecStart=/opt/openjarvis/.venv/bin/jarvis serve --host 0.0.0.0 --port 8000
 Restart=on-failure
 RestartSec=5
 Environment=HOME=/opt/openjarvis
+# Binding 0.0.0.0 requires authentication. This file MUST exist and contain:
+#   OPENJARVIS_API_KEY=<key>      (generate one: `jarvis auth generate-key`)
+# It is not prefixed with "-", so the unit fails to start if the file is
+# missing — preventing an accidentally unauthenticated public server.
+# Keep secrets here (mode 0600, owned by root) rather than inline Environment=
+# lines, which leak into `systemctl show` and the journal.
+EnvironmentFile=/etc/openjarvis/env
+
+# --- Sandboxing / hardening (#564) ---
+# Conservative set: tightens the unit without blocking the server's normal I/O
+# or local GPU inference. ProtectSystem=strict makes the whole filesystem
+# read-only except ReadWritePaths, so $HOME (config/cache/state under
+# /opt/openjarvis) stays writable.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/openjarvis
+ProtectHome=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
 
 [Install]
 WantedBy=multi-user.target

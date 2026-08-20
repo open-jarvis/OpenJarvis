@@ -4,20 +4,29 @@
   <p><i>Personal AI, On Personal Devices.</i></p>
 
   <p>
-    <a href="https://scalingintelligence.stanford.edu/blogs/openjarvis/"><img src="https://img.shields.io/badge/project-OpenJarvis-blue" alt="Project"></a>
+    <a href="https://arxiv.org/abs/2605.17172"><img src="https://img.shields.io/badge/arXiv-2605.17172-b31b1b.svg" alt="arXiv"></a>
+    <a href="https://openjarvis.stanford.edu/"><img src="https://img.shields.io/badge/project-OpenJarvis-blue" alt="Project"></a>
     <a href="https://open-jarvis.github.io/OpenJarvis/"><img src="https://img.shields.io/badge/docs-mkdocs-blue" alt="Docs"></a>
     <img src="https://img.shields.io/badge/python-%3E%3D3.10-blue" alt="Python">
     <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License">
-    <a href="https://discord.gg/YZZRxCAhmm"><img src="https://img.shields.io/badge/discord-join-7289da?logo=discord&logoColor=white" alt="Discord"></a>
+    <a href="https://discord.gg/CMVBmDQ5Fj"><img src="https://img.shields.io/badge/discord-join-7289da?logo=discord&logoColor=white" alt="Discord"></a>
     <a href="https://x.com/OpenJarvisAI"><img src="https://img.shields.io/badge/X-@OpenJarvisAI-black?logo=x&logoColor=white" alt="X / Twitter"></a>
   </p>
 </div>
 
 ---
 
+<div align="center">
+  <img alt="OpenJarvis demo reel" src="assets/openjarvis_demo_reel.webp" width="75%">
+</div>
+
+---
+
 > **[Documentation](https://open-jarvis.github.io/OpenJarvis/)**
 >
-> **[Project Site](https://scalingintelligence.stanford.edu/blogs/openjarvis/)**
+> **[Project Site](https://openjarvis.stanford.edu/)**
+>
+> **[Paper](https://arxiv.org/abs/2605.17172)**
 >
 > **[Leaderboard](https://open-jarvis.github.io/OpenJarvis/leaderboard/)**
 >
@@ -31,62 +40,44 @@ OpenJarvis is that stack. It is a framework for local-first personal AI, built a
 
 ## Installation
 
-```bash
-curl -fsSL https://openjarvis.ai/install.sh | bash
-```
+Pick your platform and run one command. Each installer handles [uv](https://docs.astral.sh/uv/), the Python venv, Ollama, and a starter model — about 3 minutes on broadband.
 
-That's it. The installer handles everything: uv, the Python venv, Ollama, and pulling a small starter model. About 3 minutes on a typical broadband connection. Then:
+| Platform | One-liner |
+|---|---|
+| **macOS · Linux · WSL2** | `curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh \| bash` |
+| **Native Windows** | `irm https://open-jarvis.github.io/OpenJarvis/install.ps1 \| iex` |
+| **Desktop GUI** | Download `.exe` / `.dmg` / `.deb` / `.rpm` / `.AppImage` from the [latest release](https://github.com/open-jarvis/OpenJarvis/releases) |
 
-```bash
-jarvis
-```
+Then `jarvis` to start. The Rust extension and larger models continue downloading in the background; `jarvis doctor` shows status.
 
-The Rust extension and bigger models continue downloading in the background while you chat. Run `jarvis doctor` to see status.
-
-**Platforms:** macOS (Intel + Apple Silicon), Linux, WSL2 on Windows.
-
-**Manual install / contributors:** see [docs/getting-started/install.md](docs/getting-started/install.md).
+Platform-specific notes (WSL2 setup, native-Windows scheduled-task service, desktop prerequisites, manual / contributor install): see the [installation docs](https://open-jarvis.github.io/OpenJarvis/getting-started/install/).
 
 ## Quick Start
 
 ```bash
-curl -fsSL https://openjarvis.ai/install.sh | bash
-jarvis
+jarvis                          # start chatting (default: chat-simple)
+jarvis init --preset <name>     # switch to a starter config
 ```
 
-`jarvis init --preset <name>` switches to a starter config. Available presets: `morning-digest-mac`, `morning-digest-linux`, `morning-digest-minimal`, `deep-research`, `code-assistant`, `scheduled-monitor`, `chat-simple`.
+> Prefix `jarvis ...` with `uv run`, or `source .venv/bin/activate` first.
 
-## Starter Configs
+| Preset | What it does |
+|---|---|
+| `morning-digest-mac` / `morning-digest-linux` / `morning-digest-minimal` | Spoken daily briefing from email, calendar, health, news |
+| `deep-research` | Multi-hop research across indexed docs with citations |
+| `code-assistant` | Agent with code execution, file I/O, and shell access |
+| `scheduled-monitor` | Stateful agent on a schedule with memory |
+| `chat-simple` | Lightweight conversation, no tools |
 
-Install any preset with one command:
+Example:
 
 ```bash
-uv run jarvis init --preset morning-digest-mac   # or any preset below
+jarvis init --preset morning-digest-mac
+jarvis connect gdrive          # one OAuth covers Gmail / Calendar / Tasks
+jarvis digest --fresh          # generate and play your first briefing
 ```
 
-> Prefix every `jarvis ...` invocation with `uv run`, or activate the venv first (`source .venv/bin/activate`) so plain `jarvis ...` works for the rest of your shell session.
-
-| Preset | Use Case | What it does |
-|--------|----------|-------------|
-| `morning-digest-mac` | Daily Briefing (Mac) | Spoken briefing from email, calendar, health, news with Jarvis voice |
-| `morning-digest-linux` | Daily Briefing (Linux) | Same, with vLLM support for GPU servers |
-| `morning-digest-minimal` | Daily Briefing (minimal) | Just Gmail + Calendar, runs on any machine |
-| `deep-research` | Research Assistant | Multi-hop research across indexed docs with citations |
-| `code-assistant` | Code Companion | Agent with code execution, file I/O, and shell access |
-| `scheduled-monitor` | Persistent Monitor | Stateful agent that runs on a schedule with memory |
-| `chat-simple` | Simple Chat | Lightweight conversation, no tools needed |
-
-```bash
-# Example: Morning Digest on Mac
-uv run jarvis init --preset morning-digest-mac
-uv run jarvis connect gdrive          # one OAuth flow covers Gmail, Calendar, Tasks
-uv run jarvis digest --fresh          # generate and play your first briefing
-
-# Example: Deep Research
-uv run jarvis init --preset deep-research
-uv run jarvis memory index ./docs/    # requires the Rust extension — see Setup above
-uv run jarvis ask "Summarize all emails about Project X"
-```
+Per-preset deep dives: [morning digest](https://open-jarvis.github.io/OpenJarvis/user-guide/morning-digest/) · [deep research](https://open-jarvis.github.io/OpenJarvis/user-guide/deep-research/) · [code assistant](https://open-jarvis.github.io/OpenJarvis/user-guide/code-assistant/) · [scheduled monitor](https://open-jarvis.github.io/OpenJarvis/user-guide/scheduled-monitor/) · [chat simple](https://open-jarvis.github.io/OpenJarvis/user-guide/chat-simple/) · or the full [quickstart guide](https://open-jarvis.github.io/OpenJarvis/getting-started/quickstart/).
 
 ### Skills
 
@@ -133,7 +124,7 @@ Full documentation — including Docker deployment, cloud engines, development s
 ## Community
 
 - **GitHub:** [github.com/open-jarvis/OpenJarvis](https://github.com/open-jarvis/OpenJarvis)
-- **Discord:** [discord.gg/YZZRxCAhmm](https://discord.gg/YZZRxCAhmm)
+- **Discord:** [discord.gg/CMVBmDQ5Fj](https://discord.gg/CMVBmDQ5Fj)
 - **X / Twitter:** [@OpenJarvisAI](https://x.com/OpenJarvisAI)
 - **Docs:** [open-jarvis.github.io/OpenJarvis](https://open-jarvis.github.io/OpenJarvis/)
 

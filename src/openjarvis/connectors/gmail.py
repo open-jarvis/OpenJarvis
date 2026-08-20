@@ -497,6 +497,11 @@ class GmailConnector(BaseConnector):
                     timestamp=timestamp,
                     thread_id=thread_id,
                     channel=channel,
+                    # Deep-link straight to the message. ``msg_id`` is Gmail's
+                    # internal hex id, which the ``#all/<id>`` permalink
+                    # resolves directly — so citations have a working URL
+                    # without relying on _hit_url reconstruction at query time.
+                    url=f"https://mail.google.com/mail/u/0/#all/{msg_id}",
                     metadata={
                         "message_id": msg_id,
                         "rfc_message_id": rfc_message_id,

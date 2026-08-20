@@ -59,6 +59,10 @@ class BaseAgent(ABC):
 
     agent_id: str
     accepts_tools: bool = False
+    # Plain conversational agents may opt into the managed runtime's generic
+    # function-calling loop.  Specialized agents keep their own execution
+    # class even when process-wide MCP tools are available.
+    supports_managed_tool_fallback: bool = False
 
     def __init__(
         self,
@@ -125,6 +129,23 @@ class BaseAgent(ABC):
             payload.update(data)
             self._bus.publish(EventType.AGENT_TURN_END, payload)
 
+    def _apply_persona(self, system_prompt: Optional[str]) -> Optional[str]:
+        """Append SOUL/MEMORY/USER persona to a self-assembled system prompt.
+
+        Agents like ``monitor_operative`` / ``operative`` build their own
+        system prompt and bypass ``_build_messages`` (and thus the prompt
+        builder). This lets them honor the same persona files as one-shot
+        ``jarvis ask`` (#376) by *appending* persona to — never replacing —
+        their specialized instructions. No-op when no ``prompt_builder`` is
+        wired or no persona files exist.
+        """
+        if self._prompt_builder is None:
+            return system_prompt
+        persona = self._prompt_builder.persona_sections()
+        if not persona:
+            return system_prompt
+        return f"{system_prompt}\n\n{persona}" if system_prompt else persona
+
     def _build_messages(
         self,
         input: str,
@@ -138,6 +159,9 @@ class BaseAgent(ABC):
         conversation messages, and finally the user input.
         """
         messages: list[Message] = []
+        context_messages = (
+            list(context.conversation.messages) if context is not None else []
+        )
         # Check if the context already supplies a system message
         _context_has_system = (
             context
@@ -159,9 +183,28 @@ class BaseAgent(ABC):
             except Exception:
                 effective_system_prompt = None
         if effective_system_prompt:
+            context_system_text = "\n\n".join(
+                message.text
+                for message in context_messages
+                if message.role == Role.SYSTEM
+                and message.metadata.get("memory_context")
+                and message.text
+            )
+            if context_system_text:
+                effective_system_prompt = (
+                    f"{effective_system_prompt}\n\n{context_system_text}"
+                )
+                context_messages = [
+                    message
+                    for message in context_messages
+                    if not (
+                        message.role == Role.SYSTEM
+                        and message.metadata.get("memory_context")
+                    )
+                ]
             messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
-        if context and context.conversation.messages:
-            messages.extend(context.conversation.messages)
+        if context_messages:
+            messages.extend(context_messages)
         messages.append(Message(role=Role.USER, content=input))
         return messages
 
@@ -322,6 +365,7 @@ class ToolUsingAgent(BaseAgent):
         interactive: bool = False,
         confirm_callback: Optional[Any] = None,
         skill_few_shot_examples: Optional[List[str]] = None,
+        prompt_builder: Optional[Any] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -329,6 +373,7 @@ class ToolUsingAgent(BaseAgent):
             bus=bus,
             temperature=temperature,
             max_tokens=max_tokens,
+            prompt_builder=prompt_builder,
         )
         from openjarvis.tools._stubs import ToolExecutor
 

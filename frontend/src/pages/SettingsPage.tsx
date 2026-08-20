@@ -19,8 +19,23 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
-import { checkHealth, fetchSpeechHealth, getMemoryStats } from '../lib/api';
+import {
+  checkHealth,
+  fetchSpeechHealth,
+  getMemoryStats,
+  getInferenceSource,
+  setInferenceSource,
+  getCloudKeyStatus,
+  saveCloudKey,
+  fetchToolCredentialStatus,
+  saveToolCredentials,
+  deleteToolCredential,
+  isTauri,
+  type InferenceSource,
+} from '../lib/api';
 import { isAutoUpdateDisabled, setAutoUpdateDisabled } from '../components/Desktop/UpdateChecker';
+
+const CLOUD_KEY_STATUS_CHANGED = 'openjarvis-cloud-key-status-changed';
 
 function OllamaModelList() {
   const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
@@ -44,32 +59,135 @@ function OllamaModelList() {
   );
 }
 
-function ApiKeyInput({ storageKey, placeholder }: { storageKey: string; placeholder: string }) {
-  const [value, setValue] = useState(() => {
-    try { return localStorage.getItem(storageKey) || ''; } catch { return ''; }
-  });
+function ApiKeyInput({
+  keyName,
+  placeholder,
+  toolName,
+}: {
+  keyName: string;
+  placeholder: string;
+  toolName?: string;
+}) {
+  const [value, setValue] = useState('');
   const [saved, setSaved] = useState(false);
-  const save = (v: string) => {
-    setValue(v);
-    try { if (v) localStorage.setItem(storageKey, v); else localStorage.removeItem(storageKey); } catch {}
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const [hasKey, setHasKey] = useState(false);
+  const [error, setError] = useState('');
+  const desktopKeyStorage = isTauri();
+  const serverToolStorage = !desktopKeyStorage && !!toolName;
+  const canManage = desktopKeyStorage || serverToolStorage;
+
+  const refresh = useCallback(async () => {
+    if (!canManage) {
+      setHasKey(false);
+      return;
+    }
+    try {
+      const status = desktopKeyStorage
+        ? await getCloudKeyStatus()
+        : await fetchToolCredentialStatus(toolName!);
+      setHasKey(!!status[keyName]);
+    } catch {
+      setHasKey(false);
+    }
+  }, [canManage, desktopKeyStorage, keyName, toolName]);
+
+  useEffect(() => {
+    void refresh();
+    window.addEventListener(CLOUD_KEY_STATUS_CHANGED, refresh);
+    return () => window.removeEventListener(CLOUD_KEY_STATUS_CHANGED, refresh);
+  }, [refresh]);
+
+  const save = async (v: string) => {
+    const next = v.trim();
+    if (!next) return;
+    setError('');
+    try {
+      if (desktopKeyStorage) {
+        await saveCloudKey(keyName, next);
+      } else if (toolName) {
+        await saveToolCredentials(toolName, { [keyName]: next });
+      } else {
+        return;
+      }
+      setValue('');
+      setHasKey(true);
+      setSaved(true);
+      window.dispatchEvent(new Event(CLOUD_KEY_STATUS_CHANGED));
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to save API key');
+    }
   };
+
+  const remove = async () => {
+    setError('');
+    try {
+      if (desktopKeyStorage) {
+        await saveCloudKey(keyName, '');
+      } else if (toolName) {
+        await deleteToolCredential(toolName, keyName);
+      } else {
+        return;
+      }
+      setValue('');
+      setHasKey(false);
+      setSaved(true);
+      window.dispatchEvent(new Event(CLOUD_KEY_STATUS_CHANGED));
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to remove API key');
+    }
+  };
+
   return (
     <div className="flex items-center gap-2">
-      <input type="password" value={value} onChange={e => save(e.target.value)} placeholder={placeholder}
+      <input
+        type="password"
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onBlur={() => { if (value.trim()) void save(value); }}
+        placeholder={hasKey ? (desktopKeyStorage ? 'Saved in secure storage' : 'Saved by local server') : placeholder}
+        disabled={!canManage}
         className="w-48 px-2 py-1 rounded text-xs"
         style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
+      {hasKey && (
+        <button
+          onClick={() => void remove()}
+          className="px-2 py-1 rounded text-[10px] cursor-pointer"
+          style={{ color: 'var(--color-error)', border: '1px solid var(--color-error)' }}
+        >
+          Remove
+        </button>
+      )}
       {saved && <span className="text-[10px]" style={{ color: 'var(--color-success)' }}>Saved</span>}
+      {error && <span className="text-[10px]" style={{ color: 'var(--color-error)' }}>{error}</span>}
     </div>
   );
 }
 
-function CloudProviderStatus({ label, storageKey }: { label: string; storageKey: string }) {
+function CloudProviderStatus({ label, keyName }: { label: string; keyName: string }) {
   const [hasKey, setHasKey] = useState(false);
+  const desktopKeyStorage = isTauri();
+
+  const refresh = useCallback(async () => {
+    if (!desktopKeyStorage) {
+      setHasKey(false);
+      return;
+    }
+    try {
+      const status = await getCloudKeyStatus();
+      setHasKey(!!status[keyName]);
+    } catch {
+      setHasKey(false);
+    }
+  }, [desktopKeyStorage, keyName]);
+
   useEffect(() => {
-    try { setHasKey(!!localStorage.getItem(storageKey)); } catch { setHasKey(false); }
-  }, [storageKey]);
+    void refresh();
+    window.addEventListener(CLOUD_KEY_STATUS_CHANGED, refresh);
+    return () => window.removeEventListener(CLOUD_KEY_STATUS_CHANGED, refresh);
+  }, [refresh]);
+
   return (
     <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
       <span style={{
@@ -161,6 +279,35 @@ export function SettingsPage() {
   const [memoryMaxTokens, setMemoryMaxTokens] = useState(() => {
     try { return parseInt(localStorage.getItem('openjarvis-memory-max-tokens') || '2048'); } catch { return 2048; }
   });
+
+  const [srcKind, setSrcKind] = useState<InferenceSource['kind']>('ollama');
+  const [customHost, setCustomHost] = useState('http://localhost:1234/v1');
+  const [customModel, setCustomModel] = useState('');
+  const [customEngine, setCustomEngine] = useState('lmstudio');
+  const [customKey, setCustomKey] = useState('');
+  const [srcMsg, setSrcMsg] = useState('');
+
+  useEffect(() => {
+    getInferenceSource().then((s) => {
+      setSrcKind(s.kind);
+      if (s.host) setCustomHost(s.host);
+      if (s.model) setCustomModel(s.model);
+      if (s.engine) setCustomEngine(s.engine);
+    }).catch(() => {});
+  }, []);
+
+  const saveSource = useCallback(async () => {
+    try {
+      if (srcKind === 'custom') {
+        await setInferenceSource({ kind: 'custom', host: customHost, model: customModel, engine: customEngine, apiKey: customKey || undefined });
+      } else {
+        await setInferenceSource({ kind: 'ollama' });
+      }
+      setSrcMsg('Saved — restart the app to apply.');
+    } catch (e: any) {
+      setSrcMsg(e?.message ?? 'Failed to save.');
+    }
+  }, [srcKind, customHost, customModel, customEngine, customKey]);
 
   useEffect(() => {
     checkHealth().then(setHealthy);
@@ -316,6 +463,73 @@ export function SettingsPage() {
                 }}
               />
             </SettingRow>
+            <SettingRow label="API key" description="Required only if the server was started with an API key">
+              <input
+                type="password"
+                value={settings.apiKey}
+                onChange={(e) => { updateSettings({ apiKey: e.target.value }); showSaved(); }}
+                placeholder="OPENJARVIS_API_KEY"
+                autoComplete="off"
+                className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                style={{
+                  background: 'var(--color-bg-secondary)',
+                  color: 'var(--color-text)',
+                  border: '1px solid var(--color-border)',
+                }}
+              />
+            </SettingRow>
+          </Section>
+
+          {/* Inference source */}
+          <Section title="Inference source">
+            <SettingRow label="Source" description="Where the app runs models. Applies after restart.">
+              <select
+                value={srcKind}
+                onChange={(e) => { setSrcKind(e.target.value as InferenceSource['kind']); setSrcMsg(''); }}
+                className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+              >
+                <option value="ollama">Bundled Ollama (default)</option>
+                <option value="custom">Custom OpenAI-compatible server</option>
+              </select>
+            </SettingRow>
+            {srcKind === 'custom' && (
+              <>
+                <SettingRow label="Server URL" description="e.g. LM Studio: http://localhost:1234/v1">
+                  <input type="text" value={customHost} onChange={(e) => { setCustomHost(e.target.value); setSrcMsg(''); }} placeholder="http://localhost:1234/v1"
+                    className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                    style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }} />
+                </SettingRow>
+                <SettingRow label="Model" description="Model id served by your endpoint">
+                  <input type="text" value={customModel} onChange={(e) => { setCustomModel(e.target.value); setSrcMsg(''); }} placeholder="qwen2.5-7b-instruct"
+                    className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                    style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }} />
+                </SettingRow>
+                <SettingRow label="Server type" description="OpenAI-compatible engine">
+                  <select value={customEngine} onChange={(e) => { setCustomEngine(e.target.value); setSrcMsg(''); }}
+                    className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                    style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}>
+                    <option value="lmstudio">LM Studio</option>
+                    <option value="vllm">vLLM</option>
+                    <option value="sglang">SGLang</option>
+                    <option value="llamacpp">llama.cpp</option>
+                    <option value="mlx">MLX</option>
+                  </select>
+                </SettingRow>
+                <SettingRow label="API key (optional)" description="Only if your server requires one">
+                  <input type="password" value={customKey} onChange={(e) => { setCustomKey(e.target.value); setSrcMsg(''); }} placeholder="leave blank if none"
+                    className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                    style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }} />
+                </SettingRow>
+              </>
+            )}
+            <SettingRow label="" description={srcMsg}>
+              <button onClick={saveSource}
+                className="text-sm px-3 py-1.5 rounded-lg outline-none cursor-pointer"
+                style={{ background: 'var(--color-accent, var(--color-bg-tertiary))', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}>
+                Save inference source
+              </button>
+            </SettingRow>
           </Section>
 
           {/* Models */}
@@ -328,10 +542,10 @@ export function SettingsPage() {
             </div>
             <SettingRow label="Cloud providers" description="Green dot means API key is configured">
               <div className="flex flex-wrap gap-3">
-                <CloudProviderStatus label="OpenAI" storageKey="openjarvis-openai-key" />
-                <CloudProviderStatus label="Anthropic" storageKey="openjarvis-anthropic-key" />
-                <CloudProviderStatus label="Google" storageKey="openjarvis-gemini-key" />
-                <CloudProviderStatus label="OpenRouter" storageKey="openjarvis-openrouter-key" />
+                <CloudProviderStatus label="OpenAI" keyName="OPENAI_API_KEY" />
+                <CloudProviderStatus label="Anthropic" keyName="ANTHROPIC_API_KEY" />
+                <CloudProviderStatus label="Google" keyName="GEMINI_API_KEY" />
+                <CloudProviderStatus label="OpenRouter" keyName="OPENROUTER_API_KEY" />
               </div>
             </SettingRow>
           </Section>
@@ -339,23 +553,23 @@ export function SettingsPage() {
           {/* API Keys */}
           <Section title="API Keys">
             <SettingRow label="OpenAI" description="GPT-4, GPT-3.5, etc.">
-              <ApiKeyInput storageKey="openjarvis-openai-key" placeholder="sk-..." />
+              <ApiKeyInput keyName="OPENAI_API_KEY" placeholder="sk-..." />
             </SettingRow>
             <SettingRow label="Anthropic" description="Claude models">
-              <ApiKeyInput storageKey="openjarvis-anthropic-key" placeholder="sk-ant-..." />
+              <ApiKeyInput keyName="ANTHROPIC_API_KEY" placeholder="sk-ant-..." />
             </SettingRow>
             <SettingRow label="Google" description="Gemini models">
-              <ApiKeyInput storageKey="openjarvis-gemini-key" placeholder="AI..." />
+              <ApiKeyInput keyName="GEMINI_API_KEY" placeholder="AI..." />
             </SettingRow>
             <SettingRow label="OpenRouter" description="Multi-provider routing">
-              <ApiKeyInput storageKey="openjarvis-openrouter-key" placeholder="sk-or-..." />
+              <ApiKeyInput keyName="OPENROUTER_API_KEY" placeholder="sk-or-..." />
             </SettingRow>
           </Section>
 
           {/* Tools */}
           <Section title="Tools">
-            <SettingRow label="Web Search" description="SerpAPI or Tavily key for web search tool">
-              <ApiKeyInput storageKey="openjarvis-search-key" placeholder="API key..." />
+            <SettingRow label="Web Search" description="Tavily key for web search tool">
+              <ApiKeyInput keyName="TAVILY_API_KEY" placeholder="tvly-..." toolName="web_search" />
             </SettingRow>
           </Section>
 
@@ -618,7 +832,7 @@ export function SettingsPage() {
               </p>
               <div className="flex gap-3 mt-3 text-xs">
                 <a
-                  href="https://scalingintelligence.stanford.edu/blogs/openjarvis/"
+                  href="https://openjarvis.stanford.edu/"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ color: 'var(--color-accent)' }}

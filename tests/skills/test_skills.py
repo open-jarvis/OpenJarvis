@@ -148,6 +148,56 @@ class TestSkillExecutor:
         assert EventType.SKILL_EXECUTE_END in event_types
 
 
+class TestSkillExecutorCapabilities:
+    def _manifest(self):
+        return SkillManifest(
+            name="capskill",
+            required_capabilities=["network:fetch"],
+            steps=[
+                SkillStep(
+                    tool_name="echo",
+                    arguments_template='{"text": "hello"}',
+                    output_key="result",
+                )
+            ],
+        )
+
+    def test_no_policy_runs_capability_skills(self):
+        """Default construction (no allowed_capabilities) must not enforce —
+        this is the pre-enforcement behavior every manager.py call site relies on."""
+        executor = SkillExecutor(ToolExecutor([EchoTool()]))
+        result = executor.run(self._manifest())
+        assert result.success
+        assert result.context.get("result") == "hello"
+
+    def test_policy_blocks_missing_capability(self):
+        executor = SkillExecutor(ToolExecutor([EchoTool()]), allowed_capabilities=set())
+        result = executor.run(self._manifest())
+        assert not result.success
+        assert len(result.step_results) == 1
+        assert "Blocked" in result.step_results[0].content
+        assert "network:fetch" in result.step_results[0].content
+
+    def test_policy_allows_granted_capability(self):
+        executor = SkillExecutor(
+            ToolExecutor([EchoTool()]),
+            allowed_capabilities={"network:fetch"},
+        )
+        result = executor.run(self._manifest())
+        assert result.success
+        assert result.context.get("result") == "hello"
+
+    def test_blocked_run_publishes_events(self):
+        bus = EventBus(record_history=True)
+        executor = SkillExecutor(
+            ToolExecutor([EchoTool()]), bus=bus, allowed_capabilities=set()
+        )
+        executor.run(self._manifest())
+        event_types = {e.event_type for e in bus.history}
+        assert EventType.SKILL_EXECUTE_START in event_types
+        assert EventType.SKILL_EXECUTE_END in event_types
+
+
 class TestSkillStepExtended:
     def test_step_with_skill_name(self):
         step = SkillStep(skill_name="summarize", output_key="result")

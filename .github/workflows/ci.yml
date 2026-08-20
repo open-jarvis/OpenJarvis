@@ -23,12 +23,17 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --extra dev --extra framework-comparison --extra server
 
       - name: Ruff check
         run: uv run ruff check src/ tests/
+
+      - name: Ruff format check
+        run: uv run ruff format --check src/ tests/
 
   test:
     runs-on: ubuntu-latest
@@ -55,6 +60,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --extra dev --extra framework-comparison --extra server
@@ -63,8 +70,13 @@ jobs:
         run: uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
 
       - name: Run tests
+        # COVERAGE_CORE=sysmon uses CPython 3.12's sys.monitoring backend,
+        # which is dramatically cheaper than the default C trace function.
+        # -n auto fans the suite out across all runner cores via pytest-xdist.
+        env:
+          COVERAGE_CORE: sysmon
         run: |
-          uv run pytest tests/ -v --tb=short -m "not live and not cloud" \
+          uv run pytest tests/ -n auto -q --tb=short -m "not live and not cloud and not hub" \
             --cov=openjarvis \
             --cov-report=term-missing \
             --cov-report=xml \
@@ -79,6 +91,65 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: warn
+
+  # Windows job — empirically exercises the platform-specific code paths that
+  # the Ubuntu `test` job can never reach: GlobalMemoryStatusEx RAM detection
+  # (#373) and the cp9xx -> UTF-8 stdout reconfigure (#293). Also the only CI
+  # job that builds + imports the mandatory `openjarvis_rust` PyO3 extension
+  # on Windows. Public repo -> Windows runner minutes are free.
+  #
+  # All `run:` steps use static commands only (no `github.event.*`
+  # interpolation), so there is no workflow-injection surface here.
+  test-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 = common; 3.13 = the supported ceiling — installing there guards
+        # against a numpy/native wheel gap at the top of the range (#350), which
+        # is exactly how the source-build failure slips in on Windows.
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev --extra server
+
+      # Pure-Python check — runs before the Rust build so a flaky toolchain
+      # install can never mask the actual RAM-detection verification.
+      - name: Verify Windows RAM detection (#373)
+        shell: bash
+        run: |
+          uv run python -c "from openjarvis.core.config import _total_ram_gb; ram = _total_ram_gb(); print(f'GlobalMemoryStatusEx RAM = {ram} GB'); assert ram > 0, f'Windows RAM detection returned {ram}, expected > 0'"
+
+      - name: Run Windows-specific tests (hardware + CLI)
+        shell: bash
+        run: |
+          uv run pytest tests/hardware/test_hardware_profiles.py tests/cli/test_cli.py -v -m "not live and not cloud"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build + import the PyO3 extension on Windows
+        shell: bash
+        run: |
+          uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
+          uv run python -c "import openjarvis_rust; print('openjarvis_rust imports on Windows OK')"
+
+      - name: Smoke-test CLI
+        shell: bash
+        run: |
+          uv run jarvis --version
 
   rust:
     runs-on: ubuntu-latest

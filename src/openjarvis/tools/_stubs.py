@@ -136,6 +136,15 @@ class ToolExecutor:
                 content=f"Invalid arguments JSON: {exc}",
                 success=False,
             )
+        if not isinstance(params, dict):
+            return ToolResult(
+                tool_name=tool_call.name,
+                content=(
+                    "Invalid arguments: expected a JSON object, "
+                    f"got {type(params).__name__}."
+                ),
+                success=False,
+            )
 
         # Boundary guard: scan external tool arguments
         if self._boundary_guard is not None and not getattr(tool, "is_local", True):
@@ -143,6 +152,15 @@ class ToolExecutor:
                 tool_call = self._boundary_guard.check_outbound(tool_call)
                 # Re-parse arguments after potential redaction
                 params = json.loads(tool_call.arguments) if tool_call.arguments else {}
+                if not isinstance(params, dict):
+                    return ToolResult(
+                        tool_name=tool_call.name,
+                        content=(
+                            "Invalid arguments: expected a JSON object, "
+                            f"got {type(params).__name__}."
+                        ),
+                        success=False,
+                    )
             except Exception as exc:
                 return ToolResult(
                     tool_name=tool_call.name,
@@ -225,11 +243,18 @@ class ToolExecutor:
                     success=False,
                 )
 
-        # Emit start event
+        # Emit start event. ``agent`` carries the managed-agent UUID so the
+        # AgentExecutor's trace subscriber (which filters by agent_id) can
+        # actually match this event — without it, every tool call is silently
+        # dropped from traces.
         if self._bus:
             self._bus.publish(
                 EventType.TOOL_CALL_START,
-                {"tool": tool_call.name, "arguments": params},
+                {
+                    "tool": tool_call.name,
+                    "arguments": params,
+                    "agent": self._agent_id,
+                },
             )
 
         # Execute with timeout
@@ -289,6 +314,7 @@ class ToolExecutor:
                     "latency": latency,
                     "result": result_text,
                     "metadata": event_metadata,
+                    "agent": self._agent_id,
                 },
             )
 

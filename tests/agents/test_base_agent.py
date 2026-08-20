@@ -205,6 +205,40 @@ class TestBuildMessages:
         assert messages[1].content == "prev"
         assert messages[2].content == "new"
 
+    def test_prompt_builder_merges_context_system_message(self):
+        engine = MagicMock()
+        prompt_builder = MagicMock()
+        prompt_builder.build.return_value = "You are OpenJarvis."
+        agent = _ConcreteAgent(engine, "m", prompt_builder=prompt_builder)
+        conv = Conversation()
+        conv.add(
+            Message(
+                role=Role.SYSTEM,
+                content="Remember: user likes jazz.",
+                metadata={"memory_context": True},
+            )
+        )
+        ctx = AgentContext(conversation=conv)
+
+        messages = agent._build_messages("new", ctx)
+
+        system_messages = [m for m in messages if m.role == Role.SYSTEM]
+        assert len(system_messages) == 1
+        assert "You are OpenJarvis." in system_messages[0].content
+        assert "user likes jazz" in system_messages[0].content
+
+    def test_prompt_builder_preserves_caller_system_context(self):
+        engine = MagicMock()
+        prompt_builder = MagicMock()
+        prompt_builder.build.return_value = "Agent instructions."
+        agent = _ConcreteAgent(engine, "m", prompt_builder=prompt_builder)
+        conv = Conversation()
+        conv.add(Message(role=Role.SYSTEM, content="You are helpful."))
+
+        messages = agent._build_messages("new", AgentContext(conversation=conv))
+
+        assert any(message.content == "You are helpful." for message in messages)
+
 
 class TestGenerate:
     def test_delegates_to_engine(self):

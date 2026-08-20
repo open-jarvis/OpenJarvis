@@ -11,7 +11,7 @@ bench  = "gaia"
 n      = 3
 local  = { model = "Qwen/Qwen3.5-9B", endpoint = "http://localhost:8001/v1" }
 cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
-method_cfg = {}
+method_cfg = { web_search = { enabled = true, max_uses = 8 } }
 
 [cells.advisors-swebenchverified-qwen9b-opus-3]
 method = "advisors"
@@ -28,7 +28,7 @@ bench  = "gaia"
 n      = 30
 local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
 cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
-method_cfg = {}
+method_cfg = { web_search = { enabled = true, max_uses = 8 } }
 concurrency = 4
 
 [cells.advisors-swebenchverified-qwen9b-opus-30]

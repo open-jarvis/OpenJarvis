@@ -1,9 +1,10 @@
 # Hybrid local+cloud paradigm agents
 
-Six paradigms ported from
-[`/matx/u/aspark/hybrid-local-cloud-compute`](../../../../../) — each is
-registered as a standard OpenJarvis agent so the rest of the platform
-(SDK, CLI, distillation, evals) can use them like any other agent.
+Six paradigms ported from the original ``hybrid-local-cloud-compute``
+harness — each is registered as a standard OpenJarvis agent so the rest
+of the platform (SDK, CLI, distillation, evals) can use them like any
+other agent. Results live under ``$OPENJARVIS_HYBRID_EXPERIMENTS_DIR``
+(defaults to ``~/.openjarvis/experiments/hybrid/``).
 
 | Agent             | Plan shape      | Trains what?         | Workers                   |
 |-------------------|-----------------|----------------------|---------------------------|
@@ -45,15 +46,15 @@ structural scorer).
 ## Quickstart
 
 ```bash
-cd /matx/u/aspark/OpenJarvis
+cd OpenJarvis
 source .env                                           # API keys
 
-# 1. Start vLLM in another shell (see CLAUDE.md for the full recipe)
+# 1. Start vLLM in another shell (see your local launch recipe)
 #    CUDA_VISIBLE_DEVICES=0 .venv/bin/python -m vllm.entrypoints.openai.api_server \
 #       --model Qwen/Qwen3.5-27B-FP8 --port 8001 ...
 
 # 2. (Optional) for Minions: install the upstream library
-.venv/bin/uv pip install -e /matx/u/aspark/hybrid-local-cloud-compute/external/minions
+.venv/bin/uv pip install -e path/to/minions
 
 # 3. Run a smoke cell
 .venv/bin/python -m openjarvis.agents.hybrid.runner \
@@ -61,7 +62,7 @@ source .env                                           # API keys
 ```
 
 Outputs land in
-`$OPENJARVIS_HYBRID_EXPERIMENTS_DIR/<cell>/{results.jsonl,summary.json,config.json,logs/}`
+`$OPENJARVIS_HYBRID_EXPERIMENTS_DIR/runs/<cell>/{results.jsonl,summary.json,config.json,logs/}`
 (defaults to `~/.openjarvis-hybrid/experiments/`). The schema matches the
 hybrid harness so the existing rescore / dashboard scripts work
 unmodified.
@@ -80,7 +81,7 @@ That appends a `[cells.<name>]` block to
 ## How good is each paradigm?
 
 Numbers from the upstream hybrid harness
-(`/matx/u/aspark/hybrid-local-cloud-compute/docs/results.md`) at full N —
+(`~/.openjarvis/experiments/hybrid/docs/results.md`) at full N —
 GAIA val n=165, SWE-bench-Verified n=500. Local = Qwen-3.5-27B-FP8, cloud
 = Opus 4.7. Cloud-only baseline: GAIA 0.570 / $1.09, SWE 0.238 / $0.95.
 

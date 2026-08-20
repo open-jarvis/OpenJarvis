@@ -94,6 +94,57 @@ impl SQLiteMemory {
     pub fn in_memory() -> Result<Self, OpenJarvisError> {
         Self::new(Path::new(":memory:"))
     }
+
+    /// Atomically replace every document for *source* with *documents*.
+    pub fn replace_source(
+        &self,
+        source: &str,
+        documents: &[(&str, Option<&Value>)],
+    ) -> Result<Vec<String>, OpenJarvisError> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction().map_err(|e| {
+            OpenJarvisError::Io(std::io::Error::other(e.to_string()))
+        })?;
+
+        tx.execute(
+            "DELETE FROM documents_fts
+             WHERE rowid IN (SELECT rowid FROM documents WHERE source = ?1)",
+            rusqlite::params![source],
+        )
+        .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+        tx.execute(
+            "DELETE FROM documents WHERE source = ?1",
+            rusqlite::params![source],
+        )
+        .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+
+        let mut doc_ids = Vec::with_capacity(documents.len());
+        for (content, metadata) in documents {
+            let doc_id = Uuid::new_v4().to_string();
+            let meta_str = metadata
+                .map(|m| serde_json::to_string(m).unwrap_or_default())
+                .unwrap_or_else(|| "{}".to_string());
+
+            tx.execute(
+                "INSERT INTO documents (id, content, source, metadata)
+                 VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![doc_id, content, source, meta_str],
+            )
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+
+            let rowid = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO documents_fts (rowid, content, source) VALUES (?1, ?2, ?3)",
+                rusqlite::params![rowid, content, source],
+            )
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+            doc_ids.push(doc_id);
+        }
+
+        tx.commit()
+            .map_err(|e| OpenJarvisError::Io(std::io::Error::other(e.to_string())))?;
+        Ok(doc_ids)
+    }
 }
 
 impl MemoryBackend for SQLiteMemory {
@@ -144,16 +195,21 @@ impl MemoryBackend for SQLiteMemory {
     ) -> Result<Vec<RetrievalResult>, OpenJarvisError> {
         let conn = self.conn.lock();
 
+        // Split on any non-alphanumeric character (not just whitespace) so
+        // internal punctuation — apostrophes in particular ("user's") — never
+        // reaches the FTS5 MATCH string. FTS5's query grammar treats an
+        // unescaped `'` as a string delimiter, so passing a raw token like
+        // `user's` through silently fails to parse and yields zero rows with
+        // no visible error. Splitting fully avoids needing to escape anything.
         let words: Vec<String> = query
-            .split_whitespace()
-            .map(|w| w.trim_matches(|c: char| "?.,!;:'\"()[]{}/ ".contains(c)).to_string())
+            .split(|c: char| !c.is_alphanumeric())
+            .map(|w| w.to_string())
             .filter(|w| !w.is_empty())
             .collect();
-        let fts_query = if words.len() == 1 {
-            words[0].clone()
-        } else {
-            words.join(" OR ")
-        };
+        if words.is_empty() {
+            return Ok(Vec::new());
+        }
+        let fts_query = words.join(" OR ");
 
         let mut stmt = conn
             .prepare(
@@ -302,6 +358,40 @@ mod tests {
     }
 
     #[test]
+    fn test_sqlite_replace_source_is_idempotent() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+
+        mem.replace_source("notes.txt", &[("old project notes", None)])
+            .unwrap();
+        assert_eq!(mem.count().unwrap(), 1);
+
+        mem.replace_source("notes.txt", &[("updated project notes", None)])
+            .unwrap();
+        assert_eq!(mem.count().unwrap(), 1);
+
+        assert!(mem.retrieve("old", 5).unwrap().is_empty());
+        let updated = mem.retrieve("updated", 5).unwrap();
+        assert_eq!(updated.len(), 1);
+        assert_eq!(updated[0].source, "notes.txt");
+    }
+
+    #[test]
+    fn test_sqlite_replace_source_preserves_other_sources() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+        mem.store("keep this manual", "manual.txt", None).unwrap();
+        mem.replace_source("notes.txt", &[("old project notes", None)])
+            .unwrap();
+
+        mem.replace_source("notes.txt", &[("updated project notes", None)])
+            .unwrap();
+
+        assert_eq!(mem.count().unwrap(), 2);
+        let manual = mem.retrieve("manual", 5).unwrap();
+        assert_eq!(manual.len(), 1);
+        assert_eq!(manual[0].source, "manual.txt");
+    }
+
+    #[test]
     fn test_sqlite_case_insensitive_search() {
         let mem = SQLiteMemory::in_memory().unwrap();
         mem.store("Medication dosage guidelines for patients", "medical", None).unwrap();
@@ -318,6 +408,27 @@ mod tests {
         // Mixed case
         let mixed = mem.retrieve("Medication", 10).unwrap();
         assert_eq!(mixed.len(), 2, "mixed-case query should find both documents");
+    }
+
+    #[test]
+    fn test_sqlite_apostrophe_in_query() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+        mem.store("The user's name is Trev.", "identity", None).unwrap();
+
+        // A query containing an internal apostrophe must not break FTS5's
+        // MATCH syntax (an unescaped `'` is a string delimiter in FTS5's
+        // query grammar), which previously caused this to silently return
+        // zero results instead of matching or erroring.
+        let multi_word = mem.retrieve("what is the user's name", 5).unwrap();
+        assert!(
+            !multi_word.is_empty(),
+            "query with an internal apostrophe should not silently return zero results"
+        );
+
+        // Bare single-word possessive: exercises the (former) single-word
+        // bypass path that skipped the OR-join entirely.
+        let bare = mem.retrieve("user's", 5).unwrap();
+        assert!(!bare.is_empty(), "single-word possessive query should still match");
     }
 
     #[test]

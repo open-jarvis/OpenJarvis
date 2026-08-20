@@ -14,6 +14,18 @@ OpenJarvis is a research framework for composable, on-device AI systems.
 Build personal AI that runs on your hardware. Cloud APIs are optional.
 </p>
 
+<div class="grid cards" markdown>
+
+-   :material-image-multiple:{ .lg .middle } **See what people use it for**
+
+    ---
+
+    A gallery of real setups — morning briefs that summarize your overnight Slack and email, a Discord companion that knows your calendar, a code reviewer that works at 30,000 feet. Outcome-first, with links to the docs that explain how to build each one.
+
+    [:octicons-arrow-right-24: Browse the Showcase](showcase/index.md)
+
+</div>
+
 ---
 
 ## Why OpenJarvis?
@@ -54,9 +66,9 @@ OpenJarvis is that stack. It is a framework for local-first personal AI, built a
 
     **Step 2.** Download and open the desktop app:
 
-    [Download for macOS](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis_0.1.0_universal.dmg){ .md-button .md-button--primary }
+    [Download for macOS](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_universal.dmg){ .md-button .md-button--primary }
 
-    Also available for [Windows](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis_0.1.0_x64-setup.exe), [Linux (DEB)](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis_0.1.0_amd64.deb), and [Linux (RPM)](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis-0.1.0-1.x86_64.rpm). See the [Downloads](downloads.md) page for details.
+    Also available for [Windows](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_x64-setup.exe), [Linux (DEB)](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_amd64.deb), and [Linux (RPM)](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis-1.0.1-1.x86_64.rpm). See the [Downloads](downloads.md) page for details.
 
     The app connects to `http://localhost:8000` automatically.
 
@@ -171,7 +183,7 @@ OpenJarvis is built around five composable layers. Each has a clean interface an
 
     ---
 
-    CLI, Python SDK, and guides for [Morning Digest](user-guide/morning-digest.md), [Deep Research](user-guide/deep-research.md), [Code Assistant](user-guide/code-assistant.md), [Scheduled Monitor](user-guide/scheduled-monitor.md), [Simple Chat](user-guide/chat-simple.md), agents, memory, tools, and telemetry.
+    CLI, Python SDK, and guides for [Morning Digest](user-guide/morning-digest.md), [Deep Research](user-guide/deep-research.md), [Code Assistant](user-guide/code-assistant.md), [Scheduled Monitor](user-guide/scheduled-monitor.md), [Simple Chat](user-guide/chat-simple.md), [Evaluations](user-guide/evaluations.md), agents, memory, tools, and telemetry.
 
 -   **[Architecture](architecture/overview.md)**
 
@@ -203,7 +215,7 @@ OpenJarvis is built around five composable layers. Each has a clean interface an
 
 OpenJarvis is part of [Intelligence Per Watt](https://www.intelligence-per-watt.ai/), a research initiative studying the efficiency of on-device AI systems. Developed at [Hazy Research](https://hazyresearch.stanford.edu/) and the [Scaling Intelligence Lab](https://scalingintelligence.stanford.edu/) at [Stanford SAIL](https://ai.stanford.edu/).
 
-Read the [blog post](https://scalingintelligence.stanford.edu/blogs/openjarvis/) for the full research motivation, architecture details, and experimental results.
+Read the [blog post](https://openjarvis.stanford.edu/) for the full research motivation, architecture details, and experimental results.
 
 ## Citation
 

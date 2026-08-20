@@ -20,7 +20,6 @@ from openjarvis.connectors.oauth import (
     delete_tokens,
     load_tokens,
     resolve_google_credentials,
-    run_oauth_flow,
     save_tokens,
 )
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
@@ -214,12 +213,13 @@ def _parse_event_timestamp(event: Dict[str, Any]) -> datetime:
     """
     start = event.get("start", {})
     date_time_str: str = start.get("dateTime", "")
-    if not date_time_str:
+    date_str: str = start.get("date", "")
+    if not date_time_str and not date_str:
         return datetime.now()
     try:
         # RFC3339 — Python 3.11+ fromisoformat handles the trailing 'Z'.
         # For older versions we replace 'Z' with '+00:00'.
-        normalized = date_time_str.replace("Z", "+00:00")
+        normalized = (date_time_str or date_str).replace("Z", "+00:00")
         return datetime.fromisoformat(normalized)
     except (ValueError, TypeError):
         return datetime.now()
@@ -290,12 +290,18 @@ class GCalendarConnector(BaseConnector):
         """Handle the OAuth callback.
 
         If *code* looks like a ``client_id:client_secret`` pair (containing
-        ``.apps.googleusercontent.com``), store the credentials and trigger
-        the full browser-based OAuth flow.  Otherwise treat it as a raw
-        token / auth code.
+        ``.apps.googleusercontent.com``), persist the client credentials only.
+        The browser consent + code→token exchange is owned by the in-process
+        server flow (``/v1/connectors/{id}/oauth/start`` → ``/oauth/callback``),
+        which writes the real ``access_token`` to every Google credential file.
+
+        The previous daemon-thread browser flow (its own ``localhost:8789``
+        callback server) failed silently in the bundled desktop context and is
+        intentionally removed here (issue #512).
+
+        Any other *code* is treated as a raw token / auth code.
         """
         code = code.strip()
-        # If user pastes client_id:client_secret, store and run OAuth flow
         if ":" in code and ".apps.googleusercontent.com" in code:
             client_id, client_secret = code.split(":", 1)
             save_tokens(
@@ -305,20 +311,6 @@ class GCalendarConnector(BaseConnector):
                     "client_secret": client_secret.strip(),
                 },
             )
-            import threading
-
-            def _run() -> None:
-                try:
-                    run_oauth_flow(
-                        client_id=client_id.strip(),
-                        client_secret=client_secret.strip(),
-                        scopes=GOOGLE_ALL_SCOPES,
-                        credentials_path=self._credentials_path,
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
-
-            threading.Thread(target=_run, daemon=True).start()
         else:
             # Raw token or auth code
             save_tokens(self._credentials_path, {"token": code})

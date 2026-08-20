@@ -25,7 +25,7 @@ bench  = "gaia"
 n      = 3
 local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
 cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
-method_cfg = { architecture = "single_local", max_tokens = 1024 }
+method_cfg = { architecture = "single_local", max_tokens = 8192 }
 
 [cells.archon-swebenchverified-qwen27b-opus-ensemble-K3-3]
 method = "archon"
@@ -54,7 +54,7 @@ bench  = "gaia"
 n      = 30
 local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
 cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
-method_cfg = { architecture = "single_local", max_tokens = 2048 }
+method_cfg = { architecture = "single_local", max_tokens = 8192 }
 concurrency = 4
 
 [cells.archon-gaia-gemma31b-opus-ensemble-K5-30]

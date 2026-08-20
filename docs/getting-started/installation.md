@@ -41,7 +41,7 @@ If you prefer to run each step yourself:
     ```bash
     git clone https://github.com/open-jarvis/OpenJarvis.git
     cd OpenJarvis
-    uv sync --extra server
+    uv sync --extra desktop
     uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
     cd frontend && npm install && cd ..
     ```
@@ -94,11 +94,11 @@ cd OpenJarvis
 
 | Platform | Download |
 |----------|----------|
-| macOS (Apple Silicon) | [:material-download: **OpenJarvis.dmg**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis_0.1.0_aarch64.dmg) |
-| Windows (64-bit) | [:material-download: **OpenJarvis-setup.exe**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis_0.1.0_x64-setup.exe) |
-| Linux (DEB) | [:material-download: **OpenJarvis.deb**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis_0.1.0_amd64.deb) |
-| Linux (RPM) | [:material-download: **OpenJarvis.rpm**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis-0.1.0-1.x86_64.rpm) |
-| Linux (AppImage) | [:material-download: **OpenJarvis.AppImage**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/OpenJarvis_0.1.0_amd64.AppImage) |
+| macOS (Universal) | [:material-download: **OpenJarvis.dmg**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_universal.dmg) |
+| Windows (64-bit) | [:material-download: **OpenJarvis-setup.exe**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_x64-setup.exe) |
+| Linux (DEB) | [:material-download: **OpenJarvis.deb**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_amd64.deb) |
+| Linux (RPM) | [:material-download: **OpenJarvis.rpm**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis-1.0.1-1.x86_64.rpm) |
+| Linux (AppImage) | [:material-download: **OpenJarvis.AppImage**](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_amd64.AppImage) |
 
 The app connects to `http://localhost:8000` automatically.
 
@@ -238,7 +238,7 @@ See the [Python SDK guide](../user-guide/python-sdk.md) for the full API referen
 
 | Requirement | Version | Install | Notes |
 |-------------|---------|---------|-------|
-| Python | 3.10+ | [python.org](https://www.python.org/downloads/) | Required |
+| Python | 3.10–3.13 | [python.org](https://www.python.org/downloads/) | Required. 3.14+ not yet supported (a core dependency lacks 3.14 wheels). |
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` or `brew install uv` (macOS) | Python package & project manager |
 | Git | any | [git-scm.com](https://git-scm.com/) or `brew install git` (macOS) | Required |
 | Rust | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` | Required for the Rust extension |
@@ -278,6 +278,7 @@ OpenJarvis uses optional extras to keep the base installation lightweight.
 
 | Extra | Install Command | Description |
 |-------|----------------|-------------|
+| `desktop` | `uv sync --extra desktop` | Desktop/API server plus local speech input |
 | `server` | `uv sync --extra server` | OpenAI-compatible API server (`jarvis serve`) |
 | `dev` | `uv sync --extra dev` | Development and testing tools |
 | `docs` | `uv sync --extra docs` | Documentation build tools |
@@ -285,7 +286,7 @@ OpenJarvis uses optional extras to keep the base installation lightweight.
 Combine extras:
 
 ```bash
-uv sync --extra server --extra memory-faiss --extra inference-cloud
+uv sync --extra desktop --extra memory-faiss --extra inference-cloud
 ```
 
 ## Setting Up an Inference Backend
