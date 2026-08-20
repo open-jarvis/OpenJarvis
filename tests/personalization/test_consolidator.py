@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import threading
+
 from openjarvis.personalization.consolidator import ProfileConsolidator
+from openjarvis.personalization.profile import UserProfile
 from openjarvis.tools.storage._stubs import RetrievalResult
 
 
@@ -121,3 +124,91 @@ def test_consolidator_falls_back_to_retrieve_when_no_enumerate(tmp_path) -> None
     assert profile.get("user.name") == "Mac"
     # Each of the 5 prefix queries returns the same row → dedup via id.
     assert stats.accepted == 1
+
+
+def test_consolidator_preserves_user_edits_and_free_form_markdown(tmp_path) -> None:
+    path = tmp_path / "USER.md"
+    path.write_text(
+        "# USER PROFILE\n\n"
+        "My private hand-written context.\n\n"
+        "## Preferences\n"
+        "- pref.language: Français\n\n"
+        "## Custom\n"
+        "Do not remove this paragraph.\n",
+        encoding="utf-8",
+    )
+    rows = [
+        {
+            "metadata": {
+                "id": "1",
+                "key": "pref.language",
+                "created_at": 200.0,
+            },
+            "content": "English",
+        },
+        {
+            "metadata": {"id": "2", "key": "fact.city", "created_at": 200.0},
+            "content": "Paris",
+        },
+    ]
+
+    profile, _ = ProfileConsolidator(_FakeBackend(rows)).consolidate(
+        output_path=path,
+    )
+    rendered = path.read_text(encoding="utf-8")
+
+    assert profile.get("pref.language") == "Français"
+    assert profile.get("fact.city") == "Paris"
+    assert "My private hand-written context." in rendered
+    assert "Do not remove this paragraph." in rendered
+
+
+def test_concurrent_consolidations_do_not_lose_updates(tmp_path) -> None:
+    path = tmp_path / "USER.md"
+    barrier = threading.Barrier(2)
+
+    class _SynchronizedBackend(_FakeBackend):
+        def all_documents(self):
+            barrier.wait(timeout=2)
+            return super().all_documents()
+
+    backends = [
+        _SynchronizedBackend(
+            [
+                {
+                    "metadata": {"id": "1", "key": "fact.one"},
+                    "content": "one",
+                }
+            ]
+        ),
+        _SynchronizedBackend(
+            [
+                {
+                    "metadata": {"id": "2", "key": "fact.two"},
+                    "content": "two",
+                }
+            ]
+        ),
+    ]
+    failures = []
+
+    def consolidate(backend):
+        try:
+            ProfileConsolidator(backend).consolidate(output_path=path)
+        except Exception as exc:  # pragma: no cover - assertion reports details
+            failures.append(exc)
+
+    threads = [
+        threading.Thread(target=consolidate, args=(backend,))
+        for backend in backends
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert not failures
+    assert all(not thread.is_alive() for thread in threads)
+    profile = UserProfile.load(path)
+    assert profile.get("fact.one") == "one"
+    assert profile.get("fact.two") == "two"

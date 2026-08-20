@@ -30,6 +30,7 @@ from typing import Any, Dict, Iterable, Optional, Tuple
 from openjarvis.personalization.profile import (
     DEFAULT_PROFILE_PATH,
     UserProfile,
+    profile_file_lock,
 )
 
 logger = logging.getLogger(__name__)
@@ -134,11 +135,22 @@ class ProfileConsolidator:
         # ``accepted`` reflects the final profile size, not raw write count.
         stats.accepted = len(latest)
 
-        profile = UserProfile()
-        for key, (_ts, value) in sorted(latest.items()):
-            profile.add(key, value)
+        # Hold one lock across load + merge + atomic replace. Existing USER.md
+        # entries are user-owned and win on key collisions; consolidation only
+        # fills facts that are not already present. This also preserves custom
+        # sections and free-form Markdown captured by UserProfile.parse().
+        output_path = Path(output_path).expanduser()
+        with profile_file_lock(output_path):
+            profile = UserProfile.load(output_path)
+            existing_keys = {
+                entry.key for entry in profile.all_entries() if entry.key
+            }
+            for key, (_ts, value) in sorted(latest.items()):
+                if key not in existing_keys:
+                    profile.add(key, value)
+                    existing_keys.add(key)
 
-        path = profile.save(output_path)
+            path = profile.save(output_path, _acquire_lock=False)
         stats.profile_path = path
         return profile, stats
 

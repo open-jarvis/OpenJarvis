@@ -59,6 +59,24 @@ def test_parser_preserves_unknown_sections() -> None:
     assert p.section("Custom").entries[0].value == "from user"
 
 
+def test_parser_preserves_free_form_user_content() -> None:
+    raw = (
+        "# USER PROFILE\n\n"
+        "A hand-written preamble.\n\n"
+        "## Custom\n"
+        "### Details\n"
+        "This prose is not a structured bullet.\n"
+        "<!-- keep this comment -->\n"
+    )
+
+    rendered = UserProfile.parse(raw).render()
+
+    assert "A hand-written preamble." in rendered
+    assert "### Details" in rendered
+    assert "This prose is not a structured bullet." in rendered
+    assert "<!-- keep this comment -->" in rendered
+
+
 def test_render_skips_empty_sections() -> None:
     p = UserProfile()
     p.section("Identity")  # empty section created
