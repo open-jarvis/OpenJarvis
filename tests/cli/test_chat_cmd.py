@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 from rich.console import Console
+from rich.text import Text
 
 from openjarvis.agents._stubs import (
     AgentContext,
@@ -218,9 +219,11 @@ class TestVoiceInput:
         ):
             result = record_voice(console, session)
 
+        rendered = output.getvalue()
+        plain = Text.from_ansi(rendered).plain
         assert result.startswith("[link=https://attacker.invalid]")
-        assert "\x1b]8;" not in output.getvalue()
-        assert "[link=https://attacker.invalid]trusted[/link]" in output.getvalue()
+        assert "\x1b]8;" not in rendered
+        assert "[link=https://attacker.invalid]trusted[/link]" in plain
 
     def test_microphone_oserror_is_sanitized_and_ends_voice_session(self) -> None:
         backend = MagicMock()
@@ -244,10 +247,11 @@ class TestVoiceInput:
             result = record_voice(console, session)
 
         rendered = output.getvalue()
+        plain = Text.from_ansi(rendered).plain
         assert result is VOICE_EXIT
-        assert "Mic error:" in rendered
+        assert "Mic error:" in plain
         assert "\x1b]8;" not in rendered
-        assert "[link=https://attacker.invalid]permission denied[/link]" in rendered
+        assert "[link=https://attacker.invalid]permission denied[/link]" in plain
 
     def test_microphone_keyboard_interrupt_returns_voice_exit(self) -> None:
         backend = MagicMock()
