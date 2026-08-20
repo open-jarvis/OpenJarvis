@@ -110,7 +110,18 @@ def test_recurring_master_outside_window_yields_distinct_occurrences(tmp_path):
 
 def test_calendar_tools_are_registered_and_executable(tmp_path, monkeypatch):
     import openjarvis.connectors.apple_calendar as calendar_module
-    import openjarvis.tools.apple_calendar  # noqa: F401
+    from openjarvis.tools.apple_calendar import (
+        CalendarSearchTool,
+        CalendarUpcomingTool,
+    )
+
+    # The suite's autouse fixture intentionally clears registries after test
+    # modules are collected, so restore the two classes explicitly here.  The
+    # fresh-process import-order behavior is covered in test_tool_registration.
+    if not ToolRegistry.contains("calendar_upcoming"):
+        ToolRegistry.register_value("calendar_upcoming", CalendarUpcomingTool)
+    if not ToolRegistry.contains("calendar_search"):
+        ToolRegistry.register_value("calendar_search", CalendarSearchTool)
 
     db = tmp_path / "calendar.sqlite"
     conn = _make_calendar_db(db)

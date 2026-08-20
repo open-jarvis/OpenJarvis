@@ -5,11 +5,6 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from openjarvis.connectors.apple_calendar import (
-    _SEARCH_QUERY,
-    AppleCalendarConnector,
-    _open_db,
-)
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
@@ -23,9 +18,17 @@ class CalendarUpcomingTool(BaseTool):
 
     @property
     def spec(self) -> ToolSpec:
+        # Keep connector imports lazy.  Connectors use ``ToolSpec`` from the
+        # tools package, so importing the connector here at module load time
+        # creates a connector -> tools -> connector cycle and can skip these
+        # registry decorators depending on import order.
+        from openjarvis.connectors.apple_calendar import AppleCalendarConnector
+
         return AppleCalendarConnector().mcp_tools()[0]
 
     def execute(self, **params: Any) -> ToolResult:
+        from openjarvis.connectors.apple_calendar import AppleCalendarConnector
+
         days_ahead = max(0, int(params.get("days_ahead", 7)))
         connector = AppleCalendarConnector(days_ahead=days_ahead, days_behind=0)
         documents = list(connector.sync())
@@ -46,9 +49,17 @@ class CalendarSearchTool(BaseTool):
 
     @property
     def spec(self) -> ToolSpec:
+        from openjarvis.connectors.apple_calendar import AppleCalendarConnector
+
         return AppleCalendarConnector().mcp_tools()[1]
 
     def execute(self, **params: Any) -> ToolResult:
+        from openjarvis.connectors.apple_calendar import (
+            _SEARCH_QUERY,
+            AppleCalendarConnector,
+            _open_db,
+        )
+
         query = str(params.get("query", "")).strip()
         if not query:
             return ToolResult(
