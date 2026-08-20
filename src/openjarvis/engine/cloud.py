@@ -48,6 +48,7 @@ PRICING: Dict[str, tuple[float, float]] = {
     "gemini-3.1-flash-lite-preview": (0.30, 2.50),
     "gemini-3-flash-preview": (0.50, 3.00),
     "claude-haiku-4-5-20251001": (1.00, 5.00),
+    "MiniMax-M3": (0.30, 1.20),
     "MiniMax-M2.7": (0.30, 1.20),
     "MiniMax-M2.7-highspeed": (0.60, 2.40),
     "MiniMax-M2.5": (0.30, 1.20),
@@ -55,6 +56,9 @@ PRICING: Dict[str, tuple[float, float]] = {
     "deepseek-v4-flash": (0.27, 1.10),
     "deepseek-v4-pro": (0.55, 2.19),
 }
+
+_MINIMAX_M3_LONG_CONTEXT_THRESHOLD = 512_000
+_MINIMAX_M3_LONG_CONTEXT_PRICING = (0.60, 2.40)
 
 # Well-known model IDs per provider
 _OPENAI_MODELS = [
@@ -84,6 +88,7 @@ _GOOGLE_MODELS = [
     "gemini-3-flash-preview",
 ]
 _MINIMAX_MODELS = [
+    "MiniMax-M3",
     "MiniMax-M2.7",
     "MiniMax-M2.7-highspeed",
     "MiniMax-M2.5",
@@ -209,6 +214,11 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> flo
                 break
     if prices is None:
         return 0.0
+    if (
+        model.startswith("MiniMax-M3")
+        and prompt_tokens > _MINIMAX_M3_LONG_CONTEXT_THRESHOLD
+    ):
+        prices = _MINIMAX_M3_LONG_CONTEXT_PRICING
     input_cost = (prompt_tokens / 1_000_000) * prices[0]
     output_cost = (completion_tokens / 1_000_000) * prices[1]
     return input_cost + output_cost
