@@ -213,13 +213,16 @@ class BrowserClickTool(BaseTool):
             category="browser",
         )
 
-    # Filler words stripped from natural-language descriptions before
-    # keyword matching ("the first video result" -> "video").
-    _DESC_STOPWORDS = frozenset(
-        "the a an first second third last top main big red blue green"
-        " result results item element link button option entry row".split()
-    )
     _ORDINALS = {"first": 0, "second": 1, "third": 2, "fourth": 3, "last": -1}
+
+    # Filler words stripped from natural-language descriptions before
+    # keyword matching ("the first video result" -> "video"). Derive the
+    # ordinal entries from the supported mapping so adding one cannot leave it
+    # behind as a literal role-name keyword.
+    _DESC_STOPWORDS = frozenset(
+        "the a an top main big red blue green"
+        " result results item element link button option entry row".split()
+    ) | frozenset(_ORDINALS)
 
     def execute(self, **params: Any) -> ToolResult:
         # Models routinely name this param `target`, `text`, `element` or

@@ -413,6 +413,53 @@ class TestBrowserClickTool:
         assert first_visible.clicked is True
         assert second_visible.clicked is False
 
+    def test_resolver_clicks_fourth_actionable_role_match(self):
+        from openjarvis.tools.browser import BrowserClickTool
+
+        class Match:
+            def __init__(self):
+                self.clicked = False
+
+            def is_visible(self):
+                return True
+
+            def is_enabled(self):
+                return True
+
+            def click(self, **_kwargs):
+                self.clicked = True
+
+        class Locator:
+            def __init__(self, matches=()):
+                self.matches = list(matches)
+
+            def count(self):
+                return len(self.matches)
+
+            def nth(self, index):
+                return self.matches[index]
+
+        buttons = [Match() for _ in range(4)]
+        empty = Locator()
+        frame = MagicMock(url="https://example.com")
+        frame.get_by_text.return_value = empty
+        frame.get_by_role.side_effect = lambda role, name: (
+            Locator(buttons) if role == "button" and name.search("Save") else empty
+        )
+        page = MagicMock(frames=[frame])
+
+        strategy = BrowserClickTool()._resolve_and_click(
+            page, "fourth save button", True
+        )
+
+        assert strategy == "role-button"
+        assert [match.clicked for match in buttons] == [False, False, False, True]
+
+    def test_every_supported_ordinal_is_a_description_stopword(self):
+        from openjarvis.tools.browser import BrowserClickTool
+
+        assert set(BrowserClickTool._ORDINALS) <= BrowserClickTool._DESC_STOPWORDS
+
     def test_execute_playwright_not_installed(self):
         from openjarvis.tools.browser import BrowserClickTool
 
