@@ -20,14 +20,15 @@ _NO_DL = "--no-download"
 
 
 class TestInitConfig:
-    def test_init_config_reads_provided_file(self, tmp_path: Path) -> None:
-        """jarvis init --config <file> reads the file instead of crashing.
+    def test_init_config_installs_provided_file(self, tmp_path: Path) -> None:
+        """jarvis init --config <file> activates it at the canonical path.
 
         Regression for #768: the callback receives a Path and can call
         ``read_text()`` / ``write_text()`` on it.
         """
         provided = tmp_path / "some-config.toml"
-        provided.write_text('[engine]\nname = "ollama"\n', encoding="utf-8")
+        supplied_content = '[engine]\nname = "ollama"\n'
+        provided.write_text(supplied_content, encoding="utf-8")
 
         config_dir = tmp_path / ".openjarvis"
         config_path = config_dir / "config.toml"  # absent -> passes the exists() guard
@@ -42,8 +43,38 @@ class TestInitConfig:
 
         assert result.exception is None, result.output
         assert result.exit_code == 0
-        # The provided config content is used (read back and preserved).
-        assert 'name = "ollama"' in provided.read_text(encoding="utf-8")
+        assert config_path.read_text(encoding="utf-8") == supplied_content
+        # Treat the supplied file as input: init must not rewrite it.
+        assert provided.read_text(encoding="utf-8") == supplied_content
+
+    def test_init_config_digest_updates_installed_copy(self, tmp_path: Path) -> None:
+        """Post-processing applies to the active copy, not the input file."""
+        provided = tmp_path / "some-config.toml"
+        supplied_content = '[engine]\nname = "ollama"\n'
+        provided.write_text(supplied_content, encoding="utf-8")
+        config_dir = tmp_path / ".openjarvis"
+        config_path = config_dir / "config.toml"
+
+        with (
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_DIR", config_dir),
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
+            mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
+        ):
+            result = CliRunner().invoke(
+                cli,
+                [
+                    "init",
+                    "--config",
+                    str(provided),
+                    "--digest",
+                    _NO_DL,
+                ],
+            )
+
+        assert result.exception is None, result.output
+        assert result.exit_code == 0
+        assert "[digest]" in config_path.read_text(encoding="utf-8")
+        assert provided.read_text(encoding="utf-8") == supplied_content
 
     def test_init_config_rejects_directory(self, tmp_path: Path) -> None:
         """A directory is rejected by Click (dir_okay=False), not by a later crash."""
