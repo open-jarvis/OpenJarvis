@@ -11,8 +11,10 @@ cleanup runs last permanently pins the shared agent to the wrong model.
 
 from __future__ import annotations
 
+import gc
 import threading
 import time
+import weakref
 
 import pytest
 
@@ -20,7 +22,11 @@ fastapi = pytest.importorskip("fastapi")
 
 from openjarvis.agents._stubs import AgentResult  # noqa: E402
 from openjarvis.server.models import ChatCompletionRequest, ChatMessage  # noqa: E402
-from openjarvis.server.routes import _handle_agent  # noqa: E402
+from openjarvis.server.routes import (  # noqa: E402
+    _agent_model_locks,
+    _get_agent_model_lock,
+    _handle_agent,
+)
 
 
 def _make_request(model: str, text: str) -> ChatCompletionRequest:
@@ -46,8 +52,25 @@ class _FakeAgent:
         return AgentResult(content=f"{input_text}:{seen_model}", turns=1)
 
 
-def test_concurrent_model_overrides_do_not_corrupt_shared_agent():
-    agent = _FakeAgent(model="default-model")
+class _UnhashableNonWeakrefAgent:
+    """A valid custom agent with neither hash nor weak-reference support."""
+
+    __slots__ = ("_model",)
+    __hash__ = None
+
+    def __init__(self, model: str) -> None:
+        self._model = model
+
+    def run(self, input_text: str, context=None) -> AgentResult:
+        time.sleep(0.005)
+        seen_model = self._model
+        time.sleep(0.005)
+        return AgentResult(content=f"{input_text}:{seen_model}", turns=1)
+
+
+@pytest.mark.parametrize("agent_cls", [_FakeAgent, _UnhashableNonWeakrefAgent])
+def test_concurrent_model_overrides_do_not_corrupt_shared_agent(agent_cls):
+    agent = agent_cls(model="default-model")
     n_workers = 16
     result_box: dict[int, str] = {}
     result_lock = threading.Lock()
@@ -77,3 +100,19 @@ def test_concurrent_model_overrides_do_not_corrupt_shared_agent():
     # its true original -- no request's cleanup should have restored a
     # stale value it mistakenly captured as "original".
     assert agent._model == "default-model"
+
+
+def test_model_lock_registry_does_not_retain_idle_locks_or_agents():
+    agent = _FakeAgent(model="default-model")
+    agent_ref = weakref.ref(agent)
+    agent_id = id(agent)
+
+    lock = _get_agent_model_lock(agent)
+    assert _agent_model_locks[agent_id] is lock
+
+    del lock
+    del agent
+    gc.collect()
+
+    assert agent_ref() is None
+    assert agent_id not in _agent_model_locks

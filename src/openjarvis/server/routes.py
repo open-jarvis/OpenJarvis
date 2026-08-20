@@ -519,8 +519,12 @@ def _handle_direct(
 # interleave. A lock per agent *instance* serializes the
 # override-run-restore critical section below so one request's temporary
 # `model` override can never be read as another's "original" value (#759).
-_agent_model_locks: "weakref.WeakKeyDictionary[Any, threading.Lock]" = (
-    weakref.WeakKeyDictionary()
+# Key by object identity rather than by the agent itself: custom agents may be
+# unhashable or may not support weak references.  The values are weak so this
+# registry retains neither the agent nor an idle lock.  A caller keeps the lock
+# alive from lookup through the full override/run/restore critical section.
+_agent_model_locks: "weakref.WeakValueDictionary[int, threading.Lock]" = (
+    weakref.WeakValueDictionary()
 )
 _agent_model_locks_guard = threading.Lock()
 
@@ -529,11 +533,12 @@ def _get_agent_model_lock(agent: Any) -> threading.Lock:
     """Return the lock serializing model overrides for *agent*, creating it
     on first use. One lock per agent instance, not global, so unrelated
     agents don't serialize against each other."""
+    agent_id = id(agent)
     with _agent_model_locks_guard:
-        lock = _agent_model_locks.get(agent)
+        lock = _agent_model_locks.get(agent_id)
         if lock is None:
             lock = threading.Lock()
-            _agent_model_locks[agent] = lock
+            _agent_model_locks[agent_id] = lock
         return lock
 
 
