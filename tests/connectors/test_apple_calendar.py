@@ -108,6 +108,32 @@ def test_recurring_master_outside_window_yields_distinct_occurrences(tmp_path):
     assert len({document.doc_id for document in documents}) == 2
 
 
+def test_recurring_master_is_not_duplicated_by_same_start_occurrence(tmp_path):
+    db = tmp_path / "calendar.sqlite"
+    conn = _make_calendar_db(db)
+    now = datetime.now(timezone.utc)
+    start = now + timedelta(hours=1)
+    _insert_event(
+        conn,
+        rowid=1,
+        summary="Weekly standup",
+        start=start,
+        end=start + timedelta(hours=1),
+        uuid="weekly",
+    )
+    conn.execute(
+        "INSERT INTO OccurrenceCache VALUES (1, 1, ?, ?)",
+        (_to_apple_ts(start), _to_apple_ts(start + timedelta(hours=1))),
+    )
+    conn.commit()
+    conn.close()
+
+    documents = list(AppleCalendarConnector(db_path=str(db)).sync())
+
+    assert [document.title for document in documents] == ["Weekly standup"]
+    assert documents[0].doc_id.startswith("apple_calendar:weekly:")
+
+
 def test_calendar_tools_are_registered_and_executable(tmp_path, monkeypatch):
     import openjarvis.connectors.apple_calendar as calendar_module
     from openjarvis.tools.apple_calendar import (

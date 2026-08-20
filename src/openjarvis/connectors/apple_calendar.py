@@ -109,6 +109,12 @@ JOIN Calendar c ON ci.calendar_id = c.ROWID
 WHERE ci.start_date BETWEEN ? AND ?
   AND ci.summary IS NOT NULL
   AND ci.hidden = 0
+  AND NOT EXISTS (
+      SELECT 1
+      FROM OccurrenceCache master_oc
+      WHERE master_oc.event_id = ci.ROWID
+        AND master_oc.occurrence_start_date = ci.start_date
+  )
 UNION
 SELECT
     ci.ROWID,
