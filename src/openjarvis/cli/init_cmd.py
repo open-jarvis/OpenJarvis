@@ -230,7 +230,7 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
 )
 @click.option(
     "--config",
-    type=click.Path(exists=True),
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Path to config file to use.",
 )
 @click.option(
@@ -453,10 +453,10 @@ def init(
             toml_content = generate_minimal_toml(hw, engine=engine, host=host)
 
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    if config:
-        config.write_text(toml_content, encoding="utf-8")
-    else:
-        DEFAULT_CONFIG_PATH.write_text(toml_content, encoding="utf-8")
+    # ``--config`` selects an existing file to install; it is not an alternate
+    # output path.  Always activate the selected/generated configuration at
+    # the canonical location that subsequent ``jarvis`` commands load.
+    DEFAULT_CONFIG_PATH.write_text(toml_content, encoding="utf-8")
 
     console.print()
     console.print(
@@ -493,7 +493,7 @@ sources = ["gcalendar"]
 [digest.world]
 sources = ["hackernews", "news_rss"]
 """
-        target = config if config else DEFAULT_CONFIG_PATH
+        target = DEFAULT_CONFIG_PATH
         existing = target.read_text(encoding="utf-8")
         target.write_text(existing + digest_section, encoding="utf-8")
         toml_content = target.read_text(encoding="utf-8")

@@ -123,6 +123,68 @@ class TestSend:
             # conversation_id becomes the reply reference, not the chat id.
             assert payload["reply_to_message_id"] == "55"
 
+    def test_send_empty_content_returns_false_without_request(self):
+        """Regression for #783: textwrap.wrap("") returns an empty list,
+        so the send loop never runs any HTTP request -- but the method
+        still fell through to publish CHANNEL_MESSAGE_SENT and return
+        True, falsely reporting success for a message that was never
+        transmitted."""
+        bus = EventBus(record_history=True)
+        ch = TelegramChannel(bot_token="123:ABC", bus=bus)
+
+        with patch("httpx.post") as mock_post:
+            result = ch.send("12345678", "")
+            assert result is False
+            mock_post.assert_not_called()
+
+        event_types = [e.event_type for e in bus.history]
+        assert EventType.CHANNEL_MESSAGE_SENT not in event_types
+
+    def test_send_retries_without_markdown_on_parse_error(self):
+        """Regression for #783: Telegram returns 400 with a "can't parse
+        entities" body for unparseable Markdown (lone asterisks, unclosed
+        code fences, snake_case identifiers). The old code treated this
+        the same as any other failure and dropped the message outright
+        instead of retrying as plain text."""
+        ch = TelegramChannel(bot_token="123:ABC")
+
+        markdown_failure = MagicMock()
+        markdown_failure.status_code = 400
+        markdown_failure.text = (
+            '{"ok":false,"description":"Bad Request: can\'t parse entities: '
+            'Character \'_\' is reserved and must be escaped"}'
+        )
+        plain_success = MagicMock()
+        plain_success.status_code = 200
+
+        with patch(
+            "httpx.post", side_effect=[markdown_failure, plain_success]
+        ) as mock_post:
+            result = ch.send("12345678", "some_snake_case_text")
+            assert result is True
+            assert mock_post.call_count == 2
+
+            first_payload = mock_post.call_args_list[0][1]["json"]
+            assert first_payload["parse_mode"] == "Markdown"
+
+            retry_payload = mock_post.call_args_list[1][1]["json"]
+            assert "parse_mode" not in retry_payload
+            assert retry_payload["text"] == "some_snake_case_text"
+
+    def test_send_non_markdown_failure_does_not_retry(self):
+        """A 4xx/5xx that isn't a Markdown parse error must still fail
+        outright, not silently retry and mask a real problem."""
+        ch = TelegramChannel(bot_token="123:ABC")
+
+        server_error = MagicMock()
+        server_error.status_code = 500
+        server_error.text = '{"ok":false,"description":"Internal Server Error"}'
+
+        with patch("httpx.post", return_value=server_error) as mock_post:
+            result = ch.send("12345678", "Hello!")
+            assert result is False
+            mock_post.assert_called_once()
+
     def test_send_legacy_conversation_id_only_still_targets_chat(self):
         """Backwards compatibility: a legacy caller passing the chat id via
         ``conversation_id`` (with an empty ``channel``) still delivers."""
