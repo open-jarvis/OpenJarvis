@@ -37,16 +37,22 @@ class TestAgentRoutes:
 
 
 class TestMemoryRoutes:
+    # 503 is the documented response when the native ``openjarvis_rust``
+    # extension is absent from the venv (see TestMemoryRustMissing below).
+    # These tests are only asserting "the route is wired up", so a backend
+    # that cannot be built is tolerated the same way a 500 is.
+    _BACKEND_OPTIONAL = (200, 500, 503)
+
     def test_search(self):
         client = TestClient(_make_app())
         resp = client.post("/v1/memory/search", json={"query": "test"})
         # May fail if SQLite not set up, that's ok
-        assert resp.status_code in (200, 500)
+        assert resp.status_code in self._BACKEND_OPTIONAL
 
     def test_stats(self):
         client = TestClient(_make_app())
         resp = client.get("/v1/memory/stats")
-        assert resp.status_code in (200, 500)
+        assert resp.status_code in self._BACKEND_OPTIONAL
 
 
 class TestMemoryRustMissing:

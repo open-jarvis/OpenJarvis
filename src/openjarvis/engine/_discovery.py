@@ -35,6 +35,12 @@ def _make_engine(key: str, config: JarvisConfig) -> InferenceEngine:
     """Instantiate a registered engine with the appropriate config host."""
     cls = EngineRegistry.get(key)
 
+    # LiteLLM cannot enumerate every model supported by every provider.  Its
+    # list_models() contract therefore advertises the configured default
+    # model, which must be supplied when discovery constructs the engine.
+    if key == "litellm":
+        return cls(default_model=config.intelligence.default_model or None)
+
     # gemma_cpp: pass config fields instead of host
     if key == "gemma_cpp":
         cfg = config.engine.gemma_cpp

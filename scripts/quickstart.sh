@@ -148,7 +148,8 @@ fi
 
 # ── 7. Install Python dependencies ──────────────────────────────────
 info "Installing Python dependencies..."
-uv sync --extra desktop --quiet 2>/dev/null || uv sync --extra desktop
+uv sync --extra desktop --extra tools-search --quiet 2>/dev/null \
+  || uv sync --extra desktop --extra tools-search
 ok "Python dependencies installed"
 
 # ── 7b. Build Rust extension ──────────────────────────────────────
@@ -164,11 +165,17 @@ ok "Frontend dependencies installed"
 
 # ── 9. Start backend ────────────────────────────────────────────────
 info "Starting backend API server on port 8000..."
+if curl -sf http://localhost:8000/health &>/dev/null; then
+  fail "An OpenJarvis server is already running on port 8000. Stop it before re-running quickstart so updated environment variables are applied."
+fi
 uv run jarvis serve --port 8000 &>/dev/null &
-CLEANUP_PIDS+=($!)
+BACKEND_PID=$!
+CLEANUP_PIDS+=("$BACKEND_PID")
 sleep 3
 
-if curl -sf http://localhost:8000/health &>/dev/null; then
+if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+  fail "Backend exited during startup. Run 'uv run jarvis serve --port 8000' to see the error."
+elif curl -sf http://localhost:8000/health &>/dev/null; then
   ok "Backend running at http://localhost:8000"
 else
   warn "Backend may still be starting..."

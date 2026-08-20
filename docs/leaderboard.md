@@ -55,5 +55,5 @@ See how the OpenJarvis community saves money, energy, and compute by running AI 
 <div id="leaderboard-pagination" class="lb-pagination"></div>
 
 <p style="font-size:12px;opacity:0.6;margin-top:12px">
-*Dollar savings estimated vs. Claude Opus 4.6 API pricing ($5/1M input, $25/1M output tokens). Assumes local open-source models produce roughly the same number of tokens per request as cloud models.
+*Dollar savings estimated vs. Claude Fable 5 API pricing ($10/1M input, $50/1M output tokens). Assumes local open-source models produce roughly the same number of tokens per request as cloud models.
 </p>

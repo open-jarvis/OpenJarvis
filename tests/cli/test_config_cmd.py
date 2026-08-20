@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from click.testing import CliRunner
@@ -109,18 +110,34 @@ temperature = 0.7
         except json.JSONDecodeError:
             pytest.fail(f"Output is not valid JSON: {result.output}")
 
-    def test_config_show_toml_displays_raw_content(self, tmp_path: Path) -> None:
-        """Test that config show toml displays the raw TOML content."""
+    @pytest.mark.parametrize("output_format", ["toml", "json"])
+    def test_config_show_uses_utf8_for_config_file(
+        self, tmp_path: Path, output_format: str
+    ) -> None:
+        """Test that config show reads UTF-8 config files explicitly."""
         # Create a temporary config file
         config_file = tmp_path / "test_config.toml"
-        config_file.write_text('[engine]\ndefault = "ollama"\n')
-
-        result = CliRunner().invoke(
-            cli, ["config", "show", "toml", "--path", str(config_file)]
+        config_file.write_text(
+            '# Preset comment — stored as UTF-8\n[engine]\ndefault = "ollama"\n',
+            encoding="utf-8",
         )
+        original_read_text = Path.read_text
+
+        def read_text(path: Path, *args: object, **kwargs: object) -> str:
+            if path == config_file:
+                assert kwargs.get("encoding") == "utf-8"
+            return original_read_text(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_text", autospec=True, side_effect=read_text):
+            result = CliRunner().invoke(
+                cli, ["config", "show", output_format, "--path", str(config_file)]
+            )
 
         assert result.exit_code == 0
-        assert "[engine]" in result.output
+        if output_format == "toml":
+            assert "[engine]" in result.output
+        else:
+            assert '"engine"' in result.output
         assert "ollama" in result.output
 
     def test_config_show_json_displays_parsed_content(self, tmp_path: Path) -> None:

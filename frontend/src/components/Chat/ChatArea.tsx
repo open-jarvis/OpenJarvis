@@ -15,6 +15,7 @@ function getGreeting(): string {
 }
 
 export function ChatArea() {
+  const activeId = useAppStore((s) => s.activeId);
   const messages = useAppStore((s) => s.messages);
   const streamState = useAppStore((s) => s.streamState);
   const systemPanelOpen = useAppStore((s) => s.systemPanelOpen);
@@ -22,6 +23,10 @@ export function ChatArea() {
   const navigate = useNavigate();
   const listRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
+  const wasStreaming = useRef(false);
+  const lastScrollTop = useRef(0);
+  const isCurrentChatStreaming = streamState.isStreaming && streamState.conversationId === activeId;
+  const currentStreamContent = isCurrentChatStreaming ? streamState.content : '';
 
   // Check if any data sources are connected
   const [hasConnectedSources, setHasConnectedSources] = useState<boolean | null>(null);
@@ -34,18 +39,37 @@ export function ChatArea() {
   }, []);
 
   useEffect(() => {
+    // Sending a message always pins the view to the bottom, even if the
+    // user had scrolled up to read earlier messages.
+    if (isCurrentChatStreaming && !wasStreaming.current) {
+      shouldAutoScroll.current = true;
+    }
+    wasStreaming.current = isCurrentChatStreaming;
     if (shouldAutoScroll.current && listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
-  }, [messages, streamState.content]);
+  }, [messages, currentStreamContent, isCurrentChatStreaming]);
 
   const handleScroll = () => {
     if (!listRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = listRef.current;
-    shouldAutoScroll.current = scrollHeight - scrollTop - clientHeight < 100;
+    const distance = scrollHeight - scrollTop - clientHeight;
+    const scrolledUp = scrollTop < lastScrollTop.current;
+    lastScrollTop.current = scrollTop;
+    if (scrolledUp && distance >= 1) {
+      // Any upward scroll away from the bottom stops autoscroll immediately,
+      // so streaming content never fights the user (no jitter). Sub-1px
+      // upward movement (elastic bounce settling at the bottom) is ignored.
+      shouldAutoScroll.current = false;
+    } else if (!scrolledUp) {
+      // Re-engage when scrolled back to the bottom. < 2 rather than < 1:
+      // at fractional zoom levels the at-bottom residual can reach 1px,
+      // which would otherwise leave autoscroll permanently disengaged.
+      shouldAutoScroll.current = distance < 2;
+    }
   };
 
-  const isEmpty = messages.length === 0 && !streamState.isStreaming;
+  const isEmpty = messages.length === 0 && !isCurrentChatStreaming;
 
   const PanelIcon = systemPanelOpen ? PanelRightClose : PanelRightOpen;
 
@@ -153,12 +177,12 @@ export function ChatArea() {
                 <MessageBubble
                   key={msg.id}
                   message={msg}
-                  isLive={isLastAssistant && streamState.isStreaming}
+                  isLive={isLastAssistant && isCurrentChatStreaming}
                 />
               );
             })}
             {(() => {
-              if (!streamState.isStreaming || streamState.content !== '') return null;
+              if (!isCurrentChatStreaming || streamState.content !== '') return null;
               // For research messages the ResearchTimeline handles its own
               // pre-content loading state — suppress the generic dots.
               const last = messages[messages.length - 1];

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import threading
 import time
 
 from fastapi import FastAPI
@@ -21,6 +22,8 @@ from openjarvis.server.routes import router
 from openjarvis.server.upload_router import router as upload_router
 
 logger = logging.getLogger(__name__)
+_MANAGED_SHUTDOWN_GRACE_SECONDS = 0.25
+_MANAGED_SHUTDOWN_DRAIN_SECONDS = 10.0
 
 
 def _restore_sendblue_bindings(app: FastAPI) -> None:
@@ -151,10 +154,13 @@ def create_app(
     channel_bridge=None,
     config=None,
     memory_backend=None,
+    own_memory_backend: bool = False,
     memory_service=None,
     speech_backend=None,
     agent_manager=None,
     agent_scheduler=None,
+    mcp_tools=None,
+    mcp_clients=None,
     api_key: str = "",
     webhook_config: dict | None = None,
     cors_origins: list[str] | None = None,
@@ -221,15 +227,128 @@ def create_app(
     )
     app.state.channel_bridge = channel_bridge
     app.state.config = config
+    app.state._memory_backend_lock = threading.Lock()
     app.state.memory_backend = memory_backend
+    app.state._owns_memory_backend = bool(own_memory_backend)
     app.state.memory_service = memory_service
     app.state.speech_backend = speech_backend
     app.state.agent_manager = agent_manager
     app.state.agent_scheduler = agent_scheduler
+    app.state.mcp_tools = list(mcp_tools or [])
+    app.state._mcp_discovery_lock = threading.Lock()
+    app.state._mcp_clients_lock = threading.Lock()
+    app.state._mcp_clients = list(mcp_clients or [])
+    app.state._managed_worker_lock = threading.Lock()
+    app.state._managed_workers: set[threading.Thread] = set()
+    app.state._managed_runtime_stopping = False
     app.state.session_start = time.time()
     # Exposed so WebSocket handlers can authenticate the handshake (the HTTP
     # AuthMiddleware never sees WS upgrade requests). Empty = auth disabled.
     app.state.api_key = api_key
+
+    @app.on_event("shutdown")
+    async def _shutdown_managed_runtime() -> None:
+        # Quiesce every producer before touching the shared MCP pool. Route
+        # workers are registered under this lock, so none can slip in after
+        # the snapshot. The scheduler has a two-phase stop because closing an
+        # MCP transport may be what releases an in-flight tick.
+        with app.state._managed_worker_lock:
+            app.state._managed_runtime_stopping = True
+            managed_workers = list(app.state._managed_workers)
+
+        # Stop external listener threads before draining ticks or closing the
+        # shared MCP pool. Channel callbacks are wired to that same pool by
+        # ``serve`` and otherwise could race teardown or survive app restart.
+        channel_bridge = getattr(app.state, "channel_bridge", None)
+        disconnect_channels = getattr(channel_bridge, "disconnect", None)
+        if callable(disconnect_channels):
+            try:
+                disconnect_channels()
+            except Exception:
+                logger.debug("Channel bridge shutdown failed", exc_info=True)
+
+        def _join_workers(timeout: float) -> None:
+            deadline = time.monotonic() + timeout
+            for thread in managed_workers:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                thread.join(timeout=remaining)
+
+        scheduler = getattr(app.state, "agent_scheduler", None)
+        scheduler_wait = None
+        scheduler_drained = True
+        if scheduler is not None:
+            try:
+                request_stop = getattr(scheduler, "request_stop", None)
+                wait_stopped = getattr(scheduler, "wait_stopped", None)
+                if callable(request_stop) and callable(wait_stopped):
+                    request_stop()
+                    scheduler_wait = wait_stopped
+                    scheduler_drained = bool(
+                        wait_stopped(timeout=_MANAGED_SHUTDOWN_GRACE_SECONDS)
+                    )
+                else:
+                    scheduler.stop()
+                    scheduler_drained = not bool(
+                        getattr(scheduler, "is_running", False)
+                    )
+            except Exception:
+                scheduler_drained = False
+                logger.debug("Agent scheduler shutdown failed", exc_info=True)
+
+        # Give normal work a brief chance to finish before cancellation.
+        _join_workers(timeout=_MANAGED_SHUTDOWN_GRACE_SECONDS)
+        with app.state._mcp_clients_lock:
+            mcp_clients_to_close = list(app.state._mcp_clients)
+        for client in mcp_clients_to_close:
+            try:
+                client.close()
+            except Exception:
+                logger.debug("MCP client shutdown failed", exc_info=True)
+
+        # Transport closure interrupts blocked MCP reads. Drain the workers a
+        # second time so shutdown does not return while they still own runtime
+        # state. Any stragglers can no longer issue transport requests because
+        # MCPClient marks itself closed before closing its transport.
+        if scheduler_wait is not None:
+            try:
+                scheduler_drained = bool(
+                    scheduler_wait(timeout=_MANAGED_SHUTDOWN_DRAIN_SECONDS)
+                )
+            except Exception:
+                scheduler_drained = False
+                logger.debug("Agent scheduler drain failed", exc_info=True)
+        _join_workers(timeout=_MANAGED_SHUTDOWN_DRAIN_SECONDS)
+        alive = [thread.name for thread in managed_workers if thread.is_alive()]
+        if alive:
+            logger.warning("Managed workers did not stop during shutdown: %s", alive)
+
+        # A backend created by ``serve`` or lazily by a managed route belongs
+        # to this app process. Close it only after every tracked consumer has
+        # been drained; injected/borrowed backends remain the caller's concern.
+        owned_memory_backend = None
+        runtime_drained = scheduler_drained and not alive
+        if runtime_drained:
+            with app.state._memory_backend_lock:
+                if app.state._owns_memory_backend:
+                    owned_memory_backend = app.state.memory_backend
+                    app.state.memory_backend = None
+                    app.state._owns_memory_backend = False
+        else:
+            # A live worker may itself hold _memory_backend_lock while opening
+            # the backend. Respect the bounded shutdown deadline: do not wait
+            # on that lock or mutate ownership until every consumer is gone.
+            logger.warning(
+                "Skipping memory backend cleanup because managed runtime "
+                "consumers did not stop"
+            )
+        close_memory = getattr(owned_memory_backend, "close", None)
+        if callable(close_memory):
+            try:
+                close_memory()
+            except Exception:
+                logger.debug("Memory backend shutdown failed", exc_info=True)
 
     # Wire up trace store if traces are enabled.
     #

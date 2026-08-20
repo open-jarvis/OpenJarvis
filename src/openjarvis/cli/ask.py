@@ -248,6 +248,17 @@ def _get_memory_backend(config):
         return None
 
 
+def _get_memory_facts(config):
+    """Load facts captured by the automatic memory service."""
+    try:
+        from openjarvis.memory import load_configured_facts
+
+        return load_configured_facts(config)
+    except Exception as exc:
+        logger.debug("Automatic memory facts unavailable (optional): %s", exc)
+        return []
+
+
 _MEMORY_TOOLS = frozenset(
     {"retrieval", "memory_store", "memory_search", "memory_index", "memory_retrieve"}
 )
@@ -387,9 +398,8 @@ def _run_agent(
 
     # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md persona
     # files actually reach the model. Only passed to agents whose __init__
-    # accepts a `prompt_builder` kwarg (BaseAgent does; agents that override
-    # __init__ without forwarding it, e.g. OrchestratorAgent, opt out
-    # automatically and keep their existing system-prompt machinery).
+    # explicitly accepts a `prompt_builder` kwarg. Agents with specialized
+    # prompt machinery opt in by naming and forwarding the parameter.
     import inspect as _inspect
 
     if "prompt_builder" in _inspect.signature(agent_cls.__init__).parameters:
@@ -416,7 +426,8 @@ def _run_agent(
             from openjarvis.tools.storage.context import ContextConfig, inject_context
 
             backend = _get_memory_backend(config)
-            if backend is not None:
+            facts = _get_memory_facts(config)
+            if backend is not None or facts:
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -427,6 +438,7 @@ def _run_agent(
                     [],
                     backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
                 for msg in context_messages:
                     ctx.conversation.add(msg)
@@ -963,7 +975,8 @@ def ask(
             )
 
             backend = _get_memory_backend(config)
-            if backend is not None:
+            facts = _get_memory_facts(config)
+            if backend is not None or facts:
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -974,6 +987,7 @@ def ask(
                     messages,
                     backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
         except Exception as exc:
             logger.debug("Failed to inject memory context: %s", exc)

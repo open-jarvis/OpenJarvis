@@ -95,6 +95,30 @@ class TestJarvisAsk:
             assert result == "Agent response"
             j.close()
 
+    def test_ask_with_agent_wires_persona(self, tmp_path):
+        from openjarvis.agents.simple import SimpleAgent
+        from openjarvis.core.registry import AgentRegistry
+
+        soul = tmp_path / "SOUL.md"
+        soul.write_text("SDK_PERSONA_SENTINEL", encoding="utf-8")
+
+        cfg = JarvisConfig()
+        cfg.memory_files.soul_path = str(soul)
+        cfg.memory_files.memory_path = ""
+        cfg.memory_files.user_path = ""
+        cfg.agent.context_from_memory = False
+
+        if not AgentRegistry.contains("simple"):
+            AgentRegistry.register_value("simple", SimpleAgent)
+
+        engine = _make_engine()
+        with patch("openjarvis.sdk.get_engine", return_value=("mock", engine)):
+            j = Jarvis(config=cfg, model="test-model")
+            j.ask("Hello", agent="simple")
+            messages = engine.generate.call_args.args[0]
+            assert "SDK_PERSONA_SENTINEL" in messages[0].content
+            j.close()
+
     def test_ask_no_engine_raises(self):
         with patch("openjarvis.sdk.get_engine", return_value=None):
             j = Jarvis(config=JarvisConfig())
