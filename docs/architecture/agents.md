@@ -373,7 +373,7 @@ Wraps the `@anthropic-ai/claude-agent-sdk` package via a bundled Node.js subproc
 ```mermaid
 graph LR
     Q["User Query"] --> PY["Python: build JSON request"]
-    PY --> SPAWN["Spawn: node index.&lt;hash&gt;.mjs"]
+    PY --> SPAWN["Spawn: node index.mjs"]
     SPAWN --> NODE["Node.js runner<br/>@anthropic-ai/claude-agent-sdk"]
     NODE --> SDK["Claude Agent SDK<br/>(cloud inference)"]
     SDK --> NODE
@@ -384,14 +384,14 @@ graph LR
 
 How it works:
 
-1. On first call, copies the bundled `claude_code_runner/` to a content-addressed generation under the resolved OpenJarvis home and runs `npm ci --omit=dev --include=optional` if its locked dependencies are absent or stale
+1. On first call, copies the bundled `claude_code_runner/` to `~/.openjarvis/claude_code_runner/` and installs the pinned Agent SDK if it is missing or outdated
 2. Builds a JSON request with `prompt`, `api_key`, `workspace`, `allowed_tools`, `system_prompt`, and `session_id`
-3. Spawns a content-addressed `node index.<hash>.mjs` entrypoint and writes the request to stdin
+3. Spawns `node index.mjs` and writes the request to stdin
 4. Reads stdout and extracts the JSON payload between `---OPENJARVIS_OUTPUT_START---` and `---OPENJARVIS_OUTPUT_END---` sentinels
 5. Falls back to treating all stdout as plain text content if sentinels are absent
 
 !!! warning "Requires Node.js 22+"
-    `ClaudeCodeAgent` raises `RuntimeError` at `run()` time if `node` or npm is not found on `PATH`. Configure authentication supported by the Claude Agent SDK, such as an `ANTHROPIC_API_KEY` environment variable or the `api_key=` constructor argument.
+    `ClaudeCodeAgent` raises `RuntimeError` at `run()` time if `node` or npm is not found on `PATH`. An `ANTHROPIC_API_KEY` environment variable is required for the Claude Agent SDK to authenticate.
 
 ```python
 from openjarvis.agents.claude_code import ClaudeCodeAgent

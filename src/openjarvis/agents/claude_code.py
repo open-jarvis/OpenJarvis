@@ -10,18 +10,13 @@ is not used -- inference is handled entirely by the Claude Agent SDK.
 
 from __future__ import annotations
 
-import errno
-import hashlib
 import json
 import logging
 import os
 import shutil
 import subprocess
-import threading
-import time
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, List, Optional
+from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
 from openjarvis.core.events import EventBus
@@ -35,10 +30,6 @@ logger = logging.getLogger(__name__)
 # Sentinel markers for parsing subprocess output
 _OUTPUT_START = "---OPENJARVIS_OUTPUT_START---"
 _OUTPUT_END = "---OPENJARVIS_OUTPUT_END---"
-_RUNNER_FILES = ("package.json", "package-lock.json", "index.mjs")
-_RUNNER_DEPENDENCY_FILES = ("package.json", "package-lock.json")
-_INSTALL_STATE_FILE = ".openjarvis-install-state"
-_RUNNER_THREAD_LOCK = threading.Lock()
 
 # Path to the bundled runner source (relative to this module).
 # In editable installs this lives next to this file; in wheel installs
@@ -50,169 +41,13 @@ if not _RUNNER_SRC.exists():
     )
 
 
-def _native_cli_path(
-    node_modules: Path,
-    node_platform: str,
-    node_arch: str,
-    node_libc: str,
-) -> Optional[Path]:
-    """Return the CLI binary for the resolved Node runtime, if installed."""
-    package_suffix = f"{node_platform}-{node_arch}"
-    if node_platform == "linux" and node_libc == "musl":
-        package_suffix += "-musl"
-    executable = "claude.exe" if node_platform == "win32" else "claude"
-    candidate = (
-        node_modules
-        / "@anthropic-ai"
-        / f"claude-agent-sdk-{package_suffix}"
-        / executable
-    )
-    return candidate if candidate.is_file() else None
-
-
-def _node_major_version(node_path: str) -> int:
-    """Return the resolved Node.js major version with a clear failure."""
-    try:
-        proc = subprocess.run(
-            [node_path, "--version"],
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-        )
-        raw_version = (proc.stdout or proc.stderr or "").strip()
-        return int(raw_version.removeprefix("v").split(".", 1)[0])
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        raise RuntimeError(
-            "Unable to determine the installed Node.js version."
-        ) from exc
-
-
-def _node_runtime_platform(node_path: str) -> tuple[str, str, str]:
-    """Return ``(platform, architecture, libc)`` from the Node executable."""
-    expression = (
-        "JSON.stringify({platform:process.platform,arch:process.arch,"
-        "libc:process.platform==='linux'"
-        "?(process.report?.getReport?.().header?.glibcVersionRuntime"
-        "?'glibc':'musl'):''})"
-    )
-    try:
-        proc = subprocess.run(
-            [node_path, "--print", expression],
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-        )
-        runtime = json.loads(proc.stdout)
-        values = (runtime["platform"], runtime["arch"], runtime["libc"])
-        if not all(isinstance(value, str) and value for value in values[:2]):
-            raise ValueError("Node returned incomplete platform information")
-        if not isinstance(values[2], str):
-            raise ValueError("Node returned invalid libc information")
-        return values
-    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
-        raise RuntimeError(
-            "Unable to determine the installed Node.js platform."
-        ) from exc
-
-
-def _is_lock_contention(exc: OSError) -> bool:
-    """Return whether a non-blocking file-lock failure means 'try again'."""
-    if os.name == "nt":
-        return getattr(exc, "winerror", None) == 33 or exc.errno in {
-            errno.EACCES,
-            errno.EAGAIN,
-        }
-    return exc.errno in {errno.EACCES, errno.EAGAIN}
-
-
-def _atomic_copy_if_changed(source: Path, target: Path) -> None:
-    """Copy a bundled runner file without exposing a partial target."""
-    try:
-        if target.read_bytes() == source.read_bytes():
-            return
-    except OSError:
-        pass
-
-    temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
-    try:
-        shutil.copy2(source, temporary)
-        os.replace(temporary, target)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-@contextmanager
-def _runner_lock(path: Path, timeout: float = 360.0) -> Iterator[None]:
-    """Serialize runner updates across threads and OpenJarvis processes."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + timeout
-
-    with _RUNNER_THREAD_LOCK, path.open("a+b") as lock_file:
-        lock_file.seek(0, os.SEEK_END)
-        if lock_file.tell() == 0:
-            lock_file.write(b"\0")
-            lock_file.flush()
-
-        if os.name == "nt":  # pragma: no cover - exercised on Windows CI
-            import msvcrt
-
-            while True:
-                lock_file.seek(0)
-                try:
-                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-                    break
-                except OSError as exc:
-                    if not _is_lock_contention(exc):
-                        raise RuntimeError(
-                            "Unable to lock the Claude Agent runner cache."
-                        ) from exc
-                    if time.monotonic() >= deadline:
-                        raise RuntimeError(
-                            "Timed out waiting for another Claude Agent runner install."
-                        ) from exc
-                    time.sleep(0.1)
-            try:
-                yield
-            finally:
-                lock_file.seek(0)
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            while True:
-                try:
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except OSError as exc:
-                    if not _is_lock_contention(exc):
-                        raise RuntimeError(
-                            "Unable to lock the Claude Agent runner cache."
-                        ) from exc
-                    if time.monotonic() >= deadline:
-                        raise RuntimeError(
-                            "Timed out waiting for another Claude Agent runner install."
-                        ) from exc
-                    time.sleep(0.1)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-
 @AgentRegistry.register("claude_code")
 class ClaudeCodeAgent(BaseAgent):
     """Agent that wraps the Claude Agent SDK via a Node.js subprocess.
 
-    Spawns a Node.js process running a content-addressed copy of ``index.mjs``
-    which imports ``@anthropic-ai/claude-agent-sdk`` and streams agentic
-    responses. Results are communicated back via sentinel-delimited JSON on
-    stdout.
+    Spawns a Node.js process running ``index.mjs`` which imports
+    ``@anthropic-ai/claude-agent-sdk`` and streams agentic responses.  Results
+    are communicated back via sentinel-delimited JSON on stdout.
 
     The ``engine`` parameter is accepted for BaseAgent interface conformance
     but is not used -- all inference is handled by the Claude Agent SDK.
@@ -252,7 +87,6 @@ class ClaudeCodeAgent(BaseAgent):
         self._system_prompt = system_prompt
         self._timeout = timeout
         self._node_executable = "node"
-        self._runner_entrypoint = "index.mjs"
 
     # ------------------------------------------------------------------
     # Runner management
@@ -260,11 +94,11 @@ class ClaudeCodeAgent(BaseAgent):
 
     def _ensure_runner(self) -> Path:
         """Copy the bundled runner to ``~/.openjarvis/claude_code_runner/``
-        and install its locked production dependencies when needed.
+        and install the Agent SDK when it is missing or outdated.
 
         Returns the path to the runner directory.
 
-        Raises :class:`RuntimeError` if Node.js is not available.
+        Raises :class:`RuntimeError` if Node.js or npm is not available.
         """
         node_path = shutil.which("node")
         if node_path is None:
@@ -272,132 +106,48 @@ class ClaudeCodeAgent(BaseAgent):
                 "ClaudeCodeAgent requires Node.js (>=22). "
                 "Install it from https://nodejs.org/ or via your package manager."
             )
-        node_major = _node_major_version(node_path)
-        if node_major < 22:
-            raise RuntimeError(
-                f"ClaudeCodeAgent requires Node.js >=22; found v{node_major}."
-            )
         npm_path = shutil.which("npm")
         if npm_path is None:
             raise RuntimeError(
-                "ClaudeCodeAgent requires npm. Install Node.js (>=22) with npm "
-                "from https://nodejs.org/ or via your package manager."
+                "ClaudeCodeAgent requires npm. Install Node.js (>=22) with npm."
             )
         self._node_executable = node_path
-        node_platform, node_arch, node_libc = _node_runtime_platform(node_path)
 
-        missing = [name for name in _RUNNER_FILES if not (_RUNNER_SRC / name).is_file()]
-        if missing:
-            raise RuntimeError(
-                "Bundled claude_code_runner is incomplete; missing: "
-                + ", ".join(missing)
+        dest = get_config_dir() / "claude_code_runner"
+        dest.mkdir(parents=True, exist_ok=True)
+
+        for name in ("package.json", "index.mjs"):
+            shutil.copy2(_RUNNER_SRC / name, dest / name)
+
+        package = json.loads((dest / "package.json").read_text(encoding="utf-8"))
+        expected_sdk = package["dependencies"]["@anthropic-ai/claude-agent-sdk"]
+        installed_package = (
+            dest
+            / "node_modules"
+            / "@anthropic-ai"
+            / "claude-agent-sdk"
+            / "package.json"
+        )
+        try:
+            installed_sdk = json.loads(
+                installed_package.read_text(encoding="utf-8")
+            ).get("version")
+        except (OSError, json.JSONDecodeError):
+            installed_sdk = None
+
+        # Existing caches contain the old CLI-only package, so validate the
+        # installed SDK instead of trusting that node_modules merely exists.
+        if installed_sdk != expected_sdk:
+            logger.info("Installing claude_code_runner dependencies...")
+            subprocess.run(
+                [npm_path, "install", "--omit=dev", "--include=optional"],
+                cwd=str(dest),
+                check=True,
+                capture_output=True,
+                timeout=120,
             )
 
-        dependency_hash = hashlib.sha256()
-        for name in _RUNNER_DEPENDENCY_FILES:
-            dependency_hash.update(name.encode("utf-8"))
-            dependency_hash.update(b"\0")
-            dependency_hash.update((_RUNNER_SRC / name).read_bytes())
-            dependency_hash.update(b"\0")
-        runtime_fingerprint = "|".join((node_platform, node_arch, node_libc))
-        expected_install_state = f"{dependency_hash.hexdigest()}|{runtime_fingerprint}"
-
-        cache_hash = hashlib.sha256(expected_install_state.encode("utf-8"))
-        cache_key = cache_hash.hexdigest()[:20]
-        entrypoint_hash = hashlib.sha256(
-            (_RUNNER_SRC / "index.mjs").read_bytes()
-        ).hexdigest()[:20]
-        self._runner_entrypoint = f"index.{entrypoint_hash}.mjs"
-
-        config_dir = get_config_dir()
-        with _runner_lock(config_dir / ".claude_code_runner.lock"):
-            # Dependency/runtime generations are immutable during normal upgrades.
-            # Code revisions share their heavyweight node_modules but execute a
-            # content-addressed entrypoint, so an active old runner stays untouched.
-            dest = config_dir / "claude_code_runner" / cache_key
-            dest.mkdir(parents=True, exist_ok=True)
-
-            # The runner is canonical JavaScript, so editable installs and wheels
-            # execute the same checked-in file without a first-use TypeScript build.
-            for name in _RUNNER_FILES:
-                _atomic_copy_if_changed(_RUNNER_SRC / name, dest / name)
-            _atomic_copy_if_changed(
-                _RUNNER_SRC / "index.mjs",
-                dest / self._runner_entrypoint,
-            )
-
-            node_modules = dest / "node_modules"
-            install_state = dest / _INSTALL_STATE_FILE
-            installed_sdk = (
-                node_modules / "@anthropic-ai" / "claude-agent-sdk" / "package.json"
-            )
-            try:
-                current_install_state = install_state.read_text(
-                    encoding="utf-8"
-                ).strip()
-            except OSError:
-                current_install_state = ""
-
-            if (
-                not node_modules.is_dir()
-                or not installed_sdk.is_file()
-                or _native_cli_path(
-                    node_modules,
-                    node_platform,
-                    node_arch,
-                    node_libc,
-                )
-                is None
-                or current_install_state != expected_install_state
-            ):
-                logger.info("Installing claude_code_runner dependencies...")
-                try:
-                    subprocess.run(
-                        [npm_path, "ci", "--omit=dev", "--include=optional"],
-                        cwd=str(dest),
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        timeout=300,
-                    )
-                except subprocess.TimeoutExpired as exc:
-                    raise RuntimeError(
-                        "Timed out while installing Claude Agent runner dependencies."
-                    ) from exc
-                except subprocess.CalledProcessError as exc:
-                    detail = (exc.stderr or exc.stdout or "").strip()
-                    message = "Failed to install Claude Agent runner dependencies"
-                    if detail:
-                        message += f": {detail}"
-                    raise RuntimeError(message) from exc
-                if (
-                    not installed_sdk.is_file()
-                    or _native_cli_path(
-                        node_modules,
-                        node_platform,
-                        node_arch,
-                        node_libc,
-                    )
-                    is None
-                ):
-                    raise RuntimeError(
-                        "Claude Agent SDK installation is incomplete; its platform "
-                        "CLI binary is missing. Check npm optional-dependency settings."
-                    )
-                install_state.write_text(
-                    expected_install_state + "\n",
-                    encoding="utf-8",
-                )
-
-            entrypoint = dest / self._runner_entrypoint
-            if not entrypoint.is_file() or entrypoint.stat().st_size == 0:
-                raise RuntimeError(
-                    f"Claude Agent runner entry point not found at {entrypoint}."
-                )
-
-            return dest
+        return dest
 
     # ------------------------------------------------------------------
     # Run
@@ -411,8 +161,8 @@ class ClaudeCodeAgent(BaseAgent):
     ) -> AgentResult:
         """Execute a query via the Claude Agent SDK subprocess.
 
-        Spawns the content-addressed Node.js runner, writes a JSON request to
-        stdin, and reads sentinel-delimited JSON output from stdout.
+        Spawns ``node index.mjs``, writes a JSON request to stdin, and
+        reads sentinel-delimited JSON output from stdout.
         """
         self._emit_turn_start(input)
 
@@ -423,20 +173,18 @@ class ClaudeCodeAgent(BaseAgent):
             "prompt": input,
             "api_key": self._api_key,
             "workspace": self._workspace,
-            "allowed_tools": self._allowed_tools,
+            "allowed_tools": self._allowed_tools or [],
             "system_prompt": self._system_prompt,
             "session_id": self._session_id,
         }
 
         try:
             proc = subprocess.run(
-                [self._node_executable, self._runner_entrypoint],
+                [self._node_executable, "index.mjs"],
                 cwd=str(runner_dir),
                 input=json.dumps(request),
                 capture_output=True,
                 text=True,
-                encoding="utf-8",
-                errors="replace",
                 timeout=self._timeout,
             )
         except subprocess.TimeoutExpired:
@@ -448,30 +196,17 @@ class ClaudeCodeAgent(BaseAgent):
             )
 
         if proc.returncode != 0:
-            stdout = proc.stdout or ""
-            if _OUTPUT_START in stdout and _OUTPUT_END in stdout:
-                parsed_content, _, parsed_metadata = self._parse_output(stdout)
-            else:
-                parsed_content, parsed_metadata = "", {}
-            stderr = proc.stderr.strip() if proc.stderr else ""
-            error_message = (
-                parsed_content or stderr or stdout.strip() or "Unknown error"
-            )
+            stderr = proc.stderr.strip() if proc.stderr else "Unknown error"
             logger.error(
                 "claude_code_runner exited with code %d: %s",
                 proc.returncode,
-                error_message,
+                stderr,
             )
             self._emit_turn_end(turns=1, error=True)
-            metadata = {
-                **parsed_metadata,
-                "error": True,
-                "returncode": proc.returncode,
-            }
             return AgentResult(
-                content=f"Claude Code agent failed: {error_message}",
+                content=f"Claude Code agent failed: {stderr}",
                 turns=1,
-                metadata=metadata,
+                metadata={"error": True, "returncode": proc.returncode},
             )
 
         # Parse sentinel-delimited output
@@ -498,9 +233,9 @@ class ClaudeCodeAgent(BaseAgent):
         Returns ``(content, tool_results, metadata)``.
         """
         start = stdout.find(_OUTPUT_START)
-        end = stdout.rfind(_OUTPUT_END)
+        end = stdout.find(_OUTPUT_END)
 
-        if start == -1 or end == -1 or end <= start:
+        if start == -1 or end == -1:
             # No sentinels -- treat entire stdout as plain content
             return stdout.strip(), [], {}
 
