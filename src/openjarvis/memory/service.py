@@ -174,7 +174,17 @@ class MemoryService:
             return None
         try:
             return self._scanner.scan(text)
-        except Exception:  # noqa: BLE001 — scanning is best-effort
+        except BaseException as exc:  # noqa: BLE001 — scanning is best-effort
+            # PyO3 deliberately exposes a Rust panic as ``PanicException``, a
+            # direct BaseException subclass. Keep the memory worker alive if a
+            # native scanner ever panics, while preserving Python's control-
+            # flow exceptions instead of swallowing shutdown/interrupts.
+            rust_panic = (
+                exc.__class__.__module__ == "pyo3_runtime"
+                and exc.__class__.__name__ == "PanicException"
+            )
+            if not isinstance(exc, Exception) and not rust_panic:
+                raise
             logger.debug("Injection scan failed; proceeding (fail-open)", exc_info=True)
             return None
 
