@@ -178,32 +178,27 @@ class BaseAgent(ABC):
                 effective_system_prompt = cfg.agent.default_system_prompt or None
             except Exception:
                 effective_system_prompt = None
+        # Fold ALL in-context system messages (both auto-captured memory
+        # context and caller-supplied system messages) into one leading system
+        # message. Do this even when there is no independently-built prompt:
+        # Qwen-family chat templates reject a system message after the first
+        # slot or more than one system message. Empty system messages must be
+        # removed too, otherwise they can leave a second system entry behind.
+        system_parts = []
         if effective_system_prompt:
-            # Fold ALL in-context system messages (both auto-captured memory
-            # context and caller-supplied system messages) into the single
-            # effective system prompt, then drop them from the context list.
-            #
-            # This guarantees the assembled message list carries exactly one
-            # system message, always in the first position. Some models'
-            # chat templates (e.g. Qwen3) reject message lists where a system
-            # message appears after the first slot, or more than one system
-            # message. Folding preserves the caller's intended grounding
-            # content while keeping the list template-clean.
-            context_system_text = "\n\n".join(
-                message.text
-                for message in context_messages
-                if message.role == Role.SYSTEM and message.text
+            system_parts.append(effective_system_prompt)
+        system_parts.extend(
+            message.text
+            for message in context_messages
+            if message.role == Role.SYSTEM and message.text
+        )
+        context_messages = [
+            message for message in context_messages if message.role != Role.SYSTEM
+        ]
+        if system_parts:
+            messages.append(
+                Message(role=Role.SYSTEM, content="\n\n".join(system_parts))
             )
-            if context_system_text:
-                effective_system_prompt = (
-                    f"{effective_system_prompt}\n\n{context_system_text}"
-                )
-                context_messages = [
-                    message
-                    for message in context_messages
-                    if message.role != Role.SYSTEM
-                ]
-            messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
         if context_messages:
             messages.extend(context_messages)
         messages.append(Message(role=Role.USER, content=input))

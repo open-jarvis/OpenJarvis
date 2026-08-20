@@ -237,9 +237,73 @@ class TestBuildMessages:
 
         messages = agent._build_messages("new", AgentContext(conversation=conv))
 
-        assert any(
-            "You are helpful." in message.content for message in messages
+        assert any("You are helpful." in message.content for message in messages)
+
+    def test_context_system_messages_are_folded_without_a_built_prompt(self):
+        engine = MagicMock()
+        agent = _ConcreteAgent(engine, "m")
+        conv = Conversation()
+        conv.add(Message(role=Role.USER, content="previous question"))
+        conv.add(Message(role=Role.SYSTEM, content="First instruction."))
+        conv.add(Message(role=Role.ASSISTANT, content="previous answer"))
+        conv.add(Message(role=Role.SYSTEM, content="Second instruction."))
+
+        messages = agent._build_messages("new", AgentContext(conversation=conv))
+
+        assert [message.role for message in messages] == [
+            Role.SYSTEM,
+            Role.USER,
+            Role.ASSISTANT,
+            Role.USER,
+        ]
+        assert messages[0].content == "First instruction.\n\nSecond instruction."
+        assert [message.content for message in messages[1:]] == [
+            "previous question",
+            "previous answer",
+            "new",
+        ]
+
+    def test_empty_built_prompt_still_folds_context_system_messages(self):
+        engine = MagicMock()
+        prompt_builder = MagicMock()
+        prompt_builder.build.return_value = ""
+        agent = _ConcreteAgent(engine, "m", prompt_builder=prompt_builder)
+        conv = Conversation()
+        conv.add(Message(role=Role.SYSTEM, content="Context instruction."))
+
+        messages = agent._build_messages("new", AgentContext(conversation=conv))
+
+        assert [message.role for message in messages] == [Role.SYSTEM, Role.USER]
+        assert messages[0].content == "Context instruction."
+
+    def test_empty_context_system_message_is_removed(self):
+        engine = MagicMock()
+        agent = _ConcreteAgent(engine, "m")
+        conv = Conversation()
+        conv.add(Message(role=Role.SYSTEM, content=""))
+
+        messages = agent._build_messages(
+            "new",
+            AgentContext(conversation=conv),
+            system_prompt="Agent instructions.",
         )
+
+        assert [message.role for message in messages] == [Role.SYSTEM, Role.USER]
+        assert messages[0].content == "Agent instructions."
+
+    def test_only_empty_context_system_messages_emit_no_system_message(self):
+        engine = MagicMock()
+        prompt_builder = MagicMock()
+        prompt_builder.build.return_value = None
+        agent = _ConcreteAgent(engine, "m", prompt_builder=prompt_builder)
+        conv = Conversation()
+        conv.add(Message(role=Role.SYSTEM, content=""))
+        conv.add(Message(role=Role.USER, content="previous"))
+
+        messages = agent._build_messages("new", AgentContext(conversation=conv))
+
+        assert [message.role for message in messages] == [Role.USER, Role.USER]
+        assert [message.content for message in messages] == ["previous", "new"]
 
 
 class TestGenerate:
