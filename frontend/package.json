@@ -57,5 +57,10 @@
     "vite": "^6.0.0",
     "vite-plugin-pwa": "^1.2.0",
     "vitest": "^3.2.6"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "core-js": false,
+    "fsevents": false
   }
 }
