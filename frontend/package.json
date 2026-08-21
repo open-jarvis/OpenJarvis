@@ -29,7 +29,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "katex": "^0.16.38",
-    "lucide-react": "^0.576.0",
+    "lucide-react": "^1.31.0",
     "motion": "^12.38.0",
     "posthog-js": "^1.373.2",
     "react": "^19.0.0",
