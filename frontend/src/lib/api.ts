@@ -382,11 +382,16 @@ export async function fetchSpeechHealth(): Promise<SpeechHealth> {
 // Agent Manager
 // ---------------------------------------------------------------------------
 
+export interface ManagedAgentConfig extends Record<string, unknown> {
+  schedule_type?: string;
+  schedule_value?: string | number;
+}
+
 export interface ManagedAgent {
   id: string;
   name: string;
   agent_type: string;
-  config: Record<string, unknown>;
+  config: ManagedAgentConfig;
   status: 'idle' | 'running' | 'paused' | 'error' | 'archived' | 'needs_attention' | 'budget_exceeded' | 'stalled';
   summary_memory: string;
   created_at: number;
@@ -398,9 +403,6 @@ export interface ManagedAgent {
   input_tokens?: number;
   output_tokens?: number;
   last_run_at?: number | null;
-  // Schedule
-  schedule_type?: string;
-  schedule_value?: string;
   // Budget
   budget?: number;
   // Learning
