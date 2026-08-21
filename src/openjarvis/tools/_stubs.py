@@ -286,9 +286,20 @@ class ToolExecutor:
                     success=False,
                 )
 
-        # RBAC capability check
-        if self._capability_policy and tool.spec.required_capabilities:
-            for cap in tool.spec.required_capabilities:
+        # RBAC capability check.  A built-in's canonical requirements are a
+        # security floor: a missing (or accidentally weakened) ToolSpec must
+        # not turn a privileged built-in into an unguarded tool.
+        required_capabilities = list(tool.spec.required_capabilities)
+        if self._capability_policy is not None:
+            from openjarvis.security.capabilities import DEFAULT_TOOL_CAPABILITIES
+
+            for cap in DEFAULT_TOOL_CAPABILITIES.get(tool.spec.name, []):
+                cap_value = cap.value if hasattr(cap, "value") else cap
+                if cap_value not in required_capabilities:
+                    required_capabilities.append(cap_value)
+
+        if self._capability_policy is not None:
+            for cap in required_capabilities:
                 if not self._capability_policy.check(
                     self._agent_id,
                     cap,

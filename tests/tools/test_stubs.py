@@ -8,7 +8,9 @@ import pytest
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import ToolCall, ToolResult
+from openjarvis.security.capabilities import DEFAULT_TOOL_CAPABILITIES
 from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+from openjarvis.tools.code_interpreter import CodeInterpreterTool
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -63,6 +65,42 @@ class _ScalarBoundaryGuard:
             name=tool_call.name,
             arguments=json.dumps("redacted"),
         )
+
+
+class _NamedTool(BaseTool):
+    """Tool with caller-controlled metadata for capability-policy tests."""
+
+    def __init__(self, name: str, required_capabilities=None) -> None:
+        self.tool_id = name
+        self._required_capabilities = required_capabilities or []
+        self.calls = 0
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Capability test tool.",
+            required_capabilities=self._required_capabilities,
+        )
+
+    def execute(self, **params) -> ToolResult:
+        self.calls += 1
+        return ToolResult(tool_name=self.tool_id, content="executed")
+
+
+class _RecordingPolicy:
+    def __init__(self, allowed=()) -> None:
+        self.allowed = set(allowed)
+        self.checks = []
+
+    def check(self, agent_id, capability, resource="") -> bool:
+        self.checks.append((agent_id, capability, resource))
+        return capability in self.allowed
+
+
+class _FalseyDenyAllPolicy(_RecordingPolicy):
+    def __bool__(self) -> bool:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +165,71 @@ class TestBaseTool:
 
 
 class TestToolExecutor:
+    def test_default_deny_blocks_code_interpreter_without_declared_capability(self):
+        policy = _RecordingPolicy()
+        tool = CodeInterpreterTool()
+        assert tool.spec.required_capabilities == []
+        executor = ToolExecutor([tool], capability_policy=policy, agent_id="deny-all")
+
+        result = executor.execute(
+            ToolCall(
+                id="1",
+                name="code_interpreter",
+                arguments='{"code":"print(6 * 7)"}',
+            )
+        )
+
+        assert result.success is False
+        assert "Capability 'code:execute' denied" in result.content
+        assert policy.checks == [("deny-all", "code:execute", "code_interpreter")]
+
+    @pytest.mark.parametrize(
+        ("tool_name", "canonical_capabilities"),
+        list(DEFAULT_TOOL_CAPABILITIES.items()),
+    )
+    def test_every_canonical_tool_capability_is_enforced(
+        self, tool_name, canonical_capabilities
+    ):
+        tool = _NamedTool(tool_name)
+        policy = _RecordingPolicy()
+        executor = ToolExecutor([tool], capability_policy=policy, agent_id="deny-all")
+
+        result = executor.execute(ToolCall(id="1", name=tool_name, arguments="{}"))
+
+        expected = canonical_capabilities[0].value
+        assert result.success is False
+        assert tool.calls == 0
+        assert policy.checks == [("deny-all", expected, tool_name)]
+
+    def test_declared_capability_cannot_replace_canonical_security_floor(self):
+        tool = _NamedTool("code_interpreter", ["file:read"])
+        policy = _RecordingPolicy(allowed={"file:read"})
+        executor = ToolExecutor([tool], capability_policy=policy, agent_id="limited")
+
+        result = executor.execute(
+            ToolCall(id="1", name="code_interpreter", arguments="{}")
+        )
+
+        assert result.success is False
+        assert tool.calls == 0
+        assert policy.checks == [
+            ("limited", "file:read", "code_interpreter"),
+            ("limited", "code:execute", "code_interpreter"),
+        ]
+
+    def test_falsey_policy_object_cannot_bypass_enforcement(self):
+        tool = _NamedTool("code_interpreter")
+        policy = _FalseyDenyAllPolicy()
+        executor = ToolExecutor([tool], capability_policy=policy, agent_id="deny-all")
+
+        result = executor.execute(
+            ToolCall(id="1", name="code_interpreter", arguments="{}")
+        )
+
+        assert result.success is False
+        assert tool.calls == 0
+        assert policy.checks == [("deny-all", "code:execute", "code_interpreter")]
+
     def test_execute_success(self):
         executor = ToolExecutor([_EchoTool()])
         call = ToolCall(id="1", name="echo", arguments='{"text":"hi"}')
