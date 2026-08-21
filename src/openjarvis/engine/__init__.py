@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 
 # Import engine modules to trigger @EngineRegistry.register() decorators
 import openjarvis.engine.nim  # noqa: F401
@@ -17,12 +18,21 @@ from openjarvis.engine._base import (
 )
 from openjarvis.engine._discovery import discover_engines, discover_models, get_engine
 
+logger = logging.getLogger(__name__)
+
+
+def _register_optional_engines() -> None:
+    """Register available optional engines and retain import diagnostics."""
+
+    for optional in ("cloud", "litellm", "gemma_cpp"):
+        try:
+            importlib.import_module(f".{optional}", __name__)
+        except ImportError as exc:
+            logger.debug("Optional engine %r unavailable: %s", optional, exc)
+
+
 # Optional engines — only register if their SDK deps are present
-for _optional in ("cloud", "litellm", "gemma_cpp"):
-    try:
-        importlib.import_module(f".{_optional}", __name__)
-    except ImportError:
-        pass
+_register_optional_engines()
 
 __all__ = [
     "EngineConnectionError",
