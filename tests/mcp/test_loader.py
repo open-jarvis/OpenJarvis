@@ -226,3 +226,57 @@ class TestLoaderFailureIsolation:
         assert [t.spec.name for t in tools] == ["survivor"]
         assert len(clients) == 1
         assert any("broken" in r.message for r in caplog.records)
+
+    def test_failed_initialize_closes_the_client(self, _mock_mcp_stack, caplog):
+        """Regression for #753: a client whose initialize() fails must
+        still be closed.
+
+        ``client.initialize()`` was called before ``clients.append(client)``,
+        so a failed handshake left the client out of the returned list --
+        nothing the caller holds ever calls ``close()`` on it, leaking the
+        underlying StdioTransport subprocess or StreamableHTTPTransport
+        connection pool.
+        """
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        bad_client = MagicMock()
+        bad_client.initialize.side_effect = RuntimeError("handshake failed")
+        _mock_mcp_stack["client"].return_value = bad_client
+
+        cfg = _make_mcp_cfg(
+            enabled=True,
+            servers=[{"name": "broken", "url": "http://broken"}],
+        )
+        with caplog.at_level("WARNING"):
+            tools, clients = load_mcp_tools_from_config(cfg)
+
+        assert clients == []
+        bad_client.close.assert_called_once()
+
+    def test_cleanup_failure_does_not_mask_initialize_error(
+        self, _mock_mcp_stack, caplog
+    ):
+        """The handshake remains the reported discovery failure if close fails."""
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        bad_client = MagicMock()
+        bad_client.initialize.side_effect = RuntimeError("handshake failed")
+        bad_client.close.side_effect = RuntimeError("cleanup failed")
+        _mock_mcp_stack["client"].return_value = bad_client
+        cfg = _make_mcp_cfg(
+            enabled=True,
+            servers=[{"name": "broken", "url": "http://broken"}],
+        )
+
+        with caplog.at_level("WARNING"):
+            tools, clients = load_mcp_tools_from_config(cfg)
+
+        assert tools == []
+        assert clients == []
+        bad_client.close.assert_called_once()
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("cleanup failed" in message for message in messages)
+        assert any(
+            "Failed to discover MCP tools" in message and "handshake failed" in message
+            for message in messages
+        )

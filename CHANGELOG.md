@@ -21,6 +21,19 @@ stack with `mss`/`Pillow` fallbacks on other platforms. Adds the
 `JARVIS_NUM_CTX` environment variable to tune the Ollama context window
 (default `16384`).
 
+### Security
+
+**WebSocket API keys no longer appear in request URLs.** Browser clients now
+send a marked, base64url-encoded credential through
+`Sec-WebSocket-Protocol`; programmatic clients can continue to use an
+`Authorization: Bearer <key>` handshake header. The encoding only makes the
+credential safe for WebSocket protocol syntax and does not encrypt it, so use
+`wss://` for remote connections.
+
+The former `?token=<key>` WebSocket authentication path is no longer accepted.
+Custom browser clients must migrate to the `openjarvis.auth.v1` subprotocol
+format documented in the API server guide.
+
 ## [1.0.2] - 2026-05-24
 
 A patch release that fixes a packaging bug which broke the v1.0.1

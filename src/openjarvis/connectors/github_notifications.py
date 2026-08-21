@@ -54,8 +54,23 @@ class GitHubNotificationsConnector(BaseConnector):
         data = json.loads(self._token_path.read_text(encoding="utf-8"))
         return data["token"]
 
+    def set_token(self, token: str) -> None:
+        """Validate and persist a PAT supplied through Data Sources."""
+        token = token.strip()
+        if not token:
+            raise ValueError("A GitHub personal access token is required")
+        # Do not create/overwrite a credential file until GitHub accepts the
+        # token for the exact API this connector consumes.
+        _github_api_get(token, params={"per_page": "1"})
+        from openjarvis.security.file_utils import secure_write_json
+
+        secure_write_json(self._token_path, {"token": token})
+
     def is_connected(self) -> bool:
-        return self._token_path.exists()
+        try:
+            return bool(self._load_token())
+        except (OSError, KeyError, json.JSONDecodeError):
+            return False
 
     def disconnect(self) -> None:
         if self._token_path.exists():

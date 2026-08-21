@@ -367,6 +367,27 @@ def serve(
                 if getattr(agent_cls, "accepts_tools", False):
                     agent_kwargs["max_turns"] = config.agent.max_turns
 
+                # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md
+                # reach the model on the SERVE path too. ``ask.py`` has done
+                # this since the persona system landed; ``serve.py`` never did,
+                # so an agent served over HTTP silently answered as a generic
+                # assistant while the same agent via the CLI kept its persona.
+                # Guarded so agents with specialized prompt machinery must opt
+                # in by explicitly naming and forwarding the kwarg.
+                import inspect as _inspect
+
+                if (
+                    "prompt_builder"
+                    in _inspect.signature(agent_cls.__init__).parameters
+                ):
+                    from openjarvis.prompt.builder import SystemPromptBuilder
+
+                    agent_kwargs["prompt_builder"] = SystemPromptBuilder(
+                        agent_template=config.agent.default_system_prompt or "",
+                        memory_files_config=config.memory_files,
+                        system_prompt_config=config.system_prompt,
+                    )
+
                 agent = agent_cls(engine, model_name, **agent_kwargs)
                 # Pin MCP transports to the agent's lifetime so HTTP
                 # connections don't close mid-request (#461).

@@ -1,5 +1,7 @@
 """Tests for extended API routes."""
 
+from types import SimpleNamespace
+
 import pytest
 
 fastapi = pytest.importorskip("fastapi")
@@ -120,11 +122,111 @@ class TestBudgetRoutes:
 
 
 class TestMetricsRoute:
-    def test_metrics_endpoint(self):
+    def test_metrics_endpoint(self, tmp_path, monkeypatch):
+        """An isolated empty config dir returns the exact no-data response.
+
+        Pinning ``DEFAULT_CONFIG_DIR`` keeps the test independent of the
+        machine's real telemetry database and makes any other response a
+        regression rather than accepting all possible production states.
+        """
+        monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path))
+
         client = TestClient(_make_app())
         resp = client.get("/metrics")
         assert resp.status_code == 200
-        assert "openjarvis" in resp.text or "No metrics" in resp.text
+        assert resp.text == "# no telemetry data\n"
+        assert resp.headers["content-type"].startswith("text/plain")
+
+    def test_metrics_endpoint_reports_real_stats(self, tmp_path, monkeypatch):
+        """Regression for #760: /metrics must report actual aggregated
+        stats instead of silently falling back to the placeholder text.
+
+        The handler called ``stats.get(...)`` on ``AggregatedStats``, a
+        dataclass with no ``.get()`` method -- every real request raised
+        ``AttributeError``, caught by the broad ``except Exception`` and
+        papered over as "No metrics available", even with real telemetry
+        data present in ``telemetry.db``.
+        """
+        import time
+
+        from openjarvis.core.types import TelemetryRecord
+        from openjarvis.telemetry.store import TelemetryStore
+
+        monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path))
+
+        db_path = tmp_path / "telemetry.db"
+        store = TelemetryStore(db_path)
+        store.record(
+            TelemetryRecord(
+                timestamp=time.time(),
+                model_id="test-model",
+                engine="ollama",
+                prompt_tokens=10,
+                completion_tokens=5,
+                total_tokens=15,
+                latency_seconds=2.0,
+                cost_usd=0.001,
+            )
+        )
+        store.close()
+
+        client = TestClient(_make_app())
+        resp = client.get("/metrics")
+        assert resp.status_code == 200
+        assert "No metrics available" not in resp.text
+        assert "openjarvis_requests_total 1" in resp.text
+        assert "openjarvis_tokens_total 15" in resp.text
+        assert "openjarvis_latency_avg_ms 2000" in resp.text
+
+    def test_metrics_endpoint_empty_db_no_division_by_zero(self, tmp_path, monkeypatch):
+        """An existing but empty telemetry.db (total_calls=0) must not
+        raise ZeroDivisionError when computing average latency."""
+        from openjarvis.telemetry.store import TelemetryStore
+
+        monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path))
+
+        db_path = tmp_path / "telemetry.db"
+        TelemetryStore(db_path).close()  # creates the schema, no records
+
+        client = TestClient(_make_app())
+        resp = client.get("/metrics")
+        assert resp.status_code == 200
+        assert "No metrics available" not in resp.text
+        assert "openjarvis_requests_total 0" in resp.text
+        assert "openjarvis_latency_avg_ms 0" in resp.text
+
+    def test_metrics_endpoint_uses_active_app_telemetry_path(self, tmp_path):
+        import time
+
+        from openjarvis.core.types import TelemetryRecord
+        from openjarvis.telemetry.store import TelemetryStore
+
+        db_path = tmp_path / "runtime" / "custom-telemetry.sqlite"
+        store = TelemetryStore(db_path)
+        store.record(
+            TelemetryRecord(
+                timestamp=time.time(),
+                model_id="configured-model",
+                engine="ollama",
+                prompt_tokens=4,
+                completion_tokens=3,
+                total_tokens=7,
+                latency_seconds=0.5,
+                cost_usd=0.0,
+            )
+        )
+        store.close()
+
+        app = _make_app()
+        app.state.config = SimpleNamespace(
+            telemetry=SimpleNamespace(db_path=str(db_path))
+        )
+        resp = TestClient(app).get("/metrics")
+
+        assert resp.status_code == 200
+        assert "openjarvis_requests_total 1" in resp.text
+        assert "openjarvis_tokens_total 7" in resp.text
+        assert "openjarvis_latency_avg_ms 500" in resp.text
 
 
 class TestSkillRoutes:

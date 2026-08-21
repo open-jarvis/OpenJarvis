@@ -95,20 +95,31 @@ def hermetic_connectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
         "openjarvis.connectors.gcontacts",
         "openjarvis.connectors.gmail",
         "openjarvis.connectors.google_tasks",
+        # Non-Google OAuth providers (Spotify, Strava) derive their default
+        # credentials path from DEFAULT_CONFIG_DIR the same way -- reload
+        # them too so the client-pair-detection tests below are hermetic.
+        "openjarvis.connectors.spotify",
+        "openjarvis.connectors.strava",
     ]
     for name in google_mods:
-        if name in sys.modules:
-            importlib.reload(sys.modules[name])
+        module = importlib.import_module(name)
+        # Always execute each decorator under the patched config root. Merely
+        # reloading modules that happen to be cached made this fixture depend
+        # on collection order and could leave the registry empty.
+        importlib.reload(module)
 
     router_mod._instances.clear()
     yield conn_dir
     router_mod._instances.clear()
     ConnectorRegistry.clear()
-    # Restore the connector modules to their real (unpatched) default paths so
-    # subsequent tests in the same process see ~/.openjarvis again.
+    # Restore the config root before reloading. Fixture finalizers otherwise
+    # run in dependency order (this teardown before monkeypatch's), which used
+    # to bake the temporary directory back into module-level defaults.
+    monkeypatch.undo()
     for name in google_mods:
-        if name in sys.modules:
-            importlib.reload(sys.modules[name])
+        module = sys.modules.get(name)
+        if module is not None:
+            importlib.reload(module)
 
 
 @pytest.fixture()
@@ -180,6 +191,68 @@ def test_connect_raw_token_still_handled(
     assert resp.status_code == 200, resp.text
     saved = json.loads((hermetic_connectors / "gdrive.json").read_text())
     assert saved.get("token") == "ya29.raw-access-token"
+
+
+# ---------------------------------------------------------------------------
+# Non-Google OAuth providers (Spotify, Strava) — the client-pair detection
+# only recognized Google's client ID format (`.apps.googleusercontent.com`),
+# so pasting a Spotify or Strava client_id:client_secret pair silently fell
+# through to the raw-token path instead of registering credentials and
+# returning oauth_required. The UI's "connect this account" flow for any
+# non-Google OAuth connector was unreachable as a result.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "connector_id,credentials_file",
+    [("spotify", "spotify.json"), ("strava", "strava.json")],
+)
+def test_connect_client_pair_returns_oauth_required_for_non_google_providers(
+    client: TestClient,
+    hermetic_connectors: Path,
+    connector_id: str,
+    credentials_file: str,
+) -> None:
+    pair = f"{connector_id}-client-id:{connector_id}-client-secret"
+
+    with patch("openjarvis.core.open_browser") as mock_browser:
+        resp = client.post(
+            f"/v1/connectors/{connector_id}/connect", json={"code": pair}
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "oauth_required"
+    assert body["oauth_start"] == f"/v1/connectors/{connector_id}/oauth/start"
+    assert body["connected"] is False
+    mock_browser.assert_not_called()
+
+    saved = json.loads((hermetic_connectors / credentials_file).read_text())
+    assert saved["client_id"] == f"{connector_id}-client-id"
+    assert saved["client_secret"] == f"{connector_id}-client-secret"
+
+
+def test_connect_malformed_client_pair_raises_400_for_spotify(
+    client: TestClient,
+) -> None:
+    """A blank secret surfaces an actionable 400 for non-Google providers too."""
+    resp = client.post(
+        "/v1/connectors/spotify/connect", json={"code": "some-client-id:"}
+    )
+    assert resp.status_code == 400
+    assert "CLIENT_ID:CLIENT_SECRET" in resp.json()["detail"]
+
+
+def test_google_client_pair_detection_unaffected_by_generalization(
+    client: TestClient, hermetic_connectors: Path
+) -> None:
+    """Guard against regressing defect A/B: Google's pair must still only be
+    recognized via its distinctive client ID suffix, not just any colon."""
+    resp = client.post("/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "oauth_required"
+    saved = json.loads((hermetic_connectors / "gdrive.json").read_text())
+    assert saved["client_id"] == _CLIENT_ID
 
 
 # ---------------------------------------------------------------------------
@@ -271,3 +344,29 @@ def test_oauth_callback_exchange_failure_renders_error(
 
     assert resp.status_code == 500
     assert "Token Exchange Failed" in resp.text
+
+
+def test_oauth_callback_rejects_missing_access_token_without_false_success(
+    client: TestClient,
+    hermetic_connectors: Path,
+) -> None:
+    """Client credentials alone must not complete the consent flow."""
+    import openjarvis.connectors.oauth as oauth_mod
+
+    client.post("/v1/connectors/spotify/connect", json={"code": "id:secret"})
+    with patch.object(
+        oauth_mod,
+        "_exchange_token",
+        return_value={"refresh_token": "refresh-only"},
+    ):
+        resp = client.get("/v1/connectors/spotify/oauth/callback?code=bad-payload")
+
+    assert resp.status_code == 500
+    assert "Token Exchange Failed" in resp.text
+    assert "Connected!" not in resp.text
+    saved = json.loads((hermetic_connectors / "spotify.json").read_text())
+    assert "access_token" not in saved
+
+    from openjarvis.connectors.spotify import SpotifyConnector
+
+    assert SpotifyConnector().is_connected() is False

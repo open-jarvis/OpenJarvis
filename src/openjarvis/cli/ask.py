@@ -398,9 +398,8 @@ def _run_agent(
 
     # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md persona
     # files actually reach the model. Only passed to agents whose __init__
-    # accepts a `prompt_builder` kwarg (BaseAgent does; agents that override
-    # __init__ without forwarding it, e.g. OrchestratorAgent, opt out
-    # automatically and keep their existing system-prompt machinery).
+    # explicitly accepts a `prompt_builder` kwarg. Agents with specialized
+    # prompt machinery opt in by naming and forwarding the parameter.
     import inspect as _inspect
 
     if "prompt_builder" in _inspect.signature(agent_cls.__init__).parameters:

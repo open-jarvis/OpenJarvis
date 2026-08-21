@@ -64,6 +64,8 @@ EXPECTED_TOOLS = {
     "image_generate",
     # audio_tool.py
     "audio_transcribe",
+    # text_to_speech.py
+    "text_to_speech",
     # knowledge_tools.py
     "kg_add_entity",
     "kg_add_relation",
@@ -73,6 +75,9 @@ EXPECTED_TOOLS = {
     "knowledge_sql",
     # scan_chunks.py
     "scan_chunks",
+    # apple_calendar.py
+    "calendar_upcoming",
+    "calendar_search",
 }
 
 
@@ -117,6 +122,28 @@ def test_package_import_registers_deep_research_tools():
                 "import openjarvis.tools; "
                 "from openjarvis.core.registry import ToolRegistry; "
                 "expected = {'knowledge_sql', 'scan_chunks'}; "
+                "missing = expected - set(ToolRegistry.keys()); "
+                "assert not missing, f'Missing tools: {sorted(missing)}'"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_calendar_tools_register_when_connector_is_imported_first():
+    """Connector imports must not suppress calendar tool registration."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import openjarvis.connectors.apple_calendar; "
+                "from openjarvis.core.registry import ToolRegistry; "
+                "expected = {'calendar_upcoming', 'calendar_search'}; "
                 "missing = expected - set(ToolRegistry.keys()); "
                 "assert not missing, f'Missing tools: {sorted(missing)}'"
             ),

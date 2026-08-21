@@ -230,7 +230,7 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
 )
 @click.option(
     "--config",
-    type=click.Path(exists=True),
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Path to config file to use.",
 )
 @click.option(
@@ -445,7 +445,7 @@ def init(
             )
 
     if config:
-        toml_content = config.read_text()
+        toml_content = config.read_text(encoding="utf-8")
     else:
         if full_config:
             toml_content = generate_default_toml(hw, engine=engine, host=host)
@@ -453,10 +453,10 @@ def init(
             toml_content = generate_minimal_toml(hw, engine=engine, host=host)
 
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    if config:
-        config.write_text(toml_content)
-    else:
-        DEFAULT_CONFIG_PATH.write_text(toml_content)
+    # ``--config`` selects an existing file to install; it is not an alternate
+    # output path.  Always activate the selected/generated configuration at
+    # the canonical location that subsequent ``jarvis`` commands load.
+    DEFAULT_CONFIG_PATH.write_text(toml_content, encoding="utf-8")
 
     console.print()
     console.print(
@@ -493,10 +493,10 @@ sources = ["gcalendar"]
 [digest.world]
 sources = ["hackernews", "news_rss"]
 """
-        target = config if config else DEFAULT_CONFIG_PATH
-        existing = target.read_text()
-        target.write_text(existing + digest_section)
-        toml_content = target.read_text()
+        target = DEFAULT_CONFIG_PATH
+        existing = target.read_text(encoding="utf-8")
+        target.write_text(existing + digest_section, encoding="utf-8")
+        toml_content = target.read_text(encoding="utf-8")
         console.print(
             "[green]Morning Digest config added.[/green] "
             "Run [bold]jarvis connect gdrive[/bold] to connect "
@@ -509,16 +509,17 @@ sources = ["hackernews", "news_rss"]
     soul_path = DEFAULT_CONFIG_DIR / "SOUL.md"
     if not soul_path.exists():
         soul_path.write_text(
-            "# Agent Persona\n\nYou are Jarvis, a helpful personal AI assistant.\n"
+            "# Agent Persona\n\nYou are Jarvis, a helpful personal AI assistant.\n",
+            encoding="utf-8",
         )
 
     memory_path = DEFAULT_CONFIG_DIR / "MEMORY.md"
     if not memory_path.exists():
-        memory_path.write_text("# Agent Memory\n\n")
+        memory_path.write_text("# Agent Memory\n\n", encoding="utf-8")
 
     user_path = DEFAULT_CONFIG_DIR / "USER.md"
     if not user_path.exists():
-        user_path.write_text("# User Profile\n\n")
+        user_path.write_text("# User Profile\n\n", encoding="utf-8")
 
     skills_dir = DEFAULT_CONFIG_DIR / "skills"
     skills_dir.mkdir(exist_ok=True)

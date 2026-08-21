@@ -13,8 +13,10 @@ Supports two modes:
 from __future__ import annotations
 
 import concurrent.futures
+import json
+import logging
 import re
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.core.events import EventBus
@@ -22,6 +24,8 @@ from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool
+
+logger = logging.getLogger(__name__)
 
 
 @AgentRegistry.register("orchestrator")
@@ -61,6 +65,7 @@ class OrchestratorAgent(ToolUsingAgent):
         parallel_tools: bool = True,
         interactive: bool = False,
         confirm_callback=None,
+        before_tool_call: Optional[Callable[[str, dict[str, Any]], bool]] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -77,6 +82,7 @@ class OrchestratorAgent(ToolUsingAgent):
         self._mode = mode
         self._system_prompt = system_prompt
         self._parallel_tools = parallel_tools
+        self._before_tool_call = before_tool_call
 
     def run(
         self,
@@ -87,6 +93,47 @@ class OrchestratorAgent(ToolUsingAgent):
         if self._mode == "structured":
             return self._run_structured(input, context, **kwargs)
         return self._run_function_calling(input, context, **kwargs)
+
+    # ------------------------------------------------------------------
+    # Governance hook
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _governance_denial(tool_name: str, reason: str) -> ToolResult:
+        return ToolResult(
+            tool_name=tool_name,
+            content=(
+                f"[Governance] Tool '{tool_name}' was not approved ({reason}). "
+                "Adjust your plan and try a different approach."
+            ),
+            success=False,
+        )
+
+    def _check_tool_allowed(self, tc: ToolCall) -> Optional[ToolResult]:
+        """Call before_tool_call hook if set.
+
+        Returns None to allow execution, or a denial ToolResult to inject
+        instead of running the tool. Invalid arguments and hook failures deny
+        execution so a governance integration cannot fail open.
+        """
+        if self._before_tool_call is None:
+            return None
+
+        try:
+            tool_args = json.loads(tc.arguments) if tc.arguments else {}
+        except (json.JSONDecodeError, TypeError):
+            return self._governance_denial(tc.name, "invalid tool arguments")
+        if not isinstance(tool_args, dict):
+            return self._governance_denial(tc.name, "tool arguments are not an object")
+
+        try:
+            allowed = self._before_tool_call(tc.name, tool_args)
+        except Exception:
+            logger.exception("before_tool_call hook failed for tool %s", tc.name)
+            return self._governance_denial(tc.name, "governance check failed")
+        if allowed:
+            return None
+        return self._governance_denial(tc.name, "policy denied the call")
 
     # ------------------------------------------------------------------
     # Structured mode (THOUGHT/TOOL/INPUT/FINAL_ANSWER)
@@ -142,12 +189,25 @@ class OrchestratorAgent(ToolUsingAgent):
                 tool_call = ToolCall(
                     id=f"orch_{turns}",
                     name=parsed["tool"],
-                    arguments=parsed["input"] or "{}",
+                    arguments=self._normalize_structured_tool_input(
+                        parsed["tool"],
+                        parsed["input"],
+                    ),
                 )
-                tool_result = self._executor.execute(tool_call)
+                denial = self._check_tool_allowed(tool_call)
+                if denial is not None:
+                    tool_result = denial
+                else:
+                    tool_result = self._executor.execute(tool_call)
                 all_tool_results.append(tool_result)
 
-                observation = f"Observation: {tool_result.content}"
+                if tool_result.success:
+                    observation = f"Observation: {tool_result.content}"
+                else:
+                    observation = (
+                        f"Observation: Tool '{tool_result.tool_name}' failed: "
+                        f"{tool_result.content}"
+                    )
                 messages.append(Message(role=Role.USER, content=observation))
                 continue
 
@@ -161,6 +221,75 @@ class OrchestratorAgent(ToolUsingAgent):
 
         # Max turns exceeded
         return self._max_turns_result(all_tool_results, turns)
+
+    def _normalize_structured_tool_input(
+        self,
+        tool_name: str,
+        raw_input: str,
+    ) -> str:
+        """Map unambiguous structured text input to a string parameter."""
+        if not raw_input:
+            return "{}"
+
+        try:
+            parsed_input = json.loads(raw_input)
+        except json.JSONDecodeError:
+            invalid_json = True
+            string_value = raw_input
+        else:
+            invalid_json = False
+            if isinstance(parsed_input, dict):
+                return raw_input
+            # INPUT is a text protocol. A non-object JSON value such as 42,
+            # true, null, or [1, 2] may still be the intended text for a tool's
+            # string parameter. Quoted JSON strings are decoded to remove only
+            # their surrounding quotes; other values retain their source text.
+            string_value = parsed_input if isinstance(parsed_input, str) else raw_input
+
+        tool_spec = None
+        for candidate in reversed(self._tools):
+            candidate_spec = candidate.spec
+            if candidate_spec.name == tool_name:
+                tool_spec = candidate_spec
+                break
+        if tool_spec is None:
+            return raw_input
+
+        parameters = tool_spec.parameters
+        parameter_container_type = parameters.get("type")
+        if parameter_container_type not in (None, "object"):
+            return raw_input
+
+        properties = parameters.get("properties", {})
+        required = parameters.get("required", [])
+        if not isinstance(properties, dict) or not isinstance(required, list):
+            return raw_input
+
+        if len(required) == 1 and required[0] in properties:
+            parameter_name = required[0]
+        elif not required and len(properties) == 1:
+            parameter_name = next(iter(properties))
+        else:
+            return raw_input
+
+        parameter_schema = properties[parameter_name]
+        if not isinstance(parameter_schema, dict):
+            return raw_input
+        parameter_type = parameter_schema.get("type")
+        accepts_string = parameter_type == "string" or (
+            isinstance(parameter_type, list) and "string" in parameter_type
+        )
+        if not accepts_string:
+            return raw_input
+
+        allow_object_text = (
+            tool_spec.metadata.get("structured_allow_object_text") is True
+        )
+        starts_like_object = raw_input.lstrip("\ufeff \t\r\n").startswith("{")
+        if invalid_json and starts_like_object and not allow_object_text:
+            return raw_input
+
+        return json.dumps({parameter_name: string_value})
 
     @staticmethod
     def _parse_structured_response(text: str) -> dict:
@@ -288,7 +417,18 @@ class OrchestratorAgent(ToolUsingAgent):
 
             # Execute each tool (with loop guard check) and append results
             if self._parallel_tools and len(tool_calls) > 1:
-                # Parallel execution
+                # Governance callbacks often wrap stateful policy engines and
+                # are not assumed to be thread-safe. Evaluate them in request
+                # order before dispatching the approved tool work in parallel.
+                results_map: dict[int, tuple[ToolCall, ToolResult]] = {}
+                approved_calls: list[ToolCall] = []
+                for tc in tool_calls:
+                    denial = self._check_tool_allowed(tc)
+                    if denial is None:
+                        approved_calls.append(tc)
+                    else:
+                        results_map[id(tc)] = (tc, denial)
+
                 def _exec_tool(tc: ToolCall) -> tuple:
                     if self._loop_guard:
                         verdict = self._loop_guard.check_call(
@@ -303,14 +443,16 @@ class OrchestratorAgent(ToolUsingAgent):
                             )
                     return tc, self._executor.execute(tc)
 
-                with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=len(tool_calls),
-                ) as pool:
-                    futures = {pool.submit(_exec_tool, tc): tc for tc in tool_calls}
-                    results_map: dict[int, tuple] = {}
-                    for future in concurrent.futures.as_completed(futures):
-                        tc_orig = futures[future]
-                        results_map[id(tc_orig)] = future.result()
+                if approved_calls:
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=len(approved_calls),
+                    ) as pool:
+                        futures = {
+                            pool.submit(_exec_tool, tc): tc for tc in approved_calls
+                        }
+                        for future in concurrent.futures.as_completed(futures):
+                            tc_orig = futures[future]
+                            results_map[id(tc_orig)] = future.result()
 
                 # Append results in original order
                 for tc in tool_calls:
@@ -327,6 +469,20 @@ class OrchestratorAgent(ToolUsingAgent):
             else:
                 # Sequential execution
                 for tc in tool_calls:
+                    # Governance hook check before execution
+                    denial = self._check_tool_allowed(tc)
+                    if denial is not None:
+                        all_tool_results.append(denial)
+                        messages.append(
+                            Message(
+                                role=Role.TOOL,
+                                content=denial.content,
+                                tool_call_id=tc.id,
+                                name=tc.name,
+                            )
+                        )
+                        continue
+
                     # Loop guard check before execution
                     if self._loop_guard:
                         verdict = self._loop_guard.check_call(

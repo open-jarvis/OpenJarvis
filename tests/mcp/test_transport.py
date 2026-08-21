@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import textwrap
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -136,6 +137,291 @@ class TestStdioTransport:
         finally:
             transport.close()
 
+    def test_concurrent_requests_remain_correlated(self, tmp_path):
+        """Concurrent callers cannot consume one another's response lines."""
+        import threading
+
+        script = tmp_path / "concurrent_echo_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import json
+            import sys
+            import time
+
+            for line in sys.stdin:
+                request = json.loads(line)
+                time.sleep(0.005)
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {"method": request["method"]},
+                }
+                sys.stdout.write(json.dumps(response) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)], response_timeout=2.0)
+        barrier = threading.Barrier(12)
+        responses: dict[int, str] = {}
+        errors: list[Exception] = []
+
+        def call(request_id: int) -> None:
+            try:
+                barrier.wait(timeout=2)
+                response = transport.send(
+                    MCPRequest(method=f"test/{request_id}", id=request_id)
+                )
+                responses[request_id] = response.result["method"]
+            except Exception as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        workers = [threading.Thread(target=call, args=(index,)) for index in range(12)]
+        try:
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=5)
+
+            assert not errors
+            assert not any(worker.is_alive() for worker in workers)
+            assert responses == {index: f"test/{index}" for index in range(12)}
+        finally:
+            transport.close()
+
+    def test_skips_unsolicited_notification_before_response(self, tmp_path):
+        """Regression for #751: a server-emitted notification (no ``id``)
+        arriving on stdout before the real response must not be mistaken
+        for that response.
+
+        The old ``send()`` read exactly one line and handed it straight to
+        ``MCPResponse.from_json()``. A notification has neither ``result``
+        nor ``error``, so it parsed as ``MCPResponse(result=None,
+        error=None)`` -- silently wrong instead of erroring -- and the real
+        response was left unread in the pipe, desyncing every later call.
+        """
+        script = tmp_path / "noisy_notify_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import json
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                req = json.loads(line)
+                # Unsolicited notification (no "id") before the real reply.
+                notice = {
+                    "jsonrpc": "2.0",
+                    "method": "notifications/progress",
+                    "params": {"progress": 1},
+                }
+                sys.stdout.write(json.dumps(notice) + "\\n")
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id", 0),
+                    "result": {"echo": req.get("method", "")},
+                }
+                sys.stdout.write(json.dumps(resp) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)])
+        try:
+            req = MCPRequest(method="test/echo", id=1)
+            resp = transport.send(req)
+            assert resp.error is None
+            assert resp.result == {"echo": "test/echo"}
+            assert resp.id == 1
+
+            # The stream must be back in sync for the next call too.
+            req2 = MCPRequest(method="test/echo2", id=2)
+            resp2 = transport.send(req2)
+            assert resp2.result == {"echo": "test/echo2"}
+        finally:
+            transport.close()
+
+    def test_skips_response_with_stale_id(self, tmp_path):
+        """A response line whose id doesn't match the outstanding request
+        (e.g. a stale/duplicate reply) must be skipped, not returned."""
+        script = tmp_path / "stale_id_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import json
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                req = json.loads(line)
+                stale = {"jsonrpc": "2.0", "id": 999, "result": {"stale": True}}
+                sys.stdout.write(json.dumps(stale) + "\\n")
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id", 0),
+                    "result": {"echo": req.get("method", "")},
+                }
+                sys.stdout.write(json.dumps(resp) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)])
+        try:
+            req = MCPRequest(method="test/echo", id=1)
+            resp = transport.send(req)
+            assert resp.result == {"echo": "test/echo"}
+            assert resp.id == 1
+        finally:
+            transport.close()
+
+    def test_skips_non_json_banner_before_response(self, tmp_path):
+        """Regression for #752: a stray non-JSON line on stdout (e.g. an
+        npm warning banner from a server launched via ``npx -y`` on a cold
+        cache) must be skipped, not treated as a fatal parse error that
+        drops discovery for the whole server.
+        """
+        script = tmp_path / "npm_banner_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import json
+
+            # Simulates an npm warning banner printed before the server
+            # starts speaking JSON-RPC.
+            sys.stdout.write("npm warn deprecated some-pkg@1.0.0: use v2\\n")
+            sys.stdout.write("Fetching latest version...\\n")
+            sys.stdout.flush()
+
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                req = json.loads(line)
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id", 0),
+                    "result": {"echo": req.get("method", "")},
+                }
+                sys.stdout.write(json.dumps(resp) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)])
+        try:
+            req = MCPRequest(method="initialize", id=1)
+            resp = transport.send(req)
+            assert resp.error is None
+            assert resp.result == {"echo": "initialize"}
+        finally:
+            transport.close()
+
+    def test_response_deadline_bounds_nonmatching_lines(self, tmp_path):
+        """Noise cannot keep extending the wall-clock response deadline."""
+        script = tmp_path / "never_replies_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import json
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                # Never answers with a matching id -- just noise, forever.
+                for _ in range(2000):
+                    notice = {"jsonrpc": "2.0", "method": "notifications/progress"}
+                    sys.stdout.write(json.dumps(notice) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)], response_timeout=0.25)
+        try:
+            req = MCPRequest(method="test/echo", id=1)
+            started = time.monotonic()
+            with pytest.raises(RuntimeError, match="Timed out waiting"):
+                transport.send(req)
+            assert time.monotonic() - started < 2
+        finally:
+            transport.close()
+
+    def test_response_deadline_bounds_blank_line_flood(self, tmp_path):
+        """Blank lines are ignored, but cannot make send() wait forever."""
+        script = tmp_path / "blank_line_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            for line in sys.stdin:
+                while True:
+                    sys.stdout.write("\\n")
+                    sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)], response_timeout=0.25)
+        try:
+            started = time.monotonic()
+            with pytest.raises(RuntimeError, match="Timed out waiting"):
+                transport.send(MCPRequest(method="test/echo", id=1))
+            assert time.monotonic() - started < 2
+        finally:
+            transport.close()
+
+    def test_valid_response_survives_large_notification_burst(self, tmp_path):
+        """Valid protocol traffic is not rejected by an arbitrary line cap."""
+        script = tmp_path / "notification_burst_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import json
+            import sys
+            for line in sys.stdin:
+                request = json.loads(line)
+                for index in range(1200):
+                    notification = {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/progress",
+                        "params": {"progress": index},
+                    }
+                    sys.stdout.write(json.dumps(notification) + "\\n")
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {"complete": True},
+                }
+                sys.stdout.write(json.dumps(response) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)], response_timeout=5)
+        try:
+            response = transport.send(MCPRequest(method="test/echo", id=1))
+            assert response.result == {"complete": True}
+        finally:
+            transport.close()
+
+    def test_response_deadline_bounds_silent_server(self, tmp_path):
+        script = tmp_path / "silent_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import time
+            for line in sys.stdin:
+                time.sleep(300)
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)], response_timeout=0.25)
+        try:
+            started = time.monotonic()
+            with pytest.raises(RuntimeError, match="Timed out waiting"):
+                transport.send(MCPRequest(method="test/echo", id=1))
+            assert time.monotonic() - started < 2
+        finally:
+            transport.close()
+
     def test_send_notification_does_not_read_stdout(self, tmp_path):
         """Regression for #339: stdio servers don't reply to notifications.
 
@@ -181,6 +467,67 @@ class TestStdioTransport:
                 "send_notification blocked on stdout — override missing"
             )
             assert result_box.get("ok") is True, result_box
+        finally:
+            transport.close()
+
+    def test_survives_large_stderr_output(self, tmp_path):
+        """Regression for #750: a child that fills the stderr pipe buffer
+        before responding on stdout must not deadlock the transport.
+
+        ``StdioTransport`` spawns the child with ``stderr=subprocess.PIPE``
+        but nothing drains it. Once the child writes more than the OS pipe
+        buffer to stderr, its write blocks and it never gets to read stdin
+        or answer on stdout, so ``proc.stdout.readline()`` hangs forever.
+        """
+        import threading
+
+        script = tmp_path / "noisy_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import sys
+            import json
+
+            # Write well past any OS pipe buffer before touching stdin.
+            for _ in range(20000):
+                sys.stderr.write("noisy line filling the pipe buffer\\n")
+            sys.stderr.flush()
+
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                req = json.loads(line)
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id", 0),
+                    "result": {"echo": req.get("method", "")},
+                }
+                sys.stdout.write(json.dumps(resp) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)])
+        try:
+            result_box: dict = {}
+
+            def call():
+                try:
+                    req = MCPRequest(method="test/echo", id=1)
+                    result_box["resp"] = transport.send(req)
+                except Exception as exc:  # noqa: BLE001
+                    result_box["error"] = exc
+
+            worker = threading.Thread(target=call, daemon=True)
+            worker.start()
+            worker.join(timeout=10.0)
+            assert not worker.is_alive(), (
+                "send() deadlocked on a full stderr pipe buffer"
+            )
+            assert "error" not in result_box, result_box.get("error")
+            resp = result_box["resp"]
+            assert resp.error is None
+            assert resp.result["echo"] == "test/echo"
         finally:
             transport.close()
 

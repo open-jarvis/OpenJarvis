@@ -16,6 +16,7 @@ import {
   fetchAgentTraces,
 } from '../../lib/api';
 import type { ManagedAgent, AgentTask, AgentMessage, AgentTemplate, LearningLogEntry, AgentTrace } from '../../lib/api';
+import { getAgentSchedule } from '../../lib/agent-schedule';
 
 // ---------------------------------------------------------------------------
 // Colors — Catppuccin Mocha
@@ -85,6 +86,11 @@ function formatSchedule(type?: string, value?: string): string {
   if (type === 'cron') return value ? `Cron: ${value}` : 'Cron';
   if (type === 'interval') return value ? `Every ${value}` : 'Interval';
   return type;
+}
+
+function formatAgentSchedule(agent: ManagedAgent): string {
+  const { type, value } = getAgentSchedule(agent);
+  return formatSchedule(type, value);
 }
 
 function formatCost(cost?: number): string {
@@ -689,7 +695,7 @@ function OverviewTab({ agent, onRun, onPause, onResume, onRecover }: {
         </div>
         <div style={rowStyle}>
           <span style={labelStyle}>Schedule</span>
-          <span style={valueStyle}>{formatSchedule(agent.schedule_type, agent.schedule_value)}</span>
+          <span style={valueStyle}>{formatAgentSchedule(agent)}</span>
         </div>
         <div style={rowStyle}>
           <span style={labelStyle}>Last Run</span>
@@ -977,7 +983,7 @@ function DetailPanel({
           <h2 style={{ color: C.text, fontSize: 18, fontWeight: 700, margin: 0 }}>{agent.name}</h2>
         </div>
         <div style={{ color: C.overlay0, fontSize: 12 }}>
-          {agent.agent_type} · Schedule: {formatSchedule(agent.schedule_type, agent.schedule_value)} · Last run: {formatRelativeTime(agent.last_run_at)}
+          {agent.agent_type} · Schedule: {formatAgentSchedule(agent)} · Last run: {formatRelativeTime(agent.last_run_at)}
         </div>
       </div>
 
@@ -1160,7 +1166,7 @@ export function AgentsPanel({ apiUrl }: Props) {
                   </button>
                 </div>
                 <div style={{ color: C.overlay0, fontSize: 11, marginTop: 4 }}>
-                  {formatSchedule(a.schedule_type, a.schedule_value)}
+                  {formatAgentSchedule(a)}
                 </div>
                 <div style={{ color: C.overlay1, fontSize: 11, marginTop: 2 }}>
                   Last run: {formatRelativeTime(a.last_run_at)}

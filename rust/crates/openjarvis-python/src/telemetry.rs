@@ -95,7 +95,7 @@ impl PyInstrumentedEngine {
 // --- New telemetry session classes ---
 
 /// Python wrapper for TelemetrySample.
-#[pyclass(name = "TelemetrySample")]
+#[pyclass(name = "TelemetrySample", from_py_object)]
 #[derive(Clone)]
 pub struct PyTelemetrySample {
     pub timestamp_ns: u64,
@@ -250,7 +250,7 @@ impl PyItlStats {
     #[staticmethod]
     fn compute(token_timestamps_ms: Vec<f64>) -> PyResult<pyo3::Py<pyo3::types::PyDict>> {
         let stats = openjarvis_telemetry::itl::compute_itl_stats(&token_timestamps_ms);
-        pyo3::Python::with_gil(|py| {
+        pyo3::Python::attach(|py| {
             let dict = pyo3::types::PyDict::new(py);
             dict.set_item("p50_ms", stats.p50_ms)?;
             dict.set_item("p90_ms", stats.p90_ms)?;
@@ -320,7 +320,7 @@ impl PyPhaseMetrics {
             .collect();
         let metrics =
             openjarvis_telemetry::phase::compute_phase_metrics(&rust_samples, start_ns, end_ns, tokens);
-        pyo3::Python::with_gil(|py| {
+        pyo3::Python::attach(|py| {
             let dict = pyo3::types::PyDict::new(py);
             dict.set_item("energy_j", metrics.energy_j)?;
             dict.set_item("mean_power_w", metrics.mean_power_w)?;
@@ -361,7 +361,7 @@ impl PyPhaseMetrics {
             input_tokens,
             output_tokens,
         );
-        pyo3::Python::with_gil(|py| {
+        pyo3::Python::attach(|py| {
             let prefill_dict = pyo3::types::PyDict::new(py);
             prefill_dict.set_item("energy_j", prefill.energy_j)?;
             prefill_dict.set_item("mean_power_w", prefill.mean_power_w)?;

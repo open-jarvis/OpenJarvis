@@ -20,8 +20,32 @@ _MAX_TIMEOUT = 300
 # Default timeout (seconds)
 _DEFAULT_TIMEOUT = 30
 
-# Environment variables always passed through
-_BASE_ENV_KEYS = ("PATH", "HOME", "USER", "LANG", "TERM")
+# Environment variables always passed through on every platform.
+_PORTABLE_ENV_KEYS = (
+    "PATH",
+    "HOME",
+    "USER",
+    "LANG",
+    "TERM",
+)
+
+# Windows needs these to bootstrap ordinary child processes: missing
+# SystemRoot breaks Winsock/DNS initialization, while missing LOCALAPPDATA
+# can make the Store Python launcher provision a fresh interpreter in cwd.
+# Keep them conditional so a POSIX host that happens to define similarly
+# named variables does not expand the tool's minimal environment.
+_WINDOWS_ENV_KEYS = (
+    "SystemRoot",
+    "SystemDrive",
+    "COMSPEC",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "LOCALAPPDATA",
+    "APPDATA",
+)
+_BASE_ENV_KEYS = _PORTABLE_ENV_KEYS + (_WINDOWS_ENV_KEYS if os.name == "nt" else ())
 
 
 @ToolRegistry.register("shell_exec")

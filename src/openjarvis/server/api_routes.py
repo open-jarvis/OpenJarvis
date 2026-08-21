@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -409,16 +410,34 @@ async def get_trace(trace_id: str, request: Request):
 telemetry_router = APIRouter(prefix="/v1/telemetry", tags=["telemetry"])
 
 
+def _telemetry_db_path(request: Request) -> Path:
+    """Resolve telemetry storage from the active app configuration.
+
+    ``DEFAULT_CONFIG_DIR`` is fixed when :mod:`openjarvis.core.config` is
+    imported, so it cannot honor a later ``OPENJARVIS_HOME`` override.  The
+    running app's config is authoritative; lightweight apps that include these
+    routes directly fall back to the env-aware path resolver.
+    """
+    config = getattr(request.app.state, "config", None)
+    telemetry = getattr(config, "telemetry", None)
+    configured_path = getattr(telemetry, "db_path", None)
+    if configured_path:
+        return Path(configured_path).expanduser()
+
+    from openjarvis.core.paths import get_config_dir
+
+    return get_config_dir() / "telemetry.db"
+
+
 @telemetry_router.get("/stats")
 async def telemetry_stats(request: Request):
     """Get aggregated telemetry statistics."""
     try:
         from dataclasses import asdict
 
-        from openjarvis.core.config import DEFAULT_CONFIG_DIR
         from openjarvis.telemetry.aggregator import TelemetryAggregator
 
-        db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
+        db_path = _telemetry_db_path(request)
         if not db_path.exists():
             return {"total_requests": 0, "total_tokens": 0}
 
@@ -441,10 +460,9 @@ async def telemetry_stats(request: Request):
 async def telemetry_energy(request: Request):
     """Get energy monitoring data."""
     try:
-        from openjarvis.core.config import DEFAULT_CONFIG_DIR
         from openjarvis.telemetry.aggregator import TelemetryAggregator
 
-        db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
+        db_path = _telemetry_db_path(request)
         if not db_path.exists():
             return {
                 "total_energy_j": 0,
@@ -591,28 +609,36 @@ metrics_router = APIRouter(tags=["metrics"])
 async def prometheus_metrics(request: Request):
     """Prometheus-compatible metrics endpoint."""
     try:
-        from openjarvis.core.config import DEFAULT_CONFIG_DIR
         from openjarvis.telemetry.aggregator import TelemetryAggregator
 
-        db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
+        db_path = _telemetry_db_path(request)
         if not db_path.exists():
             from starlette.responses import PlainTextResponse
 
             return PlainTextResponse("# no telemetry data\n", media_type="text/plain")
 
         agg = TelemetryAggregator(db_path)
-        stats = agg.summary()
+        try:
+            stats = agg.summary()
+        finally:
+            agg.close()
+
+        avg_latency_ms = (
+            (stats.total_latency / stats.total_calls) * 1000
+            if stats.total_calls
+            else 0.0
+        )
 
         lines = [
             "# HELP openjarvis_requests_total Total requests processed",
             "# TYPE openjarvis_requests_total counter",
-            f"openjarvis_requests_total {stats.get('total_requests', 0)}",
+            f"openjarvis_requests_total {stats.total_calls}",
             "# HELP openjarvis_tokens_total Total tokens generated",
             "# TYPE openjarvis_tokens_total counter",
-            f"openjarvis_tokens_total {stats.get('total_tokens', 0)}",
+            f"openjarvis_tokens_total {stats.total_tokens}",
             "# HELP openjarvis_latency_avg_ms Average latency in milliseconds",
             "# TYPE openjarvis_latency_avg_ms gauge",
-            f"openjarvis_latency_avg_ms {stats.get('avg_latency_ms', 0)}",
+            f"openjarvis_latency_avg_ms {avg_latency_ms}",
         ]
         from starlette.responses import PlainTextResponse
 
@@ -667,14 +693,15 @@ async def websocket_chat_stream(websocket: WebSocket):
         {"type": "done",  "content": "..."}   -- final assembled response
         {"type": "error", "detail": "..."}    -- on failure
     """
-    from openjarvis.server.auth_middleware import websocket_authorized
+    from openjarvis.server.auth_middleware import authenticate_websocket
 
     expected_key = getattr(websocket.app.state, "api_key", "")
-    if not websocket_authorized(websocket, expected_key):
-        # 1008 = policy violation; reject before accepting the connection.
+    authorized, subprotocol = authenticate_websocket(websocket, expected_key)
+    if not authorized:
+        # Closing before accept rejects the HTTP upgrade request.
         await websocket.close(code=1008)
         return
-    await websocket.accept()
+    await websocket.accept(subprotocol=subprotocol)
     try:
         while True:
             raw = await websocket.receive_text()
@@ -1087,12 +1114,16 @@ def include_all_routes(app) -> None:
     except ImportError:
         pass
 
-    # WebSocket bridge for real-time agent events
+    # WebSocket bridge for real-time agent events. Must subscribe on the
+    # same EventBus instance channels/agents actually publish to
+    # (app.state.bus, set in server/app.py) — the get_event_bus() global
+    # singleton is a *different* bus that nothing in `jarvis serve` ever
+    # publishes to, so events silently never reached this endpoint.
     try:
         from openjarvis.core.events import get_event_bus
         from openjarvis.server.ws_bridge import create_ws_router
 
-        ws_router = create_ws_router(get_event_bus())
+        ws_router = create_ws_router(getattr(app.state, "bus", None) or get_event_bus())
         app.include_router(ws_router)
     except Exception:
         logger.debug("WebSocket bridge not available", exc_info=True)

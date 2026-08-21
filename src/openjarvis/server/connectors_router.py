@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+from functools import wraps
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 # ``Request`` must be importable at *module* scope so that FastAPI can resolve
@@ -25,6 +27,17 @@ logger = logging.getLogger(__name__)
 
 # Module-level cache of connector instances (keyed by connector_id).
 _instances: Dict[str, Any] = {}
+_SYNC_STOP_TIMEOUT_SECONDS = 5.0
+
+
+def _knowledge_sources(connector_id: str, connector: Any = None) -> tuple[str, ...]:
+    """Return the KnowledgeStore source values owned by a connector."""
+    if connector is not None and not isinstance(connector, type):
+        getter = getattr(connector, "knowledge_sources", None)
+        if callable(getter):
+            return tuple(getter())
+    explicit = getattr(connector, "indexed_sources", ())
+    return tuple(explicit) if explicit else (connector_id,)
 
 
 def _ensure_connectors_registered() -> None:
@@ -81,6 +94,13 @@ try:
         code: Optional[str] = None
         email: Optional[str] = None
         password: Optional[str] = None
+        # Connector-specific, non-secret setup values.  Keep credentials in
+        # the dedicated fields above so callers do not accidentally log them
+        # together with ordinary configuration.
+        config: Optional[Dict[str, Any]] = None
+        host: Optional[str] = None
+        port: Optional[int] = None
+        security: Optional[str] = None
 
 except ImportError:
     ConnectRequest = None  # type: ignore[assignment,misc]
@@ -124,10 +144,13 @@ def create_connectors_router():
         try:
             from openjarvis.connectors.store import KnowledgeStore
 
+            sources = _knowledge_sources(connector_id, instance)
+            placeholders = ", ".join("?" for _ in sources)
             with KnowledgeStore() as store:
                 rows = store._conn.execute(
-                    "SELECT COUNT(*) FROM knowledge_chunks WHERE source = ?",
-                    (connector_id,),
+                    f"SELECT COUNT(*) FROM knowledge_chunks "
+                    f"WHERE source IN ({placeholders})",
+                    sources,
                 ).fetchone()
                 chunks = rows[0] if rows else 0
         except Exception:
@@ -164,13 +187,23 @@ def create_connectors_router():
         )
 
         raw = (req.code or req.token or "").strip()
-        # Only the client-registration pair routes through the server flow.
-        # A raw access token (no ".apps.googleusercontent.com") is handled by
-        # the connector's handle_callback unchanged.
-        if ".apps.googleusercontent.com" not in raw or ":" not in raw:
+        provider = get_provider_for_connector(connector_id)
+
+        # Only the client-registration pair routes through the server flow;
+        # a raw access token is handled by the connector's handle_callback
+        # unchanged. Google's client IDs have a distinctive suffix, so a
+        # colon-containing string is only treated as a Google credential
+        # pair when it matches that format -- otherwise some other raw
+        # token that happens to contain a colon could be misidentified.
+        # Non-Google providers (Spotify, Strava, ...) have no such
+        # ambiguity: every non-Google OAuth connector only ever expects a
+        # client_id:client_secret pair through this path, so any
+        # colon-containing string is enough to route here.
+        is_google_pair = ".apps.googleusercontent.com" in raw
+        is_non_google_pair = provider is not None and provider.name != "google"
+        if ":" not in raw or not (is_google_pair or is_non_google_pair):
             return None
 
-        provider = get_provider_for_connector(connector_id)
         if provider is None:
             raise HTTPException(
                 status_code=400,
@@ -212,7 +245,64 @@ def create_connectors_router():
     # ------------------------------------------------------------------
 
     _sync_threads: Dict[str, Any] = {}
+    _sync_cancel_events: Dict[str, threading.Event] = {}
     _sync_state: Dict[str, Dict[str, Any]] = {}
+    _sync_lock = threading.Lock()
+    _sync_generations: Dict[str, int] = {}
+    # Connector lifecycle mutations are rare and touch shared credential,
+    # instance, checkpoint, and source-ownership state. Serializing them
+    # globally keeps connect/disconnect/manual-sync decisions atomic,
+    # including ownership checks for sources shared by multiple connectors.
+    _lifecycle_lock = threading.RLock()
+
+    def _disconnect_pending(connector_id: str) -> bool:
+        """Whether a prior disconnect is waiting for its worker to stop."""
+        with _sync_lock:
+            cancel_event = _sync_cancel_events.get(connector_id)
+            return (
+                connector_id in _sync_threads
+                and cancel_event is not None
+                and cancel_event.is_set()
+            )
+
+    def _reject_pending_disconnect(connector_id: str) -> None:
+        """Prevent credential/source changes while an old worker still owns them."""
+        if _disconnect_pending(connector_id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Sync for '{connector_id}' is still stopping; "
+                    "retry disconnect before reconnecting or syncing"
+                ),
+            )
+
+    def _serialized_async(func):
+        @wraps(func)
+        async def wrapped(*args, **kwargs):
+            with _lifecycle_lock:
+                return await func(*args, **kwargs)
+
+        return wrapped
+
+    def _serialized_sync(func):
+        @wraps(func)
+        def wrapped(*args, **kwargs):
+            with _lifecycle_lock:
+                return func(*args, **kwargs)
+
+        return wrapped
+
+    def _publish_sync_state(
+        connector_id: str,
+        generation: int,
+        state: Dict[str, Any],
+    ) -> bool:
+        """Publish worker state only while it still owns this lifecycle."""
+        with _sync_lock:
+            if _sync_generations.get(connector_id, 0) != generation:
+                return False
+            _sync_state[connector_id] = state
+            return True
 
     def _translate_sync_error(raw: str) -> str:
         """Map common backend exceptions to a short user-facing message."""
@@ -226,6 +316,7 @@ def create_connectors_router():
             return "Connection timed out."
         return raw
 
+    @_serialized_sync
     def _start_sync(connector_id: str, instance: Any) -> str:
         """Spawn a background sync; returns ``"started"`` or ``"already_syncing"``.
 
@@ -235,11 +326,15 @@ def create_connectors_router():
         inline. Both POST /connect (auto-ingest) and POST /sync (manual)
         route through here so they share guard, state, and error handling.
         """
-        import threading
-
-        existing = _sync_threads.get(connector_id)
-        if existing and existing.is_alive():
-            return "already_syncing"
+        with _sync_lock:
+            existing = _sync_threads.get(connector_id)
+            if existing and existing.is_alive():
+                return "already_syncing"
+            # Detect a disconnect that completes while the checkpoint baseline
+            # below is being read, before this start has published its thread.
+            # Without a generation token that race can launch a writer after
+            # disconnect has already purged the connector's indexed content.
+            start_generation = _sync_generations.get(connector_id, 0)
 
         # Snapshot the prior checkpoint count so the GET handler can
         # report "X new this run" without each client tracking it.
@@ -249,19 +344,17 @@ def create_connectors_router():
             from openjarvis.connectors.store import KnowledgeStore
             from openjarvis.connectors.sync_engine import SyncEngine
 
-            cp = SyncEngine(
-                pipeline=IngestionPipeline(store=KnowledgeStore()),
-            ).get_checkpoint(connector_id)
+            with KnowledgeStore() as store:
+                with SyncEngine(
+                    pipeline=IngestionPipeline(store=store),
+                ) as engine:
+                    cp = engine.get_checkpoint(connector_id)
             if cp and cp.get("items_synced") is not None:
                 baseline_items = int(cp["items_synced"])
         except Exception:  # noqa: BLE001
             baseline_items = 0
 
-        _sync_state[connector_id] = {
-            "state": "syncing",
-            "error": None,
-            "baseline_items": baseline_items,
-        }
+        cancel_event = threading.Event()
 
         def _run_sync() -> None:
             try:
@@ -269,28 +362,61 @@ def create_connectors_router():
                 from openjarvis.connectors.store import KnowledgeStore
                 from openjarvis.connectors.sync_engine import SyncEngine
 
-                store = KnowledgeStore()
-                pipeline = IngestionPipeline(store=store)
-                engine = SyncEngine(pipeline=pipeline)
-                engine.sync(instance)
-                logger.info("Sync completed for %s", connector_id)
-                _sync_state[connector_id] = {
-                    "state": "complete",
-                    "error": None,
-                    "baseline_items": baseline_items,
-                }
+                with KnowledgeStore() as store:
+                    with SyncEngine(
+                        pipeline=IngestionPipeline(store=store),
+                    ) as engine:
+                        engine.sync(instance, cancel_event=cancel_event)
+                final_state = "cancelled" if cancel_event.is_set() else "complete"
+                logger.info("Sync %s for %s", final_state, connector_id)
+                _publish_sync_state(
+                    connector_id,
+                    start_generation,
+                    {
+                        "state": final_state,
+                        "error": None,
+                        "baseline_items": baseline_items,
+                    },
+                )
             except Exception as exc:
+                if cancel_event.is_set():
+                    _publish_sync_state(
+                        connector_id,
+                        start_generation,
+                        {
+                            "state": "cancelled",
+                            "error": None,
+                            "baseline_items": baseline_items,
+                        },
+                    )
+                    return
                 error_msg = _translate_sync_error(str(exc))
                 logger.error("Sync failed for %s: %s", connector_id, error_msg)
-                _sync_state[connector_id] = {
-                    "state": "error",
-                    "error": error_msg,
-                    "baseline_items": baseline_items,
-                }
+                _publish_sync_state(
+                    connector_id,
+                    start_generation,
+                    {
+                        "state": "error",
+                        "error": error_msg,
+                        "baseline_items": baseline_items,
+                    },
+                )
 
         t = threading.Thread(target=_run_sync, daemon=True)
-        t.start()
-        _sync_threads[connector_id] = t
+        with _sync_lock:
+            if _sync_generations.get(connector_id, 0) != start_generation:
+                return "cancelled"
+            existing = _sync_threads.get(connector_id)
+            if existing and existing.is_alive():
+                return "already_syncing"
+            _sync_state[connector_id] = {
+                "state": "syncing",
+                "error": None,
+                "baseline_items": baseline_items,
+            }
+            _sync_cancel_events[connector_id] = cancel_event
+            _sync_threads[connector_id] = t
+            t.start()
         return "started"
 
     # ------------------------------------------------------------------
@@ -374,6 +500,7 @@ def create_connectors_router():
         }
 
     @router.post("/{connector_id}/connect")
+    @_serialized_async
     async def connect_connector(connector_id: str, req: ConnectRequest):
         """Connect a connector using the supplied credentials."""
         _ensure_connectors_registered()
@@ -382,6 +509,7 @@ def create_connectors_router():
                 status_code=404,
                 detail=f"Connector '{connector_id}' not found",
             )
+        _reject_pending_disconnect(connector_id)
         instance = _get_or_create(connector_id)
 
         try:
@@ -409,8 +537,33 @@ def create_connectors_router():
                 directive = _maybe_oauth_client_pair(connector_id, req)
                 if directive is not None:
                     return directive
-                if req.code:
-                    instance.handle_callback(req.code)
+                if (
+                    req.email
+                    and req.password
+                    and hasattr(instance, "connect_with_credentials")
+                ):
+                    from starlette.concurrency import run_in_threadpool
+
+                    connection_options: Dict[str, Any] = {}
+                    # Only the generic IMAP connector accepts a user-selected
+                    # network endpoint. Its connector implementation applies
+                    # the server-side public-address policy and DNS pinning.
+                    if connector_id == "imap":
+                        connection_options = {
+                            "imap_host": req.host or "",
+                            "imap_port": req.port,
+                            "imap_security": req.security or "",
+                        }
+                    await run_in_threadpool(
+                        instance.connect_with_credentials,
+                        req.email,
+                        req.password,
+                        **connection_options,
+                    )
+                elif req.code:
+                    from starlette.concurrency import run_in_threadpool
+
+                    await run_in_threadpool(instance.handle_callback, req.code)
                 elif req.token:
                     # A credential pasted into the ``token`` field. Connectors
                     # that accept a pre-existing access token expose ``_token``
@@ -426,6 +579,34 @@ def create_connectors_router():
                         instance._token = req.token
                     else:
                         instance.handle_callback(req.token)
+
+            elif connector_id in {"github_notifications", "oura"}:
+                if not req.token:
+                    raise HTTPException(status_code=400, detail="A token is required")
+                # These token connectors persist their credentials themselves;
+                # they intentionally do not expose the OAuth-only ``_token``
+                # attribute or ``handle_callback`` hook.
+                instance.set_token(req.token)
+
+            elif connector_id == "weather":
+                if not req.token:
+                    raise HTTPException(
+                        status_code=400, detail="An OpenWeather API key is required"
+                    )
+                location = (req.config or {}).get("location")
+                if not isinstance(location, str) or not location.strip():
+                    raise HTTPException(
+                        status_code=400, detail="A weather location is required"
+                    )
+                instance.configure(api_key=req.token, location=location)
+
+            elif connector_id == "news_rss":
+                feeds = (req.config or {}).get("feeds")
+                if not isinstance(feeds, list):
+                    raise HTTPException(
+                        status_code=400, detail="At least one RSS feed URL is required"
+                    )
+                instance.configure(feeds)
 
             else:
                 # Generic: try to store token or credentials if the instance
@@ -456,6 +637,7 @@ def create_connectors_router():
         }
 
     @router.post("/{connector_id}/disconnect")
+    @_serialized_async
     async def disconnect_connector(connector_id: str):
         """Disconnect a connector and clear its credentials."""
         _ensure_connectors_registered()
@@ -465,10 +647,87 @@ def create_connectors_router():
                 detail=f"Connector '{connector_id}' not found",
             )
         instance = _get_or_create(connector_id)
+        with _sync_lock:
+            _sync_generations[connector_id] = _sync_generations.get(connector_id, 0) + 1
+            cancel_event = _sync_cancel_events.get(connector_id)
+            sync_thread = _sync_threads.get(connector_id)
+            if cancel_event is not None:
+                cancel_event.set()
+            if sync_thread is not None and sync_thread.is_alive():
+                previous_state = _sync_state.get(connector_id, {})
+                _sync_state[connector_id] = {
+                    **previous_state,
+                    "state": "stopping",
+                    "error": None,
+                }
+
+        if sync_thread is not None and sync_thread.is_alive():
+            sync_thread.join(timeout=_SYNC_STOP_TIMEOUT_SECONDS)
+        if sync_thread is not None and sync_thread.is_alive():
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Sync for '{connector_id}' is still stopping; "
+                    "indexed content was not purged"
+                ),
+            )
+
+        # Only revoke/delete credentials after the worker has relinquished
+        # the old connection.  A timeout must leave the connector usable and
+        # reject reconnect attempts, rather than silently switching source
+        # state underneath a still-running writer.
         try:
             instance.disconnect()
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
+
+        # A source can be shared by multiple connector implementations
+        # (Gmail OAuth and Gmail IMAP both write source='gmail'). Preserve it
+        # while another owner is connected; otherwise purge it only after the
+        # in-flight writer has stopped.
+        purge_sources = set(_knowledge_sources(connector_id, instance))
+        for other_id in ConnectorRegistry.keys():
+            if other_id == connector_id:
+                continue
+            other_cls = ConnectorRegistry.get(other_id)
+            shared = purge_sources.intersection(_knowledge_sources(other_id, other_cls))
+            if not shared:
+                continue
+            try:
+                if _get_or_create(other_id).is_connected():
+                    purge_sources.difference_update(shared)
+            except Exception:
+                # If ownership cannot be established safely, retain data.
+                purge_sources.difference_update(shared)
+
+        try:
+            from openjarvis.connectors.pipeline import IngestionPipeline
+            from openjarvis.connectors.store import KnowledgeStore
+            from openjarvis.connectors.sync_engine import SyncEngine
+
+            with KnowledgeStore() as store:
+                with SyncEngine(
+                    pipeline=IngestionPipeline(store=store),
+                ) as engine:
+                    old_checkpoint = engine.get_checkpoint(connector_id)
+                    engine.reset_checkpoint(connector_id)
+                    try:
+                        store.delete_by_sources(purge_sources)
+                    except Exception:
+                        engine.restore_checkpoint(connector_id, old_checkpoint)
+                        raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Disconnect cleanup failed for %s", connector_id)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Disconnected, but indexed-data cleanup failed: {exc}",
+            )
+
+        with _sync_lock:
+            _sync_cancel_events.pop(connector_id, None)
+            _sync_threads.pop(connector_id, None)
+            _sync_state.pop(connector_id, None)
+
         return {
             "connector_id": connector_id,
             "connected": False,
@@ -523,6 +782,7 @@ def create_connectors_router():
         return RedirectResponse(url=auth_url)
 
     @router.get("/{connector_id}/oauth/callback")
+    @_serialized_async
     async def oauth_callback(
         connector_id: str,
         request: Request,
@@ -537,10 +797,13 @@ def create_connectors_router():
             _exchange_token,
             get_client_credentials,
             get_provider_for_connector,
+            require_access_token,
             save_tokens,
         )
 
         _ensure_connectors_registered()
+
+        _reject_pending_disconnect(connector_id)
 
         if error:
             _style = "font-family:system-ui;text-align:center;padding:60px"
@@ -574,6 +837,7 @@ def create_connectors_router():
             tokens = _exchange_token(
                 provider, code, client_id, client_secret, redirect_uri
             )
+            access_token = require_access_token(tokens)
         except Exception as exc:
             _style = "font-family:system-ui;text-align:center;padding:60px"
             return HTMLResponse(
@@ -587,7 +851,7 @@ def create_connectors_router():
             )
 
         payload = {
-            "access_token": tokens.get("access_token", ""),
+            "access_token": access_token,
             "refresh_token": tokens.get("refresh_token", ""),
             "token_type": tokens.get("token_type", "Bearer"),
             "expires_in": tokens.get("expires_in", 3600),
@@ -613,6 +877,7 @@ def create_connectors_router():
         )
 
     @router.post("/{connector_id}/sync")
+    @_serialized_sync
     def trigger_sync(connector_id: str) -> Dict[str, Any]:
         """Trigger a sync in the background and return immediately."""
         _ensure_connectors_registered()
@@ -622,6 +887,7 @@ def create_connectors_router():
                 detail=f"Connector '{connector_id}' not found",
             )
         inst = _get_or_create(connector_id)
+        _reject_pending_disconnect(connector_id)
         if not inst.is_connected():
             raise HTTPException(
                 status_code=400,
@@ -663,29 +929,22 @@ def create_connectors_router():
             from openjarvis.connectors.store import KnowledgeStore
             from openjarvis.connectors.sync_engine import SyncEngine
 
-            store = KnowledgeStore()
-            checkpoint = SyncEngine(
-                pipeline=IngestionPipeline(store=store),
-            ).get_checkpoint(connector_id)
+            with KnowledgeStore() as store:
+                with SyncEngine(
+                    pipeline=IngestionPipeline(store=store),
+                ) as engine:
+                    checkpoint = engine.get_checkpoint(connector_id)
 
-            # Map connector_id → source field as written by the connector.
-            # Most match 1:1, but the IMAP/OAuth Gmail connectors both write
-            # source='gmail' so the unified card pulls a single timeline.
-            _STORE_SOURCE = {"gmail_imap": "gmail"}
-            store_source = _STORE_SOURCE.get(connector_id, connector_id)
-
-            # Oldest indexed item for this connector so the UI can show how
-            # far back the corpus reaches ("synced back to 2024-03-12").
-            # ISO 8601 strings sort correctly under MIN(); skip rows with no
-            # timestamp and any tombstoned chunks so the display reflects
-            # what's actually retrievable.
-            row = store._conn.execute(
-                "SELECT MIN(timestamp) FROM knowledge_chunks "
-                "WHERE source = ? AND timestamp != '' AND deleted_at IS NULL",
-                (store_source,),
-            ).fetchone()
-            if row is not None and row[0]:
-                oldest_item_date = str(row[0])
+                sources = _knowledge_sources(connector_id, instance)
+                placeholders = ", ".join("?" for _ in sources)
+                row = store._conn.execute(
+                    "SELECT MIN(timestamp) FROM knowledge_chunks "
+                    f"WHERE source IN ({placeholders}) AND timestamp != '' "
+                    "AND deleted_at IS NULL",
+                    sources,
+                ).fetchone()
+                if row is not None and row[0]:
+                    oldest_item_date = str(row[0])
         except Exception:  # noqa: BLE001
             checkpoint = None
 
@@ -713,7 +972,9 @@ def create_connectors_router():
             last_sync_str = None
 
         # Determine effective state
-        if is_bg_running:
+        if _disconnect_pending(connector_id):
+            effective_state = "stopping"
+        elif is_bg_running:
             effective_state = "syncing"
         elif bg.get("state") == "error":
             effective_state = "error"

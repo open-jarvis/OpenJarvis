@@ -19,6 +19,7 @@ PYPROJECT = ROOT / "pyproject.toml"
 DESKTOP_LIB_RS = ROOT / "frontend" / "src-tauri" / "src" / "lib.rs"
 WINDOWS_INSTALL_PS1 = ROOT / "deploy" / "windows" / "install.ps1"
 QUICKSTART_SH = ROOT / "scripts" / "quickstart.sh"
+CLAUDE_RUNNER = ROOT / "src" / "openjarvis" / "agents" / "claude_code_runner"
 
 
 def _pyproject() -> dict:
@@ -66,3 +67,17 @@ def test_quickstart_installs_web_search_dependencies() -> None:
     quickstart = QUICKSTART_SH.read_text()
     assert "--extra tools-search" in quickstart
     assert "already running on port 8000" in quickstart
+
+
+def test_claude_runner_wheel_maps_only_runtime_files() -> None:
+    wheel = _pyproject()["tool"]["hatch"]["build"]["targets"]["wheel"]
+    force_include = wheel["force-include"]
+    source = "src/openjarvis/agents/claude_code_runner"
+
+    assert source not in force_include
+    for filename in ("index.mjs", "package.json"):
+        assert force_include[f"{source}/{filename}"] == (
+            f"_node_modules/claude_code_runner/{filename}"
+        )
+        assert (CLAUDE_RUNNER / filename).is_file()
+    assert f"/{source}" in wheel["exclude"]

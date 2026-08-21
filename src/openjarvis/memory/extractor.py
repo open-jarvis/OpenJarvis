@@ -128,6 +128,11 @@ class FactExtractor:
                 pass
 
         # 2. Fall back to line-based parsing (markdown bullets / numbered).
+        #    Deliberately permissive: small local models routinely answer with
+        #    one bare fact per line, and rejecting those would quietly stop
+        #    memory capture. Injected text can trivially add list markers, so
+        #    filtering here buys no defence — provenance tagging and the
+        #    injection scanner in MemoryService are the real gate.
         items: List[str] = []
         for line in content.splitlines():
             line = line.strip()

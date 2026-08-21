@@ -40,6 +40,35 @@ def test_memory_index_file(tmp_path: Path, monkeypatch):
     assert "Indexed" in result.output or "chunk" in result.output
 
 
+def test_memory_index_replaces_existing_source(tmp_path: Path, monkeypatch):
+    """Re-indexing a file replaces its previous chunks."""
+    _register_sqlite()
+    db_path = str(tmp_path / "mem.db")
+    doc = tmp_path / "doc.txt"
+    doc.write_text(" ".join(["legacy"] * 100), encoding="utf-8")
+
+    mod = importlib.import_module("openjarvis.cli.memory_cmd")
+    monkeypatch.setattr(
+        mod,
+        "_get_backend",
+        lambda b=None: SQLiteMemory(db_path=db_path),
+    )
+
+    first = CliRunner().invoke(cli, ["memory", "index", str(doc)])
+    assert first.exit_code == 0
+
+    doc.write_text(" ".join(["updated"] * 100), encoding="utf-8")
+    second = CliRunner().invoke(cli, ["memory", "index", str(doc)])
+    assert second.exit_code == 0
+
+    backend = SQLiteMemory(db_path=db_path)
+    assert backend.count() == 1
+    assert backend.retrieve("legacy") == []
+    updated = backend.retrieve("updated")
+    assert len(updated) == 1
+    assert updated[0].source == str(doc)
+
+
 def test_memory_index_nonexistent(tmp_path: Path):
     """Indexing a nonexistent path should fail."""
     _register_sqlite()
@@ -135,6 +164,47 @@ def test_memory_list_shows_facts(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0
     assert "dark mode" in result.output
     assert "Berlin" in result.output
+
+
+def test_memory_list_marks_only_quarantined_facts(tmp_path: Path, monkeypatch):
+    store = _patch_fact_store(monkeypatch, tmp_path)
+    store.add("clean auto note", source="auto", trust="auto")
+    store.add("flagged note", source="auto", trust="untrusted")
+
+    result = CliRunner().invoke(cli, ["memory", "list"])
+    assert result.exit_code == 0
+    assert "quarantined" in result.output.lower()
+    assert "excluded from model recall" in result.output.lower()
+
+
+def test_memory_list_without_quarantine_shows_no_warning(tmp_path: Path, monkeypatch):
+    store = _patch_fact_store(monkeypatch, tmp_path)
+    store.add("clean auto note", source="auto", trust="auto")
+
+    result = CliRunner().invoke(cli, ["memory", "list"])
+    assert result.exit_code == 0
+    assert "quarantined" not in result.output.lower()
+
+
+def test_memory_trust_promotes_a_quarantined_fact(tmp_path: Path, monkeypatch):
+    store = _patch_fact_store(monkeypatch, tmp_path)
+    store.add("flagged note", source="auto", trust="untrusted")
+    assert store.list()[0].trusted_for_recall is False
+
+    result = CliRunner().invoke(cli, ["memory", "trust", "1"])
+
+    assert result.exit_code == 0
+    assert store.list()[0].trust == "trusted"
+    assert store.list()[0].trusted_for_recall is True
+
+
+def test_memory_trust_rejects_an_unknown_index(tmp_path: Path, monkeypatch):
+    _patch_fact_store(monkeypatch, tmp_path).add("only note", trust="untrusted")
+
+    result = CliRunner().invoke(cli, ["memory", "trust", "4"])
+
+    assert result.exit_code != 0
+    assert "no fact #4" in result.output.lower()
 
 
 def test_memory_clear_with_confirmation(tmp_path: Path, monkeypatch):
