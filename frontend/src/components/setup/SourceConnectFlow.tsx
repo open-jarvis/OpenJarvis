@@ -283,9 +283,11 @@ function StepByStepPanel({
   onSkip: () => void;
   isConnecting: boolean;
 }) {
-  const [inputs, setInputs] = useState<Record<string, string>>({});
   const steps = connector.steps || [];
   const fields = connector.inputFields || [];
+  const [inputs, setInputs] = useState<Record<string, string>>(() =>
+    Object.fromEntries(fields.map((field) => [field.name, field.defaultValue || ''])),
+  );
 
   const updateInput = (name: string, value: string) => {
     setInputs((prev) => ({ ...prev, [name]: value }));
@@ -298,6 +300,11 @@ function StepByStepPanel({
       else if (field.name === 'password') req.password = inputs.password;
       else if (field.name === 'token') req.token = inputs.token;
       else if (field.name === 'path') req.path = inputs.path;
+      else if (field.name === 'host' && inputs.host?.trim()) req.host = inputs.host.trim();
+      else if (field.name === 'port' && inputs.port?.trim()) req.port = Number(inputs.port);
+      else if (field.name === 'security' && (inputs.security === 'tls' || inputs.security === 'starttls')) {
+        req.security = inputs.security;
+      }
     }
     // For email+password connectors, also set token as email:password
     if (req.email && req.password) {
@@ -310,7 +317,9 @@ function StepByStepPanel({
     onConnect(req);
   };
 
-  const allFilled = fields.every((f) => inputs[f.name]?.trim());
+  const allFilled = fields
+    .filter((field) => field.required !== false)
+    .every((field) => inputs[field.name]?.trim());
 
   return (
     <div style={{ padding: '0 4px' }}>
@@ -378,24 +387,49 @@ function StepByStepPanel({
           marginBottom: 10,
         }}>
           {fields.map((field) => (
-            <input
-              key={field.name}
-              value={inputs[field.name] || ''}
-              onChange={(e) => updateInput(field.name, e.target.value)}
-              placeholder={field.placeholder}
-              type={field.type || 'text'}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                background: 'var(--color-bg-secondary)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 4,
-                color: 'var(--color-text)',
-                fontSize: 13,
-                marginBottom: 8,
-                boxSizing: 'border-box',
-              }}
-            />
+            field.type === 'select' ? (
+              <select
+                key={field.name}
+                value={inputs[field.name] || field.defaultValue || ''}
+                onChange={(e) => updateInput(field.name, e.target.value)}
+                aria-label={field.placeholder}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 4,
+                  color: 'var(--color-text)',
+                  fontSize: 13,
+                  marginBottom: 8,
+                  boxSizing: 'border-box',
+                }}
+              >
+                {(field.options || []).map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                key={field.name}
+                value={inputs[field.name] || ''}
+                onChange={(e) => updateInput(field.name, e.target.value)}
+                placeholder={field.placeholder}
+                type={field.type || 'text'}
+                required={field.required !== false}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 4,
+                  color: 'var(--color-text)',
+                  fontSize: 13,
+                  marginBottom: 8,
+                  boxSizing: 'border-box',
+                }}
+              />
+            )
           ))}
         </div>
       )}
@@ -549,6 +583,7 @@ export function SourceConnectFlow({
               </div>
             ) : activeCard.steps ? (
               <StepByStepPanel
+                key={activeCard.connector_id}
                 connector={activeCard}
                 onConnect={(req) => handleConnect(activeEntry.id, req)}
                 onSkip={() => handleSkip(activeEntry.id)}

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import uuid
+import weakref
+from dataclasses import replace
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -56,7 +59,7 @@ def _to_messages(chat_messages) -> list[Message]:
 
 
 def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message]:
-    """Prepend OpenJarvis's identity system prompt when the client omits one.
+    """Return one leading system message, adding identity when needed.
 
     The desktop UI's chat backend posts only user/assistant turns to
     ``/v1/chat/completions`` (see ``frontend/.../Chat/InputArea.tsx``), so
@@ -67,9 +70,10 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     did not. This mirrors the agent fallback in ``agents/_stubs.py``.
 
     If any caller-supplied message already carries a system role, the caller
-    has supplied their own grounding and we leave the list untouched (no
-    double-prompting). Internally tagged memory context does not count as
-    caller grounding.
+    has supplied their own grounding and we do not add the server identity.
+    All system messages are still folded into one leading entry because some
+    chat templates reject multiple or mid-history system roles. Internally
+    tagged memory context does not count as caller grounding.
 
     Resolution of the identity text: the config comes from ``app.state`` when
     wired, otherwise ``load_config()``; the prompt itself is assembled by
@@ -84,37 +88,71 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     def _is_caller_system_prompt(m: Message) -> bool:
         return m.role == Role.SYSTEM and not m.metadata.get("memory_context")
 
-    if any(_is_caller_system_prompt(m) for m in messages):
-        return messages
+    system_messages = [message for message in messages if message.role == Role.SYSTEM]
+    caller_supplied_system = any(
+        _is_caller_system_prompt(message) for message in system_messages
+    )
+    identity_already_applied = any(
+        message.metadata.get("openjarvis_identity_prompt")
+        for message in system_messages
+    )
 
     prompt = ""
-    try:
-        cfg = app_config
-        if cfg is None:
-            from openjarvis.core.config import load_config
+    if not caller_supplied_system and not identity_already_applied:
+        try:
+            cfg = app_config
+            if cfg is None:
+                from openjarvis.core.config import load_config
 
-            cfg = load_config()
+                cfg = load_config()
 
-        from openjarvis.prompt.builder import SystemPromptBuilder
+            from openjarvis.prompt.builder import SystemPromptBuilder
 
-        builder = SystemPromptBuilder(
-            agent_template=cfg.agent.default_system_prompt or "",
-            memory_files_config=getattr(cfg, "memory_files", None),
-            system_prompt_config=getattr(cfg, "system_prompt", None),
+            builder = SystemPromptBuilder(
+                agent_template=cfg.agent.default_system_prompt or "",
+                memory_files_config=getattr(cfg, "memory_files", None),
+                system_prompt_config=getattr(cfg, "system_prompt", None),
+            )
+            prompt = builder.build()
+        except Exception:
+            logging.getLogger("openjarvis.server").debug(
+                "Identity system prompt resolution failed; "
+                "serving request without identity grounding",
+                exc_info=True,
+            )
+
+    system_parts = []
+    if prompt:
+        system_parts.append(prompt)
+    system_parts.extend(message.text for message in system_messages if message.text)
+    non_system_messages = [
+        message for message in messages if message.role != Role.SYSTEM
+    ]
+
+    if not system_parts:
+        return non_system_messages
+
+    if system_messages:
+        first_system = system_messages[0]
+        metadata = dict(first_system.metadata)
+        if prompt:
+            # Preserve the first system message's metadata while tagging the
+            # server-built identity so BaseAgent does not build it a second
+            # time if this normalized conversation later reaches agent code.
+            metadata["openjarvis_identity_prompt"] = True
+        combined_system = replace(
+            first_system,
+            content="\n\n".join(system_parts),
+            metadata=metadata,
         )
-        prompt = builder.build()
-    except Exception:
-        logging.getLogger("openjarvis.server").debug(
-            "Identity system prompt resolution failed; "
-            "serving request without identity grounding",
-            exc_info=True,
+    else:
+        combined_system = Message(
+            role=Role.SYSTEM,
+            content=prompt,
+            metadata={"openjarvis_identity_prompt": True},
         )
-        return messages
 
-    if not prompt:
-        return messages
-
-    return [Message(role=Role.SYSTEM, content=prompt), *messages]
+    return [combined_system, *non_system_messages]
 
 
 @router.post("/v1/chat/completions")
@@ -123,6 +161,11 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     engine = request.app.state.engine
     agent = getattr(request.app.state, "agent", None)
     model = request_body.model
+    use_server_agent = (
+        agent is not None
+        and not request_body.tools
+        and (not request_body.stream or bool(getattr(agent, "_tools", None)))
+    )
 
     # Inject memory context into messages before dispatching
     config = getattr(request.app.state, "config", None)
@@ -147,7 +190,12 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
             if query_text:
                 messages = _to_messages(request_body.messages)
-                messages = _ensure_identity_prompt(messages, config)
+                # Direct engine paths need the server identity folded into
+                # memory here so adapters receive one leading system message.
+                # Agent paths build that same identity in BaseAgent; injecting
+                # it at both layers duplicates the prompt around memory.
+                if not use_server_agent:
+                    messages = _ensure_identity_prompt(messages, config)
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -249,7 +297,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                 bus=getattr(request.app.state, "bus", None),
                 memory_service=getattr(request.app.state, "memory_service", None),
             )
-        if agent is not None and getattr(agent, "_tools", None):
+        if use_server_agent:
             return await _handle_agent_stream(
                 agent,
                 model,
@@ -290,7 +338,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     # ``engine.generate()``) both make blocking upstream calls; run them in a
     # worker thread so a slow/wedged non-streaming request can't stall the
     # event loop and every other concurrent request with it.
-    if agent is not None and not request_body.tools:
+    if use_server_agent:
         response = await asyncio.to_thread(
             _handle_agent,
             agent,
@@ -511,6 +559,35 @@ def _handle_direct(
     )
 
 
+# _handle_agent runs on a worker thread (via asyncio.to_thread) for both
+# the streaming and non-streaming routes, so concurrent requests against
+# the same shared agent execute on real OS threads and can genuinely
+# interleave. A lock per agent *instance* serializes the
+# override-run-restore critical section below so one request's temporary
+# `model` override can never be read as another's "original" value (#759).
+# Key by object identity rather than by the agent itself: custom agents may be
+# unhashable or may not support weak references.  The values are weak so this
+# registry retains neither the agent nor an idle lock.  A caller keeps the lock
+# alive from lookup through the full override/run/restore critical section.
+_agent_model_locks: "weakref.WeakValueDictionary[int, threading.Lock]" = (
+    weakref.WeakValueDictionary()
+)
+_agent_model_locks_guard = threading.Lock()
+
+
+def _get_agent_model_lock(agent: Any) -> threading.Lock:
+    """Return the lock serializing model overrides for *agent*, creating it
+    on first use. One lock per agent instance, not global, so unrelated
+    agents don't serialize against each other."""
+    agent_id = id(agent)
+    with _agent_model_locks_guard:
+        lock = _agent_model_locks.get(agent_id)
+        if lock is None:
+            lock = threading.Lock()
+            _agent_model_locks[agent_id] = lock
+        return lock
+
+
 def _handle_agent(
     agent,
     model: str,
@@ -541,20 +618,24 @@ def _handle_agent(
     # Last message is the input
     input_text = req.messages[-1].content if req.messages else ""
 
-    # Override agent model for this request if the caller specified one
-    original_model = agent._model
-    if model:
-        agent._model = model
-    try:
-        if trace_store is not None:
-            from openjarvis.traces.collector import TraceCollector
+    # Override agent model for this request if the caller specified one.
+    # Locked for the full override-run-restore cycle (#759): only the
+    # override/restore lines racing wouldn't be enough, since agent.run()
+    # itself reads self._model throughout the call.
+    with _get_agent_model_lock(agent):
+        original_model = agent._model
+        if model:
+            agent._model = model
+        try:
+            if trace_store is not None:
+                from openjarvis.traces.collector import TraceCollector
 
-            collector = TraceCollector(agent, store=trace_store, bus=bus)
-            result = collector.run(input_text, context=ctx)
-        else:
-            result = agent.run(input_text, context=ctx)
-    finally:
-        agent._model = original_model
+                collector = TraceCollector(agent, store=trace_store, bus=bus)
+                result = collector.run(input_text, context=ctx)
+            else:
+                result = agent.run(input_text, context=ctx)
+        finally:
+            agent._model = original_model
 
     usage = UsageInfo(
         prompt_tokens=result.metadata.get("prompt_tokens", 0),
@@ -871,6 +952,9 @@ async def _handle_stream(
     async def generate():
         started_at = time.time()
         full_content = ""
+        # Start with the configured route, then correct it below if the
+        # MultiEngine safety path deliberately bypasses that route.
+        actual_telemetry_engine = telemetry_engine
         # Send role chunk first
         first_chunk = ChatCompletionChunk(
             id=chunk_id,
@@ -912,6 +996,7 @@ async def _handle_stream(
                 except Exception:
                     pass
                 if _use_local_fallback:
+                    actual_telemetry_engine = "ollama"
                     token_iter = stream_local(
                         model, messages, req.temperature, req.max_tokens
                     )
@@ -971,7 +1056,7 @@ async def _handle_stream(
                 query=query_text,
                 result=full_content,
                 model=model,
-                engine=telemetry_engine,
+                engine=actual_telemetry_engine,
                 started_at=started_at,
                 ended_at=time.time(),
             )
@@ -1000,11 +1085,10 @@ async def _handle_stream(
         )
         finish_dict = _json.loads(finish_data.model_dump_json())
 
-        # Tag the finish chunk with the correct engine label.
-        # We use the routing decision (use_cloud) directly rather than
-        # unwrapping the engine chain, which can be in a broken state.
+        # Tag the finish chunk with the backend that actually yielded tokens,
+        # including the explicit local fallback around a stale MultiEngine map.
         finish_dict.setdefault("telemetry", {})
-        finish_dict["telemetry"]["engine"] = telemetry_engine
+        finish_dict["telemetry"]["engine"] = actual_telemetry_engine
 
         if complexity_info is not None:
             finish_dict["complexity"] = complexity_info.model_dump()

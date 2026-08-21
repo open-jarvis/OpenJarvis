@@ -18,6 +18,8 @@ from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Conversation, Message, Role, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
 
+_ALLOWED_ENGINE_OPTION_KEYS = frozenset({"num_ctx", "num_gpu"})
+
 
 @dataclass(slots=True)
 class AgentContext:
@@ -71,11 +73,13 @@ class BaseAgent(ABC):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         prompt_builder: Optional[Any] = None,
+        engine_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._engine = engine
         self._model = model
         self._bus = bus
         self._prompt_builder = prompt_builder
+        self._engine_options: Dict[str, Any] = dict(engine_options or {})
 
         # Three-tier resolution: explicit arg > config > class default > hardcoded
         if temperature is not None and max_tokens is not None:
@@ -178,27 +182,32 @@ class BaseAgent(ABC):
                 effective_system_prompt = cfg.agent.default_system_prompt or None
             except Exception:
                 effective_system_prompt = None
-        if effective_system_prompt:
-            context_system_text = "\n\n".join(
-                message.text
-                for message in context_messages
-                if message.role == Role.SYSTEM
-                and message.metadata.get("memory_context")
-                and message.text
+        # Fold ALL in-context system messages (both auto-captured memory
+        # context and caller-supplied system messages) into one leading system
+        # message. Do this even when there is no independently-built prompt:
+        # Qwen-family chat templates reject a system message after the first
+        # slot or more than one system message. Empty system messages must be
+        # removed too, otherwise they can leave a second system entry behind.
+        identity_already_applied = any(
+            message.role == Role.SYSTEM
+            and message.metadata.get("openjarvis_identity_prompt")
+            for message in context_messages
+        )
+        system_parts = []
+        if effective_system_prompt and not identity_already_applied:
+            system_parts.append(effective_system_prompt)
+        system_parts.extend(
+            message.text
+            for message in context_messages
+            if message.role == Role.SYSTEM and message.text
+        )
+        context_messages = [
+            message for message in context_messages if message.role != Role.SYSTEM
+        ]
+        if system_parts:
+            messages.append(
+                Message(role=Role.SYSTEM, content="\n\n".join(system_parts))
             )
-            if context_system_text:
-                effective_system_prompt = (
-                    f"{effective_system_prompt}\n\n{context_system_text}"
-                )
-                context_messages = [
-                    message
-                    for message in context_messages
-                    if not (
-                        message.role == Role.SYSTEM
-                        and message.metadata.get("memory_context")
-                    )
-                ]
-            messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
         if context_messages:
             messages.extend(context_messages)
         messages.append(Message(role=Role.USER, content=input))
@@ -218,12 +227,23 @@ class BaseAgent(ABC):
                 {"model": self._model, "engine": engine_id},
             )
 
+        # Stored engine options originate in CLI/runtime configuration and are
+        # intentionally allowlisted. Per-call kwargs originate in the agent
+        # implementation itself (for example ``tools`` or ``response_format``)
+        # and must reach the engine adapter unchanged. Filtering the merged
+        # mapping silently stripped function-calling tools from every agent.
+        gen_kwargs = {
+            key: value
+            for key, value in self._engine_options.items()
+            if key in _ALLOWED_ENGINE_OPTION_KEYS
+        }
+        gen_kwargs.update(extra_kwargs)
         result = self._engine.generate(
             messages,
             model=self._model,
             temperature=self._temperature,
             max_tokens=self._max_tokens,
-            **extra_kwargs,
+            **gen_kwargs,
         )
 
         if self._bus and not getattr(self._engine, "_publishes_events", False):

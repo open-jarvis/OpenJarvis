@@ -225,6 +225,8 @@ CLOUD_API_SURFACES = CLOUD_MEDIA_TOOLS | WEB_SEARCH_TOOLS
 OUTBOUND_TOOL_SURFACES = EXTERNAL_TOOL_SURFACES
 LOCAL_ACCESS_TOOLS = {
     "apply_patch",
+    "calendar_search",
+    "calendar_upcoming",
     "channel_list",
     "channel_status",
     "code_interpreter",

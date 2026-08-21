@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 TAURI_CONFIG = ROOT / "frontend" / "src-tauri" / "tauri.conf.json"
 MACOS_INFO_PLIST = ROOT / "frontend" / "src-tauri" / "Info.plist"
+DESKTOP_WORKFLOW = ROOT / ".github" / "workflows" / "desktop.yml"
 
 
 def _csp_sources(directive: str) -> set[str]:
@@ -32,3 +33,18 @@ def test_macos_webview_allows_user_configured_http_servers() -> None:
     info = plistlib.loads(MACOS_INFO_PLIST.read_bytes())
 
     assert info["NSAppTransportSecurity"]["NSAllowsArbitraryLoadsInWebContent"] is True
+
+
+def test_local_build_does_not_require_updater_signing_key() -> None:
+    """Updater artifacts are a release concern, not a local-build default."""
+    config = json.loads(TAURI_CONFIG.read_text(encoding="utf-8"))
+
+    assert config["bundle"]["createUpdaterArtifacts"] is False
+
+
+def test_release_workflow_explicitly_enables_updater_artifacts() -> None:
+    """Signed releases must still publish updater signatures and latest.json."""
+    workflow = DESKTOP_WORKFLOW.read_text(encoding="utf-8")
+
+    assert '"createUpdaterArtifacts":true' in workflow
+    assert "uploadUpdaterJson: true" in workflow

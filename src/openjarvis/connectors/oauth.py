@@ -262,10 +262,24 @@ def save_tokens(path: str, tokens: Dict[str, Any]) -> None:
 
     Creates parent directories as needed.
     """
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(tokens, indent=2), encoding="utf-8")
-    os.chmod(path, 0o600)
+    from openjarvis.security.file_utils import secure_write_json
+
+    secure_write_json(Path(path), tokens)
+
+
+def require_access_token(tokens: Any) -> str:
+    """Return a non-empty OAuth access token or reject the response.
+
+    Client registration credentials and error-shaped token responses are not
+    authenticated sessions.  Centralizing this check keeps every OAuth entry
+    point from persisting a false-success credential file.
+    """
+    if not isinstance(tokens, dict):
+        raise RuntimeError("OAuth token response was not a JSON object")
+    access_token = tokens.get("access_token")
+    if not isinstance(access_token, str) or not access_token.strip():
+        raise RuntimeError("OAuth token response did not include an access_token")
+    return access_token.strip()
 
 
 def delete_tokens(path: str) -> None:
@@ -375,7 +389,9 @@ def exchange_google_token(
         timeout=30.0,
     )
     resp.raise_for_status()
-    return resp.json()
+    tokens = resp.json()
+    require_access_token(tokens)
+    return tokens
 
 
 def run_oauth_flow(
@@ -642,7 +658,9 @@ def _exchange_token(
 
     resp = httpx.post(provider.token_endpoint, data=data, headers=headers, timeout=30.0)
     resp.raise_for_status()
-    return resp.json()
+    tokens = resp.json()
+    require_access_token(tokens)
+    return tokens
 
 
 def run_connector_oauth(
@@ -702,10 +720,11 @@ def run_connector_oauth(
 
     # Exchange code for tokens
     tokens = _exchange_token(provider, code, client_id, client_secret, redirect_uri)
+    access_token = require_access_token(tokens)
 
     # Build payload with client credentials included (needed for refresh)
     payload = {
-        "access_token": tokens.get("access_token", ""),
+        "access_token": access_token,
         "refresh_token": tokens.get("refresh_token", ""),
         "token_type": tokens.get("token_type", "Bearer"),
         "expires_in": tokens.get("expires_in", 3600),

@@ -18,6 +18,10 @@ Start with default settings:
 jarvis serve
 ```
 
+For a cloud-hosted example, see [Deploy on Render](render.md). Its free-tier
+Blueprint is intended for evaluation only because local OpenJarvis state is
+ephemeral.
+
 The server reads defaults from `~/.openjarvis/config.toml` and auto-detects available engines and models. Override any option via CLI flags:
 
 ```bash

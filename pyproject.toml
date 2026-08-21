@@ -35,7 +35,7 @@ dependencies = [
     "openai>=1.30",
     "nvidia-ml-py>=12.560.30",
     "posthog>=3.0",
-    "python-telegram-bot>=22.6",
+    "python-telegram-bot>=22.8",
     "rich>=13",
     "tomli>=2.0; python_version < '3.11'",
     "tomlkit>=0.12",
@@ -62,7 +62,9 @@ inference-cloud = [
 inference-google = [
     "google-genai>=1.0",
 ]
-inference-litellm = ["litellm>=1.40"]
+# Exact security pin covering the LiteLLM command-injection advisories.
+# Avoid 1.82.7/1.82.8, which were affected by the March supply-chain incident.
+inference-litellm = ["litellm==1.89.1"]
 inference-gemma = ["pygemma>=0.1.3"]
 tools-search = [
     "tavily-python>=0.3",
@@ -91,6 +93,9 @@ desktop = [
     "pydantic>=2.0",
     "python-multipart>=0.0.9",
     "faster-whisper>=1.0",
+    "numpy>=1.24",
+    "sounddevice>=0.5",
+    "soundfile>=0.12",
 ]
 openhands = ["openhands-sdk>=1.0; python_version >= '3.12'"]
 gpu-metrics = ["pynvml>=12.0"]
@@ -129,7 +134,12 @@ security-signing = ["cryptography>=43"]
 sandbox-wasm = ["wasmtime>=25"]
 sandbox-docker = ["docker>=7.0"]
 dashboard = ["textual>=0.80"]
-speech = ["faster-whisper>=1.0"]
+speech = [
+    "faster-whisper>=1.0",
+    "numpy>=1.24",
+    "sounddevice>=0.5",
+    "soundfile>=0.12",
+]
 speech-deepgram = ["deepgram-sdk>=3.0"]
 eval-wandb = ["wandb>=0.17"]
 eval-sheets = ["gspread>=6.0", "google-auth>=2.0"]
@@ -191,9 +201,13 @@ openjarvis-rust = { path = "rust/crates/openjarvis-python" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openjarvis"]
+exclude = [
+    "/src/openjarvis/agents/claude_code_runner",
+]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/openjarvis/agents/claude_code_runner" = "_node_modules/claude_code_runner"
+"src/openjarvis/agents/claude_code_runner/index.mjs" = "_node_modules/claude_code_runner/index.mjs"
+"src/openjarvis/agents/claude_code_runner/package.json" = "_node_modules/claude_code_runner/package.json"
 "src/openjarvis/channels/whatsapp_baileys_bridge" = "_node_modules/whatsapp_baileys_bridge"
 "scripts/install" = "_install_scripts"
 "deploy/windows" = "_deploy/windows"

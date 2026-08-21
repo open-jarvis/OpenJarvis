@@ -166,6 +166,47 @@ def test_memory_list_shows_facts(tmp_path: Path, monkeypatch):
     assert "Berlin" in result.output
 
 
+def test_memory_list_marks_only_quarantined_facts(tmp_path: Path, monkeypatch):
+    store = _patch_fact_store(monkeypatch, tmp_path)
+    store.add("clean auto note", source="auto", trust="auto")
+    store.add("flagged note", source="auto", trust="untrusted")
+
+    result = CliRunner().invoke(cli, ["memory", "list"])
+    assert result.exit_code == 0
+    assert "quarantined" in result.output.lower()
+    assert "excluded from model recall" in result.output.lower()
+
+
+def test_memory_list_without_quarantine_shows_no_warning(tmp_path: Path, monkeypatch):
+    store = _patch_fact_store(monkeypatch, tmp_path)
+    store.add("clean auto note", source="auto", trust="auto")
+
+    result = CliRunner().invoke(cli, ["memory", "list"])
+    assert result.exit_code == 0
+    assert "quarantined" not in result.output.lower()
+
+
+def test_memory_trust_promotes_a_quarantined_fact(tmp_path: Path, monkeypatch):
+    store = _patch_fact_store(monkeypatch, tmp_path)
+    store.add("flagged note", source="auto", trust="untrusted")
+    assert store.list()[0].trusted_for_recall is False
+
+    result = CliRunner().invoke(cli, ["memory", "trust", "1"])
+
+    assert result.exit_code == 0
+    assert store.list()[0].trust == "trusted"
+    assert store.list()[0].trusted_for_recall is True
+
+
+def test_memory_trust_rejects_an_unknown_index(tmp_path: Path, monkeypatch):
+    _patch_fact_store(monkeypatch, tmp_path).add("only note", trust="untrusted")
+
+    result = CliRunner().invoke(cli, ["memory", "trust", "4"])
+
+    assert result.exit_code != 0
+    assert "no fact #4" in result.output.lower()
+
+
 def test_memory_clear_with_confirmation(tmp_path: Path, monkeypatch):
     store = _patch_fact_store(monkeypatch, tmp_path)
     store.add("fact one")

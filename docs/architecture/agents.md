@@ -368,13 +368,13 @@ result = agent.run("Fix the failing test in test_utils.py")
 
 **Registry key:** `claude_code`
 
-Wraps the `@anthropic-ai/claude-code` SDK via a bundled Node.js subprocess bridge. Unlike every other agent, inference is handled entirely by the Claude Agent SDK -- the OpenJarvis inference engine is not used. This makes `ClaudeCodeAgent` a true external agent, similar in spirit to `OpenHandsAgent` but implemented via subprocess rather than an importable Python SDK.
+Wraps the `@anthropic-ai/claude-agent-sdk` package via a bundled Node.js subprocess bridge. Unlike every other agent, inference is handled entirely by the Claude Agent SDK -- the OpenJarvis inference engine is not used. This makes `ClaudeCodeAgent` a true external agent, similar in spirit to `OpenHandsAgent` but implemented via subprocess rather than an importable Python SDK.
 
 ```mermaid
 graph LR
     Q["User Query"] --> PY["Python: build JSON request"]
-    PY --> SPAWN["Spawn: node dist/index.js"]
-    SPAWN --> NODE["Node.js runner<br/>@anthropic-ai/claude-code SDK"]
+    PY --> SPAWN["Spawn: node index.mjs"]
+    SPAWN --> NODE["Node.js runner<br/>@anthropic-ai/claude-agent-sdk"]
     NODE --> SDK["Claude Agent SDK<br/>(cloud inference)"]
     SDK --> NODE
     NODE --> JSON["Sentinel-delimited JSON<br/>on stdout"]
@@ -384,14 +384,14 @@ graph LR
 
 How it works:
 
-1. On first call, copies the bundled `claude_code_runner/` to `~/.openjarvis/claude_code_runner/` and runs `npm install --production` if `node_modules` is absent
+1. On first call, copies the bundled `claude_code_runner/` to `~/.openjarvis/claude_code_runner/` and installs the pinned Agent SDK if it is missing or outdated
 2. Builds a JSON request with `prompt`, `api_key`, `workspace`, `allowed_tools`, `system_prompt`, and `session_id`
-3. Spawns `node dist/index.js` and writes the request to stdin
+3. Spawns `node index.mjs` and writes the request to stdin
 4. Reads stdout and extracts the JSON payload between `---OPENJARVIS_OUTPUT_START---` and `---OPENJARVIS_OUTPUT_END---` sentinels
 5. Falls back to treating all stdout as plain text content if sentinels are absent
 
 !!! warning "Requires Node.js 22+"
-    `ClaudeCodeAgent` raises `RuntimeError` at `run()` time if `node` is not found on `PATH`. An `ANTHROPIC_API_KEY` environment variable is required for the Claude Agent SDK to authenticate.
+    `ClaudeCodeAgent` raises `RuntimeError` at `run()` time if `node` or npm is not found on `PATH`. An `ANTHROPIC_API_KEY` environment variable is required for the Claude Agent SDK to authenticate.
 
 ```python
 from openjarvis.agents.claude_code import ClaudeCodeAgent

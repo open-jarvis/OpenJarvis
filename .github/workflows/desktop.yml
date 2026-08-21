@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -44,7 +44,7 @@ jobs:
             libdbus-1-dev
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -114,7 +114,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Full history + tags so the workflow_dispatch fallback in
           # "Determine release info" can derive the dev version from the
@@ -243,7 +243,7 @@ jobs:
           workspaces: 'frontend/src-tauri -> target'
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -346,12 +346,12 @@ jobs:
 
       - name: Build and release
         timeout-minutes: 120
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_CONFIG: '{"version":"${{ steps.release-info.outputs.tauri_version }}","bundle":{"externalBin":["binaries/ollama"]}}'
+          TAURI_CONFIG: '{"version":"${{ steps.release-info.outputs.tauri_version }}","bundle":{"createUpdaterArtifacts":true,"externalBin":["binaries/ollama"]}}'
           # tauri-action runs beforeBuildCommand (npm run build:tauri -> vite
           # build), which requires this at build time (#587). Strict for
           # releases: a missing/empty secret fails the build by design.
@@ -364,7 +364,7 @@ jobs:
           releaseBody: 'Desktop application built from ${{ github.sha }}'
           releaseDraft: false
           prerelease: ${{ steps.release-info.outputs.prerelease }}
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
           args: ${{ matrix.args }}
 
   # When a stable `desktop-v*` release is published, repoint the

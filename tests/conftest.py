@@ -4,14 +4,36 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.core.config import GpuInfo, HardwareInfo
-from openjarvis.core.events import EventBus, reset_event_bus
-from openjarvis.core.registry import (
+# Set BEFORE importing openjarvis.core.config: DEFAULT_CONFIG_DIR /
+# DEFAULT_CONFIG_PATH are resolved once at import time (the install-script
+# model, where OPENJARVIS_HOME is set before the process starts). Without
+# this, the very first import of openjarvis.core.config in the session --
+# this file imports it below, and it's transitively imported by nearly
+# everything -- permanently binds those constants (and the ~45 modules that
+# reference them) to the developer's real ~/.openjarvis for the rest of the
+# run, so tests touching e.g. AgentConfigEvolver or LearningOrchestrator
+# read/write real files under the developer's home directory (#787).
+_MISSING = object()
+_ORIGINAL_OPENJARVIS_HOME = os.environ.get("OPENJARVIS_HOME", _MISSING)
+_ORIGINAL_OPENJARVIS_CONFIG = os.environ.get("OPENJARVIS_CONFIG", _MISSING)
+_TEST_HOME = Path(tempfile.mkdtemp(prefix="openjarvis-test-home-"))
+_TEST_HOME_CLEANED = False
+os.environ["OPENJARVIS_HOME"] = str(_TEST_HOME)
+# An explicit config path takes precedence inside load_config(). It may point
+# at a developer's real file even when OPENJARVIS_HOME is isolated, so remove
+# it before config.py and its import-time constants are initialized.
+os.environ.pop("OPENJARVIS_CONFIG", None)
+
+from openjarvis.core.config import GpuInfo, HardwareInfo, load_config  # noqa: E402
+from openjarvis.core.events import EventBus, reset_event_bus  # noqa: E402
+from openjarvis.core.registry import (  # noqa: E402
     AgentRegistry,
     BenchmarkRegistry,
     ChannelRegistry,
@@ -30,6 +52,45 @@ from openjarvis.core.registry import (
 )
 
 
+def _cleanup_test_home() -> None:
+    """Restore import-time process state exactly once.
+
+    A session fixture is not instantiated for ``--collect-only`` and may not
+    be instantiated when collection fails.  Keep the cleanup in a normal
+    function so both fixture teardown and pytest's unconditional unconfigure
+    hook can call it safely.
+    """
+    global _TEST_HOME_CLEANED
+
+    if _TEST_HOME_CLEANED:
+        return
+    _TEST_HOME_CLEANED = True
+
+    load_config.cache_clear()
+    shutil.rmtree(_TEST_HOME, ignore_errors=True)
+
+    if _ORIGINAL_OPENJARVIS_HOME is _MISSING:
+        os.environ.pop("OPENJARVIS_HOME", None)
+    else:
+        os.environ["OPENJARVIS_HOME"] = str(_ORIGINAL_OPENJARVIS_HOME)
+    if _ORIGINAL_OPENJARVIS_CONFIG is _MISSING:
+        os.environ.pop("OPENJARVIS_CONFIG", None)
+    else:
+        os.environ["OPENJARVIS_CONFIG"] = str(_ORIGINAL_OPENJARVIS_CONFIG)
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    """Clean up even when pytest never starts the session fixture."""
+    _cleanup_test_home()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_session_test_home():
+    """Keep the import-time home alive through normal fixture teardown."""
+    yield
+    _cleanup_test_home()
+
+
 @pytest.fixture(autouse=True)
 def _no_update_check(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never let the CLI's PyPI update-check nag run during tests.
@@ -41,6 +102,24 @@ def _no_update_check(monkeypatch: pytest.MonkeyPatch) -> None:
     version-check cache and network access) it fires for real.
     """
     monkeypatch.setenv("OPENJARVIS_NO_UPDATE_CHECK", "1")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_openjarvis_home(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Re-assert OPENJARVIS_HOME and clear load_config()'s cache per test.
+
+    Two related leaks (#787): (1) something changing OPENJARVIS_HOME
+    without going through monkeypatch, so it never gets reverted for later
+    tests -- re-asserting it here every test is a cheap defense regardless
+    of cause; (2) load_config()'s functools.lru_cache(maxsize=1) serving a
+    config computed under a *different* test's environment/monkeypatched
+    values instead of the current test's.
+    """
+    monkeypatch.setenv("OPENJARVIS_HOME", str(_TEST_HOME))
+    monkeypatch.delenv("OPENJARVIS_CONFIG", raising=False)
+    load_config.cache_clear()
+    yield
+    load_config.cache_clear()
 
 
 @pytest.fixture(autouse=True)

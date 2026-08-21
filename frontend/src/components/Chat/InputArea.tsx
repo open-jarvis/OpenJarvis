@@ -6,6 +6,10 @@ import { streamChat, streamResearch } from '../../lib/sse';
 import { fetchSavings, getBase } from '../../lib/api';
 import { listConnectors, getSyncStatus } from '../../lib/connectors-api';
 import { serializeToolCallArguments } from '../../lib/tool-call';
+import {
+  engineFromCompletionChunk,
+  resolveChatEngine,
+} from '../../lib/chat-telemetry';
 import { MicButton } from './MicButton';
 import { useSpeech } from '../../hooks/useSpeech';
 import type {
@@ -219,6 +223,7 @@ export function InputArea() {
     let accumulatedContent = '';
     let usage: TokenUsage | undefined;
     let complexity: { score: number; tier: string; suggested_max_tokens: number } | undefined;
+    let routedEngine: string | undefined;
     const toolCalls: ToolCallInfo[] = [];
     const researchTraces: ResearchSearchTrace[] = [];
     const researchSourcesByRef = new Map<number, ResearchSource>();
@@ -427,6 +432,7 @@ export function InputArea() {
             const delta = data.choices?.[0]?.delta;
             if (data.usage) usage = data.usage;
             if (data.complexity) complexity = data.complexity;
+            routedEngine = engineFromCompletionChunk(data) ?? routedEngine;
             if (delta?.content) {
               if (!ttftMs) ttftMs = Date.now() - startTime;
               accumulatedContent += delta.content;
@@ -468,11 +474,14 @@ export function InputArea() {
         accumulatedContent = 'No response was generated. Please try again.';
       }
       const totalMs = Date.now() - startTime;
-      const _CLOUD_PREFIXES = ['gpt-', 'o1-', 'o3-', 'o4-', 'claude-', 'gemini-', 'openrouter/', 'MiniMax-', 'chatgpt-'];
-      const selectedOwner = useAppStore.getState().models.find((m) => m.id === selectedModel)?.owned_by;
-      const engineLabel = selectedOwner === 'litellm'
-        ? 'litellm'
-        : _CLOUD_PREFIXES.some(p => selectedModel.startsWith(p)) ? 'cloud' : 'ollama';
+      const appState = useAppStore.getState();
+      const selectedOwner = appState.models.find((m) => m.id === selectedModel)?.owned_by;
+      const engineLabel = resolveChatEngine({
+        routedEngine,
+        serverEngine: appState.serverInfo?.engine,
+        selectedModel,
+        selectedOwner,
+      });
       const telemetry: MessageTelemetry = {
         engine: engineLabel,
         model_id: selectedModel,

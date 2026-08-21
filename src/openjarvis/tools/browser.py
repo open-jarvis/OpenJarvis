@@ -162,15 +162,19 @@ class BrowserClickTool(BaseTool):
         return ToolSpec(
             name="browser_click",
             description=(
-                "Click an element on the current page."
-                " Use a CSS selector or text content to identify the element."
+                "Click an element on the current page. Pass the text you see"
+                " on the element (button label, link title), a CSS selector,"
+                " or a short description like 'first video result'."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "selector": {
                         "type": "string",
-                        "description": "CSS selector or text content of the element.",
+                        "description": (
+                            "Visible text of the element, a CSS selector, or"
+                            " a short description (e.g. 'first video result')."
+                        ),
                     },
                     "by_text": {
                         "type": "boolean",
@@ -179,18 +183,66 @@ class BrowserClickTool(BaseTool):
                             " instead of CSS selector. Default: false."
                         ),
                     },
+                    "target": {
+                        "type": "string",
+                        "description": "Alias for selector.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Alias for selector, for visible element text.",
+                    },
+                    "element": {
+                        "type": "string",
+                        "description": "Alias for selector.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Alias for selector.",
+                    },
                 },
-                "required": ["selector"],
+                # Require one accepted spelling without forcing callers to
+                # use ``selector`` when an advertised alias is supplied.
+                "anyOf": [
+                    {"required": ["selector"]},
+                    {"required": ["target"]},
+                    {"required": ["text"]},
+                    {"required": ["element"]},
+                    {"required": ["query"]},
+                ],
             },
             category="browser",
         )
 
+    _ORDINALS = {"first": 0, "second": 1, "third": 2, "fourth": 3, "last": -1}
+
+    # Filler words stripped from natural-language descriptions before
+    # keyword matching ("the first video result" -> "video"). Derive the
+    # ordinal entries from the supported mapping so adding one cannot leave it
+    # behind as a literal role-name keyword.
+    _DESC_STOPWORDS = frozenset(
+        "the a an top main big red blue green"
+        " result results item element link button option entry row".split()
+    ) | frozenset(_ORDINALS)
+
     def execute(self, **params: Any) -> ToolResult:
-        selector = params.get("selector", "")
+        # Models routinely name this param `target`, `text`, `element` or
+        # `query` instead of `selector`; rejecting those costs the whole
+        # workflow, so accept the common aliases.
+        selector = str(
+            params.get("selector")
+            or params.get("target")
+            or params.get("text")
+            or params.get("element")
+            or params.get("query")
+            or ""
+        ).strip()
         if not selector:
             return ToolResult(
                 tool_name="browser_click",
-                content="No selector provided.",
+                content=(
+                    "No selector provided. Pass the visible text of the"
+                    " element or a CSS selector."
+                ),
                 success=False,
             )
 
@@ -198,16 +250,16 @@ class BrowserClickTool(BaseTool):
 
         try:
             page = _session.page
-            if by_text:
-                page.get_by_text(selector).click()
-            else:
-                page.click(selector)
-
+            strategy = self._resolve_and_click(page, selector, by_text)
             return ToolResult(
                 tool_name="browser_click",
                 content=f"Clicked element: {selector}",
                 success=True,
-                metadata={"selector": selector, "by_text": by_text},
+                metadata={
+                    "selector": selector,
+                    "by_text": by_text,
+                    "strategy": strategy,
+                },
             )
         except ImportError:
             return ToolResult(
@@ -223,6 +275,111 @@ class BrowserClickTool(BaseTool):
                 content=f"Click error: {exc}",
                 success=False,
             )
+
+    def _resolve_and_click(self, page: Any, selector: str, by_text: bool) -> str:
+        """Resolve *selector* through a strategy ladder and click it.
+
+        LLMs pass anything from precise CSS to plain descriptions like
+        "first video result". Strategies from most to least precise: CSS,
+        exact text, fuzzy text, YouTube results video title, role-based
+        keyword match. Existence is checked with ``count()`` (instant, no
+        actionability wait) so bad strategies cost milliseconds; only a
+        strategy that actually matched gets a real click timeout. Searches
+        the main frame first, then child iframes (consent dialogs and ad
+        overlays live there). Returns the name of the winning strategy;
+        raises with a list of visible clickable elements when nothing
+        matched, so the model can retry sensibly.
+        """
+        import re
+
+        words = [w for w in re.split(r"\W+", selector.lower()) if w]
+        ordinal = next((self._ORDINALS[w] for w in words if w in self._ORDINALS), None)
+
+        def candidates(frame: Any) -> list:
+            cands = []
+            if not by_text:
+                cands.append(("css", frame.locator(selector)))
+            cands.append(("text-exact", frame.get_by_text(selector, exact=True)))
+            cands.append(
+                ("text-fuzzy", frame.get_by_text(re.compile(re.escape(selector), re.I)))
+            )
+            # YouTube search results: "first video result" must click a
+            # video title, not the "Videos" filter chip — so this outranks
+            # the generic role-based keyword match below.
+            try:
+                url = frame.url or ""
+            except Exception:
+                url = ""
+            if "youtube." in url and ("video" in words or "result" in words):
+                cands.append(("youtube-result", frame.locator("a#video-title")))
+            keywords = [w for w in words if w not in self._DESC_STOPWORDS]
+            if keywords:
+                pat = re.compile(".*".join(re.escape(k) for k in keywords), re.I)
+                for role in ("link", "button"):
+                    cands.append((f"role-{role}", frame.get_by_role(role, name=pat)))
+            return cands
+
+        def actionable_matches(locator: Any) -> list[Any]:
+            """Return click-ordered matches, excluding hidden or disabled ones."""
+            count = locator.count()
+            matches = []
+            # A locator can match hidden mobile/desktop duplicates before the
+            # visible control.  Build the actionable sequence first so an
+            # ordinal such as "first" means the first element a user can
+            # actually click, not the first raw DOM match.
+            for index in range(count):
+                match = locator.nth(index)
+                try:
+                    if not match.is_visible() or not match.is_enabled():
+                        continue
+                except Exception:
+                    # The click remains the final Playwright actionability
+                    # check, including stability and event-receivability.
+                    pass
+                matches.append(match)
+
+            if ordinal is not None:
+                index = len(matches) - 1 if ordinal == -1 else ordinal
+                return [matches[index]] if 0 <= index < len(matches) else []
+            return matches
+
+        last_error: Exception | None = None
+        for index, frame in enumerate(page.frames):
+            for strategy, locator in candidates(frame):
+                try:
+                    matches = actionable_matches(locator)
+                    if not matches:
+                        continue
+                except Exception:
+                    continue  # e.g. selector isn't valid CSS — next rung
+                for match in matches:
+                    try:
+                        match.click(timeout=8000 if index == 0 else 4000)
+                        return strategy
+                    except Exception as exc:
+                        last_error = exc
+                        continue
+
+        hint = ""
+        try:
+            texts = page.evaluate(
+                """(limit) => Array.from(
+                    document.querySelectorAll('a, button, [role=button], [role=link]')
+                ).map(e => (e.innerText || e.getAttribute('aria-label') || '').trim())
+                 .filter(t => t && t.length < 80)
+                 .filter((t, i, arr) => arr.indexOf(t) === i)
+                 .slice(0, limit)""",
+                15,
+            )
+            if texts:
+                hint = " Visible clickable elements: " + "; ".join(texts)
+        except Exception:
+            pass
+        detail = f" Last error: {last_error}" if last_error else ""
+        raise RuntimeError(
+            f"No element matched '{selector}' in the main page or its"
+            f" {len(page.frames) - 1} iframe(s).{hint}{detail}"
+        )
 
 
 # ---------------------------------------------------------------------------
