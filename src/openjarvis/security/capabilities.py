@@ -96,18 +96,18 @@ class CapabilityPolicy:
     def check(self, agent_id: str, capability: str, resource: str = "") -> bool:
         """Check whether *agent_id* has *capability* for *resource*.
 
-        Falls back to the ``_default`` wildcard agent's grants when
-        *agent_id* has no explicit policy of its own (or its own policy
-        denies) — this lets a baseline be granted once via
+        Falls back to the ``_default`` wildcard agent's grants only when
+        *agent_id* has no explicit policy of its own. This lets a baseline be
+        granted once via
         ``grant("_default", ...)`` instead of needing to know every
-        dynamically-created managed-agent UUID ahead of time. Returns True
-        if allowed by either check, False if denied by both.
+        dynamically-created managed-agent UUID ahead of time while preserving
+        the invariant that an agent-specific denial always wins.
         """
-        if self._rust_impl.check(agent_id, capability, resource):
-            return True
-        if agent_id != self._DEFAULT_AGENT:
+        if agent_id == self._DEFAULT_AGENT or agent_id in self._policies:
+            return self._rust_impl.check(agent_id, capability, resource)
+        if self._DEFAULT_AGENT in self._policies:
             return self._rust_impl.check(self._DEFAULT_AGENT, capability, resource)
-        return False
+        return self._rust_impl.check(agent_id, capability, resource)
 
     def _check_python(self, agent_id: str, capability: str, resource: str = "") -> bool:
         """Legacy Python check — kept for reference only."""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from openjarvis.core.events import EventBus, EventType
@@ -167,3 +168,25 @@ class TestAuditLogger:
         logger2 = AuditLogger(db_path=db_path)
         assert logger2.count() == 1
         logger2.close()
+
+    def test_concurrent_writers_preserve_single_hash_chain(
+        self, tmp_path: Path
+    ) -> None:
+        logger = AuditLogger(db_path=tmp_path / "audit.db")
+
+        def _write(index: int) -> None:
+            logger.log(
+                SecurityEvent(
+                    event_type=SecurityEventType.TOOL_EXECUTED,
+                    timestamp=float(index),
+                    content_preview=f"tool-{index}",
+                    action_taken="success",
+                )
+            )
+
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            list(pool.map(_write, range(100)))
+
+        assert logger.count() == 100
+        assert logger.verify_chain() == (True, None)
+        logger.close()

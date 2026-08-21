@@ -322,6 +322,8 @@ def serve(
                 agent_kwargs = {"bus": bus}
                 if sec.capability_policy is not None:
                     agent_kwargs["capability_policy"] = sec.capability_policy
+                if sec.rate_limiter is not None:
+                    agent_kwargs["rate_limiter"] = sec.rate_limiter
 
                 # Load tools for agents that support them
                 if getattr(agent_cls, "accepts_tools", False):

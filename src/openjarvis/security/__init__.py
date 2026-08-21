@@ -34,6 +34,11 @@ def setup_security(
     if not config.security.enabled:
         return SecurityContext(engine=engine)
 
+    # Shared and network-server profiles promise capability and rate-limit
+    # enforcement. Starting either profile without a configured primitive
+    # would silently turn an initialization fault into unrestricted access.
+    strict_enforcement = config.security.profile in {"shared", "server"}
+
     from openjarvis.security._stubs import BaseScanner
     from openjarvis.security.audit import AuditLogger
     from openjarvis.security.guardrails import GuardrailsEngine
@@ -88,7 +93,12 @@ def setup_security(
                 ):
                     cap_policy.grant("_default", cap)
         except Exception as exc:
-            logger.debug("Failed to set up capability policy: %s", exc)
+            if strict_enforcement:
+                raise RuntimeError(
+                    "Capability policy initialization failed for the "
+                    f"{config.security.profile!r} security profile"
+                ) from exc
+            logger.warning("Failed to set up capability policy: %s", exc)
 
     # Audit logger
     audit = None
@@ -116,7 +126,12 @@ def setup_security(
                 )
             )
         except Exception as exc:
-            logger.debug("Failed to set up rate limiter: %s", exc)
+            if strict_enforcement:
+                raise RuntimeError(
+                    "Rate limiter initialization failed for the "
+                    f"{config.security.profile!r} security profile"
+                ) from exc
+            logger.warning("Failed to set up rate limiter: %s", exc)
 
     return SecurityContext(
         engine=engine,
