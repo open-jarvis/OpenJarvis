@@ -40,7 +40,7 @@ jobs:
             echo "ref=${DEFAULT_REF}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ steps.ref.outputs.ref }}
 
