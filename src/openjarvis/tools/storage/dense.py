@@ -552,6 +552,7 @@ class DenseMemory(MemoryBackend):
     """
 
     backend_id = "dense"
+    _COMPACTION_TOMBSTONE_RATIO = 0.25
 
     def __init__(self, embedder: Optional[Embedder] = None) -> None:
         self._embedder: Optional[Embedder] = embedder
@@ -635,7 +636,7 @@ class DenseMemory(MemoryBackend):
         dead_count = len(self._contents) - self._live_count
         if dead_count == 0:
             return
-        if dead_count / len(self._contents) < 0.25:
+        if dead_count / len(self._contents) < self._COMPACTION_TOMBSTONE_RATIO:
             return
 
         keep = [i for i, is_live in enumerate(self._active) if is_live]
@@ -656,9 +657,7 @@ class DenseMemory(MemoryBackend):
         self._metadatas = [dict(self._metadatas[i]) for i in keep]
         self._doc_ids = [self._doc_ids[i] for i in keep]
         self._active = [True] * len(self._contents)
-        self._id_to_index = {
-            doc_id: idx for idx, doc_id in enumerate(self._doc_ids)
-        }
+        self._id_to_index = {doc_id: idx for idx, doc_id in enumerate(self._doc_ids)}
         self._live_count = len(self._contents)
 
     def retrieve(
@@ -690,19 +689,23 @@ class DenseMemory(MemoryBackend):
         if matrix_snapshot is None or matrix_snapshot.shape[0] == 0:
             return []
 
-        live_idx = [i for i, is_live in enumerate(active) if is_live]
-        if not live_idx:
+        live_count = sum(active)
+        if live_count == 0:
             return []
-        active_matrix = matrix_snapshot[live_idx]
 
         emb = self._get_embedder()
         q_vec = emb.embed([query])  # shape (1, dim), normalized
-        # Single matrix-vector mult over only active rows.
-        scores = active_matrix @ q_vec[0]  # shape (n_live,)
+        # Compute against the bounded physical matrix, then mask tombstoned
+        # scores in-place. Advanced row indexing would copy an O(n * dim)
+        # active matrix on every query; compaction keeps the extra dot-product
+        # work below the named tombstone threshold without that allocation.
+        scores = matrix_snapshot @ q_vec[0]  # shape (n_physical,)
+        active_mask = np.asarray(active, dtype=bool)
+        scores[~active_mask] = -np.inf
 
         # Top-k via argpartition then sort
         n = scores.shape[0]
-        k = min(top_k, n)
+        k = min(top_k, live_count)
         if k <= 0:
             return []
         if k < n:
@@ -715,13 +718,12 @@ class DenseMemory(MemoryBackend):
         results: List[RetrievalResult] = []
         for i in top_idx:
             i = int(i)
-            live_pos = live_idx[i]
             results.append(
                 RetrievalResult(
-                    content=contents[live_pos],
+                    content=contents[i],
                     score=float(scores[i]),
-                    source=sources[live_pos],
-                    metadata={**metadatas[live_pos], "doc_id": doc_ids[live_pos]},
+                    source=sources[i],
+                    metadata={**metadatas[i], "doc_id": doc_ids[i]},
                 )
             )
         return results
