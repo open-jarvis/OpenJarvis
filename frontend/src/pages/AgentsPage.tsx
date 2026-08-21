@@ -67,6 +67,7 @@ import type { ConnectRequest } from '../types/connectors';
 import { listConnectors, connectSource } from '../lib/connectors-api';
 import type { ToolCallInfo } from '../types';
 import { ToolCallCard } from '../components/Chat/ToolCallCard';
+import { getAgentSchedule } from '../lib/agent-schedule';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -179,6 +180,11 @@ function formatSchedule(type?: string, value?: string): string {
     return `Every ${value}`;
   }
   return type || 'Manual';
+}
+
+function formatAgentSchedule(agent: ManagedAgent): string {
+  const { type, value } = getAgentSchedule(agent);
+  return formatSchedule(type, value);
 }
 
 // ---------------------------------------------------------------------------
@@ -1225,7 +1231,7 @@ function AgentCard({
 
       {/* Row 2: Schedule + last run */}
       <div className="text-xs mb-2 flex items-center gap-3" style={{ color: 'var(--color-text-tertiary)' }}>
-        <span>{formatSchedule(agent.schedule_type, agent.schedule_value)}</span>
+        <span>{formatAgentSchedule(agent)}</span>
         <span>·</span>
         <span>Last run: {formatRelativeTime(agent.last_run_at)}</span>
       </div>
@@ -1520,7 +1526,7 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
       </span>
     )],
     ['Agent Type', <span key="at">{agent.agent_type}</span>],
-    ['Schedule', <span key="sc">{formatSchedule(agent.schedule_type, agent.schedule_value)}</span>],
+    ['Schedule', <span key="sc">{formatAgentSchedule(agent)}</span>],
     ['Last Run', <span key="lr">{formatRelativeTime(agent.last_run_at)}</span>],
     ['Budget', <span key="bg">{agent.budget ? formatCost(agent.budget) : 'Unlimited'}</span>],
     ['Learning', <span key="le">{agent.learning_enabled ? 'Enabled' : 'Disabled'}</span>],
