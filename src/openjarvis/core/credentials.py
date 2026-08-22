@@ -6,18 +6,25 @@ Thread-safe writes via lock. Sets os.environ on save for immediate effect.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
+import time
 from pathlib import Path
 
+import tomlkit
+
 from openjarvis.core.paths import get_config_dir
+from openjarvis.security.file_utils import secure_write_text
 
 try:
     import tomllib
 except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore[no-redef]
 
-_LOCK = threading.Lock()
+logger = logging.getLogger(__name__)
+
+_LOCK = threading.RLock()
 
 
 def _default_path() -> Path:
@@ -59,12 +66,30 @@ TOOL_CREDENTIALS: dict[str, list[str]] = {
 
 
 def load_credentials(path: Path | None = None) -> dict[str, dict[str, str]]:
-    """Load credentials from TOML file."""
+    """Load credentials, preserving malformed input as a recoverable backup."""
     p = Path(path) if path else _default_path()
-    if not p.exists():
-        return {}
-    with open(p, "rb") as f:
-        return tomllib.load(f)
+    with _LOCK:
+        if not p.exists():
+            return {}
+        try:
+            with open(p, "rb") as f:
+                return tomllib.load(f)
+        except tomllib.TOMLDecodeError:
+            backup = p.with_name(f"{p.name}.corrupt-{time.time_ns()}")
+            try:
+                os.replace(p, backup)
+                os.chmod(backup, 0o600)
+            except OSError:
+                logger.exception(
+                    "Could not preserve malformed credential file %s",
+                    p,
+                )
+                raise
+            logger.warning(
+                "Malformed credential file moved to %s; starting with an empty store",
+                backup,
+            )
+            return {}
 
 
 def _validate_credential_key(tool_name: str, key: str) -> None:
@@ -74,15 +99,13 @@ def _validate_credential_key(tool_name: str, key: str) -> None:
 
 
 def _write_credentials(creds: dict[str, dict[str, str]], path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines: list[str] = []
+    document = tomlkit.document()
     for section, kvs in creds.items():
-        lines.append(f"[{section}]")
-        for k, v in kvs.items():
-            lines.append(f'{k} = "{v}"')
-        lines.append("")
-    path.write_text("\n".join(lines))
-    os.chmod(path, 0o600)
+        table = tomlkit.table()
+        for key, value in kvs.items():
+            table.add(key, value)
+        document.add(section, table)
+    secure_write_text(path, tomlkit.dumps(document), mode=0o600, encoding="utf-8")
 
 
 def save_credential(
