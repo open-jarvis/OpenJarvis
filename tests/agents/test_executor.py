@@ -11,6 +11,7 @@ import pytest
 from openjarvis.agents._stubs import AgentResult
 from openjarvis.agents.errors import FatalError, RetryableError
 from openjarvis.core.events import EventBus, EventType
+from openjarvis.core.types import ToolResult
 
 
 @pytest.fixture
@@ -138,6 +139,18 @@ class TestExecutorBasic:
 
         # Agent should still be running (first tick owns it)
         assert manager.get_agent(agent["id"])["status"] == "running"
+
+
+def test_empty_turn_with_tool_result_is_not_retried() -> None:
+    from openjarvis.agents.executor import _should_retry_empty_result
+
+    result = AgentResult(
+        content="  ",
+        tool_results=[ToolResult(tool_name="channel_send", content="sent")],
+    )
+
+    assert _should_retry_empty_result(result) is False
+    assert _should_retry_empty_result(AgentResult(content="")) is True
 
 
 def test_finalize_tick_reads_agent_result_metadata(tmp_path):

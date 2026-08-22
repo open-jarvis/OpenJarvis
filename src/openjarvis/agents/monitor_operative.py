@@ -740,9 +740,11 @@ class MonitorOperativeAgent(ToolUsingAgent):
         """Auto-persist a state summary if agent didn't store explicitly."""
         if not self._memory_backend or not self._operator_id:
             return
+        if not content or not content.strip():
+            return
         state_key = f"monitor_operative:{self._operator_id}:state"
         try:
-            summary = content[:1000] if content else ""
+            summary = content[:1000]
             self._memory_backend.store(state_key, summary)
         except Exception:
             logger.debug(
