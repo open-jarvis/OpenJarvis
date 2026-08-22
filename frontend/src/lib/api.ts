@@ -137,7 +137,8 @@ export interface SetupStatus {
   server_ready: boolean;
   model_ready: boolean;
   error: string | null;
-  source?: 'ollama' | 'custom'; // drives source-aware setup labels
+  source: 'unconfigured' | 'ollama' | 'custom';
+  requires_source: boolean;
 }
 
 export async function getSetupStatus(): Promise<SetupStatus | null> {
@@ -147,6 +148,28 @@ export async function getSetupStatus(): Promise<SetupStatus | null> {
     return await invoke<SetupStatus>('get_setup_status');
   } catch {
     return null;
+  }
+}
+
+/** Start desktop services after an inference source has been persisted. */
+export async function startBackend(): Promise<void> {
+  if (!isTauri()) throw new Error('The desktop backend is available in the desktop app only.');
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke<void>('start_backend');
+  } catch (e: any) {
+    throw new Error(e?.message ?? e ?? 'Failed to start the desktop backend');
+  }
+}
+
+/** Stop an in-flight setup and return the desktop to its inert source chooser. */
+export async function resetInferenceSource(): Promise<void> {
+  if (!isTauri()) throw new Error('Inference setup recovery is available in the desktop app only.');
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke<void>('reset_inference_source');
+  } catch (e: any) {
+    throw new Error(e?.message ?? e ?? 'Failed to reset inference setup');
   }
 }
 
@@ -1128,6 +1151,7 @@ export async function getInferenceSource(): Promise<InferenceSource> {
 
 export async function setInferenceSource(
   src: InferenceSource & { apiKey?: string },
+  options: { pending?: boolean } = {},
 ): Promise<void> {
   if (!isTauri()) throw new Error('Inference source is configurable in the desktop app only.');
   try {
@@ -1138,6 +1162,7 @@ export async function setInferenceSource(
       host: src.host ?? null,
       engine: src.engine ?? null,
       apiKey: src.apiKey ?? null,
+      pending: options.pending ?? null,
     });
   } catch (e: any) {
     // Surface the backend's actionable error strings (e.g. "A server URL is
@@ -1145,3 +1170,8 @@ export async function setInferenceSource(
     throw new Error(e?.message ?? e ?? 'Failed to save inference source');
   }
 }
+
+/** Stage a first-run choice; Rust confirms it only after backend readiness. */
+export const stageInferenceSource = (
+  src: InferenceSource & { apiKey?: string },
+): Promise<void> => setInferenceSource(src, { pending: true });
