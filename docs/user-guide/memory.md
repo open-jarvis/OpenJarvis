@@ -188,6 +188,40 @@ The hybrid backend over-fetches (3x `top_k`) from each sub-backend before applyi
 !!! tip "When to use Hybrid"
     Use this backend when you want the best of both keyword matching and semantic similarity. The RRF fusion approach is robust and does not require tuning score distributions across different retrieval methods.
 
+### Mixedbread (toast-1)
+
+**Registry key:** `mixedbread`
+
+Cloud retrieval through [Mixedbread](https://www.mixedbread.com)'s [toast-1](https://www.mixedbread.com/blog/toast-1) search agent. Documents are uploaded to a managed Mixedbread store; retrieval runs an agentic search that performs query decomposition, evidence gathering, and ranking server-side before returning curated chunks.
+
+- **Scoring:** Relevance scores returned by the toast-1 search agent
+- **Persistence:** Remote (Mixedbread store, survives restarts)
+- **Dependencies:** `mixedbread`, an API key in `MXBAI_API_KEY`
+
+```bash
+uv sync --extra memory-mixedbread
+export MXBAI_API_KEY="..."
+```
+
+```python
+backend = MemoryRegistry.create("mixedbread", store_name="openjarvis-memory")
+doc_id = backend.store("Quarterly revenue grew 12% ...", source="report.md")
+results = backend.retrieve("what changed in Q3 revenue?")
+```
+
+| Parameter           | Default               | Description                                                  |
+|---------------------|-----------------------|--------------------------------------------------------------|
+| `store_name`        | `"openjarvis-memory"` | Mixedbread store to use (created on first use)               |
+| `api_key`           | `MXBAI_API_KEY` env   | Mixedbread API key                                           |
+| `agentic`           | `True`                | Use toast-1 agentic search (plain chunk search when `False`) |
+| `wait_for_indexing` | `False`               | Block `store()` until the document is searchable             |
+
+!!! warning "Cloud backend"
+    Unlike every other backend, this one sends stored documents and queries to the Mixedbread cloud API. Enable it only deliberately (`[tools.storage] default_backend = "mixedbread"`) and never index content that must stay on-device. Uploads are indexed asynchronously -- an immediate `retrieve()` after `store()` may not see the new document unless `wait_for_indexing=True`.
+
+!!! tip "When to use Mixedbread"
+    Use this backend when retrieval quality over a large corpus matters more than staying fully local: toast-1 handles multi-hop query decomposition and ranking server-side, so even a small local model receives curated context instead of driving the search loop itself.
+
 ---
 
 ## Backend Comparison
@@ -199,6 +233,7 @@ The hybrid backend over-fetches (3x `top_k`) from each sub-backend before applyi
 | ColBERTv2   | Late interaction  | No          | colbert-ai, torch    | Best     | Slower   |
 | BM25        | Keyword (Okapi)   | No          | rank-bm25            | Good     | Fast     |
 | Hybrid      | Fusion (RRF)      | Mixed       | Sub-backend deps     | Better   | Medium   |
+| Mixedbread  | Agentic (toast-1) | Yes (cloud) | mixedbread, API key  | Best     | Medium   |
 
 ---
 

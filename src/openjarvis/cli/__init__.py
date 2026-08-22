@@ -183,6 +183,19 @@ if not _DATA_BOUNDARY_BOOTSTRAP:
         _logging.getLogger(__name__).debug(
             "deep-research command unavailable: %s", _dr_exc
         )
+
+    # Mixedbread mirror sync needs the optional `mixedbread` SDK only at
+    # runtime, but guard registration the same way for symmetry.
+    try:
+        from openjarvis.cli.mixedbread_sync_cmd import mixedbread_sync
+
+        cli.add_command(mixedbread_sync, "mixedbread-sync")
+    except Exception as _mxb_exc:
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug(
+            "mixedbread-sync command unavailable: %s", _mxb_exc
+        )
     cli.add_command(self_update, "self-update")
     cli.add_command(bootstrap_cmd, "_bootstrap")
 

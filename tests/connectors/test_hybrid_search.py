@@ -179,3 +179,31 @@ def test_upcoming_calendar_includes_today_all_day_events() -> None:
         "All Day Today",
         "Morning Tomorrow",
     ]
+
+
+def test_build_research_search_default_never_imports_mixedbread(
+    monkeypatch,
+) -> None:
+    """The default retrieval path must not touch optional cloud code.
+
+    Blocking the mixedbread module proves both properties: the default
+    config builds hybrid search without the import, and the explicit
+    opt-in degrades to hybrid (with a warning) when the SDK is absent.
+    """
+    import sys
+
+    from openjarvis.connectors.hybrid_search import build_research_search
+    from openjarvis.core.config import JarvisConfig
+
+    monkeypatch.delitem(
+        sys.modules, "openjarvis.connectors.mixedbread_search", raising=False
+    )
+    monkeypatch.setitem(sys.modules, "mixedbread", None)  # force ImportError
+
+    store = KnowledgeStore(db_path=":memory:")
+    assert isinstance(build_research_search(store, None, JarvisConfig()), HybridSearch)
+
+    config = JarvisConfig()
+    config.deep_research.retrieval = "mixedbread"
+    search = build_research_search(store, None, config)
+    assert isinstance(search, HybridSearch)

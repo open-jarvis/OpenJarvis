@@ -36,7 +36,6 @@ from openjarvis.agents.research_loop import (
     ResearchAgent,
 )
 from openjarvis.connectors.embeddings import OllamaEmbedder
-from openjarvis.connectors.hybrid_search import HybridSearch
 from openjarvis.connectors.store import KnowledgeStore
 from openjarvis.core.config import DEFAULT_CONFIG_DIR, JarvisConfig, load_config
 from openjarvis.core.types import TelemetryRecord
@@ -421,9 +420,12 @@ async def _stream_research(
             )
             embedder = None
 
+        from openjarvis.connectors.hybrid_search import build_research_search
+
+        search = build_research_search(store, embedder, config)
         agent = ResearchAgent(
             engine=engine,
-            search=HybridSearch(store, embedder),
+            search=search,
             model=model,
             clarify_handler=lambda question: _WEB_CLARIFY_RESPONSE,
             on_event=on_event,
@@ -496,6 +498,16 @@ async def _stream_research(
                 {"type": "error", "message": f"{type(exc).__name__}: {exc}"},
             )
         finally:
+            close_search = getattr(search, "close", None)
+            if callable(close_search):
+                try:
+                    close_search()
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("research: search cleanup failed: %s", exc)
+            try:
+                store.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("research: knowledge store cleanup failed: %s", exc)
             loop.call_soon_threadsafe(queue.put_nowait, _DONE)
 
     task = asyncio.create_task(asyncio.to_thread(_run))
