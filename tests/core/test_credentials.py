@@ -64,6 +64,45 @@ def test_save_and_load(cred_path):
     assert creds["web_search"]["TAVILY_API_KEY"] == "tvly-123"
 
 
+def test_credential_special_characters_round_trip(cred_path):
+    value = 'quote" backslash\\ internal\nnewline and unicode: café 🔐'
+
+    save_credential("email", "EMAIL_PASSWORD", value, path=cred_path)
+
+    assert load_credentials(path=cred_path)["email"]["EMAIL_PASSWORD"] == value
+    assert cred_path.read_text(encoding="utf-8")
+
+
+def test_malformed_file_is_backed_up_and_store_recovers(cred_path):
+    malformed = '[email]\nEMAIL_PASSWORD = "unterminated\n'
+    cred_path.write_text(malformed, encoding="utf-8")
+
+    assert load_credentials(path=cred_path) == {}
+    assert not cred_path.exists()
+    backups = list(cred_path.parent.glob("credentials.toml.corrupt-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == malformed
+
+    save_credential("web_search", "TAVILY_API_KEY", "recovered", path=cred_path)
+    assert load_credentials(path=cred_path) == {
+        "web_search": {"TAVILY_API_KEY": "recovered"}
+    }
+
+
+def test_atomic_write_failure_preserves_existing_credentials(cred_path, monkeypatch):
+    save_credential("web_search", "TAVILY_API_KEY", "original", path=cred_path)
+    original = cred_path.read_bytes()
+
+    def fail_replace(source, destination):
+        raise OSError("replace blocked")
+
+    monkeypatch.setattr("openjarvis.security.file_utils.os.replace", fail_replace)
+    with pytest.raises(OSError, match="replace blocked"):
+        save_credential("web_search", "TAVILY_API_KEY", "new", path=cred_path)
+
+    assert cred_path.read_bytes() == original
+
+
 def test_restore_environ_preserves_legitimate_ambient_key(cred_path):
     """Regression for #788 must not erase a real key from the parent process."""
     baseline = {"TAVILY_API_KEY": "tvly-legitimate-ambient"}

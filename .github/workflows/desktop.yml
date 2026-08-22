@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -48,9 +48,12 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Use the reviewed npm toolchain
+        run: npm install --global npm@11.19.0
+
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: TypeScript type-check
         working-directory: frontend
@@ -114,7 +117,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Full history + tags so the workflow_dispatch fallback in
           # "Determine release info" can derive the dev version from the
@@ -247,9 +250,12 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Use the reviewed npm toolchain
+        run: npm install --global npm@11.19.0
+
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: Download Ollama sidecar
         shell: bash
