@@ -82,6 +82,64 @@ class TestTelemetryStore:
         assert rows[0][2] == "test-model"
         store.close()
 
+    def test_bus_subscription_is_idempotent(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        bus = EventBus()
+        store.subscribe_to_bus(bus)
+        store.subscribe_to_bus(bus)
+
+        rec = TelemetryRecord(timestamp=time.time(), model_id="once", engine="test")
+        bus.publish(EventType.TELEMETRY_RECORD, {"record": rec})
+
+        assert len(store._fetchall()) == 1
+        store.close()
+
+    def test_resubscribe_moves_store_to_new_bus(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        old_bus = EventBus()
+        new_bus = EventBus()
+        store.subscribe_to_bus(old_bus)
+        store.subscribe_to_bus(new_bus)
+
+        rec = TelemetryRecord(timestamp=time.time(), model_id="new", engine="test")
+        old_bus.publish(EventType.TELEMETRY_RECORD, {"record": rec})
+        new_bus.publish(EventType.TELEMETRY_RECORD, {"record": rec})
+
+        assert len(store._fetchall()) == 1
+        store.close()
+
+    def test_close_unsubscribes_from_bus_and_is_idempotent(
+        self, tmp_path: Path
+    ) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        bus = EventBus()
+        store.subscribe_to_bus(bus)
+
+        store.close()
+        store.close()
+        bus.publish(
+            EventType.TELEMETRY_RECORD,
+            {
+                "record": TelemetryRecord(
+                    timestamp=time.time(), model_id="late", engine="test"
+                )
+            },
+        )
+
+        assert store._event_bus is None
+        assert bus._subscribers[EventType.TELEMETRY_RECORD] == []
+
+    def test_closed_store_rejects_new_subscription(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        store.close()
+
+        try:
+            store.subscribe_to_bus(EventBus())
+        except RuntimeError as exc:
+            assert str(exc) == "TelemetryStore is closed"
+        else:  # pragma: no cover - regression assertion
+            raise AssertionError("closed store accepted a new subscription")
+
     def test_close_and_reopen(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
         store = TelemetryStore(db_path)

@@ -196,6 +196,7 @@ class TelemetryStore:
         self._telemetry_batch: list[tuple[Any, ...]] = []
         self._mining_batch: list[tuple[Any, ...]] = []
         self._closed = False
+        self._event_bus: EventBus | None = None
 
         # Background flusher: without it, a partial batch written just before
         # traffic stops would stay invisible to other connections until the
@@ -279,6 +280,8 @@ class TelemetryStore:
             json.dumps(rec.metadata),
         )
         with self._lock:
+            if self._closed:
+                raise RuntimeError("TelemetryStore is closed")
             self._telemetry_batch.append(row)
             self._maybe_flush_unlocked()
 
@@ -302,6 +305,8 @@ class TelemetryStore:
             stats.fees_owed,
         )
         with self._lock:
+            if self._closed:
+                raise RuntimeError("TelemetryStore is closed")
             self._mining_batch.append(row)
             self._maybe_flush_unlocked()
 
@@ -355,7 +360,15 @@ class TelemetryStore:
 
     def subscribe_to_bus(self, bus: EventBus) -> None:
         """Subscribe to ``TELEMETRY_RECORD`` events on *bus*."""
-        bus.subscribe(EventType.TELEMETRY_RECORD, self._on_event)
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("TelemetryStore is closed")
+            if self._event_bus is bus:
+                return
+            if self._event_bus is not None:
+                self._event_bus.unsubscribe(EventType.TELEMETRY_RECORD, self._on_event)
+            bus.subscribe(EventType.TELEMETRY_RECORD, self._on_event)
+            self._event_bus = bus
 
     def _on_event(self, event: Event) -> None:
         rec = event.data.get("record")
@@ -374,6 +387,12 @@ class TelemetryStore:
         with self._lock:
             if self._closed:
                 return
+            if self._event_bus is not None:
+                self._event_bus.unsubscribe(
+                    EventType.TELEMETRY_RECORD,
+                    self._on_event,
+                )
+                self._event_bus = None
             self._flush_unlocked()
             self._conn.close()
             self._closed = True
