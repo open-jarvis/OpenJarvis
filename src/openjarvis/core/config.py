@@ -1779,6 +1779,11 @@ def validate_config_key(dotted_key: str) -> type:
     """
     from dataclasses import fields as dc_fields
 
+    def contains_dataclass(annotation: Any) -> bool:
+        if is_dataclass(annotation):
+            return True
+        return any(contains_dataclass(arg) for arg in get_args(annotation))
+
     parts = dotted_key.split(".")
     if len(parts) < 2:
         raise ValueError(
@@ -1813,7 +1818,18 @@ def validate_config_key(dotted_key: str) -> type:
             fld_type = eval(fld_type, vars(_cfg_mod))  # noqa: S307
 
         if i == len(parts) - 1:
-            # Leaf — return the primitive type
+            if contains_dataclass(fld_type):
+                suggestions = ""
+                if is_dataclass(fld_type):
+                    child_keys = [
+                        f"{dotted_key}.{child.name}" for child in dc_fields(fld_type)
+                    ]
+                    suggestions = f"; set one of: {', '.join(child_keys)}"
+                raise ValueError(
+                    f"Config key {dotted_key!r} names a section, not a settable value"
+                    f"{suggestions}"
+                )
+            # Leaf — return the primitive/container type
             return fld_type
         else:
             # Must be a nested dataclass
@@ -2209,7 +2225,10 @@ enabled = true
 # viewport_height = 720
 
 [server]
-host = "0.0.0.0"
+# Loopback is safe for local use and works without API authentication.
+host = "127.0.0.1"
+# To serve other machines, configure an API key before using:
+# host = "0.0.0.0"
 port = 8000
 agent = "orchestrator"
 

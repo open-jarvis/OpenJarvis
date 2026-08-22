@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import tomllib
+
 from openjarvis.core.config import (
     AgentConfig,
     ChannelConfig,
@@ -139,6 +141,13 @@ class TestGenerateToml:
         assert "[engine]" in toml
         assert 'default = "vllm"' in toml
         assert "H100" in toml
+
+    def test_default_server_bind_is_loopback(self) -> None:
+        toml = generate_default_toml(HardwareInfo())
+
+        assert 'host = "127.0.0.1"' in toml
+        assert '# host = "0.0.0.0"' in toml
+        assert tomllib.loads(toml)["server"]["host"] == "127.0.0.1"
 
 
 class TestSecurityConfig:
