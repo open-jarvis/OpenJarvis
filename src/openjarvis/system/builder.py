@@ -209,6 +209,9 @@ class SystemBuilder:
             model,
             memory_backend,
             channel_backend,
+            bus=bus,
+            capability_policy=sec.capability_policy,
+            rate_limiter=sec.rate_limiter,
         )
         tool_executor = (
             ToolExecutor(
@@ -456,12 +459,26 @@ class SystemBuilder:
             return None
 
     def _resolve_tools(
-        self, config, engine, model, memory_backend, channel_backend=None
+        self,
+        config,
+        engine,
+        model,
+        memory_backend,
+        channel_backend=None,
+        *,
+        bus=None,
+        capability_policy=None,
+        rate_limiter=None,
     ):
         """Resolve tool instances via MCPServer (primary) + external MCP servers."""
         from openjarvis.mcp.server import MCPServer
 
-        internal_server = MCPServer()
+        internal_server = MCPServer(
+            bus=bus,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id="system:mcp",
+        )
         for tool in internal_server.get_tools():
             self._inject_tool_deps(tool, engine, model, memory_backend, channel_backend)
 
