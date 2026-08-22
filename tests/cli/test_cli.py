@@ -170,6 +170,37 @@ class TestCLI:
             encoding="utf-8"
         )
 
+    def test_preset_switch_requires_explicit_force(self, tmp_path: Path) -> None:
+        config_dir = tmp_path / ".openjarvis"
+        config_dir.mkdir()
+        config_path = config_dir / "config.toml"
+        original = '# customized\n[engine]\ndefault = "ollama"\n'
+        config_path.write_text(original, encoding="utf-8")
+
+        with (
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_DIR", config_dir),
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
+        ):
+            rejected = CliRunner().invoke(
+                cli,
+                ["init", "--preset", "chat-simple"],
+            )
+            assert config_path.read_text(encoding="utf-8") == original
+            confirmed = CliRunner().invoke(
+                cli,
+                ["init", "--preset", "chat-simple", "--force"],
+            )
+
+        assert rejected.exit_code != 0
+        assert "jarvis init --preset chat-simple --force" in " ".join(
+            rejected.output.split()
+        )
+        assert confirmed.exit_code == 0
+        assert config_path.read_text(encoding="utf-8") != original
+        assert "lightweight conversational AI" in config_path.read_text(
+            encoding="utf-8"
+        )
+
 
 class TestStartupResilience:
     """Importing the CLI must not force heavy/native deps (#404, #309).

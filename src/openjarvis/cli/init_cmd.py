@@ -322,7 +322,13 @@ def init(
         console.print(
             f"[yellow]Config already exists at {DEFAULT_CONFIG_PATH}[/yellow]"
         )
-        console.print("Use [bold]--force[/bold] to overwrite.")
+        if preset:
+            console.print(
+                "Switching presets replaces the existing config. Re-run with "
+                f"[bold]jarvis init --preset {preset} --force[/bold] to confirm."
+            )
+        else:
+            console.print("Use [bold]--force[/bold] to overwrite.")
         raise SystemExit(1)
 
     # Handle --preset: copy a starter config and return early
