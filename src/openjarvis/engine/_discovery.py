@@ -166,7 +166,11 @@ def get_engine(
     engine_key: str | None = None,
     model: str | None = None,
 ) -> Tuple[str, InferenceEngine] | None:
-    """Get a specific engine by key, or the default with fallback.
+    """Get a specific engine by key, or the default with a named fallback.
+
+    An explicit ``engine_key`` is authoritative and is never silently
+    substituted. Default-engine fallback prefers the same local/cloud class
+    and logs the selected replacement.
 
     When *model* is given, an engine is selected only if it can actually
     serve that model (``engine.can_serve(model)``). This stops the cloud
@@ -182,30 +186,68 @@ def get_engine(
     def _usable(engine: InferenceEngine) -> bool:
         return engine.health() and (model is None or engine.can_serve(model))
 
-    # Build an ordered list of keys to try, then fall back to full discovery.
-    keys_to_try: list[str] = []
     if engine_key:
-        keys_to_try.append(engine_key)
+        if not EngineRegistry.contains(engine_key):
+            logger.warning("Requested engine %r is not registered", engine_key)
+            return None
+        try:
+            engine = _make_engine(engine_key, config)
+            if _usable(engine):
+                return (engine_key, engine)
+        except Exception as exc:
+            logger.debug("Engine %r health check failed: %s", engine_key, exc)
+        logger.warning(
+            "Requested engine %r is unavailable%s; no substitute was selected",
+            engine_key,
+            f" for model {model!r}" if model else "",
+        )
+        return None
 
     default_key = config.engine.default
-    if default_key and default_key not in keys_to_try:
-        keys_to_try.append(default_key)
-
-    for key in keys_to_try:
-        if not EngineRegistry.contains(key):
-            continue
+    default_is_cloud: bool | None = None
+    if default_key and EngineRegistry.contains(default_key):
+        default_cls = EngineRegistry.get(default_key)
+        default_is_cloud = bool(getattr(default_cls, "is_cloud", False))
         try:
-            engine = _make_engine(key, config)
+            engine = _make_engine(default_key, config)
+            default_is_cloud = bool(getattr(engine, "is_cloud", default_is_cloud))
             if _usable(engine):
-                return (key, engine)
+                return (default_key, engine)
         except Exception as exc:
-            logger.debug("Engine %r health check failed: %s", key, exc)
+            logger.debug("Engine %r health check failed: %s", default_key, exc)
 
-    # Fallback to the first healthy engine that can serve the model.
-    for key, engine in discover_engines(config):
-        if model is None or engine.can_serve(model):
-            return (key, engine)
-    return None
+    candidates = [
+        (key, engine)
+        for key, engine in discover_engines(config)
+        if key != default_key and (model is None or engine.can_serve(model))
+    ]
+    if not candidates:
+        return None
+
+    chosen: Tuple[str, InferenceEngine] | None = None
+    if default_is_cloud is not None:
+        chosen = next(
+            (
+                candidate
+                for candidate in candidates
+                if bool(getattr(candidate[1], "is_cloud", False)) == default_is_cloud
+            ),
+            None,
+        )
+    chosen = chosen or candidates[0]
+    chosen_is_cloud = bool(getattr(chosen[1], "is_cloud", False))
+    boundary = (
+        " across the local/cloud boundary"
+        if (default_is_cloud is not None and chosen_is_cloud != default_is_cloud)
+        else ""
+    )
+    logger.warning(
+        "Default engine %r is unavailable; using %r%s",
+        default_key,
+        chosen[0],
+        boundary,
+    )
+    return chosen
 
 
 __all__ = ["discover_engines", "discover_models", "get_engine"]
