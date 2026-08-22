@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
@@ -24,6 +25,15 @@ class CheckResult:
     status: str  # "ok", "warn", "fail"
     message: str
     details: Optional[str] = None
+
+
+@dataclass
+class _EngineProbe:
+    """One engine instance and the result of its single health probe."""
+
+    engine: Any | None
+    healthy: bool
+    error: str | None = None
 
 
 # -- Individual checks -------------------------------------------------------
@@ -79,28 +89,46 @@ def _get_config() -> Any:
         return JarvisConfig()
 
 
-def _check_engines() -> List[CheckResult]:
-    """Probe each registered engine for health."""
-    results: List[CheckResult] = []
-
+def _probe_engines(config: Any | None = None) -> Dict[str, _EngineProbe]:
+    """Instantiate and health-check every engine once, concurrently."""
     _ensure_engines_imported()
 
     from openjarvis.core.registry import EngineRegistry
     from openjarvis.engine import _discovery
 
-    config = _get_config()
+    resolved_config = config or _get_config()
+    keys = sorted(EngineRegistry.keys())
 
-    for key in sorted(EngineRegistry.keys()):
+    def probe(key: str) -> tuple[str, _EngineProbe]:
         try:
-            engine = _discovery._make_engine(key, config)
-            if engine.health():
-                results.append(CheckResult(f"Engine: {key}", "ok", "Reachable"))
-            else:
-                results.append(CheckResult(f"Engine: {key}", "warn", "Unreachable"))
+            engine = _discovery._make_engine(key, resolved_config)
+            return key, _EngineProbe(engine=engine, healthy=bool(engine.health()))
         except Exception as exc:
+            return key, _EngineProbe(engine=None, healthy=False, error=str(exc))
+
+    if not keys:
+        return {}
+    with ThreadPoolExecutor(max_workers=len(keys)) as pool:
+        return dict(pool.map(probe, keys))
+
+
+def _check_engines(
+    probes: Optional[Dict[str, _EngineProbe]] = None,
+) -> List[CheckResult]:
+    """Probe each registered engine for health."""
+    results: List[CheckResult] = []
+
+    resolved_probes = probes if probes is not None else _probe_engines()
+
+    for key, probe in resolved_probes.items():
+        if probe.healthy:
+            results.append(CheckResult(f"Engine: {key}", "ok", "Reachable"))
+        elif probe.error:
             results.append(
-                CheckResult(f"Engine: {key}", "warn", f"Unreachable ({exc})")
+                CheckResult(f"Engine: {key}", "warn", f"Unreachable ({probe.error})")
             )
+        else:
+            results.append(CheckResult(f"Engine: {key}", "warn", "Unreachable"))
 
     if not results:
         results.append(CheckResult("Engines", "warn", "No engines registered"))
@@ -108,22 +136,18 @@ def _check_engines() -> List[CheckResult]:
     return results
 
 
-def _check_models() -> List[CheckResult]:
+def _check_models(
+    probes: Optional[Dict[str, _EngineProbe]] = None,
+) -> List[CheckResult]:
     """List models from healthy engines."""
     results: List[CheckResult] = []
 
-    _ensure_engines_imported()
+    resolved_probes = probes if probes is not None else _probe_engines()
 
-    from openjarvis.core.registry import EngineRegistry
-    from openjarvis.engine import _discovery
-
-    config = _get_config()
-
-    for key in sorted(EngineRegistry.keys()):
+    for key, probe in resolved_probes.items():
         try:
-            engine = _discovery._make_engine(key, config)
-            if engine.health():
-                models = engine.list_models()
+            if probe.healthy and probe.engine is not None:
+                models = probe.engine.list_models()
                 if models:
                     model_list = ", ".join(models[:5])
                     suffix = f" (+{len(models) - 5} more)" if len(models) > 5 else ""
@@ -149,7 +173,9 @@ def _check_models() -> List[CheckResult]:
     return results
 
 
-def _check_default_model() -> CheckResult:
+def _check_default_model(
+    probes: Optional[Dict[str, _EngineProbe]] = None,
+) -> CheckResult:
     """Check whether the configured default model is available."""
     try:
         config = load_config()
@@ -165,22 +191,18 @@ def _check_default_model() -> CheckResult:
             details="Router will select a model dynamically.",
         )
 
-    _ensure_engines_imported()
-
-    from openjarvis.core.registry import EngineRegistry
-    from openjarvis.engine import _discovery
-
     preferred = config.intelligence.preferred_engine or config.engine.default
+    resolved_probes = probes if probes is not None else _probe_engines(config)
     check_order = []
     if preferred:
         check_order.append(preferred)
-    check_order += [k for k in sorted(EngineRegistry.keys()) if k != preferred]
+    check_order += [k for k in resolved_probes if k != preferred]
 
     for key in check_order:
         try:
-            engine = _discovery._make_engine(key, config)
-            if engine.health():
-                models = engine.list_models()
+            probe = resolved_probes.get(key)
+            if probe is not None and probe.healthy and probe.engine is not None:
+                models = probe.engine.list_models()
                 if default_model in models:
                     return CheckResult(
                         "Default model",
@@ -343,9 +365,10 @@ def _run_all_checks() -> List[CheckResult]:
     checks.append(_check_python_version())
     checks.append(_check_config_exists())
     checks.append(_check_config_parses())
-    checks.extend(_check_engines())
-    checks.extend(_check_models())
-    checks.append(_check_default_model())
+    engine_probes = _probe_engines()
+    checks.extend(_check_engines(engine_probes))
+    checks.extend(_check_models(engine_probes))
+    checks.append(_check_default_model(engine_probes))
     checks.extend(_check_optional_deps())
     checks.append(_check_speech_backend())
     checks.append(_check_nodejs())
