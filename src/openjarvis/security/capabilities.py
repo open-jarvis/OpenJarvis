@@ -171,6 +171,7 @@ class CapabilityPolicy:
 DEFAULT_TOOL_CAPABILITIES: Dict[str, List[str]] = {
     "file_read": [Capability.FILE_READ],
     "web_search": [Capability.NETWORK_FETCH],
+    "get_weather": [Capability.NETWORK_FETCH],
     "code_interpreter": [Capability.CODE_EXECUTE],
     "memory_store": [Capability.MEMORY_WRITE],
     "memory_retrieve": [Capability.MEMORY_READ],

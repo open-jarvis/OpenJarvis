@@ -59,6 +59,10 @@ API_KEY_ENV_VARS = {
     "MINIMAX_API_KEY": ("MiniMax cloud inference", {"minimax"}),
     "OPENAI_API_KEY": ("OpenAI cloud inference", {"openai", "gpt"}),
     "OPENROUTER_API_KEY": ("OpenRouter cloud inference", {"openrouter"}),
+    "OPENWEATHERMAP_API_KEY": (
+        "OpenWeatherMap weather lookup",
+        {"get_weather", "openweathermap", "weather"},
+    ),
     "TAVILY_API_KEY": ("Tavily web search", {"tavily", "web_search"}),
 }
 
@@ -206,6 +210,7 @@ BROWSER_TOOLS = {
     "web_browser",
 }
 GENERIC_NETWORK_TOOLS = {"http_request"}
+WEATHER_TOOLS = {"get_weather"}
 CHANNEL_OUTBOUND_TOOLS = {"channel_send"}
 CLOUD_MEDIA_TOOLS = {"audio_transcribe", "image_generate", "text_to_speech"}
 CLOUD_TTS_BACKENDS = {"cartesia", "openai", "openai_tts"}
@@ -216,12 +221,13 @@ EXTERNAL_TOOL_SURFACES = (
     WEB_SEARCH_TOOLS
     | BROWSER_TOOLS
     | GENERIC_NETWORK_TOOLS
+    | WEATHER_TOOLS
     | CHANNEL_OUTBOUND_TOOLS
     | CLOUD_MEDIA_TOOLS
     | KNOWLEDGE_ENGINE_TOOLS
 )
 # Narrower cloud inference / media API key surfaces (not browser-only egress).
-CLOUD_API_SURFACES = CLOUD_MEDIA_TOOLS | WEB_SEARCH_TOOLS
+CLOUD_API_SURFACES = CLOUD_MEDIA_TOOLS | WEB_SEARCH_TOOLS | WEATHER_TOOLS
 OUTBOUND_TOOL_SURFACES = EXTERNAL_TOOL_SURFACES
 LOCAL_ACCESS_TOOLS = {
     "apply_patch",
@@ -975,6 +981,21 @@ def _audit_tool_surfaces(config: Any, builder: _FindingBuilder) -> None:
             recommendation=(
                 "Review request destinations and payloads before using HTTP tools with "
                 "sensitive data."
+            ),
+        )
+
+    if tools & WEATHER_TOOLS:
+        builder.add(
+            finding_id="weather-tool-configured",
+            status="warn",
+            title="External weather lookup tool is configured",
+            potential_data_path=(
+                "user or agent location query -> OpenWeatherMap weather service"
+            ),
+            evidence=f"configured tool(s) = {_format_tools(tools & WEATHER_TOOLS)}",
+            recommendation=(
+                "Avoid sending sensitive or precise locations unless the external "
+                "weather lookup is intentional."
             ),
         )
 

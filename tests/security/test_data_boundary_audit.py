@@ -19,6 +19,7 @@ from openjarvis.security.data_boundary_audit import (
     LOCAL_ACCESS_TOOLS,
     OUTBOUND_TOOL_SURFACES,
     RUNTIME_CREDENTIAL_ENV_KEYS,
+    WEATHER_TOOLS,
     WEB_SEARCH_TOOLS,
     build_data_boundary_report,
 )
@@ -33,6 +34,7 @@ EXPECTED_BROWSER_TOOLS = {
 }
 
 EXPECTED_GENERIC_NETWORK_TOOLS = {"http_request"}
+EXPECTED_WEATHER_TOOLS = {"get_weather"}
 EXPECTED_CHANNEL_OUTBOUND_TOOLS = {"channel_send"}
 EXPECTED_CLOUD_MEDIA_TOOLS = {
     "audio_transcribe",
@@ -88,6 +90,7 @@ CLASSIFIED_TOOLS = (
     WEB_SEARCH_TOOLS
     | BROWSER_TOOLS
     | GENERIC_NETWORK_TOOLS
+    | WEATHER_TOOLS
     | CHANNEL_OUTBOUND_TOOLS
     | CLOUD_MEDIA_TOOLS
     | KNOWLEDGE_ENGINE_TOOLS
@@ -722,17 +725,53 @@ def test_required_registered_tool_names_are_classified():
     assert EXPECTED_BROWSER_TOOLS <= BROWSER_TOOLS
     assert EXPECTED_LOCAL_ACCESS_TOOLS <= LOCAL_ACCESS_TOOLS
     assert EXPECTED_GENERIC_NETWORK_TOOLS <= GENERIC_NETWORK_TOOLS
+    assert EXPECTED_WEATHER_TOOLS <= WEATHER_TOOLS
     assert EXPECTED_CHANNEL_OUTBOUND_TOOLS <= CHANNEL_OUTBOUND_TOOLS
     assert EXPECTED_CLOUD_MEDIA_TOOLS <= CLOUD_MEDIA_TOOLS
     assert EXPECTED_KNOWLEDGE_ENGINE_TOOLS <= KNOWLEDGE_ENGINE_TOOLS
     assert (
         EXPECTED_GENERIC_NETWORK_TOOLS
+        | EXPECTED_WEATHER_TOOLS
         | EXPECTED_CHANNEL_OUTBOUND_TOOLS
         | EXPECTED_CLOUD_MEDIA_TOOLS
         | EXPECTED_BROWSER_TOOLS
         | EXPECTED_KNOWLEDGE_ENGINE_TOOLS
     ) <= OUTBOUND_TOOL_SURFACES
     assert EXPECTED_KNOWLEDGE_ENGINE_TOOLS <= EXTERNAL_TOOL_SURFACES
+
+
+@pytest.mark.parametrize("tool_name", sorted(EXPECTED_WEATHER_TOOLS))
+def test_weather_tool_produces_outbound_warn(tmp_path, tool_name):
+    config = _low_noise_config()
+    config.tools.enabled = tool_name
+
+    report = build_data_boundary_report(config, tmp_path)
+    payload = report.to_dict(show_paths=True)
+
+    findings = {finding.id: finding for finding in report.findings}
+    finding = findings["weather-tool-configured"]
+    assert finding.status == "warn"
+    assert tool_name in finding.evidence
+    assert "location query" in finding.potential_data_path
+    assert "OPENWEATHERMAP_API_KEY" not in str(payload)
+
+
+def test_openweathermap_api_key_presence_is_reported_without_value(
+    tmp_path, monkeypatch
+):
+    config = _low_noise_config()
+    config.tools.enabled = "get_weather"
+    secret = "weather-key-that-must-not-leak"
+    monkeypatch.setenv("OPENWEATHERMAP_API_KEY", secret)
+
+    report = build_data_boundary_report(config, tmp_path)
+    payload = report.to_dict(show_paths=True)
+    findings = {finding.id: finding for finding in report.findings}
+
+    finding = findings["env-credential-openweathermap_api_key"]
+    assert finding.status == "warn"
+    assert "OPENWEATHERMAP_API_KEY is set" in finding.evidence
+    assert secret not in str(payload)
 
 
 def test_builtin_registry_tools_are_classified_or_explicitly_exempt():

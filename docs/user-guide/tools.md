@@ -188,6 +188,7 @@ All built-in tools are registered via `@ToolRegistry.register()` and are availab
 | **Code** | `code_interpreter_docker` | Execute Python code in a disposable Docker container |
 | **Code** | `repl` | Persistent Python REPL with state across calls |
 | **Search** | `web_search` | Web search returning result summaries |
+| **Weather** | `get_weather` | Dynamic current conditions and forecast via OpenWeatherMap |
 | **File I/O** | `file_read` | Read file contents with safety validations |
 | **HTTP** | `http_request` | Make HTTP requests with SSRF protection |
 | **Memory** | `retrieval` | Search the memory backend for relevant context |
@@ -382,6 +383,37 @@ Searches the web and returns a result summary. Useful for queries that need curr
 | Parameter | Type   | Required | Description                              |
 |-----------|--------|----------|------------------------------------------|
 | `query`   | string | Yes      | Search query string                      |
+
+### Weather
+
+**Registry key:** `get_weather` | **Category:** `weather`
+
+Returns structured current conditions for a dynamic location, with optional
+3-hour forecast intervals. Location text is sent to OpenWeatherMap, so avoid
+using a sensitive or exact address when a city or region is sufficient.
+
+Set `OPENWEATHERMAP_API_KEY` in the environment, save it through the tool
+credentials API/UI, or connect the existing Weather connector. The tool checks
+those secure credential sources at execution time and never includes the key in
+its result. Enable it like any native tool:
+
+```toml
+[tools]
+enabled = "get_weather"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `location` | string | No | City, region, postal code, or `city,country-code`; falls back to the configured default |
+| `units` | string | No | `metric` or `imperial` |
+| `language` | string | No | OpenWeatherMap language code such as `en`, `de`, or `pt_br` |
+| `include_forecast` | boolean | No | Include 3-hour forecast intervals |
+| `forecast_hours` | integer | No | Forecast horizon from 3 to 120 hours (default: 24) |
+
+For example, an agent can call `get_weather` with `location="Vienna,AT"`,
+`language="de"`, and `include_forecast=true`.
 
 ### CodeInterpreter
 

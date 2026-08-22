@@ -14,17 +14,74 @@ from typing import Any, Dict, Iterator, Optional
 import httpx
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
-from openjarvis.core.config import DEFAULT_CONFIG_DIR
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import ConnectorRegistry
 
-_DEFAULT_TOKEN_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "weather.json")
+_CURRENT_WEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
+_FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
+_STATUS_DETAILS = {
+    400: "the request was invalid",
+    401: "authentication failed",
+    404: "the location was not found",
+    429: "the provider rate limit was exceeded",
+}
+
+
+class WeatherAPIError(RuntimeError):
+    """A credential-safe error returned by the OpenWeatherMap API."""
 
 
 def _weather_api_get(url: str, params: Dict[str, str]) -> Dict[str, Any]:
-    """Call an OpenWeatherMap API endpoint."""
-    resp = httpx.get(url, params=params, timeout=30.0)
-    resp.raise_for_status()
-    return resp.json()
+    """Call an OpenWeatherMap API endpoint without leaking query credentials."""
+    try:
+        resp = httpx.get(url, params=params, timeout=30.0)
+        resp.raise_for_status()
+        payload = resp.json()
+    except httpx.HTTPStatusError as exc:
+        # The exception string contains the full request URL, including appid.
+        # Never surface provider-controlled text: it could echo a query value.
+        status = exc.response.status_code
+        detail = _STATUS_DETAILS.get(status, "the request failed")
+        raise WeatherAPIError(
+            f"OpenWeatherMap returned HTTP {status}: {detail}"
+        ) from None
+    except httpx.RequestError:
+        # RequestError also formats the request URL, so do not interpolate it.
+        raise WeatherAPIError("OpenWeatherMap could not be reached") from None
+    except (TypeError, ValueError):
+        raise WeatherAPIError(
+            "OpenWeatherMap returned an invalid JSON response"
+        ) from None
+
+    if not isinstance(payload, dict):
+        raise WeatherAPIError("OpenWeatherMap returned an invalid response")
+    return payload
+
+
+def fetch_weather(
+    *,
+    api_key: str,
+    location: str,
+    units: str,
+    language: str,
+    include_forecast: bool = False,
+    forecast_count: int = 8,
+) -> tuple[Dict[str, Any], Dict[str, Any] | None]:
+    """Fetch weather for a caller-provided location from fixed API endpoints."""
+    common_params = {
+        "q": location,
+        "appid": api_key,
+        "units": units,
+        "lang": language,
+    }
+    current = _weather_api_get(_CURRENT_WEATHER_URL, params=common_params)
+    forecast = None
+    if include_forecast:
+        forecast = _weather_api_get(
+            _FORECAST_URL,
+            params={**common_params, "cnt": str(forecast_count)},
+        )
+    return current, forecast
 
 
 @ConnectorRegistry.register("weather")
@@ -35,14 +92,27 @@ class WeatherConnector(BaseConnector):
     display_name = "Weather"
     auth_type = "token"
 
-    def __init__(self, *, token_path: str = _DEFAULT_TOKEN_PATH) -> None:
-        self._token_path = Path(token_path)
+    def __init__(self, *, token_path: str | None = None) -> None:
+        self._token_path = (
+            Path(token_path)
+            if token_path is not None
+            else get_config_dir() / "connectors" / "weather.json"
+        )
         self._status = SyncStatus()
 
     def _load_config(self) -> Dict[str, str]:
         """Load API key and location from disk."""
         data = json.loads(self._token_path.read_text(encoding="utf-8"))
         return data
+
+    def stored_api_key(self) -> str | None:
+        """Return the stored connector key, or ``None`` when unavailable."""
+        try:
+            value = self._load_config().get("api_key", "")
+        except (AttributeError, json.JSONDecodeError, OSError, TypeError):
+            return None
+        value = str(value).strip()
+        return value or None
 
     def configure(self, *, api_key: str, location: str) -> None:
         """Validate and persist the API key and required location."""
@@ -52,9 +122,11 @@ class WeatherConnector(BaseConnector):
             raise ValueError("An OpenWeather API key is required")
         if not location:
             raise ValueError("A weather location is required")
-        _weather_api_get(
-            "https://api.openweathermap.org/data/2.5/weather",
-            params={"q": location, "appid": api_key, "units": "imperial"},
+        fetch_weather(
+            api_key=api_key,
+            location=location,
+            units="imperial",
+            language="en",
         )
         from openjarvis.security.file_utils import secure_write_json
 
@@ -69,7 +141,7 @@ class WeatherConnector(BaseConnector):
         try:
             data = json.loads(self._token_path.read_text(encoding="utf-8"))
             return bool(data.get("api_key"))
-        except (json.JSONDecodeError, OSError):
+        except (AttributeError, json.JSONDecodeError, OSError, TypeError):
             return False
 
     def disconnect(self) -> None:
@@ -85,9 +157,13 @@ class WeatherConnector(BaseConnector):
         location = config.get("location", "San Francisco,CA")
 
         # Current weather
-        current = _weather_api_get(
-            "https://api.openweathermap.org/data/2.5/weather",
-            params={"q": location, "appid": api_key, "units": "imperial"},
+        current, forecast = fetch_weather(
+            api_key=api_key,
+            location=location,
+            units="imperial",
+            language="en",
+            include_forecast=True,
+            forecast_count=4,
         )
         main = current.get("main", {})
         weather_desc = ", ".join(
@@ -116,15 +192,7 @@ class WeatherConnector(BaseConnector):
         )
 
         # Forecast (next ~12 hours, 4 x 3-hour intervals)
-        forecast = _weather_api_get(
-            "https://api.openweathermap.org/data/2.5/forecast",
-            params={
-                "q": location,
-                "appid": api_key,
-                "units": "imperial",
-                "cnt": "4",
-            },
-        )
+        assert forecast is not None
         summaries = []
         for entry in forecast.get("list", []):
             dt_txt = entry.get("dt_txt", "")
@@ -148,3 +216,6 @@ class WeatherConnector(BaseConnector):
 
     def sync_status(self) -> SyncStatus:
         return self._status
+
+
+__all__ = ["WeatherAPIError", "WeatherConnector", "fetch_weather"]

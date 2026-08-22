@@ -392,12 +392,16 @@ def build_tools_list() -> List[Dict[str, Any]]:
         # the property descriptor and crashed on spec.description,
         # silently dropping every real tool from the picker.
         try:
-            spec = tool_cls().spec
+            tool_instance = tool_cls()
+            spec = tool_instance.spec
         except Exception as exc:
             logger.debug("Could not instantiate tool %s: %s", name, exc)
             spec = None
         cred_keys = TOOL_CREDENTIALS.get(name, [])
         has_fallback = bool(spec and spec.metadata.get("fallback"))
+        credentials_configured = (
+            spec.metadata.get("credentials_configured") if spec else None
+        )
         items.append(
             {
                 "name": name,
@@ -407,7 +411,12 @@ def build_tools_list() -> List[Dict[str, Any]]:
                 "requires_credentials": len(cred_keys) > 0 and not has_fallback,
                 "credential_keys": cred_keys,
                 "configured": (
-                    has_fallback or all(bool(os.environ.get(k)) for k in cred_keys)
+                    has_fallback
+                    or (
+                        bool(credentials_configured)
+                        if credentials_configured is not None
+                        else all(bool(os.environ.get(k)) for k in cred_keys)
+                    )
                     if cred_keys
                     else True
                 ),
