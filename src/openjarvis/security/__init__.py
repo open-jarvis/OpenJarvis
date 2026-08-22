@@ -19,6 +19,7 @@ class SecurityContext:
     engine: Any
     capability_policy: Any = None
     audit_logger: Any = None
+    rate_limiter: Any = None
 
 
 def setup_security(
@@ -32,6 +33,11 @@ def setup_security(
     """
     if not config.security.enabled:
         return SecurityContext(engine=engine)
+
+    # Shared and network-server profiles promise capability and rate-limit
+    # enforcement. Starting either profile without a configured primitive
+    # would silently turn an initialization fault into unrestricted access.
+    strict_enforcement = config.security.profile in {"shared", "server"}
 
     from openjarvis.security._stubs import BaseScanner
     from openjarvis.security.audit import AuditLogger
@@ -68,9 +74,31 @@ def setup_security(
 
             cap_policy = CapabilityPolicy(
                 policy_path=config.security.capabilities.policy_path or None,
+                default_deny=config.security.capabilities.default_deny,
             )
+            # No explicit policy file: grant a conservative baseline to the
+            # "_default" wildcard agent so default-deny doesn't silently
+            # break every managed agent (whose UUIDs aren't known ahead of
+            # time). Read/fetch/memory only — writes, code execution, and
+            # admin tools require an explicit per-agent grant.
+            if (
+                config.security.capabilities.default_deny
+                and not config.security.capabilities.policy_path
+            ):
+                for cap in (
+                    "file:read",
+                    "network:fetch",
+                    "memory:read",
+                    "memory:write",
+                ):
+                    cap_policy.grant("_default", cap)
         except Exception as exc:
-            logger.debug("Failed to set up capability policy: %s", exc)
+            if strict_enforcement:
+                raise RuntimeError(
+                    "Capability policy initialization failed for the "
+                    f"{config.security.profile!r} security profile"
+                ) from exc
+            logger.warning("Failed to set up capability policy: %s", exc)
 
     # Audit logger
     audit = None
@@ -82,10 +110,34 @@ def setup_security(
     except Exception as exc:
         logger.debug("Failed to set up audit logger: %s", exc)
 
+    # Rate limiter — config.security.rate_limit_* were previously read by
+    # nothing; this is the first thing in the codebase that actually turns
+    # them into an enforced limiter.
+    rate_limiter = None
+    if config.security.rate_limit_enabled:
+        try:
+            from openjarvis.security.rate_limiter import RateLimitConfig, RateLimiter
+
+            rate_limiter = RateLimiter(
+                RateLimitConfig(
+                    requests_per_minute=config.security.rate_limit_rpm,
+                    burst_size=config.security.rate_limit_burst,
+                    enabled=True,
+                )
+            )
+        except Exception as exc:
+            if strict_enforcement:
+                raise RuntimeError(
+                    "Rate limiter initialization failed for the "
+                    f"{config.security.profile!r} security profile"
+                ) from exc
+            logger.warning("Failed to set up rate limiter: %s", exc)
+
     return SecurityContext(
         engine=engine,
         capability_policy=cap_policy,
         audit_logger=audit,
+        rate_limiter=rate_limiter,
     )
 
 

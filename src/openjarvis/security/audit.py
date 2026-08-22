@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import threading
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -39,6 +40,7 @@ class AuditLogger:
         from openjarvis.security.file_utils import secure_create
 
         secure_create(self._db_path)
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.execute(
             """
@@ -61,6 +63,15 @@ class AuditLogger:
             bus.subscribe(EventType.SECURITY_SCAN, self._on_event)
             bus.subscribe(EventType.SECURITY_ALERT, self._on_event)
             bus.subscribe(EventType.SECURITY_BLOCK, self._on_event)
+            # Tool-execution events reach the audit log directly — this does
+            # NOT depend on BoundaryGuard (which nothing in production
+            # instantiates), unlike the three security-scan subscriptions
+            # above. Without this, every tool call a managed/live agent
+            # makes (HTTP requests, file I/O, shell exec) went completely
+            # unrecorded regardless of security config.
+            bus.subscribe(EventType.TOOL_CALL_END, self._on_tool_event)
+            bus.subscribe(EventType.CAPABILITY_DENIED, self._on_tool_event)
+            bus.subscribe(EventType.RATE_LIMITED, self._on_tool_event)
 
     def _migrate_schema(self) -> None:
         """Add row_hash/prev_hash columns if missing (schema migration)."""
@@ -99,31 +110,38 @@ class AuditLogger:
         )
 
         # Compute hash chain
-        prev_hash = self.tail_hash()
-        hash_input = (
-            f"{prev_hash}|{event.timestamp}|{event.event_type.value}"
-            f"|{findings_json}|{event.content_preview}|{event.action_taken}"
-        )
-        row_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+        # The tail read and insert are one critical section. Without this
+        # lock concurrent EventBus publishers can choose the same predecessor
+        # and fork the append-only hash chain.
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT row_hash FROM security_events ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            prev_hash = row[0] if row and row[0] else ""
+            hash_input = (
+                f"{prev_hash}|{event.timestamp}|{event.event_type.value}"
+                f"|{findings_json}|{event.content_preview}|{event.action_taken}"
+            )
+            row_hash = hashlib.sha256(hash_input.encode()).hexdigest()
 
-        self._conn.execute(
-            """
-            INSERT INTO security_events
-                (timestamp, event_type, findings_json, content_preview,
-                 action_taken, row_hash, prev_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event.timestamp,
-                event.event_type.value,
-                findings_json,
-                event.content_preview,
-                event.action_taken,
-                row_hash,
-                prev_hash,
-            ),
-        )
-        self._conn.commit()
+            self._conn.execute(
+                """
+                INSERT INTO security_events
+                    (timestamp, event_type, findings_json, content_preview,
+                     action_taken, row_hash, prev_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.timestamp,
+                    event.event_type.value,
+                    findings_json,
+                    event.content_preview,
+                    event.action_taken,
+                    row_hash,
+                    prev_hash,
+                ),
+            )
+            self._conn.commit()
 
     def query(
         self,
@@ -150,7 +168,8 @@ class AuditLogger:
         sql += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
 
-        rows = self._conn.execute(sql, params).fetchall()
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
         events: List[SecurityEvent] = []
         for row in rows:
             ts, etype, findings_json, preview, action = row
@@ -179,9 +198,10 @@ class AuditLogger:
 
     def tail_hash(self) -> str:
         """Return the hash of the last row in the chain, or empty string."""
-        row = self._conn.execute(
-            "SELECT row_hash FROM security_events ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT row_hash FROM security_events ORDER BY id DESC LIMIT 1"
+            ).fetchone()
         return row[0] if row and row[0] else ""
 
     def verify_chain(self) -> Tuple[bool, Optional[int]]:
@@ -193,11 +213,12 @@ class AuditLogger:
             ``(True, None)`` if the chain is valid, or
             ``(False, row_id)`` where *row_id* is the first broken link.
         """
-        rows = self._conn.execute(
-            "SELECT id, timestamp, event_type, findings_json,"
-            " content_preview, action_taken, row_hash, prev_hash"
-            " FROM security_events ORDER BY id"
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, timestamp, event_type, findings_json,"
+                " content_preview, action_taken, row_hash, prev_hash"
+                " FROM security_events ORDER BY id"
+            ).fetchall()
 
         expected_prev = ""
         for row in rows:
@@ -219,12 +240,14 @@ class AuditLogger:
 
     def count(self) -> int:
         """Return the total number of logged security events."""
-        row = self._conn.execute("SELECT COUNT(*) FROM security_events").fetchone()
+        with self._lock:
+            row = self._conn.execute("SELECT COUNT(*) FROM security_events").fetchone()
         return row[0] if row else 0
 
     def close(self) -> None:
         """Close the SQLite connection."""
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     # -- EventBus handler ----------------------------------------------------
 
@@ -260,6 +283,34 @@ class AuditLogger:
             content_preview=data.get("content_preview", ""),
             action_taken=data.get("mode", ""),
         )
+        self.log(sec_event)
+
+    def _on_tool_event(self, event: Event) -> None:
+        """Handle a TOOL_CALL_END / CAPABILITY_DENIED / RATE_LIMITED event."""
+        data = event.data
+        if event.event_type == EventType.TOOL_CALL_END:
+            success = bool(data.get("success"))
+            sec_event = SecurityEvent(
+                event_type=SecurityEventType.TOOL_EXECUTED,
+                timestamp=event.timestamp,
+                findings=[],
+                content_preview=(
+                    f"tool={data.get('tool', '')} agent={data.get('agent', '')}"
+                ),
+                action_taken="success" if success else "failure",
+            )
+        else:
+            # CAPABILITY_DENIED or RATE_LIMITED — both represent a blocked
+            # tool call and share the same TOOL_BLOCKED category.
+            sec_event = SecurityEvent(
+                event_type=SecurityEventType.TOOL_BLOCKED,
+                timestamp=event.timestamp,
+                findings=[],
+                content_preview=(
+                    f"tool={data.get('tool', '')} agent={data.get('agent_id', '')}"
+                ),
+                action_taken=event.event_type.value,
+            )
         self.log(sec_event)
 
 

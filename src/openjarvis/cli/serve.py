@@ -322,6 +322,8 @@ def serve(
                 agent_kwargs = {"bus": bus}
                 if sec.capability_policy is not None:
                     agent_kwargs["capability_policy"] = sec.capability_policy
+                if sec.rate_limiter is not None:
+                    agent_kwargs["rate_limiter"] = sec.rate_limiter
 
                 # Load tools for agents that support them
                 if getattr(agent_cls, "accepts_tools", False):
@@ -593,7 +595,14 @@ def serve(
                     logger.debug("Scheduler session store init failed: %s", exc)
 
             _sched_tool_executor = (
-                ToolExecutor(resolved_tools, bus) if resolved_tools else None
+                ToolExecutor(
+                    resolved_tools,
+                    bus,
+                    capability_policy=sec.capability_policy,
+                    rate_limiter=sec.rate_limiter,
+                )
+                if resolved_tools
+                else None
             )
 
             system = JarvisSystem(
@@ -713,6 +722,9 @@ def serve(
         agent_scheduler=agent_scheduler,
         mcp_tools=managed_mcp_tools,
         mcp_clients=mcp_clients,
+        capability_policy=sec.capability_policy,
+        rate_limiter=sec.rate_limiter,
+        audit_logger=sec.audit_logger,
         api_key=api_key,
         webhook_config=webhook_config,
         cors_origins=config.server.cors_origins,

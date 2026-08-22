@@ -61,6 +61,20 @@ class TestCapabilityPolicy:
         policy.deny("agent1", "code:execute")
         assert not policy.check("agent1", "code:execute")
 
+    def test_agent_deny_overrides_default_agent_grant(self):
+        policy = CapabilityPolicy(default_deny=True)
+        policy.grant("_default", "code:execute")
+        policy.deny("agent1", "code:execute")
+
+        assert not policy.check("agent1", "code:execute")
+
+    def test_unconfigured_agent_inherits_default_agent_grant(self):
+        policy = CapabilityPolicy(default_deny=True)
+        policy.grant("_default", "file:read")
+
+        assert policy.check("unconfigured-agent", "file:read")
+        assert not policy.check("unconfigured-agent", "file:write")
+
     def test_resource_pattern(self):
         policy = CapabilityPolicy(default_deny=True)
         policy.grant("agent1", "file:read", pattern="/safe/*")

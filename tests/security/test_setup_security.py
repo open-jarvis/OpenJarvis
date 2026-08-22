@@ -71,6 +71,40 @@ class TestSetupSecurityEnabled:
         # Should not raise — scanner failure is caught
         assert isinstance(sec, SecurityContext)
 
+    def test_shared_profile_fails_closed_when_policy_init_fails(
+        self, monkeypatch
+    ) -> None:
+        cfg = _make_config(caps_enabled=True)
+        cfg.security.profile = "shared"
+
+        def _broken_policy(*args, **kwargs):
+            raise RuntimeError("policy unavailable")
+
+        monkeypatch.setattr(
+            "openjarvis.security.capabilities.CapabilityPolicy",
+            _broken_policy,
+        )
+
+        with pytest.raises(RuntimeError, match="Capability policy initialization"):
+            setup_security(cfg, _make_mock_engine(), EventBus())
+
+    def test_server_profile_fails_closed_when_rate_limiter_init_fails(
+        self, monkeypatch
+    ) -> None:
+        cfg = _make_config(caps_enabled=False)
+        cfg.security.profile = "server"
+
+        def _broken_limiter(*args, **kwargs):
+            raise RuntimeError("limiter unavailable")
+
+        monkeypatch.setattr(
+            "openjarvis.security.rate_limiter.RateLimiter",
+            _broken_limiter,
+        )
+
+        with pytest.raises(RuntimeError, match="Rate limiter initialization"):
+            setup_security(cfg, _make_mock_engine(), EventBus())
+
 
 class TestSetupSecurityDisabled:
     def test_returns_original_engine(self) -> None:

@@ -65,6 +65,9 @@ class OrchestratorAgent(ToolUsingAgent):
         parallel_tools: bool = True,
         interactive: bool = False,
         confirm_callback=None,
+        capability_policy: Optional[Any] = None,
+        agent_id: Optional[str] = None,
+        rate_limiter: Optional[Any] = None,
         before_tool_call: Optional[Callable[[str, dict[str, Any]], bool]] = None,
     ) -> None:
         super().__init__(
@@ -78,6 +81,9 @@ class OrchestratorAgent(ToolUsingAgent):
             interactive=interactive,
             confirm_callback=confirm_callback,
             prompt_builder=prompt_builder,
+            capability_policy=capability_policy,
+            agent_id=agent_id,
+            rate_limiter=rate_limiter,
         )
         self._mode = mode
         self._system_prompt = system_prompt

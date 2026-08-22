@@ -198,6 +198,7 @@ class ToolExecutor:
         capability_policy: Optional[Any] = None,
         agent_id: str = "",
         boundary_guard: Optional[Any] = None,
+        rate_limiter: Optional[Any] = None,
     ) -> None:
         self._tools: Dict[str, BaseTool] = {t.spec.name: t for t in tools}
         self._bus = bus
@@ -207,6 +208,7 @@ class ToolExecutor:
         self._capability_policy = capability_policy
         self._agent_id = agent_id
         self._boundary_guard = boundary_guard
+        self._rate_limiter = rate_limiter
 
     def execute(self, tool_call: ToolCall) -> ToolResult:
         """Parse arguments, dispatch to tool, measure latency, emit events."""
@@ -237,6 +239,31 @@ class ToolExecutor:
                 success=False,
             )
 
+        # Rate limiting — checked before any other gate so a hammering
+        # agent/skill can't burn through boundary/capability/taint checks.
+        if self._rate_limiter is not None:
+            allowed, wait_seconds = self._rate_limiter.check(
+                f"{self._agent_id}:{tool_call.name}"
+            )
+            if not allowed:
+                if self._bus:
+                    self._bus.publish(
+                        EventType.RATE_LIMITED,
+                        {
+                            "agent_id": self._agent_id,
+                            "tool": tool_call.name,
+                            "wait_seconds": wait_seconds,
+                        },
+                    )
+                return ToolResult(
+                    tool_name=tool_call.name,
+                    content=(
+                        f"Rate limit exceeded for tool '{tool_call.name}'."
+                        f" Retry after {wait_seconds:.1f}s."
+                    ),
+                    success=False,
+                )
+
         # Boundary guard: scan external tool arguments
         if self._boundary_guard is not None and not getattr(tool, "is_local", True):
             try:
@@ -259,9 +286,20 @@ class ToolExecutor:
                     success=False,
                 )
 
-        # RBAC capability check
-        if self._capability_policy and tool.spec.required_capabilities:
-            for cap in tool.spec.required_capabilities:
+        # RBAC capability check.  A built-in's canonical requirements are a
+        # security floor: a missing (or accidentally weakened) ToolSpec must
+        # not turn a privileged built-in into an unguarded tool.
+        required_capabilities = list(tool.spec.required_capabilities)
+        if self._capability_policy is not None:
+            from openjarvis.security.capabilities import DEFAULT_TOOL_CAPABILITIES
+
+            for cap in DEFAULT_TOOL_CAPABILITIES.get(tool.spec.name, []):
+                cap_value = cap.value if hasattr(cap, "value") else cap
+                if cap_value not in required_capabilities:
+                    required_capabilities.append(cap_value)
+
+        if self._capability_policy is not None:
+            for cap in required_capabilities:
                 if not self._capability_policy.check(
                     self._agent_id,
                     cap,

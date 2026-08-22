@@ -210,7 +210,16 @@ class SystemBuilder:
             memory_backend,
             channel_backend,
         )
-        tool_executor = ToolExecutor(tool_list, bus) if tool_list else None
+        tool_executor = (
+            ToolExecutor(
+                tool_list,
+                bus,
+                capability_policy=sec.capability_policy,
+                rate_limiter=sec.rate_limiter,
+            )
+            if tool_list
+            else None
+        )
 
         skill_manager = None
         skill_few_shot_examples: List[str] = []
@@ -235,7 +244,12 @@ class SystemBuilder:
                 )
                 tool_list.extend(skill_tools)
                 if tool_list:
-                    tool_executor = ToolExecutor(tool_list, bus)
+                    tool_executor = ToolExecutor(
+                        tool_list,
+                        bus,
+                        capability_policy=sec.capability_policy,
+                        rate_limiter=sec.rate_limiter,
+                    )
                 skill_few_shot_examples = skill_manager.get_few_shot_examples()
             except Exception as exc:
                 logger.warning("Failed to initialize skills: %s", exc)
@@ -333,6 +347,7 @@ class SystemBuilder:
             session_store=session_store,
             capability_policy=capability_policy,
             audit_logger=sec.audit_logger,
+            rate_limiter=sec.rate_limiter,
             agent_manager=agent_manager,
             agent_scheduler=agent_scheduler,
             agent_executor=agent_executor,

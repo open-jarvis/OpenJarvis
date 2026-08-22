@@ -141,6 +141,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
             interactive=interactive,
             confirm_callback=confirm_callback,
             prompt_builder=prompt_builder,
+            **kwargs,
         )
         # Validate strategies
         if memory_extraction not in VALID_MEMORY_EXTRACTION:

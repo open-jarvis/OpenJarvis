@@ -416,6 +416,19 @@ class AgentExecutor:
         # actively invoking web_search/memory_*/etc.
         if self._bus is not None:
             agent_kwargs["bus"] = self._bus
+        # Wire RBAC/rate-limiting from the system's SecurityContext into the
+        # agent's own ToolExecutor. Without this, every managed-agent tick
+        # went through ToolUsingAgent's default capability_policy=None /
+        # rate_limiter=None, so tool calls were never actually gated even
+        # when the config had capabilities/rate-limiting enabled.
+        if self._system is not None:
+            cap_policy = getattr(self._system, "capability_policy", None)
+            if cap_policy is not None:
+                agent_kwargs["capability_policy"] = cap_policy
+            rate_limiter = getattr(self._system, "rate_limiter", None)
+            if rate_limiter is not None:
+                agent_kwargs["rate_limiter"] = rate_limiter
+        agent_kwargs["agent_id"] = agent["id"]
         # Propagate confirmation policy from the AgentExecutor down to the
         # agent's own ToolExecutor. Set by CLI paths like `jarvis agents ask`
         # so non-interactive runs can auto-approve tool execution.

@@ -367,6 +367,7 @@ class ToolUsingAgent(BaseAgent):
         loop_guard_config: Optional[Any] = None,
         capability_policy: Optional[Any] = None,
         agent_id: Optional[str] = None,
+        rate_limiter: Optional[Any] = None,
         interactive: bool = False,
         confirm_callback: Optional[Any] = None,
         skill_few_shot_examples: Optional[List[str]] = None,
@@ -394,6 +395,7 @@ class ToolUsingAgent(BaseAgent):
             agent_id=_aid,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            rate_limiter=rate_limiter,
         )
         # Resolve max_turns: explicit arg > config > class default > 10
         if max_turns is not None:
