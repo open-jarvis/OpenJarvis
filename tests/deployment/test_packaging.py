@@ -63,6 +63,17 @@ def test_windows_installer_syncs_the_native_group() -> None:
     )
 
 
+def test_windows_installer_failure_does_not_exit_interactive_host() -> None:
+    installer = WINDOWS_INSTALL_PS1.read_text(encoding="utf-8")
+    write_fail = installer.split("function Write-Fail", maxsplit=1)[1].split(
+        "# ---------------------------------------------------------------------------",
+        maxsplit=1,
+    )[0]
+
+    assert "throw [System.InvalidOperationException]" in write_fail
+    assert "exit 1" not in write_fail
+
+
 def test_quickstart_installs_web_search_dependencies() -> None:
     quickstart = QUICKSTART_SH.read_text()
     assert "--extra tools-search" in quickstart
