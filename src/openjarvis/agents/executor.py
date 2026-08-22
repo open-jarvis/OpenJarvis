@@ -36,6 +36,16 @@ _MAX_RETRIES = 3
 _AGENT_TICK_DEFAULT_MODEL = "gemma4:31b"
 
 
+def _resolve_tick_model(config: dict[str, Any], system: Any) -> str:
+    """Resolve a managed tick model without hiding the system default."""
+
+    return (
+        config.get("model")
+        or (getattr(system, "model", "") if system is not None else "")
+        or _AGENT_TICK_DEFAULT_MODEL
+    )
+
+
 def _tool_calls_for_storage(result: AgentResult) -> list[dict[str, Any]] | None:
     """Convert executor tool results to the managed-message storage contract."""
 
@@ -288,11 +298,7 @@ class AgentExecutor:
         engine = self._system.engine if self._system else None
         if engine is None:
             raise FatalError("No engine available in JarvisSystem")
-        model = (
-            config.get("model")
-            or _AGENT_TICK_DEFAULT_MODEL
-            or (self._system.model if self._system else "")
-        )
+        model = _resolve_tick_model(config, self._system)
         if not model:
             raise FatalError("No model configured for agent")
 

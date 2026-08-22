@@ -163,3 +163,18 @@ def test_finalize_tick_reads_agent_result_metadata(tmp_path):
     assert updated["total_cost"] == 0.05
     assert updated["stall_retries"] == 0
     mgr.close()
+
+
+def test_tick_model_prefers_system_default_before_legacy_fallback() -> None:
+    from openjarvis.agents.executor import _resolve_tick_model
+
+    system = MagicMock(model="qwen3:8b")
+
+    assert _resolve_tick_model({}, system) == "qwen3:8b"
+    assert _resolve_tick_model({"model": "agent-model"}, system) == "agent-model"
+
+
+def test_new_agent_without_model_keeps_system_default_unpinned(manager) -> None:
+    agent = manager.create_agent("inherits-system-model", config={})
+
+    assert "model" not in agent["config"]

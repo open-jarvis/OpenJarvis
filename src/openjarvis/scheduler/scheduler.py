@@ -8,6 +8,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from openjarvis.scheduler.store import SchedulerStore
 
@@ -300,48 +301,36 @@ class TaskScheduler:
             return next_time.isoformat()
 
         if task.schedule_type == "cron":
-            return self._compute_next_cron(task.schedule_value, now)
+            timezone_name = str((task.metadata or {}).get("timezone") or "") or None
+            return self._compute_next_cron(task.schedule_value, now, timezone_name)
 
         return None
 
     @staticmethod
-    def _compute_next_cron(cron_expr: str, now: datetime) -> Optional[str]:
+    def _compute_next_cron(
+        cron_expr: str,
+        now: datetime,
+        timezone_name: str | None = None,
+    ) -> Optional[str]:
         """Compute the next run time from a cron expression.
 
-        Uses ``croniter`` if available, otherwise falls back to a basic
-        minute-granularity parser for simple expressions.
+        Evaluate in the configured IANA timezone and persist the result in UTC.
+        Missing cron support is fatal instead of silently changing semantics.
         """
         try:
             from croniter import croniter  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise RuntimeError(
+                "croniter is required for cron schedules; reinstall OpenJarvis"
+            ) from exc
 
-            it = croniter(cron_expr, now)
-            return it.get_next(datetime).isoformat()
-        except ImportError:
-            pass
-
-        # Basic fallback: parse "minute hour * * *" style expressions
-        parts = cron_expr.strip().split()
-        if len(parts) < 5:
-            logger.warning(
-                "Cannot parse cron without croniter: %s",
-                cron_expr,
-            )
-            return (now + timedelta(hours=1)).isoformat()
-
-        minute_part, hour_part = parts[0], parts[1]
-
-        try:
-            target_minute = int(minute_part) if minute_part != "*" else now.minute
-            target_hour = int(hour_part) if hour_part != "*" else now.hour
-        except ValueError:
-            return (now + timedelta(hours=1)).isoformat()
-
-        candidate = now.replace(
-            hour=target_hour, minute=target_minute, second=0, microsecond=0
-        )
-        if candidate <= now:
-            candidate += timedelta(days=1)
-        return candidate.isoformat()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        local_now = now.astimezone(ZoneInfo(timezone_name)) if timezone_name else now
+        next_local = croniter(cron_expr, local_now).get_next(datetime)
+        if next_local.tzinfo is None:
+            next_local = next_local.replace(tzinfo=local_now.tzinfo)
+        return next_local.astimezone(timezone.utc).isoformat()
 
 
 __all__ = [
