@@ -378,7 +378,8 @@ class ExecutePendingActionsTool(BaseTool):
         results: List[Dict[str, Any]] = []
         for action in actions:
             success, message = self._run_action(action)
-            store.update_status(action.id, STATUS_EXECUTED)
+            if success:
+                store.update_status(action.id, STATUS_EXECUTED)
             results.append(
                 {
                     "id": action.id,
@@ -389,11 +390,16 @@ class ExecutePendingActionsTool(BaseTool):
                 }
             )
 
+        failed = sum(not entry["success"] for entry in results)
         return ToolResult(
             tool_name=self.spec.name,
-            success=True,
+            success=failed == 0,
             content=json.dumps(results, indent=2),
-            metadata={"executed": len(results)},
+            metadata={
+                "attempted": len(results),
+                "executed": len(results) - failed,
+                "failed": failed,
+            },
         )
 
     def _run_action(self, action: PendingAction) -> Tuple[bool, str]:
@@ -415,8 +421,7 @@ class ExecutePendingActionsTool(BaseTool):
             if atype == "sms_send":
                 return _exec_sms_send(payload)
             if atype == "sms_draft_reply":
-                # Draft only — surface in next digest, don't send
-                return True, f"Draft saved: {payload.get('draft', '')[:80]}"
+                return _exec_sms_draft_reply(payload)
             if atype == "calendar_decline":
                 return _exec_calendar_decline(payload)
             if atype == "calendar_accept":
@@ -429,6 +434,18 @@ class ExecutePendingActionsTool(BaseTool):
 # ---------------------------------------------------------------------------
 # Built-in action executors (thin wrappers around connector/channel APIs)
 # ---------------------------------------------------------------------------
+
+
+def _exec_sms_draft_reply(payload: Dict[str, Any]) -> Tuple[bool, str]:
+    """Validate and surface a draft without sending it."""
+
+    contact = str(payload.get("contact", "")).strip()
+    body = str(payload.get("body", "")).strip()
+    if not contact:
+        return False, "Missing contact in payload"
+    if not body:
+        return False, "Missing body in payload"
+    return True, f"Draft for {contact}: {body[:80]}"
 
 
 def _exec_email_delete(payload: Dict[str, Any]) -> Tuple[bool, str]:
