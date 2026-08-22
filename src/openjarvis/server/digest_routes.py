@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -22,6 +23,14 @@ class ScheduleUpdate(BaseModel):
 
     enabled: bool
     cron: Optional[str] = None
+
+
+def _generate_digest_sync() -> str:
+    """Generate a digest with the whole Jarvis lifecycle on one worker."""
+    from openjarvis.sdk import Jarvis
+
+    with Jarvis() as jarvis:
+        return jarvis.ask("Generate my morning digest", agent="morning_digest")
 
 
 def create_digest_router(*, db_path: str = "") -> APIRouter:
@@ -65,10 +74,7 @@ def create_digest_router(*, db_path: str = "") -> APIRouter:
     async def generate_digest():
         """Force re-generation of the digest."""
         try:
-            from openjarvis.sdk import Jarvis
-
-            with Jarvis() as j:
-                result = j.ask("Generate my morning digest", agent="morning_digest")
+            result = await asyncio.to_thread(_generate_digest_sync)
             return {"status": "ok", "text": result}
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))

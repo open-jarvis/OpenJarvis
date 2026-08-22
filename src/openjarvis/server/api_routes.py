@@ -184,7 +184,7 @@ def _get_memory_backend(request: Request):
 
 
 @memory_router.post("/store")
-async def memory_store(req: MemoryStoreRequest, request: Request):
+def memory_store(req: MemoryStoreRequest, request: Request):
     """Store content in memory."""
     backend = _get_memory_backend(request)
     if backend is None:
@@ -199,7 +199,7 @@ async def memory_store(req: MemoryStoreRequest, request: Request):
 
 
 @memory_router.post("/search")
-async def memory_search(req: MemorySearchRequest, request: Request):
+def memory_search(req: MemorySearchRequest, request: Request):
     """Search memory for relevant content."""
     backend = _get_memory_backend(request)
     if backend is None:
@@ -220,7 +220,7 @@ async def memory_search(req: MemorySearchRequest, request: Request):
 
 
 @memory_router.get("/stats")
-async def memory_stats(request: Request):
+def memory_stats(request: Request):
     """Get memory backend statistics."""
     backend = _get_memory_backend(request)
     if backend is None:
@@ -284,7 +284,7 @@ async def memory_config(request: Request):
 
 
 @memory_router.post("/index")
-async def memory_index(req: MemoryIndexRequest, request: Request):
+def memory_index(req: MemoryIndexRequest, request: Request):
     """Index files from a path into memory."""
     try:
         import os
@@ -653,6 +653,40 @@ async def prometheus_metrics(request: Request):
 # ---- WebSocket streaming routes ----
 
 websocket_router = APIRouter(tags=["websocket"])
+_SYNC_STREAM_END = object()
+
+
+async def _next_sync_stream(iterator: Any) -> Any:
+    """Fetch one sync-stream item without blocking or racing cancellation."""
+    next_task = asyncio.create_task(asyncio.to_thread(next, iterator, _SYNC_STREAM_END))
+    try:
+        return await asyncio.shield(next_task)
+    except asyncio.CancelledError:
+        # ``to_thread`` cannot stop a running ``next()``. Wait for it before
+        # allowing the iterator to be closed so cancellation cannot race a
+        # generator that is still executing in the worker thread.
+        try:
+            await next_task
+        except Exception:
+            pass
+        raise
+
+
+async def _iterate_sync_stream(iterator: Any):
+    """Adapt a blocking iterator to an async generator, closing it safely."""
+    try:
+        while True:
+            item = await _next_sync_stream(iterator)
+            if item is _SYNC_STREAM_END:
+                return
+            yield item
+    finally:
+        close = getattr(iterator, "close", None)
+        if callable(close):
+            try:
+                await asyncio.to_thread(close)
+            except Exception as exc:
+                logger.warning("Failed to close synchronous engine stream: %s", exc)
 
 
 def _record_ws_trace(
@@ -759,9 +793,9 @@ async def websocket_chat_stream(websocket: WebSocket):
                                     {"type": "chunk", "content": token},
                                 )
                         else:
-                            # Sync generator — iterate in a thread to avoid
-                            # blocking the event loop
-                            for token in gen:
+                            # Each ``next()`` can perform a blocking upstream
+                            # read, so offload iteration one item at a time.
+                            async for token in _iterate_sync_stream(iter(gen)):
                                 full_content += token
                                 await websocket.send_json(
                                     {"type": "chunk", "content": token},
