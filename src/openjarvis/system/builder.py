@@ -184,6 +184,7 @@ class SystemBuilder:
 
         sec = setup_security(config, engine, bus)
         engine = sec.engine
+        agent_name = self._agent_name or config.agent.default_agent
 
         if telemetry_enabled:
             from openjarvis.telemetry.instrumented_engine import (
@@ -218,6 +219,7 @@ class SystemBuilder:
                 tool_list,
                 bus,
                 capability_policy=sec.capability_policy,
+                agent_id=agent_name,
                 rate_limiter=sec.rate_limiter,
             )
             if tool_list
@@ -251,13 +253,13 @@ class SystemBuilder:
                         tool_list,
                         bus,
                         capability_policy=sec.capability_policy,
+                        agent_id=agent_name,
                         rate_limiter=sec.rate_limiter,
                     )
                 skill_few_shot_examples = skill_manager.get_few_shot_examples()
             except Exception as exc:
                 logger.warning("Failed to initialize skills: %s", exc)
 
-        agent_name = self._agent_name or config.agent.default_agent
         container_runner = self._setup_sandbox(config)
         scheduler_store, task_scheduler = self._setup_scheduler(config, bus)
         workflow_engine = self._setup_workflow(config, bus)

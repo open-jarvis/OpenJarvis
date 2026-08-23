@@ -291,9 +291,9 @@ class ToolExecutor:
         # not turn a privileged built-in into an unguarded tool.
         required_capabilities = list(tool.spec.required_capabilities)
         if self._capability_policy is not None:
-            from openjarvis.security.capabilities import DEFAULT_TOOL_CAPABILITIES
+            from openjarvis.security.capabilities import canonical_tool_capabilities
 
-            for cap in DEFAULT_TOOL_CAPABILITIES.get(tool.spec.name, []):
+            for cap in canonical_tool_capabilities(tool):
                 cap_value = cap.value if hasattr(cap, "value") else cap
                 if cap_value not in required_capabilities:
                     required_capabilities.append(cap_value)

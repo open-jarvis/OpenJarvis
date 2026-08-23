@@ -981,6 +981,10 @@ async def _stream_managed_agent(
                     engine=engine,
                     model=model,
                     tools=dr_tools,
+                    bus=getattr(app_state, "bus", None),
+                    capability_policy=getattr(app_state, "capability_policy", None),
+                    rate_limiter=getattr(app_state, "rate_limiter", None),
+                    agent_id=agent_id,
                     max_turns=int(config.get("max_turns", 8)),
                     temperature=float(config.get("temperature", 0.3)),
                     interactive=True,
@@ -1808,6 +1812,16 @@ def create_agent_manager_router(
                                     engine=engine,
                                     model=getattr(engine, "_model", ""),
                                     tools=tools,
+                                    bus=getattr(request.app.state, "bus", None),
+                                    capability_policy=getattr(
+                                        request.app.state,
+                                        "capability_policy",
+                                        None,
+                                    ),
+                                    rate_limiter=getattr(
+                                        request.app.state, "rate_limiter", None
+                                    ),
+                                    agent_id=agent_id,
                                     interactive=True,
                                     confirm_callback=lambda _prompt: True,
                                 )
@@ -1881,6 +1895,16 @@ def create_agent_manager_router(
                                     engine=engine,
                                     model=model_name,
                                     tools=tools,
+                                    bus=getattr(request.app.state, "bus", None),
+                                    capability_policy=getattr(
+                                        request.app.state,
+                                        "capability_policy",
+                                        None,
+                                    ),
+                                    rate_limiter=getattr(
+                                        request.app.state, "rate_limiter", None
+                                    ),
+                                    agent_id=agent_id,
                                     interactive=True,
                                     confirm_callback=lambda _prompt: True,
                                 )

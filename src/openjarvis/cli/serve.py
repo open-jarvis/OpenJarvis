@@ -320,13 +320,14 @@ def serve(
             if AgentRegistry.contains(agent_key):
                 agent_cls = AgentRegistry.get(agent_key)
                 agent_kwargs = {"bus": bus}
-                if sec.capability_policy is not None:
-                    agent_kwargs["capability_policy"] = sec.capability_policy
-                if sec.rate_limiter is not None:
-                    agent_kwargs["rate_limiter"] = sec.rate_limiter
 
                 # Load tools for agents that support them
                 if getattr(agent_cls, "accepts_tools", False):
+                    agent_kwargs["agent_id"] = agent_key
+                    if sec.capability_policy is not None:
+                        agent_kwargs["capability_policy"] = sec.capability_policy
+                    if sec.rate_limiter is not None:
+                        agent_kwargs["rate_limiter"] = sec.rate_limiter
                     import openjarvis.tools  # noqa: F401  # trigger registration
                     from openjarvis.core.registry import ToolRegistry
                     from openjarvis.tools._stubs import BaseTool
@@ -478,6 +479,9 @@ def serve(
             tools=_channel_tools,
             mcp_tools=managed_mcp_tools,
             _mcp_clients=mcp_clients,
+            capability_policy=sec.capability_policy,
+            audit_logger=sec.audit_logger,
+            rate_limiter=sec.rate_limiter,
         )
         _wire_system.wire_channel(channel_bridge)
 
@@ -599,6 +603,7 @@ def serve(
                     resolved_tools,
                     bus,
                     capability_policy=sec.capability_policy,
+                    agent_id=agent_key or "scheduler",
                     rate_limiter=sec.rate_limiter,
                 )
                 if resolved_tools
@@ -621,6 +626,8 @@ def serve(
                 trace_store=_trace_store,
                 session_store=_sched_session_store,
                 capability_policy=sec.capability_policy,
+                audit_logger=sec.audit_logger,
+                rate_limiter=sec.rate_limiter,
                 agent_manager=agent_manager,
                 agent_executor=executor,
                 _mcp_clients=mcp_clients,

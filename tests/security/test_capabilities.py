@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import ast
+import json
+from pathlib import Path
+
+from openjarvis.core.types import ToolCall, ToolResult
 from openjarvis.security.capabilities import (
     DEFAULT_TOOL_CAPABILITIES,
     Capability,
     CapabilityPolicy,
+    canonical_tool_capabilities,
 )
+from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
 
 
 class TestCapability:
@@ -126,3 +133,73 @@ class TestCapabilityPolicy:
         assert "file:read" in DEFAULT_TOOL_CAPABILITIES.get("file_read", [])
         assert "network:fetch" in DEFAULT_TOOL_CAPABILITIES.get("web_search", [])
         assert "code:execute" in DEFAULT_TOOL_CAPABILITIES.get("code_interpreter", [])
+
+    def test_every_registered_builtin_has_an_explicit_inventory_entry(self):
+        root = Path(__file__).parents[2] / "src" / "openjarvis"
+        registered: set[str] = set()
+        for path in [
+            *(root / "tools").rglob("*.py"),
+            root / "scheduler" / "tools.py",
+        ]:
+            tree = ast.parse(path.read_text(), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.ClassDef, ast.FunctionDef)):
+                    continue
+                for decorator in node.decorator_list:
+                    if not isinstance(decorator, ast.Call) or not decorator.args:
+                        continue
+                    func = decorator.func
+                    if (
+                        isinstance(func, ast.Attribute)
+                        and func.attr == "register"
+                        and isinstance(func.value, ast.Name)
+                        and func.value.id == "ToolRegistry"
+                        and isinstance(decorator.args[0], ast.Constant)
+                        and isinstance(decorator.args[0].value, str)
+                    ):
+                        registered.add(decorator.args[0].value)
+
+        assert registered == set(DEFAULT_TOOL_CAPABILITIES)
+
+    def test_real_repl_cannot_execute_under_default_deny(self):
+        from openjarvis.tools.repl import ReplTool
+
+        tool = ReplTool()
+        executor = ToolExecutor(
+            [tool],
+            capability_policy=CapabilityPolicy(default_deny=True),
+            agent_id="restricted",
+        )
+
+        result = executor.execute(
+            ToolCall(
+                id="repl-denied",
+                name="repl",
+                arguments=json.dumps({"code": "sentinel = 42"}),
+            )
+        )
+
+        assert not result.success
+        assert "code:execute" in result.content
+        assert tool._sessions == {}
+
+    def test_uninventoried_future_builtin_fails_closed(self):
+        class FutureBuiltin(BaseTool):
+            @property
+            def spec(self):
+                return ToolSpec(name="future_builtin", description="future")
+
+            def execute(self, **params):
+                return ToolResult(tool_name="future_builtin", content="ran")
+
+        FutureBuiltin.__module__ = "openjarvis.tools.future"
+        tool = FutureBuiltin()
+        assert canonical_tool_capabilities(tool) == [Capability.SYSTEM_ADMIN]
+
+        result = ToolExecutor(
+            [tool],
+            capability_policy=CapabilityPolicy(default_deny=True),
+            agent_id="restricted",
+        ).execute(ToolCall(id="future-denied", name="future_builtin", arguments="{}"))
+        assert not result.success
+        assert "system:admin" in result.content

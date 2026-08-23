@@ -94,7 +94,15 @@ def _repopulate_registries() -> None:
                     pass
 
 
-def _run_serve(tmp_path, monkeypatch, *, build_spy, set_system_spy):
+def _run_serve(
+    tmp_path,
+    monkeypatch,
+    *,
+    build_spy,
+    set_system_spy,
+    security_primitives=None,
+    channel_backend=None,
+):
     """Invoke ``jarvis serve`` with all heavy/blocking pieces stubbed out.
 
     Returns the CliRunner result. The server is never actually started
@@ -118,7 +126,9 @@ def _run_serve(tmp_path, monkeypatch, *, build_spy, set_system_spy):
     config.agent.context_from_memory = False
     config.telemetry.enabled = False
     config.traces.enabled = False
-    config.channel.enabled = False
+    config.channel.enabled = channel_backend is not None
+    if channel_backend is not None:
+        config.channel.default_channel = "test-channel"
     config.skills.enabled = False
     config.server.host = "127.0.0.1"
     config.server.port = 8123
@@ -141,13 +151,19 @@ def _run_serve(tmp_path, monkeypatch, *, build_spy, set_system_spy):
     monkeypatch.setattr(serve_mod, "get_engine", lambda *a, **k: ("mock", engine))
     monkeypatch.setattr(serve_mod, "discover_engines", lambda *a, **k: {})
     monkeypatch.setattr(serve_mod, "discover_models", lambda *a, **k: {})
+    if channel_backend is not None:
+        monkeypatch.setattr(
+            "openjarvis.system.builder.SystemBuilder._resolve_channel",
+            lambda *args, **kwargs: channel_backend,
+        )
 
     # setup_security returns its own context; pass the engine straight through
     # so we don't need real guardrails wired up.
     sec = MagicMock()
     sec.engine = engine
-    sec.capability_policy = None
-    sec.audit_logger = None
+    if security_primitives is None:
+        security_primitives = (None, None, None)
+    sec.capability_policy, sec.rate_limiter, sec.audit_logger = security_primitives
     monkeypatch.setattr("openjarvis.security.setup_security", lambda *a, **k: sec)
 
     with (
@@ -202,11 +218,15 @@ def test_executor_receives_required_system_attrs(tmp_path, monkeypatch):
         # Preserve real behaviour so the executor is usable afterwards.
         self._system = system
 
+    policy = object()
+    limiter = object()
+    audit = object()
     result = _run_serve(
         tmp_path,
         monkeypatch,
         build_spy=build_spy,
         set_system_spy=_capture_set_system,
+        security_primitives=(policy, limiter, audit),
     )
 
     assert result.exit_code == 0, result.output
@@ -225,3 +245,40 @@ def test_executor_receives_required_system_attrs(tmp_path, monkeypatch):
     assert system.engine is not None
     assert system.model == "test-model"
     assert system.config is not None
+    assert system.capability_policy is policy
+    assert system.rate_limiter is limiter
+    assert system.audit_logger is audit
+    assert system.tool_executor._capability_policy is policy
+    assert system.tool_executor._rate_limiter is limiter
+    assert system.tool_executor._agent_id == system.config.server.agent
+
+
+def test_channel_system_receives_remote_security_primitives(tmp_path, monkeypatch):
+    from openjarvis.system import JarvisSystem
+
+    captured = {}
+
+    def _capture_wire(self, channel):
+        captured["system"] = self
+
+    monkeypatch.setattr(JarvisSystem, "wire_channel", _capture_wire)
+    policy = object()
+    limiter = object()
+    audit = object()
+    channel = MagicMock(channel_id="test-channel")
+
+    result = _run_serve(
+        tmp_path,
+        monkeypatch,
+        build_spy=MagicMock(),
+        set_system_spy=MagicMock(),
+        security_primitives=(policy, limiter, audit),
+        channel_backend=channel,
+    )
+
+    assert result.exit_code == 0, result.output
+    system = captured.get("system")
+    assert system is not None
+    assert system.capability_policy is policy
+    assert system.rate_limiter is limiter
+    assert system.audit_logger is audit

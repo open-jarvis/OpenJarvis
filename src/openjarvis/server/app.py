@@ -91,6 +91,12 @@ def _restore_sendblue_bindings(app: FastAPI) -> None:
                                 engine=engine,
                                 model=model_name,
                                 tools=tools,
+                                bus=getattr(app.state, "bus", None),
+                                capability_policy=getattr(
+                                    app.state, "capability_policy", None
+                                ),
+                                rate_limiter=getattr(app.state, "rate_limiter", None),
+                                agent_id=agent_id,
                             )
 
                     bus = getattr(app.state, "bus", None)
@@ -185,6 +191,47 @@ def create_app(
     config:
         Optional JarvisConfig for other settings.
     """
+    original_engine = engine
+    security_enabled = config is not None and getattr(
+        getattr(config, "security", None), "enabled", False
+    )
+    if security_enabled:
+        if bus is None:
+            from openjarvis.core.events import EventBus
+
+            bus = EventBus(record_history=False)
+        if any(
+            primitive is None
+            for primitive in (capability_policy, rate_limiter, audit_logger)
+        ):
+            # Programmatic factory callers must receive the same config-driven
+            # enforcement as ``jarvis serve``. Explicitly injected primitives
+            # remain authoritative; only missing pieces are derived.
+            from openjarvis.security import setup_security
+
+            derived_security = setup_security(config, engine, bus)
+            engine = derived_security.engine
+            if capability_policy is None:
+                capability_policy = derived_security.capability_policy
+            if rate_limiter is None:
+                rate_limiter = derived_security.rate_limiter
+            if audit_logger is None:
+                audit_logger = derived_security.audit_logger
+
+    # A pre-built tool-using agent is part of the factory's remote execution
+    # surface too. Fill only missing executor fields so explicit per-agent
+    # wiring remains authoritative.
+    agent_tool_executor = getattr(agent, "_executor", None)
+    if agent is not None and getattr(agent, "_engine", None) is original_engine:
+        agent._engine = engine
+    if agent_tool_executor is not None:
+        if getattr(agent_tool_executor, "_capability_policy", None) is None:
+            agent_tool_executor._capability_policy = capability_policy
+        if getattr(agent_tool_executor, "_rate_limiter", None) is None:
+            agent_tool_executor._rate_limiter = rate_limiter
+        if not getattr(agent_tool_executor, "_agent_id", ""):
+            agent_tool_executor._agent_id = agent_name or getattr(agent, "agent_id", "")
+
     app = FastAPI(
         title="OpenJarvis API",
         description="OpenAI-compatible API server for OpenJarvis",

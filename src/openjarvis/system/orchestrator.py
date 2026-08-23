@@ -158,13 +158,16 @@ class QueryOrchestrator:
         if getattr(agent_cls, "accepts_tools", False):
             agent_kwargs["tools"] = agent_tools
             agent_kwargs["max_turns"] = s.config.agent.max_turns
+            agent_kwargs["agent_id"] = agent_name
+            if s.capability_policy is not None:
+                agent_kwargs["capability_policy"] = s.capability_policy
+            if getattr(s, "rate_limiter", None) is not None:
+                agent_kwargs["rate_limiter"] = s.rate_limiter
             examples = getattr(s, "_skill_few_shot_examples", None)
             if examples:
                 agent_kwargs["skill_few_shot_examples"] = examples
         if system_prompt is not None:
             agent_kwargs["system_prompt"] = system_prompt
-        if s.capability_policy is not None:
-            agent_kwargs["capability_policy"] = s.capability_policy
         if operator_id is not None:
             agent_kwargs["operator_id"] = operator_id
             agent_kwargs["session_store"] = s.session_store

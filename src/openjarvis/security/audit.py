@@ -41,7 +41,10 @@ class AuditLogger:
 
         secure_create(self._db_path)
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        self._conn = sqlite3.connect(
+            str(self._db_path), check_same_thread=False, timeout=30.0
+        )
+        self._conn.execute("PRAGMA busy_timeout = 30000")
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS security_events (
@@ -114,34 +117,42 @@ class AuditLogger:
         # lock concurrent EventBus publishers can choose the same predecessor
         # and fork the append-only hash chain.
         with self._lock:
-            row = self._conn.execute(
-                "SELECT row_hash FROM security_events ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            prev_hash = row[0] if row and row[0] else ""
-            hash_input = (
-                f"{prev_hash}|{event.timestamp}|{event.event_type.value}"
-                f"|{findings_json}|{event.content_preview}|{event.action_taken}"
-            )
-            row_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+            try:
+                # Serialize tail-read + append at the database level.  The
+                # Python lock protects one logger only; servers may have
+                # several instances (or processes) sharing this database.
+                self._conn.execute("BEGIN IMMEDIATE")
+                row = self._conn.execute(
+                    "SELECT row_hash FROM security_events ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                prev_hash = row[0] if row and row[0] else ""
+                hash_input = (
+                    f"{prev_hash}|{event.timestamp}|{event.event_type.value}"
+                    f"|{findings_json}|{event.content_preview}|{event.action_taken}"
+                )
+                row_hash = hashlib.sha256(hash_input.encode()).hexdigest()
 
-            self._conn.execute(
-                """
-                INSERT INTO security_events
-                    (timestamp, event_type, findings_json, content_preview,
-                     action_taken, row_hash, prev_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.timestamp,
-                    event.event_type.value,
-                    findings_json,
-                    event.content_preview,
-                    event.action_taken,
-                    row_hash,
-                    prev_hash,
-                ),
-            )
-            self._conn.commit()
+                self._conn.execute(
+                    """
+                    INSERT INTO security_events
+                        (timestamp, event_type, findings_json, content_preview,
+                         action_taken, row_hash, prev_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event.timestamp,
+                        event.event_type.value,
+                        findings_json,
+                        event.content_preview,
+                        event.action_taken,
+                        row_hash,
+                        prev_hash,
+                    ),
+                )
+                self._conn.commit()
+            except BaseException:
+                self._conn.rollback()
+                raise
 
     def query(
         self,

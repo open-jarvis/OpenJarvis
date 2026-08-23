@@ -190,3 +190,29 @@ class TestAuditLogger:
         assert logger.count() == 100
         assert logger.verify_chain() == (True, None)
         logger.close()
+
+    def test_multiple_logger_instances_share_one_atomic_hash_chain(
+        self, tmp_path: Path
+    ) -> None:
+        db_path = tmp_path / "audit.db"
+        loggers = [AuditLogger(db_path=db_path) for _ in range(4)]
+
+        def _write(index: int) -> None:
+            loggers[index % len(loggers)].log(
+                SecurityEvent(
+                    event_type=SecurityEventType.TOOL_EXECUTED,
+                    timestamp=float(index),
+                    content_preview=f"multi-{index}",
+                    action_taken="success",
+                )
+            )
+
+        try:
+            with ThreadPoolExecutor(max_workers=16) as pool:
+                list(pool.map(_write, range(400)))
+
+            assert loggers[0].count() == 400
+            assert loggers[0].verify_chain() == (True, None)
+        finally:
+            for logger in loggers:
+                logger.close()

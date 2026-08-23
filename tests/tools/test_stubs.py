@@ -196,6 +196,12 @@ class TestToolExecutor:
 
         result = executor.execute(ToolCall(id="1", name=tool_name, arguments="{}"))
 
+        if not canonical_capabilities:
+            assert result.success is True
+            assert tool.calls == 1
+            assert policy.checks == []
+            return
+
         expected = canonical_capabilities[0].value
         assert result.success is False
         assert tool.calls == 0

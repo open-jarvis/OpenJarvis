@@ -62,6 +62,9 @@ def _test_config():
     cfg = JarvisConfig()
     cfg.analytics.enabled = False
     cfg.traces.enabled = False
+    # Route tests exercise the injected engine directly. Factory-level
+    # config-derived security is covered separately.
+    cfg.security.enabled = False
     return cfg
 
 
