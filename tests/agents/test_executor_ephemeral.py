@@ -82,9 +82,7 @@ def test_run_ephemeral_resolves_tools_and_preserves_security():
     engine.generate.side_effect = [
         {
             "content": "",
-            "tool_calls": [
-                {"id": "flush", "name": "flush_probe", "arguments": "{}"}
-            ],
+            "tool_calls": [{"id": "flush", "name": "flush_probe", "arguments": "{}"}],
             "finish_reason": "tool_calls",
         },
         {"content": "done", "finish_reason": "stop"},

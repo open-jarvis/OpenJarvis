@@ -114,9 +114,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
                 WebSearchTool(),
                 {"query": url},
                 bus=getattr(executor, "_bus", None),
-                capability_policy=getattr(
-                    executor, "_capability_policy", None
-                ),
+                capability_policy=getattr(executor, "_capability_policy", None),
                 rate_limiter=getattr(executor, "_rate_limiter", None),
                 agent_id=getattr(executor, "_agent_id", self.agent_id),
             )

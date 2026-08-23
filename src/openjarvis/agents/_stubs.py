@@ -136,22 +136,31 @@ class BaseAgent(ABC):
         )
         if not required:
             return None
-        from openjarvis.security.runtime import authorize_secured_operation
-
-        result = authorize_secured_operation(
-            operation,
-            required,
-            bus=self._bus,
-            capability_policy=self._capability_policy,
-            rate_limiter=self._rate_limiter,
-            agent_id=self._runtime_agent_id,
-        )
+        result = self._authorize_direct_operation(required, operation=operation)
         if result.success:
             return None
         return AgentResult(
             content=result.content,
             tool_results=[result],
             metadata={"error": True, "security_denied": True},
+        )
+
+    def _authorize_direct_operation(
+        self,
+        required_capabilities: List[str],
+        *,
+        operation: str,
+    ) -> ToolResult:
+        """Authorize a non-BaseTool operation using this runtime identity."""
+        from openjarvis.security.runtime import authorize_secured_operation
+
+        return authorize_secured_operation(
+            operation,
+            required_capabilities,
+            bus=self._bus,
+            capability_policy=self._capability_policy,
+            rate_limiter=self._rate_limiter,
+            agent_id=self._runtime_agent_id,
         )
 
     def _emit_turn_start(self, input: str) -> None:

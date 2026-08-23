@@ -281,10 +281,14 @@ def canonical_tool_capabilities(tool: Any) -> List[str]:
         if name in DEFAULT_TOOL_CAPABILITIES:
             canonical = list(DEFAULT_TOOL_CAPABILITIES[name])
             expected = _SAFE_BUILTIN_PROVENANCE.get(name)
-            if expected is not None and (
-                module,
-                type(tool).__name__,
-            ) != expected:
+            if (
+                expected is not None
+                and (
+                    module,
+                    type(tool).__name__,
+                )
+                != expected
+            ):
                 logger.error(
                     "Tool %r claimed reviewed-safe built-in provenance from %s.%s",
                     name,

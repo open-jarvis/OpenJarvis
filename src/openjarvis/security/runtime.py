@@ -63,6 +63,7 @@ def wire_agent_security(
     rate_limiter: Any = None,
     agent_id: str = "",
     overwrite: bool = True,
+    synchronize_runtime_cache: bool = False,
 ) -> None:
     """Wire runtime security into an already-created agent and executor."""
     if agent is None:
@@ -82,6 +83,30 @@ def wire_agent_security(
     if agent_id and (overwrite or not getattr(agent, "_runtime_agent_id", "")):
         agent._runtime_agent_id = agent_id
 
+    if synchronize_runtime_cache:
+        # Some agents (notably RLM) cache construction-time primitives for
+        # executors created lazily inside run(). A server factory wiring a
+        # prebuilt agent must synchronize those caches with the effective
+        # runtime values or the lazy executor silently falls back to the
+        # original None/default identity. Preserve explicit per-agent policy
+        # and limiter values selected above when overwrite=False.
+        if bus is not None and hasattr(agent, "_runtime_bus"):
+            agent._runtime_bus = bus
+        if hasattr(agent, "_runtime_capability_policy"):
+            agent._runtime_capability_policy = getattr(
+                agent,
+                "_capability_policy",
+                capability_policy,
+            )
+        if hasattr(agent, "_runtime_rate_limiter"):
+            agent._runtime_rate_limiter = getattr(
+                agent,
+                "_rate_limiter",
+                rate_limiter,
+            )
+        if agent_id:
+            agent._runtime_agent_id = agent_id
+
     executor = getattr(agent, "_executor", None)
     if executor is None:
         return
@@ -95,7 +120,15 @@ def wire_agent_security(
         overwrite or getattr(executor, "_rate_limiter", None) is None
     ):
         executor._rate_limiter = rate_limiter
-    if agent_id and (overwrite or not getattr(executor, "_agent_id", "")):
+    if agent_id and (
+        overwrite or synchronize_runtime_cache or not getattr(executor, "_agent_id", "")
+    ):
+        # A prebuilt agent crossing a server/runtime boundary must use the
+        # boundary identity for both its direct-operation cache and its
+        # already-created ToolExecutor.  Otherwise a class-default identity
+        # (for example ``orchestrator``) can consume grants intended for a
+        # different principal even though the server labels the run with
+        # ``agent_name``.
         executor._agent_id = agent_id
 
 

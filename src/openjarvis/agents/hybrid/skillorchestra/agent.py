@@ -55,6 +55,10 @@ class SkillOrchestraAgent(LocalCloudAgent):
     """Inference-time skill-aware orchestrator. See module docstring."""
 
     agent_id = "skillorchestra"
+    # The QA orchestrator always exposes enhance_reasoning, which executes
+    # generated Python when selected. Gate the agent before its first model
+    # turn as well as immediately before the subprocess in tools.run_code.
+    required_capabilities = ("code:execute", "file:read", "file:write")
 
     # ------------------------------------------------------------------
 

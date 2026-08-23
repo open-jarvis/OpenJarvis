@@ -92,6 +92,17 @@ def _raise_agent_tool_failure(result: Any, *, not_found: bool = False) -> None:
 @agents_router.get("")
 async def list_agents(request: Request):
     """List available agent types and running agents."""
+    try:
+        from openjarvis.tools.agent_tools import AgentListTool
+
+        # Registry names and live agent metadata are administrative state,
+        # just like spawn/send/kill.  Authorize before reading either source
+        # so default-deny and rate-limit policies cannot be bypassed by GET.
+        result = _execute_agent_admin_tool(request, AgentListTool(), {})
+        _raise_agent_tool_failure(result)
+    except ImportError:
+        raise HTTPException(status_code=501, detail="Agent tools not available")
+
     registered = []
     try:
         import openjarvis.agents  # noqa: F401 — side-effect registration

@@ -69,6 +69,37 @@ class TestAgentRoutes:
             "tool": "agent_spawn",
         }
 
+    def test_agent_listing_is_capability_gated_before_disclosure(self):
+        from openjarvis.tools.agent_tools import _SPAWNED_AGENTS
+
+        app = _make_app()
+        app.state.bus = EventBus(record_history=True)
+        app.state.capability_policy = CapabilityPolicy(default_deny=True)
+        app.state.rate_limiter = None
+        _SPAWNED_AGENTS["private-api-agent"] = {
+            "agent_id": "private-api-agent",
+            "agent_type": "simple",
+            "status": "running",
+            "created_at": 0.0,
+        }
+        try:
+            resp = TestClient(app).get("/v1/agents")
+        finally:
+            _SPAWNED_AGENTS.pop("private-api-agent", None)
+
+        assert resp.status_code == 403
+        assert "private-api-agent" not in resp.text
+        assert any(
+            event.event_type == EventType.CAPABILITY_DENIED
+            and event.data
+            == {
+                "agent_id": "server:api",
+                "capability": "system:admin",
+                "tool": "agent_list",
+            }
+            for event in app.state.bus.history
+        )
+
     def test_admin_lifecycle_is_rate_limited_before_mutation(self):
         from openjarvis.tools.agent_tools import _SPAWNED_AGENTS
 
@@ -100,6 +131,34 @@ class TestAgentRoutes:
         assert any(
             event.event_type == EventType.RATE_LIMITED
             and event.data["agent_id"] == "server:api"
+            for event in app.state.bus.history
+        )
+
+    def test_agent_listing_is_rate_limited_before_disclosure(self):
+        class _DenyLimiter:
+            def __init__(self) -> None:
+                self.keys = []
+
+            def check(self, key: str):
+                self.keys.append(key)
+                return False, 2.5
+
+        app = _make_app()
+        app.state.bus = EventBus(record_history=True)
+        policy = CapabilityPolicy(default_deny=True)
+        policy.grant("server:api", "system:admin")
+        limiter = _DenyLimiter()
+        app.state.capability_policy = policy
+        app.state.rate_limiter = limiter
+
+        resp = TestClient(app).get("/v1/agents")
+
+        assert resp.status_code == 429
+        assert limiter.keys == ["server:api:agent_list"]
+        assert any(
+            event.event_type == EventType.RATE_LIMITED
+            and event.data["agent_id"] == "server:api"
+            and event.data["tool"] == "agent_list"
             for event in app.state.bus.history
         )
 

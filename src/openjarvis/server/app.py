@@ -230,8 +230,13 @@ def create_app(
         bus=bus,
         capability_policy=capability_policy,
         rate_limiter=rate_limiter,
-        agent_id=agent_name or getattr(agent, "agent_id", ""),
+        agent_id=(
+            agent_name
+            or getattr(agent, "_runtime_agent_id", "")
+            or getattr(agent, "agent_id", "")
+        ),
         overwrite=False,
+        synchronize_runtime_cache=True,
     )
 
     app = FastAPI(

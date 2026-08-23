@@ -204,6 +204,7 @@ class SkillOrchestraAgent(LocalCloudAgent):
     """Inference-time skill-aware router. See module docstring."""
 
     agent_id = "skillorchestra"
+    required_capabilities = ("code:execute", "file:read", "file:write")
 
     def _route_call(
         self,

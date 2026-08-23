@@ -1287,25 +1287,38 @@ class LocalCloudAgent(BaseAgent):
     # Run contract
     # ------------------------------------------------------------------
 
+    def _required_capabilities_for_run(
+        self,
+        context: Optional[AgentContext],
+    ) -> List[str]:
+        """Derive capabilities from direct operations reachable this run.
+
+        Subclasses with worker pools may extend this hook based on the
+        concrete worker/action types they expose, rather than relying only on
+        generic configuration flags.
+        """
+        required = list(self.required_capabilities)
+        task_meta = context.metadata.get("task", {}) if context is not None else {}
+        if not isinstance(task_meta, dict):
+            task_meta = {}
+        if bool(self._cfg.get("swe_use_agent_loop")) or bool(
+            task_meta.get("repo") and task_meta.get("base_commit")
+        ):
+            required.extend(("code:execute", "file:read", "file:write"))
+        if str(self._cfg.get("search_backend", "provider")).lower() == "tavily":
+            required.append("network:fetch")
+        if self._cfg.get("retriever_url"):
+            required.append("network:fetch")
+        return list(dict.fromkeys(required))
+
     def run(
         self,
         input: str,
         context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
-        required = list(self.required_capabilities)
-        task_meta = context.metadata.get("task", {}) if context is not None else {}
-        if not isinstance(task_meta, dict):
-            task_meta = {}
-        if (
-            bool(self._cfg.get("swe_use_agent_loop"))
-            or bool(task_meta.get("repo") and task_meta.get("base_commit"))
-        ):
-            required.extend(("code:execute", "file:read", "file:write"))
-        if str(self._cfg.get("search_backend", "provider")).lower() == "tavily":
-            required.append("network:fetch")
         denied = self._execution_denied_result(
-            list(dict.fromkeys(required)),
+            self._required_capabilities_for_run(context),
             operation="hybrid_agent_run",
         )
         if denied is not None:

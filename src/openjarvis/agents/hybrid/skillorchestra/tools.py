@@ -161,6 +161,24 @@ def run_code(
     timeout=60)`` verbatim. Execution failures yield empty ``exec_result``
     rather than raising — the orchestrator learns the model can't code.
     """
+    authorization = agent._authorize_direct_operation(
+        ["code:execute", "file:read", "file:write"],
+        operation="skillorchestra_code",
+    )
+    if not authorization.success:
+        return {
+            "tool": "enhance_reasoning",
+            "model": spec.model,
+            "alias": spec.alias,
+            "generated_code": "",
+            "exec_result": authorization.content,
+            "response": authorization.content,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "cost_usd": 0.0,
+            "is_local": spec.is_local,
+        }
+
     prompt = (
         context_str.strip()
         + "\n\n"
@@ -352,20 +370,27 @@ def run_search(
             "topk": topk,
             "return_scores": True,
         }
-        try:
-            results = requests.post(
-                f"{retriever_url.rstrip('/')}/retrieve",
-                json=payload,
-                timeout=120,
-            ).json()
-            for r in results[0]:
-                doc = r.get("document", {})
-                if "content" in doc:
-                    contents.append(doc["content"])
-                elif "contents" in doc:
-                    contents.append(doc["contents"])
-        except Exception as exc:  # noqa: BLE001
-            contents.append(f"[retriever error: {exc}]")
+        authorization = agent._authorize_direct_operation(
+            ["network:fetch"],
+            operation="skillorchestra_retriever",
+        )
+        if not authorization.success:
+            contents.append(f"[retriever blocked: {authorization.content}]")
+        else:
+            try:
+                results = requests.post(
+                    f"{retriever_url.rstrip('/')}/retrieve",
+                    json=payload,
+                    timeout=120,
+                ).json()
+                for r in results[0]:
+                    doc = r.get("document", {})
+                    if "content" in doc:
+                        contents.append(doc["content"])
+                    elif "contents" in doc:
+                        contents.append(doc["contents"])
+            except Exception as exc:  # noqa: BLE001
+                contents.append(f"[retriever error: {exc}]")
     else:
         # Substitution path — server-side web search via the cloud's
         # `_base` agent loop. The search-capable helpers all talk to
