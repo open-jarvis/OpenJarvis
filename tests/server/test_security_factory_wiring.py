@@ -58,6 +58,8 @@ def test_factory_derives_missing_security_and_secures_prebuilt_agent(
     assert app.state.rate_limiter is limiter
     assert app.state.audit_logger is audit
     assert agent._engine is wrapped
+    assert agent._bus is app.state.bus
+    assert agent._executor._bus is app.state.bus
     assert agent._executor._capability_policy is policy
     assert agent._executor._rate_limiter is limiter
     assert agent._executor._agent_id == "tool-agent"

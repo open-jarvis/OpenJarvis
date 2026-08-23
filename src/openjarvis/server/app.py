@@ -221,16 +221,18 @@ def create_app(
     # A pre-built tool-using agent is part of the factory's remote execution
     # surface too. Fill only missing executor fields so explicit per-agent
     # wiring remains authoritative.
-    agent_tool_executor = getattr(agent, "_executor", None)
     if agent is not None and getattr(agent, "_engine", None) is original_engine:
         agent._engine = engine
-    if agent_tool_executor is not None:
-        if getattr(agent_tool_executor, "_capability_policy", None) is None:
-            agent_tool_executor._capability_policy = capability_policy
-        if getattr(agent_tool_executor, "_rate_limiter", None) is None:
-            agent_tool_executor._rate_limiter = rate_limiter
-        if not getattr(agent_tool_executor, "_agent_id", ""):
-            agent_tool_executor._agent_id = agent_name or getattr(agent, "agent_id", "")
+    from openjarvis.security.runtime import wire_agent_security
+
+    wire_agent_security(
+        agent,
+        bus=bus,
+        capability_policy=capability_policy,
+        rate_limiter=rate_limiter,
+        agent_id=agent_name or getattr(agent, "agent_id", ""),
+        overwrite=False,
+    )
 
     app = FastAPI(
         title="OpenJarvis API",

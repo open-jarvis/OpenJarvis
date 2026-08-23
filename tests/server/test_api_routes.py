@@ -8,6 +8,8 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from openjarvis.core.events import EventBus, EventType  # noqa: E402
+from openjarvis.security.capabilities import CapabilityPolicy  # noqa: E402
 from openjarvis.server.api_routes import include_all_routes  # noqa: E402
 
 
@@ -36,6 +38,70 @@ class TestAgentRoutes:
         client = TestClient(_make_app())
         resp = client.delete("/v1/agents/nonexistent")
         assert resp.status_code in (404, 501)
+
+    def test_admin_lifecycle_is_capability_gated_before_mutation(self):
+        from openjarvis.tools.agent_tools import _SPAWNED_AGENTS
+
+        app = _make_app()
+        app.state.bus = EventBus(record_history=True)
+        app.state.capability_policy = CapabilityPolicy(default_deny=True)
+        app.state.rate_limiter = None
+        _SPAWNED_AGENTS.pop("forbidden-api-agent", None)
+
+        resp = TestClient(app).post(
+            "/v1/agents",
+            json={
+                "agent_type": "simple",
+                "agent_id": "forbidden-api-agent",
+            },
+        )
+
+        assert resp.status_code == 403
+        assert "forbidden-api-agent" not in _SPAWNED_AGENTS
+        denied = [
+            event
+            for event in app.state.bus.history
+            if event.event_type == EventType.CAPABILITY_DENIED
+        ]
+        assert denied[-1].data == {
+            "agent_id": "server:api",
+            "capability": "system:admin",
+            "tool": "agent_spawn",
+        }
+
+    def test_admin_lifecycle_is_rate_limited_before_mutation(self):
+        from openjarvis.tools.agent_tools import _SPAWNED_AGENTS
+
+        class _DenyLimiter:
+            def __init__(self) -> None:
+                self.keys = []
+
+            def check(self, key: str):
+                self.keys.append(key)
+                return False, 2.5
+
+        app = _make_app()
+        app.state.bus = EventBus(record_history=True)
+        policy = CapabilityPolicy(default_deny=True)
+        policy.grant("server:api", "system:admin")
+        limiter = _DenyLimiter()
+        app.state.capability_policy = policy
+        app.state.rate_limiter = limiter
+        _SPAWNED_AGENTS.pop("limited-api-agent", None)
+
+        resp = TestClient(app).post(
+            "/v1/agents",
+            json={"agent_type": "simple", "agent_id": "limited-api-agent"},
+        )
+
+        assert resp.status_code == 429
+        assert "limited-api-agent" not in _SPAWNED_AGENTS
+        assert limiter.keys == ["server:api:agent_spawn"]
+        assert any(
+            event.event_type == EventType.RATE_LIMITED
+            and event.data["agent_id"] == "server:api"
+            for event in app.state.bus.history
+        )
 
 
 class TestMemoryRoutes:

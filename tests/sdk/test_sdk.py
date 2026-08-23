@@ -95,6 +95,76 @@ class TestJarvisAsk:
             assert result == "Agent response"
             j.close()
 
+    def test_simple_agent_ignores_tool_security_kwargs(self):
+        from openjarvis.agents.simple import SimpleAgent
+        from openjarvis.core.registry import AgentRegistry
+        from openjarvis.security import SecurityContext
+
+        engine = _make_engine("simple secured response")
+        AgentRegistry.register_value("simple", SimpleAgent)
+        with (
+            patch("openjarvis.sdk.get_engine", return_value=("mock", engine)),
+            patch(
+                "openjarvis.security.setup_security",
+                return_value=SecurityContext(
+                    engine=engine,
+                    capability_policy=object(),
+                    rate_limiter=object(),
+                ),
+            ),
+        ):
+            j = Jarvis(config=JarvisConfig(), model="test-model")
+            result = j.ask("Hello", agent="simple")
+            j.close()
+
+        assert result == "simple secured response"
+
+    def test_direct_operation_agent_receives_policy_rate_and_identity(self):
+        from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
+        from openjarvis.core.registry import AgentRegistry
+        from openjarvis.security import SecurityContext
+        from openjarvis.security.capabilities import CapabilityPolicy
+
+        class _RecordingLimiter:
+            def __init__(self):
+                self.keys = []
+
+            def check(self, key):
+                self.keys.append(key)
+                return True, 0.0
+
+        class _DirectSDKAgent(BaseAgent):
+            agent_id = "direct-sdk"
+            required_capabilities = ("code:execute",)
+
+            def run(self, input, context: AgentContext | None = None, **kwargs):
+                return self._execution_denied_result() or AgentResult(content="ran")
+
+        engine = _make_engine()
+        policy = CapabilityPolicy(default_deny=True)
+        policy.grant("_default", "code:execute")
+        policy.deny("direct-sdk", "code:execute")
+        limiter = _RecordingLimiter()
+        AgentRegistry.register_value("direct-sdk", _DirectSDKAgent)
+
+        with (
+            patch("openjarvis.sdk.get_engine", return_value=("mock", engine)),
+            patch(
+                "openjarvis.security.setup_security",
+                return_value=SecurityContext(
+                    engine=engine,
+                    capability_policy=policy,
+                    rate_limiter=limiter,
+                ),
+            ),
+        ):
+            j = Jarvis(config=JarvisConfig(), model="test-model")
+            result = j.ask("run", agent="direct-sdk")
+            j.close()
+
+        assert "code:execute" in result
+        assert limiter.keys == ["direct-sdk:agent_run"]
+
     def test_ask_with_agent_wires_persona(self, tmp_path):
         from openjarvis.agents.simple import SimpleAgent
         from openjarvis.core.registry import AgentRegistry

@@ -238,6 +238,8 @@ class _LightweightSystem:
         self.model = model
         self.config = config
         self._runtime = runtime
+        self.capability_policy = getattr(runtime, "capability_policy", None)
+        self.rate_limiter = getattr(runtime, "rate_limiter", None)
         # Wire the configured memory backend so an agent's memory_store /
         # memory_retrieve tools work when the tick runs through the server.
         # The executor injects system.memory_backend into those tools; this

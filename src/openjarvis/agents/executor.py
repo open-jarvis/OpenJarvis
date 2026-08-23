@@ -104,10 +104,53 @@ class AgentExecutor:
         from openjarvis.core.registry import AgentRegistry
 
         agent_cls = AgentRegistry.get(agent_type)
-        agent = agent_cls(
-            engine=getattr(self._manager, "_engine", None),
+        engine = (
+            getattr(self._system, "engine", None)
+            if self._system is not None
+            else getattr(self._manager, "_engine", None)
+        )
+        if not tools:
+            agent = agent_cls(
+                engine=engine,
+                system_prompt=system_prompt,
+                bus=self._bus,
+            )
+            return agent.run(input_text)
+
+        # Session-expiry persistence asks a simple agent to use memory/skill
+        # tools. A SimpleAgent cannot call them, so resolve the requested tools
+        # and use the standard secured function-calling agent for this
+        # ephemeral turn instead of silently ignoring ``tools``.
+        import openjarvis.tools  # noqa: F401
+        from openjarvis.agents.orchestrator import OrchestratorAgent
+        from openjarvis.core.registry import ToolRegistry
+        from openjarvis.tools._stubs import BaseTool
+
+        instances = []
+        for name in tools:
+            if not ToolRegistry.contains(name):
+                continue
+            registered = ToolRegistry.get(name)
+            if isinstance(registered, BaseTool):
+                instances.append(registered)
+            elif isinstance(registered, type) and issubclass(registered, BaseTool):
+                instances.append(registered())
+
+        execution_cls = (
+            agent_cls
+            if getattr(agent_cls, "accepts_tools", False)
+            else OrchestratorAgent
+        )
+        system = self._system
+        agent = execution_cls(
+            engine=engine,
+            model=getattr(system, "model", "") or _AGENT_TICK_DEFAULT_MODEL,
             system_prompt=system_prompt,
+            tools=instances,
             bus=self._bus,
+            capability_policy=getattr(system, "capability_policy", None),
+            rate_limiter=getattr(system, "rate_limiter", None),
+            agent_id=f"ephemeral:{agent_type}",
         )
         return agent.run(input_text)
 
@@ -521,14 +564,18 @@ class AgentExecutor:
         if resolved_toolkit.mcp_clients:
             agent_instance._mcp_clients = resolved_toolkit.mcp_clients
 
-        # Inject the managed-agent UUID into the agent's ToolExecutor so
-        # emitted TOOL_CALL_START/END events carry it; the trace subscriber
-        # below filters by ``event.data["agent"] == agent_id`` and would
-        # otherwise drop every tool call (the class-level agent_id like
-        # "monitor_operative" doesn't match the runtime UUID).
-        inner_executor = getattr(agent_instance, "_executor", None)
-        if inner_executor is not None and hasattr(inner_executor, "_agent_id"):
-            inner_executor._agent_id = agent["id"]
+        # Re-apply runtime security after constructor fallbacks and inject the
+        # managed UUID into both direct-operation agents and ToolExecutors.
+        # The trace subscriber also relies on this identity.
+        from openjarvis.security.runtime import wire_agent_security
+
+        wire_agent_security(
+            agent_instance,
+            bus=self._bus,
+            capability_policy=getattr(self._system, "capability_policy", None),
+            rate_limiter=getattr(self._system, "rate_limiter", None),
+            agent_id=agent["id"],
+        )
 
         logger.info(
             "Agent %s: tool wiring — %d tools resolved (%s), agent class %s",

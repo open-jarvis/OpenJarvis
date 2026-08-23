@@ -400,6 +400,17 @@ def _run_agent(
         if rate_limiter is not None:
             agent_kwargs["rate_limiter"] = rate_limiter
 
+    from openjarvis.security.runtime import agent_security_kwargs
+
+    agent_kwargs.update(
+        agent_security_kwargs(
+            agent_cls,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id=agent_name,
+        )
+    )
+
     # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md persona
     # files actually reach the model. Only passed to agents whose __init__
     # explicitly accepts a `prompt_builder` kwarg. Agents with specialized
@@ -416,6 +427,15 @@ def _run_agent(
         )
 
     agent = agent_cls(engine, model_name, **agent_kwargs)
+    from openjarvis.security.runtime import wire_agent_security
+
+    wire_agent_security(
+        agent,
+        bus=bus,
+        capability_policy=capability_policy,
+        rate_limiter=rate_limiter,
+        agent_id=agent_name,
+    )
     # Hold MCP transports alive for the agent's lifetime — without this
     # reference they'd be garbage-collected when this function returns
     # and the underlying HTTP connections would close mid-execution (#461

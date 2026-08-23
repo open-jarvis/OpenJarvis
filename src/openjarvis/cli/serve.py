@@ -370,6 +370,17 @@ def serve(
                 if getattr(agent_cls, "accepts_tools", False):
                     agent_kwargs["max_turns"] = config.agent.max_turns
 
+                from openjarvis.security.runtime import agent_security_kwargs
+
+                agent_kwargs.update(
+                    agent_security_kwargs(
+                        agent_cls,
+                        capability_policy=sec.capability_policy,
+                        rate_limiter=sec.rate_limiter,
+                        agent_id=agent_key,
+                    )
+                )
+
                 # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md
                 # reach the model on the SERVE path too. ``ask.py`` has done
                 # this since the persona system landed; ``serve.py`` never did,
@@ -392,6 +403,15 @@ def serve(
                     )
 
                 agent = agent_cls(engine, model_name, **agent_kwargs)
+                from openjarvis.security.runtime import wire_agent_security
+
+                wire_agent_security(
+                    agent,
+                    bus=bus,
+                    capability_policy=sec.capability_policy,
+                    rate_limiter=sec.rate_limiter,
+                    agent_id=agent_key,
+                )
                 # Pin MCP transports to the agent's lifetime so HTTP
                 # connections don't close mid-request (#461).
                 if mcp_clients:
