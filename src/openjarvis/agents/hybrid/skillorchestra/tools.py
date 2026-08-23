@@ -357,6 +357,19 @@ def run_search(
     search_uses = 0
 
     if search_backend == "tavily":
+        search_operation = "skillorchestra_tavily"
+    elif retriever_url:
+        search_operation = "skillorchestra_retriever"
+    else:
+        search_operation = "skillorchestra_provider_search"
+    authorization = agent._authorize_direct_operation(
+        ["network:fetch"],
+        operation=search_operation,
+    )
+
+    if not authorization.success:
+        contents.append(f"[search blocked: {authorization.content}]")
+    elif search_backend == "tavily":
         res = tavily_search_context(query, max_results=tavily_max_results)
         contents.append(res["text"])
         search_uses = int(res["n_searches"])
@@ -370,27 +383,20 @@ def run_search(
             "topk": topk,
             "return_scores": True,
         }
-        authorization = agent._authorize_direct_operation(
-            ["network:fetch"],
-            operation="skillorchestra_retriever",
-        )
-        if not authorization.success:
-            contents.append(f"[retriever blocked: {authorization.content}]")
-        else:
-            try:
-                results = requests.post(
-                    f"{retriever_url.rstrip('/')}/retrieve",
-                    json=payload,
-                    timeout=120,
-                ).json()
-                for r in results[0]:
-                    doc = r.get("document", {})
-                    if "content" in doc:
-                        contents.append(doc["content"])
-                    elif "contents" in doc:
-                        contents.append(doc["contents"])
-            except Exception as exc:  # noqa: BLE001
-                contents.append(f"[retriever error: {exc}]")
+        try:
+            results = requests.post(
+                f"{retriever_url.rstrip('/')}/retrieve",
+                json=payload,
+                timeout=120,
+            ).json()
+            for r in results[0]:
+                doc = r.get("document", {})
+                if "content" in doc:
+                    contents.append(doc["content"])
+                elif "contents" in doc:
+                    contents.append(doc["contents"])
+        except Exception as exc:  # noqa: BLE001
+            contents.append(f"[retriever error: {exc}]")
     else:
         # Substitution path — server-side web search via the cloud's
         # `_base` agent loop. The search-capable helpers all talk to

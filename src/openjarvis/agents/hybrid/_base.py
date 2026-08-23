@@ -1301,11 +1301,22 @@ class LocalCloudAgent(BaseAgent):
         task_meta = context.metadata.get("task", {}) if context is not None else {}
         if not isinstance(task_meta, dict):
             task_meta = {}
+        swe_mode = (
+            bool(self._cfg.get("swe_use_agent_loop"))
+            and bool(task_meta.get("problem_statement"))
+            and bool(task_meta.get("repo"))
+            and bool(task_meta.get("base_commit"))
+        )
         if bool(self._cfg.get("swe_use_agent_loop")) or bool(
             task_meta.get("repo") and task_meta.get("base_commit")
         ):
             required.extend(("code:execute", "file:read", "file:write"))
         if str(self._cfg.get("search_backend", "provider")).lower() == "tavily":
+            required.append("network:fetch")
+        web_search_enabled, _ = web_search_cfg(self._cfg)
+        if web_search_enabled and not swe_mode:
+            # Provider-hosted search is still an external fetch even when
+            # ``search_backend`` remains at its default value.
             required.append("network:fetch")
         if self._cfg.get("retriever_url"):
             required.append("network:fetch")
