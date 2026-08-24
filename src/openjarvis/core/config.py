@@ -613,6 +613,12 @@ class DeepResearchConfig:
 
     engine: str = ""  # Empty means use the active chat engine.
     model: str = ""  # Empty means use the active chat model.
+    # Retrieval backend for the research loop: "hybrid" (local BM25 +
+    # vector, the default) or "mixedbread" (cloud toast-1 agentic search
+    # over a mirrored corpus — see `jarvis mixedbread-sync`; requires
+    # MXBAI_API_KEY and falls back to hybrid on any failure).
+    retrieval: str = "hybrid"
+    mixedbread_store: str = "openjarvis-knowledge"
 
 
 @dataclass(slots=True)
@@ -2177,6 +2183,8 @@ max_tokens = 1024
 # [deep_research]
 # engine = ""                  # empty = use [engine].default
 # model = ""                   # empty = use [intelligence].default_model
+# retrieval = "hybrid"         # "hybrid" (local) or "mixedbread" (cloud toast-1)
+# mixedbread_store = "openjarvis-knowledge"  # store for `jarvis mixedbread-sync`
 
 [agent]
 default_agent = "simple"

@@ -92,7 +92,44 @@ default_backend = "sqlite"
 | `intelligence.temperature` | `0.3` | Low temperature keeps answers factual. Increase for more creative synthesis. |
 | `agent.max_turns` | `8` | Maximum reasoning hops. Increase for deeply nested research tasks. |
 | `tools.enabled` | 5 tools | `knowledge_search` (semantic), `knowledge_sql` (structured), `scan_chunks` (browse), `think` (reasoning scratchpad), `web_search` (online fallback). |
-| `tools.storage.default_backend` | `sqlite` | FTS5-backed full-text search. Also supports `faiss`, `colbert`, `bm25`, and `hybrid`. |
+| `tools.storage.default_backend` | `sqlite` | FTS5-backed full-text search. Also supports `faiss`, `colbert`, `bm25`, `hybrid`, and `mixedbread` (cloud, toast-1 agentic search). |
+| `deep_research.retrieval` | `hybrid` | Retrieval for the research loop: `hybrid` (local BM25 + vector) or `mixedbread` (cloud [toast-1](https://www.mixedbread.com/blog/toast-1) agentic search). |
+| `deep_research.mixedbread_store` | `openjarvis-knowledge` | Mixedbread store searched when `retrieval = "mixedbread"`. |
+
+### Cloud retrieval with toast-1 (optional)
+
+The research loop's search step can be delegated to Mixedbread's toast-1
+search agent, which decomposes the query, gathers evidence, and ranks
+results server-side — useful when the local planner model is small, since
+it receives curated context instead of driving multi-hop search itself.
+
+```bash
+uv sync --extra memory-mixedbread
+export MXBAI_API_KEY="..."
+
+# Mirror the local knowledge base into a Mixedbread store (idempotent —
+# re-run after connector syncs to refresh and remove deleted local chunks):
+jarvis mixedbread-sync
+```
+
+```toml
+[deep_research]
+retrieval = "mixedbread"
+```
+
+The local SQLite knowledge base stays canonical: remote results are
+mapped back to local chunks, so citations, deep links, thread context,
+and person/time/source filters behave exactly as with hybrid search.
+Any API failure falls back to local hybrid search automatically.
+Each sync also deletes stale files previously created by this mirror, so
+content removed from the local knowledge base is not retained remotely.
+Files uploaded independently to the same Mixedbread store are left alone.
+
+!!! warning "Cloud opt-in"
+    `jarvis mixedbread-sync` uploads knowledge-base content (email, chat,
+    notes) to the Mixedbread cloud API, and research queries are sent
+    there while `retrieval = "mixedbread"`. Keep the default `hybrid` if
+    your corpus must stay on-device.
 
 ## Example Queries
 

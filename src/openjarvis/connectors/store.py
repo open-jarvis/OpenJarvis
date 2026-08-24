@@ -15,7 +15,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from openjarvis.core.events import EventType, get_event_bus
 from openjarvis.core.registry import MemoryRegistry
@@ -515,6 +515,71 @@ class KnowledgeStore(MemoryBackend):
             "ORDER BY source"
         ).fetchall()
         return [r[0] for r in rows]
+
+    def list_live_chunks(self) -> List[Dict[str, Any]]:
+        """Return live chunks for an explicit external-index mirror.
+
+        Cloud retrieval integrations need a stable, read-only API rather than
+        reaching into this store's private SQLite connection.  Returning plain
+        dictionaries also keeps callers independent of ``sqlite3.Row``.
+        """
+        rows = self._conn.execute(
+            """
+            SELECT id, doc_id, content, source, title, author, participants,
+                   timestamp, thread_id, chunk_index, url
+            FROM knowledge_chunks
+            WHERE deleted_at IS NULL
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_live_chunks(
+        self,
+        chunk_ids: Sequence[str],
+        *,
+        person: Optional[str] = None,
+        time_range: Optional[Tuple[Optional[datetime], Optional[datetime]]] = None,
+        sources: Optional[Sequence[str]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return selected live chunks after applying research filters."""
+        unique_ids = tuple(dict.fromkeys(chunk_ids))
+        if not unique_ids:
+            return {}
+
+        placeholders = ", ".join("?" for _ in unique_ids)
+        clauses = [f"id IN ({placeholders})", "deleted_at IS NULL"]
+        params: List[Any] = list(unique_ids)
+
+        if person:
+            clauses.append(
+                "(participants_raw LIKE ? OR participants LIKE ? OR author LIKE ?)"
+            )
+            needle = f"%{person}%"
+            params.extend([needle, needle, needle])
+        if time_range:
+            start, end = time_range
+            if start is not None:
+                clauses.append("timestamp >= ?")
+                params.append(_to_iso(start))
+            if end is not None:
+                clauses.append("timestamp <= ?")
+                params.append(_to_iso(end))
+        if sources:
+            source_values = tuple(dict.fromkeys(sources))
+            source_placeholders = ", ".join("?" for _ in source_values)
+            clauses.append(f"source IN ({source_placeholders})")
+            params.extend(source_values)
+
+        rows = self._conn.execute(
+            f"""
+            SELECT id, doc_id, content, source, title, author, participants,
+                   timestamp, thread_id, chunk_index, url
+            FROM knowledge_chunks
+            WHERE {" AND ".join(clauses)}
+            """,
+            params,
+        ).fetchall()
+        return {row["id"]: dict(row) for row in rows}
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""

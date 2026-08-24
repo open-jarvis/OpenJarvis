@@ -56,7 +56,6 @@ def _run_research(
 
     from openjarvis.agents.research_loop import DEFAULT_PLANNER_MODEL, ResearchAgent
     from openjarvis.connectors.embeddings import OllamaEmbedder
-    from openjarvis.connectors.hybrid_search import HybridSearch
     from openjarvis.connectors.store import KnowledgeStore
     from openjarvis.engine.ollama import OllamaEngine
 
@@ -156,15 +155,24 @@ def _run_research(
             trace.print(f"  [dim]↳ Clarifying:[/dim] [dim italic]{q}[/dim italic]")
         # final_answer and clarify_response are handled outside the loop.
 
+    from openjarvis.connectors.hybrid_search import build_research_search
+
+    search = build_research_search(store, embedder, load_config())
     agent = ResearchAgent(
         engine=engine,
-        search=HybridSearch(store, embedder),
+        search=search,
         model=planner_model,
         on_event=on_event,
     )
 
     started = time.monotonic()
-    result = agent.run(query_text)
+    try:
+        result = agent.run(query_text)
+    finally:
+        close_search = getattr(search, "close", None)
+        if callable(close_search):
+            close_search()
+        store.close()
     elapsed = time.monotonic() - started
 
     logger.debug(
