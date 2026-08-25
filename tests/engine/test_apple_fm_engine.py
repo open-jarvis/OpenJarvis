@@ -430,6 +430,23 @@ class TestErrorMapping:
         # The shared heuristic must recognise the phrasing too, so callers
         # branching on text rather than type still get "conversation too long".
         assert looks_like_context_length_error(str(exc.value))
+        # The SDK formats its messages as "<reason>: <detail>" and passes
+        # None as the detail, so the raw text ends in ": None". That must not
+        # reach the user -- it reads as a broken error path rather than a
+        # plain overflow, and it lands in every affected eval row.
+        assert not str(exc.value).rstrip().endswith("None")
+        assert "4096" in str(exc.value)
+
+    def test_context_error_does_not_repeat_the_sdk_reason(self, engine_mod):
+        from openjarvis.engine._base import EngineContextLengthError
+
+        mod, _ = engine_mod(raise_on_stream="ExceededContextWindowSizeError")
+        eng = _engine(mod)
+        with pytest.raises(EngineContextLengthError) as exc:
+            eng.generate([Message(role=Role.USER, content="x")], model="afm-3")
+        eng.close()
+        # "context window" should appear once, from our own sentence.
+        assert str(exc.value).lower().count("context window") == 1
 
     def test_refusal_returns_empty_instead_of_killing_the_run(self, engine_mod):
         """A declined prompt is a per-query outcome, not an engine fault.

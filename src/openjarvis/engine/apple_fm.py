@@ -384,13 +384,34 @@ class AppleFMEngine(InferenceEngine):
 
     # ---- error mapping ---------------------------------------------------
 
+    @staticmethod
+    def _sdk_detail(exc: BaseException) -> str:
+        """The SDK's own message, minus its noise.
+
+        The SDK formats messages as "<reason>: <detail>" and passes ``None``
+        as the detail when it has none, so the raw text ends in a dangling
+        ": None". Left alone that reads as a bug in the error path rather
+        than a plain context overflow, and it lands in every affected eval
+        row.
+        """
+        text = str(exc).strip()
+        while text.endswith(": None"):
+            text = text[: -len(": None")].strip()
+        return text
+
     def _translate(self, exc: BaseException) -> BaseException:
         if _CONTEXT_ERRORS and isinstance(exc, _CONTEXT_ERRORS):
             size = self._context_size or "the model's"
-            return EngineContextLengthError(
-                f"Prompt exceeds {size} maximum context length for Apple "
-                f"Foundation Models: {exc}"
+            detail = self._sdk_detail(exc)
+            message = (
+                f"Prompt exceeds the {size}-token context window for Apple "
+                "Foundation Models"
             )
+            # Only append the SDK's text when it says something the sentence
+            # above does not already convey.
+            if detail and "context window size exceeded" not in detail.lower():
+                message = f"{message}: {detail}"
+            return EngineContextLengthError(message)
         return exc
 
     def _note_declined(self, exc: BaseException) -> None:
