@@ -308,6 +308,9 @@ class InstrumentedEngine(InferenceEngine):
             "cpu_energy_joules": cpu_energy_joules,
             "gpu_energy_joules": gpu_energy_joules,
             "dram_energy_joules": dram_energy_joules,
+            "ane_energy_joules": ane_energy_joules,
+            "soc_energy_joules": soc_energy_joules,
+            "energy_basis": energy_basis,
         }
 
         return result

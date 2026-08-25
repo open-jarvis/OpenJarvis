@@ -33,6 +33,16 @@ only — the framework's dynamic profile chooses what actually executes.
 Bench results record `metadata["engine_info"]` (SDK version, context size,
 host chip) so a run can be attributed after the fact.
 
+**Eval results record which rail did the work.** Result rows and summaries
+previously carried only `energy_joules` and `power_watts`, so nothing in an
+eval artifact distinguished a Neural Engine run from an idle GPU, or a
+hardware measurement from a modelled estimate. Rows now include the per-rail
+breakdown (`cpu`/`gpu`/`dram`/`ane`/`soc`), `energy_basis`, and
+`energy_method`; summaries add `energy_joules_by_rail` alongside both. On a
+ToolCall-15 run against AFM the ANE rail is the largest single component —
+91.7 J of 223.7 J, against 3.0 J on the GPU — which is now visible in the
+file rather than only through live instrumentation.
+
 **ANE and whole-SoC energy** — `EnergySample.ane_energy_joules` existed but
 died at the monitor boundary. Apple Neural Engine and a whole-SoC total now
 flow through `TelemetryRecord`, the SQLite schema (with an `ADD COLUMN`
