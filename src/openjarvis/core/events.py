@@ -7,11 +7,14 @@ react without direct coupling.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional  # noqa: I001
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Event taxonomy
@@ -147,7 +150,10 @@ class EventBus:
             listeners = list(self._subscribers.get(event_type, []))
 
         for callback in listeners:
-            callback(event)
+            try:
+                callback(event)
+            except Exception:
+                logger.exception("Subscriber %s raised on %s", callback, event_type)
 
         return event
 
