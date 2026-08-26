@@ -8,6 +8,7 @@
 #   --no-bg-orchestrator   Skip the detached background orchestrator
 #   --minimal              Skip foreground model pull (no `qwen3.5:2b`)
 #   --force                Re-run all steps even if state file says done
+#   --dry-run              Show what would be done without executing
 #
 # Environment overrides:
 #   OPENJARVIS_HOME        Install dir (default: $HOME/.openjarvis)
@@ -20,12 +21,32 @@ set -euo pipefail
 SKIP_BG=0
 MINIMAL=0
 FORCE=0
+DRY_RUN=0
 for arg in "$@"; do
     case "$arg" in
         --no-bg-orchestrator) SKIP_BG=1 ;;
         --minimal) MINIMAL=1 ;;
         --force) FORCE=1 ;;
-        *) echo "install.sh: unknown arg: $arg" >&2; exit 2 ;;
+        --dry-run) DRY_RUN=1 ;;
+        --help|-h)
+            cat <<USAGE
+Usage: install.sh [OPTIONS]
+
+Options:
+  --no-bg-orchestrator   Skip the detached background orchestrator
+  --minimal              Skip foreground model pull (no qwen3.5:2b)
+  --force                Re-run all steps even if state file says done
+  --dry-run              Show what would be done without executing
+  --help, -h             Show this help
+
+Environment overrides:
+  OPENJARVIS_HOME        Install dir (default: ~/.openjarvis)
+  OPENJARVIS_REPO_URL    git repo URL
+  OPENJARVIS_FORCE_WSL   Set 1 to force WSL detection
+USAGE
+            exit 0
+            ;;
+        *) echo "install.sh: unknown arg: $arg (use --help for usage)" >&2; exit 2 ;;
     esac
 done
 
@@ -421,6 +442,10 @@ step() {
         echo "[ok] $desc (already done)"
         return 0
     fi
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "[dry-run] $desc"
+        return 0
+    fi
     echo "[..] $desc"
     local stage_start_epoch stage_elapsed_ms
     stage_start_epoch="$(date +%s)"
@@ -668,7 +693,21 @@ PYEOF
 echo "OpenJarvis installer"
 echo "  install dir: $OPENJARVIS_HOME"
 echo "  WSL2:        $WSL"
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "  mode:        DRY RUN (no changes will be made)"
+fi
 echo
+
+# Backup before --force to prevent data loss
+if [[ "$FORCE" -eq 1 ]] && [[ -d "$OPENJARVIS_HOME" ]]; then
+    TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    BACKUP_FILE="$HOME/openjarvis-backup-pre-force-$TIMESTAMP.tar.gz"
+    echo "[..] Backing up existing install before --force"
+    tar -czf "$BACKUP_FILE" -C "$(dirname "$OPENJARVIS_HOME")" "$(basename "$OPENJARVIS_HOME")" 2>/dev/null || true
+    BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+    echo "[ok] Backup created: $BACKUP_FILE ($BACKUP_SIZE)"
+    echo
+fi
 
 beacon "install_started"
 
