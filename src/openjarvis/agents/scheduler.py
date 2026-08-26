@@ -17,17 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 def _next_cron_fire(cron_expr: str, now: float | None = None) -> float:
-    """Calculate the next fire time for a cron expression.
-
-    Uses croniter if available, otherwise falls back to a simple
-    interval-based approximation.
-    """
-    try:
-        from croniter import croniter
-    except ImportError:
-        # Fallback: treat as hourly interval
-        logger.warning("croniter not installed, treating cron as 3600s interval")
-        return (now or time.time()) + 3600
+    """Calculate the next fire time for a cron expression."""
+    from croniter import croniter
 
     base = now or time.time()
     import datetime

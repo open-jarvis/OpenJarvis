@@ -306,42 +306,11 @@ class TaskScheduler:
 
     @staticmethod
     def _compute_next_cron(cron_expr: str, now: datetime) -> Optional[str]:
-        """Compute the next run time from a cron expression.
+        """Compute the next run time from a cron expression."""
+        from croniter import croniter  # type: ignore[import-untyped]
 
-        Uses ``croniter`` if available, otherwise falls back to a basic
-        minute-granularity parser for simple expressions.
-        """
-        try:
-            from croniter import croniter  # type: ignore[import-untyped]
-
-            it = croniter(cron_expr, now)
-            return it.get_next(datetime).isoformat()
-        except ImportError:
-            pass
-
-        # Basic fallback: parse "minute hour * * *" style expressions
-        parts = cron_expr.strip().split()
-        if len(parts) < 5:
-            logger.warning(
-                "Cannot parse cron without croniter: %s",
-                cron_expr,
-            )
-            return (now + timedelta(hours=1)).isoformat()
-
-        minute_part, hour_part = parts[0], parts[1]
-
-        try:
-            target_minute = int(minute_part) if minute_part != "*" else now.minute
-            target_hour = int(hour_part) if hour_part != "*" else now.hour
-        except ValueError:
-            return (now + timedelta(hours=1)).isoformat()
-
-        candidate = now.replace(
-            hour=target_hour, minute=target_minute, second=0, microsecond=0
-        )
-        if candidate <= now:
-            candidate += timedelta(days=1)
-        return candidate.isoformat()
+        it = croniter(cron_expr, now)
+        return it.get_next(datetime).isoformat()
 
 
 __all__ = [
