@@ -207,6 +207,7 @@ class TelemetryStore:
         self._telemetry_batch: list[tuple[Any, ...]] = []
         self._mining_batch: list[tuple[Any, ...]] = []
         self._closed = False
+        self._bus: EventBus | None = None
 
         # Background flusher: without it, a partial batch written just before
         # traffic stops would stay invisible to other connections until the
@@ -369,6 +370,7 @@ class TelemetryStore:
 
     def subscribe_to_bus(self, bus: EventBus) -> None:
         """Subscribe to ``TELEMETRY_RECORD`` events on *bus*."""
+        self._bus = bus
         bus.subscribe(EventType.TELEMETRY_RECORD, self._on_event)
 
     def _on_event(self, event: Event) -> None:
@@ -385,6 +387,8 @@ class TelemetryStore:
         # already waiting on the lock re-checks the event after acquiring it
         # and exits instead of touching the closed connection.
         self._stop_flusher.set()
+        if self._bus is not None:
+            self._bus.unsubscribe(EventType.TELEMETRY_RECORD, self._on_event)
         with self._lock:
             if self._closed:
                 return
