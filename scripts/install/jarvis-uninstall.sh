@@ -25,6 +25,12 @@ if command -v ollama >/dev/null 2>&1; then
 fi
 
 if [[ -d "$OPENJARVIS_HOME" ]]; then
+    echo "This will permanently delete $OPENJARVIS_HOME and all its contents."
+    read -rp "Are you sure? (y/N) " confirm
+    if [[ "$confirm" != [yY] ]]; then
+        echo "Aborted."
+        exit 1
+    fi
     rm -rf "$OPENJARVIS_HOME"
     echo "Removed $OPENJARVIS_HOME"
 fi
