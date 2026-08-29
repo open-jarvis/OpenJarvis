@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from openjarvis.core.registry import TTSRegistry
 from openjarvis.speech.tts import TTSResult
 
@@ -73,6 +75,16 @@ def test_kokoro_registered():
 
 def test_kokoro_health_false_without_package():
     from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    # The assertion only holds when kokoro is genuinely absent. With the
+    # optional `voice` extra installed, health() legitimately returns True
+    # (and warming the pipeline would hit the HF Hub), so skip instead.
+    try:
+        import kokoro  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        pytest.skip("kokoro installed (openjarvis[voice]); health() is True")
 
     backend = KokoroTTSBackend()
     # Without kokoro installed, health returns False

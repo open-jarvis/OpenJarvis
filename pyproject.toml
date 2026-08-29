@@ -97,6 +97,14 @@ desktop = [
     "sounddevice>=0.5",
     "soundfile>=0.12",
 ]
+# Local neural TTS. Kokoro pulls spacy/misaki for G2P; espeak-ng must also be
+# present on PATH (brew install espeak-ng) for out-of-dictionary words.
+voice = [
+    "kokoro>=0.9",
+    "soundfile>=0.12",
+    "sounddevice>=0.5",  # play_wav / record_until_silence in speech/voice_io.py
+    "numpy>=1.24",
+]
 openhands = ["openhands-sdk>=1.0; python_version >= '3.12'"]
 # Apple Foundation Models (on-device AFM 3). Needs an Apple Silicon Mac on
 # macOS 26+ with Apple Intelligence enabled. The SDK compiles Swift bindings

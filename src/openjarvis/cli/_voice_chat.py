@@ -8,6 +8,14 @@ from rich.markup import escape
 
 VOICE_EXIT = object()
 _TTS_BACKEND_ORDER = ("kokoro", "openai_tts", "cartesia")
+# Voice IDs are backend-specific and NOT portable. ``speech.voice_id`` applies
+# only to ``speech.tts_backend``; if synthesis falls back to another backend we
+# use that backend's own default rather than passing an unrecognized ID through.
+_BACKEND_DEFAULT_VOICE = {
+    "kokoro": "bm_george",  # British male
+    "openai_tts": "onyx",  # deepest OpenAI preset
+    "cartesia": "",  # no safe static default; let Cartesia choose
+}
 
 
 def _terminal_safe_text(value: object) -> str:
@@ -27,6 +35,8 @@ class VoiceSession:
         self._stt_backend: Any = None
         self._tts_backend: Any = None
         self._tts_attempted: set[str] = set()
+        self._voice_prefs: tuple[str, str, float] | None = None
+        self._voice_warned: set[str] = set()
 
     def get_stt_backend(self) -> Any:
         """Resolve and health-check STT once, then reuse the loaded backend."""
@@ -63,6 +73,43 @@ class VoiceSession:
             except Exception:
                 continue
         return None
+
+    def get_voice_preferences(self) -> tuple[str, str, float]:
+        """Resolve configured (tts_backend, voice_id, speed), cached per session."""
+        if self._voice_prefs is None:
+            from openjarvis.core.config import load_config
+
+            config = self._config if self._config is not None else load_config()
+            speech = getattr(config, "speech", None)
+            self._voice_prefs = (
+                getattr(speech, "tts_backend", "kokoro") or "kokoro",
+                getattr(speech, "voice_id", "") or "",
+                float(getattr(speech, "voice_speed", 1.0)),
+            )
+        return self._voice_prefs
+
+    def voice_for_backend(self, backend: Any, console: Any = None) -> tuple[str, float]:
+        """Return the voice ID valid for ``backend``, plus the configured speed.
+
+        Voice IDs are not portable across backends, so the configured
+        ``speech.voice_id`` is honored only when ``backend`` is the configured
+        ``speech.tts_backend``. Otherwise the fallback backend's own default is
+        used and the substitution is reported once per session.
+        """
+        want_backend, voice_id, speed = self.get_voice_preferences()
+        active = getattr(backend, "backend_id", "") or ""
+        if active == want_backend:
+            return voice_id, speed
+
+        substitute = _BACKEND_DEFAULT_VOICE.get(active, "")
+        if console is not None and active not in self._voice_warned:
+            self._voice_warned.add(active)
+            console.print(
+                f"[dim yellow]Voice: {want_backend!r} unavailable — using "
+                f"{active!r} with its default voice "
+                f"({substitute or 'backend default'}).[/dim yellow]"
+            )
+        return substitute, speed
 
     def discard_tts_backend(self) -> None:
         """Forget a backend that failed synthesis and allow the next fallback."""
@@ -129,13 +176,31 @@ def speak(text: str, console: Any, session: VoiceSession | None = None) -> None:
     from openjarvis.speech.voice_io import play_wav
 
     active_session = session or VoiceSession()
+
+    # Resolved before the loop: a bad config value must surface as a config
+    # error, not be swallowed by the per-backend fallback handler below.
+    try:
+        active_session.get_voice_preferences()
+    except Exception as exc:
+        console.print(f"[red]Invalid speech config: {_terminal_safe_text(exc)}[/red]")
+        return
+
     while (backend := active_session.get_tts_backend()) is not None:
         try:
-            result = backend.synthesize(text, output_format="wav")
+            voice_id, speed = active_session.voice_for_backend(backend, console)
+            synth_kwargs: dict[str, Any] = {"output_format": "wav", "speed": speed}
+            if voice_id:
+                synth_kwargs["voice_id"] = voice_id
+            result = backend.synthesize(text, **synth_kwargs)
             if result.audio:
                 play_wav(result.audio, sample_rate=result.sample_rate)
             return
-        except Exception:
+        except Exception as exc:
+            console.print(
+                f"[dim yellow]Voice backend "
+                f"{getattr(backend, 'backend_id', '?')!r} failed: "
+                f"{_terminal_safe_text(exc)}[/dim yellow]"
+            )
             active_session.discard_tts_backend()
 
     console.print(
