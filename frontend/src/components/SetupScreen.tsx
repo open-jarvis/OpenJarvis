@@ -4,6 +4,9 @@ import {
   getSetupStatus,
   fetchModels,
   fetchRecommendedModel,
+  inferenceSourceConfigured,
+  relaunchApp,
+  setInferenceSource,
   type SetupStatus,
 } from '../lib/api';
 import { useAppStore } from '../lib/store';
@@ -16,6 +19,238 @@ const STEPS = [
 ] as const;
 
 type StepKey = (typeof STEPS)[number]['key'];
+
+const ENGINES = [
+  { value: 'lmstudio', label: 'LM Studio' },
+  { value: 'vllm', label: 'vLLM' },
+  { value: 'sglang', label: 'SGLang' },
+  { value: 'llamacpp', label: 'llama.cpp' },
+  { value: 'mlx', label: 'MLX' },
+] as const;
+
+const inputStyle = {
+  background: 'var(--color-bg-secondary)',
+  color: 'var(--color-text)',
+  border: '1px solid var(--color-border)',
+} as const;
+
+/// Shared "point OpenJarvis at an existing OpenAI-compatible server" form.
+/// Used both by the first-run source chooser and by the escape hatch shown
+/// when the bundled engine fails (#274). Saving persists the custom source
+/// and relaunches the app so `boot_backend` re-reads it.
+/// (Exported for static-render tests, mirroring the DataSourcesPage pattern.)
+export function CustomSourceForm() {
+  const [host, setHost] = useState('http://localhost:1234');
+  const [model, setModel] = useState('');
+  const [engine, setEngine] = useState<string>('lmstudio');
+  const [apiKey, setApiKey] = useState('');
+  const [msg, setMsg] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const canSave = host.trim().length > 0 && model.trim().length > 0 && !saving;
+
+  const save = async () => {
+    setSaving(true);
+    setMsg('');
+    try {
+      await setInferenceSource({
+        kind: 'custom',
+        host: host.trim(),
+        model: model.trim(),
+        engine,
+        apiKey: apiKey || undefined,
+      });
+      setMsg('Saved. Restarting OpenJarvis to connect...');
+      // boot_backend reads the saved source at launch — restart to apply.
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      await relaunchApp();
+      // If relaunch is unavailable in this environment, say so instead of
+      // silently leaving the user on a dead screen.
+      setMsg('Saved. Please restart OpenJarvis to connect to your server.');
+    } catch (e: any) {
+      setMsg(e?.message ?? 'Failed to save.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <label className="text-xs font-medium block mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+          Server URL
+        </label>
+        <input
+          type="text"
+          value={host}
+          onChange={(e) => setHost(e.target.value)}
+          placeholder="http://localhost:1234"
+          disabled={saving}
+          className="text-sm px-3 py-1.5 rounded-lg outline-none w-full"
+          style={inputStyle}
+        />
+      </div>
+      <div>
+        <label className="text-xs font-medium block mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+          Model
+        </label>
+        <input
+          type="text"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          placeholder="qwen2.5-7b-instruct"
+          disabled={saving}
+          className="text-sm px-3 py-1.5 rounded-lg outline-none w-full"
+          style={inputStyle}
+        />
+      </div>
+      <div>
+        <label className="text-xs font-medium block mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+          Server type
+        </label>
+        <select
+          value={engine}
+          onChange={(e) => setEngine(e.target.value)}
+          disabled={saving}
+          className="text-sm px-3 py-1.5 rounded-lg outline-none w-full"
+          style={inputStyle}
+        >
+          {ENGINES.map((e) => (
+            <option key={e.value} value={e.value}>
+              {e.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="text-xs font-medium block mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+          API key (optional)
+        </label>
+        <input
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder="leave blank if none"
+          disabled={saving}
+          className="text-sm px-3 py-1.5 rounded-lg outline-none w-full"
+          style={inputStyle}
+        />
+      </div>
+      <button
+        onClick={save}
+        disabled={!canSave}
+        className="text-sm px-4 py-2 rounded-lg outline-none cursor-pointer font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+        style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
+      >
+        {saving ? 'Saving...' : 'Save & Restart OpenJarvis'}
+      </button>
+      {msg && (
+        <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+          {msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/// First-run backend chooser (#274): let the user pick the inference source
+/// before the app tries to launch (or install) anything. Choosing the bundled
+/// engine just records the explicit choice — boot already defaults to it.
+/// Choosing an existing server persists the custom source and relaunches.
+/// (Exported for static-render tests, mirroring the DataSourcesPage pattern.)
+export function SourceChoice({ onChosen }: { onChosen: () => void }) {
+  const [showCustom, setShowCustom] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  const chooseOllama = async () => {
+    setStarting(true);
+    try {
+      await setInferenceSource({ kind: 'ollama' });
+    } catch {
+      // Non-fatal: an absent config already boots Ollama by default.
+    }
+    onChosen();
+  };
+
+  return (
+    <div className="w-full max-w-md px-6">
+      <div className="text-center mb-8">
+        <div
+          className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+          style={{ background: 'var(--color-accent-subtle)', color: 'var(--color-accent)' }}
+        >
+          <Cpu size={32} />
+        </div>
+        <h1 className="text-2xl font-bold mb-1" style={{ color: 'var(--color-text)' }}>
+          OpenJarvis
+        </h1>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+          How would you like to run inference?
+        </p>
+      </div>
+
+      {!showCustom ? (
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={chooseOllama}
+            disabled={starting}
+            className="flex items-center gap-4 px-5 py-4 rounded-xl text-left transition-all cursor-pointer disabled:opacity-60"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+          >
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+              style={{ background: 'var(--color-accent-subtle)', color: 'var(--color-accent)' }}
+            >
+              <Cpu size={18} />
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+                Bundled Ollama
+              </div>
+              <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                Download and run models locally (recommended)
+              </div>
+            </div>
+            {starting && <Loader2 size={16} className="animate-spin" style={{ color: 'var(--color-accent)' }} />}
+          </button>
+          <button
+            onClick={() => setShowCustom(true)}
+            className="flex items-center gap-4 px-5 py-4 rounded-xl text-left transition-all cursor-pointer"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+          >
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+              style={{ background: 'var(--color-accent-subtle)', color: 'var(--color-accent)' }}
+            >
+              <Server size={18} />
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+                Existing server
+              </div>
+              <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                Connect to LM Studio, vLLM, or another OpenAI-compatible server
+              </div>
+            </div>
+          </button>
+          <p className="text-xs text-center mt-2" style={{ color: 'var(--color-text-tertiary)' }}>
+            You can change this anytime in Settings.
+          </p>
+        </div>
+      ) : (
+        <div
+          className="rounded-xl px-5 py-4"
+          style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+        >
+          <div className="text-sm font-medium mb-3" style={{ color: 'var(--color-text)' }}>
+            Connect to an existing server
+          </div>
+          <CustomSourceForm />
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StepRow({
   icon: Icon,
@@ -76,8 +311,23 @@ function StepRow({
 }
 
 export function SetupScreen({ onReady }: { onReady: () => void }) {
+  // null = checking whether the user already picked a source (first run
+  // detection, #274); false = show the chooser; true = poll boot progress.
+  const [sourceDecided, setSourceDecided] = useState<boolean | null>(null);
   const [status, setStatus] = useState<SetupStatus | null>(null);
+  const [showEscapeHatch, setShowEscapeHatch] = useState(false);
   const handedOffRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    inferenceSourceConfigured().then((configured) => {
+      if (!cancelled) setSourceDecided(configured);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const poll = useCallback(async () => {
     const s = await getSetupStatus();
     if (s) setStatus(s);
@@ -111,10 +361,33 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
   }, [onReady]);
 
   useEffect(() => {
+    if (sourceDecided !== true) return;
     poll();
     const interval = setInterval(poll, 800);
     return () => clearInterval(interval);
-  }, [poll]);
+  }, [poll, sourceDecided]);
+
+  if (sourceDecided === null) {
+    return (
+      <div
+        className="fixed inset-0 flex items-center justify-center"
+        style={{ background: 'var(--color-bg)' }}
+      >
+        <Loader2 size={24} className="animate-spin" style={{ color: 'var(--color-text-tertiary)' }} />
+      </div>
+    );
+  }
+
+  if (sourceDecided === false) {
+    return (
+      <div
+        className="fixed inset-0 flex items-center justify-center"
+        style={{ background: 'var(--color-bg)' }}
+      >
+        <SourceChoice onChosen={() => setSourceDecided(true)} />
+      </div>
+    );
+  }
 
   const activeStep: StepKey | null =
     status && !status.ollama_ready
@@ -174,17 +447,41 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
 
         {/* Error */}
         {status?.error && (
-          <div
-            className="flex items-start gap-3 px-4 py-3 rounded-xl text-sm"
-            style={{
-              background: 'color-mix(in srgb, var(--color-error) 10%, transparent)',
-              border: '1px solid color-mix(in srgb, var(--color-error) 20%, transparent)',
-              color: 'var(--color-error)',
-            }}
-          >
-            <XCircle size={16} className="shrink-0 mt-0.5" />
-            <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{status.error}</span>
-          </div>
+          <>
+            <div
+              className="flex items-start gap-3 px-4 py-3 rounded-xl text-sm"
+              style={{
+                background: 'color-mix(in srgb, var(--color-error) 10%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--color-error) 20%, transparent)',
+                color: 'var(--color-error)',
+              }}
+            >
+              <XCircle size={16} className="shrink-0 mt-0.5" />
+              <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{status.error}</span>
+            </div>
+            {/* Escape hatch (#274): engine startup failed — offer to point
+                OpenJarvis at an existing server instead of stranding the user
+                here (the rest of the app is gated behind this screen). */}
+            {!showEscapeHatch ? (
+              <button
+                onClick={() => setShowEscapeHatch(true)}
+                className="mt-3 text-xs underline underline-offset-2 cursor-pointer"
+                style={{ color: 'var(--color-text-secondary)' }}
+              >
+                Use an existing server instead (LM Studio, vLLM, ...)
+              </button>
+            ) : (
+              <div
+                className="mt-3 rounded-xl px-4 py-4"
+                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+              >
+                <div className="text-sm font-medium mb-3" style={{ color: 'var(--color-text)' }}>
+                  Connect to an existing server
+                </div>
+                <CustomSourceForm />
+              </div>
+            )}
+          </>
         )}
 
         {/* Progress bar */}

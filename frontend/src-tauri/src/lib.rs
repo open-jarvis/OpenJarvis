@@ -2285,6 +2285,19 @@ fn write_inference_config(cfg: &InferenceConfig) -> Result<(), String> {
     std::fs::write(&path, json + "\n").map_err(|e| format!("Failed to save inference config: {}", e))
 }
 
+/// True when the user has explicitly recorded an inference-source choice
+/// (`~/.openjarvis/inference.json` exists). An absent file means first run:
+/// the setup screen should ask which backend to use instead of assuming
+/// Ollama and auto-installing it (#274).
+#[tauri::command]
+fn inference_source_configured() -> bool {
+    inference_source_configured_at(&inference_config_path())
+}
+
+fn inference_source_configured_at(path: &std::path::Path) -> bool {
+    path.is_file()
+}
+
 /// Upsert `[engine.<engine>] host = "<host>"` into an existing config.toml
 /// string, preserving all other content/formatting. Pure: string in, string out.
 fn upsert_engine_host(existing: &str, engine: &str, host: &str) -> Result<String, String> {
@@ -2845,6 +2858,7 @@ pub fn run() {
             get_cloud_key_status,
             get_inference_source,
             set_inference_source,
+            inference_source_configured,
             toggle_overlay,
             hide_overlay,
             get_overlay_conversation,
@@ -2870,10 +2884,11 @@ mod tests {
     use super::{
         boot_plan, default_local_model, format_extension_import_failure,
         format_missing_rust_toolchain, format_port_unavailable, format_uv_sync_failure,
-        format_uv_sync_spawn_error, matching_installed_model, model_names_match, normalize_host,
-        parse_inference_config, parse_ollama_model_names, preferred_installed_model,
-        should_persist_resolved_model, startup_installed_model, upsert_engine_host,
-        uv_sync_stderr_tail, InferenceConfig, SourceKind, DESKTOP_UV_SYNC_COMMAND,
+        format_uv_sync_spawn_error, inference_source_configured_at, matching_installed_model,
+        model_names_match, normalize_host, parse_inference_config, parse_ollama_model_names,
+        preferred_installed_model, should_persist_resolved_model, startup_installed_model,
+        upsert_engine_host, uv_sync_stderr_tail, InferenceConfig, SourceKind,
+        DESKTOP_UV_SYNC_COMMAND,
     };
     use std::path::Path;
 
@@ -3104,6 +3119,26 @@ mod tests {
         assert_eq!(cfg.model.as_deref(), Some("qwen2.5-7b"));
         assert_eq!(cfg.host.as_deref(), Some("http://localhost:1234"));
         assert_eq!(cfg.engine.as_deref(), Some("lmstudio"));
+    }
+
+    #[test]
+    fn inference_source_configured_requires_existing_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "oj-setup-configured-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing = dir.join("inference.json");
+        // An absent file means "first run" — only a real file records a choice.
+        assert!(!inference_source_configured_at(&missing));
+        std::fs::write(&missing, "{}").unwrap();
+        assert!(inference_source_configured_at(&missing));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

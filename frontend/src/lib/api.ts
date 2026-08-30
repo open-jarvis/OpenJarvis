@@ -1145,3 +1145,28 @@ export async function setInferenceSource(
     throw new Error(e?.message ?? e ?? 'Failed to save inference source');
   }
 }
+
+/**
+ * True when the user has explicitly recorded an inference-source choice.
+ * False means first run — setup should ask which backend to use instead of
+ * auto-launching Ollama (#274). On any query failure we assume configured so
+ * a broken command can never trap a user in the chooser.
+ */
+export async function inferenceSourceConfigured(): Promise<boolean> {
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return await invoke<boolean>('inference_source_configured');
+    } catch {
+      return true;
+    }
+  }
+  return true;
+}
+
+/** Restart the desktop app so `boot_backend` re-reads the saved source. */
+export async function relaunchApp(): Promise<void> {
+  if (!isTauri()) return;
+  const { relaunch } = await import('@tauri-apps/plugin-process');
+  await relaunch();
+}
