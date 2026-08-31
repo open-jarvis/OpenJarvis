@@ -225,6 +225,68 @@ class TestTelemetryRecordFields:
         assert _count_rows_via_own_connection(db_path) == 1
         store.close()  # second close must be a no-op, not a ProgrammingError
 
+    def test_bus_unsubscribes_on_close(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        bus = EventBus()
+        store.subscribe_to_bus(bus)
+
+        # Verify subscribed
+        rec = TelemetryRecord(timestamp=time.time(), model_id="m1", engine="e1")
+        bus.publish(EventType.TELEMETRY_RECORD, {"record": rec})
+        assert len(store._fetchall()) == 1
+
+        # Close store
+        store.close()
+
+        # Verify callback was removed from bus listeners
+        listeners = bus._subscribers.get(EventType.TELEMETRY_RECORD, [])
+        assert store._on_event not in listeners
+
+        # Subsequent publish to the shared bus must not raise or invoke closed store
+        rec2 = TelemetryRecord(timestamp=time.time(), model_id="m2", engine="e1")
+        bus.publish(EventType.TELEMETRY_RECORD, {"record": rec2})
+
+    def test_manual_unsubscribe_from_bus(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        bus = EventBus()
+        store.subscribe_to_bus(bus)
+        store.unsubscribe_from_bus(bus)
+
+        rec = TelemetryRecord(timestamp=time.time(), model_id="m1", engine="e1")
+        bus.publish(EventType.TELEMETRY_RECORD, {"record": rec})
+        assert len(store._fetchall()) == 0
+        store.close()
+
+    def test_multiple_buses_unsubscribed_on_close(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        bus1 = EventBus()
+        bus2 = EventBus()
+        store.subscribe_to_bus(bus1)
+        store.subscribe_to_bus(bus2)
+
+        event_type = EventType.TELEMETRY_RECORD
+        assert store._on_event in bus1._subscribers.get(event_type, [])
+        assert store._on_event in bus2._subscribers.get(event_type, [])
+
+        store.close()
+
+        assert store._on_event not in bus1._subscribers.get(event_type, [])
+        assert store._on_event not in bus2._subscribers.get(event_type, [])
+
+    def test_closed_store_guards_record_and_subscribe(self, tmp_path: Path) -> None:
+        import pytest
+
+        store = TelemetryStore(tmp_path / "test.db")
+        store.close()
+
+        rec = TelemetryRecord(timestamp=time.time(), model_id="m1", engine="e1")
+        with pytest.raises(RuntimeError, match="closed TelemetryStore"):
+            store.record(rec)
+
+        bus = EventBus()
+        with pytest.raises(RuntimeError, match="closed TelemetryStore"):
+            store.subscribe_to_bus(bus)
+
 
 def _count_rows_via_own_connection(db_path: Path) -> int:
     """Count telemetry rows through a separate connection (like the aggregator)."""

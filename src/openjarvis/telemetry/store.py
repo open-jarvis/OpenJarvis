@@ -206,6 +206,7 @@ class TelemetryStore:
         self._last_flush_time = time.monotonic()
         self._telemetry_batch: list[tuple[Any, ...]] = []
         self._mining_batch: list[tuple[Any, ...]] = []
+        self._subscribed_buses: list[EventBus] = []
         self._closed = False
 
         # Background flusher: without it, a partial batch written just before
@@ -293,6 +294,8 @@ class TelemetryStore:
             json.dumps(rec.metadata),
         )
         with self._lock:
+            if self._closed:
+                raise RuntimeError("Cannot record telemetry to a closed TelemetryStore")
             self._telemetry_batch.append(row)
             self._maybe_flush_unlocked()
 
@@ -316,6 +319,10 @@ class TelemetryStore:
             stats.fees_owed,
         )
         with self._lock:
+            if self._closed:
+                raise RuntimeError(
+                    "Cannot record mining stats to a closed TelemetryStore"
+                )
             self._mining_batch.append(row)
             self._maybe_flush_unlocked()
 
@@ -369,9 +376,26 @@ class TelemetryStore:
 
     def subscribe_to_bus(self, bus: EventBus) -> None:
         """Subscribe to ``TELEMETRY_RECORD`` events on *bus*."""
+        with self._lock:
+            if self._closed:
+                raise RuntimeError(
+                    "Cannot subscribe a closed TelemetryStore to an event bus"
+                )
+            if bus not in self._subscribed_buses:
+                self._subscribed_buses.append(bus)
         bus.subscribe(EventType.TELEMETRY_RECORD, self._on_event)
 
+    def unsubscribe_from_bus(self, bus: EventBus) -> None:
+        """Unsubscribe from ``TELEMETRY_RECORD`` events on *bus*."""
+        bus.unsubscribe(EventType.TELEMETRY_RECORD, self._on_event)
+        with self._lock:
+            if bus in self._subscribed_buses:
+                self._subscribed_buses.remove(bus)
+
     def _on_event(self, event: Event) -> None:
+        with self._lock:
+            if self._closed:
+                return
         rec = event.data.get("record")
         if isinstance(rec, TelemetryRecord):
             try:
@@ -381,6 +405,13 @@ class TelemetryStore:
 
     def close(self) -> None:
         """Flush pending records and close the underlying SQLite connection."""
+        # Unsubscribe from all event buses first so no new events are delivered
+        with self._lock:
+            buses = list(self._subscribed_buses)
+            self._subscribed_buses.clear()
+        for bus in buses:
+            bus.unsubscribe(EventType.TELEMETRY_RECORD, self._on_event)
+
         # Set the stop event BEFORE taking the lock: a flusher iteration
         # already waiting on the lock re-checks the event after acquiring it
         # and exits instead of touching the closed connection.
