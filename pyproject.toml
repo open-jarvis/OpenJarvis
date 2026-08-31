@@ -93,6 +93,8 @@ desktop = [
     "pydantic>=2.0",
     "python-multipart>=0.0.9",
     "faster-whisper>=1.0",
+    # 1.24.x declares Python 3.10 support but publishes no cp310 wheels (#917).
+    "onnxruntime<1.24; python_version < '3.11'",
     "numpy>=1.24",
     "sounddevice>=0.5",
     "soundfile>=0.12",
@@ -153,6 +155,8 @@ sandbox-docker = ["docker>=7.0"]
 dashboard = ["textual>=0.80"]
 speech = [
     "faster-whisper>=1.0",
+    # Keep the pip-visible speech extra installable on supported Python 3.10.
+    "onnxruntime<1.24; python_version < '3.11'",
     "numpy>=1.24",
     "sounddevice>=0.5",
     "soundfile>=0.12",

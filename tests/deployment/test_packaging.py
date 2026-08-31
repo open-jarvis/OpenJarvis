@@ -34,6 +34,14 @@ def test_openjarvis_rust_not_in_published_desktop_extra() -> None:
     )
 
 
+def test_python310_speech_extras_use_installable_onnxruntime() -> None:
+    extras = _pyproject()["project"]["optional-dependencies"]
+    constraint = "onnxruntime<1.24; python_version < '3.11'"
+
+    assert constraint in extras["desktop"]
+    assert constraint in extras["speech"]
+
+
 def test_openjarvis_rust_lives_in_uv_dependency_group() -> None:
     group = _pyproject()["dependency-groups"]["desktop-native"]
     assert any("openjarvis-rust" in dep for dep in group)
