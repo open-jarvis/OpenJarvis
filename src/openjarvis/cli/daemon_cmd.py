@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
@@ -14,6 +15,10 @@ from openjarvis.core.utils import process_alive, terminate_process
 
 _PID_FILE = DEFAULT_CONFIG_DIR / "server.pid"
 _LOG_FILE = DEFAULT_CONFIG_DIR / "server.log"
+# Records the address the daemon was actually started on. Without it `status`
+# and `restart` fall back to the config defaults and misreport (or silently
+# move) the port whenever `start` was given an explicit --host/--port.
+_STATE_FILE = DEFAULT_CONFIG_DIR / "server.json"
 
 
 def _pid_alive(pid: int) -> bool:
@@ -37,10 +42,46 @@ def _read_pid() -> int | None:
     return pid
 
 
-def _write_pid(pid: int) -> None:
-    """Write PID to pid file."""
+def _write_pid(pid: int, host: str = "", port: int | None = None) -> None:
+    """Write PID, plus the address the daemon actually bound to."""
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     _PID_FILE.write_text(str(pid))
+    if host or port is not None:
+        _STATE_FILE.write_text(json.dumps({"pid": pid, "host": host, "port": port}))
+
+
+def _read_state() -> dict:
+    """Return the recorded daemon address, or {} when it is unavailable."""
+    try:
+        state = json.loads(_STATE_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def _bound_address() -> tuple[str, int]:
+    """Resolve the daemon's address, preferring what `start` recorded."""
+    config = load_config()
+    state = _read_state()
+    host = state.get("host") or config.server.host
+    port = state.get("port") or config.server.port
+    return host, int(port)
+
+
+def record_server_state(pid: int, host: str, port: int) -> None:
+    """Register a running server so `jarvis status` can find it.
+
+    Called by `jarvis serve` itself, so a server supervised by launchd/systemd
+    (which never goes through `jarvis start`) is still reported as running.
+    """
+    _write_pid(pid, host, port)
+
+
+def clear_server_state(pid: int) -> None:
+    """Deregister a server on shutdown, but only if it still owns the files."""
+    if _read_state().get("pid") == pid or _read_pid() == pid:
+        _PID_FILE.unlink(missing_ok=True)
+        _STATE_FILE.unlink(missing_ok=True)
 
 
 @click.group()
@@ -110,7 +151,7 @@ def start(
         stderr=log_fh,
         **spawn_kwargs,
     )
-    _write_pid(proc.pid)
+    _write_pid(proc.pid, bind_host, bind_port)
 
     console.print(
         f"[green]OpenJarvis server started[/green] (PID {proc.pid})\n"
@@ -133,6 +174,7 @@ def stop() -> None:
     terminate_process(pid, grace_seconds=10.0)
 
     _PID_FILE.unlink(missing_ok=True)
+    _STATE_FILE.unlink(missing_ok=True)
     console.print(f"[green]Server stopped[/green] (PID {pid}).")
 
 
@@ -142,10 +184,17 @@ def restart(ctx: click.Context) -> None:
     """Restart the OpenJarvis server daemon."""
     console = Console(stderr=True)
     pid = _read_pid()
+    previous = _read_state() if pid is not None else {}
     if pid is not None:
         console.print(f"Stopping server (PID {pid})...")
         ctx.invoke(stop)
-    ctx.invoke(start)
+    # Carry the previous bind address across the restart; otherwise an explicit
+    # `start --port N` silently reverts to the config default on restart.
+    ctx.invoke(
+        start,
+        host=previous.get("host") or None,
+        port=previous.get("port") or None,
+    )
 
 
 @daemon.command()
@@ -170,10 +219,10 @@ def status() -> None:
     except (ImportError, Exception):
         pass
 
-    config = load_config()
+    host, port = _bound_address()
     console.print(
         f"[green]Server is running[/green] (PID {pid}){uptime_info}\n"
-        f"  URL: http://{config.server.host}:{config.server.port}\n"
+        f"  URL: http://{host}:{port}\n"
         f"  Log: {_LOG_FILE}"
     )
 

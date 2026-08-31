@@ -741,4 +741,13 @@ def serve(
             "authenticated requests to your instance."
         )
 
-    uvicorn.run(app, host=bind_host, port=bind_port, log_level="info")
+    # Record the live address so `jarvis status` reports correctly regardless
+    # of how the server was launched -- `jarvis start`, a launchd/systemd unit,
+    # or a bare `jarvis serve` in a terminal all register here.
+    from openjarvis.cli.daemon_cmd import clear_server_state, record_server_state
+
+    record_server_state(os.getpid(), bind_host, bind_port)
+    try:
+        uvicorn.run(app, host=bind_host, port=bind_port, log_level="info")
+    finally:
+        clear_server_state(os.getpid())
