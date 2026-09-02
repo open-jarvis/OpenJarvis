@@ -54,6 +54,11 @@ except ImportError:
     pass
 
 try:
+    import openjarvis.connectors.apple_mail  # noqa: F401
+except ImportError:
+    pass
+
+try:
     import openjarvis.connectors.apple_music  # noqa: F401
 except ImportError:
     pass

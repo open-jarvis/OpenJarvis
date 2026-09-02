@@ -514,6 +514,7 @@ const iconMap: Record<string, LucideIcon> = {
   notion: BookText,
   obsidian: FileText,
   apple_notes: StickyNote,
+  apple_mail: Mail,
   granola: FileText,
   gcalendar: CalendarDays,
   gcontacts: Contact,

@@ -436,6 +436,34 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
     ],
   },
   {
+    connector_id: 'apple_mail',
+    display_name: 'Apple Mail',
+    auth_type: 'filesystem',
+    category: 'communication',
+    icon: 'Mail',
+    color: 'text-sky-400',
+    description: 'macOS Mail app (any account Mail.app syncs, including IMAP-blocked ones)',
+    unitLabel: 'emails',
+    steps: [
+      {
+        label: 'Open the Apple menu () → System Settings → Privacy & Security (in the left sidebar) → scroll down and click "Full Disk Access". Add Terminal.app (or iTerm2/Warp) and, for the desktop app, "OpenJarvis.app", then toggle them ON and restart',
+      },
+      {
+        label: 'Find the mail store: in Finder press ⌘⇧G and open ~/Library/Mail/V10. Each folder is one account (a UUID); inside are your mailboxes as "<Name>.mbox" folders. Open a mailbox in Mail.app and check its message count to identify the account',
+      },
+      {
+        label: 'Paste the path below. Use ~/Library/Mail to index every account, one account folder to index just that account, or one .mbox folder to index a single mailbox',
+      },
+    ],
+    troubleshooting: [
+      'Only messages Mail.app has already downloaded are indexed. Open the mailbox in Mail.app (or set Account Settings → "Download Attachments: All") to fetch the rest.',
+      'Zero messages indexed usually means Full Disk Access is missing for the process running OpenJarvis.',
+    ],
+    inputFields: [
+      { name: 'path', placeholder: '/Users/you/Library/Mail/V10/<account-uuid>', type: 'text' },
+    ],
+  },
+  {
     connector_id: 'apple_contacts',
     display_name: 'Apple Contacts',
     auth_type: 'local',

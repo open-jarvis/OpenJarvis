@@ -110,8 +110,9 @@ SEARCH_TOOL_SPEC: Dict[str, Any] = {
                         'Granola notes" → [\'granola\']; "check Slack and Gmail" '
                         "→ ['slack', 'gmail']). Valid IDs include: gmail, slack, "
                         "granola, notion, obsidian, gcalendar, gdrive, gmail_imap, "
-                        "outlook, imessage, whatsapp, apple_notes, apple_contacts, "
-                        "gcontacts, google_tasks, github_notifications."
+                        "outlook, imessage, whatsapp, apple_notes, apple_mail, "
+                        "apple_contacts, gcontacts, google_tasks, "
+                        "github_notifications."
                     ),
                     "items": {"type": "string"},
                 },
