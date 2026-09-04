@@ -74,7 +74,7 @@ jobs:
       - name: Verify uninstall is clean
         run: |
           su testuser -c '
-            ~/.local/bin/jarvis-uninstall
+            ~/.local/bin/jarvis-uninstall --yes
             test ! -d ~/.openjarvis
             test ! -L ~/.local/bin/jarvis
           '
@@ -113,6 +113,6 @@ jobs:
 
       - name: Verify uninstall is clean
         run: |
-          ~/.local/bin/jarvis-uninstall
+          ~/.local/bin/jarvis-uninstall --yes
           test ! -d ~/.openjarvis
           test ! -L ~/.local/bin/jarvis

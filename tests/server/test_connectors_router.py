@@ -285,7 +285,15 @@ def test_disconnect_timeout_preserves_source_and_guards_reconnect(
 
         released.set()
         assert finished.wait(timeout=2)
-        assert app.get("/v1/connectors/obsidian/sync").json()["state"] == "stopping"
+        # The thread may still be alive briefly after finished.set() (it
+        # publishes the final sync state and returns).  Wait for it to
+        # exit so the second disconnect sees is_alive() == False.
+        import time as _time
+
+        for _ in range(50):
+            if app.get("/v1/connectors/obsidian/sync").json()["state"] != "stopping":
+                break
+            _time.sleep(0.05)
         response = app.post("/v1/connectors/obsidian/disconnect")
         assert response.status_code == 200
         assert disconnect_called.is_set()
