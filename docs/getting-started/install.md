@@ -97,10 +97,17 @@ Removes `~/.openjarvis/`, `~/.local/bin/jarvis`, and `~/.local/bin/jarvis-uninst
 ## Updating
 
 ```bash
-jarvis update
+jarvis self-update
 ```
 
-Pulls the latest source, refreshes the editable install, and rebuilds the Rust extension in the background. Models are not touched.
+Fetches release-tag history, pulls the latest source with a fast-forward-only
+update, and rebuilds OpenJarvis in the Python environment that launched Jarvis.
+Previously installed extras are preserved. Older shallow installs are repaired
+automatically so `jarvis --version` reports a version derived from release tags.
+
+Use `jarvis self-update --check` to preview the update plan, or `--yes` to skip
+the confirmation prompt. If Git reports a conflict or diverged branch, resolve
+it before retrying; self-update does not reset local changes.
 
 ## Troubleshooting
 
