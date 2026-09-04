@@ -39,6 +39,13 @@ jarvis skill run math-solver -a expression="41 + 82"
 jarvis skill info research-and-summarize
 ```
 
+`jarvis skill run` executes structured tool steps, including nested skills. It
+loads only the tools that the pipeline needs; a nonempty `tools.enabled` list
+restricts that selection. Capability checks, rate limits, and audit events use
+the `skill:cli` identity, and sensitive tools ask for confirmation. Instruction-only
+skills have no executable pipeline and exit with an explanation instead of
+reporting success. A failed step also produces a nonzero exit status.
+
 ## Skill Definition Format
 
 A skill is a directory containing a `skill.toml`, a `SKILL.md`, or both.
@@ -186,6 +193,11 @@ jarvis skill sources
 # Update all configured sources
 jarvis skill update
 ```
+
+If an upstream refresh fails but the source cache still contains skills,
+installation can use that copy and prints a warning that it may be stale.
+Initial clone failures and missing requested skills still fail. `skill update`
+reports a stale-cache warning instead of claiming that the refresh succeeded.
 
 ## How Agents Use Skills
 

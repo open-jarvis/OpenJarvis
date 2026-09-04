@@ -37,17 +37,7 @@ class OpenClawResolver(SourceResolver):
         return self._cache_root
 
     def sync(self) -> None:
-        if self._cache_root.exists() and (self._cache_root / ".git").exists():
-            subprocess.run(
-                ["git", "-C", str(self._cache_root), "pull", "--ff-only"],
-                check=True,
-            )
-        else:
-            self._cache_root.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
-                ["git", "clone", OPENCLAW_REPO_URL, str(self._cache_root)],
-                check=True,
-            )
+        self._sync_git_cache(OPENCLAW_REPO_URL)
 
     def list_skills(self) -> List[ResolvedSkill]:
         skills_root = self._cache_root / "skills"
