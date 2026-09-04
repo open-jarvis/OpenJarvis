@@ -230,7 +230,7 @@ def test_disconnect_timeout_preserves_source_and_guards_reconnect(
 
     started = threading.Event()
     released = threading.Event()
-    finished = threading.Event()
+    sync_thread: threading.Thread | None = None
     disconnect_called = threading.Event()
 
     class StuckConnector:
@@ -246,9 +246,10 @@ def test_disconnect_timeout_preserves_source_and_guards_reconnect(
             return self._connected
 
         def sync(self, **kwargs):
+            nonlocal sync_thread
+            sync_thread = threading.current_thread()
             started.set()
             released.wait(timeout=3)
-            finished.set()
             if False:
                 yield
 
@@ -284,7 +285,10 @@ def test_disconnect_timeout_preserves_source_and_guards_reconnect(
         assert app.post("/v1/connectors/obsidian/sync").status_code == 409
 
         released.set()
-        assert finished.wait(timeout=2)
+        assert sync_thread is not None
+        # Generator completion precedes the worker's checkpoint and cleanup.
+        sync_thread.join(timeout=2)
+        assert not sync_thread.is_alive()
         assert app.get("/v1/connectors/obsidian/sync").json()["state"] == "stopping"
         response = app.post("/v1/connectors/obsidian/disconnect")
         assert response.status_code == 200
@@ -292,6 +296,8 @@ def test_disconnect_timeout_preserves_source_and_guards_reconnect(
         assert not connector.is_connected()
     finally:
         released.set()
+        if sync_thread is not None:
+            sync_thread.join(timeout=3)
         _instances.pop("obsidian", None)
 
 
