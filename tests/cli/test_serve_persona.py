@@ -106,7 +106,7 @@ def test_serve_wires_persona_builder_into_served_agent(
 
     with (
         patch("openjarvis.server.app.create_app", side_effect=_capture_create_app),
-        patch("uvicorn.run", lambda *a, **k: None),
+        patch("openjarvis.server.daemon.run_server", lambda *a, **k: None),
     ):
         result = CliRunner().invoke(
             cli, ["serve", "--agent", agent_name], catch_exceptions=False
