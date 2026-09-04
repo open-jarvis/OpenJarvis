@@ -76,6 +76,25 @@ def test_memory_index_nonexistent(tmp_path: Path):
     assert result.exit_code != 0
 
 
+def test_memory_index_rejects_non_progress_chunk_values(tmp_path: Path):
+    doc = tmp_path / "doc.txt"
+    doc.write_text("a b", encoding="utf-8")
+
+    zero_size = CliRunner().invoke(
+        cli,
+        ["memory", "index", str(doc), "--chunk-size", "0"],
+    )
+    negative_overlap = CliRunner().invoke(
+        cli,
+        ["memory", "index", str(doc), "--chunk-overlap", "-1"],
+    )
+
+    assert zero_size.exit_code != 0
+    assert "0 is not in the range x>=1" in zero_size.output
+    assert negative_overlap.exit_code != 0
+    assert "-1 is not in the range x>=0" in negative_overlap.output
+
+
 def test_memory_search_returns_results(tmp_path: Path, monkeypatch):
     """Search returns results from pre-populated backend."""
     _register_sqlite()

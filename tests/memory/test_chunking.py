@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from openjarvis.tools.storage.chunking import ChunkConfig, chunk_text
 
 
@@ -11,6 +13,55 @@ def test_empty_string_returns_empty():
 
 def test_whitespace_only_returns_empty():
     assert chunk_text("   \n\n  ") == []
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"chunk_size": 0}, "chunk_size must be an integer >= 1"),
+        ({"chunk_size": -1}, "chunk_size must be an integer >= 1"),
+        ({"chunk_size": True}, "chunk_size must be an integer >= 1"),
+        ({"chunk_overlap": -1}, "chunk_overlap must be an integer >= 0"),
+        ({"chunk_overlap": False}, "chunk_overlap must be an integer >= 0"),
+    ],
+)
+def test_invalid_chunk_config_is_rejected(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        ChunkConfig(**kwargs)
+
+
+def test_mutated_invalid_config_is_rejected_before_chunking():
+    cfg = ChunkConfig(chunk_size=2, chunk_overlap=0, min_chunk_size=1)
+    cfg.chunk_size = 0
+
+    with pytest.raises(ValueError, match="chunk_size"):
+        chunk_text("a b", config=cfg)
+
+
+def test_valid_boundary_sweep_preserves_content_size_and_offsets():
+    tokens = [f"t{i}" for i in range(23)]
+    text = " ".join(tokens[:3]) + "\n\n" + " ".join(tokens[3:])
+
+    for chunk_size in range(1, 9):
+        for chunk_overlap in range(0, 11):
+            chunks = chunk_text(
+                text,
+                config=ChunkConfig(
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    min_chunk_size=1,
+                ),
+            )
+            emitted = []
+            for chunk in chunks:
+                chunk_tokens = chunk.content.split()
+                emitted.extend(chunk_tokens)
+                assert 0 < len(chunk_tokens) <= chunk_size
+                assert tokens[chunk.offset : chunk.offset + len(chunk_tokens)] == (
+                    chunk_tokens
+                )
+            assert set(tokens).issubset(emitted)
+            assert [chunk.index for chunk in chunks] == list(range(len(chunks)))
 
 
 def test_short_text_single_chunk():
@@ -100,6 +151,67 @@ def test_min_chunk_size_filters_tiny_trailing_fragment():
     # The 3-word trailing fragment is discarded; only the real chunk remains.
     assert len(chunks) == 1
     assert "b0" not in chunks[0].content
+
+
+def test_short_lead_in_before_oversized_paragraph_is_not_dropped():
+    """A sub-floor lead-in must be carried into an oversized window (#754)."""
+    lead_in = "IMPORTANT my API key rotation policy is documented here"
+    large_paragraph = " ".join(f"word{i}" for i in range(600))
+
+    chunks = chunk_text(f"{lead_in}\n\n{large_paragraph}")
+
+    assert any(lead_in in chunk.content for chunk in chunks)
+    output_tokens = {token for chunk in chunks for token in chunk.content.split()}
+    assert set(lead_in.split()).issubset(output_tokens)
+    assert {f"word{i}" for i in range(600)}.issubset(output_tokens)
+
+
+def test_short_paragraph_before_full_normal_paragraph_is_not_dropped():
+    """The ordinary paragraph-boundary flush also preserves sub-floor text."""
+    cfg = ChunkConfig(chunk_size=10, chunk_overlap=0, min_chunk_size=5)
+    short = "keep every word"
+    full = " ".join(f"next{i}" for i in range(10))
+
+    chunks = chunk_text(f"{short}\n\n{full}", config=cfg)
+
+    assert any(short in chunk.content for chunk in chunks)
+    assert set(short.split()) | set(full.split()) == {
+        token for chunk in chunks for token in chunk.content.split()
+    }
+    assert all(len(chunk.content.split()) <= cfg.chunk_size for chunk in chunks)
+
+
+@pytest.mark.parametrize(
+    ("chunk_size", "chunk_overlap", "min_chunk_size", "lead_size", "body_size"),
+    [
+        (10, 0, 5, 3, 10),
+        (10, 2, 5, 3, 10),
+        (8, 7, 6, 2, 8),
+        (7, 0, 4, 3, 12),
+        (16, 4, 8, 4, 33),
+    ],
+)
+def test_preserved_short_lead_in_never_breaks_hard_chunk_bound(
+    chunk_size, chunk_overlap, min_chunk_size, lead_size, body_size
+):
+    """Adversarial boundaries preserve every token in bounded chunks."""
+    cfg = ChunkConfig(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        min_chunk_size=min_chunk_size,
+    )
+    lead = [f"lead{i}" for i in range(lead_size)]
+    body = [f"body{i}" for i in range(body_size)]
+
+    chunks = chunk_text(
+        f"{' '.join(lead)}\n\n{' '.join(body)}",
+        config=cfg,
+    )
+
+    output_tokens = {token for chunk in chunks for token in chunk.content.split()}
+    assert set(lead + body).issubset(output_tokens)
+    assert all(0 < len(chunk.content.split()) <= chunk_size for chunk in chunks)
+    assert [chunk.index for chunk in chunks] == list(range(len(chunks)))
 
 
 def test_source_propagated():
