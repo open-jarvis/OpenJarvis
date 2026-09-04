@@ -59,7 +59,9 @@ class VoiceSession:
         import openjarvis.speech  # noqa: F401
         from openjarvis.core.registry import TTSRegistry
 
-        for key in _TTS_BACKEND_ORDER:
+        preferred, _, _ = self.get_voice_preferences()
+        backend_order = dict.fromkeys((preferred, *_TTS_BACKEND_ORDER))
+        for key in backend_order:
             if key in self._tts_attempted:
                 continue
             self._tts_attempted.add(key)

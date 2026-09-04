@@ -79,3 +79,70 @@ def test_warning_emitted_once_per_backend():
     for _ in range(3):
         session.voice_for_backend(_Backend("openai_tts"), console)
     assert len(printed) == 1
+
+
+@pytest.mark.parametrize("preferred", ["kokoro", "openai_tts", "cartesia"])
+def test_configured_backend_is_tried_before_healthy_fallbacks(monkeypatch, preferred):
+    import openjarvis.speech  # noqa: F401
+    from openjarvis.core.registry import TTSRegistry
+
+    checked = []
+
+    class HealthyBackend(_Backend):
+        def health(self):
+            checked.append(self.backend_id)
+            return True
+
+    monkeypatch.setattr(TTSRegistry, "contains", lambda key: True)
+    monkeypatch.setattr(TTSRegistry, "get", lambda key: lambda: HealthyBackend(key))
+    session = _session(tts_backend=preferred, voice_id="chosen-voice")
+
+    selected = session.get_tts_backend()
+
+    assert selected.backend_id == preferred
+    assert session.get_tts_backend() is selected
+    assert checked == [preferred]
+    assert session.voice_for_backend(selected) == ("chosen-voice", 1.0)
+
+
+def test_synthesis_failure_falls_back_without_retrying_or_leaking_voice(monkeypatch):
+    import openjarvis.speech  # noqa: F401
+    from openjarvis.cli._voice_chat import speak
+    from openjarvis.core.registry import TTSRegistry
+    from openjarvis.speech.tts import TTSResult
+
+    checked, spoken, played = [], [], []
+
+    class Backend(_Backend):
+        def health(self):
+            checked.append(self.backend_id)
+            return True
+
+        def synthesize(self, text, **kwargs):
+            spoken.append((self.backend_id, kwargs["voice_id"]))
+            if self.backend_id == "openai_tts":
+                raise RuntimeError("provider unavailable")
+            return TTSResult(audio=b"wav", sample_rate=24000, format="wav")
+
+    class Console:
+        def print(self, message):
+            pass
+
+    monkeypatch.setattr(TTSRegistry, "contains", lambda key: True)
+    monkeypatch.setattr(TTSRegistry, "get", lambda key: lambda: Backend(key))
+    monkeypatch.setattr(
+        "openjarvis.speech.voice_io.play_wav",
+        lambda audio, **kwargs: played.append(audio),
+    )
+    session = _session(tts_backend="openai_tts", voice_id="nova")
+
+    speak("First reply", Console(), session)
+    speak("Second reply", Console(), session)
+
+    assert checked == ["openai_tts", "kokoro"]
+    assert spoken == [
+        ("openai_tts", "nova"),
+        ("kokoro", "bm_george"),
+        ("kokoro", "bm_george"),
+    ]
+    assert played == [b"wav", b"wav"]
