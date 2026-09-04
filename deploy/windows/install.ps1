@@ -276,7 +276,13 @@ if (Test-Path (Join-Path $srcDir '.git')) {
     }
 } else {
     Write-Info "Cloning $repoUrl..."
-    & $gitExe clone --depth 1 $repoUrl $srcDir
+    # Preserve history without partial-clone lazy fetches from local sources,
+    # which may themselves be shallow. Remote sources can omit old blobs.
+    if ($repoUrl -like 'file://*' -or (Test-Path -LiteralPath $repoUrl -ErrorAction SilentlyContinue)) {
+        & $gitExe clone $repoUrl $srcDir
+    } else {
+        & $gitExe clone --filter=blob:none $repoUrl $srcDir
+    }
     if ($LASTEXITCODE -ne 0) { Write-Fail "git clone failed" }
     Write-Ok "Cloned to $srcDir"
 }

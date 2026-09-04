@@ -221,6 +221,17 @@ class TestGetLatestVersion:
 
 
 class TestCheckForUpdates:
+    @pytest.mark.parametrize(
+        "version", ["0.0.0+unknown", "0.0.1.dev1+unknown.gc1af3c94"]
+    )
+    def test_unknown_source_version_never_prompts_or_fetches(
+        self, monkeypatch, version
+    ):
+        monkeypatch.setattr("openjarvis.__version__", version)
+        with patch("openjarvis.cli._version_check._get_latest_version") as latest:
+            _version_check._do_check()
+        latest.assert_not_called()
+
     @patch("openjarvis.cli._version_check._do_check")
     def test_runs_for_ask_command(self, mock_do):
         check_for_updates("ask")
