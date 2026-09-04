@@ -231,8 +231,20 @@ fallback_version = "0.0.0+unknown"
 [tool.uv.sources]
 openjarvis-rust = { path = "rust/crates/openjarvis-python" }
 
+[tool.hatch.build.targets.sdist]
+# Tauri release bundles carry these executables; Python source distributions
+# must not duplicate platform binaries on every PyPI release.
+exclude = [
+    "/desktop/src-tauri/binaries",
+    "/frontend/src-tauri/binaries",
+]
+# The publishing workflow builds this UI before packaging. Keep its generated
+# files even though the directory is intentionally ignored by Git.
+artifacts = ["/src/openjarvis/server/static/**"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/openjarvis"]
+artifacts = ["/src/openjarvis/server/static/**"]
 exclude = [
     "/src/openjarvis/agents/claude_code_runner",
 ]
