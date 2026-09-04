@@ -80,6 +80,7 @@ class OrchestratorAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            capability_policy=capability_policy,
             prompt_builder=prompt_builder,
             capability_policy=capability_policy,
             agent_id=agent_id,

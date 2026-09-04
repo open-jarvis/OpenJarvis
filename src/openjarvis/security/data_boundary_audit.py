@@ -33,6 +33,10 @@ CLOUD_PROVIDER_KEYS = {
 }
 
 LOCAL_ENGINE_KEYS = {
+    # Apple Foundation Models, both the in-process engine and the shim. The
+    # Python SDK has no Private Cloud Compute path, so inference is
+    # unconditionally on-device.
+    "afm",
     "apple_fm",
     "exo",
     "gemma_cpp",
@@ -60,6 +64,7 @@ API_KEY_ENV_VARS = {
     "OPENAI_API_KEY": ("OpenAI cloud inference", {"openai", "gpt"}),
     "OPENROUTER_API_KEY": ("OpenRouter cloud inference", {"openrouter"}),
     "TAVILY_API_KEY": ("Tavily web search", {"tavily", "web_search"}),
+    "YOUDOTCOM_API_KEY": ("You.com web search", {"youcom", "web_search"}),
 }
 
 CHANNEL_SECRET_FIELDS: tuple[tuple[str, str, str], ...] = (
@@ -940,12 +945,15 @@ def _audit_tool_surfaces(config: Any, builder: _FindingBuilder) -> None:
     tools = _configured_tools(config)
 
     if tools & WEB_SEARCH_TOOLS:
+        destination = _web_search_destination()
         builder.add(
             finding_id="web-search-tool-configured",
             status="warn",
             title="Web search tool is configured",
-            potential_data_path="user or agent search query -> external search service",
-            evidence=f"configured tool(s) = {_format_tools(tools & WEB_SEARCH_TOOLS)}",
+            potential_data_path=(f"user or agent search query -> {destination}"),
+            evidence=(
+                f"configured tool(s) = {_format_tools(tools & WEB_SEARCH_TOOLS)}"
+            ),
             recommendation=(
                 "Review search queries before using web search with sensitive prompts."
             ),
@@ -1045,6 +1053,28 @@ def _audit_tool_surfaces(config: Any, builder: _FindingBuilder) -> None:
                 "sensitive prompts or tool arguments."
             ),
         )
+
+
+def _web_search_destination() -> str:
+    """Name the service ``web_search`` sends queries to, from env keys alone.
+
+    The default engine is keyless, so no credential is involved and the
+    credential-driven findings above cannot see this egress — hence a separate
+    resolution here. It mirrors ``WebSearchTool._resolve_engine``, which is the
+    source of truth; ``test_data_boundary_audit`` asserts the two agree.
+    """
+    engine = (os.environ.get("OPENJARVIS_WEB_SEARCH_ENGINE") or "auto").strip().lower()
+    if engine not in {"auto", "youcom", "tavily", "duckduckgo"}:
+        engine = "auto"
+    if engine == "auto":
+        engine = "tavily" if os.environ.get("TAVILY_API_KEY") else "youcom"
+
+    if engine == "tavily":
+        return "Tavily web search API"
+    if engine == "duckduckgo":
+        return "DuckDuckGo (HTML scrape)"
+    tier = "keyed" if os.environ.get("YOUDOTCOM_API_KEY") else "keyless free tier"
+    return f"You.com web search API ({tier})"
 
 
 def _iter_local_store_targets(
