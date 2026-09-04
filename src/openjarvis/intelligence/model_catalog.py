@@ -1067,6 +1067,20 @@ BUILTIN_MODELS: List[ModelSpec] = [
 ]
 
 
+def resolve_model_id_for_engine(model_id: str, engine_id: str) -> str:
+    """Resolve a catalog model ID when an engine has a distinct runtime ID."""
+    if engine_id != "mlx":
+        return model_id
+
+    for spec in BUILTIN_MODELS:
+        if spec.model_id == model_id and engine_id in spec.supported_engines:
+            mlx_repo = spec.metadata.get("mlx_repo")
+            if isinstance(mlx_repo, str) and mlx_repo:
+                return mlx_repo
+            break
+    return model_id
+
+
 def register_builtin_models() -> None:
     """Populate ``ModelRegistry`` with well-known models."""
     for spec in BUILTIN_MODELS:
@@ -1088,4 +1102,9 @@ def merge_discovered_models(engine_key: str, model_ids: List[str]) -> None:
             ModelRegistry.register_value(model_id, spec)
 
 
-__all__ = ["BUILTIN_MODELS", "merge_discovered_models", "register_builtin_models"]
+__all__ = [
+    "BUILTIN_MODELS",
+    "merge_discovered_models",
+    "register_builtin_models",
+    "resolve_model_id_for_engine",
+]
