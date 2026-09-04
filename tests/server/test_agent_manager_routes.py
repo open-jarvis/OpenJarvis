@@ -532,6 +532,105 @@ class TestAgentManagerStreaming:
         assert resp.status_code == 200
         assert "Error:" in resp.text or "error" in resp.text.lower()
         assert "data: [DONE]" in resp.text
+        assert manager.get_agent(agent["id"])["status"] == "idle"
+
+    def test_streaming_requests_share_tick_guard(self, manager, tmp_path, monkeypatch):
+        """A second stream for the same agent must not start another tick."""
+        import asyncio
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from openjarvis.engine._stubs import StreamChunk
+        from openjarvis.server.agent_manager_routes import (
+            create_agent_manager_router,
+        )
+
+        class SlowEngine:
+            engine_id = "slow"
+            _model = "test-model"
+
+            def __init__(self):
+                self.calls = 0
+                self.lock = threading.Lock()
+                self.first_started = threading.Event()
+                self.second_started = threading.Event()
+                self.release = threading.Event()
+
+            async def stream_full(self, messages, *, model, **kwargs):
+                with self.lock:
+                    self.calls += 1
+                    call = self.calls
+                if call == 1:
+                    self.first_started.set()
+                else:
+                    self.second_started.set()
+                while not self.release.is_set():
+                    await asyncio.sleep(0.01)
+                yield StreamChunk(content=f"response-{call}")
+                yield StreamChunk(finish_reason="stop")
+
+        monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "runtime"))
+        engine = SlowEngine()
+        app = FastAPI()
+        app.state.engine = engine
+        app.state.bus = None
+        for router in create_agent_manager_router(manager):
+            app.include_router(router)
+
+        agent = manager.create_agent(name="stream-race", agent_type="simple")
+        url = f"/v1/managed-agents/{agent['id']}/messages"
+
+        def send(client):
+            return client.post(url, json={"content": "hello", "stream": True})
+
+        client1 = TestClient(app)
+        client2 = TestClient(app)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(send, client1)
+            assert engine.first_started.wait(5)
+            second = pool.submit(send, client2)
+            try:
+                assert not engine.second_started.wait(0.5)
+                second_response = second.result(timeout=5)
+                assert second_response.status_code == 409
+            finally:
+                engine.release.set()
+
+            first_response = first.result(timeout=10)
+
+        assert first_response.status_code == 200
+        assert engine.calls == 1
+        assert manager.get_agent(agent["id"])["status"] == "idle"
+
+    def test_stream_initialization_failure_releases_tick_guard(self, manager):
+        """A stream setup error must not leave the agent marked as running."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient as TC
+
+        from openjarvis.server.agent_manager_routes import (
+            create_agent_manager_router,
+        )
+
+        app = FastAPI()
+        app.state.engine = MagicMock()
+        app.state.bus = None
+        for router in create_agent_manager_router(manager):
+            app.include_router(router)
+        client = TC(app, raise_server_exceptions=False)
+
+        agent = manager.create_agent(name="stream-init-error", agent_type="simple")
+        with patch(
+            "openjarvis.server.agent_manager_routes._stream_managed_agent",
+            new=AsyncMock(side_effect=RuntimeError("stream setup failed")),
+        ):
+            resp = client.post(
+                f"/v1/managed-agents/{agent['id']}/messages",
+                json={"content": "fail during setup", "stream": True},
+            )
+
+        assert resp.status_code == 500
+        assert manager.get_agent(agent["id"])["status"] == "idle"
 
 
 @pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
+from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -13,6 +15,17 @@ from openjarvis.core.paths import get_config_dir
 logger = logging.getLogger(__name__)
 
 _MAX_HISTORY_TURNS = 20
+
+
+def _db_locked(func):
+    """Serialize access to a session-store connection shared by worker threads."""
+
+    @wraps(func)
+    def wrapped(self, *args, **kwargs):
+        with self._db_lock:
+            return func(self, *args, **kwargs)
+
+    return wrapped
 
 
 class SessionStore:
@@ -30,6 +43,7 @@ class SessionStore:
             from openjarvis.security.file_utils import secure_create
 
             secure_create(Path(db_path))
+        self._db_lock = threading.RLock()
         self._db = sqlite3.connect(db_path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._create_tables()
@@ -38,6 +52,7 @@ class SessionStore:
     # Schema
     # ------------------------------------------------------------------
 
+    @_db_locked
     def _create_tables(self) -> None:
         self._db.executescript(
             """\
@@ -61,6 +76,7 @@ class SessionStore:
     # Public API
     # ------------------------------------------------------------------
 
+    @_db_locked
     def get_or_create(self, sender_id: str, channel_type: str) -> Dict[str, Any]:
         row = self._db.execute(
             "SELECT * FROM channel_sessions WHERE sender_id = ? AND channel_type = ?",
@@ -87,6 +103,7 @@ class SessionStore:
             "pending_response": row["pending_response"],
         }
 
+    @_db_locked
     def append_message(
         self,
         sender_id: str,
@@ -94,26 +111,33 @@ class SessionStore:
         role: str,
         content: str,
     ) -> None:
-        row = self._db.execute(
-            "SELECT conversation_history FROM channel_sessions "
-            "WHERE sender_id = ? AND channel_type = ?",
-            (sender_id, channel_type),
-        ).fetchone()
-        if row is None:
-            return
-        history: List[Dict[str, str]] = json.loads(row["conversation_history"])
-        history.append({"role": role, "content": content})
-        if len(history) > _MAX_HISTORY_TURNS:
-            history = history[-_MAX_HISTORY_TURNS:]
-        self._db.execute(
-            "UPDATE channel_sessions "
-            "SET conversation_history = ?, "
-            "updated_at = datetime('now') "
-            "WHERE sender_id = ? AND channel_type = ?",
-            (json.dumps(history), sender_id, channel_type),
-        )
-        self._db.commit()
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self._db.execute(
+                "SELECT conversation_history FROM channel_sessions "
+                "WHERE sender_id = ? AND channel_type = ?",
+                (sender_id, channel_type),
+            ).fetchone()
+            if row is None:
+                self._db.rollback()
+                return
+            history: List[Dict[str, str]] = json.loads(row["conversation_history"])
+            history.append({"role": role, "content": content})
+            if len(history) > _MAX_HISTORY_TURNS:
+                history = history[-_MAX_HISTORY_TURNS:]
+            self._db.execute(
+                "UPDATE channel_sessions "
+                "SET conversation_history = ?, "
+                "updated_at = datetime('now') "
+                "WHERE sender_id = ? AND channel_type = ?",
+                (json.dumps(history), sender_id, channel_type),
+            )
+            self._db.commit()
+        except Exception:
+            self._db.rollback()
+            raise
 
+    @_db_locked
     def set_notification_preference(
         self,
         sender_id: str,
@@ -129,6 +153,7 @@ class SessionStore:
         )
         self._db.commit()
 
+    @_db_locked
     def set_pending_response(
         self,
         sender_id: str,
@@ -144,9 +169,11 @@ class SessionStore:
         )
         self._db.commit()
 
+    @_db_locked
     def clear_pending_response(self, sender_id: str, channel_type: str) -> None:
         self.set_pending_response(sender_id, channel_type, None)
 
+    @_db_locked
     def expire_sessions(self, max_age_hours: int = 24) -> int:
         cur = self._db.execute(
             "UPDATE channel_sessions "
@@ -158,6 +185,7 @@ class SessionStore:
         self._db.commit()
         return cur.rowcount
 
+    @_db_locked
     def get_last_active_channel(self, sender_id: str) -> Optional[str]:
         row = self._db.execute(
             "SELECT channel_type FROM channel_sessions "
@@ -167,6 +195,7 @@ class SessionStore:
         ).fetchone()
         return row["channel_type"] if row else None
 
+    @_db_locked
     def get_notification_targets(self) -> List[Dict[str, str]]:
         """Return all senders with a notification channel."""
         rows = self._db.execute(
@@ -177,5 +206,6 @@ class SessionStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    @_db_locked
     def close(self) -> None:
         self._db.close()

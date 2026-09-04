@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 from openjarvis.core.events import EventType
 
@@ -16,25 +18,33 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _next_cron_fire(cron_expr: str, now: float | None = None) -> float:
+def _next_cron_fire(
+    cron_expr: str,
+    now: float | None = None,
+    timezone_name: str | None = None,
+) -> float:
     """Calculate the next fire time for a cron expression.
 
-    Uses croniter if available, otherwise falls back to a simple
-    interval-based approximation.
+    ``timezone_name`` is an optional IANA timezone. Without one, preserve the
+    historical host-local interpretation. Missing cron support is fatal: an
+    hourly approximation would silently change the schedule's meaning.
     """
     try:
         from croniter import croniter
-    except ImportError:
-        # Fallback: treat as hourly interval
-        logger.warning("croniter not installed, treating cron as 3600s interval")
-        return (now or time.time()) + 3600
+    except ImportError as exc:
+        raise RuntimeError(
+            "croniter is required for cron schedules; reinstall OpenJarvis"
+        ) from exc
 
-    base = now or time.time()
-    import datetime
-
-    dt = datetime.datetime.fromtimestamp(base)
+    base = time.time() if now is None else now
+    tz = ZoneInfo(timezone_name) if timezone_name else None
+    dt = (
+        datetime.fromtimestamp(base, tz=tz)
+        if tz is not None
+        else datetime.fromtimestamp(base).astimezone()
+    )
     cron = croniter(cron_expr, dt)
-    next_dt = cron.get_next(datetime.datetime)
+    next_dt = cron.get_next(datetime)
     return next_dt.timestamp()
 
 
@@ -81,10 +91,11 @@ class AgentScheduler:
         config = agent.get("config", {})
         schedule_type = config.get("schedule_type", "manual")
         schedule_value = config.get("schedule_value", 0)
+        timezone_name = config.get("timezone") or None
 
         now = time.time()
         if schedule_type == "cron":
-            next_fire = _next_cron_fire(str(schedule_value), now)
+            next_fire = _next_cron_fire(str(schedule_value), now, timezone_name)
         elif schedule_type == "interval":
             next_fire = now + float(schedule_value)
         else:
@@ -94,6 +105,7 @@ class AgentScheduler:
             self._agents[agent_id] = {
                 "schedule_type": schedule_type,
                 "schedule_value": schedule_value,
+                "timezone": timezone_name,
                 "next_fire": next_fire,
             }
 
@@ -205,6 +217,7 @@ class AgentScheduler:
                         self._agents[agent_id]["next_fire"] = _next_cron_fire(
                             str(info["schedule_value"]),
                             now,
+                            info.get("timezone"),
                         )
                     elif info["schedule_type"] == "interval":
                         self._agents[agent_id]["next_fire"] = now + float(

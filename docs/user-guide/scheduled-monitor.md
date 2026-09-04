@@ -10,7 +10,7 @@ A persistent operative agent that runs on a cron schedule, maintains state acros
 git clone https://github.com/open-jarvis/OpenJarvis.git
 cd OpenJarvis
 uv sync --extra dev
-jarvis init --preset scheduled-monitor
+jarvis init --preset scheduled-monitor --force
 ```
 
 This writes a pre-configured `~/.openjarvis/config.toml` for the operative agent with scheduling support.

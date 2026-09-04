@@ -108,6 +108,24 @@ class TestConfigSet:
         assert result.exit_code != 0
         assert "Unknown config key" in result.output
 
+    def test_set_section_rejected_without_changing_config(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        original = '[engine]\ndefault = "ollama"\n'
+        config_file.write_text(original, encoding="utf-8")
+
+        with mock.patch.dict(
+            os.environ,
+            {"OPENJARVIS_CONFIG": str(config_file)},
+        ):
+            result = CliRunner().invoke(
+                cli,
+                ["config", "set", "engine.ollama", "http://box:11434"],
+            )
+
+        assert result.exit_code != 0
+        assert "names a section" in result.output
+        assert config_file.read_text(encoding="utf-8") == original
+
     def test_set_engine_host_probes_reachable(self, tmp_path: Path) -> None:
         """config set probes engine host and reports reachability."""
         config_file = tmp_path / "config.toml"

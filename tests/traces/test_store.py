@@ -101,6 +101,25 @@ class TestTraceStore:
         assert store.count() == 3
         store.close()
 
+    def test_concurrent_saves_are_serialized(self, tmp_path: Path) -> None:
+        """Concurrent trace writes must not be lost on the shared connection."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        store = TraceStore(tmp_path / "test.db")
+        traces = []
+        for i in range(64):
+            trace = _make_trace(query=f"q{i}")
+            trace.trace_id = f"trace-{i}"
+            traces.append(trace)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = [pool.submit(store.save, trace) for trace in traces]
+            for future in futures:
+                future.result()
+
+        assert store.count() == len(traces)
+        store.close()
+
     def test_list_traces_no_filter(self, tmp_path: Path) -> None:
         store = TraceStore(tmp_path / "test.db")
         store.save(_make_trace(query="q1"))

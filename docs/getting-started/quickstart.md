@@ -69,7 +69,7 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
 === "Deep Research"
 
     ```bash
-    jarvis init --preset deep-research
+    jarvis init --preset deep-research --force
     jarvis memory index ~/Documents/papers/
     jarvis ask "Summarize all documents about transformer architectures"
     # Multi-hop search across your indexed docs with citations
@@ -78,7 +78,7 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
 === "Code Assistant"
 
     ```bash
-    jarvis init --preset code-assistant
+    jarvis init --preset code-assistant --force
     jarvis ask "Write a Python script that parses CSV files"
     # Orchestrator agent with code execution, file I/O, and shell access
     ```
@@ -86,7 +86,7 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
 === "Scheduled Monitor"
 
     ```bash
-    jarvis init --preset scheduled-monitor
+    jarvis init --preset scheduled-monitor --force
     jarvis memory index ~/Documents/
     jarvis scheduler start
     jarvis scheduler create \

@@ -59,6 +59,62 @@ class TestAppendMessage:
             "content": "hello!",
         }
 
+    def test_concurrent_appends_from_separate_stores_keep_both_messages(
+        self, tmp_path, monkeypatch
+    ):
+        """Concurrent read-modify-write appends must not overwrite each other."""
+        import sqlite3
+        import threading
+
+        db_path = str(tmp_path / "sessions.db")
+        seed = SessionStore(db_path=db_path)
+        seed.get_or_create("user1", "slack")
+        seed.close()
+
+        first_read = threading.Event()
+        release_first_read = threading.Event()
+        original_connect = sqlite3.connect
+
+        class ControlledConnection(sqlite3.Connection):
+            def execute(self, sql, parameters=(), /):
+                if "SELECT conversation_history" in sql and not first_read.is_set():
+                    first_read.set()
+                    assert release_first_read.wait(timeout=5)
+                return super().execute(sql, parameters)
+
+        def connect(*args, **kwargs):
+            kwargs["factory"] = ControlledConnection
+            return original_connect(*args, **kwargs)
+
+        monkeypatch.setattr(sqlite3, "connect", connect)
+        stores = [SessionStore(db_path=db_path), SessionStore(db_path=db_path)]
+        errors = []
+
+        def append(store, content):
+            try:
+                store.append_message("user1", "slack", "user", content)
+            except Exception as exc:  # noqa: BLE001 - capture race symptoms
+                errors.append(exc)
+
+        first = threading.Thread(target=append, args=(stores[0], "first"))
+        second = threading.Thread(target=append, args=(stores[1], "second"))
+        first.start()
+        assert first_read.wait(timeout=5)
+        second.start()
+        release_first_read.set()
+        first.join(timeout=5)
+        second.join(timeout=5)
+
+        assert errors == []
+        assert not first.is_alive()
+        assert not second.is_alive()
+        for store in stores:
+            store.close()
+        check = SessionStore(db_path=db_path)
+        history = check.get_or_create("user1", "slack")["conversation_history"]
+        check.close()
+        assert {message["content"] for message in history} == {"first", "second"}
+
     def test_caps_history_at_max_turns(self, store):
         store.get_or_create("user1", "slack")
         for i in range(25):
