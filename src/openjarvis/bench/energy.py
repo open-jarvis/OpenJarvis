@@ -7,7 +7,7 @@ import time
 from typing import Any, List, Optional
 
 from openjarvis.bench._stats import compute_stats
-from openjarvis.bench._stubs import BaseBenchmark, BenchmarkResult
+from openjarvis.bench._stubs import BaseBenchmark, BenchmarkResult, engine_info
 from openjarvis.core.registry import BenchmarkRegistry
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._stubs import InferenceEngine
@@ -59,6 +59,15 @@ class EnergyBenchmark(BaseBenchmark):
         per_tokens: List[float] = []
         errors = 0
         energy_method = ""
+        # Per-rail totals, so an ANE-resident backend's energy is attributable
+        # rather than just folded into one number.
+        rail_totals: dict[str, float] = {
+            "cpu": 0.0,
+            "gpu": 0.0,
+            "dram": 0.0,
+            "ane": 0.0,
+        }
+        energy_basis = ""
 
         if energy_monitor is not None:
             from openjarvis.telemetry.steady_state import SteadyStateDetector
@@ -79,6 +88,12 @@ class EnergyBenchmark(BaseBenchmark):
                     power_w = energy_j / elapsed if elapsed > 0 else 0.0
                     tps = tokens / elapsed if elapsed > 0 else 0.0
                     ept = energy_j / tokens if tokens > 0 else 0.0
+
+                    rail_totals["cpu"] += sample.cpu_energy_joules
+                    rail_totals["gpu"] += sample.gpu_energy_joules
+                    rail_totals["dram"] += sample.dram_energy_joules
+                    rail_totals["ane"] += sample.ane_energy_joules
+                    energy_basis = sample.basis or energy_basis
 
                     per_energy_j.append(energy_j)
                     per_power_w.append(power_w)
@@ -127,10 +142,17 @@ class EnergyBenchmark(BaseBenchmark):
         metrics["total_time_seconds"] = total_time
 
         metadata: dict[str, Any] = {}
-        if engine.engine_id == "apple_fm":
-            metadata["token_estimation"] = (
-                "~4 chars/token (Apple FM SDK does not expose counts)"
-            )
+        info = engine_info(engine)
+        if info:
+            metadata["engine_info"] = info
+        if energy_basis:
+            # Which rail set total_energy_joules and energy_per_token came
+            # from. Figures are only comparable across runs sharing a basis.
+            metadata["energy_basis"] = energy_basis
+        if any(v > 0 for v in rail_totals.values()):
+            metadata["energy_joules_by_rail"] = {
+                rail: round(v, 6) for rail, v in rail_totals.items() if v > 0
+            }
 
         return BenchmarkResult(
             benchmark_name=self.name,

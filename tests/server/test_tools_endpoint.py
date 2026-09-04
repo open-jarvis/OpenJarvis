@@ -62,7 +62,10 @@ def test_web_search_available_without_tavily_key(monkeypatch):
 
 
 def test_tool_credentials_browser_lifecycle(tmp_path, monkeypatch):
-    """The browser API can save, report, and remove a Tavily key."""
+    """The browser API can save, report, and remove a Tavily key.
+
+    ``web_search`` declares a You.com key alongside it, so status reports both.
+    """
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -70,6 +73,7 @@ def test_tool_credentials_browser_lifecycle(tmp_path, monkeypatch):
 
     monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "openjarvis-home"))
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
     app = FastAPI()
     tools_router = create_agent_manager_router(MagicMock())[3]
     app.include_router(tools_router)
@@ -82,7 +86,8 @@ def test_tool_credentials_browser_lifecycle(tmp_path, monkeypatch):
     assert saved.status_code == 200
     assert saved.json() == {"saved": ["TAVILY_API_KEY"]}
     assert client.get("/v1/tools/web_search/credentials/status").json() == {
-        "TAVILY_API_KEY": True
+        "TAVILY_API_KEY": True,
+        "YOUDOTCOM_API_KEY": False,
     }
 
     deleted = client.delete(
@@ -91,5 +96,6 @@ def test_tool_credentials_browser_lifecycle(tmp_path, monkeypatch):
     assert deleted.status_code == 200
     assert deleted.json() == {"deleted": "TAVILY_API_KEY"}
     assert client.get("/v1/tools/web_search/credentials/status").json() == {
-        "TAVILY_API_KEY": False
+        "TAVILY_API_KEY": False,
+        "YOUDOTCOM_API_KEY": False,
     }

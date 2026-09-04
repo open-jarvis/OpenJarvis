@@ -151,6 +151,15 @@ class TestOrchestratorAgent:
         agent = OrchestratorAgent(engine, "test-model")
         assert agent.agent_id == "orchestrator"
 
+    def test_capability_policy_is_forwarded_to_tool_executor(self):
+        policy = MagicMock()
+        agent = OrchestratorAgent(
+            _make_engine_no_tools(),
+            "test-model",
+            capability_policy=policy,
+        )
+        assert agent._executor._capability_policy is policy
+
     def test_no_tools_single_turn(self):
         engine = _make_engine_no_tools("Hello!")
         agent = OrchestratorAgent(engine, "test-model")

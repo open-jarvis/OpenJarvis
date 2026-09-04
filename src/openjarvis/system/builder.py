@@ -165,6 +165,7 @@ class SystemBuilder:
                 energy_monitor = create_energy_monitor(
                     poll_interval_ms=config.telemetry.gpu_poll_interval_ms,
                     prefer_vendor=config.telemetry.energy_vendor or None,
+                    allow_estimates=config.telemetry.allow_energy_estimates,
                 )
             except ImportError:
                 pass

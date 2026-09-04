@@ -65,7 +65,7 @@ inference-google = [
 ]
 # Exact security pin covering the LiteLLM command-injection advisories.
 # Avoid 1.82.7/1.82.8, which were affected by the March supply-chain incident.
-inference-litellm = ["litellm==1.97.0"]
+inference-litellm = ["litellm==1.98.0"]
 inference-gemma = ["pygemma>=0.1.3"]
 tools-search = [
     "tavily-python>=0.3",
@@ -94,15 +94,34 @@ desktop = [
     "pydantic>=2.0",
     "python-multipart>=0.0.9",
     "faster-whisper>=1.0",
+    # 1.24.x declares Python 3.10 support but publishes no cp310 wheels (#917).
+    "onnxruntime<1.24; python_version < '3.11'",
     "numpy>=1.24",
     "sounddevice>=0.5",
     "soundfile>=0.12",
 ]
 openhands = ["openhands-sdk>=1.0; python_version >= '3.12'"]
+# Apple Foundation Models (on-device AFM 3). Needs an Apple Silicon Mac on
+# macOS 26+ with Apple Intelligence enabled. The SDK compiles Swift bindings
+# at install time, so a full Xcode is required -- Command Line Tools alone
+# fail:
+#   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+#       uv pip install -e '.[afm]'
+# 0.2.1 is the floor: it added SystemLanguageModel.context_size and
+# token_count, which the engine uses for token accounting.
+afm = ["apple-fm-sdk>=0.2.1; sys_platform == 'darwin'"]
 gpu-metrics = ["pynvml>=12.0"]
 energy-amd = ["amdsmi>=6.1"]
-energy-apple = ["zeus-ml[apple]"]
-energy-all = ["pynvml>=12.0", "amdsmi>=6.1", "zeus-ml[apple]"]
+# `zeus-ml[apple]` was the previous spelling and never worked: zeus-ml has no
+# `apple` extra, and its `zeus.device.soc` package (which wraps this library)
+# landed on master after the last zeus release, so no published zeus-ml
+# contains it. Depend on the underlying IOReport extension directly.
+energy-apple = ["zeus-apple-silicon>=1.1.0; sys_platform == 'darwin'"]
+energy-all = [
+    "pynvml>=12.0",
+    "amdsmi>=6.1",
+    "zeus-apple-silicon>=1.1.0; sys_platform == 'darwin'",
+]
 orchestrator-training = ["torch>=2.0", "transformers>=4.40"]
 learning-dspy = ["dspy>=2.6"]
 learning-gepa = ["gepa>=0.1"]
@@ -139,6 +158,8 @@ sandbox-docker = ["docker>=7.0"]
 dashboard = ["textual>=0.80"]
 speech = [
     "faster-whisper>=1.0",
+    # Keep the pip-visible speech extra installable on supported Python 3.10.
+    "onnxruntime<1.24; python_version < '3.11'",
     "numpy>=1.24",
     "sounddevice>=0.5",
     "soundfile>=0.12",
