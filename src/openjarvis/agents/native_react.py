@@ -6,6 +6,7 @@ implementation, not an integration with an external project.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, List, Optional
 
@@ -53,6 +54,80 @@ the response can take one of two forms:
 {skill_examples}{tool_descriptions}"""
 
 
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON field")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> Any:
+    raise ValueError("Non-JSON numeric constant")
+
+
+def _parse_json_response(text: str) -> dict[str, str]:
+    """Parse a complete JSON envelope without recovering partial tool calls."""
+    result = {"thought": "", "action": "", "action_input": "", "final_answer": ""}
+    try:
+        payload = json.loads(
+            text,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+        if not isinstance(payload, dict):
+            raise ValueError("Expected one JSON object")
+        fields = {}
+        for key, value in payload.items():
+            name = key.strip().lower().replace(" ", "_")
+            if name in result:
+                if name in fields:
+                    raise ValueError("Ambiguous ReAct JSON fields")
+                fields[name] = value
+        # Ordinary JSON answers without ReAct fields remain plain answers.
+        if not fields:
+            return result
+        for name in ("thought", "action", "final_answer"):
+            value = fields.get(name)
+            if value is not None:
+                if not isinstance(value, str):
+                    raise ValueError(f"{name} must be a string")
+                result[name] = value.strip()
+        if result["action"] and result["final_answer"]:
+            raise ValueError("Expected an action or a final answer, not both")
+        if result["final_answer"]:
+            return result
+        if not result["action"]:
+            raise ValueError("ReAct JSON needs an action or a final answer")
+        arguments = fields.get("action_input", {})
+        if isinstance(arguments, str):
+            arguments = json.loads(
+                arguments,
+                object_pairs_hook=_unique_json_object,
+                parse_constant=_reject_json_constant,
+            )
+        if not isinstance(arguments, dict):
+            raise ValueError("action_input must be a JSON object")
+        result["action_input"] = json.dumps(
+            arguments, ensure_ascii=False, allow_nan=False
+        )
+        return result
+    except (ValueError, RecursionError):
+        # Do not expose JSON decoder messages or salvage a partial action: the
+        # response may contain tool arguments, secrets, or quoted action markers.
+        return {
+            "thought": "",
+            "action": "",
+            "action_input": "",
+            "final_answer": "",
+            "parse_error": (
+                "Expected one JSON object with either a nonempty action and "
+                "object action_input, or a nonempty final_answer."
+            ),
+        }
+
+
 @AgentRegistry.register("native_react")
 class NativeReActAgent(ToolUsingAgent):
     """ReAct agent: Thought -> Action -> Observation loop."""
@@ -97,6 +172,22 @@ class NativeReActAgent(ToolUsingAgent):
 
     def _parse_response(self, text: str) -> dict:
         """Parse ReAct structured output."""
+        stripped = text.strip()
+        fenced = re.fullmatch(
+            r"```(?:json)?[ \t]*\r?\n(.*?)\r?\n```",
+            stripped,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if fenced and fenced.group(1).lstrip().startswith(("{", "[")):
+            return _parse_json_response(fenced.group(1))
+        if (
+            stripped.startswith("{")
+            or re.match(r"\[\s*\{", stripped)
+            or stripped.lower().startswith("```json")
+            or re.match(r"```[ \t]*\r?\n\s*[\{\[]", stripped)
+        ):
+            return _parse_json_response(stripped)
+
         result = {"thought": "", "action": "", "action_input": "", "final_answer": ""}
 
         # Extract Thought
@@ -195,6 +286,20 @@ class NativeReActAgent(ToolUsingAgent):
 
             content = result.get("content", "")
             parsed = self._parse_response(content)
+
+            if parsed.get("parse_error"):
+                self._emit_turn_end(turns=turns)
+                return AgentResult(
+                    content="Could not parse the model's ReAct response. "
+                    + parsed["parse_error"],
+                    tool_results=all_tool_results,
+                    turns=turns,
+                    metadata={
+                        **total_usage,
+                        "response_parse_error": parsed["parse_error"],
+                        "messages": [_message_to_dict(m) for m in messages],
+                    },
+                )
 
             # Final answer?
             if parsed["final_answer"]:
