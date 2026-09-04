@@ -310,6 +310,29 @@ class TestSkillManagerTools:
         tools = mgr.get_skill_tools()
         assert any(t.spec.name == "skill_my_skill" for t in tools)
 
+    def test_model_disabled_skill_is_not_exposed(self, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "hidden"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: hidden\n"
+            "disable_model_invocation: true\n"
+            "metadata:\n"
+            "  openjarvis:\n"
+            "    few_shot:\n"
+            "      - input: secret\n"
+            "        output: secret\n"
+            "---\n"
+            "Hidden instructions\n",
+            encoding="utf-8",
+        )
+
+        mgr = SkillManager(bus=EventBus())
+        mgr.discover(paths=[tmp_path])
+
+        assert mgr.get_skill_tools() == []
+        assert mgr.get_few_shot_examples() == []
+
 
 # ---------------------------------------------------------------------------
 # TestSkillManagerResolve

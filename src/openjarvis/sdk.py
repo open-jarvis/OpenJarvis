@@ -230,6 +230,7 @@ class Jarvis:
 
                 energy_monitor = create_energy_monitor(
                     prefer_vendor=self._config.telemetry.energy_vendor or None,
+                    allow_estimates=self._config.telemetry.allow_energy_estimates,
                 )
             except Exception as exc:
                 logger.debug("Failed to create energy monitor: %s", exc)

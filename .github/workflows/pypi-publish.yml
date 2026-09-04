@@ -54,6 +54,9 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Use the reviewed npm toolchain
+        run: npm install --global npm@11.19.0
+
       - name: Build frontend and bundle into package
         env:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
