@@ -29,6 +29,46 @@ class BenchmarkResult:
     energy_method: str = ""
 
 
+def engine_info(engine: Any) -> Optional[Dict[str, Any]]:
+    """Run metadata from an engine that can describe itself, or ``None``.
+
+    Duck-typed the way IPW's runner writes ``client_info`` into
+    ``summary.json``: ``describe`` is not on the ``InferenceEngine`` ABC, so
+    engines opt in by defining it. The AFM engine uses this to record its SDK
+    version, context size and host chip, none of which is recoverable from the
+    benchmark results alone.
+
+    The return value is validated rather than trusted. It lands in a JSONL
+    file, so anything that is not a plain dict of JSON-safe scalars is
+    dropped or stringified -- an engine returning something exotic must not be
+    able to fail the whole benchmark write.
+    """
+    describe = getattr(engine, "describe", None)
+    if not callable(describe):
+        return None
+    try:
+        info = describe()
+    except Exception:
+        return None
+    if not isinstance(info, dict):
+        return None
+
+    safe: Dict[str, Any] = {}
+    for key, value in info.items():
+        if not isinstance(key, str):
+            continue
+        if value is None or isinstance(value, (bool, int, float, str)):
+            safe[key] = value
+        else:
+            try:
+                json.dumps(value)
+            except (TypeError, ValueError):
+                safe[key] = repr(value)
+            else:
+                safe[key] = value
+    return safe or None
+
+
 class BaseBenchmark(ABC):
     """Base class for all benchmark implementations.
 
