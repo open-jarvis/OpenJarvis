@@ -58,7 +58,23 @@ class TextToSpeechTool(BaseTool):
 
         text = params.get("text", "")
         voice_id = params.get("voice_id", "")
-        backend_key = params.get("backend", "cartesia")
+        backend_key = params.get("backend", "")
+
+        # Fall back to the configured speech voice so the agent-facing tool
+        # speaks in the same voice as `jarvis chat --voice` instead of the
+        # backend default. Explicit params always win.
+        if not voice_id or not backend_key:
+            try:
+                from openjarvis.core.config import load_config
+
+                speech = getattr(load_config(), "speech", None)
+                if not backend_key:
+                    backend_key = getattr(speech, "tts_backend", "") or ""
+                if not voice_id and backend_key == getattr(speech, "tts_backend", None):
+                    voice_id = getattr(speech, "voice_id", "") or ""
+            except Exception:
+                pass
+        backend_key = backend_key or "cartesia"
         _ALIASES = {"openai": "openai_tts"}
         backend_key = _ALIASES.get(backend_key, backend_key)
         output_dir = params.get("output_dir", "")
