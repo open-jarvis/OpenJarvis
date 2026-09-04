@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import shlex
+import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +23,7 @@ def _git(repo: Path, *args: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        timeout=30,
     ).stdout.strip()
 
 
@@ -37,38 +40,143 @@ def tagged_repo(tmp_path: Path) -> Path:
     _git(repo, "init", "-b", "main")
     _git(repo, "config", "user.name", "Version Test")
     _git(repo, "config", "user.email", "test@example.invalid")
-    _git(repo, "config", "uploadpack.allowFilter", "true")
     _commit(repo, "README.md", "release\n")
     _git(repo, "-c", "tag.gpgsign=false", "tag", "v1.0.3")
     _commit(repo, "new-file.txt", "development commit after the release\n")
     return repo
 
 
-@pytest.mark.parametrize(
-    "script,command_prefix",
-    [
-        ("scripts/install/install.sh", "git clone "),
-        ("deploy/windows/install.ps1", "& $gitExe clone "),
-    ],
-)
+@pytest.fixture(params=["bash", "powershell"])
+def installer(request):
+    if request.param == "bash":
+        if sys.platform == "win32":
+            pytest.skip("Native Windows uses the PowerShell installer")
+        executable = shutil.which("bash")
+    else:
+        executable = shutil.which("pwsh") or shutil.which("powershell")
+    if not executable:
+        pytest.skip(f"{request.param} is not installed")
+    return request.param, executable
+
+
+def _installer_clone(installer, source, clone, cwd, *, env_extra=None):
+    """Execute the shipped clone branch without bootstrapping an entire install."""
+    kind, executable = installer
+    env = {
+        **os.environ,
+        "OPENJARVIS_REPO_URL": source,
+        "SRC_DIR": str(clone),
+        "FORCE": "0",
+    }
+    env.update(env_extra or {})
+    if kind == "bash":
+        script = (ROOT / "scripts/install/install.sh").read_text()
+        start = script.index("clone_repo() {\n")
+        end = script.index("\n}\n", start) + 2
+        command = [
+            executable,
+            "-c",
+            "set -euo pipefail\n" + script[start:end] + "\nclone_repo",
+        ]
+    else:
+        script = (ROOT / "deploy/windows/install.ps1").read_text()
+        start = script.index("    if ($repoUrl -like 'file://*'")
+        end = script.index("    if ($LASTEXITCODE", start)
+        body = (
+            "$ErrorActionPreference = 'Stop'\n"
+            "$repoUrl = $env:OPENJARVIS_REPO_URL\n"
+            "$srcDir = $env:SRC_DIR\n"
+            "$gitExe = (Get-Command git).Source\n"
+            + script[start:end]
+            + "\nexit $LASTEXITCODE\n"
+        )
+        command = [executable, "-NoProfile", "-NonInteractive", "-Command", body]
+    return _RUN(
+        command,
+        env=env,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+
+
+@pytest.mark.parametrize("source_kind", ["path", "file-url", "remote-url"])
 def test_installer_clone_retains_reachable_release_tag(
     tagged_repo: Path,
     tmp_path: Path,
-    script: str,
-    command_prefix: str,
+    installer,
+    source_kind: str,
 ) -> None:
-    # Execute the actual clone arguments shipped by each installer, substituting
-    # only a local origin and destination. No network or installer side effects.
-    lines = (ROOT / script).read_text().splitlines()
-    clone_line = next(
-        line.strip() for line in lines if line.strip().startswith(command_prefix)
-    )
-    args = shlex.split(clone_line[len(command_prefix) :])[:-2]
     clone = tmp_path / "fresh install"
-    _git(tmp_path, "clone", *args, tagged_repo.as_uri(), str(clone))
+    source = str(tagged_repo) if source_kind == "path" else tagged_repo.as_uri()
+    env_extra = {}
+    if source_kind == "remote-url":
+        # Exercise remote argument selection without network access. This full
+        # local server explicitly supports filtering, unlike shallow CI clones.
+        _git(tagged_repo, "config", "uploadpack.allowFilter", "true")
+        source = "https://example.invalid/openjarvis.git"
+        env_extra = {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": f"url.{tagged_repo.as_uri()}.insteadOf",
+            "GIT_CONFIG_VALUE_0": source,
+        }
+    _installer_clone(installer, source, clone, tmp_path, env_extra=env_extra)
 
     assert _git(clone, "rev-parse", "--is-shallow-repository") == "false"
     assert _git(clone, "describe", "--tags", "--long").startswith("v1.0.3-1-g")
+    config = _git(clone, "config", "--local", "--list")
+    assert ("remote.origin.promisor=true" in config) is (source_kind == "remote-url")
+
+
+@pytest.mark.parametrize("source_kind", ["path", "relative-path", "file-url"])
+def test_installer_clones_shallow_local_source_without_lazy_fetch_recursion(
+    tagged_repo: Path,
+    tmp_path: Path,
+    installer,
+    source_kind: str,
+) -> None:
+    source_repo = tmp_path / "shallow [local] source"
+    _git(tmp_path, "clone", "--depth", "1", tagged_repo.as_uri(), str(source_repo))
+    assert _git(source_repo, "rev-parse", "--is-shallow-repository") == "true"
+    source = {
+        "path": str(source_repo),
+        "relative-path": source_repo.name,
+        "file-url": source_repo.as_uri(),
+    }[source_kind]
+    clone = tmp_path / "installed from shallow source"
+    trace_path = tmp_path / "clone-trace.jsonl"
+    completed = _installer_clone(
+        installer,
+        source,
+        clone,
+        tmp_path,
+        env_extra={"GIT_TRACE2_EVENT": str(trace_path)},
+    )
+
+    assert "filtering not recognized" not in completed.stderr
+    assert "unable to fork" not in completed.stderr
+    assert "shallow roots" not in completed.stderr
+    events = [json.loads(line) for line in trace_path.read_text().splitlines()]
+    upload_packs = [
+        event
+        for event in events
+        if event.get("event") == "child_start"
+        and any("upload-pack" in arg for arg in event.get("argv", []))
+    ]
+    assert len(upload_packs) <= 1, (
+        "Local clone must not recursively fetch missing objects"
+    )
+    assert _git(clone, "rev-parse", "HEAD") == _git(source_repo, "rev-parse", "HEAD")
+    assert _git(clone, "rev-list", "--all", "--count") == _git(
+        source_repo, "rev-list", "--all", "--count"
+    )
+    assert (clone / "README.md").read_text() == "release\n"
+    config = _git(clone, "config", "--local", "--list")
+    assert "promisor" not in config
+    assert "partialclone" not in config.lower()
+    assert not list((clone / ".git" / "objects" / "pack").glob("*.promisor"))
 
 
 @pytest.mark.parametrize("shallow", [True, False])
