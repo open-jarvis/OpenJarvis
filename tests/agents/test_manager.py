@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -166,6 +169,142 @@ class TestConcurrency:
         # Trying to run again should raise
         with pytest.raises(ValueError, match="already executing"):
             manager.start_tick(agent["id"])
+
+    def test_start_tick_is_atomic_across_connections(self, tmp_path, monkeypatch):
+        """Only one caller may acquire a tick when two connections race."""
+        from openjarvis.agents.manager import AgentManager
+
+        db_path = tmp_path / "agents.db"
+        first = AgentManager(str(db_path))
+        second = AgentManager(str(db_path))
+        try:
+            agent = first.create_agent(name="racing", agent_type="simple")
+
+            # The old implementation read the idle row before calling
+            # _set_status(). Holding both writers at that boundary makes the
+            # check-then-update race deterministic on the unfixed code.
+            writers_ready = threading.Barrier(2)
+            original_set_status = AgentManager._set_status
+
+            def hold_running_writes(self, agent_id, status):
+                if status == "running":
+                    writers_ready.wait(timeout=5)
+                return original_set_status(self, agent_id, status)
+
+            monkeypatch.setattr(AgentManager, "_set_status", hold_running_writes)
+
+            managers = (first, second)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [
+                    pool.submit(current.start_tick, agent["id"]) for current in managers
+                ]
+                outcomes = []
+                for future in futures:
+                    try:
+                        future.result(timeout=5)
+                    except ValueError as exc:
+                        outcomes.append(str(exc))
+                    else:
+                        outcomes.append("success")
+
+            assert outcomes.count("success") == 1
+            assert sum("already executing" in outcome for outcome in outcomes) == 1
+            assert first.get_agent(agent["id"])["status"] == "running"
+        finally:
+            first.close()
+            second.close()
+
+    def test_start_tick_serializes_its_uncommitted_update(self, manager):
+        """Shared-connection callers cannot observe or commit a partial tick."""
+        agent = manager.create_agent(name="pending-tick", agent_type="simple")
+        original_connection = manager._conn
+        update_pending = threading.Event()
+        allow_commit = threading.Event()
+        reader_started = threading.Event()
+        reader_finished = threading.Event()
+
+        class PausedCommit:
+            def __getattr__(self, name):
+                return getattr(original_connection, name)
+
+            def commit(self):
+                update_pending.set()
+                assert allow_commit.wait(5)
+                return original_connection.commit()
+
+        manager._conn = PausedCommit()
+
+        def read_agent():
+            reader_started.set()
+            try:
+                return manager.get_agent(agent["id"])
+            finally:
+                reader_finished.set()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            tick = pool.submit(manager.start_tick, agent["id"])
+            assert update_pending.wait(5)
+            reader = pool.submit(read_agent)
+            assert reader_started.wait(5)
+            try:
+                assert not reader_finished.wait(0.1), "tick leaked uncommitted state"
+            finally:
+                allow_commit.set()
+            tick.result(timeout=5)
+            assert reader.result(timeout=5)["status"] == "running"
+
+    def test_parallel_ticks_on_distinct_agents_share_one_connection(self, manager):
+        """Independent agents must not interfere through SQLite transactions."""
+        agents = [
+            manager.create_agent(name=f"parallel-{index}", agent_type="simple")
+            for index in range(8)
+        ]
+        ready = threading.Barrier(len(agents))
+
+        def tick_many(agent):
+            ready.wait(timeout=5)
+            for _ in range(50):
+                manager.start_tick(agent["id"])
+                manager.end_tick(agent["id"])
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as pool:
+            futures = [pool.submit(tick_many, agent) for agent in agents]
+            for future in futures:
+                future.result(timeout=10)
+        assert all(
+            manager.get_agent(agent["id"])["status"] == "idle" for agent in agents
+        )
+
+    def test_start_tick_overtakes_stale_lock(self, manager):
+        agent = manager.create_agent(name="stale", agent_type="simple")
+        stale_at = time.time() - manager._STALE_TICK_SECONDS - 1
+        manager._conn.execute(
+            "UPDATE managed_agents SET status = 'running', updated_at = ? WHERE id = ?",
+            (stale_at, agent["id"]),
+        )
+        manager._conn.commit()
+
+        manager.start_tick(agent["id"])
+
+        refreshed = manager.get_agent(agent["id"])
+        assert refreshed["status"] == "running"
+        assert refreshed["updated_at"] > stale_at
+
+    @pytest.mark.parametrize(
+        ("change_status", "expected_status"),
+        [("pause_agent", "paused"), ("delete_agent", "archived")],
+    )
+    def test_end_tick_preserves_user_status_change(
+        self, manager, change_status, expected_status
+    ):
+        """A late tick cleanup must not undo a user's pause or archive action."""
+        agent = manager.create_agent(name="lifecycle", agent_type="simple")
+        manager.start_tick(agent["id"])
+
+        getattr(manager, change_status)(agent["id"])
+        manager.end_tick(agent["id"])
+
+        assert manager.get_agent(agent["id"])["status"] == expected_status
 
 
 class TestCheckpoints:
@@ -373,3 +512,23 @@ class TestSchemaAndThreading:
         t.join(timeout=5)
         assert len(results) == 1
         assert results[0]["name"] == "threaded"
+
+    def test_concurrent_updates_are_serialized(self, manager):
+        """Concurrent updates on the shared manager connection must not be lost."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        agent = manager.create_agent(name="concurrent", agent_type="simple")
+        workers = 8
+        updates_per_worker = 20
+
+        def update_many():
+            for _ in range(updates_per_worker):
+                manager.update_agent(agent["id"], total_tokens_increment=1)
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(update_many) for _ in range(workers)]
+            for future in futures:
+                future.result()
+
+        updated = manager.get_agent(agent["id"])
+        assert updated["total_tokens"] == workers * updates_per_worker

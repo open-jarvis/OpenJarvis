@@ -194,6 +194,44 @@ class TestComputeNextRun:
         next_run = scheduler._compute_next_run(task)
         assert next_run is not None
 
+    def test_cron_honors_metadata_timezone(self, scheduler, monkeypatch):
+        fixed_now = datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc)
+
+        class FixedDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed_now if tz is not None else fixed_now.replace(tzinfo=None)
+
+        task = ScheduledTask(
+            id="t",
+            prompt="p",
+            schedule_type="cron",
+            schedule_value="0 5 * * *",
+            metadata={"timezone": "America/Los_Angeles"},
+        )
+        monkeypatch.setattr("openjarvis.scheduler.scheduler.datetime", FixedDatetime)
+
+        next_run = scheduler._compute_next_run(task)
+
+        assert next_run == "2026-01-15T13:00:00+00:00"
+
+    def test_cron_without_dependency_fails_loudly(self, scheduler, monkeypatch):
+        import builtins
+
+        real_import = builtins.__import__
+
+        def without_croniter(name, *args, **kwargs):
+            if name == "croniter":
+                raise ImportError("blocked for test")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", without_croniter)
+        with pytest.raises(RuntimeError, match="croniter is required"):
+            scheduler._compute_next_cron(
+                "0 5 * * *",
+                datetime(2026, 1, 15, tzinfo=timezone.utc),
+            )
+
     def test_unknown_type(self, scheduler):
         task = ScheduledTask(
             id="t", prompt="p", schedule_type="unknown", schedule_value="x"

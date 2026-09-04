@@ -181,6 +181,7 @@ async def test_server_deep_research_merges_and_executes_all_tool_sources(
     manager = MagicMock()
     manager.list_messages.return_value = []
     engine = _ScriptedDeepResearchEngine()
+    on_complete = MagicMock()
 
     response = await routes._stream_managed_agent(
         manager=manager,
@@ -199,11 +200,15 @@ async def test_server_deep_research_merges_and_executes_all_tool_sources(
         engine=engine,
         bus=None,
         app_state=app_state,
+        on_complete=on_complete,
     )
 
     body_parts: list[str] = []
     async for part in response.body_iterator:
         body_parts.append(part.decode() if isinstance(part, bytes) else part)
+    assert response.background is not None
+    await response.background()
+    on_complete.assert_called_once_with()
 
     expected_names = {
         _ConfiguredResearchProbe.tool_id,
@@ -239,3 +244,74 @@ async def test_server_deep_research_merges_and_executes_all_tool_sources(
     assert persisted_calls[0]["tool"] == _ConfiguredResearchProbe.tool_id
     assert persisted_calls[0]["result"] == "configured:sentinel"
     assert persisted_calls[0]["success"] is True
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
+@pytest.mark.asyncio
+async def test_disconnected_research_stream_keeps_tick_until_worker_finishes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A closed SSE response must not admit another still-running research tick."""
+    import asyncio
+    import threading
+
+    from openjarvis.agents._stubs import AgentResult
+    from openjarvis.agents.manager import AgentManager
+    from openjarvis.server import agent_manager_routes as routes
+
+    started = threading.Event()
+    release = threading.Event()
+    completed = threading.Event()
+    toolkit = SimpleNamespace(
+        instances=[_MCPResearchProbe()], mcp_clients=[], close=MagicMock()
+    )
+
+    class BlockedResearchAgent:
+        def __init__(self, **kwargs):
+            self._executor = SimpleNamespace(execute=MagicMock())
+
+        def run(self, query):
+            started.set()
+            assert release.wait(5)
+            return AgentResult(content="finished")
+
+    monkeypatch.setattr(routes, "resolve_agent_tools", lambda *args, **kwargs: toolkit)
+    monkeypatch.setattr(
+        "openjarvis.agents.deep_research.DeepResearchAgent",
+        BlockedResearchAgent,
+    )
+    manager = AgentManager(str(tmp_path / "agents.db"))
+    agent = manager.create_agent(name="blocked", agent_type="deep_research")
+    manager.start_tick(agent["id"])
+    message = manager.send_message(agent["id"], "research")
+
+    def finish_tick():
+        manager.end_tick(agent["id"])
+        completed.set()
+
+    response = await routes._stream_managed_agent(
+        manager=manager,
+        agent_record=agent,
+        user_content="research",
+        message_id=message["id"],
+        engine=MagicMock(),
+        bus=None,
+        app_state=SimpleNamespace(config=None),
+        on_complete=finish_tick,
+    )
+    consumer = asyncio.create_task(anext(response.body_iterator))
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        consumer.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await consumer
+        await response.background()
+        assert not completed.is_set()
+        with pytest.raises(ValueError, match="already executing"):
+            manager.start_tick(agent["id"])
+    finally:
+        release.set()
+        assert await asyncio.to_thread(completed.wait, 5)
+        assert manager.get_agent(agent["id"])["status"] == "idle"
+        manager.close()

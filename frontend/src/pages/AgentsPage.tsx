@@ -67,7 +67,7 @@ import type { ConnectRequest } from '../types/connectors';
 import { listConnectors, connectSource } from '../lib/connectors-api';
 import type { ToolCallInfo } from '../types';
 import { ToolCallCard } from '../components/Chat/ToolCallCard';
-import { getAgentSchedule } from '../lib/agent-schedule';
+import { getAgentSchedule, normalizeAgentSchedule } from '../lib/agent-schedule';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -731,16 +731,10 @@ function LaunchWizard({
     if (!wizard.name.trim()) { toast.error('Name is required'); return; }
     setLaunching(true);
     try {
-      // Map friendly schedule presets to API schedule_type/schedule_value
-      let apiScheduleType = wizard.scheduleType;
-      let apiScheduleValue = wizard.scheduleValue;
-      if (wizard.scheduleType === 'daily' || wizard.scheduleType === 'weekly') {
-        apiScheduleType = 'cron';
-        // scheduleValue already holds the cron expression
-      } else if (wizard.scheduleType === 'hourly') {
-        apiScheduleType = 'interval';
-        // scheduleValue already holds seconds as string
-      }
+      const { type: apiScheduleType, value: apiScheduleValue } = normalizeAgentSchedule(
+        wizard.scheduleType,
+        wizard.scheduleValue,
+      );
 
       const config: Record<string, unknown> = {
         schedule_type: apiScheduleType,

@@ -56,7 +56,7 @@ Platform-specific notes (WSL2 setup, native-Windows scheduled-task service, desk
 
 ```bash
 jarvis                          # start chatting (default: chat-simple)
-jarvis init --preset <name>     # switch to a starter config
+jarvis init --preset <name> --force  # replace config with a starter preset
 ```
 
 > Prefix `jarvis ...` with `uv run`, or `source .venv/bin/activate` first.
@@ -72,7 +72,7 @@ jarvis init --preset <name>     # switch to a starter config
 Example:
 
 ```bash
-jarvis init --preset morning-digest-mac
+jarvis init --preset morning-digest-mac --force
 jarvis connect gdrive          # one OAuth covers Gmail / Calendar / Tasks
 jarvis digest --fresh          # generate and play your first briefing
 ```

@@ -112,7 +112,7 @@ def create_digest_router(*, db_path: str = "") -> APIRouter:
 
         # Sync with the TaskScheduler
         if body.enabled:
-            _create_scheduler_task(cron)
+            _create_scheduler_task(cron, cfg.digest.timezone)
         else:
             _cancel_scheduler_tasks()
 

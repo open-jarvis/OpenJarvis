@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -56,6 +57,44 @@ class TestSchedulerBasic:
         )
         scheduler.register_agent(agent["id"])
         assert agent["id"] in scheduler.registered_agents
+
+    def test_cron_uses_agent_timezone(self, manager, monkeypatch):
+        from openjarvis.agents import scheduler as scheduler_module
+        from openjarvis.agents.scheduler import AgentScheduler
+
+        fixed_now = datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc).timestamp()
+        monkeypatch.setattr(scheduler_module.time, "time", lambda: fixed_now)
+        scheduler = AgentScheduler(manager=manager, executor=MagicMock())
+        agent = manager.create_agent(
+            name="timezone-agent",
+            config={
+                "schedule_type": "cron",
+                "schedule_value": "0 5 * * *",
+                "timezone": "America/Los_Angeles",
+            },
+        )
+
+        scheduler.register_agent(agent["id"])
+
+        expected = datetime(2026, 1, 15, 13, 0, tzinfo=timezone.utc).timestamp()
+        assert scheduler._agents[agent["id"]]["next_fire"] == expected
+        assert scheduler._agents[agent["id"]]["timezone"] == "America/Los_Angeles"
+
+    def test_missing_croniter_fails_loudly(self, monkeypatch):
+        import builtins
+
+        from openjarvis.agents.scheduler import _next_cron_fire
+
+        real_import = builtins.__import__
+
+        def without_croniter(name, *args, **kwargs):
+            if name == "croniter":
+                raise ImportError("blocked for test")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", without_croniter)
+        with pytest.raises(RuntimeError, match="croniter is required"):
+            _next_cron_fire("0 5 * * *", now=0)
 
     def test_deregister_agent(self, manager):
         from openjarvis.agents.scheduler import AgentScheduler

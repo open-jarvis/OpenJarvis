@@ -161,6 +161,9 @@ class TestMemoryIndexTool:
     def test_spec(self):
         tool = MemoryIndexTool()
         assert tool.spec.name == "memory_index"
+        properties = tool.spec.parameters["properties"]
+        assert properties["chunk_size"]["minimum"] == 1
+        assert properties["chunk_overlap"]["minimum"] == 0
 
     def test_index_no_backend(self):
         tool = MemoryIndexTool()
@@ -193,6 +196,28 @@ class TestMemoryIndexTool:
             result = tool.execute(path=path, chunk_size=512, chunk_overlap=64)
             assert result.success is True
             assert "Indexed" in result.content
+        finally:
+            os.unlink(path)
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"chunk_size": 0},
+            {"chunk_size": -1},
+            {"chunk_size": True},
+            {"chunk_overlap": -1},
+            {"chunk_overlap": False},
+        ],
+    )
+    def test_index_rejects_invalid_chunk_config(self, backend, params):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("a b c")
+            path = f.name
+        try:
+            result = MemoryIndexTool(backend).execute(path=path, **params)
+            assert result.success is False
+            assert "must be an integer" in result.content
+            assert backend._data == {}
         finally:
             os.unlink(path)
 

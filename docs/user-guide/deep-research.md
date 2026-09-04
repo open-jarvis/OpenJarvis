@@ -10,7 +10,7 @@ A multi-hop research agent that searches across your indexed documents, cross-re
 git clone https://github.com/open-jarvis/OpenJarvis.git
 cd OpenJarvis
 uv sync --extra dev
-jarvis init --preset deep-research
+jarvis init --preset deep-research --force
 ```
 
 This writes a pre-configured `~/.openjarvis/config.toml` for the deep research agent.

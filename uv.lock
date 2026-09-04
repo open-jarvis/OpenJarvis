@@ -4270,6 +4270,7 @@ name = "openjarvis"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
+    { name = "croniter" },
     { name = "datasets" },
     { name = "ddgs" },
     { name = "httpx" },
@@ -4503,6 +4504,7 @@ requires-dist = [
     { name = "apple-fm-sdk", marker = "sys_platform == 'darwin' and extra == 'afm'", specifier = ">=0.2.1" },
     { name = "click", specifier = ">=8" },
     { name = "colbert-ai", marker = "extra == 'memory-colbert'", specifier = ">=0.2" },
+    { name = "croniter", specifier = ">=2.0" },
     { name = "croniter", marker = "extra == 'scheduler'", specifier = ">=2.0" },
     { name = "cryptography", marker = "extra == 'security-signing'", specifier = ">=43" },
     { name = "datasets", specifier = ">=4.5.0" },

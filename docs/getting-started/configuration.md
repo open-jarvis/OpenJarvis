@@ -412,7 +412,7 @@ Controls the OpenAI-compatible API server started by `jarvis serve`.
 
 ```toml
 [server]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 8000
 agent = "orchestrator"
 model = ""
@@ -421,7 +421,7 @@ workers = 1
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `host` | string | `"0.0.0.0"` | Bind address for the server. Use `"127.0.0.1"` to restrict to localhost. |
+| `host` | string | `"127.0.0.1"` | Bind address for the server. Configure API authentication before using `"0.0.0.0"` for LAN access. |
 | `port` | int | `8000` | Port number for the server. |
 | `agent` | string | `"orchestrator"` | Agent to use for chat completion requests. |
 | `model` | string | `""` | Default model for the server. When empty, uses `intelligence.default_model` or the first available model. |
