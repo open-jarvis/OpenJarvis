@@ -103,7 +103,11 @@ class CapabilityPolicy:
         dynamically-created managed-agent UUID ahead of time while preserving
         the invariant that an agent-specific denial always wins.
         """
-        if agent_id == self._DEFAULT_AGENT or agent_id in self._policies:
+        if (
+            not agent_id
+            or agent_id == self._DEFAULT_AGENT
+            or agent_id in self._policies
+        ):
             return self._rust_impl.check(agent_id, capability, resource)
         if self._DEFAULT_AGENT in self._policies:
             return self._rust_impl.check(self._DEFAULT_AGENT, capability, resource)
@@ -143,23 +147,41 @@ class CapabilityPolicy:
         return list(self._policies.keys())
 
     def _load_file(self, path: Path) -> None:
-        """Load policy from a JSON file."""
-        if not path.exists():
-            return
-        try:
-            data = json.loads(path.read_text())
-            for agent_data in data.get("agents", []):
-                agent_id = agent_data["agent_id"]
-                for grant_data in agent_data.get("grants", []):
-                    self.grant(
-                        agent_id,
-                        grant_data["capability"],
-                        grant_data.get("pattern", "*"),
+        """Load an explicitly configured policy, rejecting incomplete policy data."""
+        # A missing/malformed file must not silently discard configured denies.
+        # Validate the complete document before applying any grants.
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict) or not isinstance(data.get("agents"), list):
+            raise ValueError("Capability policy must contain an agents list")
+        for agent_data in data["agents"]:
+            if not isinstance(agent_data, dict):
+                raise ValueError("Capability policy agent must be an object")
+            agent_id = agent_data.get("agent_id")
+            if not isinstance(agent_id, str) or not agent_id.strip():
+                raise ValueError("Capability policy agent_id must be a nonempty string")
+            grants = agent_data.get("grants", [])
+            denied = agent_data.get("deny", [])
+            if not isinstance(grants, list) or not isinstance(denied, list):
+                raise ValueError("Capability policy grants and deny must be lists")
+            for grant in grants:
+                if (
+                    not isinstance(grant, dict)
+                    or not isinstance(grant.get("capability"), str)
+                    or not grant["capability"].strip()
+                    or not isinstance(grant.get("pattern", "*"), str)
+                ):
+                    raise ValueError(
+                        "Capability policy grant must specify a capability"
                     )
-                for denied in agent_data.get("deny", []):
-                    self.deny(agent_id, denied)
-        except (json.JSONDecodeError, KeyError, TypeError) as exc:
-            logger.warning("Failed to parse capability policy: %s", exc)
+            if any(not isinstance(cap, str) or not cap.strip() for cap in denied):
+                raise ValueError("Capability policy deny entries must be strings")
+
+        for agent_data in data["agents"]:
+            agent_id = agent_data["agent_id"]
+            for grant in agent_data.get("grants", []):
+                self.grant(agent_id, grant["capability"], grant.get("pattern", "*"))
+            for denied in agent_data.get("deny", []):
+                self.deny(agent_id, denied)
 
     def save(self, path: Path) -> None:
         """Save policy to a JSON file."""

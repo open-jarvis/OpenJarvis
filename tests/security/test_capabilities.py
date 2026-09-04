@@ -6,6 +6,8 @@ import ast
 import json
 from pathlib import Path
 
+import pytest
+
 from openjarvis.core.types import ToolCall, ToolResult
 from openjarvis.security.capabilities import (
     DEFAULT_TOOL_CAPABILITIES,
@@ -82,6 +84,11 @@ class TestCapabilityPolicy:
         assert policy.check("unconfigured-agent", "file:read")
         assert not policy.check("unconfigured-agent", "file:write")
 
+    def test_anonymous_executor_cannot_inherit_default_grants(self):
+        policy = CapabilityPolicy(default_deny=True)
+        policy.grant("_default", "code:execute")
+        assert not policy.check("", "code:execute")
+
     def test_resource_pattern(self):
         policy = CapabilityPolicy(default_deny=True)
         policy.grant("agent1", "file:read", pattern="/safe/*")
@@ -125,9 +132,28 @@ class TestCapabilityPolicy:
         assert not loaded.check("agent1", "code:execute")
 
     def test_load_nonexistent_file(self):
-        policy = CapabilityPolicy(policy_path="/nonexistent/path.json")
-        # Should not raise, just have no policies
-        assert policy.check("agent1", "file:read")
+        with pytest.raises(FileNotFoundError):
+            CapabilityPolicy(policy_path="/nonexistent/path.json")
+
+    @pytest.mark.parametrize(
+        "contents",
+        [
+            "{not json}",
+            "[]",
+            "{}",
+            '{"agents": {}}',
+            '{"agents": [{}]}',
+            '{"agents": [{"agent_id": "a", "deny": "code:execute"}]}',
+            '{"agents": [{"agent_id": "a", "grants": [{"pattern": "*"}]}]}',
+        ],
+    )
+    def test_load_invalid_policy_does_not_silently_allow_tools(
+        self, tmp_path, contents
+    ):
+        path = tmp_path / "invalid-policy.json"
+        path.write_text(contents)
+        with pytest.raises(ValueError):
+            CapabilityPolicy(policy_path=str(path))
 
     def test_default_tool_capabilities(self):
         assert "file:read" in DEFAULT_TOOL_CAPABILITIES.get("file_read", [])

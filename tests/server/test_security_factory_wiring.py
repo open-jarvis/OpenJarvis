@@ -265,3 +265,15 @@ def test_factory_overrides_prebuilt_executor_identity_at_server_boundary() -> No
         }
         for event in bus.history
     )
+
+
+@pytest.mark.parametrize("profile", ["", "personal", "shared", "server"])
+def test_factory_rejects_invalid_enabled_policy_in_every_profile(tmp_path, profile):
+    config = _config()
+    config.security.profile = profile
+    config.security.capabilities.enabled = True
+    path = tmp_path / "invalid-policy.json"
+    path.write_text("{invalid}")
+    config.security.capabilities.policy_path = str(path)
+    with pytest.raises(RuntimeError, match="Capability policy initialization"):
+        create_app(MagicMock(), "model", config=config)

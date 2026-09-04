@@ -1516,12 +1516,15 @@ def apply_security_profile(
 
     for key, value in pdef.get("security", {}).items():
         if key == "capabilities" and isinstance(value, dict):
-            # A user's own [security.capabilities] TOML table wins wholesale
-            # over the profile's baseline — don't merge field-by-field.
+            # Preserve explicitly selected fields while inheriting the
+            # profile's remaining defaults. A policy_path alone must not
+            # silently disable the profile's capability gate.
             if "capabilities" in _overrides:
                 continue
             for cap_key, cap_value in value.items():
-                if hasattr(security_cfg.capabilities, cap_key):
+                if f"capabilities.{cap_key}" not in _overrides and hasattr(
+                    security_cfg.capabilities, cap_key
+                ):
                     setattr(security_cfg.capabilities, cap_key, cap_value)
             continue
         if key not in _overrides and hasattr(security_cfg, key):
@@ -2087,7 +2090,13 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
                 setattr(cfg, key, data[key])
 
         # Expand security profile (user TOML overrides take precedence)
-        _user_security_keys = set(data.get("security", {}).keys())
+        _security_data = data.get("security", {})
+        _user_security_keys = set(_security_data)
+        if isinstance(_security_data.get("capabilities"), dict):
+            _user_security_keys.discard("capabilities")
+            _user_security_keys.update(
+                f"capabilities.{key}" for key in _security_data["capabilities"]
+            )
         apply_security_profile(cfg.security, cfg.server, overrides=_user_security_keys)
 
         # Mining: dedicated parser for tagged-union submit_target
