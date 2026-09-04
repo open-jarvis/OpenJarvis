@@ -98,6 +98,11 @@ jobs:
       - name: Build package
         run: uv build
 
+      - name: Validate release artifacts
+        run: |
+          uv run --no-project python scripts/validate_pypi_artifacts.py dist
+          uvx twine check --strict dist/*
+
       - name: Publish to TestPyPI (dry run)
         if: ${{ inputs.dry_run }}
         env:
@@ -106,7 +111,7 @@ jobs:
           set -euo pipefail
           if [[ -z "${UV_PUBLISH_TOKEN:-}" ]]; then
             echo "::warning::TEST_PYPI_API_TOKEN is not set — skipping the TestPyPI upload."
-            echo "Build + twine check passed, which validated version derivation and packaging end to end."
+            echo "Build, archive size checks, and strict twine validation passed."
             echo "To exercise a real upload, add a TEST_PYPI_API_TOKEN secret (or a TestPyPI trusted publisher)."
             exit 0
           fi
