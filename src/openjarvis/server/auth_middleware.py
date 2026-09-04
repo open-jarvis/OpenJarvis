@@ -148,8 +148,8 @@ def _offered_websocket_auth(websocket) -> tuple[str, str | None]:  # noqa: ANN00
 
 
 def authenticate_websocket(
-    websocket,
-    expected_key: str,  # noqa: ANN001
+    websocket,  # noqa: ANN001
+    expected_key: str,
 ) -> tuple[bool, str | None]:
     """Authenticate a WebSocket and return its negotiated auth subprotocol.
 
@@ -174,7 +174,7 @@ def authenticate_websocket(
 
     expected_protocol = _websocket_key_protocol(expected_key)
     protocol_valid = bool(credential_protocol and expected_protocol) and (
-        secrets.compare_digest(credential_protocol, expected_protocol)
+        _api_keys_match(credential_protocol, expected_protocol)
     )
     return header_valid or protocol_valid, selected_protocol
 

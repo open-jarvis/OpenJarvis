@@ -10,7 +10,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig({
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
   plugins: [
@@ -39,14 +39,20 @@ export default defineConfig({
   build: {
     outDir: '../src/openjarvis/server/static',
     emptyOutDir: true,
-    minify: 'esbuild',
-    rollupOptions: {
+    // Preserve the Vite 6 browser baseline for existing desktop webviews.
+    target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'],
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          react: ['react', 'react-dom'],
-          markdown: ['react-markdown', 'rehype-highlight', 'remark-gfm'],
-          charts: ['recharts'],
-          router: ['react-router'],
+        codeSplitting: {
+          groups: [
+            { name: 'react', test: /node_modules[\\/](react|react-dom)[\\/]/ },
+            {
+              name: 'markdown',
+              test: /node_modules[\\/](react-markdown|rehype-highlight|remark-gfm)[\\/]/,
+            },
+            { name: 'charts', test: /node_modules[\\/]recharts[\\/]/ },
+            { name: 'router', test: /node_modules[\\/]react-router[\\/]/ },
+          ],
         },
       },
     },
