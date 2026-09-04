@@ -100,7 +100,32 @@ jobs:
 
       - name: Validate release artifacts
         run: |
-          uv run --no-project python scripts/validate_pypi_artifacts.py dist
+          set -euo pipefail
+          # Keep this check in the workflow: the target tag may predate it.
+          uv run --no-project python - <<'PY'
+          from pathlib import Path
+
+          max_artifact_bytes = 20 * 1024 * 1024
+          wheels = sorted(Path("dist").glob("*.whl"))
+          sdists = sorted(Path("dist").glob("*.tar.gz"))
+          if not wheels or not sdists:
+              raise SystemExit(
+                  "Expected at least one wheel and one .tar.gz source archive"
+              )
+
+          oversized = []
+          for artifact in [*wheels, *sdists]:
+              size = artifact.stat().st_size
+              print(f"{artifact.name}: {size:,} bytes ({size / 1024**2:.2f} MiB)")
+              if size > max_artifact_bytes:
+                  oversized.append(artifact.name)
+          if oversized:
+              raise SystemExit(
+                  "Archive exceeds the 20 MiB upload budget: "
+                  + ", ".join(oversized)
+                  + ". Check for bundled build outputs or native binaries."
+              )
+          PY
           uvx twine check --strict dist/*
 
       - name: Publish to TestPyPI (dry run)
