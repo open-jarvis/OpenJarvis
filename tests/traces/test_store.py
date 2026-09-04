@@ -55,6 +55,23 @@ class TestTraceStore:
         assert store.count() == 0
         store.close()
 
+    def test_expands_user_in_db_path(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ) -> None:
+        home = tmp_path / "home"
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(cwd)
+
+        store = TraceStore("~/.openjarvis/traces.db")
+        store.close()
+
+        assert (home / ".openjarvis" / "traces.db").exists()
+        assert not (cwd / "~").exists()
+
     def test_save_and_get(self, tmp_path: Path) -> None:
         store = TraceStore(tmp_path / "test.db")
         trace = _make_trace()

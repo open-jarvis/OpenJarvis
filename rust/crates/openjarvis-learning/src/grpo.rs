@@ -51,7 +51,7 @@ impl GRPORouterPolicy {
 
     fn softmax_sample(&self) -> String {
         let weights = self.weights.lock();
-        let mut rng = thread_rng();
+        let mut rng = rand::rng();
 
         let logits: Vec<f64> = self
             .models
@@ -66,7 +66,7 @@ impl GRPORouterPolicy {
             .map(|l| (l - max_logit).exp() / exp_sum)
             .collect();
 
-        let u: f64 = rng.gen();
+        let u: f64 = rng.random();
         let mut cumulative = 0.0;
         for (i, p) in probs.iter().enumerate() {
             cumulative += p;
