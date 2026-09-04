@@ -192,6 +192,7 @@ def _check_default_model(
         )
 
     from openjarvis.intelligence.model_catalog import resolve_model_id_for_engine
+
     preferred = config.intelligence.preferred_engine or config.engine.default
     resolved_probes = probes if probes is not None else _probe_engines(config)
     check_order = []
