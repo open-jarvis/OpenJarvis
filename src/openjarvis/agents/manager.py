@@ -551,10 +551,10 @@ class AgentManager:
 
         return templates
 
-    def create_from_template(
-        self, template_id: str, name: str, overrides: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """Create an agent from a template with optional overrides."""
+    def resolve_template(
+        self, template_id: str, overrides: Optional[Dict[str, Any]] = None
+    ) -> tuple[str, Dict[str, Any]]:
+        """Resolve a template into the exact agent type and config to persist."""
         templates = self.list_templates()
         tpl = next((t for t in templates if t.get("id") == template_id), None)
         if not tpl:
@@ -572,6 +572,14 @@ class AgentManager:
             config["system_prompt"] = prompt_tpl.format(
                 instruction=instruction or "(No specific instruction provided)",
             )
+
+        return agent_type, config
+
+    def create_from_template(
+        self, template_id: str, name: str, overrides: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create an agent from a template with optional overrides."""
+        agent_type, config = self.resolve_template(template_id, overrides)
 
         return self.create_agent(name=name, agent_type=agent_type, config=config)
 

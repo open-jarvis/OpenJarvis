@@ -16,6 +16,14 @@ import httpx
 
 from openjarvis.core.paths import get_config_dir
 from openjarvis.core.types import Message
+from openjarvis.engine._base import EngineConnectionError
+from openjarvis.engine.cloud import (
+    _OX_ALPHA_API_MODEL,
+    _OX_ALPHA_MODEL,
+    _OX_ALPHA_PROVIDER_POLICY,
+    _validate_ox_alpha_model,
+    _validate_ox_alpha_response,
+)
 
 # ---------------------------------------------------------------------------
 # Key / provider detection
@@ -154,6 +162,7 @@ async def _stream_openai(
     max_tokens: int,
     base_url: str = "https://api.openai.com/v1",
     api_key_name: str = "OPENAI_API_KEY",
+    requested_model: str | None = None,
 ) -> AsyncIterator[str]:
     keys = _load_keys()
     api_key = keys.get(api_key_name, "")
@@ -167,6 +176,10 @@ async def _stream_openai(
         "max_tokens": max_tokens,
         "stream": True,
     }
+    is_ox_alpha = requested_model in (_OX_ALPHA_MODEL, _OX_ALPHA_API_MODEL)
+    if is_ox_alpha:
+        payload["provider"] = _OX_ALPHA_PROVIDER_POLICY
+        payload["stream_options"] = {"include_usage": True}
 
     async with httpx.AsyncClient(timeout=180) as client:
         async with client.stream(
@@ -179,6 +192,9 @@ async def _stream_openai(
             },
         ) as resp:
             resp.raise_for_status()
+            response_model: Any = None
+            final_usage: Any = None
+            pending: list[str] = []
             async for line in resp.aiter_lines():
                 if not line.startswith("data: "):
                     continue
@@ -187,11 +203,42 @@ async def _stream_openai(
                     break
                 try:
                     chunk = json.loads(data)
-                    delta = chunk["choices"][0]["delta"].get("content") or ""
-                    if delta:
-                        yield delta
                 except Exception:
-                    pass
+                    if is_ox_alpha:
+                        raise EngineConnectionError(
+                            "OpenRouter returned malformed Ox Alpha stream data"
+                        ) from None
+                    continue
+                if is_ox_alpha:
+                    if not isinstance(chunk, dict):
+                        raise EngineConnectionError(
+                            "OpenRouter returned malformed Ox Alpha stream data"
+                        )
+                    response_model = chunk.get("model", response_model)
+                    final_usage = chunk.get("usage") or final_usage
+                    _validate_ox_alpha_model(_OX_ALPHA_MODEL, response_model)
+                choices = chunk.get("choices", []) if isinstance(chunk, dict) else []
+                if not choices:
+                    continue
+                try:
+                    delta = choices[0]["delta"].get("content") or ""
+                except Exception:
+                    if is_ox_alpha:
+                        raise EngineConnectionError(
+                            "OpenRouter returned malformed Ox Alpha stream data"
+                        ) from None
+                    continue
+                if delta:
+                    if is_ox_alpha:
+                        pending.append(delta)
+                    else:
+                        yield delta
+            if is_ox_alpha:
+                _validate_ox_alpha_response(
+                    _OX_ALPHA_MODEL, response_model, final_usage
+                )
+                for token in pending:
+                    yield token
 
 
 async def _stream_anthropic(
@@ -388,6 +435,7 @@ async def stream_cloud(
             max_tokens,
             base_url="https://openrouter.ai/api/v1",
             api_key_name="OPENROUTER_API_KEY",
+            requested_model=model,
         ):
             yield token
 

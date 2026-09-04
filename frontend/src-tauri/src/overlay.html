@@ -196,7 +196,7 @@ fetch('/v1/models').then(r=>r.json()).then(d=>{
   }
   if(cloudModels.length){
     const g=document.createElement('optgroup');g.label='Cloud';
-    cloudModels.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=id;g.appendChild(o)});
+    cloudModels.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=id==='openrouter/stealth/ox-alpha'?'Ox Alpha — private zero-cost only; may be unavailable':id;g.appendChild(o)});
     modelSelect.appendChild(g);
   }
   // Restore saved model or pick first available

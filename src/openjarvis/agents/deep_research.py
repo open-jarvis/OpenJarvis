@@ -179,6 +179,13 @@ class DeepResearchAgent(ToolUsingAgent):
         system_prompt: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
+        from openjarvis.engine.cloud import _is_ox_alpha_model
+
+        if _is_ox_alpha_model(model):
+            raise ValueError(
+                "Ox Alpha is unavailable for Deep Research because its "
+                "multi-call provider path cannot be audited fail-closed"
+            )
         super().__init__(
             engine,
             model,

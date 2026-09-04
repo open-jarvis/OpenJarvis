@@ -161,8 +161,16 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     engine = request.app.state.engine
     agent = getattr(request.app.state, "agent", None)
     model = request_body.model
+    from openjarvis.engine.cloud import _is_ox_alpha_model
+
+    if _is_ox_alpha_model(model) and not _ox_cloud_route_available(engine, model):
+        raise HTTPException(
+            status_code=503,
+            detail="Ox Alpha requires a configured OpenRouter cloud engine",
+        )
     use_server_agent = (
         agent is not None
+        and not _is_ox_alpha_model(model)
         and not request_body.tools
         and (not request_body.stream or bool(getattr(agent, "_tools", None)))
     )
@@ -449,11 +457,64 @@ def _engine_key_for_model(engine: Any, model: str) -> str | None:
     return None
 
 
+def _model_engine_is_instrumented(engine: Any, model: str) -> bool:
+    """Whether the engine selected for *model* publishes telemetry itself."""
+    from openjarvis.engine.multi import MultiEngine
+    from openjarvis.security.guardrails import GuardrailsEngine
+    from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+
+    current = engine
+    while current is not None:
+        if isinstance(current, InstrumentedEngine):
+            return True
+        if isinstance(current, GuardrailsEngine):
+            current = current._engine
+            continue
+        if isinstance(current, MultiEngine):
+            try:
+                current = current._engine_for(model)
+            except ValueError:
+                return False
+            continue
+        return False
+    return False
+
+
+def _ox_cloud_route_available(engine: Any, model: str) -> bool:
+    """Whether *model* resolves to a configured OpenRouter CloudEngine."""
+    from openjarvis.engine.cloud import CloudEngine, _is_ox_alpha_model
+    from openjarvis.engine.multi import MultiEngine
+    from openjarvis.security.guardrails import GuardrailsEngine
+    from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+
+    if not _is_ox_alpha_model(model):
+        return True
+    current = engine
+    while current is not None:
+        if isinstance(current, GuardrailsEngine):
+            current = current._engine
+        elif isinstance(current, InstrumentedEngine):
+            current = current._inner
+        elif isinstance(current, MultiEngine):
+            try:
+                current = current._engine_for(model)
+            except ValueError:
+                return False
+        else:
+            break
+    return isinstance(current, CloudEngine) and current._openrouter_client is not None
+
+
 def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
     """Whether *model* should bypass the configured engine for direct cloud."""
+    from openjarvis.engine.cloud import _is_ox_alpha_model
     from openjarvis.server.cloud_router import is_cloud_model
 
-    return is_cloud_model(model) and _engine_key_for_model(engine, model) != "litellm"
+    return (
+        is_cloud_model(model)
+        and not _is_ox_alpha_model(model)
+        and _engine_key_for_model(engine, model) != "litellm"
+    )
 
 
 def _handle_direct(
@@ -471,12 +532,10 @@ def _handle_direct(
     if req.tools:
         kwargs["tools"] = req.tools
     if bus:
-        from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
         from openjarvis.telemetry.wrapper import instrumented_generate
 
-        # `app.state.engine` may already be an InstrumentedEngine (the
-        # common case when telemetry is wired in). If we then wrap it
-        # with `instrumented_generate`, BOTH layers fire a
+        # The model-selected route may already contain an InstrumentedEngine.
+        # If we then wrap it with `instrumented_generate`, BOTH layers fire a
         # TELEMETRY_RECORD per call:
         #
         #   - InstrumentedEngine.generate() publishes a FULL record
@@ -493,11 +552,11 @@ def _handle_direct(
         # which the leaderboard's `current_methodology_only=True` filter
         # would then drop entirely. Instead, when the engine is already
         # an InstrumentedEngine, skip the wrapper and call `generate`
-        # directly — InstrumentedEngine publishes the full per-record
+        # directly — the selected InstrumentedEngine publishes the full per-record
         # event itself with energy + version intact. Only fall back to
         # the lightweight wrapper for engines that aren't already
         # instrumented.
-        if isinstance(engine, InstrumentedEngine):
+        if _model_engine_is_instrumented(engine, model):
             result = engine.generate(
                 messages,
                 model=model,
@@ -986,12 +1045,19 @@ async def _handle_stream(
                 # accidentally matched.
                 _use_local_fallback = False
                 try:
+                    from openjarvis.engine.cloud import _is_ox_alpha_model
                     from openjarvis.engine.multi import MultiEngine
 
-                    _inner = getattr(engine, "_inner", engine)
+                    _inner = getattr(
+                        engine, "_engine", getattr(engine, "_inner", engine)
+                    )
                     if isinstance(_inner, MultiEngine):
                         _routed = _inner._engine_for(model)
-                        if _routed is not None and getattr(_routed, "is_cloud", False):
+                        if (
+                            _routed is not None
+                            and getattr(_routed, "is_cloud", False)
+                            and not _is_ox_alpha_model(model)
+                        ):
                             _use_local_fallback = True
                 except Exception:
                     pass
@@ -1253,41 +1319,100 @@ async def reload_cloud_engine(request: Request):
                     k, v = line.split("=", 1)
                     os.environ[k.strip()] = v.strip()
 
-    # Try to build a fresh CloudEngine.
+    from openjarvis.engine.cloud import CloudEngine
+    from openjarvis.engine.multi import MultiEngine
+    from openjarvis.security.guardrails import GuardrailsEngine
+    from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+
+    # Build the replacement before closing the current route, then always
+    # detach the old client so key removal and rotation take effect immediately.
+    cloud = None
+    build_error = None
     try:
-        from openjarvis.engine.cloud import CloudEngine
-        from openjarvis.engine.multi import MultiEngine
-
-        cloud = CloudEngine()
-        if not cloud.health():
-            return {
-                "status": "no_cloud",
-                "message": "No cloud models available (check API keys)",
-            }
+        candidate = CloudEngine()
+        if candidate.health():
+            cloud = candidate
+        else:
+            candidate.close()
     except Exception as exc:
-        return {"status": "error", "message": str(exc)}
+        build_error = exc
 
-    # Locate the innermost engine, working through InstrumentedEngine layers.
+    # Locate the routed engine without discarding security/telemetry wrappers.
     outer = request.app.state.engine
-    inner = getattr(outer, "_inner", outer)
+    parent = None
+    parent_attr = None
+    inner = outer
+    while isinstance(inner, (GuardrailsEngine, InstrumentedEngine)):
+        parent = inner
+        parent_attr = "_engine" if isinstance(inner, GuardrailsEngine) else "_inner"
+        inner = getattr(inner, parent_attr)
+
+    def close_engine(engine) -> None:
+        try:
+            while isinstance(engine, (GuardrailsEngine, InstrumentedEngine)):
+                attr = "_engine" if isinstance(engine, GuardrailsEngine) else "_inner"
+                engine = getattr(engine, attr)
+            engine.close()
+        except Exception:
+            logging.getLogger("openjarvis.server").debug(
+                "Failed to close replaced cloud engine", exc_info=True
+            )
+
+    def replace_cloud_engine(route, replacement):
+        route_parent = None
+        route_parent_attr = None
+        current = route
+        while isinstance(current, (GuardrailsEngine, InstrumentedEngine)):
+            route_parent = current
+            route_parent_attr = (
+                "_engine" if isinstance(current, GuardrailsEngine) else "_inner"
+            )
+            current = getattr(current, route_parent_attr)
+        close_engine(current if isinstance(current, CloudEngine) else route)
+        if route_parent is None:
+            return replacement
+        setattr(route_parent, route_parent_attr, replacement)
+        return route
 
     if isinstance(inner, MultiEngine):
-        # Replace or insert the cloud entry in the existing MultiEngine.
-        new_engines = [(k, e) for k, e in inner._engines if k != "cloud"]
-        new_engines.append(("cloud", cloud))
+        new_engines = []
+        replaced = False
+        for key, engine in inner._engines:
+            if key != "cloud":
+                new_engines.append((key, engine))
+            elif cloud is not None and not replaced:
+                new_engines.append((key, replace_cloud_engine(engine, cloud)))
+                replaced = True
+            else:
+                close_engine(engine)
+        if cloud is not None and not replaced:
+            new_engines.append(("cloud", cloud))
         inner._engines = new_engines
         inner._refresh_map()
-    else:
-        # Wrap the existing engine (which may be security-wrapped) with a new
-        # MultiEngine that includes the cloud engine.
+    elif isinstance(inner, CloudEngine):
+        close_engine(inner)
+        if cloud is not None:
+            if parent is None:
+                request.app.state.engine = cloud
+            else:
+                setattr(parent, parent_attr, cloud)
+    elif cloud is not None:
+        # Insert the new route below existing security/telemetry wrappers.
         engine_name = getattr(request.app.state, "engine_name", "local")
         new_multi = MultiEngine([(engine_name, inner), ("cloud", cloud)])
-        if hasattr(outer, "_inner"):
-            outer._inner = new_multi
-        else:
+        if parent is None:
             request.app.state.engine = new_multi
+        else:
+            setattr(parent, parent_attr, new_multi)
         request.app.state.engine_name = "multi"
 
+    if build_error is not None:
+        return {"status": "error", "message": str(build_error)}
+    if cloud is None:
+        return {
+            "status": "no_cloud",
+            "message": "No cloud models available (check API keys)",
+        }
     return {"status": "ok", "message": "Cloud engine reloaded"}
 
 
@@ -1318,6 +1443,8 @@ async def savings(request: Request):
         summary = agg.summary(since=session_start, current_methodology_only=True)
         # Exclude cloud model tokens from savings — only local
         # inference counts toward cost savings.
+        from openjarvis.engine.cloud import _is_ox_alpha_model
+
         _cloud_prefixes = (
             "gpt-",
             "o1-",
@@ -1330,7 +1457,8 @@ async def savings(request: Request):
         local_models = [
             m
             for m in summary.per_model
-            if not any(m.model_id.startswith(p) for p in _cloud_prefixes)
+            if not _is_ox_alpha_model(m.model_id)
+            and not any(m.model_id.startswith(p) for p in _cloud_prefixes)
         ]
         result = compute_savings(
             prompt_tokens=sum(m.prompt_tokens for m in local_models),

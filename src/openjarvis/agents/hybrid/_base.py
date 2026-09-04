@@ -56,6 +56,11 @@ from openjarvis.agents.hybrid._prices import (
     cost as estimate_cost,
 )
 from openjarvis.engine._stubs import InferenceEngine
+from openjarvis.engine.cloud import (
+    _is_ox_alpha_model,
+    _ox_alpha_request_options,
+    _validate_ox_alpha_response,
+)
 
 # Install OpenAI SDK retry + per-org concurrency cap at import time so
 # every paradigm (advisors, conductor, minions, mini_swe_agent's cloud
@@ -639,6 +644,7 @@ class LocalCloudAgent(BaseAgent):
         """
         from openai import OpenAI
 
+        requested_model = model
         if model.startswith("openrouter/"):
             model = model[len("openrouter/") :]
         api_key = os.environ.get("OPENROUTER_API_KEY")
@@ -659,8 +665,16 @@ class LocalCloudAgent(BaseAgent):
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
-        if extra_body:
-            kwargs["extra_body"] = extra_body
+        request_body = dict(extra_body or {})
+        if _is_ox_alpha_model(requested_model):
+            # The Ox route is advertised as private and zero-cost. Callers may
+            # add unrelated OpenRouter fields, but cannot weaken its immutable
+            # provider policy.
+            request_body.update(
+                _ox_alpha_request_options(requested_model)["extra_body"]
+            )
+        if request_body:
+            kwargs["extra_body"] = request_body
         limiter = _openrouter_limiter()
         limiter.wait_for_rpm_slot()
         limiter.acquire_concurrency()
@@ -680,6 +694,11 @@ class LocalCloudAgent(BaseAgent):
             message, "reasoning", None
         )
         u = resp.usage
+        _validate_ox_alpha_response(
+            requested_model,
+            getattr(resp, "model", None),
+            u,
+        )
         p = getattr(u, "prompt_tokens", 0) if u else 0
         c = getattr(u, "completion_tokens", 0) if u else 0
         _record_event(

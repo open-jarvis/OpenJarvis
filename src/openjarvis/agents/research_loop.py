@@ -493,6 +493,13 @@ class ResearchAgent:
         on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
         available_sources: Optional[List[str]] = None,
     ) -> None:
+        from openjarvis.engine.cloud import _is_ox_alpha_model
+
+        if _is_ox_alpha_model(model):
+            raise ValueError(
+                "Ox Alpha is unavailable for research because its multi-call "
+                "provider path cannot be audited fail-closed"
+            )
         self._engine = engine
         self._search = search
         self._model = model

@@ -66,6 +66,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'OpenRouter',
     envKey: 'OPENROUTER_API_KEY',
     models: [
+      { id: 'openrouter/stealth/ox-alpha', desc: 'Ox Alpha — private zero-cost route; may be unavailable' },
       { id: 'openrouter/auto', desc: 'Auto — best model for the task' },
       { id: 'openrouter/anthropic/claude-sonnet-4', desc: 'Claude Sonnet 4 via OpenRouter' },
       { id: 'openrouter/deepseek/deepseek-r1', desc: 'DeepSeek R1 via OpenRouter' },

@@ -100,6 +100,8 @@ export function InputArea() {
   const modelLoading = useAppStore((s) => s.modelLoading);
   const deepResearch = useAppStore((s) => s.deepResearch);
   const setDeepResearch = useAppStore((s) => s.setDeepResearch);
+  const oxAlphaSelected = selectedModel === 'openrouter/stealth/ox-alpha'
+    || selectedModel === 'stealth/ox-alpha';
   const corpusSync = useResearchCorpusSync(deepResearch);
   const isCurrentChatStreaming = streamState.isStreaming && streamState.conversationId === activeId;
 
@@ -126,6 +128,10 @@ export function InputArea() {
     }
     prevModelRef.current = selectedModel;
   }, [selectedModel, streamState.isStreaming, resetStream]);
+
+  useEffect(() => {
+    if (oxAlphaSelected && deepResearch) setDeepResearch(false);
+  }, [deepResearch, oxAlphaSelected, setDeepResearch]);
 
   const micDisabled = !speechEnabled || !speechAvailable || streamState.isStreaming;
   const micReason: 'not-enabled' | 'no-backend' | 'streaming' | undefined =
@@ -568,7 +574,7 @@ export function InputArea() {
           <button
             type="button"
             onClick={() => setDeepResearch(!deepResearch)}
-            disabled={streamState.isStreaming}
+            disabled={streamState.isStreaming || oxAlphaSelected}
             aria-pressed={deepResearch}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs transition-colors cursor-pointer disabled:cursor-default disabled:opacity-50"
             style={{
@@ -576,7 +582,9 @@ export function InputArea() {
               border: `1px solid ${deepResearch ? 'var(--color-accent)' : 'var(--color-border)'}`,
               color: deepResearch ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
             }}
-            title={deepResearch ? 'Deep Research: on' : 'Deep Research: off'}
+            title={oxAlphaSelected
+              ? 'Deep Research is unavailable for Ox Alpha'
+              : deepResearch ? 'Deep Research: on' : 'Deep Research: off'}
           >
             <Search size={12} />
             Deep Research

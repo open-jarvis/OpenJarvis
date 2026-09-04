@@ -8,7 +8,12 @@ from typing import Any, Dict, List
 
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message
-from openjarvis.engine._base import InferenceEngine, messages_to_dicts
+from openjarvis.engine._base import (
+    EngineConnectionError,
+    InferenceEngine,
+    messages_to_dicts,
+)
+from openjarvis.engine.cloud import _is_ox_alpha_model
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +52,10 @@ class LiteLLMEngine(InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> Dict[str, Any]:
+        if _is_ox_alpha_model(model):
+            raise EngineConnectionError(
+                "Ox Alpha requires the cloud engine's free private route"
+            )
         import litellm
 
         call_kwargs: Dict[str, Any] = {
@@ -110,6 +119,10 @@ class LiteLLMEngine(InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
+        if _is_ox_alpha_model(model):
+            raise EngineConnectionError(
+                "Ox Alpha requires the cloud engine's free private route"
+            )
         import litellm
 
         call_kwargs: Dict[str, Any] = {

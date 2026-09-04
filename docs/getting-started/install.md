@@ -71,6 +71,14 @@ If any of these env vars are set when you install or run `jarvis init`, the inst
 
 Local-first remains the default when no key is in env. Precedence is OpenRouter > Anthropic > OpenAI > Google.
 
+Ox Alpha requests use only OpenRouter endpoints that report zero pricing, deny data
+collection, and support zero data retention. OpenJarvis never falls back to a less
+private or paid endpoint, so Ox Alpha may be unavailable when no compliant endpoint
+is online. Ox Alpha requests also bypass server-side agent orchestration whose
+internal provider calls cannot be audited against these constraints; Deep
+Research, managed agents, schedules, and messaging channels are unavailable
+while Ox Alpha is selected.
+
 ## Flags
 
 | Flag | Effect |

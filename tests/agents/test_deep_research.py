@@ -176,3 +176,9 @@ def test_agent_defaults():
     assert DeepResearchAgent._default_max_turns == 8
     assert DeepResearchAgent._default_temperature == 0.3
     assert DeepResearchAgent._default_max_tokens == 4096
+
+
+@pytest.mark.parametrize("model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"])
+def test_deep_research_rejects_ox_alpha(mock_engine, model):
+    with pytest.raises(ValueError, match="unavailable for Deep Research"):
+        DeepResearchAgent(mock_engine, model)

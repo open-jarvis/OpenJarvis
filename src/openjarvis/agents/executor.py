@@ -93,6 +93,49 @@ class AgentExecutor:
         except Exception:
             pass  # Non-critical
 
+    def _resolve_agent_model(self, agent: dict) -> str:
+        config = agent.get("config", {})
+        model = (
+            config.get("model")
+            or _AGENT_TICK_DEFAULT_MODEL
+            or (self._system.model if self._system else "")
+        )
+        if not model:
+            raise FatalError("No model configured for agent")
+        model = str(model)
+        self._require_agent_model(model)
+
+        router_policy_key = config.get("router_policy")
+        if router_policy_key and self._system:
+            try:
+                from openjarvis.core.registry import RouterPolicyRegistry
+                from openjarvis.learning.routing.router import (
+                    build_routing_context,
+                )
+
+                policy = RouterPolicyRegistry.create(
+                    router_policy_key,
+                    available_models=[model],
+                )
+                selected = policy.select_model(
+                    build_routing_context(config.get("instruction", ""))
+                )
+                if selected:
+                    model = selected
+            except Exception:
+                pass  # Fall back to configured model
+        return str(model)
+
+    @staticmethod
+    def _require_agent_model(model: str) -> None:
+        from openjarvis.engine.cloud import _is_ox_alpha_model
+
+        if _is_ox_alpha_model(model):
+            raise FatalError(
+                "Ox Alpha is unavailable for managed agents because their "
+                "multi-call provider path cannot be audited fail-closed"
+            )
+
     def run_ephemeral(
         self,
         agent_type: str,
@@ -114,10 +157,10 @@ class AgentExecutor:
     def execute_tick(self, agent_id: str, *, lock_already_held: bool = False) -> None:
         """Run one tick for the given agent.
 
-        1. Acquire concurrency guard (start_tick)
-        2. Invoke agent with retry logic
-        3. Update stats
-        4. Release guard (end_tick)
+        1. Resolve and validate the model without mutating agent state
+        2. Acquire concurrency guard (start_tick)
+        3. Invoke agent with retry logic
+        4. Update stats and release the guard (end_tick)
 
         ``lock_already_held`` is set by callers that took the start_tick()
         lock themselves before spawning the worker (e.g. the HTTP /run route
@@ -126,6 +169,13 @@ class AgentExecutor:
         guard — bailing out with no end_tick(), leaving the agent stuck in
         ``status='running'`` forever.
         """
+        agent = self._manager.get_agent(agent_id)
+        if agent is None:
+            logger.error("Agent %s not found", agent_id)
+            return
+        model = self._resolve_agent_model(agent)
+        self._require_agent_model(model)
+
         if lock_already_held:
             self._set_activity(agent_id, "Preparing tick...")
         else:
@@ -135,11 +185,6 @@ class AgentExecutor:
             except ValueError:
                 logger.warning("Agent %s already running, skipping tick", agent_id)
                 return
-
-        agent = self._manager.get_agent(agent_id)
-        if agent is None:
-            logger.error("Agent %s not found", agent_id)
-            return
 
         self._bus.publish(
             EventType.AGENT_TICK_START,
@@ -192,7 +237,7 @@ class AgentExecutor:
         error_info = None
 
         try:
-            result = self._run_with_retries(agent)
+            result = self._run_with_retries(agent, model)
         except AgentTickError as e:
             error_info = e
         finally:
@@ -217,44 +262,49 @@ class AgentExecutor:
                     trace_steps,
                 )
 
-    def _run_with_retries(self, agent: dict) -> AgentResult:
+    def _run_with_retries(self, agent: dict, model: str) -> AgentResult:
         """Invoke the agent, retrying on RetryableError up to _MAX_RETRIES."""
         last_error: AgentTickError | None = None
+        previous_model = getattr(self._toolkit_local, "resolved_model", None)
+        self._toolkit_local.resolved_model = model
 
-        for attempt in range(_MAX_RETRIES):
-            try:
-                return self._invoke_agent(agent)
-            except AgentTickError as e:
-                if not e.retryable or attempt == _MAX_RETRIES - 1:
-                    raise
-                last_error = e
-                delay = retry_delay(attempt)
-                logger.info(
-                    "Agent %s tick retry %d/%d in %ds: %s",
-                    agent["id"],
-                    attempt + 1,
-                    _MAX_RETRIES,
-                    delay,
-                    e,
-                )
-                time.sleep(delay)
-            except Exception as e:
-                classified = classify_error(e)
-                if not classified.retryable or attempt == _MAX_RETRIES - 1:
-                    raise classified from e
-                delay = retry_delay(attempt)
-                logger.info(
-                    "Agent %s tick retry %d/%d in %ds: %s",
-                    agent["id"],
-                    attempt + 1,
-                    _MAX_RETRIES,
-                    delay,
-                    e,
-                )
-                time.sleep(delay)
+        try:
+            for attempt in range(_MAX_RETRIES):
+                try:
+                    return self._invoke_agent(agent)
+                except AgentTickError as e:
+                    if not e.retryable or attempt == _MAX_RETRIES - 1:
+                        raise
+                    last_error = e
+                    delay = retry_delay(attempt)
+                    logger.info(
+                        "Agent %s tick retry %d/%d in %ds: %s",
+                        agent["id"],
+                        attempt + 1,
+                        _MAX_RETRIES,
+                        delay,
+                        e,
+                    )
+                    time.sleep(delay)
+                except Exception as e:
+                    classified = classify_error(e)
+                    if not classified.retryable or attempt == _MAX_RETRIES - 1:
+                        raise classified from e
+                    delay = retry_delay(attempt)
+                    logger.info(
+                        "Agent %s tick retry %d/%d in %ds: %s",
+                        agent["id"],
+                        attempt + 1,
+                        _MAX_RETRIES,
+                        delay,
+                        e,
+                    )
+                    time.sleep(delay)
 
-        # Should not reach here, but just in case
-        raise last_error or FatalError("max retries exhausted")
+            # Should not reach here, but just in case
+            raise last_error or FatalError("max retries exhausted")
+        finally:
+            self._toolkit_local.resolved_model = previous_model
 
     def _invoke_agent(self, agent: dict) -> AgentResult:
         """Invoke one agent while owning every resource its resolver opens."""
@@ -288,13 +338,9 @@ class AgentExecutor:
         engine = self._system.engine if self._system else None
         if engine is None:
             raise FatalError("No engine available in JarvisSystem")
-        model = (
-            config.get("model")
-            or _AGENT_TICK_DEFAULT_MODEL
-            or (self._system.model if self._system else "")
-        )
-        if not model:
-            raise FatalError("No model configured for agent")
+        model = getattr(self._toolkit_local, "resolved_model", None)
+        model = model or self._resolve_agent_model(agent)
+        self._require_agent_model(model)
 
         logger.info(
             "Agent %s [%s]: using model=%s, engine=%s",
@@ -304,27 +350,6 @@ class AgentExecutor:
             type(engine).__name__,
         )
         self._set_activity(agent["id"], f"Loading model {model}...")
-
-        # Optionally override model via router policy
-        router_policy_key = config.get("router_policy")
-        if router_policy_key and self._system:
-            try:
-                from openjarvis.core.registry import RouterPolicyRegistry
-                from openjarvis.learning.routing.router import (
-                    build_routing_context,
-                )
-
-                policy = RouterPolicyRegistry.create(
-                    router_policy_key,
-                    available_models=[model],
-                )
-                instruction = config.get("instruction", "")
-                ctx = build_routing_context(instruction)
-                selected = policy.select_model(ctx)
-                if selected:
-                    model = selected
-            except Exception:
-                pass  # Fall back to configured model
 
         mcp_tools: list[Any] = []
         mcp_clients: list[Any] = []

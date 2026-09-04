@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from openjarvis.cli.serve import _resolve_server_model
 from openjarvis.core.config import JarvisConfig
 
@@ -62,3 +64,22 @@ def test_server_model_keeps_explicit_cli_model() -> None:
     )
 
     assert model == "explicit-model"
+
+
+@pytest.mark.parametrize(
+    "configured_model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"]
+)
+def test_server_model_never_falls_back_from_ox(configured_model: str) -> None:
+    cfg = JarvisConfig()
+    cfg.server.model = configured_model
+    cfg.intelligence.fallback_model = "gpt-4o"
+
+    model = _resolve_server_model(
+        None,
+        config=cfg,
+        engine_name="cloud",
+        engine=_FakeEngine(["gpt-4o", "openrouter/stealth/ox-alpha"]),
+        all_models={"cloud": ["gpt-4o", "openrouter/stealth/ox-alpha"]},
+    )
+
+    assert model == configured_model

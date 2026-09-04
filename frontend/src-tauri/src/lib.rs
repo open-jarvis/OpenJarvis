@@ -378,6 +378,7 @@ const STDERR_TAIL_LIMIT: usize = 16 * 1024;
 struct BackendManager {
     ollama: Option<ChildHandle>,
     jarvis: Option<ChildHandle>,
+    jarvis_attached: bool,
     jarvis_stderr_tail: StderrTail,
 }
 
@@ -386,6 +387,7 @@ impl Default for BackendManager {
         Self {
             ollama: None,
             jarvis: None,
+            jarvis_attached: false,
             jarvis_stderr_tail: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -393,10 +395,14 @@ impl Default for BackendManager {
 
 impl BackendManager {
     async fn stop_all(&mut self) {
+        let owned_jarvis = self.jarvis.is_some();
         if let Some(ref mut h) = self.jarvis {
             h.kill().await;
         }
         self.jarvis = None;
+        if owned_jarvis {
+            self.jarvis_attached = false;
+        }
         if let Some(ref mut h) = self.ollama {
             h.kill().await;
         }
@@ -405,6 +411,29 @@ impl BackendManager {
 }
 
 type SharedBackend = Arc<Mutex<BackendManager>>;
+
+async fn spawn_managed_jarvis<F>(
+    backend: &SharedBackend,
+    cmd: &mut tokio::process::Command,
+    load_keys: F,
+) -> std::io::Result<(Option<tokio::process::ChildStderr>, StderrTail)>
+where
+    F: FnOnce() -> Vec<(String, String)>,
+{
+    // Key rotation takes this same lock before updating secure storage. Keep
+    // the key snapshot, spawn, and child registration indivisible so a save
+    // can never observe "offline" after the child captured an older env.
+    let mut manager = backend.lock().await;
+    for (key, value) in load_keys() {
+        cmd.env(&key, &value);
+    }
+    let mut child = cmd.spawn()?;
+    let stderr = child.stderr.take();
+    let tail = manager.jarvis_stderr_tail.clone();
+    manager.jarvis = Some(ChildHandle { child });
+    manager.jarvis_attached = false;
+    Ok((stderr, tail))
+}
 
 // ---------------------------------------------------------------------------
 // Setup status (reported to frontend)
@@ -917,6 +946,7 @@ fn check_jarvis_port_available() -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
+    migrate_legacy_cloud_keys(&backend).await;
     // Decide the inference source (default Ollama) before launching anything.
     let cfg = read_inference_config();
     let plan = boot_plan(&cfg, total_ram_gb());
@@ -1270,6 +1300,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
                     // pre-spawn step done so the setup UI doesn't show a
                     // half-progress bar (model_ready / ollama_ready stay
                     // false otherwise because we skipped those steps).
+                    backend.lock().await.jarvis_attached = true;
                     let mut s = status.lock().await;
                     s.phase = "ready".into();
                     s.detail = format!(
@@ -1426,23 +1457,12 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     // additions aren't accidentally stripped.
     prepare_subprocess_for_appimage(&mut cmd);
 
-    // Inject cloud API keys from secure desktop storage.
-    for (key, value) in read_cloud_keys() {
-        cmd.env(&key, &value);
-    }
-    let jarvis_child = cmd.spawn();
-
-    match jarvis_child {
-        Ok(mut child) => {
+    match spawn_managed_jarvis(&backend, &mut cmd, read_cloud_keys).await {
+        Ok((stderr_handle, tail)) => {
             // Start draining stderr immediately. If we wait until the
             // health check returns we risk filling the 4 KB Windows pipe
             // buffer during startup logging and hanging the child before
             // it can bind its HTTP port — exactly the symptom in #309.
-            let stderr_handle = child.stderr.take();
-            let mut mgr = backend.lock().await;
-            let tail = mgr.jarvis_stderr_tail.clone();
-            mgr.jarvis = Some(ChildHandle { child });
-            drop(mgr);
             if let Some(stderr) = stderr_handle {
                 spawn_jarvis_stderr_drainer(stderr, tail);
             }
@@ -2062,7 +2082,8 @@ fn read_legacy_cloud_keys() -> Vec<(String, String)> {
     keys
 }
 
-fn migrate_legacy_cloud_keys() {
+async fn migrate_legacy_cloud_keys(backend: &SharedBackend) {
+    let _manager = backend.lock().await;
     let path = legacy_cloud_keys_path();
     if !path.exists() {
         return;
@@ -2091,7 +2112,6 @@ fn migrate_legacy_cloud_keys() {
 
 /// Read cloud keys from secure desktop storage and return key=value pairs.
 fn read_cloud_keys() -> Vec<(String, String)> {
-    migrate_legacy_cloud_keys();
     managed_cloud_key_names()
         .into_iter()
         .filter_map(|key| match secure_store_get(&key) {
@@ -2101,37 +2121,84 @@ fn read_cloud_keys() -> Vec<(String, String)> {
         .collect()
 }
 
-async fn reload_cloud_keys(keys: Vec<(String, String)>) {
-    let reload_url = format!("http://127.0.0.1:{}/v1/cloud/reload", JARVIS_PORT);
-    let key_map: serde_json::Map<String, serde_json::Value> = keys
-        .into_iter()
-        .map(|(key, value)| (key, serde_json::Value::String(value)))
-        .collect();
-    let _ = reqwest::Client::new()
-        .post(&reload_url)
-        .json(&serde_json::json!({ "keys": key_map }))
-        .timeout(std::time::Duration::from_secs(10))
-        .send()
-        .await;
+fn server_present_on(port: u16) -> bool {
+    // Port occupancy is a safer liveness signal than an HTTP timeout here:
+    // an overloaded attached server can still own the port even when /health
+    // does not answer quickly. Treat any listener as live and require reload
+    // confirmation rather than returning a false offline success.
+    std::net::TcpListener::bind(("127.0.0.1", port)).is_err()
+}
+
+async fn persist_api_key_change_with<S>(
+    key_name: String,
+    key_value: String,
+    backend: &SharedBackend,
+    store: S,
+    server_port: u16,
+) -> Result<Option<String>, String>
+where
+    S: FnOnce(&str, &str) -> Result<(), String>,
+{
+    let mut manager = backend.lock().await;
+    store(&key_name, &key_value)?;
+
+    if manager.jarvis.is_some() {
+        manager.stop_all().await;
+        return Ok(Some(
+            "API key saved; managed backend stopped and must be restarted before continuing"
+                .to_string(),
+        ));
+    }
+    if manager.jarvis_attached || server_present_on(server_port) {
+        Ok(Some(
+            "API key saved, but the attached or external backend must be restarted before continuing"
+                .to_string(),
+        ))
+    } else {
+        Ok(None)
+    }
+}
+
+async fn persist_api_key_change(
+    key_name: String,
+    key_value: String,
+    backend: &SharedBackend,
+) -> Result<Option<String>, String> {
+    persist_api_key_change_with(
+        key_name,
+        key_value,
+        backend,
+        secure_store_set,
+        JARVIS_PORT,
+    )
+    .await
 }
 
 /// Save a single cloud API key to secure desktop storage.
 #[tauri::command]
-async fn save_cloud_key(key_name: String, key_value: String) -> Result<(), String> {
+async fn save_cloud_key(
+    key_name: String,
+    key_value: String,
+    backend: tauri::State<'_, SharedBackend>,
+) -> Result<(), String> {
+    save_cloud_key_inner(key_name, key_value, backend.inner()).await
+}
+
+async fn save_cloud_key_inner(
+    key_name: String,
+    key_value: String,
+    backend: &SharedBackend,
+) -> Result<(), String> {
     let key_value = key_value.trim().to_string();
-    secure_store_set(&key_name, &key_value)?;
-
-    // Tell the running server to hot-reload its cloud engine so the user
-    // doesn't need to restart the app after entering an API key.
-    reload_cloud_keys(vec![(key_name, key_value)]).await;
-
-    Ok(())
+    match persist_api_key_change(key_name, key_value, backend).await? {
+        Some(restart_required) => Err(restart_required),
+        None => Ok(()),
+    }
 }
 
 /// Get which cloud providers have keys configured (without exposing values).
 #[tauri::command]
 async fn get_cloud_key_status() -> Result<serde_json::Value, String> {
-    migrate_legacy_cloud_keys();
     let status: Vec<serde_json::Value> = managed_cloud_key_names()
         .into_iter()
         .map(|key| {
@@ -2158,6 +2225,7 @@ async fn set_inference_source(
     host: Option<String>,
     engine: Option<String>,
     api_key: Option<String>,
+    backend: tauri::State<'_, SharedBackend>,
 ) -> Result<(), String> {
     let kind = match kind.as_str() {
         "ollama" => SourceKind::Ollama,
@@ -2170,6 +2238,7 @@ async fn set_inference_source(
         host: host.map(|h| normalize_host(&h)).filter(|h| !h.is_empty()),
         engine: engine.filter(|e| !e.is_empty()),
     };
+    let mut restart_required = None;
     if let SourceKind::Custom = cfg.kind {
         if cfg.host.is_none() {
             return Err("A server URL is required for a custom endpoint.".into());
@@ -2186,12 +2255,20 @@ async fn set_inference_source(
             // Save the key before persisting the config: if the key can't be
             // written, surface it and DON'T record a custom source whose
             // credential is missing (which would fail confusingly at runtime).
-            save_cloud_key(key_name, key)
-                .await
-                .map_err(|e| format!("Could not store the API key: {}", e))?;
+            restart_required = persist_api_key_change(
+                key_name,
+                key.trim().to_string(),
+                backend.inner(),
+            )
+            .await
+            .map_err(|e| format!("Could not store the API key: {}", e))?;
         }
     }
-    write_inference_config(&cfg)
+    write_inference_config(&cfg)?;
+    match restart_required {
+        Some(message) => Err(message),
+        None => Ok(()),
+    }
 }
 
 /// Pull a model via Ollama (called from frontend download button).
@@ -2415,6 +2492,7 @@ mod native_overlay {
                 "GEMINI_API_KEY" | "GOOGLE_API_KEY" => {
                     models.extend(["gemini-2.5-flash", "gemini-2.5-pro"])
                 }
+                "OPENROUTER_API_KEY" => models.push("openrouter/stealth/ox-alpha"),
                 _ => {}
             }
         }
@@ -2873,9 +2951,171 @@ mod tests {
         format_uv_sync_spawn_error, matching_installed_model, model_names_match, normalize_host,
         parse_inference_config, parse_ollama_model_names, preferred_installed_model,
         should_persist_resolved_model, startup_installed_model, upsert_engine_host,
-        uv_sync_stderr_tail, InferenceConfig, SourceKind, DESKTOP_UV_SYNC_COMMAND,
+        uv_sync_stderr_tail, BackendManager, InferenceConfig, SourceKind,
+        DESKTOP_UV_SYNC_COMMAND,
     };
     use std::path::Path;
+
+    #[tokio::test]
+    async fn stopping_does_not_claim_an_attached_server_was_stopped() {
+        let mut backend = BackendManager {
+            jarvis_attached: true,
+            ..Default::default()
+        };
+
+        backend.stop_all().await;
+
+        assert!(backend.jarvis_attached);
+    }
+
+    #[tokio::test]
+    async fn key_snapshot_and_child_registration_share_backend_lock() {
+        let backend = std::sync::Arc::new(tokio::sync::Mutex::new(
+            BackendManager::default(),
+        ));
+        let lock_probe = backend.clone();
+        let mut cmd = tokio::process::Command::new(HARMLESS_BIN);
+        #[cfg(target_os = "windows")]
+        cmd.args(["/C", "exit", "0"]);
+        cmd.stderr(std::process::Stdio::piped());
+
+        super::spawn_managed_jarvis(&backend, &mut cmd, || {
+            assert!(lock_probe.try_lock().is_err());
+            Vec::new()
+        })
+        .await
+        .unwrap();
+
+        let mut manager = backend.lock().await;
+        assert!(manager.jarvis.is_some());
+        manager.stop_all().await;
+    }
+
+    async fn assert_managed_key_change_stops(value: &str, stale: bool) {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let backend = std::sync::Arc::new(tokio::sync::Mutex::new(
+            BackendManager::default(),
+        ));
+        let mut cmd = if stale {
+            tokio::process::Command::new(HARMLESS_BIN)
+        } else {
+            long_running_command()
+        };
+        cmd.stderr(std::process::Stdio::piped());
+        super::spawn_managed_jarvis(&backend, &mut cmd, Vec::new)
+            .await
+            .unwrap();
+        if stale {
+            backend
+                .lock()
+                .await
+                .jarvis
+                .as_mut()
+                .unwrap()
+                .child
+                .wait()
+                .await
+                .unwrap();
+        }
+
+        let lock_probe = backend.clone();
+        let stored = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let store_probe = stored.clone();
+        let result = super::persist_api_key_change_with(
+            "OPENROUTER_API_KEY".to_string(),
+            value.to_string(),
+            &backend,
+            move |_key, value| {
+                assert!(lock_probe.try_lock().is_err());
+                *store_probe.lock().unwrap() = value.to_string();
+                Ok(())
+            },
+            port,
+        )
+        .await
+        .unwrap();
+
+        assert!(result.unwrap().contains("must be restarted"));
+        assert_eq!(*stored.lock().unwrap(), value);
+        assert!(backend.lock().await.jarvis.is_none());
+        assert!(matches!(
+            listener.accept(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+        ));
+    }
+
+    #[tokio::test]
+    async fn managed_key_save_stops_without_http() {
+        assert_managed_key_change_stops("rotated", false).await;
+    }
+
+    #[tokio::test]
+    async fn managed_key_revoke_clears_stale_child_without_http() {
+        assert_managed_key_change_stops("", true).await;
+    }
+
+    #[tokio::test]
+    async fn external_listener_requires_restart_without_http() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let backend = std::sync::Arc::new(tokio::sync::Mutex::new(
+            BackendManager::default(),
+        ));
+
+        let external = super::persist_api_key_change_with(
+            "TAVILY_API_KEY".to_string(),
+            "secret".to_string(),
+            &backend,
+            |_key, _value| Ok(()),
+            port,
+        )
+        .await
+        .unwrap();
+        assert!(external.unwrap().contains("external backend"));
+        assert!(matches!(
+            listener.accept(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+        ));
+    }
+
+    #[tokio::test]
+    async fn known_attached_requires_restart_without_stop() {
+        let backend = std::sync::Arc::new(tokio::sync::Mutex::new(BackendManager {
+            jarvis_attached: true,
+            ..Default::default()
+        }));
+        let attached = super::persist_api_key_change_with(
+            "CUSTOM_API_KEY".to_string(),
+            "secret".to_string(),
+            &backend,
+            |_key, _value| Ok(()),
+            0,
+        )
+        .await
+        .unwrap();
+        assert!(attached.unwrap().contains("attached"));
+        assert!(backend.lock().await.jarvis_attached);
+    }
+
+    #[tokio::test]
+    async fn offline_key_change_succeeds_without_http() {
+        let backend = std::sync::Arc::new(tokio::sync::Mutex::new(
+            BackendManager::default(),
+        ));
+        let offline = super::persist_api_key_change_with(
+            "CUSTOM_API_KEY".to_string(),
+            "secret".to_string(),
+            &backend,
+            |_key, _value| Ok(()),
+            0,
+        )
+        .await
+        .unwrap();
+        assert!(offline.is_none());
+    }
 
     #[test]
     fn tail_returns_whole_string_when_shorter_than_limit() {
@@ -3249,7 +3489,22 @@ mod tests {
     #[cfg(target_os = "windows")]
     const HARMLESS_BIN: &str = "cmd";
     #[cfg(not(target_os = "windows"))]
-    const HARMLESS_BIN: &str = "/bin/true";
+    const HARMLESS_BIN: &str = "/usr/bin/true";
+
+    fn long_running_command() -> tokio::process::Command {
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = tokio::process::Command::new("cmd");
+            cmd.args(["/C", "timeout", "/T", "30", "/NOBREAK"]);
+            cmd
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let mut cmd = tokio::process::Command::new("/bin/sh");
+            cmd.args(["-c", "sleep 30"]);
+            cmd
+        }
+    }
 
     #[test]
     fn prepare_subprocess_for_appimage_no_appimage_is_safe() {

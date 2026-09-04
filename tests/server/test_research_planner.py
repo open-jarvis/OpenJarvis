@@ -6,6 +6,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 from openjarvis.agents.research_loop import DEFAULT_PLANNER_MODEL
 from openjarvis.core.config import JarvisConfig
@@ -172,6 +173,21 @@ def test_build_planner_engine_rejects_active_engine_that_cannot_serve_model() ->
         )
 
 
+@pytest.mark.parametrize("model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"])
+def test_build_planner_engine_rejects_ox_before_configured_override(model: str) -> None:
+    cfg = JarvisConfig()
+    cfg.deep_research.engine = "openai"
+    cfg.deep_research.model = "gpt-4o"
+
+    with pytest.raises(RuntimeError, match="unavailable for Deep Research"):
+        research_router._build_planner_engine(
+            cfg,
+            active_engine=_DummyEngine(),
+            active_engine_key="cloud",
+            request_model=model,
+        )
+
+
 def test_build_planner_engine_honors_explicit_deep_research_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -250,6 +266,27 @@ def test_research_route_passes_live_engine_and_selected_model(
         "active_model": "server-model",
         "request_model": "selected-model",
     }
+
+
+@pytest.mark.parametrize("model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"])
+def test_research_route_rejects_ox(model: str) -> None:
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                engine=_DummyEngine(),
+                engine_name="cloud",
+                model="server-model",
+            )
+        )
+    )
+
+    with pytest.raises(HTTPException, match="Deep Research is unavailable"):
+        asyncio.run(
+            research_router.research(
+                research_router.ResearchRequest(query="find notes", model=model),
+                request,  # type: ignore[arg-type]
+            )
+        )
 
 
 def test_build_planner_engine_rejects_fallback_engine(

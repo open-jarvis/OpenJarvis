@@ -146,6 +146,217 @@ class TestAgentManagerRoutes:
         assert resp.status_code == 200
         assert resp.json()["name"] == "new"
 
+    @pytest.mark.parametrize(
+        "model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"]
+    )
+    def test_managed_agent_api_rejects_ox_alpha(self, manager, client, model):
+        client.app.state.model = model
+
+        create = client.post(
+            "/v1/managed-agents",
+            json={"name": "blocked"},
+        )
+        assert create.status_code == 400
+        assert manager.list_agents() == []
+
+        editable = manager.create_agent(name="editable", agent_type="simple")
+        update = client.patch(
+            f"/v1/managed-agents/{editable['id']}",
+            json={"config": {"model": model}},
+        )
+        assert update.status_code == 400
+        default_channel = client.post(
+            f"/v1/managed-agents/{editable['id']}/channels",
+            json={"channel_type": "sendblue"},
+        )
+        assert default_channel.status_code == 400
+        client.app.state.model = "local-model"
+        client.app.state.engine = SimpleNamespace(_model=model)
+        engine_channel = client.post(
+            f"/v1/managed-agents/{editable['id']}/channels",
+            json={"channel_type": "sendblue"},
+        )
+        assert engine_channel.status_code == 400
+
+        agent = manager.create_agent(
+            name="existing",
+            agent_type="simple",
+            config={"model": model},
+        )
+        agent_id = agent["id"]
+        client.app.state.model = model
+
+        run = client.post(f"/v1/managed-agents/{agent_id}/run")
+        message = client.post(
+            f"/v1/managed-agents/{agent_id}/messages",
+            json={"content": "hello", "mode": "queued"},
+        )
+        channel = client.post(
+            f"/v1/managed-agents/{agent_id}/channels",
+            json={"channel_type": "sendblue"},
+        )
+
+        assert run.status_code == 400
+        assert message.status_code == 400
+        assert channel.status_code == 400
+        assert manager.get_agent(agent_id)["status"] == "idle"
+        assert manager.list_messages(agent_id) == []
+        assert manager.list_channel_bindings(agent_id) == []
+        assert manager.list_channel_bindings(editable["id"]) == []
+
+    @pytest.mark.parametrize(
+        "model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"]
+    )
+    def test_template_entrypoints_reject_effective_ox_before_persisting(
+        self,
+        manager,
+        client,
+        model,
+    ):
+        template = {
+            "id": "user-ox",
+            "source": "user",
+            "name": "User Ox",
+            "agent_type": "deep_research",
+            "model": model,
+            "schedule_type": "interval",
+            "schedule_value": 60,
+        }
+        scheduler = MagicMock()
+        client.app.state.model = "local-model"
+        client.app.state.agent_scheduler = scheduler
+
+        with patch.object(manager, "list_templates", return_value=[template]):
+            create = client.post(
+                "/v1/managed-agents",
+                json={"name": "blocked", "template_id": "user-ox"},
+            )
+            instantiate = client.post(
+                "/v1/templates/user-ox/instantiate",
+                json={"name": "blocked"},
+            )
+
+        assert create.status_code == 400
+        assert instantiate.status_code == 400
+        assert manager.list_agents() == []
+        scheduler.register_agent.assert_not_called()
+
+        template["model"] = "local-model"
+        template["schedule_type"] = "manual"
+        with patch.object(manager, "list_templates", return_value=[template]):
+            allowed = client.post(
+                "/v1/templates/user-ox/instantiate",
+                json={"name": "allowed"},
+            )
+
+        assert allowed.status_code == 200
+        assert allowed.json()["config"]["model"] == "local-model"
+        scheduler.register_agent.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("endpoint", "schedule_type"),
+        [
+            ("/v1/managed-agents", "interval"),
+            ("/v1/templates/scheduled/instantiate", "cron"),
+        ],
+    )
+    def test_template_schedule_uses_persisted_config(
+        self,
+        manager,
+        client,
+        endpoint,
+        schedule_type,
+    ):
+        template = {
+            "id": "scheduled",
+            "source": "user",
+            "model": "local-model",
+            "schedule_type": schedule_type,
+            "schedule_value": "0 9 * * *" if schedule_type == "cron" else 60,
+        }
+        scheduler = MagicMock()
+        client.app.state.model = "local-model"
+        client.app.state.agent_scheduler = scheduler
+        payload = {"name": "scheduled"}
+        if endpoint == "/v1/managed-agents":
+            payload["template_id"] = "scheduled"
+
+        with patch.object(manager, "list_templates", return_value=[template]):
+            response = client.post(endpoint, json=payload)
+
+        assert response.status_code == 200
+        agent = response.json()
+        assert agent["config"]["schedule_type"] == schedule_type
+        scheduler.register_agent.assert_called_once_with(agent["id"])
+
+    @pytest.mark.parametrize(
+        "model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"]
+    )
+    def test_sendblue_bind_rejects_persisted_ox_before_side_effects(
+        self,
+        manager,
+        client,
+        model,
+    ):
+        agent = manager.create_agent(
+            name="persisted-ox",
+            config={"model": model},
+        )
+        client.app.state.model = "state-local"
+        client.app.state.engine = SimpleNamespace(_model="engine-local")
+
+        with patch("openjarvis.channels.sendblue.SendBlueChannel") as channel:
+            response = client.post(
+                f"/v1/managed-agents/{agent['id']}/channels",
+                json={
+                    "channel_type": "sendblue",
+                    "config": {
+                        "api_key_id": "key-id",
+                        "api_secret_key": "secret",
+                    },
+                },
+            )
+
+        assert response.status_code == 400
+        channel.assert_not_called()
+        assert manager.list_channel_bindings(agent["id"]) == []
+
+    def test_sendblue_bind_constructs_research_with_persisted_model(
+        self,
+        manager,
+        client,
+    ):
+        agent = manager.create_agent(
+            name="persisted-local",
+            config={"model": "persisted-local"},
+        )
+        client.app.state.model = "state-local"
+        client.app.state.engine = SimpleNamespace(_model="engine-local")
+
+        with (
+            patch("openjarvis.channels.sendblue.SendBlueChannel"),
+            patch(
+                "openjarvis.server.agent_manager_routes._build_deep_research_tools",
+                return_value=[MagicMock()],
+            ),
+            patch("openjarvis.agents.deep_research.DeepResearchAgent") as research,
+            patch("openjarvis.server.channel_bridge.ChannelBridge"),
+            patch("openjarvis.server.session_store.SessionStore"),
+        ):
+            response = client.post(
+                f"/v1/managed-agents/{agent['id']}/channels",
+                json={
+                    "channel_type": "sendblue",
+                    "config": {
+                        "api_key_id": "key-id",
+                        "api_secret_key": "secret",
+                    },
+                },
+            )
+
+        assert response.status_code == 200
+        assert research.call_args.kwargs["model"] == "persisted-local"
+
     def test_delete_agent(self, client):
         create_resp = client.post("/v1/managed-agents", json={"name": "doomed"})
         agent_id = create_resp.json()["id"]

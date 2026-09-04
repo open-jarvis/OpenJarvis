@@ -107,6 +107,29 @@ async def test_guardrails_delegates_stream_full():
 # ---------------------------------------------------------------------------
 
 
+def test_multi_routes_bare_ox_alias_to_guarded_cloud_engine():
+    litellm = _FakeStreamFullEngine([])
+    litellm.list_models = lambda: ["stealth/ox-alpha"]
+    cloud = _FakeStreamFullEngine([])
+    cloud.list_models = lambda: ["openrouter/stealth/ox-alpha"]
+
+    multi = MultiEngine([("litellm", litellm), ("cloud", cloud)])
+
+    assert multi._engine_for("stealth/ox-alpha") is cloud
+    assert multi.engine_key_for("stealth/ox-alpha") == "cloud"
+
+
+@pytest.mark.parametrize("model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"])
+def test_multi_rejects_ox_without_cloud_engine(model: str):
+    unsafe = _FakeStreamFullEngine([])
+    unsafe.list_models = lambda: [model]
+    multi = MultiEngine([("litellm", unsafe)])
+
+    with pytest.raises(ValueError, match="requires the cloud engine"):
+        multi._engine_for(model)
+    assert multi.engine_key_for(model) is None
+
+
 @pytest.mark.asyncio
 async def test_multi_routes_stream_full_by_model():
     """MultiEngine routes stream_full to the correct engine by model name."""

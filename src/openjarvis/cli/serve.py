@@ -97,8 +97,13 @@ def _resolve_server_model(
     available = _unique_model_ids(
         _safe_list_models(engine) + list(all_models.get(engine_name, []))
     )
+    from openjarvis.engine.cloud import _is_ox_alpha_model
 
     for candidate in candidates:
+        # Ox Alpha must fail closed rather than silently switching to a paid
+        # configured fallback. The cloud engine accepts both public aliases.
+        if _is_ox_alpha_model(candidate):
+            return candidate
         if candidate and (not available or candidate in available):
             return candidate
 
@@ -193,12 +198,6 @@ def serve(
 
     engine_name, engine = resolved
 
-    # Apply security guardrails
-    from openjarvis.security import setup_security
-
-    sec = setup_security(config, engine, bus)
-    engine = sec.engine
-
     # If cloud API keys are set, prepare a cloud engine. We build the
     # MultiEngine after local discovery so healthy local fallbacks such as
     # Ollama stay visible even when the configured preferred engine is MLX.
@@ -269,6 +268,13 @@ def serve(
         all_models[engine_name] = engine.list_models()
         merge_discovered_models(engine_name, all_models[engine_name])
 
+    # Apply one guardrail wrapper after routing is complete so cloud and
+    # discovered engines cannot bypass the configured input policy.
+    from openjarvis.security import setup_security
+
+    sec = setup_security(config, engine, bus)
+    engine = sec.engine
+
     # Resolve model
     configured_model = (
         model_name or config.server.model or config.intelligence.default_model
@@ -292,6 +298,17 @@ def serve(
             "For Ollama: [cyan]ollama serve[/cyan] and "
             "[cyan]ollama pull qwen3.5:9b[/cyan].\n"
             "For MLX: start the MLX OpenAI-compatible server on the configured host."
+        )
+        sys.exit(1)
+    from openjarvis.engine.cloud import _is_ox_alpha_model
+    from openjarvis.server.routes import _ox_cloud_route_available
+
+    if _is_ox_alpha_model(model_name) and not _ox_cloud_route_available(
+        engine, model_name
+    ):
+        console.print(
+            "[red]Ox Alpha requires a configured OpenRouter cloud engine; "
+            "no model fallback was selected.[/red]"
         )
         sys.exit(1)
 

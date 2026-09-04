@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 from openjarvis.core.types import Message
 from openjarvis.engine._base import InferenceEngine
 from openjarvis.engine._stubs import StreamChunk
+from openjarvis.engine.cloud import _is_ox_alpha_model
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,11 @@ class MultiEngine(InferenceEngine):
 
     def _engine_for(self, model: str) -> InferenceEngine:
         """Find the engine that owns a model, refreshing the map once if needed."""
+        if _is_ox_alpha_model(model):
+            for key, engine in self._engines:
+                if key == "cloud":
+                    return engine
+            raise ValueError("Ox Alpha requires the cloud engine")
         engine = self._model_map.get(model)
         if engine is not None:
             return engine
@@ -122,6 +128,11 @@ class MultiEngine(InferenceEngine):
 
     def engine_key_for(self, model: str) -> str | None:
         """Return the registry key of the engine advertising *model*."""
+        if _is_ox_alpha_model(model):
+            for key, _engine in self._engines:
+                if key == "cloud":
+                    return key
+            return None
         key = self._model_key_map.get(model)
         if key is not None:
             return key

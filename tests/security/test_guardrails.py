@@ -8,6 +8,7 @@ import pytest
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
+from openjarvis.engine._stubs import StreamChunk
 from openjarvis.security.guardrails import GuardrailsEngine, SecurityBlockError
 from openjarvis.security.types import RedactionMode
 
@@ -219,6 +220,61 @@ async def _async_token_iter(tokens):
 
 @pytest.mark.asyncio
 class TestGuardrailsEngineStream:
+    async def test_stream_redacts_input_before_engine(self) -> None:
+        sent: list[Message] = []
+
+        async def stream(messages, **kwargs):
+            sent.extend(messages)
+            yield "ok"
+
+        mock = _make_mock_engine()
+        mock.stream = stream
+        ge = GuardrailsEngine(mock, mode=RedactionMode.REDACT)
+
+        tokens = [
+            token
+            async for token in ge.stream(
+                [
+                    Message(
+                        role=Role.USER,
+                        content="my key sk-abc123def456ghi789jkl012",
+                    )
+                ],
+                model="test",
+            )
+        ]
+
+        assert tokens == ["ok"]
+        assert "sk-abc123" not in sent[0].content
+
+    async def test_stream_full_blocks_input_before_engine(self) -> None:
+        called = False
+
+        async def stream_full(messages, **kwargs):
+            nonlocal called
+            called = True
+            yield StreamChunk(content="unsafe")
+
+        mock = _make_mock_engine()
+        mock.stream_full = stream_full
+        ge = GuardrailsEngine(mock, mode=RedactionMode.BLOCK)
+
+        with pytest.raises(SecurityBlockError):
+            _ = [
+                chunk
+                async for chunk in ge.stream_full(
+                    [
+                        Message(
+                            role=Role.USER,
+                            content="my key sk-abc123def456ghi789jkl012",
+                        )
+                    ],
+                    model="test",
+                )
+            ]
+
+        assert called is False
+
     async def test_stream_yields_tokens(self) -> None:
         """stream() yields all tokens from the wrapped engine."""
         mock = _make_mock_engine()

@@ -52,6 +52,26 @@ def _restore_sendblue_bindings(app: FastAPI) -> None:
                 if not api_key_id or not api_secret_key:
                     continue
 
+                from openjarvis.engine.cloud import _is_ox_alpha_model
+
+                persisted_model = str(
+                    (agent.get("config", {}) or {}).get("model") or ""
+                )
+                active_models = (
+                    persisted_model,
+                    str(getattr(app.state, "model", "") or ""),
+                    str(
+                        getattr(getattr(app.state, "engine", None), "_model", "") or ""
+                    ),
+                )
+                if any(_is_ox_alpha_model(model) for model in active_models):
+                    logger.warning(
+                        "Skipping persisted SendBlue binding for %s: Ox Alpha "
+                        "is unavailable for channel research",
+                        agent_id,
+                    )
+                    continue
+
                 from openjarvis.channels.sendblue import SendBlueChannel
 
                 sb = SendBlueChannel(
@@ -84,8 +104,10 @@ def _restore_sendblue_bindings(app: FastAPI) -> None:
                                 DeepResearchAgent,
                             )
 
-                            model_name = getattr(app.state, "model", "") or getattr(
-                                engine, "_model", ""
+                            model_name = (
+                                persisted_model
+                                or getattr(app.state, "model", "")
+                                or getattr(engine, "_model", "")
                             )
                             dr_agent = DeepResearchAgent(
                                 engine=engine,

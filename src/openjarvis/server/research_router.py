@@ -27,7 +27,7 @@ import threading
 import time
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -117,6 +117,13 @@ def _build_planner_engine(
         active_model=active_model,
         request_model=request_model,
     )
+    from openjarvis.engine.cloud import _is_ox_alpha_model
+
+    if _is_ox_alpha_model(request_model) or _is_ox_alpha_model(model):
+        raise RuntimeError(
+            "Ox Alpha is unavailable for Deep Research because its multi-call "
+            "provider path cannot be audited fail-closed"
+        )
     if active_engine is not None and not config.deep_research.engine.strip():
         if model and not active_engine.can_serve(model):
             raise RuntimeError(
@@ -577,6 +584,13 @@ async def research(req: ResearchRequest, request: Request) -> StreamingResponse:
     """
     active_engine = getattr(request.app.state, "engine", None)
     active_model = str(getattr(request.app.state, "model", "") or "")
+    from openjarvis.engine.cloud import _is_ox_alpha_model
+
+    if _is_ox_alpha_model(req.model or "") or _is_ox_alpha_model(active_model):
+        raise HTTPException(
+            status_code=400,
+            detail="Deep Research is unavailable for Ox Alpha",
+        )
     active_engine_key = str(getattr(request.app.state, "engine_name", "") or "")
     if active_engine is not None and not active_engine_key:
         active_engine_key = str(getattr(active_engine, "engine_id", "") or "")

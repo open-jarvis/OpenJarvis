@@ -91,6 +91,38 @@ def test_interval_scheduled_agent(scenario_harness: ScenarioHarness) -> None:
     assert "Interval response." in agent["summary_memory"]
 
 
+@pytest.mark.parametrize("model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"])
+def test_scheduled_agent_rejects_ox_alpha_before_inference(
+    scenario_harness: ScenarioHarness,
+    model: str,
+) -> None:
+    h = scenario_harness
+    agent = h.manager.create_agent(
+        name="blocked-ox-agent",
+        config={
+            "model": model,
+            "schedule_type": "interval",
+            "schedule_value": 0,
+        },
+    )
+    h.scheduler.register_agent(agent["id"])
+
+    h.scheduler._check_due_agents()
+
+    persisted = h.manager.get_agent(agent["id"])
+    assert persisted is not None
+    assert persisted["status"] == "idle"
+    assert persisted["summary_memory"] == ""
+    assert persisted["current_activity"] == ""
+    assert persisted["total_runs"] == 0
+    assert h.engine.call_count == 0
+    assert not any(
+        event.event_type == EventType.AGENT_TICK_START
+        and event.data.get("agent_id") == agent["id"]
+        for event in h.bus.history
+    )
+
+
 # ---------------------------------------------------------------------------
 # Scenario 3: Cron-scheduled agent
 # ---------------------------------------------------------------------------

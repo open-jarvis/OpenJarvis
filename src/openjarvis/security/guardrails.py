@@ -162,6 +162,27 @@ class GuardrailsEngine(InferenceEngine):
             f"{len(result.findings)} finding(s) detected"
         )
 
+    def _process_input(self, messages: Sequence[Message]) -> Sequence[Message]:
+        if not self._scan_input:
+            return messages
+        processed = list(messages)
+        for i, msg in enumerate(processed):
+            if not msg.content:
+                continue
+            result = self._scan_text(msg.content)
+            if result.clean:
+                continue
+            processed[i] = Message(
+                role=msg.role,
+                content=self._handle_findings(msg.content, result, "input"),
+                name=msg.name,
+                tool_calls=msg.tool_calls,
+                tool_call_id=msg.tool_call_id,
+                metadata=msg.metadata,
+                images=msg.images,
+            )
+        return processed
+
     # -- InferenceEngine interface -------------------------------------------
 
     def generate(
@@ -174,27 +195,7 @@ class GuardrailsEngine(InferenceEngine):
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """Scan input, call wrapped engine, scan output."""
-        # Scan input messages
-        if self._scan_input:
-            processed = list(messages)
-            for i, msg in enumerate(processed):
-                if msg.content:
-                    result = self._scan_text(msg.content)
-                    if not result.clean:
-                        processed[i] = Message(
-                            role=msg.role,
-                            content=self._handle_findings(
-                                msg.content,
-                                result,
-                                "input",
-                            ),
-                            name=msg.name,
-                            tool_calls=msg.tool_calls,
-                            tool_call_id=msg.tool_call_id,
-                            metadata=msg.metadata,
-                            images=msg.images,
-                        )
-            messages = processed
+        messages = self._process_input(messages)
 
         # Call wrapped engine
         response = self._engine.generate(
@@ -227,6 +228,7 @@ class GuardrailsEngine(InferenceEngine):
         **kwargs: Any,
     ) -> AsyncIterator[str]:
         """Yield tokens in real-time, scan accumulated output post-hoc."""
+        messages = self._process_input(messages)
         accumulated = []
         async for token in self._engine.stream(
             messages,
@@ -271,6 +273,7 @@ class GuardrailsEngine(InferenceEngine):
         **kwargs: Any,
     ) -> AsyncIterator["StreamChunk"]:
         """Delegate to wrapped engine, scan accumulated output post-hoc."""
+        messages = self._process_input(messages)
         accumulated: list[str] = []
         async for chunk in self._engine.stream_full(
             messages,

@@ -80,6 +80,16 @@ def _text_response(text: str) -> Dict[str, Any]:
     }
 
 
+@pytest.mark.parametrize("model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"])
+def test_research_agent_rejects_ox_alpha(stub_search, model):
+    engine = _MockEngine([_text_response("unused")])
+
+    with pytest.raises(ValueError, match="unavailable for research"):
+        ResearchAgent(engine, stub_search, model=model)
+
+    assert engine.calls == []
+
+
 @pytest.fixture()
 def stub_search() -> MagicMock:
     """A HybridSearch stand-in whose .search() returns an empty hit list."""

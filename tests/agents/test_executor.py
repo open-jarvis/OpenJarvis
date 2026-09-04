@@ -39,6 +39,40 @@ def executor(manager, event_bus):
 
 
 class TestExecutorBasic:
+    @pytest.mark.parametrize(
+        "model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"]
+    )
+    def test_ox_preflight_rejects_before_tick_mutation(
+        self,
+        executor,
+        manager,
+        event_bus,
+        model,
+    ):
+        agent = manager.create_agent(
+            name="blocked",
+            agent_type="monitor_operative",
+            config={"model": model, "router_policy": "must-not-run"},
+        )
+
+        with patch(
+            "openjarvis.core.registry.RouterPolicyRegistry.create"
+        ) as create_policy:
+            with pytest.raises(FatalError, match="unavailable for managed agents"):
+                executor.execute_tick(agent["id"])
+
+        create_policy.assert_not_called()
+
+        persisted = manager.get_agent(agent["id"])
+        assert persisted["status"] == "idle"
+        assert persisted["current_activity"] == ""
+        assert persisted["summary_memory"] == ""
+        assert persisted["total_runs"] == 0
+        assert not any(
+            event.event_type == EventType.AGENT_TICK_START
+            for event in event_bus.history
+        )
+
     def test_execute_tick_publishes_start_end_events(
         self, executor, manager, event_bus
     ):

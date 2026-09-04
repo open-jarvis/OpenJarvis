@@ -5,8 +5,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message, Role
+from openjarvis.engine._base import EngineConnectionError
 from openjarvis.engine.litellm import LiteLLMEngine
 
 
@@ -24,6 +27,18 @@ class TestLiteLLMEngineHealth:
 
 
 class TestLiteLLMEngineGenerate:
+    @pytest.mark.parametrize(
+        "model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"]
+    )
+    def test_ox_alpha_requires_guarded_cloud_engine(self, model: str) -> None:
+        fake_litellm = mock.MagicMock()
+        with mock.patch.dict("sys.modules", {"litellm": fake_litellm}):
+            engine = LiteLLMEngine()
+            with pytest.raises(EngineConnectionError):
+                engine.generate([Message(role=Role.USER, content="Hi")], model=model)
+
+        fake_litellm.completion.assert_not_called()
+
     def test_generate(self) -> None:
         fake_usage = SimpleNamespace(
             prompt_tokens=10, completion_tokens=5, total_tokens=15
@@ -157,6 +172,21 @@ class TestLiteLLMEngineGenerate:
 
 
 class TestLiteLLMEngineStream:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "model", ["openrouter/stealth/ox-alpha", "stealth/ox-alpha"]
+    )
+    async def test_ox_alpha_requires_guarded_cloud_engine(self, model: str) -> None:
+        fake_litellm = mock.MagicMock()
+        with mock.patch.dict("sys.modules", {"litellm": fake_litellm}):
+            engine = LiteLLMEngine()
+            with pytest.raises(EngineConnectionError):
+                await anext(
+                    engine.stream([Message(role=Role.USER, content="Hi")], model=model)
+                )
+
+        fake_litellm.acompletion.assert_not_called()
+
     def test_stream(self) -> None:
         # stream() must use the ASYNC litellm entry point (acompletion): the
         # sync litellm.completion makes blocking network reads inside an
