@@ -41,7 +41,7 @@ class TestDoctorOptionalLabels:
 
     def test_labels_show_install_hint_on_missing(self) -> None:
         """When a package is missing, show install hint in status."""
-        blocker = _selective_import_blocker("zeus")
+        blocker = _selective_import_blocker("zeus_apple_silicon")
         with mock.patch("builtins.__import__", side_effect=blocker):
             runner = CliRunner()
             result = runner.invoke(cli, ["doctor", "--json"])

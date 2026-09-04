@@ -81,7 +81,11 @@ class TraceStore:
     """Append-only SQLite store for interaction traces."""
 
     def __init__(self, db_path: str | Path) -> None:
-        self._db_path = str(db_path)
+        self._db_path = (
+            ":memory:"
+            if str(db_path) == ":memory:"
+            else str(Path(db_path).expanduser())
+        )
         if self._db_path != ":memory:":
             from openjarvis.security.file_utils import secure_create
 

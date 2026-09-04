@@ -34,6 +34,14 @@ def test_openjarvis_rust_not_in_published_desktop_extra() -> None:
     )
 
 
+def test_python310_speech_extras_use_installable_onnxruntime() -> None:
+    extras = _pyproject()["project"]["optional-dependencies"]
+    constraint = "onnxruntime<1.24; python_version < '3.11'"
+
+    assert constraint in extras["desktop"]
+    assert constraint in extras["speech"]
+
+
 def test_openjarvis_rust_lives_in_uv_dependency_group() -> None:
     group = _pyproject()["dependency-groups"]["desktop-native"]
     assert any("openjarvis-rust" in dep for dep in group)
@@ -61,6 +69,17 @@ def test_windows_installer_syncs_the_native_group() -> None:
         "the Windows installer must include `--group desktop-native` so "
         "openjarvis_rust is built during source install."
     )
+
+
+def test_windows_installer_failure_does_not_exit_interactive_host() -> None:
+    installer = WINDOWS_INSTALL_PS1.read_text(encoding="utf-8")
+    write_fail = installer.split("function Write-Fail", maxsplit=1)[1].split(
+        "# ---------------------------------------------------------------------------",
+        maxsplit=1,
+    )[0]
+
+    assert "throw [System.InvalidOperationException]" in write_fail
+    assert "exit 1" not in write_fail
 
 
 def test_quickstart_installs_web_search_dependencies() -> None:
