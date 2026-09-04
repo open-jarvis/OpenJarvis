@@ -1109,12 +1109,23 @@ class BrowserConfig:
 
 
 @dataclass(slots=True)
+class WeatherToolConfig:
+    """Native weather tool settings (credentials stay outside config.toml)."""
+
+    provider: str = "openweathermap"
+    default_location: str = ""
+    units: str = "metric"
+    lang: str = "en"
+
+
+@dataclass(slots=True)
 class ToolsConfig:
     """Tools primitive settings — wraps storage and MCP configuration."""
 
     storage: StorageConfig = field(default_factory=StorageConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
     browser: BrowserConfig = field(default_factory=BrowserConfig)
+    weather: WeatherToolConfig = field(default_factory=WeatherToolConfig)
     enabled: str = ""  # comma-separated default tools
 
 
@@ -2272,6 +2283,13 @@ enabled = true
 # viewport_width = 1280
 # viewport_height = 720
 
+# Weather API credentials belong in credentials.toml or the environment, not here.
+# [tools.weather]
+# provider = "openweathermap"
+# default_location = ""
+# units = "metric"             # metric or imperial
+# lang = "en"                  # OpenWeatherMap language code
+
 [server]
 # Loopback is safe for local use and works without API authentication.
 host = "127.0.0.1"
@@ -2460,6 +2478,7 @@ __all__ = [
     "VLLMEngineConfig",
     "WebChatChannelConfig",
     "WebhookChannelConfig",
+    "WeatherToolConfig",
     "WhatsAppBaileysChannelConfig",
     "WhatsAppChannelConfig",
     "WorkflowConfig",

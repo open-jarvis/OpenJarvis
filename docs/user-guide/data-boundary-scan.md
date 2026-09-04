@@ -58,6 +58,7 @@ The current checks cover:
   `telemetry.db`, `scheduler.db`, embeddings, skill index, `.vault_key`, and memory files
 - connector credential files under `connectors/*.json`, without reading them
 - API-key and other runtime credential environment variables (presence only)
+- native weather lookups, where a requested location is sent to OpenWeatherMap
 - a scope note for frontend credential storage when cloud/API-key surfaces exist
 
 Configured database paths (for example `traces.db_path` or `memory.db_path`)

@@ -241,6 +241,7 @@ DEFAULT_TOOL_CAPABILITIES: Dict[str, List[str]] = {
     "file_read": [Capability.FILE_READ],
     "file_write": [Capability.FILE_WRITE],
     "get_pending_actions": [Capability.MEMORY_READ],
+    "get_weather": [Capability.NETWORK_FETCH],
     "git_commit": [Capability.FILE_WRITE],
     "git_diff": [Capability.FILE_READ],
     "git_log": [Capability.FILE_READ],

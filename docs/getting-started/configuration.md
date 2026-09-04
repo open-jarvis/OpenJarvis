@@ -406,6 +406,36 @@ enabled = true
 
 ---
 
+### `[tools.weather]` — Native Weather Tool
+
+Controls defaults for the `get_weather` native tool. The requested location,
+unit system, and language remain overridable on every tool call.
+
+```toml
+[tools]
+enabled = "get_weather"
+
+[tools.weather]
+provider = "openweathermap"
+default_location = ""
+units = "metric"
+lang = "en"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `provider` | string | `"openweathermap"` | Weather provider; currently only OpenWeatherMap is supported. |
+| `default_location` | string | `""` | Optional fallback when a tool call omits its location. |
+| `units` | string | `"metric"` | Default unit system: `metric` or `imperial`. |
+| `lang` | string | `"en"` | Default OpenWeatherMap response language. |
+
+Keep the API key out of `config.toml`. Set `OPENWEATHERMAP_API_KEY`, save it
+through the tool credentials API/UI, or connect the Weather connector. The
+native tool reuses the connector's stored credential when no tool credential or
+environment variable is present.
+
+---
+
 ### `[server]` — API Server
 
 Controls the OpenAI-compatible API server started by `jarvis serve`.
