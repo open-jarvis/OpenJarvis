@@ -51,13 +51,13 @@ def memory() -> None:
 @click.option(
     "--chunk-size",
     default=512,
-    type=int,
+    type=click.IntRange(min=1),
     help="Chunk size in tokens.",
 )
 @click.option(
     "--chunk-overlap",
     default=64,
-    type=int,
+    type=click.IntRange(min=0),
     help="Overlap between chunks in tokens.",
 )
 def index(

@@ -193,6 +193,8 @@ class SkillManager:
         tools: List[BaseTool] = []
 
         for manifest in self._skills.values():
+            if manifest.disable_model_invocation:
+                continue
             real_executor = executor or _NullToolExecutor()
             skill_exec = SkillExecutor(real_executor, bus=self._bus)
 
@@ -250,6 +252,8 @@ class SkillManager:
         """
         examples: List[str] = []
         for name, manifest in self._skills.items():
+            if manifest.disable_model_invocation:
+                continue
             oj = manifest.metadata.get("openjarvis", {}) if manifest.metadata else {}
             few_shot = oj.get("few_shot", []) or []
             for ex in few_shot:

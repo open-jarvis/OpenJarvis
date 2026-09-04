@@ -448,6 +448,26 @@ class GemmaCppEngineConfig:
 
 
 @dataclass(slots=True)
+class AfmEngineConfig:
+    """Per-engine config for in-process Apple Foundation Models.
+
+    No ``host``: this engine runs the SDK in-process rather than talking to a
+    server. (The separate ``apple_fm`` engine does have a host — it speaks to
+    the FastAPI shim.)
+    """
+
+    # Standing instructions applied to every session, on top of any system
+    # message in the request.
+    instructions: str = ""
+    # "general" or "content_tagging".
+    use_case: str = "general"
+    # "default" or "permissive_content_transformations".
+    guardrails: str = "default"
+    # "greedy" (reproducible, the default here) or "random" (the SDK default).
+    sampling: str = "greedy"
+
+
+@dataclass(slots=True)
 class LemonadeEngineConfig:
     """Per-engine config for Lemonade."""
 
@@ -469,6 +489,7 @@ class EngineConfig:
     nexa: NexaEngineConfig = field(default_factory=NexaEngineConfig)
     uzu: UzuEngineConfig = field(default_factory=UzuEngineConfig)
     apple_fm: AppleFmEngineConfig = field(default_factory=AppleFmEngineConfig)
+    afm: AfmEngineConfig = field(default_factory=AfmEngineConfig)
     gemma_cpp: GemmaCppEngineConfig = field(default_factory=GemmaCppEngineConfig)
     lemonade: LemonadeEngineConfig = field(default_factory=LemonadeEngineConfig)
 
@@ -1176,6 +1197,12 @@ class TelemetryConfig:
     gpu_metrics: bool = False
     gpu_poll_interval_ms: int = 50
     energy_vendor: str = ""  # auto-detect or force "nvidia"/"amd"/"apple"/"cpu_rapl"
+    # Permit a modelled energy estimate when no hardware counters are
+    # readable. Off by default: an estimate written to the telemetry DB is
+    # indistinguishable from a measurement at query time except via
+    # `energy_method`, and on Apple Silicon the estimate is a function of
+    # wall-clock alone, so it cannot tell an idle window from a busy one.
+    allow_energy_estimates: bool = False
     warmup_samples: int = 0
     steady_state_window: int = 5
     steady_state_threshold: float = 0.05
@@ -1790,6 +1817,11 @@ def validate_config_key(dotted_key: str) -> type:
     """
     from dataclasses import fields as dc_fields
 
+    def contains_dataclass(annotation: Any) -> bool:
+        if is_dataclass(annotation):
+            return True
+        return any(contains_dataclass(arg) for arg in get_args(annotation))
+
     parts = dotted_key.split(".")
     if len(parts) < 2:
         raise ValueError(
@@ -1824,7 +1856,18 @@ def validate_config_key(dotted_key: str) -> type:
             fld_type = eval(fld_type, vars(_cfg_mod))  # noqa: S307
 
         if i == len(parts) - 1:
-            # Leaf — return the primitive type
+            if contains_dataclass(fld_type):
+                suggestions = ""
+                if is_dataclass(fld_type):
+                    child_keys = [
+                        f"{dotted_key}.{child.name}" for child in dc_fields(fld_type)
+                    ]
+                    suggestions = f"; set one of: {', '.join(child_keys)}"
+                raise ValueError(
+                    f"Config key {dotted_key!r} names a section, not a settable value"
+                    f"{suggestions}"
+                )
+            # Leaf — return the primitive/container type
             return fld_type
         else:
             # Must be a nested dataclass
@@ -2227,7 +2270,10 @@ enabled = true
 # lang = "en"                  # OpenWeatherMap language code
 
 [server]
-host = "0.0.0.0"
+# Loopback is safe for local use and works without API authentication.
+host = "127.0.0.1"
+# To serve other machines, configure an API key before using:
+# host = "0.0.0.0"
 port = 8000
 agent = "orchestrator"
 

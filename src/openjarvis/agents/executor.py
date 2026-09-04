@@ -36,6 +36,46 @@ _MAX_RETRIES = 3
 _AGENT_TICK_DEFAULT_MODEL = "gemma4:31b"
 
 
+def _resolve_tick_model(config: dict[str, Any], system: Any) -> str:
+    """Resolve a managed tick model without hiding the system default."""
+
+    return (
+        config.get("model")
+        or (getattr(system, "model", "") if system is not None else "")
+        or _AGENT_TICK_DEFAULT_MODEL
+    )
+
+
+def _available_tick_models(engine: Any, resolved_model: str) -> list[str]:
+    """Return every model the active engine can actually route to.
+
+    Keep the resolved default first when the engine confirms it is available,
+    preserving the existing fallback behavior. Some remote engines cannot list
+    models, so retain the resolved model as a last-resort singleton when model
+    discovery fails or returns no usable identifiers.
+    """
+
+    try:
+        listed = engine.list_models()
+    except Exception as exc:
+        logger.warning("Could not list models for managed-agent routing: %s", exc)
+        return [resolved_model] if resolved_model else []
+
+    candidates = [listed] if isinstance(listed, str) else listed or []
+    available: list[str] = []
+    for candidate in candidates:
+        normalized = candidate.strip() if isinstance(candidate, str) else ""
+        if normalized and normalized not in available:
+            available.append(normalized)
+
+    if not available:
+        return [resolved_model] if resolved_model else []
+    if resolved_model in available:
+        available.remove(resolved_model)
+        available.insert(0, resolved_model)
+    return available
+
+
 def _tool_calls_for_storage(result: AgentResult) -> list[dict[str, Any]] | None:
     """Convert executor tool results to the managed-message storage contract."""
 
@@ -288,11 +328,7 @@ class AgentExecutor:
         engine = self._system.engine if self._system else None
         if engine is None:
             raise FatalError("No engine available in JarvisSystem")
-        model = (
-            config.get("model")
-            or _AGENT_TICK_DEFAULT_MODEL
-            or (self._system.model if self._system else "")
-        )
+        model = _resolve_tick_model(config, self._system)
         if not model:
             raise FatalError("No model configured for agent")
 
@@ -316,7 +352,7 @@ class AgentExecutor:
 
                 policy = RouterPolicyRegistry.create(
                     router_policy_key,
-                    available_models=[model],
+                    available_models=_available_tick_models(engine, model),
                 )
                 instruction = config.get("instruction", "")
                 ctx = build_routing_context(instruction)

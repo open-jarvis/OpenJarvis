@@ -69,7 +69,7 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
 === "Deep Research"
 
     ```bash
-    jarvis init --preset deep-research
+    jarvis init --preset deep-research --force
     jarvis memory index ~/Documents/papers/
     jarvis ask "Summarize all documents about transformer architectures"
     # Multi-hop search across your indexed docs with citations
@@ -78,7 +78,7 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
 === "Code Assistant"
 
     ```bash
-    jarvis init --preset code-assistant
+    jarvis init --preset code-assistant --force
     jarvis ask "Write a Python script that parses CSV files"
     # Orchestrator agent with code execution, file I/O, and shell access
     ```
@@ -86,7 +86,7 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
 === "Scheduled Monitor"
 
     ```bash
-    jarvis init --preset scheduled-monitor
+    jarvis init --preset scheduled-monitor --force
     jarvis memory index ~/Documents/
     jarvis scheduler start
     jarvis scheduler create \
@@ -135,14 +135,22 @@ cd OpenJarvis
 This launches the backend API server and a React frontend at [http://localhost:5173](http://localhost:5173).
 You get a ChatGPT-like interface with streaming responses, tool use, energy monitoring, and a telemetry dashboard — all running locally on your hardware.
 
-Web search is available through the built-in DuckDuckGo fallback. To use
-Tavily, add `TAVILY_API_KEY` under **Settings → Tools → Web Search** after the
-app starts, or export it before starting quickstart:
+Web search works with no configuration: queries go to the You.com keyless
+free tier, which is rate limited per IP and needs no signup. To raise those
+limits, or to use Tavily instead, add `YOUDOTCOM_API_KEY` or `TAVILY_API_KEY`
+under **Settings → Tools → Web Search** after the app starts, or export one
+before starting quickstart:
 
 ```bash
-export TAVILY_API_KEY="tvly-..."
+export YOUDOTCOM_API_KEY="..."   # free key: https://you.com/platform
 ./scripts/quickstart.sh
 ```
+
+Set `OPENJARVIS_WEB_SEARCH_ENGINE` to pick an engine explicitly — `youcom`,
+`tavily`, or `duckduckgo`. The default, `auto`, uses Tavily when
+`TAVILY_API_KEY` is set and You.com otherwise. DuckDuckGo remains the fallback
+for every engine; dropping to it is logged at `WARNING`, since its scraped
+results are unranked.
 
 The script does not automatically source `.env` files. Run `source .env`
 first if that is where you keep the key. Stop any existing OpenJarvis server
@@ -272,7 +280,7 @@ Agents add multi-turn reasoning and tool-calling capabilities. The `orchestrator
 | `retrieval` | Search the memory store for relevant context. |
 | `llm` | Make sub-queries to another model. |
 | `file_read` | Read files with path validation. |
-| `web_search` | Web search via the Tavily API (requires `tools-search` extra). |
+| `web_search` | Web search via You.com (keyless by default) or Tavily, with a DuckDuckGo fallback. |
 
 ### CLI Example
 

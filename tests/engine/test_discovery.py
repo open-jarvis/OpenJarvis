@@ -170,12 +170,7 @@ class TestGetEngine:
         assert result is not None
         assert result[0] == "good"
 
-    def test_explicit_key_falls_back_to_any_healthy(self) -> None:
-        """When an explicit engine_key fails, fallback to any healthy engine.
-
-        Fixes #73: LM Studio running but not found because get_engine()
-        returned None when the explicitly-requested key failed.
-        """
+    def test_explicit_unavailable_key_does_not_substitute(self, caplog) -> None:
         _reg("requested", "requested")
         _reg("running", "running")
 
@@ -189,10 +184,70 @@ class TestGetEngine:
             "openjarvis.engine._discovery._make_engine",
             side_effect=_make,
         ):
-            # Explicit key "requested" is unhealthy, but "running" is healthy
             result = get_engine(cfg, engine_key="requested")
+
+        assert result is None
+        assert "Requested engine 'requested' is unavailable" in caplog.text
+
+    def test_unknown_explicit_key_does_not_substitute(self, caplog) -> None:
+        cfg = JarvisConfig()
+
+        result = get_engine(cfg, engine_key="not-registered")
+
+        assert result is None
+        assert "not registered" in caplog.text
+
+    def test_default_fallback_prefers_same_engine_class(self) -> None:
+        _reg("bad-local", "bad-local")
+        _reg("a-cloud", "a-cloud")
+        _reg("z-local", "z-local")
+
+        class _Cloud(_FakeEngine):
+            is_cloud = True
+
+        cfg = JarvisConfig()
+        cfg.engine.default = "bad-local"
+
+        def _make(k, c):  # noqa: ANN001
+            if k == "bad-local":
+                return _FakeEngine(healthy=False)
+            if k == "a-cloud":
+                return _Cloud(healthy=True)
+            return _FakeEngine(healthy=(k == "z-local"))
+
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=_make,
+        ):
+            result = get_engine(cfg)
+
         assert result is not None
-        assert result[0] == "running"
+        assert result[0] == "z-local"
+
+    def test_cross_boundary_default_fallback_is_named(self, caplog) -> None:
+        _reg("bad-local", "bad-local")
+        _reg("cloud-only", "cloud-only")
+
+        class _Cloud(_FakeEngine):
+            is_cloud = True
+
+        cfg = JarvisConfig()
+        cfg.engine.default = "bad-local"
+
+        def _make(k, c):  # noqa: ANN001
+            if k == "bad-local":
+                return _FakeEngine(healthy=False)
+            return _Cloud(healthy=(k == "cloud-only"))
+
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=_make,
+        ):
+            result = get_engine(cfg)
+
+        assert result is not None
+        assert result[0] == "cloud-only"
+        assert "across the local/cloud boundary" in caplog.text
 
     def test_skips_engine_that_cannot_serve_model(self) -> None:
         """#532: a healthy engine that can't serve the requested model is
