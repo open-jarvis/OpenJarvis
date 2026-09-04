@@ -122,7 +122,7 @@ def test_short_only_document_not_dropped():
 
     Regression for #502 follow-up: previously a folder of short notes indexed
     to ``chunks_indexed: 0`` (HTTP 200), silently storing nothing. ``min_chunk_size``
-    should only discard tiny *trailing fragments*, never an entire short doc.
+    must not discard an entire short document.
     """
     cfg = ChunkConfig(chunk_size=100, chunk_overlap=0, min_chunk_size=50)
     # 30 words is below min_chunk_size=50, but it's the entire document.
@@ -140,17 +140,41 @@ def test_short_real_world_note_not_dropped():
     assert "hello world" in chunks[0].content
 
 
-def test_min_chunk_size_filters_tiny_trailing_fragment():
-    """A tiny fragment trailing a real chunk is still dropped by the floor."""
+def test_min_chunk_size_preserves_short_final_paragraph():
+    """A short final paragraph must be searchable after indexing (#754)."""
     cfg = ChunkConfig(chunk_size=50, chunk_overlap=0, min_chunk_size=10)
     # Two paragraphs: the first fills a real chunk, the second is a tiny tail.
     para1 = " ".join(f"a{i}" for i in range(50))
     para2 = " ".join(f"b{i}" for i in range(3))  # 3 words < min_chunk_size=10
     text = f"{para1}\n\n{para2}"
     chunks = chunk_text(text, config=cfg)
-    # The 3-word trailing fragment is discarded; only the real chunk remains.
-    assert len(chunks) == 1
-    assert "b0" not in chunks[0].content
+    assert len(chunks) == 2
+    assert chunks[1].content == para2
+    assert chunks[1].offset == 50
+
+
+@pytest.mark.parametrize("paragraph_lengths", [(11,), (5, 2), (2, 9, 1), (5, 5, 1)])
+@pytest.mark.parametrize("overlap", [0, 1, 4, 7])
+def test_short_tails_preserve_complete_document_and_offsets(paragraph_lengths, overlap):
+    """Every input token remains covered, including sub-floor final tails."""
+    tokens = [f"word{i}" for i in range(sum(paragraph_lengths))]
+    paragraphs = []
+    start = 0
+    for length in paragraph_lengths:
+        paragraphs.append(" ".join(tokens[start : start + length]))
+        start += length
+    chunks = chunk_text(
+        "\n\n".join(paragraphs),
+        config=ChunkConfig(chunk_size=5, chunk_overlap=overlap, min_chunk_size=4),
+    )
+    covered = set()
+    for index, chunk in enumerate(chunks):
+        words = chunk.content.split()
+        assert 0 < len(words) <= 5
+        assert chunk.index == index
+        assert words == tokens[chunk.offset : chunk.offset + len(words)]
+        covered.update(range(chunk.offset, chunk.offset + len(words)))
+    assert covered == set(range(len(tokens)))
 
 
 def test_short_lead_in_before_oversized_paragraph_is_not_dropped():
