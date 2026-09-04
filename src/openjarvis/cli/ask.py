@@ -369,6 +369,7 @@ def _run_agent(
         )
 
     agent_cls = AgentRegistry.get(agent_name)
+    accepts_tools = getattr(agent_cls, "accepts_tools", False)
 
     # Build tools — local registry tools + MCP server tools from config
     # (#461 — MCP tools were silently dropped because ask.py only used
@@ -400,13 +401,58 @@ def _run_agent(
                 tools.append(t)
                 existing.add(t.spec.name)
 
+    skill_manager = None
+    skill_catalog_xml = None
+    skill_few_shot_examples: list[str] = []
+    skill_tools_added = False
+    if accepts_tools and config.skills.enabled:
+        try:
+            from pathlib import Path
+
+            from openjarvis.skills.manager import SkillManager
+            from openjarvis.tools._stubs import ToolExecutor
+
+            pipeline_executor = ToolExecutor(
+                tools,
+                bus,
+                capability_policy=capability_policy,
+                agent_id=getattr(agent_cls, "agent_id", agent_name),
+                interactive=True,
+                confirm_callback=lambda prompt: True,
+            )
+            skill_manager = SkillManager(
+                bus,
+                capability_policy=capability_policy,
+            )
+            skill_paths = [Path(config.skills.skills_dir).expanduser()]
+            workspace_skills = Path("./skills")
+            if workspace_skills.exists():
+                skill_paths.insert(0, workspace_skills)
+            skill_manager.discover(paths=skill_paths)
+            skill_manager.set_tool_executor(pipeline_executor)
+
+            existing = {tool.spec.name for tool in tools}
+            for skill_tool in skill_manager.get_skill_tools(
+                tool_executor=pipeline_executor,
+            ):
+                if skill_tool.spec.name not in existing:
+                    tools.append(skill_tool)
+                    existing.add(skill_tool.spec.name)
+                    skill_tools_added = True
+
+            if skill_tools_added:
+                skill_catalog_xml = skill_manager.get_catalog_xml()
+                skill_few_shot_examples = skill_manager.get_few_shot_examples()
+        except Exception as exc:
+            logger.warning("Failed to initialize skills: %s", exc)
+
     # Build agent with appropriate kwargs
     agent_kwargs = {
         "bus": bus,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
-    if getattr(agent_cls, "accepts_tools", False):
+    if accepts_tools:
         agent_kwargs["tools"] = tools
         agent_kwargs["max_turns"] = config.agent.max_turns
         agent_kwargs["interactive"] = True
@@ -427,6 +473,8 @@ def _run_agent(
             agent_template=config.agent.default_system_prompt or "",
             memory_files_config=memory_files_config or config.memory_files,
             system_prompt_config=config.system_prompt,
+            skill_catalog_xml=skill_catalog_xml,
+            skill_few_shot_examples=skill_few_shot_examples,
         )
 
     agent = agent_cls(engine, model_name, **agent_kwargs)
@@ -436,6 +484,8 @@ def _run_agent(
     # adversarial review caught this).
     if mcp_clients:
         agent._mcp_clients = mcp_clients
+    if skill_manager is not None:
+        agent._skill_manager = skill_manager
     ctx = AgentContext()
 
     # Inject memory context into conversation if available
@@ -463,7 +513,27 @@ def _run_agent(
         except Exception as exc:
             logger.warning("Failed to inject memory context for agent: %s", exc)
 
-    return agent.run(query_text, context=ctx)
+    trace_store = None
+    if config.traces.enabled:
+        try:
+            from openjarvis.traces.store import TraceStore
+
+            trace_store = TraceStore(config.traces.db_path)
+        except Exception as exc:
+            logger.warning("Failed to initialize TraceStore: %s", exc)
+
+    try:
+        if trace_store is not None:
+            from openjarvis.traces.collector import TraceCollector
+
+            return TraceCollector(agent, store=trace_store, bus=bus).run(
+                query_text,
+                context=ctx,
+            )
+        return agent.run(query_text, context=ctx)
+    finally:
+        if trace_store is not None:
+            trace_store.close()
 
 
 def _print_profile(
