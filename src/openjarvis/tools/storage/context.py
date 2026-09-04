@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from openjarvis.core.events import EventType, get_event_bus
 from openjarvis.core.types import Message, Role
+from openjarvis.memory.store import RECALLABLE_TRUST_TIERS
 from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
 
 if TYPE_CHECKING:
@@ -31,6 +33,32 @@ def _count_tokens(text: str) -> int:
 def _trusted_facts(facts: Sequence[Fact]) -> List[Fact]:
     """Return only facts explicitly safe for model-facing recall."""
     return [fact for fact in facts if bool(getattr(fact, "trusted_for_recall", True))]
+
+
+def _result_trusted_for_recall(result: RetrievalResult) -> bool:
+    """Whether a retrieved document may be placed in model-facing context.
+
+    Documents carry provenance in ``metadata["trust"]`` using the same tier
+    vocabulary as facts. A document with no trust key predates provenance
+    tagging and stays recallable, so enabling this never silently empties an
+    existing knowledge base. Anything else — ``untrusted``, an unknown future
+    tier, or metadata that is not a mapping at all — fails closed rather than
+    becoming prompt input.
+    """
+    metadata = getattr(result, "metadata", None)
+    if metadata is None:
+        return True
+    if not isinstance(metadata, Mapping):
+        return False
+    tier = str(metadata.get("trust", "") or "").strip().lower()
+    return tier in RECALLABLE_TRUST_TIERS
+
+
+def _trusted_results(
+    results: Sequence[RetrievalResult],
+) -> List[RetrievalResult]:
+    """Return only retrieved documents safe for model-facing recall."""
+    return [result for result in results if _result_trusted_for_recall(result)]
 
 
 def format_context(results: List[RetrievalResult]) -> str:
@@ -61,6 +89,7 @@ def build_context_message(
     # inject_context() path. Quarantined facts must never become instructions
     # merely because a caller skipped the budget-selection helper.
     facts = _trusted_facts(facts)
+    results = _trusted_results(results)
     sections = []
     if facts:
         fact_text = "\n".join(f"- {fact.text}" for fact in facts)
@@ -137,13 +166,19 @@ def inject_context(
         Context injection settings (uses defaults if ``None``).
     facts:
         Durable facts captured by the automatic memory service. Quarantined
-        provenance tiers are excluded before budgeting or prompt construction.
+        provenance tiers are excluded before budgeting or prompt construction,
+        as are retrieved documents carrying the same quarantined tiers.
     """
     cfg = config or ContextConfig()
     if not cfg.enabled:
         return messages
 
     results = backend.retrieve(query, top_k=cfg.top_k) if backend is not None else []
+
+    # Drop quarantined-provenance documents before anything else, so a
+    # hostile document cannot consume context budget it will never be
+    # allowed to spend.
+    results = _trusted_results(results)
 
     # Filter by minimum score
     results = [r for r in results if r.score >= cfg.min_score]

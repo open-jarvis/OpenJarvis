@@ -160,6 +160,6 @@ Smaller chunk sizes work better for code, where each function or class is a natu
 
 **Slow responses** -- The agent makes multiple search passes. Each turn involves a model call. Reduce `max_turns` or use a smaller model (`qwen3.5:4b`) for faster but less thorough results.
 
-**Web search not working** -- The `web_search` tool requires the Tavily API. Install with `uv sync --extra tools-search` and set `TAVILY_API_KEY`.
+**Web search not working** -- The `web_search` tool needs no API key by default; it uses the You.com keyless free tier, which is rate limited per IP. Set `YOUDOTCOM_API_KEY` (free key at [you.com/platform](https://you.com/platform?utm_source=open-jarvis-openjarvis&utm_medium=oss_integration&utm_campaign=2026-09-oss-integrations&utm_content=docs)) for higher limits, or install Tavily with `uv sync --extra tools-search` and set `TAVILY_API_KEY`. A `WARNING` naming the failed engine is logged whenever search drops to the DuckDuckGo fallback.
 
 **Wrong chunks retrieved** -- Try re-indexing with different chunk sizes. For technical documents, smaller chunks (`256`) often retrieve more precisely. For narrative text, larger chunks (`1024`) preserve more context.

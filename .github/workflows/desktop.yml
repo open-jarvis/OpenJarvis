@@ -48,9 +48,12 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Use the reviewed npm toolchain
+        run: npm install --global npm@11.19.0
+
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: TypeScript type-check
         working-directory: frontend
@@ -247,9 +250,12 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Use the reviewed npm toolchain
+        run: npm install --global npm@11.19.0
+
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: Download Ollama sidecar
         shell: bash

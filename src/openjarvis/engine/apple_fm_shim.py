@@ -1,14 +1,15 @@
 """Apple Foundation Models shim.
 
-Thin FastAPI server exposing Apple Intelligence's on-device foundation
-model as an OpenAI-compatible API. Only runs on macOS 26+ with Apple
-Intelligence enabled. Wraps Apple's `apple-fm-sdk`'s
-``LanguageModelSession`` as ``/v1/chat/completions`` and ``/v1/models``
-endpoints.
+Thin FastAPI server exposing Apple Intelligence's on-device foundation model
+as an OpenAI-compatible API, for pointing external OpenAI clients at AFM.
+Only runs on macOS 26+ with Apple Intelligence enabled. Wraps
+``apple-fm-sdk``'s ``LanguageModelSession`` as ``/v1/chat/completions`` and
+``/v1/models``.
 
-**Token counts:** The Apple FM SDK does not expose token counts. The
-shim returns 0 for all token counts. Throughput and energy benchmarks
-will reflect this limitation.
+OpenJarvis's own preferred path is the in-process ``afm`` engine
+(``openjarvis.engine.apple_fm``), which avoids an HTTP hop and a second
+process whose CPU energy would otherwise land inside the same measurement
+window.
 
 Usage:
     uvicorn openjarvis.engine.apple_fm_shim:app \
@@ -31,23 +32,29 @@ try:
     import apple_fm_sdk  # type: ignore[import-untyped]
 except ImportError:
     print(
-        "apple_fm_shim: apple-fm-sdk is not available. The SDK is not on\n"
-        "PyPI yet; clone https://github.com/apple/python-apple-fm-sdk and\n"
-        "install from source:\n"
-        "    git clone https://github.com/apple/python-apple-fm-sdk\n"
-        "    uv pip install -e ./python-apple-fm-sdk\n"
-        "Requires macOS 26+, Xcode 26+, and Apple Intelligence enabled.",
+        "apple_fm_shim: apple-fm-sdk is not available. Install it with:\n"
+        "    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \\\n"
+        "        uv pip install 'apple-fm-sdk>=0.2.1'\n"
+        "The SDK compiles Swift bindings at install time, so a full Xcode is\n"
+        "required -- Command Line Tools alone fail. Requires macOS 26+ and\n"
+        "Apple Intelligence enabled.",
         file=sys.stderr,
     )
     sys.exit(1)
 
 import json
+import logging
 import time
 import uuid
+from typing import Any, Optional
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
+
+from openjarvis.engine._apple_fm_support import SnapshotAccumulator
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Apple FM Shim")
 
@@ -67,21 +74,28 @@ class ChatRequest(BaseModel):
     stream: bool = False
 
 
-def _build_prompt(messages: list[ChatMessage]) -> str:
-    parts: list[str] = []
-    for m in messages:
-        if m.role == "system":
-            parts.append(f"[System] {m.content}")
-        elif m.role in ("user", "assistant"):
-            parts.append(m.content)
-    return "\n".join(parts)
+def _system_language_model() -> Any:
+    return apple_fm_sdk.SystemLanguageModel()
+
+
+def _split_messages(messages: list[ChatMessage]) -> tuple[str, str]:
+    """Split into (instructions, prompt).
+
+    System messages become the session's ``instructions``, which is where the
+    SDK wants them. Earlier versions prefixed them onto the prompt as
+    ``[System] ...``, which both discards the distinction and inflates the
+    prompt-token count.
+    """
+    system_parts = [m.content for m in messages if m.role == "system"]
+    prompt_parts = [m.content for m in messages if m.role in ("user", "assistant")]
+    return "\n".join(system_parts), "\n".join(prompt_parts)
 
 
 def _generation_options(req: ChatRequest) -> apple_fm_sdk.GenerationOptions:
     """Build the per-request GenerationOptions from a ChatRequest.
 
-    Apple FM doesn't take ``max_tokens`` / ``temperature`` as positional
-    args to ``respond`` / ``stream_response`` — they live on a
+    Apple FM doesn't take ``max_tokens`` / ``temperature`` as positional args
+    to ``respond`` / ``stream_response`` -- they live on a
     ``GenerationOptions`` object passed via the ``options`` kwarg.
     """
     return apple_fm_sdk.GenerationOptions(
@@ -90,12 +104,40 @@ def _generation_options(req: ChatRequest) -> apple_fm_sdk.GenerationOptions:
     )
 
 
+async def _count(model: Any, value: Any) -> Optional[int]:
+    """``token_count`` that degrades to ``None`` rather than failing a request."""
+    try:
+        return int(await model.token_count(value))
+    except Exception:
+        logger.debug("apple_fm_shim: token_count failed", exc_info=True)
+        return None
+
+
+def _usage(prompt_tokens: Optional[int], completion_tokens: Optional[int]) -> dict:
+    prompt = prompt_tokens or 0
+    completion = completion_tokens or 0
+    return {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": prompt + completion,
+    }
+
+
+def _completion_tokens(
+    post: Optional[int],
+    prompt_tokens: Optional[int],
+) -> Optional[int]:
+    if post is None or prompt_tokens is None:
+        return None
+    return max(post - prompt_tokens, 0)
+
+
 @app.get("/health")
 def health() -> JSONResponse:
     # SystemLanguageModel.is_available() is an *instance* method that
     # returns (bool, reason | None). Unpack so we can both gate the
     # response code and surface the reason for unavailability.
-    available, reason = apple_fm_sdk.SystemLanguageModel().is_available()
+    available, reason = _system_language_model().is_available()
     if available:
         return JSONResponse({"status": "ok"}, status_code=200)
     return JSONResponse(
@@ -106,43 +148,57 @@ def health() -> JSONResponse:
 
 @app.get("/v1/models")
 def list_models() -> JSONResponse:
-    return JSONResponse(
-        {
-            "object": "list",
-            "data": [
-                {"id": MODEL_ID, "object": "model", "owned_by": "apple"},
-            ],
-        }
-    )
+    entry: dict[str, Any] = {
+        "id": MODEL_ID,
+        "object": "model",
+        "owned_by": "apple",
+    }
+    try:
+        entry["context_length"] = int(_system_language_model().context_size)
+    except Exception:
+        logger.debug("apple_fm_shim: context_size unavailable", exc_info=True)
+    return JSONResponse({"object": "list", "data": [entry]})
 
 
 @app.post("/v1/chat/completions", response_model=None)
 async def chat_completions(
     req: ChatRequest,
 ) -> JSONResponse | StreamingResponse:
-    prompt = _build_prompt(req.messages)
-    session = apple_fm_sdk.LanguageModelSession()
+    instructions, prompt = _split_messages(req.messages)
+    model = _system_language_model()
+    session = apple_fm_sdk.LanguageModelSession(
+        instructions=instructions or None,
+        model=model,
+    )
     options = _generation_options(req)
+
+    # Token accounting. `token_count` rejects a value and instructions
+    # together, and counting instructions standalone does not match how the
+    # transcript encodes them, so both ends are measured against the
+    # transcript instead:
+    #   prompt_tokens     = <transcript before> + <prompt alone>
+    #   completion_tokens = <transcript after>  - prompt_tokens
+    pre_tokens = await _count(model, session.transcript)
+    prompt_only = await _count(model, prompt)
+    prompt_tokens = (
+        pre_tokens + prompt_only
+        if pre_tokens is not None and prompt_only is not None
+        else prompt_only
+    )
 
     if req.stream:
 
         async def generate():
             cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
             # Apple FM yields cumulative snapshots, OpenAI clients expect
-            # incremental deltas — diff against the last snapshot to convert
-            # (see #378).
-            sent = ""
+            # incremental deltas (see #378). The accumulator also handles
+            # guided generation revising a snapshot rather than extending it.
+            accumulator = SnapshotAccumulator()
             async for snapshot in session.stream_response(
                 prompt,
                 options=options,
             ):
-                if not snapshot.startswith(sent):
-                    # Snapshot diverged (model revised earlier text);
-                    # fall back to resending the full snapshot.
-                    delta = snapshot
-                else:
-                    delta = snapshot[len(sent) :]
-                sent = snapshot
+                delta = accumulator.add(snapshot)
                 if not delta:
                     continue
                 chunk = {
@@ -159,6 +215,8 @@ async def chat_completions(
                     ],
                 }
                 yield f"data: {json.dumps(chunk)}\n\n"
+
+            post_tokens = await _count(model, session.transcript)
             final = {
                 "id": cid,
                 "object": "chat.completion.chunk",
@@ -171,6 +229,12 @@ async def chat_completions(
                         "finish_reason": "stop",
                     }
                 ],
+                # Streaming clients that track cost/throughput read usage off
+                # the final chunk; omitting it left them with nothing.
+                "usage": _usage(
+                    prompt_tokens,
+                    _completion_tokens(post_tokens, prompt_tokens),
+                ),
             }
             yield f"data: {json.dumps(final)}\n\n"
             yield "data: [DONE]\n\n"
@@ -181,6 +245,7 @@ async def chat_completions(
         )
 
     text = await session.respond(prompt, options=options)
+    post_tokens = await _count(model, session.transcript)
     cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     return JSONResponse(
         {
@@ -195,10 +260,9 @@ async def chat_completions(
                     "finish_reason": "stop",
                 }
             ],
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            },
+            "usage": _usage(
+                prompt_tokens,
+                _completion_tokens(post_tokens, prompt_tokens),
+            ),
         }
     )
