@@ -208,6 +208,8 @@ The `OrchestratorAgent` is a multi-turn agent that implements a tool-calling loo
 
 The `NativeReActAgent` implements a **Thought-Action-Observation** loop following the ReAct pattern. It prompts the LLM to produce structured output (`Thought:`, `Action:`, `Action Input:`, `Final Answer:`) and parses the response to drive tool execution. Extends `ToolUsingAgent`.
 
+Models may also return one complete JSON object, optionally inside a JSON code fence, with `thought`, `action`, and `action_input`, or with `final_answer`. Title Case keys such as `Action Input` are accepted. Tool arguments must be a JSON object or a string containing one. Malformed or ambiguous JSON produces an explicit parsing error without executing a tool. JSON examples embedded in prose are not extracted as actions.
+
 **How it works:**
 
 1. Builds a system prompt with enriched tool descriptions (names, parameter schemas, categories) via `build_tool_descriptions()`. Parsing is case-insensitive.
