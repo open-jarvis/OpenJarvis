@@ -8,6 +8,7 @@ from unittest import mock
 from click.testing import CliRunner
 
 from openjarvis.cli import cli
+from openjarvis.core.config import JarvisConfig
 
 _ask_mod = importlib.import_module("openjarvis.cli.ask")
 
@@ -102,6 +103,7 @@ class TestAskModelResolution:
             mock.patch.object(
                 _ask_mod,
                 "load_config",
+                return_value=JarvisConfig(),
             ) as mock_config,
         ):
             cfg = mock_config.return_value
@@ -113,7 +115,8 @@ class TestAskModelResolution:
             cfg.agent.context_from_memory = False
             cfg.agent.default_agent = ""
             result = CliRunner().invoke(cli, ["ask", "Hello"])
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
+        assert engine.generate.call_args.kwargs["model"] == "test-model"
 
     def test_fallback_to_fallback_model(self) -> None:
         """When default_model is empty and no engine models, uses fallback_model."""
@@ -134,6 +137,7 @@ class TestAskModelResolution:
             mock.patch.object(
                 _ask_mod,
                 "load_config",
+                return_value=JarvisConfig(),
             ) as mock_config,
         ):
             cfg = mock_config.return_value
@@ -145,4 +149,5 @@ class TestAskModelResolution:
             cfg.agent.context_from_memory = False
             cfg.agent.default_agent = ""
             result = CliRunner().invoke(cli, ["ask", "Hello"])
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
+        assert engine.generate.call_args.kwargs["model"] == "fallback-model"
