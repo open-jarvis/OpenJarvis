@@ -60,6 +60,67 @@ The security module has four independently usable components:
 
 ---
 
+## Capability policies and runtime identities
+
+Capability checks restrict tool dispatch and direct agent operations. Built-in
+requirements cannot be weakened by omitting them from a tool's metadata. Remote
+MCP tools require `tool:invoke`, and third-party tools can declare additional
+requirements. Capability grants do not bypass a tool's confirmation requirement.
+
+The `shared` and `server` security profiles enable capabilities with
+`default_deny = true`. Without a policy file, their baseline grants new agents
+`file:read`, `network:fetch`, `memory:read`, and `memory:write`. Code execution,
+file writes, channel sends, scheduling, and administrative operations require
+additional grants. The personal/default profile keeps capability checks opt-in.
+
+To choose the exact grants, configure a policy file:
+
+```toml
+[security]
+profile = "shared"
+
+[security.capabilities]
+policy_path = "/absolute/path/capabilities.json"
+```
+
+Individual fields override the profile: specifying only `policy_path` preserves
+its enabled, default-deny behavior. An explicit `enabled = false` disables the
+capability check, and an explicit `default_deny = false` allows capabilities not
+otherwise denied. When capabilities are enabled, policy initialization failure
+stops startup in every profile. Shared/server profiles also stop if rate-limit
+initialization fails. Missing or malformed policy files are errors; the native
+Rust capability backend remains required.
+
+An explicit policy file receives **no automatic baseline grants**. For example,
+this policy permits reads through MCP and denies other capabilities:
+
+```json
+{
+  "agents": [
+    {"agent_id": "mcp", "grants": [{"capability": "file:read"}]}
+  ]
+}
+```
+
+`{"agents": []}` denies all capability-bearing operations when
+`default_deny = true`. The reviewed `calculator` and `think` tools require no
+capability. A `_default` entry supplies grants for identities without their own
+entry; a specific identity's policy takes precedence over `_default`.
+
+| Execution path | Policy identity |
+| --- | --- |
+| Managed-agent tick or stream | The managed agent's ID |
+| CLI, SDK, or selected server agent | The selected runtime agent name/ID |
+| Server agent-management API | `server:api` |
+| Standalone MCP executor | `mcp`, unless explicitly overridden |
+| Learning environment | `learning`, unless explicitly overridden |
+| Scheduler without a selected agent | `scheduler` |
+
+Rate-limit keys include both identity and tool name. The audit log records tool
+completion, capability denials, and rate-limit denials with that identity.
+
+---
+
 ## GuardrailsEngine
 
 `GuardrailsEngine` wraps any `InferenceEngine` and scans both the input messages and the output content. It is not registered in `EngineRegistry` — you create it directly by wrapping an existing engine instance.

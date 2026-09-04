@@ -452,6 +452,67 @@ class MinionsAgent(LocalCloudAgent):
 
     agent_id = "minions"
 
+    def _required_capabilities_for_run(
+        self,
+        context: Optional[AgentContext],
+    ) -> List[str]:
+        """Include the legacy-default GAIA prefetch when it is reachable."""
+        required = super()._required_capabilities_for_run(context)
+        task_meta = context.metadata.get("task", {}) if context is not None else {}
+        if not isinstance(task_meta, dict):
+            task_meta = {}
+        swe_mode = (
+            bool(self._cfg.get("swe_use_agent_loop"))
+            and bool(task_meta.get("problem_statement"))
+            and bool(task_meta.get("repo"))
+            and bool(task_meta.get("base_commit"))
+        )
+        ws_block = (
+            self._cfg.get("web_search")
+            if isinstance(self._cfg.get("web_search"), dict)
+            else None
+        )
+        ws_enabled, _ = web_search_cfg(self._cfg)
+        prefetch_on = ws_block is None or ws_enabled
+        if not swe_mode and task_meta.get("question") and prefetch_on:
+            required.append("network:fetch")
+        return list(dict.fromkeys(required))
+
+    def _prefetch_context_secured(
+        self,
+        question: str,
+        *,
+        max_uses: int,
+        search_backend: str,
+        tavily_max_results: int,
+    ) -> Dict[str, Any]:
+        """Gate the GAIA prefetch immediately before provider/Tavily I/O."""
+        operation = (
+            "minions_tavily"
+            if search_backend == "tavily"
+            else "minions_provider_prefetch"
+        )
+        authorization = self._authorize_direct_operation(
+            ["network:fetch"],
+            operation=operation,
+        )
+        if not authorization.success:
+            return {
+                "text": "",
+                "tokens": 0,
+                "cost_usd": 0.0,
+                "n_searches": 0,
+                "error": authorization.content,
+            }
+        return _prefetch_context(
+            question,
+            self._cloud_endpoint,
+            self._cloud_model,
+            max_uses=max_uses,
+            search_backend=search_backend,
+            tavily_max_results=tavily_max_results,
+        )
+
     def _is_soft_failure(self, exc: BaseException) -> Optional[str]:
         # Known soft-failure modes: Qwen worker JSON malformed, Anthropic
         # 400/529, KeyError on missing schema fields.
@@ -589,10 +650,8 @@ class MinionsAgent(LocalCloudAgent):
             or ws_enabled
         )
         if task_meta.get("question") and prefetch_on:
-            prefetch = _prefetch_context(
+            prefetch = self._prefetch_context_secured(
                 task_meta["question"],
-                self._cloud_endpoint,
-                self._cloud_model,
                 max_uses=ws_max_uses,
                 search_backend=str(cfg.get("search_backend", "provider")).lower(),
                 tavily_max_results=int(cfg.get("tavily_max_results", 5)),

@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -91,11 +91,26 @@ class CapabilityPolicy:
         policy.deny.append(capability)
         self._rust_impl.deny(agent_id, capability)
 
+    _DEFAULT_AGENT = "_default"
+
     def check(self, agent_id: str, capability: str, resource: str = "") -> bool:
         """Check whether *agent_id* has *capability* for *resource*.
 
-        Returns True if allowed, False if denied.
+        Falls back to the ``_default`` wildcard agent's grants only when
+        *agent_id* has no explicit policy of its own. This lets a baseline be
+        granted once via
+        ``grant("_default", ...)`` instead of needing to know every
+        dynamically-created managed-agent UUID ahead of time while preserving
+        the invariant that an agent-specific denial always wins.
         """
+        if (
+            not agent_id
+            or agent_id == self._DEFAULT_AGENT
+            or agent_id in self._policies
+        ):
+            return self._rust_impl.check(agent_id, capability, resource)
+        if self._DEFAULT_AGENT in self._policies:
+            return self._rust_impl.check(self._DEFAULT_AGENT, capability, resource)
         return self._rust_impl.check(agent_id, capability, resource)
 
     def _check_python(self, agent_id: str, capability: str, resource: str = "") -> bool:
@@ -132,23 +147,44 @@ class CapabilityPolicy:
         return list(self._policies.keys())
 
     def _load_file(self, path: Path) -> None:
-        """Load policy from a JSON file."""
-        if not path.exists():
-            return
-        try:
-            data = json.loads(path.read_text())
-            for agent_data in data.get("agents", []):
-                agent_id = agent_data["agent_id"]
-                for grant_data in agent_data.get("grants", []):
-                    self.grant(
-                        agent_id,
-                        grant_data["capability"],
-                        grant_data.get("pattern", "*"),
+        """Load an explicitly configured policy, rejecting incomplete policy data."""
+        # A missing/malformed file must not silently discard configured denies.
+        # Validate the complete document before applying any grants.
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict) or not isinstance(data.get("agents"), list):
+            raise ValueError("Capability policy must contain an agents list")
+        for agent_data in data["agents"]:
+            if not isinstance(agent_data, dict):
+                raise ValueError("Capability policy agent must be an object")
+            agent_id = agent_data.get("agent_id")
+            if not isinstance(agent_id, str) or not agent_id.strip():
+                raise ValueError("Capability policy agent_id must be a nonempty string")
+            grants = agent_data.get("grants", [])
+            denied = agent_data.get("deny", [])
+            if not isinstance(grants, list) or not isinstance(denied, list):
+                raise ValueError("Capability policy grants and deny must be lists")
+            for grant in grants:
+                if (
+                    not isinstance(grant, dict)
+                    or not isinstance(grant.get("capability"), str)
+                    or not grant["capability"].strip()
+                    or not isinstance(grant.get("pattern", "*"), str)
+                ):
+                    raise ValueError(
+                        "Capability policy grant must specify a capability"
                     )
-                for denied in agent_data.get("deny", []):
-                    self.deny(agent_id, denied)
-        except (json.JSONDecodeError, KeyError, TypeError) as exc:
-            logger.warning("Failed to parse capability policy: %s", exc)
+            if any(not isinstance(cap, str) or not cap.strip() for cap in denied):
+                raise ValueError("Capability policy deny entries must be strings")
+
+        for agent_data in data["agents"]:
+            agent_id = agent_data["agent_id"]
+            # An explicit empty policy is still an identity-specific policy;
+            # it must not accidentally inherit the wildcard's grants.
+            self._policies.setdefault(agent_id, AgentPolicy(agent_id=agent_id))
+            for grant in agent_data.get("grants", []):
+                self.grant(agent_id, grant["capability"], grant.get("pattern", "*"))
+            for denied in agent_data.get("deny", []):
+                self.deny(agent_id, denied)
 
     def save(self, path: Path) -> None:
         """Save policy to a JSON file."""
@@ -167,18 +203,135 @@ class CapabilityPolicy:
         path.write_text(json.dumps({"agents": agents}, indent=2))
 
 
-# Default capability requirements for built-in tools
+# Canonical capability requirements for every in-tree tool.  This table is a
+# security floor: ToolSpec declarations may add requirements, but they may not
+# weaken these.  Keep explicitly-safe tools in the table with an empty list so
+# an omitted future built-in can be distinguished from a reviewed safe one.
 DEFAULT_TOOL_CAPABILITIES: Dict[str, List[str]] = {
-    "file_read": [Capability.FILE_READ],
-    "web_search": [Capability.NETWORK_FETCH],
+    "agent_kill": [Capability.SYSTEM_ADMIN],
+    "agent_list": [Capability.SYSTEM_ADMIN],
+    "agent_send": [Capability.SYSTEM_ADMIN],
+    "agent_spawn": [Capability.SYSTEM_ADMIN],
+    "apply_patch": [Capability.FILE_WRITE],
+    "audio_transcribe": [Capability.FILE_READ, Capability.NETWORK_FETCH],
+    "browser_axtree": [Capability.NETWORK_FETCH],
+    "browser_click": [Capability.NETWORK_FETCH],
+    "browser_extract": [Capability.NETWORK_FETCH],
+    "browser_navigate": [Capability.NETWORK_FETCH],
+    "browser_screenshot": [Capability.NETWORK_FETCH],
+    "browser_type": [Capability.NETWORK_FETCH],
+    "calculator": [],
+    "calendar_search": [Capability.FILE_READ],
+    "calendar_upcoming": [Capability.FILE_READ],
+    "cancel_scheduled_task": [Capability.SCHEDULE_CREATE],
+    "channel_list": [Capability.SYSTEM_ADMIN],
+    "channel_send": [Capability.CHANNEL_SEND],
+    "channel_status": [Capability.SYSTEM_ADMIN],
+    "check_permission": [Capability.MEMORY_READ],
     "code_interpreter": [Capability.CODE_EXECUTE],
-    "memory_store": [Capability.MEMORY_WRITE],
+    "code_interpreter_docker": [Capability.CODE_EXECUTE],
+    "db_query": [Capability.CODE_EXECUTE],
+    "digest_collect": [Capability.MEMORY_READ, Capability.NETWORK_FETCH],
+    "docker_shell_exec": [Capability.CODE_EXECUTE],
+    "execute_pending_actions": [
+        Capability.SYSTEM_ADMIN,
+        Capability.CHANNEL_SEND,
+        Capability.NETWORK_FETCH,
+    ],
+    "file_read": [Capability.FILE_READ],
+    "file_write": [Capability.FILE_WRITE],
+    "get_pending_actions": [Capability.MEMORY_READ],
+    "get_weather": [Capability.NETWORK_FETCH],
+    "git_commit": [Capability.FILE_WRITE],
+    "git_diff": [Capability.FILE_READ],
+    "git_log": [Capability.FILE_READ],
+    "git_status": [Capability.FILE_READ],
+    "http_request": [Capability.NETWORK_FETCH],
+    "image_generate": [Capability.NETWORK_FETCH, Capability.FILE_WRITE],
+    "kg_add_entity": [Capability.MEMORY_WRITE],
+    "kg_add_relation": [Capability.MEMORY_WRITE],
+    "kg_neighbors": [Capability.MEMORY_READ],
+    "kg_query": [Capability.MEMORY_READ],
+    "knowledge_search": [Capability.MEMORY_READ],
+    "knowledge_sql": [Capability.MEMORY_READ],
+    "list_scheduled_tasks": [Capability.SCHEDULE_CREATE],
+    "llm": [Capability.NETWORK_FETCH],
+    "memory_index": [Capability.MEMORY_WRITE],
+    "memory_manage": [Capability.MEMORY_READ, Capability.MEMORY_WRITE],
     "memory_retrieve": [Capability.MEMORY_READ],
     "memory_search": [Capability.MEMORY_READ],
-    "memory_index": [Capability.MEMORY_WRITE],
+    "memory_store": [Capability.MEMORY_WRITE],
+    "pause_scheduled_task": [Capability.SCHEDULE_CREATE],
+    "pdf_extract": [Capability.FILE_READ],
+    "queue_action": [Capability.MEMORY_WRITE],
+    "record_decision": [Capability.SYSTEM_ADMIN, Capability.MEMORY_WRITE],
+    "repl": [Capability.CODE_EXECUTE],
+    "resume_scheduled_task": [Capability.SCHEDULE_CREATE],
+    "retrieval": [Capability.MEMORY_READ],
+    "scan_chunks": [Capability.MEMORY_READ],
     "schedule_task": [Capability.SCHEDULE_CREATE],
-    "channel_send": [Capability.CHANNEL_SEND],
+    "shell_exec": [Capability.CODE_EXECUTE],
+    "skill_manage": [Capability.FILE_READ, Capability.FILE_WRITE],
+    "text_to_speech": [Capability.NETWORK_FETCH, Capability.FILE_WRITE],
+    "think": [],
+    "user_profile_manage": [Capability.FILE_READ, Capability.FILE_WRITE],
+    "web_search": [Capability.NETWORK_FETCH],
 }
+
+_SAFE_BUILTIN_PROVENANCE = {
+    "calculator": ("openjarvis.tools.calculator", "CalculatorTool"),
+    "think": ("openjarvis.tools.think", "ThinkTool"),
+}
+
+
+def canonical_tool_capabilities(tool: Any) -> List[str]:
+    """Return the non-bypassable capability floor for *tool*.
+
+    Third-party tools remain governed by their ToolSpec.  An in-tree tool that
+    was newly registered without being inventoried fails closed as
+    ``system:admin`` instead of silently becoming unrestricted.
+    """
+    module = type(tool).__module__
+    name = tool.spec.name
+    is_builtin = (
+        module == "openjarvis.tools"
+        or module.startswith("openjarvis.tools.")
+        or module == "openjarvis.scheduler.tools"
+    )
+    if module == "openjarvis.tools.mcp_adapter":
+        # MCP tool names are remote-controlled.  Resolve adapter provenance
+        # before the name table so a server cannot impersonate a reviewed-safe
+        # local tool such as ``calculator`` or ``think``.
+        return [Capability.TOOL_INVOKE]
+    if is_builtin:
+        if name in DEFAULT_TOOL_CAPABILITIES:
+            canonical = list(DEFAULT_TOOL_CAPABILITIES[name])
+            expected = _SAFE_BUILTIN_PROVENANCE.get(name)
+            if (
+                expected is not None
+                and (
+                    module,
+                    type(tool).__name__,
+                )
+                != expected
+            ):
+                logger.error(
+                    "Tool %r claimed reviewed-safe built-in provenance from %s.%s",
+                    name,
+                    module,
+                    type(tool).__name__,
+                )
+                return [Capability.SYSTEM_ADMIN]
+            return canonical
+        logger.error("Built-in tool %r has no canonical capability inventory", name)
+        return [Capability.SYSTEM_ADMIN]
+    if name in DEFAULT_TOOL_CAPABILITIES:
+        canonical = list(DEFAULT_TOOL_CAPABILITIES[name])
+        # Third-party tools that collide with a privileged name retain its
+        # security floor.  Reviewed-safe names are safe only for their in-tree
+        # implementation and therefore fail closed on foreign provenance.
+        return canonical or [Capability.SYSTEM_ADMIN]
+    return []
 
 
 __all__ = [
@@ -186,5 +339,6 @@ __all__ = [
     "Capability",
     "CapabilityGrant",
     "CapabilityPolicy",
+    "canonical_tool_capabilities",
     "DEFAULT_TOOL_CAPABILITIES",
 ]

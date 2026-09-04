@@ -215,6 +215,38 @@ def test_builder_retains_full_mcp_pool_for_managed_agents() -> None:
     assert builder._mcp_tools == [external]
 
 
+def test_builder_wires_security_context_into_internal_mcp_server() -> None:
+    """The builder's MCP construction site must not drop dispatch gates."""
+
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.system import SystemBuilder
+
+    config = JarvisConfig()
+    policy = object()
+    limiter = object()
+    bus = object()
+    builder = SystemBuilder(config)
+
+    with patch("openjarvis.mcp.server.MCPServer") as mcp_server_cls:
+        mcp_server_cls.return_value.get_tools.return_value = []
+        builder._resolve_tools(
+            config,
+            engine=MagicMock(),
+            model="test-model",
+            memory_backend=None,
+            bus=bus,
+            capability_policy=policy,
+            rate_limiter=limiter,
+        )
+
+    mcp_server_cls.assert_called_once_with(
+        bus=bus,
+        capability_policy=policy,
+        rate_limiter=limiter,
+        agent_id="system:mcp",
+    )
+
+
 def test_builder_global_mcp_disable_prevents_discovery() -> None:
     """A global MCP disable is honored by every managed-agent entry path."""
 

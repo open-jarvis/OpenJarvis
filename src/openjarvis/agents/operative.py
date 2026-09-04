@@ -72,6 +72,7 @@ class OperativeAgent(ToolUsingAgent):
             interactive=interactive,
             confirm_callback=confirm_callback,
             prompt_builder=prompt_builder,
+            **kwargs,
         )
         self._system_prompt = system_prompt or ""
         self._operator_id = operator_id
@@ -309,10 +310,12 @@ class OperativeAgent(ToolUsingAgent):
         """Auto-persist a state summary if the agent didn't store state explicitly."""
         if not self._memory_backend or not self._operator_id:
             return
+        if not content or not content.strip():
+            return
         state_key = f"operator:{self._operator_id}:state"
         try:
             # Store a summary of the agent's response as state
-            summary = content[:1000] if content else ""
+            summary = content[:1000]
             self._memory_backend.store(state_key, summary)
         except Exception:
             logger.debug(

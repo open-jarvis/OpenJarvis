@@ -185,6 +185,7 @@ class SystemBuilder:
 
         sec = setup_security(config, engine, bus)
         engine = sec.engine
+        agent_name = self._agent_name or config.agent.default_agent
 
         if telemetry_enabled:
             from openjarvis.telemetry.instrumented_engine import (
@@ -210,8 +211,21 @@ class SystemBuilder:
             model,
             memory_backend,
             channel_backend,
+            bus=bus,
+            capability_policy=sec.capability_policy,
+            rate_limiter=sec.rate_limiter,
         )
-        tool_executor = ToolExecutor(tool_list, bus) if tool_list else None
+        tool_executor = (
+            ToolExecutor(
+                tool_list,
+                bus,
+                capability_policy=sec.capability_policy,
+                agent_id=agent_name,
+                rate_limiter=sec.rate_limiter,
+            )
+            if tool_list
+            else None
+        )
 
         skill_manager = None
         skill_few_shot_examples: List[str] = []
@@ -236,12 +250,17 @@ class SystemBuilder:
                 )
                 tool_list.extend(skill_tools)
                 if tool_list:
-                    tool_executor = ToolExecutor(tool_list, bus)
+                    tool_executor = ToolExecutor(
+                        tool_list,
+                        bus,
+                        capability_policy=sec.capability_policy,
+                        agent_id=agent_name,
+                        rate_limiter=sec.rate_limiter,
+                    )
                 skill_few_shot_examples = skill_manager.get_few_shot_examples()
             except Exception as exc:
                 logger.warning("Failed to initialize skills: %s", exc)
 
-        agent_name = self._agent_name or config.agent.default_agent
         container_runner = self._setup_sandbox(config)
         scheduler_store, task_scheduler = self._setup_scheduler(config, bus)
         workflow_engine = self._setup_workflow(config, bus)
@@ -334,6 +353,7 @@ class SystemBuilder:
             session_store=session_store,
             capability_policy=capability_policy,
             audit_logger=sec.audit_logger,
+            rate_limiter=sec.rate_limiter,
             agent_manager=agent_manager,
             agent_scheduler=agent_scheduler,
             agent_executor=agent_executor,
@@ -442,12 +462,26 @@ class SystemBuilder:
             return None
 
     def _resolve_tools(
-        self, config, engine, model, memory_backend, channel_backend=None
+        self,
+        config,
+        engine,
+        model,
+        memory_backend,
+        channel_backend=None,
+        *,
+        bus=None,
+        capability_policy=None,
+        rate_limiter=None,
     ):
         """Resolve tool instances via MCPServer (primary) + external MCP servers."""
         from openjarvis.mcp.server import MCPServer
 
-        internal_server = MCPServer()
+        internal_server = MCPServer(
+            bus=bus,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id="system:mcp",
+        )
         for tool in internal_server.get_tools():
             self._inject_tool_deps(tool, engine, model, memory_backend, channel_backend)
 

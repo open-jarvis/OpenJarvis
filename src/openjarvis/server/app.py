@@ -91,6 +91,12 @@ def _restore_sendblue_bindings(app: FastAPI) -> None:
                                 engine=engine,
                                 model=model_name,
                                 tools=tools,
+                                bus=getattr(app.state, "bus", None),
+                                capability_policy=getattr(
+                                    app.state, "capability_policy", None
+                                ),
+                                rate_limiter=getattr(app.state, "rate_limiter", None),
+                                agent_id=agent_id,
                             )
 
                     bus = getattr(app.state, "bus", None)
@@ -161,6 +167,9 @@ def create_app(
     agent_scheduler=None,
     mcp_tools=None,
     mcp_clients=None,
+    capability_policy=None,
+    rate_limiter=None,
+    audit_logger=None,
     api_key: str = "",
     webhook_config: dict | None = None,
     cors_origins: list[str] | None = None,
@@ -182,6 +191,54 @@ def create_app(
     config:
         Optional JarvisConfig for other settings.
     """
+    original_engine = engine
+    security_enabled = config is not None and getattr(
+        getattr(config, "security", None), "enabled", False
+    )
+    if security_enabled:
+        if bus is None:
+            from openjarvis.core.events import EventBus
+
+            bus = EventBus(record_history=False)
+        if any(
+            primitive is None
+            for primitive in (capability_policy, rate_limiter, audit_logger)
+        ):
+            # Programmatic factory callers must receive the same config-driven
+            # enforcement as ``jarvis serve``. Explicitly injected primitives
+            # remain authoritative; only missing pieces are derived.
+            from openjarvis.security import setup_security
+
+            derived_security = setup_security(config, engine, bus)
+            engine = derived_security.engine
+            if capability_policy is None:
+                capability_policy = derived_security.capability_policy
+            if rate_limiter is None:
+                rate_limiter = derived_security.rate_limiter
+            if audit_logger is None:
+                audit_logger = derived_security.audit_logger
+
+    # A pre-built tool-using agent is part of the factory's remote execution
+    # surface too. Fill only missing executor fields so explicit per-agent
+    # wiring remains authoritative.
+    if agent is not None and getattr(agent, "_engine", None) is original_engine:
+        agent._engine = engine
+    from openjarvis.security.runtime import wire_agent_security
+
+    wire_agent_security(
+        agent,
+        bus=bus,
+        capability_policy=capability_policy,
+        rate_limiter=rate_limiter,
+        agent_id=(
+            agent_name
+            or getattr(agent, "_runtime_agent_id", "")
+            or getattr(agent, "agent_id", "")
+        ),
+        overwrite=False,
+        synchronize_runtime_cache=True,
+    )
+
     app = FastAPI(
         title="OpenJarvis API",
         description="OpenAI-compatible API server for OpenJarvis",
@@ -226,6 +283,13 @@ def create_app(
     app.state.speech_backend = speech_backend
     app.state.agent_manager = agent_manager
     app.state.agent_scheduler = agent_scheduler
+    # Security primitives for the managed-agent HTTP/SSE routes
+    # (agent_manager_routes.py). Previously never passed here at all, so
+    # every managed agent reached over the network ran with no RBAC gate,
+    # no rate limiting, and no audit trail regardless of config.
+    app.state.capability_policy = capability_policy
+    app.state.rate_limiter = rate_limiter
+    app.state.audit_logger = audit_logger
     app.state.mcp_tools = list(mcp_tools or [])
     app.state._mcp_discovery_lock = threading.Lock()
     app.state._mcp_clients_lock = threading.Lock()

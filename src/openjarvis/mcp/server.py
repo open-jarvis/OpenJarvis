@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from openjarvis.core.events import EventBus
 from openjarvis.core.types import ToolCall
 from openjarvis.mcp.protocol import (
     INTERNAL_ERROR,
@@ -16,6 +17,8 @@ from openjarvis.mcp.protocol import (
 from openjarvis.tools._stubs import BaseTool, ToolExecutor
 
 logger = logging.getLogger(__name__)
+
+_MCP_AGENT_ID = "mcp"
 
 # Tool annotation hints per MCP spec 2025-11-25
 _TOOL_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
@@ -51,11 +54,34 @@ class MCPServer:
     SERVER_VERSION = "0.1.0"
     PROTOCOL_VERSION = "2025-11-25"
 
-    def __init__(self, tools: Optional[List[BaseTool]] = None) -> None:
+    def __init__(
+        self,
+        tools: Optional[List[BaseTool]] = None,
+        *,
+        bus: Optional[EventBus] = None,
+        capability_policy: Optional[Any] = None,
+        rate_limiter: Optional[Any] = None,
+        agent_id: str = _MCP_AGENT_ID,
+    ) -> None:
+        """Create an MCP server with the same dispatch gates as other agents.
+
+        ``agent_id`` is deliberately non-empty by default: capability policy,
+        rate-limit and audit records must never collapse MCP traffic into the
+        anonymous ``""`` identity.  Callers that enable a security profile
+        pass its policy and limiter here; ``ToolExecutor`` then applies both
+        declared and canonical built-in capability requirements before a tool
+        can run.
+        """
         if tools is None:
             tools = self._auto_discover_tools()
         self._tools: Dict[str, BaseTool] = {t.spec.name: t for t in tools}
-        self._executor = ToolExecutor(tools)
+        self._executor = ToolExecutor(
+            tools,
+            bus,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id=agent_id or _MCP_AGENT_ID,
+        )
 
     @staticmethod
     def _auto_discover_tools() -> List[BaseTool]:

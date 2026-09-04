@@ -355,6 +355,7 @@ def _run_agent(
     temperature: float,
     max_tokens: int,
     capability_policy=None,
+    rate_limiter=None,
     memory_files_config=None,
 ):
     """Instantiate and run an agent, returning the AgentResult."""
@@ -457,8 +458,22 @@ def _run_agent(
         agent_kwargs["max_turns"] = config.agent.max_turns
         agent_kwargs["interactive"] = True
         agent_kwargs["confirm_callback"] = lambda prompt: True
-    if capability_policy is not None:
-        agent_kwargs["capability_policy"] = capability_policy
+        agent_kwargs["agent_id"] = agent_name
+        if capability_policy is not None:
+            agent_kwargs["capability_policy"] = capability_policy
+        if rate_limiter is not None:
+            agent_kwargs["rate_limiter"] = rate_limiter
+
+    from openjarvis.security.runtime import agent_security_kwargs
+
+    agent_kwargs.update(
+        agent_security_kwargs(
+            agent_cls,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id=agent_name,
+        )
+    )
 
     # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md persona
     # files actually reach the model. Only passed to agents whose __init__
@@ -478,6 +493,15 @@ def _run_agent(
         )
 
     agent = agent_cls(engine, model_name, **agent_kwargs)
+    from openjarvis.security.runtime import wire_agent_security
+
+    wire_agent_security(
+        agent,
+        bus=bus,
+        capability_policy=capability_policy,
+        rate_limiter=rate_limiter,
+        agent_id=agent_name,
+    )
     # Hold MCP transports alive for the agent's lifetime — without this
     # reference they'd be garbage-collected when this function returns
     # and the underlying HTTP connections would close mid-execution (#461
@@ -981,6 +1005,7 @@ def ask(
                 temperature,
                 max_tokens,
                 capability_policy=sec.capability_policy,
+                rate_limiter=getattr(sec, "rate_limiter", None),
                 memory_files_config=effective_mf,
             )
         except EngineContextLengthError as exc:

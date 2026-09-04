@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -39,6 +40,58 @@ class TestJarvisSystem:
         assert system.tool_executor is tool_executor
         assert system.memory_backend is memory_backend
         assert system.mcp_tools == []
+
+    def test_rate_limiter_is_after_all_preexisting_positional_fields(self):
+        field_names = [field.name for field in fields(JarvisSystem)]
+        assert field_names[-2:] == ["mcp_tools", "rate_limiter"]
+
+        legacy_values = [object() for _ in field_names[:-1]]
+        system = JarvisSystem(*legacy_values)
+
+        assert system.mcp_tools is legacy_values[-1]
+        assert system.rate_limiter is None
+
+    def test_system_orchestrator_wires_direct_agent_security(self):
+        from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
+        from openjarvis.core.registry import AgentRegistry
+        from openjarvis.security.capabilities import CapabilityPolicy
+
+        class _Limiter:
+            def __init__(self):
+                self.keys = []
+
+            def check(self, key):
+                self.keys.append(key)
+                return True, 0.0
+
+        class _DirectAgent(BaseAgent):
+            agent_id = "system-direct"
+            required_capabilities = ("code:execute",)
+
+            def run(self, input, context: AgentContext | None = None, **kwargs):
+                return self._execution_denied_result() or AgentResult(content="ran")
+
+        AgentRegistry.register_value("system-direct", _DirectAgent)
+        policy = CapabilityPolicy(default_deny=True)
+        policy.grant("_default", "code:execute")
+        policy.deny("system-direct", "code:execute")
+        limiter = _Limiter()
+        config = JarvisConfig()
+        config.agent.context_from_memory = False
+        system = JarvisSystem(
+            config=config,
+            bus=EventBus(record_history=True),
+            engine=MagicMock(),
+            engine_key="mock",
+            model="test-model",
+            capability_policy=policy,
+            rate_limiter=limiter,
+        )
+
+        result = system.ask("run", agent="system-direct")
+
+        assert "code:execute" in result["content"]
+        assert limiter.keys == ["system-direct:agent_run"]
 
     def test_ask_direct_mode(self):
         engine = MagicMock()

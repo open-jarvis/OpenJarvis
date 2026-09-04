@@ -113,6 +113,7 @@ class OpenCodeAgent(BaseAgent):
 
     agent_id = "opencode"
     accepts_tools = False
+    required_capabilities = ("code:execute", "file:read", "file:write")
     _default_temperature = 0.7
     _default_max_tokens = 1024
 
@@ -136,6 +137,9 @@ class OpenCodeAgent(BaseAgent):
         server_password: str = "",
         timeout: int = 600,
         opencode_bin: str = "",
+        capability_policy: Optional[Any] = None,
+        rate_limiter: Optional[Any] = None,
+        agent_id: Optional[str] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -143,6 +147,9 @@ class OpenCodeAgent(BaseAgent):
             bus=bus,
             temperature=temperature,
             max_tokens=max_tokens,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id=agent_id,
         )
         self._workspace = workspace or os.getcwd()
         self._agent = agent
@@ -301,6 +308,9 @@ class OpenCodeAgent(BaseAgent):
         **kwargs: Any,
     ) -> AgentResult:
         """Run a coding task through opencode and return the assistant result."""
+        denied = self._execution_denied_result()
+        if denied is not None:
+            return denied
         self._emit_turn_start(input)
 
         # Resolve which opencode provider/model to address. Fail clearly rather

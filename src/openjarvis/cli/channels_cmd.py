@@ -102,7 +102,10 @@ def imessage_start(
             TwoStageRetriever,
         )
         from openjarvis.connectors.store import KnowledgeStore
+        from openjarvis.core.config import load_config
+        from openjarvis.core.events import EventBus
         from openjarvis.engine.ollama import OllamaEngine
+        from openjarvis.security import setup_security
         from openjarvis.tools.knowledge_search import (
             KnowledgeSearchTool,
         )
@@ -112,7 +115,10 @@ def imessage_start(
         from openjarvis.tools.scan_chunks import ScanChunksTool
         from openjarvis.tools.think import ThinkTool
 
-        engine = OllamaEngine()
+        config = load_config()
+        bus = EventBus(record_history=False)
+        security = setup_security(config, OllamaEngine(), bus)
+        engine = security.engine
         store = KnowledgeStore()
         retriever = TwoStageRetriever(store)
         tools = [
@@ -129,6 +135,10 @@ def imessage_start(
             engine=engine,
             model="qwen3.5:4b",
             tools=tools,
+            bus=bus,
+            capability_policy=security.capability_policy,
+            rate_limiter=security.rate_limiter,
+            agent_id="channel:imessage",
         )
 
         def handler(text: str) -> str:

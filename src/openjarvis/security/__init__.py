@@ -19,6 +19,7 @@ class SecurityContext:
     engine: Any
     capability_policy: Any = None
     audit_logger: Any = None
+    rate_limiter: Any = None
 
 
 def setup_security(
@@ -68,9 +69,49 @@ def setup_security(
 
             cap_policy = CapabilityPolicy(
                 policy_path=config.security.capabilities.policy_path or None,
+                default_deny=config.security.capabilities.default_deny,
+            )
+            # No explicit policy file: grant a conservative baseline to the
+            # "_default" wildcard agent so default-deny doesn't silently
+            # break every managed agent (whose UUIDs aren't known ahead of
+            # time). Read/fetch/memory only — writes, code execution, and
+            # admin tools require an explicit per-agent grant.
+            if (
+                config.security.capabilities.default_deny
+                and not config.security.capabilities.policy_path
+            ):
+                for cap in (
+                    "file:read",
+                    "network:fetch",
+                    "memory:read",
+                    "memory:write",
+                ):
+                    cap_policy.grant("_default", cap)
+        except Exception as exc:
+            # Explicitly enabled enforcement is a contract in every profile.
+            # Missing native support or an invalid policy must not produce an
+            # unrestricted executor merely because the profile is personal.
+            raise RuntimeError("Capability policy initialization failed") from exc
+
+    # Rate limiter — config.security.rate_limit_* were previously read by
+    # nothing; this is the first thing in the codebase that actually turns
+    # them into an enforced limiter.
+    rate_limiter = None
+    if config.security.rate_limit_enabled:
+        try:
+            from openjarvis.security.rate_limiter import RateLimitConfig, RateLimiter
+
+            rate_limiter = RateLimiter(
+                RateLimitConfig(
+                    requests_per_minute=config.security.rate_limit_rpm,
+                    burst_size=config.security.rate_limit_burst,
+                    enabled=True,
+                )
             )
         except Exception as exc:
-            logger.debug("Failed to set up capability policy: %s", exc)
+            if config.security.profile in {"shared", "server"}:
+                raise RuntimeError("Rate limiter initialization failed") from exc
+            logger.warning("Failed to set up rate limiter: %s", exc)
 
     # Audit logger
     audit = None
@@ -86,6 +127,7 @@ def setup_security(
         engine=engine,
         capability_policy=cap_policy,
         audit_logger=audit,
+        rate_limiter=rate_limiter,
     )
 
 

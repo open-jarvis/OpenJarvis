@@ -62,6 +62,9 @@ def _test_config():
     cfg = JarvisConfig()
     cfg.analytics.enabled = False
     cfg.traces.enabled = False
+    # Route tests exercise the injected engine directly. Factory-level
+    # config-derived security is covered separately.
+    cfg.security.enabled = False
     return cfg
 
 
@@ -233,6 +236,78 @@ class TestMemoryServiceWiring:
 
 
 class TestChatCompletions:
+    def test_server_agent_cannot_use_default_grant_after_explicit_deny(self):
+        from openjarvis.agents.orchestrator import OrchestratorAgent
+        from openjarvis.core.types import ToolResult
+        from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+        class _PrivilegedTool(BaseTool):
+            tool_id = "server_privileged_probe"
+            calls = 0
+
+            @property
+            def spec(self):
+                return ToolSpec(
+                    name=self.tool_id,
+                    description="Must remain blocked",
+                    required_capabilities=["code:execute"],
+                )
+
+            def execute(self, **params):
+                type(self).calls += 1
+                return ToolResult(tool_name=self.tool_id, content="unsafe")
+
+        class _DenyPolicy:
+            def check(self, agent_id, capability, resource=""):
+                assert agent_id == "server-agent"
+                assert capability == "code:execute"
+                return False
+
+        engine = _make_engine()
+        engine.generate.side_effect = [
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call-denied",
+                        "name": _PrivilegedTool.tool_id,
+                        "arguments": "{}",
+                    }
+                ],
+                "finish_reason": "tool_calls",
+            },
+            {"content": "request safely refused", "finish_reason": "stop"},
+        ]
+        bus = EventBus(record_history=True)
+        agent = OrchestratorAgent(
+            engine,
+            "test-model",
+            tools=[_PrivilegedTool()],
+            bus=bus,
+            capability_policy=_DenyPolicy(),
+            agent_id="server-agent",
+            parallel_tools=False,
+        )
+        client = TestClient(
+            create_app(
+                engine, "test-model", agent=agent, bus=bus, config=_test_config()
+            )
+        )
+
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "run privileged probe"}],
+            },
+        )
+
+        assert response.status_code == 200
+        assert _PrivilegedTool.calls == 0
+        denied = [e for e in bus.history if e.event_type == EventType.CAPABILITY_DENIED]
+        assert len(denied) == 1
+        assert denied[0].data["agent_id"] == "server-agent"
+
     def test_basic_completion(self, client):
         resp = client.post(
             "/v1/chat/completions",

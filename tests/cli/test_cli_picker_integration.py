@@ -186,7 +186,12 @@ class TestChatPickerIntegration:
         assert result.exit_code == 0
         wants_panel.assert_not_called()
         engine.generate.assert_called_once()
-        assert engine.generate.call_args.kwargs == {"model": "gpt-4o-mini"}
+        kwargs = engine.generate.call_args.kwargs
+        assert kwargs["model"] == "gpt-4o-mini"
+        # Security engine wrappers may make their generic inference defaults
+        # explicit; cloud calls must still never inherit Ollama-only knobs.
+        assert "num_ctx" not in kwargs
+        assert "num_gpu" not in kwargs
 
     def test_cloud_chat_rejects_ollama_runtime_flags(self) -> None:
         engine = MagicMock()

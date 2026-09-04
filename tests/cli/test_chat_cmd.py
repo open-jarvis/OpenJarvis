@@ -44,6 +44,7 @@ class _DangerousChatTool(BaseTool):
             name="dangerous_chat",
             description="Confirmation-gated chat tool.",
             requires_confirmation=True,
+            required_capabilities=["code:execute"],
         )
 
     def execute(self, **params) -> ToolResult:
@@ -659,3 +660,61 @@ class TestChatAgents:
         assert result.exit_code == 0
         assert "Confirm:" in result.output
         assert "chat executed!" in result.output
+
+    def test_tool_agent_uses_configured_policy_rate_and_identity(self) -> None:
+        from openjarvis.security import SecurityContext
+        from openjarvis.security.capabilities import CapabilityPolicy
+
+        class _RecordingLimiter:
+            def __init__(self) -> None:
+                self.keys: list[str] = []
+
+            def check(self, key: str):
+                self.keys.append(key)
+                return True, 0.0
+
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        config.agent.tools = "dangerous_chat"
+        policy = CapabilityPolicy(default_deny=True)
+        policy.grant("_default", "code:execute")
+        policy.deny("tool_chat_agent", "code:execute")
+        limiter = _RecordingLimiter()
+
+        AgentRegistry.register_value("tool_chat_agent", _ToolChatAgent)
+        ToolRegistry.register_value("dangerous_chat", _DangerousChatTool)
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.security.setup_security",
+                return_value=SecurityContext(
+                    engine=engine,
+                    capability_policy=policy,
+                    rate_limiter=limiter,
+                ),
+            ),
+            patch(
+                "openjarvis.cli._model_switch.tty_wants_model_picker",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.cli._runtime_panel.tty_wants_runtime_panel",
+                return_value=False,
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--agent", "tool_chat_agent", "--model", "test-model"],
+                input="run tool\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "code:execute" in result.output
+        assert "chat executed!" not in result.output
+        assert "Confirm:" not in result.output
+        assert limiter.keys == ["tool_chat_agent:dangerous_chat"]

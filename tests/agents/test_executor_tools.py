@@ -15,7 +15,7 @@ from openjarvis.agents.manager import AgentManager
 from openjarvis.agents.tool_resolver import ResolvedAgentTools
 from openjarvis.connectors.store import KnowledgeStore
 from openjarvis.core.config import MemoryFilesConfig, SystemPromptConfig
-from openjarvis.core.events import EventBus
+from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import AgentRegistry, ToolRegistry
 from openjarvis.core.types import Role, ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
@@ -85,6 +85,23 @@ class _ExecutorProbeTool(BaseTool):
     def execute(self, **params) -> ToolResult:
         type(self).calls += 1
         return ToolResult(tool_name=self.tool_id, content="probe-result")
+
+
+class _PrivilegedExecutorProbeTool(BaseTool):
+    tool_id = "privileged_executor_probe"
+    calls = 0
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Managed-agent enforcement probe",
+            required_capabilities=["code:execute"],
+        )
+
+    def execute(self, **params) -> ToolResult:
+        type(self).calls += 1
+        return ToolResult(tool_name=self.tool_id, content="unsafe")
 
 
 def _register_agent():
@@ -243,6 +260,79 @@ def test_executor_uses_tool_loop_for_non_tool_agent_with_configured_tools(tmp_pa
         ]
         assert responses[-1]["content"] == "tool-backed final response"
         assert responses[-1]["tool_calls"][0]["tool"] == "executor_probe"
+    finally:
+        manager.close()
+
+
+def test_executor_enforces_managed_agent_capability_denial(tmp_path):
+    """Scheduled/immediate agents cannot bypass the system security policy."""
+
+    AgentRegistry.register_value("non_tool_probe", _NonToolAgent)
+    ToolRegistry.register_value(
+        _PrivilegedExecutorProbeTool.tool_id,
+        _PrivilegedExecutorProbeTool,
+    )
+    _PrivilegedExecutorProbeTool.calls = 0
+
+    engine = FakeEngine(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "call-managed-denied",
+                        "name": _PrivilegedExecutorProbeTool.tool_id,
+                        "arguments": "{}",
+                    }
+                ]
+            },
+            {"content": "request safely refused"},
+        ]
+    )
+    system = SimpleNamespace(
+        engine=engine,
+        model="test-model",
+        memory_backend=None,
+        channel_backend=None,
+        tool_executor=None,
+        tools=[],
+        mcp_tools=[],
+        _mcp_clients=[],
+        config=None,
+        session_store=None,
+        capability_policy=None,
+        rate_limiter=None,
+    )
+    manager = AgentManager(db_path=str(tmp_path / "agents.db"))
+    agent = manager.create_agent(
+        "managed deny probe",
+        agent_type="non_tool_probe",
+        config={
+            "model": "test-model",
+            "tools": [_PrivilegedExecutorProbeTool.tool_id],
+            "instruction": "Attempt the privileged probe.",
+        },
+    )
+
+    class _DenyPolicy:
+        def check(self, agent_id, capability, resource=""):
+            assert agent_id == agent["id"]
+            assert capability == "code:execute"
+            return False
+
+    system.capability_policy = _DenyPolicy()
+    bus = EventBus(record_history=True)
+
+    try:
+        AgentExecutor(manager, bus, system=system).execute_tick(agent["id"])
+
+        assert _PrivilegedExecutorProbeTool.calls == 0
+        denied = [
+            event
+            for event in bus.history
+            if event.event_type == EventType.CAPABILITY_DENIED
+        ]
+        assert len(denied) == 1
+        assert denied[0].data["agent_id"] == agent["id"]
     finally:
         manager.close()
 

@@ -403,6 +403,9 @@ class LocalCloudAgent(BaseAgent):
     """
 
     accepts_tools: bool = False
+    # Hybrid agents directly invoke web-search and, in SWE mode, generated
+    # shell commands without owning a ToolExecutor.
+    uses_direct_operations: bool = True
 
     def __init__(
         self,
@@ -416,6 +419,9 @@ class LocalCloudAgent(BaseAgent):
         bus: Optional[Any] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        capability_policy: Optional[Any] = None,
+        rate_limiter: Optional[Any] = None,
+        agent_id: Optional[str] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -423,6 +429,9 @@ class LocalCloudAgent(BaseAgent):
             bus=bus,
             temperature=temperature,
             max_tokens=max_tokens,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id=agent_id,
         )
         self._cloud_model = model
         self._cloud_endpoint = (cloud_endpoint or "anthropic").lower()
@@ -1278,12 +1287,53 @@ class LocalCloudAgent(BaseAgent):
     # Run contract
     # ------------------------------------------------------------------
 
+    def _required_capabilities_for_run(
+        self,
+        context: Optional[AgentContext],
+    ) -> List[str]:
+        """Derive capabilities from direct operations reachable this run.
+
+        Subclasses with worker pools may extend this hook based on the
+        concrete worker/action types they expose, rather than relying only on
+        generic configuration flags.
+        """
+        required = list(self.required_capabilities)
+        task_meta = context.metadata.get("task", {}) if context is not None else {}
+        if not isinstance(task_meta, dict):
+            task_meta = {}
+        swe_mode = (
+            bool(self._cfg.get("swe_use_agent_loop"))
+            and bool(task_meta.get("problem_statement"))
+            and bool(task_meta.get("repo"))
+            and bool(task_meta.get("base_commit"))
+        )
+        if bool(self._cfg.get("swe_use_agent_loop")) or bool(
+            task_meta.get("repo") and task_meta.get("base_commit")
+        ):
+            required.extend(("code:execute", "file:read", "file:write"))
+        if str(self._cfg.get("search_backend", "provider")).lower() == "tavily":
+            required.append("network:fetch")
+        web_search_enabled, _ = web_search_cfg(self._cfg)
+        if web_search_enabled and not swe_mode:
+            # Provider-hosted search is still an external fetch even when
+            # ``search_backend`` remains at its default value.
+            required.append("network:fetch")
+        if self._cfg.get("retriever_url"):
+            required.append("network:fetch")
+        return list(dict.fromkeys(required))
+
     def run(
         self,
         input: str,
         context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
+        denied = self._execution_denied_result(
+            self._required_capabilities_for_run(context),
+            operation="hybrid_agent_run",
+        )
+        if denied is not None:
+            return denied
         self._emit_turn_start(input)
         t0 = time.time()
         events = _open_trace()

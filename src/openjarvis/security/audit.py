@@ -53,7 +53,10 @@ class AuditLogger:
 
         secure_create(self._db_path)
         self._db_lock = threading.RLock()
-        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        self._conn = sqlite3.connect(
+            str(self._db_path), check_same_thread=False, timeout=30.0
+        )
+        self._conn.execute("PRAGMA busy_timeout = 30000")
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS security_events (
@@ -75,6 +78,9 @@ class AuditLogger:
             bus.subscribe(EventType.SECURITY_SCAN, self._on_event)
             bus.subscribe(EventType.SECURITY_ALERT, self._on_event)
             bus.subscribe(EventType.SECURITY_BLOCK, self._on_event)
+            bus.subscribe(EventType.TOOL_CALL_END, self._on_tool_event)
+            bus.subscribe(EventType.CAPABILITY_DENIED, self._on_tool_event)
+            bus.subscribe(EventType.RATE_LIMITED, self._on_tool_event)
 
     @_db_locked
     def _migrate_schema(self) -> None:
@@ -144,7 +150,7 @@ class AuditLogger:
                 ),
             )
             self._conn.commit()
-        except Exception:
+        except BaseException:
             self._conn.rollback()
             raise
 
@@ -288,6 +294,34 @@ class AuditLogger:
             content_preview=data.get("content_preview", ""),
             action_taken=data.get("mode", ""),
         )
+        self.log(sec_event)
+
+    def _on_tool_event(self, event: Event) -> None:
+        """Handle a TOOL_CALL_END / CAPABILITY_DENIED / RATE_LIMITED event."""
+        data = event.data
+        if event.event_type == EventType.TOOL_CALL_END:
+            success = bool(data.get("success"))
+            sec_event = SecurityEvent(
+                event_type=SecurityEventType.TOOL_EXECUTED,
+                timestamp=event.timestamp,
+                findings=[],
+                content_preview=(
+                    f"tool={data.get('tool', '')} agent={data.get('agent', '')}"
+                ),
+                action_taken="success" if success else "failure",
+            )
+        else:
+            # CAPABILITY_DENIED or RATE_LIMITED — both represent a blocked
+            # tool call and share the same TOOL_BLOCKED category.
+            sec_event = SecurityEvent(
+                event_type=SecurityEventType.TOOL_BLOCKED,
+                timestamp=event.timestamp,
+                findings=[],
+                content_preview=(
+                    f"tool={data.get('tool', '')} agent={data.get('agent_id', '')}"
+                ),
+                action_taken=event.event_type.value,
+            )
         self.log(sec_event)
 
 

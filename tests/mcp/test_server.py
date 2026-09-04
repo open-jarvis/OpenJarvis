@@ -4,14 +4,57 @@ from __future__ import annotations
 
 import pytest
 
+from openjarvis.core.events import EventBus, EventType
+from openjarvis.core.types import ToolResult
 from openjarvis.mcp.protocol import (
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
     MCPRequest,
 )
 from openjarvis.mcp.server import MCPServer
+from openjarvis.tools._stubs import BaseTool, ToolSpec
 from openjarvis.tools.calculator import CalculatorTool
 from openjarvis.tools.think import ThinkTool
+
+
+class _ProbeTool(BaseTool):
+    tool_id = "probe"
+
+    def __init__(self, name: str, capabilities: list[str]) -> None:
+        self._name = name
+        self._capabilities = capabilities
+        self.executed = False
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self._name,
+            description="security enforcement probe",
+            required_capabilities=self._capabilities,
+        )
+
+    def execute(self, **params) -> ToolResult:
+        self.executed = True
+        return ToolResult(tool_name=self._name, content="executed", success=True)
+
+
+class _DenyPolicy:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+
+    def check(self, agent_id: str, capability: str, resource: str) -> bool:
+        self.calls.append((agent_id, capability, resource))
+        return False
+
+
+class _RecordingLimiter:
+    def __init__(self, allowed: bool = True) -> None:
+        self.allowed = allowed
+        self.keys: list[str] = []
+
+    def check(self, key: str) -> tuple[bool, float]:
+        self.keys.append(key)
+        return self.allowed, 1.0 if not self.allowed else 0.0
 
 
 @pytest.fixture
@@ -21,6 +64,74 @@ def server():
 
 
 class TestMCPServer:
+    def test_admin_capability_is_fail_closed_and_auditable(self):
+        tool = _ProbeTool("admin_probe", ["system:admin"])
+        policy = _DenyPolicy()
+        limiter = _RecordingLimiter()
+        bus = EventBus(record_history=True)
+        server = MCPServer(
+            [tool],
+            bus=bus,
+            capability_policy=policy,
+            rate_limiter=limiter,
+        )
+
+        resp = server.handle(
+            MCPRequest(
+                method="tools/call",
+                params={"name": "admin_probe", "arguments": {}},
+                id=100,
+            )
+        )
+
+        assert resp.result["isError"] is True
+        assert "system:admin" in resp.result["content"][0]["text"]
+        assert tool.executed is False
+        assert limiter.keys == ["mcp:admin_probe"]
+        assert policy.calls == [("mcp", "system:admin", "admin_probe")]
+        denied = [
+            event
+            for event in bus.history
+            if event.event_type == EventType.CAPABILITY_DENIED
+        ]
+        assert len(denied) == 1
+        assert denied[0].data["agent_id"] == "mcp"
+
+    def test_canonical_capability_cannot_be_removed_from_mcp_tool_spec(self):
+        tool = _ProbeTool("channel_send", [])
+        policy = _DenyPolicy()
+        server = MCPServer([tool], capability_policy=policy)
+
+        resp = server.handle(
+            MCPRequest(
+                method="tools/call",
+                params={"name": "channel_send", "arguments": {}},
+                id=101,
+            )
+        )
+
+        assert resp.result["isError"] is True
+        assert tool.executed is False
+        assert policy.calls == [("mcp", "channel:send", "channel_send")]
+
+    def test_rate_limit_is_fail_closed_before_mcp_dispatch(self):
+        tool = _ProbeTool("admin_probe", ["system:admin"])
+        limiter = _RecordingLimiter(allowed=False)
+        server = MCPServer([tool], rate_limiter=limiter)
+
+        resp = server.handle(
+            MCPRequest(
+                method="tools/call",
+                params={"name": "admin_probe", "arguments": {}},
+                id=102,
+            )
+        )
+
+        assert resp.result["isError"] is True
+        assert "Rate limit exceeded" in resp.result["content"][0]["text"]
+        assert limiter.keys == ["mcp:admin_probe"]
+        assert tool.executed is False
+
     def test_initialize(self, server):
         req = MCPRequest(method="initialize", id=1)
         resp = server.handle(req)

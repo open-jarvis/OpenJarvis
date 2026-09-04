@@ -173,6 +173,7 @@ class Jarvis:
         self._telem_store: Optional[TelemetryStore] = None
         self._audit_logger: Any = None
         self._capability_policy: Any = None
+        self._rate_limiter: Any = None
         self.memory = MemoryHandle(self._config)
 
         # Set up telemetry
@@ -221,6 +222,7 @@ class Jarvis:
         engine = sec.engine
         self._audit_logger = sec.audit_logger
         self._capability_policy = sec.capability_policy
+        self._rate_limiter = sec.rate_limiter
 
         # Wrap engine with InstrumentedEngine for telemetry + energy
         energy_monitor = None
@@ -485,9 +487,16 @@ class Jarvis:
         if getattr(agent_cls, "accepts_tools", False):
             agent_kwargs["tools"] = tool_objects
             agent_kwargs["max_turns"] = self._config.agent.max_turns
+        from openjarvis.security.runtime import agent_security_kwargs
 
-        if self._capability_policy is not None:
-            agent_kwargs["capability_policy"] = self._capability_policy
+        agent_kwargs.update(
+            agent_security_kwargs(
+                agent_cls,
+                capability_policy=self._capability_policy,
+                rate_limiter=self._rate_limiter,
+                agent_id=agent_name,
+            )
+        )
 
         # Inject DigestConfig for morning_digest agent
         if agent_name == "morning_digest" and hasattr(self._config, "digest"):
@@ -532,6 +541,15 @@ class Jarvis:
             )
 
         agent_obj = agent_cls(self._engine, model_name, **agent_kwargs)
+        from openjarvis.security.runtime import wire_agent_security
+
+        wire_agent_security(
+            agent_obj,
+            bus=self._bus,
+            capability_policy=self._capability_policy,
+            rate_limiter=self._rate_limiter,
+            agent_id=agent_name,
+        )
         ctx = AgentContext()
 
         # Context injection

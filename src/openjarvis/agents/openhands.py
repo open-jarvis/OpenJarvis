@@ -25,6 +25,7 @@ class OpenHandsAgent(BaseAgent):
     """
 
     agent_id = "openhands"
+    required_capabilities = ("code:execute", "file:read", "file:write")
     _default_temperature = 0.7
     _default_max_tokens = 1024
 
@@ -38,6 +39,9 @@ class OpenHandsAgent(BaseAgent):
         max_tokens: Optional[int] = None,
         workspace: Optional[str] = None,
         api_key: Optional[str] = None,
+        capability_policy: Optional[Any] = None,
+        rate_limiter: Optional[Any] = None,
+        agent_id: Optional[str] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -45,6 +49,9 @@ class OpenHandsAgent(BaseAgent):
             bus=bus,
             temperature=temperature,
             max_tokens=max_tokens,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id=agent_id,
         )
         self._workspace = workspace or os.getcwd()
         self._api_key = api_key or os.environ.get("LLM_API_KEY", "")
@@ -55,6 +62,9 @@ class OpenHandsAgent(BaseAgent):
         context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
+        denied = self._execution_denied_result()
+        if denied is not None:
+            return denied
         try:
             from openhands.sdk import (  # type: ignore[import-untyped]
                 LLM,

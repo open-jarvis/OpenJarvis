@@ -75,6 +75,9 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         max_tokens: Optional[int] = None,
         interactive: bool = False,
         confirm_callback=None,
+        capability_policy: Optional[Any] = None,
+        agent_id: Optional[str] = None,
+        rate_limiter: Optional[Any] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -86,10 +89,12 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            capability_policy=capability_policy,
+            agent_id=agent_id,
+            rate_limiter=rate_limiter,
         )
 
-    @staticmethod
-    def _expand_urls(text: str) -> tuple[str, bool]:
+    def _expand_urls(self, text: str) -> tuple[str, bool]:
         """If the user message contains a URL, fetch it and inline the content.
 
         Returns (possibly_expanded_text, was_expanded).
@@ -101,9 +106,21 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             return text, False
         url = url_match.group(0).rstrip(".,;)")
         try:
+            from openjarvis.security.runtime import execute_secured_tool
             from openjarvis.tools.web_search import WebSearchTool
 
-            content = WebSearchTool._fetch_url(url, max_chars=4000)
+            executor = self._executor
+            result = execute_secured_tool(
+                WebSearchTool(),
+                {"query": url},
+                bus=getattr(executor, "_bus", None),
+                capability_policy=getattr(executor, "_capability_policy", None),
+                rate_limiter=getattr(executor, "_rate_limiter", None),
+                agent_id=getattr(executor, "_agent_id", self.agent_id),
+            )
+            if not result.success:
+                return text, False
+            content = result.content[:4000]
             header = f"\n\n--- Content from {url} ---\n"
             footer = "\n--- End of content ---\n"
             expanded = text.replace(url, f"{header}{content}{footer}")

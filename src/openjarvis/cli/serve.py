@@ -320,11 +320,14 @@ def serve(
             if AgentRegistry.contains(agent_key):
                 agent_cls = AgentRegistry.get(agent_key)
                 agent_kwargs = {"bus": bus}
-                if sec.capability_policy is not None:
-                    agent_kwargs["capability_policy"] = sec.capability_policy
 
                 # Load tools for agents that support them
                 if getattr(agent_cls, "accepts_tools", False):
+                    agent_kwargs["agent_id"] = agent_key
+                    if sec.capability_policy is not None:
+                        agent_kwargs["capability_policy"] = sec.capability_policy
+                    if sec.rate_limiter is not None:
+                        agent_kwargs["rate_limiter"] = sec.rate_limiter
                     import openjarvis.tools  # noqa: F401  # trigger registration
                     from openjarvis.core.registry import ToolRegistry
                     from openjarvis.tools._stubs import BaseTool
@@ -367,6 +370,17 @@ def serve(
                 if getattr(agent_cls, "accepts_tools", False):
                     agent_kwargs["max_turns"] = config.agent.max_turns
 
+                from openjarvis.security.runtime import agent_security_kwargs
+
+                agent_kwargs.update(
+                    agent_security_kwargs(
+                        agent_cls,
+                        capability_policy=sec.capability_policy,
+                        rate_limiter=sec.rate_limiter,
+                        agent_id=agent_key,
+                    )
+                )
+
                 # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md
                 # reach the model on the SERVE path too. ``ask.py`` has done
                 # this since the persona system landed; ``serve.py`` never did,
@@ -389,6 +403,15 @@ def serve(
                     )
 
                 agent = agent_cls(engine, model_name, **agent_kwargs)
+                from openjarvis.security.runtime import wire_agent_security
+
+                wire_agent_security(
+                    agent,
+                    bus=bus,
+                    capability_policy=sec.capability_policy,
+                    rate_limiter=sec.rate_limiter,
+                    agent_id=agent_key,
+                )
                 # Pin MCP transports to the agent's lifetime so HTTP
                 # connections don't close mid-request (#461).
                 if mcp_clients:
@@ -476,6 +499,9 @@ def serve(
             tools=_channel_tools,
             mcp_tools=managed_mcp_tools,
             _mcp_clients=mcp_clients,
+            capability_policy=sec.capability_policy,
+            audit_logger=sec.audit_logger,
+            rate_limiter=sec.rate_limiter,
         )
         _wire_system.wire_channel(channel_bridge)
 
@@ -593,7 +619,15 @@ def serve(
                     logger.debug("Scheduler session store init failed: %s", exc)
 
             _sched_tool_executor = (
-                ToolExecutor(resolved_tools, bus) if resolved_tools else None
+                ToolExecutor(
+                    resolved_tools,
+                    bus,
+                    capability_policy=sec.capability_policy,
+                    agent_id=agent_key or "scheduler",
+                    rate_limiter=sec.rate_limiter,
+                )
+                if resolved_tools
+                else None
             )
 
             system = JarvisSystem(
@@ -612,6 +646,8 @@ def serve(
                 trace_store=_trace_store,
                 session_store=_sched_session_store,
                 capability_policy=sec.capability_policy,
+                audit_logger=sec.audit_logger,
+                rate_limiter=sec.rate_limiter,
                 agent_manager=agent_manager,
                 agent_executor=executor,
                 _mcp_clients=mcp_clients,
@@ -713,6 +749,9 @@ def serve(
         agent_scheduler=agent_scheduler,
         mcp_tools=managed_mcp_tools,
         mcp_clients=mcp_clients,
+        capability_policy=sec.capability_policy,
+        rate_limiter=sec.rate_limiter,
+        audit_logger=sec.audit_logger,
         api_key=api_key,
         webhook_config=webhook_config,
         cors_origins=config.server.cors_origins,

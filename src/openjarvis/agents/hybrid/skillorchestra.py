@@ -204,6 +204,24 @@ class SkillOrchestraAgent(LocalCloudAgent):
     """Inference-time skill-aware router. See module docstring."""
 
     agent_id = "skillorchestra"
+    required_capabilities = ("code:execute", "file:read", "file:write")
+
+    def _required_capabilities_for_run(
+        self,
+        context: Optional[AgentContext],
+    ) -> List[str]:
+        """Include provider search for the QA tool set exposed this run."""
+        required = super()._required_capabilities_for_run(context)
+        task_meta = (context.metadata.get("task") if context is not None else {}) or {}
+        swe_mode = (
+            bool(self._cfg.get("swe_use_agent_loop"))
+            and bool(task_meta.get("problem_statement"))
+            and bool(task_meta.get("repo"))
+            and bool(task_meta.get("base_commit"))
+        )
+        if not swe_mode:
+            required.append("network:fetch")
+        return list(dict.fromkeys(required))
 
     def _route_call(
         self,

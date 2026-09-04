@@ -64,9 +64,45 @@ class OptimizeRunRequest(BaseModel):
 agents_router = APIRouter(prefix="/v1/agents", tags=["agents"])
 
 
+def _execute_agent_admin_tool(request: Request, tool: Any, params: Dict[str, Any]):
+    """Execute an agent lifecycle operation through server security gates."""
+    from openjarvis.security.runtime import execute_secured_tool
+
+    state = request.app.state
+    return execute_secured_tool(
+        tool,
+        params,
+        bus=getattr(state, "bus", None),
+        capability_policy=getattr(state, "capability_policy", None),
+        rate_limiter=getattr(state, "rate_limiter", None),
+        agent_id="server:api",
+    )
+
+
+def _raise_agent_tool_failure(result: Any, *, not_found: bool = False) -> None:
+    if result.success:
+        return
+    if "Capability '" in result.content and " denied " in result.content:
+        raise HTTPException(status_code=403, detail=result.content)
+    if result.content.startswith("Rate limit exceeded"):
+        raise HTTPException(status_code=429, detail=result.content)
+    raise HTTPException(status_code=404 if not_found else 400, detail=result.content)
+
+
 @agents_router.get("")
 async def list_agents(request: Request):
     """List available agent types and running agents."""
+    try:
+        from openjarvis.tools.agent_tools import AgentListTool
+
+        # Registry names and live agent metadata are administrative state,
+        # just like spawn/send/kill.  Authorize before reading either source
+        # so default-deny and rate-limit policies cannot be bypassed by GET.
+        result = _execute_agent_admin_tool(request, AgentListTool(), {})
+        _raise_agent_tool_failure(result)
+    except ImportError:
+        raise HTTPException(status_code=501, detail="Agent tools not available")
+
     registered = []
     try:
         import openjarvis.agents  # noqa: F401 — side-effect registration
@@ -107,9 +143,8 @@ async def create_agent(req: AgentCreateRequest, request: Request):
             params["tools"] = ",".join(req.tools)
         if req.agent_id:
             params["agent_id"] = req.agent_id
-        result = tool.execute(**params)
-        if not result.success:
-            raise HTTPException(status_code=400, detail=result.content)
+        result = _execute_agent_admin_tool(request, tool, params)
+        _raise_agent_tool_failure(result)
         return {
             "status": "created",
             "content": result.content,
@@ -126,9 +161,8 @@ async def kill_agent(agent_id: str, request: Request):
         from openjarvis.tools.agent_tools import AgentKillTool
 
         tool = AgentKillTool()
-        result = tool.execute(agent_id=agent_id)
-        if not result.success:
-            raise HTTPException(status_code=404, detail=result.content)
+        result = _execute_agent_admin_tool(request, tool, {"agent_id": agent_id})
+        _raise_agent_tool_failure(result, not_found=True)
         return {"status": "stopped", "agent_id": agent_id}
     except ImportError:
         raise HTTPException(status_code=501, detail="Agent tools not available")
@@ -141,9 +175,12 @@ async def message_agent(agent_id: str, req: AgentMessageRequest, request: Reques
         from openjarvis.tools.agent_tools import AgentSendTool
 
         tool = AgentSendTool()
-        result = tool.execute(agent_id=agent_id, message=req.message)
-        if not result.success:
-            raise HTTPException(status_code=404, detail=result.content)
+        result = _execute_agent_admin_tool(
+            request,
+            tool,
+            {"agent_id": agent_id, "message": req.message},
+        )
+        _raise_agent_tool_failure(result, not_found=True)
         return {"status": "sent", "content": result.content}
     except ImportError:
         raise HTTPException(status_code=501, detail="Agent tools not available")

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from openjarvis.agents._stubs import AgentContext
 from openjarvis.core.registry import AgentRegistry
@@ -55,6 +55,31 @@ class SkillOrchestraAgent(LocalCloudAgent):
     """Inference-time skill-aware orchestrator. See module docstring."""
 
     agent_id = "skillorchestra"
+    # The QA orchestrator always exposes enhance_reasoning, which executes
+    # generated Python when selected. Gate the agent before its first model
+    # turn as well as immediately before the subprocess in tools.run_code.
+    required_capabilities = ("code:execute", "file:read", "file:write")
+
+    # ------------------------------------------------------------------
+
+    def _required_capabilities_for_run(
+        self,
+        context: Optional[AgentContext],
+    ) -> List[str]:
+        """Include search access for the QA tool set exposed this run."""
+        required = super()._required_capabilities_for_run(context)
+        task_meta = (context.metadata.get("task") if context is not None else {}) or {}
+        swe_mode = (
+            bool(self._cfg.get("swe_use_agent_loop"))
+            and bool(task_meta.get("problem_statement"))
+            and bool(task_meta.get("repo"))
+            and bool(task_meta.get("base_commit"))
+        )
+        if not swe_mode:
+            # The QA orchestrator always exposes search. Provider-hosted
+            # search is the default even with no retriever/search flags.
+            required.append("network:fetch")
+        return list(dict.fromkeys(required))
 
     # ------------------------------------------------------------------
 

@@ -17,8 +17,10 @@ except ImportError:
     HAS_FASTAPI = False
 
 from openjarvis.connectors.store import KnowledgeStore
+from openjarvis.core.events import EventBus
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import Role, ToolResult
+from openjarvis.security.capabilities import CapabilityPolicy
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 
@@ -38,6 +40,7 @@ class _ConfiguredResearchProbe(BaseTool):
                 "properties": {"value": {"type": "string"}},
                 "required": ["value"],
             },
+            required_capabilities=["system:admin"],
         )
 
     def execute(self, **params) -> ToolResult:
@@ -95,6 +98,15 @@ class _ScriptedDeepResearchEngine:
         return {"content": "complete", "tool_calls": [], "usage": {}}
 
 
+class _RecordingRateLimiter:
+    def __init__(self) -> None:
+        self.keys: list[str] = []
+
+    def check(self, key: str):
+        self.keys.append(key)
+        return True, 0.0
+
+
 @pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
 def test_deep_research_agent_gets_tools(tmp_path: Path) -> None:
     """When knowledge.db exists, returns 4 tools."""
@@ -136,13 +148,14 @@ def test_deep_research_tools_returns_empty_when_no_db() -> None:
 @pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "with_knowledge_db",
-    [False, True],
-    ids=["without-knowledge-db", "with-knowledge-db"],
+    "with_knowledge_db,deny_probe",
+    [(False, False), (True, False), (False, True)],
+    ids=["without-knowledge-db", "with-knowledge-db", "policy-denied"],
 )
 async def test_server_deep_research_merges_and_executes_all_tool_sources(
     tmp_path: Path,
     with_knowledge_db: bool,
+    deny_probe: bool,
     monkeypatch,
 ) -> None:
     """Configured and MCP tools reach Deep Research with or without its DB."""
@@ -166,8 +179,17 @@ async def test_server_deep_research_merges_and_executes_all_tool_sources(
     _ConfiguredResearchProbe.calls = 0
 
     mcp_tool = _MCPResearchProbe()
+    runtime_agent_id = "agent-deep-research-682"
+    policy = None
+    if deny_probe:
+        policy = CapabilityPolicy(default_deny=True)
+        policy.deny(runtime_agent_id, "system:admin")
+    rate_limiter = _RecordingRateLimiter()
     app_state = SimpleNamespace(
         config=SimpleNamespace(memory_files=None, system_prompt=None),
+        bus=EventBus(record_history=True),
+        capability_policy=policy,
+        rate_limiter=rate_limiter,
         memory_backend=None,
         channel_backend=None,
         channel_bridge=None,
@@ -186,7 +208,7 @@ async def test_server_deep_research_merges_and_executes_all_tool_sources(
     response = await routes._stream_managed_agent(
         manager=manager,
         agent_record={
-            "id": "agent-deep-research-682",
+            "id": runtime_agent_id,
             "name": "Deep Research Agent",
             "agent_type": "deep_research",
             "config": {
@@ -228,8 +250,15 @@ async def test_server_deep_research_merges_and_executes_all_tool_sources(
     assert not with_knowledge_db or knowledge_names.issubset(engine.advertised_names)
     assert with_knowledge_db or knowledge_names.isdisjoint(engine.advertised_names)
     assert engine.turns == 2
-    assert _ConfiguredResearchProbe.calls == 1
-    assert engine.observed_tool_result == "configured:sentinel"
+    assert _ConfiguredResearchProbe.calls == (0 if deny_probe else 1)
+    if deny_probe:
+        assert "system:admin" in engine.observed_tool_result
+        assert "denied" in engine.observed_tool_result
+    else:
+        assert engine.observed_tool_result == "configured:sentinel"
+    assert rate_limiter.keys == [
+        f"{runtime_agent_id}:{_ConfiguredResearchProbe.tool_id}"
+    ]
     assert "data: [DONE]" in "".join(body_parts)
     start_worker.assert_called_once()
     assert start_worker.call_args.kwargs["name"].startswith(
@@ -239,11 +268,15 @@ async def test_server_deep_research_merges_and_executes_all_tool_sources(
 
     manager.store_agent_response.assert_called_once()
     stored = manager.store_agent_response.call_args
-    assert stored.args[:2] == ("agent-deep-research-682", "complete")
+    assert stored.args[:2] == (runtime_agent_id, "complete")
     persisted_calls = stored.kwargs["tool_calls"]
     assert persisted_calls[0]["tool"] == _ConfiguredResearchProbe.tool_id
-    assert persisted_calls[0]["result"] == "configured:sentinel"
-    assert persisted_calls[0]["success"] is True
+    if deny_probe:
+        assert "system:admin" in persisted_calls[0]["result"]
+        assert persisted_calls[0]["success"] is False
+    else:
+        assert persisted_calls[0]["result"] == "configured:sentinel"
+        assert persisted_calls[0]["success"] is True
 
 
 @pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")

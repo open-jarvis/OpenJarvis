@@ -288,6 +288,51 @@ class TestAgentManagerRoutes:
         )
         assert res.status_code == 404
 
+    @pytest.mark.parametrize("route_kind", ["run", "immediate"])
+    def test_remote_tick_facade_carries_policy_and_limiter(
+        self, manager, client, monkeypatch, route_kind
+    ):
+        from openjarvis.agents import executor as executor_module
+
+        captured = []
+
+        class _CapturingExecutor:
+            def __init__(self, **kwargs):
+                pass
+
+            def set_system(self, system):
+                captured.append(system)
+
+            def execute_tick(self, *args, **kwargs):
+                pass
+
+        policy = object()
+        limiter = object()
+        client.app.state.capability_policy = policy
+        client.app.state.rate_limiter = limiter
+        client.app.state.engine = MagicMock()
+        client.app.state.model = "test-model"
+        client.app.state.config = None
+        monkeypatch.setattr(executor_module, "AgentExecutor", _CapturingExecutor)
+        monkeypatch.setattr(
+            "openjarvis.server.agent_manager_routes._start_managed_worker",
+            lambda state, target, **kwargs: target(),
+        )
+        agent = manager.create_agent(name=f"remote-{route_kind}", agent_type="simple")
+
+        if route_kind == "run":
+            response = client.post(f"/v1/managed-agents/{agent['id']}/run")
+        else:
+            response = client.post(
+                f"/v1/managed-agents/{agent['id']}/messages",
+                json={"content": "now", "mode": "immediate", "stream": False},
+            )
+
+        assert response.status_code == 200
+        assert len(captured) == 1
+        assert captured[0].capability_policy is policy
+        assert captured[0].rate_limiter is limiter
+
 
 def test_run_agent_concurrent_returns_409(tmp_path):
     """Rapid Run Now clicks should not spawn multiple ticks."""
@@ -770,6 +815,30 @@ class TestLightweightSystemEngineResolution:
         assert system.memory_backend is backend
         assert runtime.memory_backend is backend
         assert runtime._owns_memory_backend is True
+
+    def test_lightweight_system_carries_runtime_policy_and_limiter(self):
+        from openjarvis.server import agent_manager_routes as amr
+
+        policy = object()
+        limiter = object()
+        runtime = SimpleNamespace(
+            capability_policy=policy,
+            rate_limiter=limiter,
+            memory_backend=object(),
+            channel_backend=None,
+            channel_bridge=None,
+            knowledge_db_path=None,
+        )
+
+        system = amr._LightweightSystem(
+            engine=MagicMock(),
+            model="m",
+            config=SimpleNamespace(),
+            runtime=runtime,
+        )
+
+        assert system.capability_policy is policy
+        assert system.rate_limiter is limiter
 
     def test_memory_backend_lazy_init_is_synchronized(self, monkeypatch):
         pytest.importorskip("fastapi")

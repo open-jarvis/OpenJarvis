@@ -161,6 +161,24 @@ def run_code(
     timeout=60)`` verbatim. Execution failures yield empty ``exec_result``
     rather than raising — the orchestrator learns the model can't code.
     """
+    authorization = agent._authorize_direct_operation(
+        ["code:execute", "file:read", "file:write"],
+        operation="skillorchestra_code",
+    )
+    if not authorization.success:
+        return {
+            "tool": "enhance_reasoning",
+            "model": spec.model,
+            "alias": spec.alias,
+            "generated_code": "",
+            "exec_result": authorization.content,
+            "response": authorization.content,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "cost_usd": 0.0,
+            "is_local": spec.is_local,
+        }
+
     prompt = (
         context_str.strip()
         + "\n\n"
@@ -339,6 +357,19 @@ def run_search(
     search_uses = 0
 
     if search_backend == "tavily":
+        search_operation = "skillorchestra_tavily"
+    elif retriever_url:
+        search_operation = "skillorchestra_retriever"
+    else:
+        search_operation = "skillorchestra_provider_search"
+    authorization = agent._authorize_direct_operation(
+        ["network:fetch"],
+        operation=search_operation,
+    )
+
+    if not authorization.success:
+        contents.append(f"[search blocked: {authorization.content}]")
+    elif search_backend == "tavily":
         res = tavily_search_context(query, max_results=tavily_max_results)
         contents.append(res["text"])
         search_uses = int(res["n_searches"])

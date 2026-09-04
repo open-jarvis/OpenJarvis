@@ -158,13 +158,26 @@ class QueryOrchestrator:
         if getattr(agent_cls, "accepts_tools", False):
             agent_kwargs["tools"] = agent_tools
             agent_kwargs["max_turns"] = s.config.agent.max_turns
+            agent_kwargs["agent_id"] = agent_name
+            if s.capability_policy is not None:
+                agent_kwargs["capability_policy"] = s.capability_policy
+            if getattr(s, "rate_limiter", None) is not None:
+                agent_kwargs["rate_limiter"] = s.rate_limiter
             examples = getattr(s, "_skill_few_shot_examples", None)
             if examples:
                 agent_kwargs["skill_few_shot_examples"] = examples
+        from openjarvis.security.runtime import agent_security_kwargs
+
+        agent_kwargs.update(
+            agent_security_kwargs(
+                agent_cls,
+                capability_policy=s.capability_policy,
+                rate_limiter=getattr(s, "rate_limiter", None),
+                agent_id=agent_name,
+            )
+        )
         if system_prompt is not None:
             agent_kwargs["system_prompt"] = system_prompt
-        if s.capability_policy is not None:
-            agent_kwargs["capability_policy"] = s.capability_policy
         if operator_id is not None:
             agent_kwargs["operator_id"] = operator_id
             agent_kwargs["session_store"] = s.session_store
@@ -203,6 +216,16 @@ class QueryOrchestrator:
                 ag = agent_cls(s.engine, s.model)
             except TypeError:
                 ag = agent_cls()
+
+        from openjarvis.security.runtime import wire_agent_security
+
+        wire_agent_security(
+            ag,
+            bus=s.bus,
+            capability_policy=s.capability_policy,
+            rate_limiter=getattr(s, "rate_limiter", None),
+            agent_id=agent_name,
+        )
 
         telemetry_events: List[Dict[str, Any]] = []
 

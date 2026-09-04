@@ -55,6 +55,7 @@ class ClaudeCodeAgent(BaseAgent):
 
     agent_id = "claude_code"
     accepts_tools = False
+    required_capabilities = ("code:execute", "file:read", "file:write")
     _default_temperature = 0.7
     _default_max_tokens = 1024
 
@@ -72,6 +73,9 @@ class ClaudeCodeAgent(BaseAgent):
         allowed_tools: Optional[List[str]] = None,
         system_prompt: str = "",
         timeout: int = 300,
+        capability_policy: Optional[Any] = None,
+        rate_limiter: Optional[Any] = None,
+        agent_id: Optional[str] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -79,6 +83,9 @@ class ClaudeCodeAgent(BaseAgent):
             bus=bus,
             temperature=temperature,
             max_tokens=max_tokens,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id=agent_id,
         )
         self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self._workspace = workspace or os.getcwd()
@@ -164,6 +171,9 @@ class ClaudeCodeAgent(BaseAgent):
         Spawns ``node index.mjs``, writes a JSON request to stdin, and
         reads sentinel-delimited JSON output from stdout.
         """
+        denied = self._execution_denied_result()
+        if denied is not None:
+            return denied
         self._emit_turn_start(input)
 
         runner_dir = self._ensure_runner()

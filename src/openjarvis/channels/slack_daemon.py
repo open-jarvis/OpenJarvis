@@ -51,7 +51,10 @@ def run_slack_daemon(
     from slack_bolt.adapter.socket_mode import SocketModeHandler
 
     from openjarvis.agents.deep_research import DeepResearchAgent
+    from openjarvis.core.config import load_config
+    from openjarvis.core.events import EventBus
     from openjarvis.engine.ollama import OllamaEngine
+    from openjarvis.security import setup_security
     from openjarvis.server.agent_manager_routes import (
         _build_deep_research_tools,
     )
@@ -62,13 +65,20 @@ def run_slack_daemon(
     pid_path.write_text(str(os.getpid()))
 
     # Build agent
-    engine = OllamaEngine()
+    config = load_config()
+    bus = EventBus(record_history=False)
+    security = setup_security(config, OllamaEngine(), bus)
+    engine = security.engine
     tools = _build_deep_research_tools(engine=engine, model=model)
     agent = DeepResearchAgent(
         engine=engine,
         model=model,
         tools=tools,
         max_turns=5,
+        bus=bus,
+        capability_policy=security.capability_policy,
+        rate_limiter=security.rate_limiter,
+        agent_id="channel:slack",
     )
     logger.info("Slack daemon: agent ready with %d tools", len(tools))
 

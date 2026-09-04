@@ -186,6 +186,14 @@ def chat(
         runtime_opts = ChatRuntimeOptions()
     engine_kwargs = runtime_opts.to_engine_kwargs(engine_name=engine_name)
 
+    # Interactive chat is a first-class tool execution path. Apply the same
+    # configured engine guardrails, RBAC, rate limiting, and audit bus as ask,
+    # serve, and the SDK before constructing any agent.
+    from openjarvis.security import setup_security
+
+    security = setup_security(config, engine, bus)
+    engine = security.engine
+
     # Resolve agent (optional)
     agent = None
     agent_key = agent_name or config.agent.default_agent
@@ -234,6 +242,17 @@ def chat(
                     kwargs["interactive"] = True
                     kwargs["confirm_callback"] = _confirm
 
+                from openjarvis.security.runtime import agent_security_kwargs
+
+                kwargs.update(
+                    agent_security_kwargs(
+                        agent_cls,
+                        capability_policy=security.capability_policy,
+                        rate_limiter=security.rate_limiter,
+                        agent_id=agent_key,
+                    )
+                )
+
                 import inspect as _inspect
 
                 if (
@@ -249,6 +268,15 @@ def chat(
                     )
 
                 agent = agent_cls(engine, model, **kwargs)
+                from openjarvis.security.runtime import wire_agent_security
+
+                wire_agent_security(
+                    agent,
+                    bus=bus,
+                    capability_policy=security.capability_policy,
+                    rate_limiter=security.rate_limiter,
+                    agent_id=agent_key,
+                )
                 if agent is not None and engine_kwargs:
                     # Agents like NativeReActAgent do not accept engine_options
                     # in __init__; session opts live on BaseAgent._engine_options.

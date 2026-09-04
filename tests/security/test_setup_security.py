@@ -71,6 +71,42 @@ class TestSetupSecurityEnabled:
         # Should not raise — scanner failure is caught
         assert isinstance(sec, SecurityContext)
 
+    @pytest.mark.parametrize("profile", ["", "personal", "shared", "server"])
+    def test_enabled_policy_fails_closed_when_initialization_fails(
+        self, monkeypatch, profile
+    ) -> None:
+        cfg = _make_config(caps_enabled=True)
+        cfg.security.profile = profile
+
+        def _broken_policy(*args, **kwargs):
+            raise RuntimeError("policy unavailable")
+
+        monkeypatch.setattr(
+            "openjarvis.security.capabilities.CapabilityPolicy",
+            _broken_policy,
+        )
+
+        with pytest.raises(RuntimeError, match="Capability policy initialization"):
+            setup_security(cfg, _make_mock_engine(), EventBus())
+
+    @pytest.mark.parametrize("profile", ["shared", "server"])
+    def test_server_rate_limiter_fails_closed_when_initialization_fails(
+        self, monkeypatch, profile
+    ) -> None:
+        cfg = _make_config(caps_enabled=False)
+        cfg.security.profile = profile
+
+        def _broken_limiter(*args, **kwargs):
+            raise RuntimeError("limiter unavailable")
+
+        monkeypatch.setattr(
+            "openjarvis.security.rate_limiter.RateLimiter",
+            _broken_limiter,
+        )
+
+        with pytest.raises(RuntimeError, match="Rate limiter initialization"):
+            setup_security(cfg, _make_mock_engine(), EventBus())
+
 
 class TestSetupSecurityDisabled:
     def test_returns_original_engine(self) -> None:
@@ -80,3 +116,44 @@ class TestSetupSecurityDisabled:
         assert sec.engine is engine
         assert sec.capability_policy is None
         assert sec.audit_logger is None
+
+
+@pytest.mark.parametrize("profile", ["shared", "server"])
+@pytest.mark.parametrize(
+    ("settings", "enabled", "default_deny"),
+    [
+        ('policy_path = "policy.json"', True, True),
+        ("enabled = false", False, True),
+        ("default_deny = false", True, False),
+    ],
+)
+def test_partial_capability_config_preserves_profile_defaults(
+    tmp_path,
+    profile,
+    settings,
+    enabled,
+    default_deny,
+):
+    from openjarvis.core.config import load_config
+
+    path = tmp_path / "config.toml"
+    path.write_text(
+        f'[security]\nprofile = "{profile}"\n[security.capabilities]\n{settings}\n'
+    )
+    config = load_config(path)
+    assert config.security.capabilities.enabled is enabled
+    assert config.security.capabilities.default_deny is default_deny
+
+
+def test_empty_explicit_policy_grants_no_baseline_privileges(tmp_path):
+    policy_path = tmp_path / "deny-all.json"
+    policy_path.write_text('{"agents": []}')
+    config = _make_config(caps_enabled=True)
+    config.security.capabilities.default_deny = True
+    config.security.capabilities.policy_path = str(policy_path)
+    security = setup_security(config, _make_mock_engine(), EventBus())
+    try:
+        for capability in ("file:read", "network:fetch", "memory:read", "memory:write"):
+            assert not security.capability_policy.check("arbitrary-agent", capability)
+    finally:
+        security.audit_logger.close()
