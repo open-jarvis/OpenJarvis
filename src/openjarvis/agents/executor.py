@@ -36,6 +36,12 @@ _MAX_RETRIES = 3
 _AGENT_TICK_DEFAULT_MODEL = "gemma4:31b"
 
 
+def _should_retry_empty_result(result: AgentResult) -> bool:
+    """Retry only a genuinely empty turn with no completed tool effects."""
+
+    return not (result.content or "").strip() and not result.tool_results
+
+
 def _resolve_tick_model(config: dict[str, Any], system: Any) -> str:
     """Resolve a managed tick model without hiding the system default."""
 
@@ -738,7 +744,7 @@ class AgentExecutor:
 
             # Retry once if the model returned empty content (common with
             # Qwen3.5 thinking mode consuming all tokens).
-            if not (result.content or "").strip():
+            if _should_retry_empty_result(result):
                 self._set_activity(
                     agent["id"],
                     "Retrying (empty response)...",
