@@ -7,6 +7,7 @@ All API calls are in module-level functions for easy mocking in tests.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional
@@ -25,6 +26,31 @@ _STATUS_DETAILS = {
     404: "the location was not found",
     429: "the provider rate limit was exceeded",
 }
+
+
+class _WeatherRequestLogFilter(logging.Filter):
+    """Keep OpenWeatherMap query credentials out of HTTPX request logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                arg.copy_set_param("appid", "[REDACTED]")
+                if isinstance(arg, httpx.URL)
+                and arg.host == "api.openweathermap.org"
+                and "appid" in arg.params
+                else arg
+                for arg in record.args
+            )
+        return True
+
+
+# HTTPX logs successful requests at INFO, including the URL query. Sanitize
+# only this provider's credential parameter; preserve other request logging.
+# Connector discovery can reload this module, so install the filter only once.
+_httpx_logger = logging.getLogger("httpx")
+_filter_name = "openjarvis.weather.credentials"
+if not any(getattr(f, "name", None) == _filter_name for f in _httpx_logger.filters):
+    _httpx_logger.addFilter(_WeatherRequestLogFilter(_filter_name))
 
 
 class WeatherAPIError(RuntimeError):
@@ -111,8 +137,9 @@ class WeatherConnector(BaseConnector):
             value = self._load_config().get("api_key", "")
         except (AttributeError, json.JSONDecodeError, OSError, TypeError):
             return None
-        value = str(value).strip()
-        return value or None
+        if not isinstance(value, str):
+            return None
+        return value.strip() or None
 
     def configure(self, *, api_key: str, location: str) -> None:
         """Validate and persist the API key and required location."""

@@ -79,7 +79,7 @@ def _structured_conditions(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@ToolRegistry.register(_TOOL_NAME)
+@ToolRegistry.register("get_weather")
 class WeatherTool(BaseTool):
     """Fetch current or forecast weather for a dynamic location."""
 
@@ -132,7 +132,7 @@ class WeatherTool(BaseTool):
             name=_TOOL_NAME,
             description=(
                 "Get current weather and an optional forecast for a dynamic city, "
-                "region, postal code, or 'city,country-code' location. Pass the "
+                "region, or 'city,country-code' location. Pass the "
                 "location requested by the user; descriptions use the requested "
                 "language."
             ),
@@ -143,7 +143,7 @@ class WeatherTool(BaseTool):
                         "type": "string",
                         "description": (
                             "Location to look up, such as 'Vienna,AT', "
-                            "'Sankt Johann in Tirol', or a postal code."
+                            "or 'Sankt Johann in Tirol'."
                         ),
                     },
                     "units": {
@@ -248,6 +248,7 @@ class WeatherTool(BaseTool):
                 f"connector or set {_API_KEY_ENV}."
             )
 
+        forecast_count = math.ceil(forecast_hours / 3)
         try:
             current_payload, forecast_payload = weather_connector.fetch_weather(
                 api_key=api_key,
@@ -255,7 +256,7 @@ class WeatherTool(BaseTool):
                 units=units,
                 language=language,
                 include_forecast=include_forecast,
-                forecast_count=math.ceil(forecast_hours / 3),
+                forecast_count=forecast_count,
             )
         except weather_connector.WeatherAPIError as exc:
             return self._failure(f"Weather lookup failed: {exc}")
@@ -289,7 +290,7 @@ class WeatherTool(BaseTool):
             if isinstance(raw_entries, list):
                 forecast_entries = [
                     _structured_conditions(entry)
-                    for entry in raw_entries
+                    for entry in raw_entries[:forecast_count]
                     if isinstance(entry, dict)
                 ]
             result["forecast"] = forecast_entries

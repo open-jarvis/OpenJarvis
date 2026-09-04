@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import logging
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -167,6 +168,73 @@ def test_forecast_is_bounded_and_structured():
     assert forecast[0]["precipitation_probability_percent"] == 37.5
     assert forecast[0]["rain_mm"] == 1.2
     assert result.metadata["forecast_entries"] == 1
+
+
+@pytest.mark.parametrize(("hours", "expected"), [(3, 1), (25, 9), (120, 40)])
+def test_forecast_response_is_capped_when_provider_ignores_count(hours, expected):
+    tool = WeatherTool(api_key="test-key", config=_config())
+    forecast = {"list": _forecast_response()["list"] * 100}
+    with patch.object(
+        weather_connector, "fetch_weather", return_value=(_current_response(), forecast)
+    ):
+        result = tool.execute(
+            location="Vienna,AT", include_forecast=True, forecast_hours=hours
+        )
+
+    assert result.success is True
+    assert len(json.loads(result.content)["forecast"]) == expected
+    assert result.metadata["forecast_entries"] == expected
+
+
+@pytest.mark.parametrize("stored_key", [None, False, 123, [], {}, "", "   "])
+def test_corrupt_connector_key_is_unconfigured_and_never_sent(
+    tmp_path, monkeypatch, stored_key
+):
+    path = tmp_path / "weather.json"
+    path.write_text(json.dumps({"api_key": stored_key}), encoding="utf-8")
+    connector = weather_connector.WeatherConnector(token_path=str(path))
+    monkeypatch.setattr("openjarvis.tools.weather.get_tool_credential", lambda *_: None)
+    tool = WeatherTool(connector=connector, config=_config())
+
+    assert tool.is_configured() is False
+    with patch.object(weather_connector, "fetch_weather") as fetch:
+        result = tool.execute(location="Vienna")
+
+    assert result.success is False
+    assert "No OpenWeatherMap API key" in result.content
+    fetch.assert_not_called()
+
+
+def test_tool_uses_fixed_endpoints_and_query_parameters():
+    tool = WeatherTool(api_key="secret-key", config=_config())
+    responses = [_current_response(), _forecast_response()]
+
+    def respond(url, *, params, timeout):
+        request = httpx.Request("GET", url, params=params)
+        return httpx.Response(200, request=request, json=responses.pop(0))
+
+    with patch.object(weather_connector.httpx, "get", side_effect=respond) as get:
+        result = tool.execute(
+            location="Vienna,AT&appid=other",
+            units="imperial",
+            language="de",
+            include_forecast=True,
+            forecast_hours=6,
+        )
+
+    assert result.success is True
+    assert [call.args[0] for call in get.call_args_list] == [
+        "https://api.openweathermap.org/data/2.5/weather",
+        "https://api.openweathermap.org/data/2.5/forecast",
+    ]
+    for call in get.call_args_list:
+        assert call.kwargs["params"]["q"] == "Vienna,AT&appid=other"
+        assert call.kwargs["params"]["appid"] == "secret-key"
+        assert call.kwargs["params"]["units"] == "imperial"
+        assert call.kwargs["params"]["lang"] == "de"
+        assert call.kwargs["timeout"] == 30.0
+    assert get.call_args_list[1].kwargs["params"]["cnt"] == "2"
+    assert "secret-key" not in result.content
 
 
 def test_config_defaults_are_used_when_arguments_are_omitted():
@@ -371,6 +439,44 @@ def test_request_error_is_credential_safe():
 
     assert str(exc_info.value) == "OpenWeatherMap could not be reached"
     assert secret not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("status", [200, 401])
+def test_httpx_request_logs_redact_key_without_changing_outbound_request(
+    caplog, monkeypatch, status
+):
+    secret = "a-weather-key/with+reserved?characters"
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(status, json=_current_response())
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        monkeypatch.setattr(weather_connector.httpx, "get", client.get)
+        with caplog.at_level(logging.INFO, logger="httpx"):
+            result = WeatherTool(api_key=secret, config=_config()).execute(
+                location="Vienna,AT"
+            )
+
+    assert result.success is (status == 200)
+    assert requests[0].url.params["appid"] == secret
+    assert "HTTP Request:" in caplog.text
+    assert "REDACTED" in caplog.text
+    assert secret not in caplog.text
+    assert str(requests[0].url) not in caplog.text
+    assert secret not in result.content
+
+
+def test_httpx_logging_keeps_unrelated_request_urls(caplog):
+    url = "https://example.test/weather?appid=public-id"
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200))
+    ) as c:
+        with caplog.at_level(logging.INFO, logger="httpx"):
+            c.get(url)
+
+    assert url in caplog.text
 
 
 def test_weather_tool_handles_provider_error_after_connector_registry_repopulation(

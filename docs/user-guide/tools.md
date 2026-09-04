@@ -406,7 +406,7 @@ enabled = "get_weather"
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `location` | string | No | City, region, postal code, or `city,country-code`; falls back to the configured default |
+| `location` | string | No | City, region, or `city,country-code`; falls back to the configured default |
 | `units` | string | No | `metric` or `imperial` |
 | `language` | string | No | OpenWeatherMap language code such as `en`, `de`, or `pt_br` |
 | `include_forecast` | boolean | No | Include 3-hour forecast intervals |
