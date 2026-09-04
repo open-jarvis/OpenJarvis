@@ -34,8 +34,7 @@ def test_editable_git_install_detected(tmp_path, monkeypatch):
 
     info = detect_install()
     assert info.kind == "editable-git"
-    assert "git pull" in info.upgrade_command
-    assert info.upgrade_command.endswith("uv sync --inexact")
+    assert info.upgrade_command == "jarvis self-update"
     assert info.repo_root == repo
 
 

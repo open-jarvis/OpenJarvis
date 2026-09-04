@@ -276,7 +276,8 @@ if (Test-Path (Join-Path $srcDir '.git')) {
     }
 } else {
     Write-Info "Cloning $repoUrl..."
-    & $gitExe clone --depth 1 $repoUrl $srcDir
+    # Keep commit/tag history for hatch-vcs while omitting historical blobs.
+    & $gitExe clone --filter=blob:none $repoUrl $srcDir
     if ($LASTEXITCODE -ne 0) { Write-Fail "git clone failed" }
     Write-Ok "Cloned to $srcDir"
 }

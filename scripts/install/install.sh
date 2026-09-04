@@ -448,7 +448,9 @@ clone_repo() {
         echo "    repo already at $SRC_DIR"
         return 0
     fi
-    git clone --depth 1 "$OPENJARVIS_REPO_URL" "$SRC_DIR"
+    # hatch-vcs needs reachable release tags. Omit historical file contents,
+    # rather than commit history, so the first editable build has a real version.
+    git clone --filter=blob:none "$OPENJARVIS_REPO_URL" "$SRC_DIR"
 }
 
 copy_scripts() {
