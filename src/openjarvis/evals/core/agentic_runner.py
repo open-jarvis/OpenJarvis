@@ -45,6 +45,23 @@ def _compute_energy_delta(
     return None
 
 
+def _resolve_energy_basis(readings: list[Any]) -> Optional[str]:
+    """Which rail set these readings should be interpreted against.
+
+    A reading that carries a non-zero ANE or SoC rail came from an Apple
+    Silicon monitor, where the GPU rail alone is a partial view of one
+    package. Returns ``None`` when there is nothing to judge from, so a trace
+    recorded before per-rail sampling stays unlabelled rather than being
+    mislabelled "gpu".
+    """
+    if not readings:
+        return None
+    for r in readings:
+        if getattr(r, "soc_energy_j", 0.0) or getattr(r, "ane_energy_j", 0.0):
+            return "soc"
+    return "gpu"
+
+
 def _compute_power_avg(
     readings: list[Any],
     power_field: str = "gpu_power_w",
@@ -602,8 +619,13 @@ class AgenticRunner:
         # Query-level energy from telemetry window
         query_gpu_energy = _compute_energy_delta(readings, "gpu_energy_j")
         query_cpu_energy = _compute_energy_delta(readings, "cpu_energy_j")
+        query_ane_energy = _compute_energy_delta(readings, "ane_energy_j")
+        query_soc_energy = _compute_energy_delta(readings, "soc_energy_j")
         query_gpu_power_avg = _compute_power_avg(readings, "gpu_power_w")
         query_cpu_power_avg = _compute_power_avg(readings, "cpu_power_w")
+        query_ane_power_avg = _compute_power_avg(readings, "ane_power_w")
+        query_soc_power_avg = _compute_power_avg(readings, "soc_power_w")
+        query_energy_basis = _resolve_energy_basis(readings)
 
         # Extract MBU from telemetry readings
         mbu_values = [
@@ -623,6 +645,11 @@ class AgenticRunner:
             completed=True,
             query_gpu_energy_joules=query_gpu_energy,
             query_cpu_energy_joules=query_cpu_energy,
+            query_ane_energy_joules=query_ane_energy,
+            query_soc_energy_joules=query_soc_energy,
+            query_ane_power_avg_watts=query_ane_power_avg,
+            query_soc_power_avg_watts=query_soc_power_avg,
+            energy_basis=query_energy_basis,
             query_gpu_power_avg_watts=query_gpu_power_avg,
             query_cpu_power_avg_watts=query_cpu_power_avg,
             is_resolved=record.metadata.get("is_resolved"),
@@ -653,13 +680,21 @@ class AgenticRunner:
         window = [r for r in readings if start_ns <= r.timestamp_ns <= end_ns]
         gpu_energy = _compute_energy_delta(window, "gpu_energy_j")
         cpu_energy = _compute_energy_delta(window, "cpu_energy_j")
+        ane_energy = _compute_energy_delta(window, "ane_energy_j")
+        soc_energy = _compute_energy_delta(window, "soc_energy_j")
         avg_gpu_power = _compute_power_avg(window, "gpu_power_w")
         avg_cpu_power = _compute_power_avg(window, "cpu_power_w")
+        avg_ane_power = _compute_power_avg(window, "ane_power_w")
+        avg_soc_power = _compute_power_avg(window, "soc_power_w")
         return {
             "gpu_energy_joules": gpu_energy,
             "cpu_energy_joules": cpu_energy,
+            "ane_energy_joules": ane_energy,
+            "soc_energy_joules": soc_energy,
             "avg_gpu_power_watts": avg_gpu_power,
             "avg_cpu_power_watts": avg_cpu_power,
+            "avg_ane_power_watts": avg_ane_power,
+            "avg_soc_power_watts": avg_soc_power,
         }
 
     def _build_turn_traces(
@@ -800,17 +835,20 @@ class AgenticRunner:
         if has_turn_energy:
             return trace
 
-        total_gpu_energy = _compute_energy_delta(readings, "gpu_energy_j")
-        total_cpu_energy = _compute_energy_delta(readings, "cpu_energy_j")
+        totals = {
+            "gpu_energy_joules": _compute_energy_delta(readings, "gpu_energy_j"),
+            "cpu_energy_joules": _compute_energy_delta(readings, "cpu_energy_j"),
+            "ane_energy_joules": _compute_energy_delta(readings, "ane_energy_j"),
+            "soc_energy_joules": _compute_energy_delta(readings, "soc_energy_j"),
+        }
 
         total_wall = sum(t.wall_clock_s for t in trace.turns)
         if total_wall > 0:
             for turn in trace.turns:
                 fraction = turn.wall_clock_s / total_wall
-                if total_gpu_energy is not None:
-                    turn.gpu_energy_joules = total_gpu_energy * fraction
-                if total_cpu_energy is not None:
-                    turn.cpu_energy_joules = total_cpu_energy * fraction
+                for attr, total in totals.items():
+                    if total is not None:
+                        setattr(turn, attr, total * fraction)
 
         return trace
 

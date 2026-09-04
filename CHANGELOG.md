@@ -10,6 +10,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**Apple Foundation Models (AFM 3)** — a new in-process `afm` engine drives
+Apple's `apple-fm-sdk` directly, with no HTTP hop and no second process whose
+CPU draw would land inside the same energy measurement window. Install with
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer uv sync --extra afm`
+(the SDK compiles Swift bindings, so a full Xcode is required), then
+`jarvis ask --engine afm --model afm-3-core "..."`. Requires an Apple Silicon
+Mac on macOS 26+ with Apple Intelligence enabled.
+
+Token counts are real, via `SystemLanguageModel.token_count` (added in SDK
+0.2.1, hence the floor). Because `token_count` rejects a value and
+instructions together, both ends are measured against the session transcript:
+`prompt_tokens = <transcript before> + <prompt alone>` and
+`completion_tokens = <transcript after> - prompt_tokens`.
+
+Two caveats worth reading before comparing AFM numbers to other backends:
+`stream_response` yields cumulative snapshots batching roughly 8-10 tokens, so
+`ttft` is time-to-first-*chunk* (~450 ms on an M1 Pro) and derived
+inter-token latencies are inter-chunk; and the SDK exposes no variant
+selector, so `afm-3` / `afm-3-core` / `afm-3-core-advanced` are run labels
+only — the framework's dynamic profile chooses what actually executes.
+Bench results record `metadata["engine_info"]` (SDK version, context size,
+host chip) so a run can be attributed after the fact.
+
+**Eval results record which rail did the work.** Result rows and summaries
+previously carried only `energy_joules` and `power_watts`, so nothing in an
+eval artifact distinguished a Neural Engine run from an idle GPU, or a
+hardware measurement from a modelled estimate. Rows now include the per-rail
+breakdown (`cpu`/`gpu`/`dram`/`ane`/`soc`), `energy_basis`, and
+`energy_method`; summaries add `energy_joules_by_rail` alongside both. On a
+ToolCall-15 run against AFM the ANE rail is the largest single component —
+91.7 J of 223.7 J, against 3.0 J on the GPU — which is now visible in the
+file rather than only through live instrumentation.
+
+**ANE and whole-SoC energy** — `EnergySample.ane_energy_joules` existed but
+died at the monitor boundary. Apple Neural Engine and a whole-SoC total now
+flow through `TelemetryRecord`, the SQLite schema (with an `ADD COLUMN`
+migration), the aggregator, `TelemetrySession`, eval `TurnTrace`/`QueryTrace`,
+and bench metadata, alongside an `energy_basis` marker (`"soc"` on Apple
+Silicon, `"gpu"` elsewhere) so downstream repeats the monitor's choice instead
+of guessing. This matters because AFM runs predominantly on the ANE: measured
+on an M1 Pro, one generation drew 0.98 J on the ANE against 0.014 J on the
+GPU rail — 70x — where an MLX matmul on the same machine drew 8.99 J on the
+GPU and nothing on the ANE.
+
 **Vision input for `jarvis ask`** — attach images to a query with
 `-i`/`--image` (repeatable) or capture the current screen with
 `-S`/`--screen`, for vision-capable models such as `gemma3:4b`. Images flow
@@ -20,6 +64,49 @@ sanitizes a flagged prompt. Screen capture uses the built-in Windows .NET
 stack with `mss`/`Pillow` fallbacks on other platforms. Adds the
 `JARVIS_NUM_CTX` environment variable to tune the Ollama context window
 (default `16384`).
+
+### Fixed
+
+**Apple Silicon energy was never measured, only modelled.**
+`telemetry/energy_apple.py` imported `AppleSiliconMonitor` from
+`zeus.device.soc.apple`; no such class has ever existed there. The import
+raised on every machine, so the CPU-time fallback -- `wall_clock x TDP x 0.60`
+split by four hardcoded ratios -- was the only path that ever ran. It read no
+counters and no utilization, so a ten-second sleep and a ten-second generation
+produced identical joules, and every Apple Silicon figure in the telemetry DB,
+eval traces and `jarvis bench` came from it. Renaming the import would not
+have helped: `zeus.device.soc` landed on zeus master after the last zeus
+release, so no published `zeus-ml` contains it, and `zeus-ml` has no `apple`
+extra either. `energy-apple` now installs `zeus-apple-silicon`, the IOReport
+extension zeus itself wraps, which needs no root. Measured on an M1 Pro:
+8.24 W under load against 3.72 W idle, where the previous code could not tell
+the two windows apart.
+
+`AppleEnergyMonitor.available()` now reports `False` when nothing is
+measurable, instead of `True` on any Apple Silicon host, so the factory falls
+through rather than letting a model masquerade as a measurement. The estimate
+remains reachable through the new `telemetry.allow_energy_estimates` setting
+and still reports `energy_method = "tdp_estimate"`.
+
+`snapshot()` is implemented for the first time, so `TelemetrySession`'s
+background sampler -- the path agentic evals use -- records real readings
+rather than the ABC's empty default. Relatedly, `TelemetrySample` hardcoded
+`cpu_power_w = 0.0`, which zeroed CPU power in every eval trace on every
+platform.
+
+**`apple_fm` shim reported zero token counts.** It hardcoded zeros with a note
+that the SDK did not expose counts; SDK 0.2.1 added `token_count`. Zeroed
+`completion_tokens` zeroes throughput, `energy_per_output_token_joules` and
+`tokens_per_joule` for everything served through the shim. Streaming responses
+now also carry `usage` on the final chunk. The install hint no longer tells
+users to clone from GitHub -- `apple-fm-sdk` is on PyPI. System messages become
+the session's `instructions` rather than being prefixed onto the prompt as
+`[System] ...`, which discarded a distinction the SDK draws and inflated the
+prompt-token count.
+
+**`scripts/setup-energy-monitor.sh` did not exist**, though
+`jarvis bench --setup-energy` built a path to it and offered to run it -- so
+the offer silently did nothing.
 
 ### Security
 

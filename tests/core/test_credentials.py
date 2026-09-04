@@ -170,3 +170,46 @@ def test_delete_credential_removes_file_value_and_env(cred_path):
 def test_delete_rejects_unknown_key(cred_path):
     with pytest.raises(ValueError, match="Unknown credential key"):
         delete_credential("web_search", "BOGUS_KEY", path=cred_path)
+
+
+class TestOptionalCredentials:
+    """web_search runs keyless, so its keys are upgrades, not prerequisites."""
+
+    def test_web_search_declares_both_search_keys(self):
+        from openjarvis.core.credentials import TOOL_CREDENTIALS
+
+        assert "TAVILY_API_KEY" in TOOL_CREDENTIALS["web_search"]
+        assert "YOUDOTCOM_API_KEY" in TOOL_CREDENTIALS["web_search"]
+
+    def test_search_keys_are_optional(self):
+        from openjarvis.core.credentials import is_credential_optional
+
+        assert is_credential_optional("web_search", "TAVILY_API_KEY") is True
+        assert is_credential_optional("web_search", "YOUDOTCOM_API_KEY") is True
+
+    def test_other_tool_keys_stay_required(self):
+        from openjarvis.core.credentials import is_credential_optional
+
+        assert is_credential_optional("telegram", "TELEGRAM_BOT_TOKEN") is False
+
+    def test_web_search_has_no_required_keys(self):
+        from openjarvis.core.credentials import get_required_credentials
+
+        assert get_required_credentials("web_search") == []
+
+    def test_required_keys_unchanged_for_other_tools(self):
+        from openjarvis.core.credentials import get_required_credentials
+
+        assert get_required_credentials("image_generate") == ["OPENAI_API_KEY"]
+
+    def test_youdotcom_key_can_be_persisted(self, tmp_path, monkeypatch):
+        """Unknown keys are rejected by save_credential, so the Settings UI
+        cannot store a key that is not declared."""
+        from openjarvis.core.credentials import load_credentials, save_credential
+
+        path = tmp_path / "credentials.toml"
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        save_credential("web_search", "YOUDOTCOM_API_KEY", "ydc-key", path=path)
+        assert load_credentials(path=path)["web_search"]["YOUDOTCOM_API_KEY"] == (
+            "ydc-key"
+        )
