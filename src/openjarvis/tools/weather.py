@@ -116,9 +116,9 @@ class WeatherTool(BaseTool):
             return self._api_key
         try:
             key = get_tool_credential(_TOOL_NAME, _API_KEY_ENV)
-        except (OSError, TypeError, ValueError):
+        except (AttributeError, OSError, TypeError, ValueError):
             key = None
-        if key and key.strip():
+        if isinstance(key, str) and key.strip():
             return key.strip()
         return self._connector.stored_api_key()
 

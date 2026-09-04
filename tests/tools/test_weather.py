@@ -205,6 +205,50 @@ def test_corrupt_connector_key_is_unconfigured_and_never_sent(
     fetch.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "credential_toml",
+    [
+        "[get_weather]\nOPENWEATHERMAP_API_KEY = 123\n",
+        '[get_weather]\nOPENWEATHERMAP_API_KEY = ["invalid"]\n',
+        "[get_weather]\nOPENWEATHERMAP_API_KEY = true\n",
+        '[get_weather]\nOPENWEATHERMAP_API_KEY = {invalid = "key"}\n',
+        "get_weather = 123\n",
+        'get_weather = ["invalid"]\n',
+        "get_weather = true\n",
+    ],
+)
+@pytest.mark.parametrize("connector_configured", [False, True])
+def test_malformed_tool_credentials_preserve_discovery_and_connector_fallback(
+    tmp_path, monkeypatch, credential_toml, connector_configured
+):
+    monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path))
+    monkeypatch.delenv("OPENWEATHERMAP_API_KEY", raising=False)
+    (tmp_path / "credentials.toml").write_text(credential_toml, encoding="utf-8")
+    if connector_configured:
+        connector_path = tmp_path / "connectors" / "weather.json"
+        connector_path.parent.mkdir()
+        connector_path.write_text('{"api_key":"connector-key"}', encoding="utf-8")
+    tool = WeatherTool(config=_config())
+
+    assert tool.is_configured() is connector_configured
+    assert tool.spec.metadata["credentials_configured"] is connector_configured
+    with patch.object(
+        weather_connector, "fetch_weather", return_value=(_current_response(), None)
+    ) as fetch:
+        result = tool.execute(location="Vienna,AT")
+
+    assert result.success is connector_configured
+    if connector_configured:
+        assert fetch.call_args.kwargs["api_key"] == "connector-key"
+        assert "connector-key" not in result.content
+    else:
+        assert "No OpenWeatherMap API key" in result.content
+        fetch.assert_not_called()
+    assert (tmp_path / "credentials.toml").read_text(
+        encoding="utf-8"
+    ) == credential_toml
+
+
 def test_tool_uses_fixed_endpoints_and_query_parameters():
     tool = WeatherTool(api_key="secret-key", config=_config())
     responses = [_current_response(), _forecast_response()]
