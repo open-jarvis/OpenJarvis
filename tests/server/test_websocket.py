@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from unittest.mock import MagicMock
 
 import pytest
@@ -93,6 +94,45 @@ class TestWebSocketStreaming:
             assert chunks == ["Hello", " ", "world"]
             assert done is not None
             assert done["content"] == "Hello world"
+
+    def test_sync_stream_next_and_close_run_off_event_loop(self):
+        stream_threads: list[int] = []
+        next_threads: list[int] = []
+        close_threads: list[int] = []
+
+        class BlockingIterator:
+            def __init__(self):
+                self._tokens = iter(["one", "two"])
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                next_threads.append(threading.get_ident())
+                return next(self._tokens)
+
+            def close(self):
+                close_threads.append(threading.get_ident())
+
+        class SyncEngine:
+            engine_id = "sync"
+
+            def stream(self, messages, *, model="test-model", **kwargs):
+                stream_threads.append(threading.get_ident())
+                return BlockingIterator()
+
+        app = _make_app(engine=SyncEngine())
+        client = TestClient(app)
+        with client.websocket_connect("/v1/chat/stream") as ws:
+            ws.send_text(json.dumps({"message": "Hi"}))
+            while ws.receive_json()["type"] != "done":
+                pass
+
+        assert stream_threads
+        assert next_threads
+        assert close_threads
+        assert all(thread != stream_threads[0] for thread in next_threads)
+        assert close_threads[0] != stream_threads[0]
 
     def test_missing_message_field(self):
         """Sending JSON without a 'message' field should return an error."""

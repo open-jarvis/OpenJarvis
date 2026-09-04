@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from datetime import datetime, timezone
 
 import pytest
@@ -102,3 +104,45 @@ def test_get_history(store, tmp_path):
     data = resp.json()
     assert len(data) == 1
     assert data[0]["voice_used"] == "jarvis"
+
+
+def test_generate_runs_entire_jarvis_lifecycle_on_one_worker(tmp_path, monkeypatch):
+    """Construction, ask, and cleanup all stay off the event-loop thread."""
+    from openjarvis.server import digest_routes
+
+    calls: list[tuple[str, int]] = []
+
+    class FakeJarvis:
+        def __init__(self):
+            calls.append(("init", threading.get_ident()))
+
+        def __enter__(self):
+            calls.append(("enter", threading.get_ident()))
+            return self
+
+        def ask(self, prompt, *, agent):
+            calls.append(("ask", threading.get_ident()))
+            assert prompt == "Generate my morning digest"
+            assert agent == "morning_digest"
+            return "digest"
+
+        def __exit__(self, exc_type, exc, tb):
+            calls.append(("exit", threading.get_ident()))
+
+    monkeypatch.setattr("openjarvis.sdk.Jarvis", FakeJarvis)
+    router = digest_routes.create_digest_router(db_path=str(tmp_path / "digest.db"))
+    endpoint = next(
+        route.endpoint for route in router.routes if route.path.endswith("/generate")
+    )
+
+    async def exercise():
+        loop_thread = threading.get_ident()
+        response = await endpoint()
+        return loop_thread, response
+
+    loop_thread, response = asyncio.run(exercise())
+
+    assert response == {"status": "ok", "text": "digest"}
+    assert [name for name, _thread in calls] == ["init", "enter", "ask", "exit"]
+    assert len({thread for _name, thread in calls}) == 1
+    assert calls[0][1] != loop_thread

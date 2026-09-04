@@ -1454,7 +1454,7 @@ async def security_scan():
     from openjarvis.cli.scan_cmd import PrivacyScanner
 
     scanner = PrivacyScanner()
-    results = scanner.run_all()
+    results = await asyncio.to_thread(scanner.run_all)
     return {
         "has_warnings": any(r.status == "warn" for r in results),
         "has_failures": any(r.status == "fail" for r in results),
