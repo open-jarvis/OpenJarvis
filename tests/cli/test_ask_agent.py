@@ -11,7 +11,7 @@ from click.testing import CliRunner
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.cli import cli
-from openjarvis.core.types import ToolCall, ToolResult
+from openjarvis.core.types import Role, StepType, ToolCall, ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 _ask_mod = importlib.import_module("openjarvis.cli.ask")
@@ -114,6 +114,7 @@ def agent_setup():
     config = JarvisConfig()
     config.intelligence.default_model = "test-model"
     config.agent.max_turns = 3
+    config.traces.enabled = False
 
     AgentRegistry.register_value("confirming_agent", _ConfirmingAgent)
     ToolRegistry.register_value("dangerous", _DangerousTool)
@@ -154,7 +155,9 @@ def mock_setup():
     ):
         from openjarvis.core.config import JarvisConfig
 
-        mock_cfg.return_value = JarvisConfig()
+        config = JarvisConfig()
+        config.traces.enabled = False
+        mock_cfg.return_value = config
         mock_ge.return_value = ("mock", engine)
         mock_de.return_value = [("mock", engine)]
         mock_dm.return_value = {"mock": ["test-model"]}
@@ -239,6 +242,7 @@ class TestAskAgentOption:
         from openjarvis.core.config import JarvisConfig
 
         cfg = JarvisConfig()
+        cfg.traces.enabled = False
         cfg.agent.default_agent = ""
         monkeypatch.setattr(_ask_mod, "load_config", lambda *a, **kw: cfg)
         result = runner.invoke(cli, ["ask", "Hello"])
@@ -285,6 +289,112 @@ class TestAskAgentOption:
         assert result.exit_code == 0
         assert "executed!" in result.output
         agent_setup.engine.generate.assert_not_called()
+
+
+class TestAskSkillsAndTraces:
+    def test_orchestrator_discovers_invokes_and_traces_skill(
+        self,
+        runner,
+        tmp_path,
+    ):
+        from openjarvis.core.config import JarvisConfig
+        from openjarvis.traces.store import TraceStore
+
+        skill_dir = tmp_path / "skills" / "hermes" / "llm-wiki"
+        skill_dir.mkdir(parents=True)
+        sentinel = "LLM_WIKI_INSTRUCTIONS_SENTINEL"
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: llm-wiki\n"
+            "description: Maintain a local LLM knowledge wiki\n"
+            "---\n"
+            f"{sentinel}: update the wiki carefully.\n",
+            encoding="utf-8",
+        )
+        (skill_dir / ".source").write_text(
+            'source = "hermes:llm-wiki"\n',
+            encoding="utf-8",
+        )
+
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        config.agent.context_from_memory = False
+        config.security.enabled = False
+        config.telemetry.enabled = False
+        config.skills.enabled = True
+        config.skills.skills_dir = str(tmp_path / "skills")
+        config.traces.enabled = True
+        config.traces.db_path = str(tmp_path / "traces.db")
+
+        engine = _mock_engine()
+        engine.generate.side_effect = [
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_skill",
+                        "name": "skill_llm-wiki",
+                        "arguments": '{"task": "Update the model page"}',
+                    }
+                ],
+                "usage": {"total_tokens": 8},
+            },
+            {
+                "content": "Wiki updated",
+                "tool_calls": [],
+                "usage": {"total_tokens": 8},
+            },
+        ]
+        _register_agents()
+
+        with (
+            patch.object(_ask_mod, "load_config", return_value=config),
+            patch.object(_ask_mod, "get_engine", return_value=("mock", engine)),
+            patch.object(
+                _ask_mod,
+                "discover_engines",
+                return_value=[("mock", engine)],
+            ),
+            patch.object(
+                _ask_mod,
+                "discover_models",
+                return_value={"mock": ["test-model"]},
+            ),
+            patch.object(_ask_mod, "register_builtin_models"),
+            patch.object(_ask_mod, "merge_discovered_models"),
+        ):
+            result = runner.invoke(
+                cli,
+                ["ask", "--agent", "orchestrator", "Update my LLM wiki"],
+            )
+
+        assert result.exit_code == 0, result.output
+        first_call = engine.generate.call_args_list[0]
+        assert any(
+            schema["function"]["name"] == "skill_llm-wiki"
+            for schema in first_call.kwargs["tools"]
+        )
+        assert "<available_skills>" in first_call.args[0][0].content
+
+        tool_messages = [
+            message
+            for message in engine.generate.call_args_list[1].args[0]
+            if message.role == Role.TOOL
+        ]
+        assert any(sentinel in message.content for message in tool_messages)
+
+        store = TraceStore(config.traces.db_path)
+        traces = store.list_traces()
+        store.close()
+        assert len(traces) == 1
+        assert [step.step_type for step in traces[0].steps] == [
+            StepType.GENERATE,
+            StepType.TOOL_CALL,
+            StepType.GENERATE,
+            StepType.RESPOND,
+        ]
+        assert traces[0].steps[1].metadata["skill"] == "llm-wiki"
+        assert traces[0].steps[1].metadata["skill_source"] == "hermes"
 
 
 class TestBuildTools:
@@ -357,6 +467,7 @@ class TestPersonaFilesReachModel:
         user.write_text("USER_SENTINEL", encoding="utf-8")
 
         cfg = JarvisConfig()
+        cfg.traces.enabled = False
         cfg.memory_files.soul_path = str(soul)
         cfg.memory_files.memory_path = str(memory)
         cfg.memory_files.user_path = str(user)

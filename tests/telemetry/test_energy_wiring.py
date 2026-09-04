@@ -19,6 +19,7 @@ from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role, TelemetryRecord
 from openjarvis.telemetry.aggregator import AggregatedStats, TelemetryAggregator
+from openjarvis.telemetry.energy_monitor import BASIS_GPU, EnergySample
 from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
 from openjarvis.telemetry.store import TelemetryStore
 
@@ -51,27 +52,40 @@ def _mock_engine(content="Test response"):
 
 
 def _mock_energy_monitor():
-    """Return a mock energy monitor with realistic sample data."""
+    """Return a mock energy monitor with realistic sample data.
+
+    The yielded sample is a real ``EnergySample``, not a ``MagicMock``. A mock
+    returns a ``MagicMock`` for any attribute the test forgot to set, which
+    sqlite then refuses to bind — so a newly added telemetry field would make
+    every record silently fail to persist and surface here as an unrelated
+    "0 records" assertion. A real dataclass picks up new fields with their
+    real defaults.
+    """
     monitor = MagicMock()
     monitor.close = MagicMock()
 
-    sample = MagicMock()
-    sample.energy_joules = 42.5
-    sample.mean_power_watts = 250.0
-    sample.peak_power_watts = 350.0
-    sample.mean_utilization_pct = 78.0
-    sample.peak_utilization_pct = 95.0
-    sample.mean_memory_used_gb = 16.0
-    sample.peak_memory_used_gb = 20.0
-    sample.mean_temperature_c = 65.0
-    sample.peak_temperature_c = 72.0
-    sample.duration_seconds = 0.5
-    sample.num_snapshots = 10
-    sample.energy_method = "hw_counter"
-    sample.vendor = "nvidia"
-    sample.cpu_energy_joules = 0.0
-    sample.gpu_energy_joules = 42.5
-    sample.dram_energy_joules = 0.0
+    sample = EnergySample(
+        energy_joules=42.5,
+        mean_power_watts=250.0,
+        peak_power_watts=350.0,
+        mean_utilization_pct=78.0,
+        peak_utilization_pct=95.0,
+        mean_memory_used_gb=16.0,
+        peak_memory_used_gb=20.0,
+        mean_temperature_c=65.0,
+        peak_temperature_c=72.0,
+        duration_seconds=0.5,
+        num_snapshots=10,
+        energy_method="hw_counter",
+        vendor="nvidia",
+        cpu_energy_joules=0.0,
+        gpu_energy_joules=42.5,
+        dram_energy_joules=0.0,
+        gpu_power_watts=250.0,
+        soc_energy_joules=42.5,
+        soc_power_watts=250.0,
+        basis=BASIS_GPU,
+    )
 
     @contextmanager
     def _sample():

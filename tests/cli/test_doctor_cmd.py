@@ -18,6 +18,7 @@ from openjarvis.cli.doctor_cmd import (
     _check_speech_backend,
     _run_all_checks,
 )
+from openjarvis.core.registry import EngineRegistry
 
 
 class TestDoctorHelp:
@@ -198,6 +199,30 @@ class TestCheckDefaultModel:
             result = _check_default_model()
         assert result.status == "ok"
         assert "auto" in result.message.lower()
+
+    def test_mlx_catalog_model_is_checked_by_repo_id(self) -> None:
+        mock_config = MagicMock()
+        mock_config.intelligence.default_model = "qwen3.5:4b"
+        mock_config.intelligence.preferred_engine = "mlx"
+        mock_config.engine.default = "mlx"
+        mock_engine = MagicMock()
+        mock_engine.health.return_value = True
+        mock_engine.list_models.return_value = ["mlx-community/Qwen3.5-4B-OptiQ-4bit"]
+
+        with (
+            patch("openjarvis.cli.doctor_cmd.load_config", return_value=mock_config),
+            patch("openjarvis.cli.doctor_cmd._ensure_engines_imported"),
+            patch.object(EngineRegistry, "keys", return_value=["mlx"]),
+            patch(
+                "openjarvis.engine._discovery._make_engine",
+                return_value=mock_engine,
+            ),
+        ):
+            result = _check_default_model()
+
+        assert result.status == "ok"
+        assert "qwen3.5:4b" in result.message
+        assert "mlx" in result.message
 
 
 class TestCheckSpeechBackend:

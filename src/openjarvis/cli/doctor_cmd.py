@@ -191,6 +191,7 @@ def _check_default_model(
             details="Router will select a model dynamically.",
         )
 
+    from openjarvis.intelligence.model_catalog import resolve_model_id_for_engine
     preferred = config.intelligence.preferred_engine or config.engine.default
     resolved_probes = probes if probes is not None else _probe_engines(config)
     check_order = []
@@ -203,7 +204,8 @@ def _check_default_model(
             probe = resolved_probes.get(key)
             if probe is not None and probe.healthy and probe.engine is not None:
                 models = probe.engine.list_models()
-                if default_model in models:
+                resolved_model = resolve_model_id_for_engine(default_model, key)
+                if resolved_model in models:
                     return CheckResult(
                         "Default model",
                         "ok",
@@ -228,7 +230,12 @@ def _check_optional_deps() -> List[CheckResult]:
         ("pynvml", "openjarvis[gpu-metrics]", "NVIDIA energy monitoring"),
         ("amdsmi", "openjarvis[energy-amd]", "AMD energy monitoring"),
         ("colbert", "openjarvis[memory-colbert]", "ColBERT memory backend"),
-        ("zeus", "openjarvis[energy-apple]", "Apple Silicon energy monitoring"),
+        (
+            "zeus_apple_silicon",
+            "openjarvis[energy-apple]",
+            "Apple Silicon energy monitoring",
+        ),
+        ("apple_fm_sdk", "openjarvis[afm]", "Apple Foundation Models (AFM 3)"),
     ]
     for pkg, install_hint, description in optional_packages:
         try:
