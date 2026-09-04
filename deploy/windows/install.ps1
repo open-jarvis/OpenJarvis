@@ -73,7 +73,10 @@ function Write-Ok    ($msg) { Write-Host "[ok]    $msg" -ForegroundColor Green }
 function Write-Warn2 ($msg) { Write-Host "[warn]  $msg" -ForegroundColor Yellow }
 function Write-Fail  ($msg) {
     Write-Host "[fail]  $msg" -ForegroundColor Red
-    exit 1
+    # A terminating error aborts this installer while returning control to an
+    # existing interactive PowerShell. `exit` would close the entire host when
+    # the documented `irm ... | iex` command is run in a terminal (#868).
+    throw [System.InvalidOperationException]::new([string] $msg)
 }
 
 # ---------------------------------------------------------------------------

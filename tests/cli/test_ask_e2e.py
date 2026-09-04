@@ -43,6 +43,7 @@ def _patch_ask(monkeypatch, tmp_path, *, engine_result=None, no_engine=False):
 
     cfg = JarvisConfig()
     cfg.telemetry.db_path = str(tmp_path / "telemetry.db")
+    cfg.traces.enabled = False
 
     monkeypatch.setattr(_ask_mod, "load_config", lambda: cfg)
 

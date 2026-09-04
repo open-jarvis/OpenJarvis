@@ -169,6 +169,7 @@ def _check_default_model() -> CheckResult:
 
     from openjarvis.core.registry import EngineRegistry
     from openjarvis.engine import _discovery
+    from openjarvis.intelligence.model_catalog import resolve_model_id_for_engine
 
     preferred = config.intelligence.preferred_engine or config.engine.default
     check_order = []
@@ -181,7 +182,8 @@ def _check_default_model() -> CheckResult:
             engine = _discovery._make_engine(key, config)
             if engine.health():
                 models = engine.list_models()
-                if default_model in models:
+                resolved_model = resolve_model_id_for_engine(default_model, key)
+                if resolved_model in models:
                     return CheckResult(
                         "Default model",
                         "ok",
@@ -206,7 +208,12 @@ def _check_optional_deps() -> List[CheckResult]:
         ("pynvml", "openjarvis[gpu-metrics]", "NVIDIA energy monitoring"),
         ("amdsmi", "openjarvis[energy-amd]", "AMD energy monitoring"),
         ("colbert", "openjarvis[memory-colbert]", "ColBERT memory backend"),
-        ("zeus", "openjarvis[energy-apple]", "Apple Silicon energy monitoring"),
+        (
+            "zeus_apple_silicon",
+            "openjarvis[energy-apple]",
+            "Apple Silicon energy monitoring",
+        ),
+        ("apple_fm_sdk", "openjarvis[afm]", "Apple Foundation Models (AFM 3)"),
     ]
     for pkg, install_hint, description in optional_packages:
         try:

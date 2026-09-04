@@ -28,6 +28,17 @@ MODEL_PARAMS_B: dict[str, float] = {
     "llama-3.1-8b": 8.0,
     "mistral-7b": 7.0,
     "mixtral-8x7b": 47.0,
+    # Apple Foundation Models (on-device, AFM 3). "Core" is a dense ~3B model.
+    # "Core Advanced" is a 20B sparse MoE that activates only 1-4B parameters
+    # per request via Instruction-Following Pruning, so the 4B upper bound is
+    # used here -- FLOPs for that label estimate active compute rather than
+    # measuring it. Apple has not published exact parameter counts.
+    # Core Advanced is listed first because `_get_params_b` falls back to a
+    # prefix scan in insertion order, and "afm-3" is a prefix of both longer
+    # labels.
+    "afm-3-core-advanced": 4.0,
+    "afm-3-core": 3.0,
+    "afm-3": 3.0,
 }
 
 
