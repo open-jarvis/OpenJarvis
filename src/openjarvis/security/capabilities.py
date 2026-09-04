@@ -178,6 +178,9 @@ class CapabilityPolicy:
 
         for agent_data in data["agents"]:
             agent_id = agent_data["agent_id"]
+            # An explicit empty policy is still an identity-specific policy;
+            # it must not accidentally inherit the wildcard's grants.
+            self._policies.setdefault(agent_id, AgentPolicy(agent_id=agent_id))
             for grant in agent_data.get("grants", []):
                 self.grant(agent_id, grant["capability"], grant.get("pattern", "*"))
             for denied in agent_data.get("deny", []):

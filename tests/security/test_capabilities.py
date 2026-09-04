@@ -131,6 +131,25 @@ class TestCapabilityPolicy:
         assert loaded.check("agent1", "file:read")
         assert not loaded.check("agent1", "code:execute")
 
+    def test_empty_explicit_policy_does_not_inherit_default_grants(self, tmp_path):
+        path = tmp_path / "policy.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "agents": [
+                        {
+                            "agent_id": "_default",
+                            "grants": [{"capability": "code:execute"}],
+                        },
+                        {"agent_id": "restricted", "grants": []},
+                    ]
+                }
+            )
+        )
+        policy = CapabilityPolicy(policy_path=str(path), default_deny=True)
+        assert policy.check("unconfigured", "code:execute")
+        assert not policy.check("restricted", "code:execute")
+
     def test_load_nonexistent_file(self):
         with pytest.raises(FileNotFoundError):
             CapabilityPolicy(policy_path="/nonexistent/path.json")
