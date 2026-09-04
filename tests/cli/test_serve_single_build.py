@@ -106,7 +106,7 @@ def _run_serve(
     """Invoke ``jarvis serve`` with all heavy/blocking pieces stubbed out.
 
     Returns the CliRunner result. The server is never actually started
-    (``uvicorn.run`` is a no-op) and no real engine is contacted.
+    (``run_server`` is a no-op) and no real engine is contacted.
     """
     from openjarvis.core.config import JarvisConfig
     from openjarvis.core.registry import MemoryRegistry
@@ -175,7 +175,7 @@ def _run_serve(
             "openjarvis.agents.executor.AgentExecutor.set_system",
             set_system_spy,
         ),
-        patch("uvicorn.run", lambda *a, **k: None),
+        patch("openjarvis.server.daemon.run_server", lambda *a, **k: None),
     ):
         return CliRunner().invoke(cli, ["serve"], catch_exceptions=False)
 

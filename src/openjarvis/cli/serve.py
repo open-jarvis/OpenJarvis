@@ -156,7 +156,7 @@ def serve(
 
     # Resolve host/port from CLI args or config
     bind_host = host or config.server.host
-    bind_port = port or config.server.port
+    bind_port = port if port is not None else config.server.port
 
     # Set up engine
     register_builtin_models()
@@ -780,4 +780,6 @@ def serve(
             "authenticated requests to your instance."
         )
 
-    uvicorn.run(app, host=bind_host, port=bind_port, log_level="info")
+    from openjarvis.server.daemon import run_server
+
+    run_server(app, host=bind_host, port=bind_port, log_level="info")
