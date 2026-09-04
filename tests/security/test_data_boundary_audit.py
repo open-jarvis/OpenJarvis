@@ -1303,3 +1303,70 @@ enabled = [
     assert "cloud-provider-configured" not in findings
     assert "frontend-credential-storage-not-inspected" not in findings
     assert report.verdict == "no fail or warn findings detected"
+
+
+class TestWebSearchDestination:
+    """The default search engine is keyless, so no credential finding covers
+    it — the tool-surface finding has to name the destination itself (#923)."""
+
+    def _clear(self, monkeypatch):
+        for key in (
+            "TAVILY_API_KEY",
+            "YOUDOTCOM_API_KEY",
+            "OPENJARVIS_WEB_SEARCH_ENGINE",
+        ):
+            monkeypatch.delenv(key, raising=False)
+
+    def test_keyless_youcom_is_named(self, monkeypatch):
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        assert "You.com" in _web_search_destination()
+        assert "keyless" in _web_search_destination()
+
+    def test_keyed_youcom_is_named(self, monkeypatch):
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("YOUDOTCOM_API_KEY", "ydc-key")
+        assert "keyed" in _web_search_destination()
+
+    def test_tavily_is_named(self, monkeypatch):
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-key")
+        assert "Tavily" in _web_search_destination()
+
+    def test_duckduckgo_is_named(self, monkeypatch):
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", "duckduckgo")
+        assert "DuckDuckGo" in _web_search_destination()
+
+    def test_matches_the_tool_resolution(self, monkeypatch):
+        """Guard against the audit's copy of the precedence rule drifting from
+        WebSearchTool._resolve_engine, which is the source of truth."""
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+        from openjarvis.tools.web_search import WebSearchTool
+
+        labels = {
+            "youcom": "You.com",
+            "tavily": "Tavily",
+            "duckduckgo": "DuckDuckGo",
+        }
+        for tavily in (None, "tvly-key"):
+            for youcom in (None, "ydc-key"):
+                for engine in (None, "auto", "youcom", "tavily", "duckduckgo"):
+                    self._clear(monkeypatch)
+                    if tavily:
+                        monkeypatch.setenv("TAVILY_API_KEY", tavily)
+                    if youcom:
+                        monkeypatch.setenv("YOUDOTCOM_API_KEY", youcom)
+                    if engine:
+                        monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", engine)
+                    resolved = WebSearchTool()._resolve_engine()
+                    assert labels[resolved] in _web_search_destination(), (
+                        f"tavily={tavily} youcom={youcom} engine={engine}"
+                    )
