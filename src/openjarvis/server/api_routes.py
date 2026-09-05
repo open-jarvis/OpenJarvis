@@ -9,7 +9,14 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -25,6 +32,12 @@ class AgentCreateRequest(BaseModel):
 
 class AgentMessageRequest(BaseModel):
     message: str
+
+
+class SpeechSynthesizeRequest(BaseModel):
+    text: str
+    voice_id: Optional[str] = None
+    speed: Optional[float] = None
 
 
 class MemoryStoreRequest(BaseModel):
@@ -1041,6 +1054,120 @@ async def speech_health(request: Request):
         "available": available,
         "backend": backend.backend_id,
         **({"reason": reason} if reason else {}),
+    }
+
+
+# Synthesis is CPU-bound and runs in a worker thread; cap the input so one
+# request cannot occupy that thread for minutes.
+_MAX_TTS_CHARS = 5000
+
+
+def _resolve_tts_backend(request: Request):
+    """Return a healthy TTS backend, resolved once and cached on app state.
+
+    Backends load models on construction, so this stays lazy: a server whose
+    users never ask for audio never pays for it.
+    """
+    app = request.app
+    if getattr(app.state, "tts_resolved", False):
+        return getattr(app.state, "tts_backend", None)
+
+    from openjarvis.speech._tts_discovery import get_tts_backend, voice_preferences
+
+    config = getattr(app.state, "config", None)
+    if config is None:
+        from openjarvis.core.config import load_config
+
+        config = load_config()
+
+    preferred, _, _ = voice_preferences(config)
+    backend = get_tts_backend(preferred)
+    app.state.tts_backend = backend
+    app.state.tts_resolved = True
+    return backend
+
+
+def _tts_voice_and_speed(request: Request, backend) -> tuple[str, float]:
+    """Resolve the voice ID and speed to use with *backend*.
+
+    Voice IDs are not portable between backends, so a configured ``voice_id``
+    applies only when the resolved backend is the configured one; otherwise the
+    fallback backend's own default is used.
+    """
+    from openjarvis.speech._tts_discovery import default_voice_for, voice_preferences
+
+    config = getattr(request.app.state, "config", None)
+    if config is None:
+        return "", 1.0
+
+    preferred, voice_id, speed = voice_preferences(config)
+    active = getattr(backend, "backend_id", "")
+    if active and active != preferred:
+        voice_id = default_voice_for(active)
+    return voice_id, speed
+
+
+@speech_router.post("/synthesize")
+async def synthesize_speech(request: Request, body: SpeechSynthesizeRequest):
+    """Synthesize text to speech and return the audio as WAV."""
+    backend = _resolve_tts_backend(request)
+    if backend is None:
+        raise HTTPException(
+            status_code=501, detail="No text-to-speech backend available"
+        )
+
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing 'text'")
+    if len(text) > _MAX_TTS_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Text exceeds {_MAX_TTS_CHARS} characters",
+        )
+
+    voice_id, speed = _tts_voice_and_speed(request, backend)
+    if body.voice_id:
+        voice_id = body.voice_id
+    if body.speed is not None:
+        speed = body.speed
+
+    try:
+        result = await asyncio.to_thread(
+            backend.synthesize,
+            text,
+            voice_id=voice_id,
+            speed=speed,
+            output_format="wav",
+        )
+    except Exception as exc:
+        logger.exception("Speech synthesis failed")
+        raise HTTPException(
+            status_code=500, detail=f"Speech synthesis failed: {exc}"
+        ) from exc
+
+    return Response(
+        content=result.audio,
+        media_type="audio/wav",
+        headers={
+            "X-Voice-Id": result.voice_id or voice_id,
+            "X-Sample-Rate": str(result.sample_rate),
+        },
+    )
+
+
+@speech_router.get("/tts/health")
+async def tts_health(request: Request):
+    """Report whether voice output is available, and with which voice."""
+    backend = _resolve_tts_backend(request)
+    if backend is None:
+        return {"available": False, "reason": "No text-to-speech backend available"}
+
+    voice_id, speed = _tts_voice_and_speed(request, backend)
+    return {
+        "available": True,
+        "backend": getattr(backend, "backend_id", ""),
+        "voice_id": voice_id,
+        "speed": speed,
     }
 
 

@@ -11,6 +11,7 @@ import { ToolCallCard } from './ToolCallCard';
 import { ResearchTimeline } from './ResearchTimeline';
 import { rehypeCitations } from '../../lib/rehype-citations';
 import { XRayFooter } from './XRayFooter';
+import { SpeakMessageButton } from './SpeakMessageButton';
 import type { ChatMessage } from '../../types';
 
 function stripThinkTags(text: string): string {
@@ -178,9 +179,10 @@ export function MessageBubble({ message, isLive = false }: Props) {
         </div>
       )}
 
-      {/* Footer: copy + x-ray */}
+      {/* Footer: copy + read aloud + x-ray */}
       <div className="flex items-center gap-2 mt-1.5">
         <CopyMessageButton content={cleanContent} />
+        {!isUser && !isLive && <SpeakMessageButton content={cleanContent} />}
       </div>
       <XRayFooter
         usage={message.usage}

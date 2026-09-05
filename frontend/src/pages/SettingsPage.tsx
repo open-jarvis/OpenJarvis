@@ -22,6 +22,7 @@ import { useAppStore, type ThemeMode } from '../lib/store';
 import {
   checkHealth,
   fetchSpeechHealth,
+  fetchTtsHealth,
   getMemoryStats,
   getInferenceSource,
   setInferenceSource,
@@ -240,6 +241,7 @@ export function SettingsPage() {
   const serverInfo = useAppStore((s) => s.serverInfo);
   const [healthy, setHealthy] = useState<boolean | null>(null);
   const [speechBackendAvailable, setSpeechBackendAvailable] = useState<boolean | null>(null);
+  const [ttsBackend, setTtsBackend] = useState<{ available: boolean; backend?: string; voice_id?: string } | null>(null);
   const [saved, setSaved] = useState(false);
 
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(() => !isAutoUpdateDisabled());
@@ -314,6 +316,9 @@ export function SettingsPage() {
     fetchSpeechHealth()
       .then((h) => setSpeechBackendAvailable(h.available))
       .catch(() => setSpeechBackendAvailable(false));
+    fetchTtsHealth()
+      .then((h) => setTtsBackend(h))
+      .catch(() => setTtsBackend({ available: false }));
     getMemoryStats()
       .then(setMemoryStats)
       .catch(() => setMemoryStats(null));
@@ -721,6 +726,38 @@ export function SettingsPage() {
                   }}
                 />
               </button>
+            </SettingRow>
+            <SettingRow label="Text-to-Speech" description="Show a read-aloud button on assistant replies">
+              <button
+                onClick={() => { updateSettings({ voiceOutputEnabled: !settings.voiceOutputEnabled }); showSaved(); }}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: settings.voiceOutputEnabled ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: settings.voiceOutputEnabled ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
+            <SettingRow label="Voice" description="Backend and voice used for spoken replies">
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{
+                    background: ttsBackend?.available ? 'var(--color-success)' : 'var(--color-text-tertiary)',
+                  }}
+                />
+                <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                  {ttsBackend === null ? 'Checking...'
+                    : ttsBackend.available ? `${ttsBackend.backend}${ttsBackend.voice_id ? ` / ${ttsBackend.voice_id}` : ''}`
+                    : 'Not configured'}
+                </span>
+              </div>
             </SettingRow>
             <SettingRow label="Backend status" description="Requires Whisper, Deepgram, or another speech backend">
               <div className="flex items-center gap-2">
