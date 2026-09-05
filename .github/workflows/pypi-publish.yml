@@ -78,6 +78,7 @@ jobs:
           }
 
       - name: Resolve build version from tag
+        id: version
         env:
           REF: ${{ steps.ref.outputs.ref }}
         run: |
@@ -93,6 +94,20 @@ jobs:
           # `.devN` tags, so we pin the exact build version explicitly — the
           # published version always equals the pushed tag.
           echo "SETUPTOOLS_SCM_PRETEND_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          # Only a plain vX.Y.Z (or vX.Y.Z.postN) tag may publish to production
+          # PyPI. autotag.yml pushes a vX.Y.Z.devN tag for every merge to main,
+          # and every upload permanently consumes PyPI project storage: roughly
+          # 90 dev releases a month exhausted the project's 10 GB limit, after
+          # which each upload hard-failed with "400 Project size too large"
+          # (#955). Pre-release builds go to TestPyPI instead, so main stays
+          # continuously publishable without spending production quota.
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.post[0-9]+)?$ ]]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "Target index: PyPI (final release)"
+          else
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "Target index: TestPyPI (pre-release)"
+          fi
           echo "Building version ${VERSION}"
 
       - name: Build package
@@ -128,8 +143,8 @@ jobs:
           PY
           uvx twine check --strict dist/*
 
-      - name: Publish to TestPyPI (dry run)
-        if: ${{ inputs.dry_run }}
+      - name: Publish to TestPyPI (pre-releases and dry runs)
+        if: ${{ inputs.dry_run || steps.version.outputs.prerelease == 'true' }}
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
         run: |
@@ -143,5 +158,5 @@ jobs:
           uv publish --publish-url https://test.pypi.org/legacy/
 
       - name: Publish to PyPI
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && steps.version.outputs.prerelease == 'false' }}
         run: uv publish
