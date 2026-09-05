@@ -398,12 +398,13 @@ export interface TtsHealth {
 
 export async function synthesizeSpeech(
   text: string,
-  opts: { voiceId?: string; speed?: number } = {},
+  opts: { voiceId?: string; speed?: number; signal?: AbortSignal } = {},
 ): Promise<Blob> {
   const res = await apiFetch(`/v1/speech/synthesize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, voice_id: opts.voiceId, speed: opts.speed }),
+    signal: opts.signal,
   });
   if (!res.ok) {
     let detail = '';

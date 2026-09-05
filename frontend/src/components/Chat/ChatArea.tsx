@@ -4,6 +4,8 @@ import { MessageBubble } from './MessageBubble';
 import { InputArea } from './InputArea';
 import { StreamingDots } from './StreamingDots';
 import { useAppStore } from '../../lib/store';
+import { useTtsStore } from '../../lib/tts';
+import { stripThinkTags } from '../../lib/message-text';
 import { Sparkles, PanelRightOpen, PanelRightClose, Database, MessageSquare, X } from 'lucide-react';
 import { listConnectors } from '../../lib/connectors-api';
 
@@ -26,6 +28,38 @@ export function ChatArea() {
   const wasStreaming = useRef(false);
   const lastScrollTop = useRef(0);
   const isCurrentChatStreaming = streamState.isStreaming && streamState.conversationId === activeId;
+
+  // Autoplay: speak a reply once it is finished, never while it streams -- a
+  // partial sentence would be synthesized and then cut off by the next chunk.
+  // autoSpokenId fences the message so re-renders cannot repeat it.
+  const voiceOutputEnabled = useAppStore((s) => s.settings.voiceOutputEnabled);
+  const voiceAutoplay = useAppStore((s) => s.settings.voiceAutoplay);
+  // Probe the backend as soon as voice output is switched on. Without this the
+  // first reply could never autoplay: `available` is only set by ensureHealth,
+  // which until now ran solely from the per-message read-aloud button -- and
+  // that button does not exist until a reply is already on screen.
+  useEffect(() => {
+    if (!voiceOutputEnabled) return;
+    useTtsStore.getState().ensureHealth();
+  }, [voiceOutputEnabled]);
+
+  useEffect(() => {
+    if (!voiceOutputEnabled || !voiceAutoplay) return;
+    if (isCurrentChatStreaming) return;
+
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== 'assistant') return;
+
+    const tts = useTtsStore.getState();
+    if (tts.available !== true) return;
+    if (tts.autoSpokenId === last.id) return;
+
+    const text = stripThinkTags(last.content);
+    if (!text) return;
+
+    tts.markAutoSpoken(last.id);
+    void tts.speak(last.id, text);
+  }, [messages, isCurrentChatStreaming, voiceOutputEnabled, voiceAutoplay]);
   const currentStreamContent = isCurrentChatStreaming ? streamState.content : '';
 
   // Check if any data sources are connected

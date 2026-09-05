@@ -744,6 +744,26 @@ export function SettingsPage() {
                 />
               </button>
             </SettingRow>
+            <SettingRow label="Speak replies automatically" description="Read every assistant reply aloud as soon as it finishes">
+              <button
+                onClick={() => { updateSettings({ voiceAutoplay: !settings.voiceAutoplay }); showSaved(); }}
+                disabled={!settings.voiceOutputEnabled}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: settings.voiceAutoplay && settings.voiceOutputEnabled ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                  opacity: settings.voiceOutputEnabled ? 1 : 0.4,
+                  cursor: settings.voiceOutputEnabled ? 'pointer' : 'default',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: settings.voiceAutoplay && settings.voiceOutputEnabled ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
             <SettingRow label="Voice" description="Backend and voice used for spoken replies">
               <div className="flex items-center gap-2">
                 <span

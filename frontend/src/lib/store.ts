@@ -107,6 +107,7 @@ interface Settings {
   maxTokens: number;
   speechEnabled: boolean;
   voiceOutputEnabled: boolean;
+  voiceAutoplay: boolean;
 }
 
 function loadSettings(): Settings {
@@ -121,6 +122,7 @@ function loadSettings(): Settings {
     maxTokens: 4096,
     speechEnabled: false,
     voiceOutputEnabled: false,
+    voiceAutoplay: false,
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
