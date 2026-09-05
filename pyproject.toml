@@ -108,6 +108,16 @@ voice = [
     "sounddevice>=0.5",  # play_wav / record_until_silence in speech/voice_io.py
     "numpy>=1.24",
 ]
+# Local neural TTS covering languages Kokoro lacks (German among them). Piper
+# bundles its own espeak-ng data, so it needs nothing installed system-wide.
+# NOTE: piper-tts is GPL-3.0-or-later. It is an optional extra that users opt
+# into and install themselves; nothing GPL is vendored or distributed here.
+voice-piper = [
+    "piper-tts>=1.8",
+    "soundfile>=0.12",
+    "sounddevice>=0.5",  # play_wav / record_until_silence in speech/voice_io.py
+    "numpy>=1.24",
+]
 openhands = ["openhands-sdk>=1.0; python_version >= '3.12'"]
 # Apple Foundation Models (on-device AFM 3). Needs an Apple Silicon Mac on
 # macOS 26+ with Apple Intelligence enabled. The SDK compiles Swift bindings
