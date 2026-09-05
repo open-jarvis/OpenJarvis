@@ -12,6 +12,12 @@ on:
       - 'scripts/install/**'
       - 'tests/install/bash/**'
 
+# Least-privilege default: every job here only reads the repository.
+# Without this block the workflow inherits the repository default, which
+# may be read/write.
+permissions:
+  contents: read
+
 jobs:
   bats:
     runs-on: ubuntu-latest
