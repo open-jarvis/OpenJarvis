@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from openjarvis.tools.file_write import FileWriteTool
 
 
@@ -82,6 +84,21 @@ class TestFileWriteTool:
         result = tool.execute(path=str(f), content='{"token": "abc"}')
         assert result.success is False
         assert "sensitive" in result.content.lower()
+
+    def test_blocks_symlink_alias_to_sensitive_file(self, tmp_path):
+        sensitive = tmp_path / ".env"
+        sensitive.write_text("SECRET=foo", encoding="utf-8")
+        alias = tmp_path / "notes.txt"
+        try:
+            alias.symlink_to(sensitive)
+        except OSError:
+            pytest.skip("filesystem does not permit creating symlinks")
+
+        result = FileWriteTool().execute(path=str(alias), content="SECRET=bar")
+
+        assert result.success is False
+        assert "sensitive" in result.content.lower()
+        assert sensitive.read_text(encoding="utf-8") == "SECRET=foo"
 
     def test_allowed_dirs_blocks(self, tmp_path):
         f = tmp_path / "test.txt"
