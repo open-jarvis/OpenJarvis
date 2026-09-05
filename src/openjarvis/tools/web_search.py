@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+from urllib.parse import urljoin
 
 from openjarvis import __version__
 from openjarvis.core.registry import ToolRegistry
@@ -37,6 +38,8 @@ YOUCOM_API_KEY_ENV = "YOUDOTCOM_API_KEY"
 
 ENGINE_ENV = "OPENJARVIS_WEB_SEARCH_ENGINE"
 ENGINES = ("auto", "youcom", "tavily", "duckduckgo")
+_MAX_FETCH_REDIRECTS = 5
+_REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 
 # Identifies OpenJarvis to You.com. The keyless tier carries no API key, so the
 # User-Agent is the only attribution signal; sent to You.com hosts only.
@@ -173,24 +176,37 @@ class WebSearchTool(BaseTool):
 
     @staticmethod
     def _fetch_url(url: str, max_chars: int = 6000) -> str:
-        """Fetch a URL and return extracted text content."""
+        """Fetch a URL and return extracted text after checking each redirect."""
         import re as _re
 
         import httpx
 
         url = WebSearchTool._normalize_url(url)
-        ssrf_error = check_ssrf(url)
-        if ssrf_error:
-            raise ValueError(ssrf_error)
-        resp = httpx.get(
-            url.strip(),
-            follow_redirects=True,
-            timeout=30.0,
-            headers={
-                "User-Agent": "Mozilla/5.0 (compatible; OpenJarvis/1.0; +https://github.com/openjarvis)"
-            },
-        )
-        resp.raise_for_status()
+        current_url = url.strip()
+        for _ in range(_MAX_FETCH_REDIRECTS + 1):
+            ssrf_error = check_ssrf(current_url)
+            if ssrf_error:
+                raise ValueError(ssrf_error)
+            resp = httpx.get(
+                current_url,
+                follow_redirects=False,
+                timeout=30.0,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; OpenJarvis/1.0; +https://github.com/openjarvis)"
+                },
+            )
+            if resp.status_code not in _REDIRECT_STATUS_CODES:
+                resp.raise_for_status()
+                break
+            location = resp.headers.get("location", "")
+            if not location:
+                resp.raise_for_status()
+                break
+            current_url = urljoin(str(resp.url), location)
+        else:
+            raise ValueError(
+                f"URL exceeded the maximum of {_MAX_FETCH_REDIRECTS} redirects"
+            )
         content_type = resp.headers.get("content-type", "")
         if "application/pdf" in content_type:
             return (

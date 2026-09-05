@@ -532,6 +532,95 @@ class TestExecuteWithUrl:
         assert result.success is False
         assert "Failed to fetch URL" in result.content
 
+    def test_url_redirect_to_private_ip_is_blocked(self, monkeypatch):
+        """Every URL redirect hop must be checked for SSRF."""
+        import httpx
+
+        import openjarvis.tools.web_search as _ws
+
+        requests = []
+
+        def handler(request):
+            requests.append(str(request.url))
+            if request.url.host == "public.example.com":
+                return httpx.Response(
+                    302,
+                    headers={"location": "http://127.0.0.1/admin"},
+                    request=request,
+                )
+            return httpx.Response(
+                200,
+                text="internal response",
+                headers={"content-type": "text/html"},
+                request=request,
+            )
+
+        guard = MagicMock(
+            side_effect=[None, None, "URL resolves to private IP: 127.0.0.1"]
+        )
+        with httpx.Client(
+            transport=httpx.MockTransport(handler), follow_redirects=True
+        ) as client:
+            monkeypatch.setattr(httpx, "get", client.get)
+            monkeypatch.setattr(_ws, "check_ssrf", guard)
+            result = WebSearchTool(engine="youcom").execute(
+                query="https://public.example.com/start"
+            )
+
+        assert result.success is False
+        assert "127.0.0.1" in result.content
+        assert requests == ["https://public.example.com/start"]
+        assert [call.args[0] for call in guard.call_args_list] == [
+            "https://public.example.com/start",
+            "https://public.example.com/start",
+            "http://127.0.0.1/admin",
+        ]
+
+    def test_url_public_redirect_is_followed_after_ssrf_check(self, monkeypatch):
+        """Public relative redirects still work when checked hop by hop."""
+        import httpx
+
+        import openjarvis.tools.web_search as _ws
+
+        requests = []
+
+        def handler(request):
+            requests.append(str(request.url))
+            if request.url.path == "/start":
+                return httpx.Response(
+                    302,
+                    headers={"location": "/article"},
+                    request=request,
+                )
+            return httpx.Response(
+                200,
+                text="public article",
+                headers={"content-type": "text/html"},
+                request=request,
+            )
+
+        guard = MagicMock(return_value=None)
+        with httpx.Client(
+            transport=httpx.MockTransport(handler), follow_redirects=True
+        ) as client:
+            monkeypatch.setattr(httpx, "get", client.get)
+            monkeypatch.setattr(_ws, "check_ssrf", guard)
+            result = WebSearchTool(engine="youcom").execute(
+                query="https://public.example.com/start"
+            )
+
+        assert result.success is True
+        assert result.content == "public article"
+        assert requests == [
+            "https://public.example.com/start",
+            "https://public.example.com/article",
+        ]
+        assert [call.args[0] for call in guard.call_args_list] == [
+            "https://public.example.com/start",
+            "https://public.example.com/start",
+            "https://public.example.com/article",
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Engine selection and the You.com engine (#923)
