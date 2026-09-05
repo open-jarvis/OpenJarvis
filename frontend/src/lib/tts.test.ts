@@ -175,3 +175,65 @@ describe('shared voice output', () => {
     expect(health).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('autoplay gating', () => {
+  // The rule ChatArea implements: speak on the falling edge of a stream, never
+  // merely because a finished reply is on screen. Encoded here so the intent
+  // survives even though the effect itself lives in the component.
+  function shouldSpeak(prev: { wasStreaming: boolean; autoSpokenId: string | null }, now: {
+    isStreaming: boolean;
+    lastRole: string;
+    lastId: string;
+  }): boolean {
+    const justFinished = prev.wasStreaming && !now.isStreaming;
+    if (!justFinished) return false;
+    if (now.lastRole !== 'assistant') return false;
+    return prev.autoSpokenId !== now.lastId;
+  }
+
+  it('stays silent when a finished conversation is merely restored', () => {
+    // Page load: nothing was streaming, a completed reply is already on screen.
+    expect(
+      shouldSpeak(
+        { wasStreaming: false, autoSpokenId: null },
+        { isStreaming: false, lastRole: 'assistant', lastId: 'old' },
+      ),
+    ).toBe(false);
+  });
+
+  it('speaks when a stream finishes', () => {
+    expect(
+      shouldSpeak(
+        { wasStreaming: true, autoSpokenId: null },
+        { isStreaming: false, lastRole: 'assistant', lastId: 'fresh' },
+      ),
+    ).toBe(true);
+  });
+
+  it('stays silent while the reply is still streaming', () => {
+    expect(
+      shouldSpeak(
+        { wasStreaming: true, autoSpokenId: null },
+        { isStreaming: true, lastRole: 'assistant', lastId: 'fresh' },
+      ),
+    ).toBe(false);
+  });
+
+  it('never repeats a message it already spoke', () => {
+    expect(
+      shouldSpeak(
+        { wasStreaming: true, autoSpokenId: 'fresh' },
+        { isStreaming: false, lastRole: 'assistant', lastId: 'fresh' },
+      ),
+    ).toBe(false);
+  });
+
+  it('ignores a trailing user message', () => {
+    expect(
+      shouldSpeak(
+        { wasStreaming: true, autoSpokenId: null },
+        { isStreaming: false, lastRole: 'user', lastId: 'u1' },
+      ),
+    ).toBe(false);
+  });
+});

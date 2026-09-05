@@ -43,9 +43,18 @@ export function ChatArea() {
     useTtsStore.getState().ensureHealth();
   }, [voiceOutputEnabled]);
 
+  // Speak on the falling edge of a stream -- the moment a reply finishes -- and
+  // never merely because a finished reply happens to be on screen. Opening the
+  // app or switching conversations would otherwise read stale history aloud,
+  // and browsers block that anyway: playback with no preceding user gesture is
+  // rejected outright, so the failure would be silent in both senses.
+  const wasStreamingRef = useRef(false);
   useEffect(() => {
+    const justFinished = wasStreamingRef.current && !isCurrentChatStreaming;
+    wasStreamingRef.current = isCurrentChatStreaming;
+
+    if (!justFinished) return;
     if (!voiceOutputEnabled || !voiceAutoplay) return;
-    if (isCurrentChatStreaming) return;
 
     const last = messages[messages.length - 1];
     if (!last || last.role !== 'assistant') return;
