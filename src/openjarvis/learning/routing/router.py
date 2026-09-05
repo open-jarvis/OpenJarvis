@@ -51,6 +51,27 @@ def _model_size(key: str) -> float:
         return 0.0
 
 
+def _model_rank(key: str) -> tuple[int, float]:
+    """Return the capability rank used when selecting the largest model.
+
+    A positive parameter count is the strongest signal for local models. Cloud
+    providers do not publish parameter counts, so their catalog entries use
+    ``0.0``; an explicitly cloud-backed model gets a separate higher tier
+    instead of being treated as smaller than every known local model. Models
+    with unknown non-cloud metadata remain at the lowest tier.
+    """
+    try:
+        spec = ModelRegistry.get(key)
+        size = spec.parameter_count_b
+        if size > 0:
+            return (1, size)
+        if "cloud" in spec.supported_engines:
+            return (2, 0.0)
+    except (KeyError, AttributeError, TypeError) as exc:
+        logger.debug("Failed to compute model capability rank: %s", exc)
+    return (0, 0.0)
+
+
 def _find_model_by_tag(available: List[str], tag: str) -> Optional[str]:
     """Find the first available model whose key contains *tag* (case-insensitive)."""
     tag_lower = tag.lower()
@@ -61,16 +82,16 @@ def _find_model_by_tag(available: List[str], tag: str) -> Optional[str]:
 
 
 def _largest_model(available: List[str]) -> Optional[str]:
-    """Return the model with the largest parameter count from the available list."""
+    """Return the most capable model from the available list."""
     if not available:
         return None
     best = available[0]
-    best_size = _model_size(best)
+    best_rank = _model_rank(best)
     for key in available[1:]:
-        size = _model_size(key)
-        if size > best_size:
+        rank = _model_rank(key)
+        if rank > best_rank:
             best = key
-            best_size = size
+            best_rank = rank
     return best
 
 
