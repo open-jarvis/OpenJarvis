@@ -179,3 +179,10 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      # Standalone handoff example: intentionally not a runtime workspace member.
+      - name: Cross-device travel example
+        run: |
+          cargo fmt --manifest-path ../examples/cross_device_travel/Cargo.toml --check
+          cargo clippy --locked --manifest-path ../examples/cross_device_travel/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path ../examples/cross_device_travel/Cargo.toml

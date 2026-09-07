@@ -1,0 +1,637 @@
+{
+  "final_output": {
+    "draft_status": "saved_in_demo_memory",
+    "notice": "Synthetic demo only: no live research, real device access, bookings, or persistent writes.",
+    "plan": {
+      "assumptions": [
+        "Montreal is an illustrative destination",
+        "No budget provided"
+      ],
+      "itinerary": [
+        {
+          "activity": "Arrival and orientation",
+          "date": "2026-10-16",
+          "day": 1
+        },
+        {
+          "activity": "Explore architecture in Montreal",
+          "date": "2026-10-17",
+          "day": 2
+        },
+        {
+          "activity": "Explore parks; return travel",
+          "date": "2026-10-18",
+          "day": 3
+        }
+      ],
+      "origin": "Boston",
+      "research": {
+        "departure_origin": "Boston",
+        "destination": "Montreal",
+        "evidence": "Hypothetical fixture; no live research or cited sources",
+        "interest_source": "synthetic_phone_summary",
+        "interests": [
+          "architecture",
+          "parks"
+        ],
+        "lodging_research": "Compare central accommodation; availability and prices unverified",
+        "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
+      },
+      "scheduling": {
+        "dates": [
+          "2026-10-16",
+          "2026-10-17",
+          "2026-10-18"
+        ],
+        "dates_status": "supported_by_synthetic_phone_availability",
+        "next_steps": [
+          "Confirm origin, dates, and interests",
+          "Verify transport, lodging, and opening hours"
+        ],
+        "requires_user_confirmation": true
+      },
+      "synthetic": true,
+      "title": "Hypothetical three-day Montreal trip"
+    },
+    "status": "completed",
+    "warnings": []
+  },
+  "report": {
+    "aborted": false,
+    "devices": [
+      {
+        "capabilities": [
+          "travel_research",
+          "itinerary_planning"
+        ],
+        "id": "laptop",
+        "kind": "laptop",
+        "online": true
+      },
+      {
+        "capabilities": [
+          "mobile_context",
+          "photo_interests",
+          "calendar_availability",
+          "save_draft"
+        ],
+        "id": "phone",
+        "kind": "phone",
+        "online": true
+      }
+    ],
+    "events": [
+      {
+        "event": "dispatch",
+        "request": {
+          "attempt": 1,
+          "capability": "mobile_context",
+          "context": {},
+          "from_device": "laptop",
+          "input": {
+            "request": "Make travel plans for me.",
+            "synthetic": true
+          },
+          "task_id": "mobile_context",
+          "timeout_ms": 5000,
+          "to_device": "phone",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      },
+      {
+        "event": "response",
+        "response": {
+          "attempt": 1,
+          "device_id": "phone",
+          "outcome": {
+            "output": {
+              "origin": "Boston",
+              "synthetic": true,
+              "timezone": "America/New_York"
+            },
+            "status": "succeeded"
+          },
+          "task_id": "mobile_context",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      },
+      {
+        "event": "dispatch",
+        "request": {
+          "attempt": 1,
+          "capability": "photo_interests",
+          "context": {},
+          "from_device": "laptop",
+          "input": {
+            "request": "Make travel plans for me.",
+            "synthetic": true
+          },
+          "task_id": "photo_interests",
+          "timeout_ms": 5000,
+          "to_device": "phone",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      },
+      {
+        "event": "response",
+        "response": {
+          "attempt": 1,
+          "device_id": "phone",
+          "outcome": {
+            "output": {
+              "interests": [
+                "architecture",
+                "parks"
+              ],
+              "synthetic": true
+            },
+            "status": "succeeded"
+          },
+          "task_id": "photo_interests",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      },
+      {
+        "event": "dispatch",
+        "request": {
+          "attempt": 1,
+          "capability": "calendar_availability",
+          "context": {},
+          "from_device": "laptop",
+          "input": {
+            "request": "Make travel plans for me.",
+            "synthetic": true
+          },
+          "task_id": "calendar",
+          "timeout_ms": 5000,
+          "to_device": "phone",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      },
+      {
+        "event": "response",
+        "response": {
+          "attempt": 1,
+          "device_id": "phone",
+          "outcome": {
+            "output": {
+              "available_dates": [
+                "2026-10-16",
+                "2026-10-17",
+                "2026-10-18"
+              ],
+              "synthetic": true
+            },
+            "status": "succeeded"
+          },
+          "task_id": "calendar",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      },
+      {
+        "event": "dispatch",
+        "request": {
+          "attempt": 1,
+          "capability": "travel_research",
+          "context": {
+            "mobile_context": {
+              "origin": "Boston",
+              "synthetic": true,
+              "timezone": "America/New_York"
+            },
+            "photo_interests": {
+              "interests": [
+                "architecture",
+                "parks"
+              ],
+              "synthetic": true
+            }
+          },
+          "from_device": "laptop",
+          "input": {
+            "request": "Make travel plans for me.",
+            "synthetic": true
+          },
+          "task_id": "research",
+          "timeout_ms": 5000,
+          "to_device": "laptop",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      },
+      {
+        "event": "response",
+        "response": {
+          "attempt": 1,
+          "device_id": "laptop",
+          "outcome": {
+            "output": {
+              "departure_origin": "Boston",
+              "destination": "Montreal",
+              "evidence": "Hypothetical fixture; no live research or cited sources",
+              "interest_source": "synthetic_phone_summary",
+              "interests": [
+                "architecture",
+                "parks"
+              ],
+              "lodging_research": "Compare central accommodation; availability and prices unverified",
+              "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
+            },
+            "status": "succeeded"
+          },
+          "task_id": "research",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      },
+      {
+        "event": "dispatch",
+        "request": {
+          "attempt": 1,
+          "capability": "itinerary_planning",
+          "context": {
+            "calendar": {
+              "available_dates": [
+                "2026-10-16",
+                "2026-10-17",
+                "2026-10-18"
+              ],
+              "synthetic": true
+            },
+            "mobile_context": {
+              "origin": "Boston",
+              "synthetic": true,
+              "timezone": "America/New_York"
+            },
+            "research": {
+              "departure_origin": "Boston",
+              "destination": "Montreal",
+              "evidence": "Hypothetical fixture; no live research or cited sources",
+              "interest_source": "synthetic_phone_summary",
+              "interests": [
+                "architecture",
+                "parks"
+              ],
+              "lodging_research": "Compare central accommodation; availability and prices unverified",
+              "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
+            }
+          },
+          "from_device": "laptop",
+          "input": {
+            "request": "Make travel plans for me.",
+            "synthetic": true
+          },
+          "task_id": "plan",
+          "timeout_ms": 5000,
+          "to_device": "laptop",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      },
+      {
+        "event": "response",
+        "response": {
+          "attempt": 1,
+          "device_id": "laptop",
+          "outcome": {
+            "output": {
+              "assumptions": [
+                "Montreal is an illustrative destination",
+                "No budget provided"
+              ],
+              "itinerary": [
+                {
+                  "activity": "Arrival and orientation",
+                  "date": "2026-10-16",
+                  "day": 1
+                },
+                {
+                  "activity": "Explore architecture in Montreal",
+                  "date": "2026-10-17",
+                  "day": 2
+                },
+                {
+                  "activity": "Explore parks; return travel",
+                  "date": "2026-10-18",
+                  "day": 3
+                }
+              ],
+              "origin": "Boston",
+              "research": {
+                "departure_origin": "Boston",
+                "destination": "Montreal",
+                "evidence": "Hypothetical fixture; no live research or cited sources",
+                "interest_source": "synthetic_phone_summary",
+                "interests": [
+                  "architecture",
+                  "parks"
+                ],
+                "lodging_research": "Compare central accommodation; availability and prices unverified",
+                "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
+              },
+              "scheduling": {
+                "dates": [
+                  "2026-10-16",
+                  "2026-10-17",
+                  "2026-10-18"
+                ],
+                "dates_status": "supported_by_synthetic_phone_availability",
+                "next_steps": [
+                  "Confirm origin, dates, and interests",
+                  "Verify transport, lodging, and opening hours"
+                ],
+                "requires_user_confirmation": true
+              },
+              "synthetic": true,
+              "title": "Hypothetical three-day Montreal trip"
+            },
+            "status": "succeeded"
+          },
+          "task_id": "plan",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      },
+      {
+        "event": "dispatch",
+        "request": {
+          "attempt": 1,
+          "capability": "save_draft",
+          "context": {
+            "plan": {
+              "assumptions": [
+                "Montreal is an illustrative destination",
+                "No budget provided"
+              ],
+              "itinerary": [
+                {
+                  "activity": "Arrival and orientation",
+                  "date": "2026-10-16",
+                  "day": 1
+                },
+                {
+                  "activity": "Explore architecture in Montreal",
+                  "date": "2026-10-17",
+                  "day": 2
+                },
+                {
+                  "activity": "Explore parks; return travel",
+                  "date": "2026-10-18",
+                  "day": 3
+                }
+              ],
+              "origin": "Boston",
+              "research": {
+                "departure_origin": "Boston",
+                "destination": "Montreal",
+                "evidence": "Hypothetical fixture; no live research or cited sources",
+                "interest_source": "synthetic_phone_summary",
+                "interests": [
+                  "architecture",
+                  "parks"
+                ],
+                "lodging_research": "Compare central accommodation; availability and prices unverified",
+                "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
+              },
+              "scheduling": {
+                "dates": [
+                  "2026-10-16",
+                  "2026-10-17",
+                  "2026-10-18"
+                ],
+                "dates_status": "supported_by_synthetic_phone_availability",
+                "next_steps": [
+                  "Confirm origin, dates, and interests",
+                  "Verify transport, lodging, and opening hours"
+                ],
+                "requires_user_confirmation": true
+              },
+              "synthetic": true,
+              "title": "Hypothetical three-day Montreal trip"
+            }
+          },
+          "from_device": "laptop",
+          "input": {
+            "request": "Make travel plans for me.",
+            "synthetic": true
+          },
+          "task_id": "save_draft",
+          "timeout_ms": 5000,
+          "to_device": "phone",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      },
+      {
+        "event": "response",
+        "response": {
+          "attempt": 1,
+          "device_id": "phone",
+          "outcome": {
+            "output": {
+              "bookings_made": false,
+              "draft_id": "travel-demo-001:save_draft",
+              "storage": "synthetic_in_memory"
+            },
+            "status": "succeeded"
+          },
+          "task_id": "save_draft",
+          "version": 1,
+          "workflow_id": "travel-demo-001"
+        }
+      }
+    ],
+    "results": {
+      "calendar": {
+        "output": {
+          "available_dates": [
+            "2026-10-16",
+            "2026-10-17",
+            "2026-10-18"
+          ],
+          "synthetic": true
+        },
+        "status": "succeeded"
+      },
+      "mobile_context": {
+        "output": {
+          "origin": "Boston",
+          "synthetic": true,
+          "timezone": "America/New_York"
+        },
+        "status": "succeeded"
+      },
+      "photo_interests": {
+        "output": {
+          "interests": [
+            "architecture",
+            "parks"
+          ],
+          "synthetic": true
+        },
+        "status": "succeeded"
+      },
+      "plan": {
+        "output": {
+          "assumptions": [
+            "Montreal is an illustrative destination",
+            "No budget provided"
+          ],
+          "itinerary": [
+            {
+              "activity": "Arrival and orientation",
+              "date": "2026-10-16",
+              "day": 1
+            },
+            {
+              "activity": "Explore architecture in Montreal",
+              "date": "2026-10-17",
+              "day": 2
+            },
+            {
+              "activity": "Explore parks; return travel",
+              "date": "2026-10-18",
+              "day": 3
+            }
+          ],
+          "origin": "Boston",
+          "research": {
+            "departure_origin": "Boston",
+            "destination": "Montreal",
+            "evidence": "Hypothetical fixture; no live research or cited sources",
+            "interest_source": "synthetic_phone_summary",
+            "interests": [
+              "architecture",
+              "parks"
+            ],
+            "lodging_research": "Compare central accommodation; availability and prices unverified",
+            "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
+          },
+          "scheduling": {
+            "dates": [
+              "2026-10-16",
+              "2026-10-17",
+              "2026-10-18"
+            ],
+            "dates_status": "supported_by_synthetic_phone_availability",
+            "next_steps": [
+              "Confirm origin, dates, and interests",
+              "Verify transport, lodging, and opening hours"
+            ],
+            "requires_user_confirmation": true
+          },
+          "synthetic": true,
+          "title": "Hypothetical three-day Montreal trip"
+        },
+        "status": "succeeded"
+      },
+      "research": {
+        "output": {
+          "departure_origin": "Boston",
+          "destination": "Montreal",
+          "evidence": "Hypothetical fixture; no live research or cited sources",
+          "interest_source": "synthetic_phone_summary",
+          "interests": [
+            "architecture",
+            "parks"
+          ],
+          "lodging_research": "Compare central accommodation; availability and prices unverified",
+          "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
+        },
+        "status": "succeeded"
+      },
+      "save_draft": {
+        "output": {
+          "bookings_made": false,
+          "draft_id": "travel-demo-001:save_draft",
+          "storage": "synthetic_in_memory"
+        },
+        "status": "succeeded"
+      }
+    },
+    "tasks": [
+      {
+        "capability": "mobile_context",
+        "depends_on": [],
+        "device_kind": "phone",
+        "id": "mobile_context",
+        "input": {
+          "request": "Make travel plans for me.",
+          "synthetic": true
+        },
+        "optional": true
+      },
+      {
+        "capability": "photo_interests",
+        "depends_on": [],
+        "device_kind": "phone",
+        "id": "photo_interests",
+        "input": {
+          "request": "Make travel plans for me.",
+          "synthetic": true
+        },
+        "optional": true
+      },
+      {
+        "capability": "calendar_availability",
+        "depends_on": [],
+        "device_kind": "phone",
+        "id": "calendar",
+        "input": {
+          "request": "Make travel plans for me.",
+          "synthetic": true
+        },
+        "optional": true
+      },
+      {
+        "capability": "travel_research",
+        "depends_on": [
+          "mobile_context",
+          "photo_interests"
+        ],
+        "device_kind": "laptop",
+        "id": "research",
+        "input": {
+          "request": "Make travel plans for me.",
+          "synthetic": true
+        },
+        "optional": false
+      },
+      {
+        "capability": "itinerary_planning",
+        "depends_on": [
+          "mobile_context",
+          "calendar",
+          "research"
+        ],
+        "device_kind": "laptop",
+        "id": "plan",
+        "input": {
+          "request": "Make travel plans for me.",
+          "synthetic": true
+        },
+        "optional": false
+      },
+      {
+        "capability": "save_draft",
+        "depends_on": [
+          "plan"
+        ],
+        "device_kind": "phone",
+        "id": "save_draft",
+        "input": {
+          "request": "Make travel plans for me.",
+          "synthetic": true
+        },
+        "optional": true
+      }
+    ],
+    "workflow_id": "travel-demo-001"
+  }
+}
