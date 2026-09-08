@@ -10,6 +10,12 @@ on:
   schedule:
     - cron: '0 6 * * *'
 
+# Least-privilege default: every job here only reads the repository.
+# Without this block the workflow inherits the repository default, which
+# may be read/write.
+permissions:
+  contents: read
+
 jobs:
   container-matrix:
     name: ${{ matrix.image }}
