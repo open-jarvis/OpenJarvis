@@ -167,6 +167,18 @@ describe('FloatingCodexPet', () => {
     expect(html).toContain('Welcome to OpenJarvis kiosk!');
   });
 
+  it('extracts latest sentence segment when assistantCaptionText has multiple sentences', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(FloatingCodexPet, {
+        voiceStatus: 'speaking',
+        assistantCaptionText: 'Xin chào bạn. Tôi đang chuẩn bị đơn hàng cho bạn nhé.',
+        petType: 'sprite',
+      })
+    );
+    expect(html).toContain('Tôi đang chuẩn bị đơn hàng cho bạn nhé.');
+    expect(html).not.toContain('Xin chào bạn.');
+  });
+
   it('renders typing indicator bubble when voiceStatus is speaking and no text is provided', () => {
     const html = renderToStaticMarkup(
       React.createElement(FloatingCodexPet, {

@@ -1,12 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CodexPet, DEFAULT_MINTY_MANIFEST } from './CodexPet';
+import { PetRenderer, type PetRendererType } from './PetRenderer';
 import { parsePetManifest } from './codexPetAtlas';
 import { resolvePetState } from './codexPetState';
+import { splitCaptionSegments } from '@/components/Chat/voiceTurnRows';
 import { useFloatingPet } from '@/hooks/useFloatingPet';
 import type { PetManifest, PetPosition, PetSize } from './types';
 import type { LocalVoiceStatus } from '@/hooks/voiceStatus';
 
 export interface FloatingCodexPetProps {
+  /** Renderer type: 'robot' for 3D mascot or 'sprite' for 2D pixel (defaults to 'robot') */
+  petType?: PetRendererType;
+  /** Optional custom Spline scene URL or path */
+  robotSceneUrl?: string;
   /** Voice status from voice assistant */
   voiceStatus?: LocalVoiceStatus | string | null;
   /** Activity detail for task or animation override */
@@ -21,6 +27,10 @@ export interface FloatingCodexPetProps {
   manifestUrl?: string;
   /** Initial spawn position */
   initialPosition?: PetPosition;
+  /** Initial spawn placement ('bottom-right' or 'center') */
+  initialPlacement?: 'bottom-right' | 'center';
+  /** LocalStorage key for position */
+  storageKey?: string;
   /** Scale factor override (defaults to manifest.scale ?? 2) */
   scale?: number;
   /** Render mode: 'css' or 'canvas' */
@@ -63,6 +73,8 @@ export async function fetchPetManifest(
  * sprite rendering, and speech bubble display in a fixed layer.
  */
 export function FloatingCodexPet({
+  petType: petTypeProp,
+  robotSceneUrl,
   voiceStatus,
   activityDetail,
   speechText,
@@ -70,6 +82,8 @@ export function FloatingCodexPet({
   manifest: manifestProp,
   manifestUrl = '/pets/minty/pet.json',
   initialPosition,
+  initialPlacement,
+  storageKey,
   scale: scaleProp,
   renderMode = 'css',
   showShadow = true,
@@ -115,6 +129,8 @@ export function FloatingCodexPet({
     getResizeHandleProps,
   } = useFloatingPet({
     initialPosition,
+    initialPlacement,
+    storageKey,
     initialScale: scaleProp ?? activeManifest.scale ?? 2,
     baseSize,
     enableWandering,
@@ -127,8 +143,14 @@ export function FloatingCodexPet({
     dragDeltaX,
   );
 
-  const effectiveSpeechText = speechText ?? assistantCaptionText ?? undefined;
+  const effectiveSpeechText = useMemo(() => {
+    if (speechText) return speechText;
+    if (!assistantCaptionText) return undefined;
+    const segments = splitCaptionSegments(assistantCaptionText);
+    return segments.slice(-1)[0] ?? assistantCaptionText;
+  }, [speechText, assistantCaptionText]);
   const effectiveVoiceStatus = voiceStatus ?? undefined;
+  const effectivePetType = petTypeProp ?? (manifestProp ? 'sprite' : 'robot');
 
   return (
     <div
@@ -147,12 +169,15 @@ export function FloatingCodexPet({
       }}
       {...petHandlers}
     >
-      <CodexPet
+      <PetRenderer
+        petType={effectivePetType}
+        robotSceneUrl={robotSceneUrl}
         manifest={activeManifest}
         state={petState}
         scale={scale}
         renderMode={renderMode}
         isDragging={isDragging}
+        dragDeltaX={dragDeltaX}
         speechText={effectiveSpeechText}
         voiceStatus={effectiveVoiceStatus}
         showShadow={showShadow}
