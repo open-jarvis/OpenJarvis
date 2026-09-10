@@ -48,7 +48,7 @@ export function CodexPetSpeechBubble({
   typing = false,
   position = 'top',
   offsetY = 10,
-  maxChars = 120,
+  maxChars = 90,
   className = '',
   style,
   role = 'assistant',
@@ -94,7 +94,7 @@ export function CodexPetSpeechBubble({
     >
       {/* Speech bubble card */}
       <div
-        className="relative max-w-[220px] sm:max-w-[260px] px-3.5 py-2 rounded-xl text-xs font-medium leading-snug shadow-xl backdrop-blur-md"
+        className="relative w-max min-w-[160px] max-w-[220px] sm:max-w-[280px] px-3.5 py-2 rounded-xl text-xs font-medium leading-snug shadow-xl backdrop-blur-md whitespace-normal break-words"
         style={{
           background: 'rgba(20, 20, 30, 0.88)',
           border: '1px solid rgba(255, 255, 255, 0.15)',
