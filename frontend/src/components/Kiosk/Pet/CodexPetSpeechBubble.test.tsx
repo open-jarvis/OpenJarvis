@@ -62,11 +62,11 @@ describe('CodexPetSpeechBubble component', () => {
     expect(html).toContain('Chào bạn nhé!');
   });
 
-  it('defaults to maxChars=90 truncation in component', () => {
+  it('defaults to maxChars=140 truncation in component', () => {
     const html = renderToStaticMarkup(
-      <CodexPetSpeechBubble voiceStatus="speaking" text={'B'.repeat(100)} />
+      <CodexPetSpeechBubble voiceStatus="speaking" text={'B'.repeat(160)} />
     );
-    expect(html).toContain('B'.repeat(87) + '...');
+    expect(html).toContain('B'.repeat(137) + '...');
   });
 
   it('applies position alignment classes for top-left and top-right', () => {
