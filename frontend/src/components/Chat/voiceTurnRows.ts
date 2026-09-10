@@ -63,3 +63,77 @@ export function currentVoiceTurnRows({
     assistantText && { role: 'assistant' as const, text: assistantText },
   ].filter((row): row is VoiceTurnRow => Boolean(row));
 }
+
+export interface SpeechToken {
+  text: string;
+  delayMs: number;
+}
+
+export function tokenizeSpeechPacing(text: string, msPerChar = 55): SpeechToken[] {
+  if (!text) return [];
+  const rawTokens = text.match(/\S+\s*/gu) ?? [];
+  return rawTokens.map((token) => {
+    const trimmed = token.trim();
+    let pause = 0;
+    if (/[.!?…]$/u.test(trimmed)) {
+      pause = 200;
+    } else if (/[,;:]$/u.test(trimmed)) {
+      pause = 100;
+    }
+    const delayMs = Math.max(160, Math.min(450, Math.round(trimmed.length * msPerChar + pause)));
+    return { text: token, delayMs };
+  });
+}
+
+export class SpeechPacer {
+  private queue: SpeechToken[] = [];
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private onToken: (text: string) => void;
+  private onComplete?: () => void;
+
+  constructor(onToken: (text: string) => void, onComplete?: () => void) {
+    this.onToken = onToken;
+    this.onComplete = onComplete;
+  }
+
+  enqueue(text: string, msPerChar = 55): void {
+    const tokens = tokenizeSpeechPacing(text, msPerChar);
+    if (tokens.length === 0) return;
+    this.queue.push(...tokens);
+    if (!this.timer) {
+      this.tick();
+    }
+  }
+
+  private tick(): void {
+    if (this.queue.length === 0) {
+      this.timer = null;
+      this.onComplete?.();
+      return;
+    }
+    const token = this.queue.shift()!;
+    this.onToken(token.text);
+    this.timer = setTimeout(() => {
+      this.tick();
+    }, token.delayMs);
+  }
+
+  flush(): string {
+    const remaining = this.queue.map((t) => t.text).join('');
+    this.cancel();
+    return remaining;
+  }
+
+  cancel(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.queue = [];
+  }
+
+  isBusy(): boolean {
+    return this.queue.length > 0 || this.timer !== null;
+  }
+}
+

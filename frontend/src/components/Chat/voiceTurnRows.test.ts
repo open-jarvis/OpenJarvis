@@ -6,6 +6,8 @@ import {
   nextCaptionSegment,
   partitionCaptionSegments,
   splitCaptionSegments,
+  SpeechPacer,
+  tokenizeSpeechPacing,
   voiceCaptionHoldMs,
 } from './voiceTurnRows';
 
@@ -93,4 +95,33 @@ describe('partitionCaptionSegments', () => {
     });
   });
 });
+
+describe('tokenizeSpeechPacing & SpeechPacer', () => {
+  it('splits words into speech tokens with duration proportional to word length', () => {
+    const tokens = tokenizeSpeechPacing('Dạ em đã mở menu cà phê; nhé!');
+    expect(tokens.length).toBe(8);
+    expect(tokens[0].text).toBe('Dạ ');
+    expect(tokens[0].delayMs).toBeGreaterThanOrEqual(160);
+    // Token with semicolon has extra pause
+    const semiToken = tokens.find((t) => t.text.includes('phê;'));
+    expect(semiToken?.delayMs).toBeGreaterThan(250);
+    // Token with exclamation mark has extra sentence pause
+    const endToken = tokens.find((t) => t.text.includes('nhé!'));
+    expect(endToken?.delayMs).toBeGreaterThan(300);
+  });
+
+  it('SpeechPacer emits tokens progressively and can be flushed', () => {
+    const emitted: string[] = [];
+    const pacer = new SpeechPacer((token) => emitted.push(token));
+    pacer.enqueue('Một hai ba bốn');
+    expect(emitted.length).toBe(1);
+    expect(emitted[0]).toBe('Một ');
+    expect(pacer.isBusy()).toBe(true);
+
+    const remaining = pacer.flush();
+    expect(remaining).toBe('hai ba bốn');
+    expect(pacer.isBusy()).toBe(false);
+  });
+});
+
 

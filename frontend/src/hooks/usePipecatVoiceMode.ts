@@ -3,7 +3,7 @@ import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiFetch, authHeaders } from '@/lib/api';
-import { voiceCaptionHoldMs } from '@/components/Chat/voiceTurnRows';
+import { SpeechPacer, voiceCaptionHoldMs } from '@/components/Chat/voiceTurnRows';
 import { voiceActivityFromServerMessage, type VoiceActivity } from '@/hooks/voiceActivity';
 import type { LocalVoiceStatus } from '@/hooks/voiceStatus';
 import type { ChatMessage } from '@/types';
@@ -151,8 +151,14 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
 
   const captionHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const captionFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pacerRef = useRef<SpeechPacer | null>(null);
+  if (!pacerRef.current) {
+    pacerRef.current = new SpeechPacer((tokenText) => {
+      setAssistantCaptionText((current) => current + tokenText);
+    });
+  }
 
-  const clearCaptionTimers = useCallback(() => {
+  const cancelHoldTimers = useCallback(() => {
     if (captionHoldTimerRef.current) {
       clearTimeout(captionHoldTimerRef.current);
       captionHoldTimerRef.current = null;
@@ -163,6 +169,11 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
     }
     setAssistantCaptionFading(false);
   }, []);
+
+  const clearCaptionTimers = useCallback(() => {
+    pacerRef.current?.cancel();
+    cancelHoldTimers();
+  }, [cancelHoldTimers]);
 
   const onTurnRef = useRef(options.onTurn);
   onTurnRef.current = options.onTurn;
@@ -360,18 +371,22 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
     client.on(RTVIEvent.BotStartedSpeaking, () => {
       setStatus('speaking');
       setActivityDetail(null);
-      clearCaptionTimers();
+      cancelHoldTimers();
     });
     client.on(RTVIEvent.BotStoppedSpeaking, () => {
       setStatus('listening');
       setActivityDetail(null);
+      const remaining = pacerRef.current?.flush() ?? '';
+      if (remaining) {
+        setAssistantCaptionText((current) => current + remaining);
+      }
       const finishedText = captionRef.current;
       const { message, nextCaption } = botStoppedSpeaking(finishedText);
       captionRef.current = nextCaption;
       if (message) onTurnRef.current?.(message);
 
       // Graceful hold and fade-out
-      clearCaptionTimers();
+      cancelHoldTimers();
       if (finishedText.trim()) {
         const holdMs = voiceCaptionHoldMs(finishedText);
         captionHoldTimerRef.current = setTimeout(() => {
@@ -387,7 +402,7 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
     });
     client.on(RTVIEvent.BotTtsText, (data: { text: string }) => {
       captionRef.current += data.text;
-      setAssistantCaptionText((current) => current + data.text);
+      pacerRef.current?.enqueue(data.text);
     });
     client.on(RTVIEvent.UserTranscript, (data: { text: string; final: boolean }) => {
       if (!data.final) return;

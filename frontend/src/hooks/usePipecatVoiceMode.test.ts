@@ -11,7 +11,7 @@ import {
   voiceStatusForError,
 } from './usePipecatVoiceMode';
 import { voiceTurnMessage } from './usePipecatVoiceMode';
-import { voiceCaptionHoldMs } from '@/components/Chat/voiceTurnRows';
+import { SpeechPacer, voiceCaptionHoldMs } from '@/components/Chat/voiceTurnRows';
 
 describe('voiceStatusForError', () => {
   it('reads a refused lease as busy, not as a failure', () => {
@@ -161,5 +161,36 @@ describe('caption hold duration calculation', () => {
 
   it('defines the standard 400ms fade duration', () => {
     expect(CAPTION_FADE_DURATION_MS).toBe(400);
+  });
+});
+
+describe('assistant speech pacing & synchronization', () => {
+  it('paces words sequentially and flushes remaining tokens on demand', () => {
+    const emitted: string[] = [];
+    const pacer = new SpeechPacer((token) => emitted.push(token));
+
+    // Bot delivers sentence at t=0
+    pacer.enqueue('Dạ em đã mở menu cà phê nhé!');
+    // First token emitted immediately
+    expect(emitted).toEqual(['Dạ ']);
+    expect(pacer.isBusy()).toBe(true);
+
+    // If audio ends before all tokens tick, flush returns the rest immediately
+    const flushed = pacer.flush();
+    expect(flushed).toBe('em đã mở menu cà phê nhé!');
+    expect(pacer.isBusy()).toBe(false);
+  });
+
+  it('cancels pending words immediately when customer interrupts', () => {
+    const emitted: string[] = [];
+    const pacer = new SpeechPacer((token) => emitted.push(token));
+
+    pacer.enqueue('Dạ đây là thông tin chi tiết đơn hàng.');
+    expect(emitted).toEqual(['Dạ ']);
+
+    // Customer barges in
+    pacer.cancel();
+    expect(pacer.isBusy()).toBe(false);
+    expect(pacer.flush()).toBe('');
   });
 });
