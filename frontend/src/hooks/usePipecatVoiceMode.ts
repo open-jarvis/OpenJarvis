@@ -3,9 +3,13 @@ import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiFetch, authHeaders } from '@/lib/api';
+import { voiceCaptionHoldMs } from '@/components/Chat/voiceTurnRows';
 import { voiceActivityFromServerMessage, type VoiceActivity } from '@/hooks/voiceActivity';
 import type { LocalVoiceStatus } from '@/hooks/voiceStatus';
 import type { ChatMessage } from '@/types';
+
+/** Standard duration for assistant caption fade-out animation. */
+export const CAPTION_FADE_DURATION_MS = 400;
 
 /** Where the server answers an SDP offer and starts a pipeline behind it. */
 const OFFER_URL = '/api/voice/webrtc/offer';
@@ -142,7 +146,23 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
   const [activityDetail, setActivityDetail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [assistantCaptionText, setAssistantCaptionText] = useState('');
+  const [assistantCaptionFading, setAssistantCaptionFading] = useState(false);
   const [transcript, setTranscript] = useState('');
+
+  const captionHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const captionFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearCaptionTimers = useCallback(() => {
+    if (captionHoldTimerRef.current) {
+      clearTimeout(captionHoldTimerRef.current);
+      captionHoldTimerRef.current = null;
+    }
+    if (captionFadeTimerRef.current) {
+      clearTimeout(captionFadeTimerRef.current);
+      captionFadeTimerRef.current = null;
+    }
+    setAssistantCaptionFading(false);
+  }, []);
 
   const onTurnRef = useRef(options.onTurn);
   onTurnRef.current = options.onTurn;
@@ -282,21 +302,33 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
     clientRef.current = null;
     setStatus('ended');
     setActivityDetail(null);
+    clearCaptionTimers();
     captionRef.current = '';
     setAssistantCaptionText('');
+    // The transcript is a turn row like the caption is, so it has to go with
+    // it. Left behind, the last thing one kiosk customer said stays on screen
+    // through the end of their session and into the next customer's.
+    setTranscript('');
     if (audioElementRef.current) {
       audioElementRef.current.srcObject = null;
     }
     // Nothing on the server waits for playback to finish any more, so tearing
     // the connection down is the whole of stopping.
     await client?.disconnect().catch(() => undefined);
-  }, []);
+  }, [clearCaptionTimers]);
 
   const start = useCallback(async (chatThreadId: string, model: string) => {
     if (clientRef.current) return;
     setError(null);
     setStatus('connecting');
     setActivityDetail(null);
+    // Also cleared here, not only in end(): a session can start without the
+    // previous one having ended through end() (a dropped connection, a
+    // remount), and a new session must never open showing an old turn.
+    setTranscript('');
+    captionRef.current = '';
+    clearCaptionTimers();
+    setAssistantCaptionText('');
 
     const client = new PipecatClient({
       transport: new SmallWebRTCTransport({
@@ -310,6 +342,7 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
     client.on(RTVIEvent.UserStartedSpeaking, () => {
       setStatus('listening');
       setActivityDetail(null);
+      clearCaptionTimers();
       captionRef.current = '';
       setAssistantCaptionText('');
     });
@@ -327,14 +360,30 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
     client.on(RTVIEvent.BotStartedSpeaking, () => {
       setStatus('speaking');
       setActivityDetail(null);
+      clearCaptionTimers();
     });
     client.on(RTVIEvent.BotStoppedSpeaking, () => {
       setStatus('listening');
       setActivityDetail(null);
-      const { message, nextCaption } = botStoppedSpeaking(captionRef.current);
+      const finishedText = captionRef.current;
+      const { message, nextCaption } = botStoppedSpeaking(finishedText);
       captionRef.current = nextCaption;
-      setAssistantCaptionText(nextCaption);
       if (message) onTurnRef.current?.(message);
+
+      // Graceful hold and fade-out
+      clearCaptionTimers();
+      if (finishedText.trim()) {
+        const holdMs = voiceCaptionHoldMs(finishedText);
+        captionHoldTimerRef.current = setTimeout(() => {
+          setAssistantCaptionFading(true);
+          captionFadeTimerRef.current = setTimeout(() => {
+            setAssistantCaptionText('');
+            setAssistantCaptionFading(false);
+          }, CAPTION_FADE_DURATION_MS);
+        }, holdMs);
+      } else {
+        setAssistantCaptionText('');
+      }
     });
     client.on(RTVIEvent.BotTtsText, (data: { text: string }) => {
       captionRef.current += data.text;
@@ -349,6 +398,7 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
     client.on(RTVIEvent.Disconnected, () => {
       setStatus('ended');
       setActivityDetail(null);
+      clearCaptionTimers();
       captionRef.current = '';
       setAssistantCaptionText('');
     });
@@ -364,9 +414,12 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
       setActivityDetail(null);
       setError(next === 'busy' ? 'voice_busy' : voiceErrorMessage(failure));
     }
-  }, [attachRemoteAudio]);
+  }, [attachRemoteAudio, clearCaptionTimers]);
 
-  useEffect(() => () => void clientRef.current?.disconnect().catch(() => undefined), []);
+  useEffect(() => () => {
+    clearCaptionTimers();
+    void clientRef.current?.disconnect().catch(() => undefined);
+  }, [clearCaptionTimers]);
 
   return {
     enabled,
@@ -376,6 +429,7 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
     error,
     transcript,
     assistantCaptionText,
+    assistantCaptionFading,
     start,
     end,
     getFrequencyData,

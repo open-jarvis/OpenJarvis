@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   botStoppedSpeaking,
+  CAPTION_FADE_DURATION_MS,
   hasAudibleSpectrum,
   voiceAvailability,
   voiceErrorMessage,
@@ -10,6 +11,7 @@ import {
   voiceStatusForError,
 } from './usePipecatVoiceMode';
 import { voiceTurnMessage } from './usePipecatVoiceMode';
+import { voiceCaptionHoldMs } from '@/components/Chat/voiceTurnRows';
 
 describe('voiceStatusForError', () => {
   it('reads a refused lease as busy, not as a failure', () => {
@@ -142,5 +144,22 @@ describe('voiceStatusForActivity', () => {
       status: 'tool',
       detail: 'browser_open',
     });
+  });
+});
+
+describe('caption hold duration calculation', () => {
+  it('keeps caption for proportional duration', () => {
+    expect(voiceCaptionHoldMs('Chào bạn')).toBeGreaterThanOrEqual(900);
+    expect(voiceCaptionHoldMs('Một câu văn bản dài hơn đáng kể cho khách đọc.')).toBeGreaterThan(1500);
+  });
+
+  it('bounds caption hold between minimum and maximum limits', () => {
+    expect(voiceCaptionHoldMs('')).toBe(900);
+    expect(voiceCaptionHoldMs('a'.repeat(10))).toBe(900);
+    expect(voiceCaptionHoldMs('a'.repeat(200))).toBe(5000);
+  });
+
+  it('defines the standard 400ms fade duration', () => {
+    expect(CAPTION_FADE_DURATION_MS).toBe(400);
   });
 });
