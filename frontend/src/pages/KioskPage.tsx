@@ -7,7 +7,7 @@ import { VisualizerControls } from '@/components/Visualizer/VisualizerControls';
 import { KioskOverlay } from '@/components/Kiosk/KioskOverlay';
 import { FloatingCodexPet } from '@/components/Kiosk/Pet/FloatingCodexPet';
 import { ScreenShareView } from '@/components/Kiosk/ScreenShareView';
-import { currentVoiceTurnRows } from '@/components/Chat/voiceTurnRows';
+import { currentVoiceTurnRows, partitionCaptionSegments } from '@/components/Chat/voiceTurnRows';
 import { useKioskState, type KioskState } from '@/hooks/useKioskState';
 import { usePipecatVoiceMode } from '@/hooks/usePipecatVoiceMode';
 import { useScreenShare } from '@/hooks/useScreenShare';
@@ -119,14 +119,24 @@ export function KioskPage() {
   return (
     <div className="relative flex-1 h-full overflow-hidden select-none" style={{ background: '#06060f' }}>
       {share.status === 'live' && (
-        <ScreenShareView stream={share.stream} floating />
+        <ScreenShareView
+          stream={share.stream}
+          floating
+          initialPlacement={settings.style === 'screen' ? 'center' : 'top-right'}
+        />
       )}
+
       <KioskOverlay showOverlay={settings.showOverlay} uiLanguage={uiLanguage} />
       <div aria-hidden className="absolute inset-0 pointer-events-none transition-all duration-1000" style={{ background: GLOW[voice.status], zIndex: 0 }} />
-      <AudioVisualizer getFrequencyData={voice.getFrequencyData} settings={settings} />
+      {settings.style === '3d' && (
+        <AudioVisualizer getFrequencyData={voice.getFrequencyData} settings={settings} />
+      )}
       <VisualizerControls settings={settings} onSettingsChange={setSettings} status={PANEL_STATUS[voice.status]} uiLanguage={uiLanguage} onUiLanguageChange={setUiLanguage} />
 
       <FloatingCodexPet
+        initialPlacement="center"
+        scale={2.5}
+        storageKey="openjarvis_kiosk_pet_pos_center"
         voiceStatus={voice.status}
         activityDetail={voice.activityDetail}
         assistantCaptionText={voice.assistantCaptionText}
@@ -154,17 +164,38 @@ export function KioskPage() {
         </div>
       )}
 
-      {voice.error && kioskState === 'active' && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 px-4 py-2.5 rounded-xl text-[12px] max-w-[90%]" style={{ background: 'rgba(255,80,80,.12)', border: '1px solid rgba(255,80,80,.3)', color: '#ffb4b4' }}>
-          {voice.error}
-        </div>
-      )}
-
       {kioskState === 'active' && (
         <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-3 px-4 pb-8 pointer-events-none">
           {settings.showCaptions && (
             <div className="w-full max-w-2xl flex flex-col items-center gap-2 text-center">
-              {rows.map((row) => <p key={row.role} className={row.role === 'assistant' ? 'text-[15px] leading-relaxed max-w-full' : 'text-[13px] leading-snug'} style={{ color: row.role === 'error' ? '#ffb4b4' : row.role === 'assistant' ? 'var(--color-text)' : 'var(--color-text-tertiary)' }}>{row.text}</p>)}
+              {rows.filter((row) => row.role !== 'error').map((row) => {
+                if (row.role === 'assistant') {
+                  const { completedText, activeText } = partitionCaptionSegments(row.text);
+                  return (
+                    <div
+                      key="assistant-caption"
+                      className={`px-5 py-2.5 rounded-2xl bg-black/40 backdrop-blur-md border border-white/10 shadow-lg text-[16px] leading-relaxed max-w-2xl transition-opacity duration-400 ease-out ${
+                        voice.assistantCaptionFading ? 'opacity-0' : 'opacity-100'
+                      }`}
+                    >
+                      {completedText && (
+                        <span className="opacity-70 text-white/70">{completedText} </span>
+                      )}
+                      <span className="opacity-100 text-white font-medium drop-shadow-sm">
+                        {activeText}
+                      </span>
+                    </div>
+                  );
+                }
+                return (
+                  <p
+                    key={row.role}
+                    className="text-[13px] leading-snug text-[var(--color-text-tertiary)]"
+                  >
+                    {row.text}
+                  </p>
+                );
+              })}
             </div>
           )}
           <div
