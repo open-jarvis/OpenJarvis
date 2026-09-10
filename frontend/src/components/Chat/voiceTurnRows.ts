@@ -13,6 +13,24 @@ export function splitCaptionSegments(text: string): string[] {
   return normalized ? normalized.split(/(?<=[.!?…])\s+/u) : [];
 }
 
+export interface CaptionDisplaySegments {
+  completedText: string;
+  activeText: string;
+}
+
+export function partitionCaptionSegments(text: string): CaptionDisplaySegments {
+  const trimmed = text.trim();
+  if (!trimmed) return { completedText: '', activeText: '' };
+  const segments = splitCaptionSegments(trimmed);
+  if (segments.length <= 1) {
+    return { completedText: '', activeText: trimmed };
+  }
+  const activeText = segments[segments.length - 1] ?? '';
+  const completedText = trimmed.slice(0, trimmed.length - activeText.length).trimEnd();
+  return { completedText, activeText };
+}
+
+
 export function voiceCaptionHoldMs(text: string): number {
   return Math.min(5_000, Math.max(900, Math.round(text.length * 65)));
 }

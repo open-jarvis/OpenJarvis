@@ -4,6 +4,7 @@ import {
   assistantCaptionDelta,
   currentVoiceTurnRows,
   nextCaptionSegment,
+  partitionCaptionSegments,
   splitCaptionSegments,
   voiceCaptionHoldMs,
 } from './voiceTurnRows';
@@ -64,3 +65,32 @@ describe('assistant caption timeline', () => {
     expect(voiceCaptionHoldMs('x'.repeat(40))).toBe(2600);
   });
 });
+
+describe('partitionCaptionSegments', () => {
+  it('handles empty or whitespace strings', () => {
+    expect(partitionCaptionSegments('')).toEqual({ completedText: '', activeText: '' });
+    expect(partitionCaptionSegments('   ')).toEqual({ completedText: '', activeText: '' });
+  });
+
+  it('keeps single sentence as purely active text', () => {
+    expect(partitionCaptionSegments('Xin chào quý khách!')).toEqual({
+      completedText: '',
+      activeText: 'Xin chào quý khách!',
+    });
+  });
+
+  it('partitions multiple sentences into completed and active segments', () => {
+    expect(partitionCaptionSegments('Xin chào quý khách. Tôi có thể giúp gì cho bạn?')).toEqual({
+      completedText: 'Xin chào quý khách.',
+      activeText: 'Tôi có thể giúp gì cho bạn?',
+    });
+  });
+
+  it('handles trailing spaces and three sentences properly', () => {
+    expect(partitionCaptionSegments('Một. Hai! Ba? ')).toEqual({
+      completedText: 'Một. Hai!',
+      activeText: 'Ba?',
+    });
+  });
+});
+
