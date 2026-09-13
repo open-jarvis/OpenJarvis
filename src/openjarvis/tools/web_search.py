@@ -7,7 +7,8 @@ API-backed engine over the DuckDuckGo HTML scrape:
 
 * ``TAVILY_API_KEY`` set → Tavily (unchanged for existing installs)
 * ``YOUDOTCOM_API_KEY`` set → You.com, keyed
-* neither → You.com, keyless free tier (no signup, rate limited per IP)
+* ``SERPLY_API_KEY`` set → Serply, a Google SERP proxy
+* none of them → You.com, keyless free tier (no signup, rate limited per IP)
 
 The keyless tier is what makes a fresh install API-backed with zero config.
 DuckDuckGo remains the last resort for every engine, and dropping to it is now
@@ -35,8 +36,14 @@ YOUCOM_KEYLESS_SEARCH_URL = "https://api.you.com/v1/agents/search"
 YOUCOM_CONTENTS_URL = "https://api.you.com/v1/contents"
 YOUCOM_API_KEY_ENV = "YOUDOTCOM_API_KEY"
 
+SERPLY_SEARCH_URL = "https://api.serply.io/v1/search"
+SERPLY_API_KEY_ENV = "SERPLY_API_KEY"
+# Two-letter country code asking Serply for a locale-specific Google result
+# set. Unset means the API answers from its own default region.
+SERPLY_LOCATION_ENV = "SERPLY_PROXY_LOCATION"
+
 ENGINE_ENV = "OPENJARVIS_WEB_SEARCH_ENGINE"
-ENGINES = ("auto", "youcom", "tavily", "duckduckgo")
+ENGINES = ("auto", "youcom", "tavily", "duckduckgo", "serply")
 
 # Identifies OpenJarvis to You.com. The keyless tier carries no API key, so the
 # User-Agent is the only attribution signal; sent to You.com hosts only.
@@ -76,6 +83,8 @@ class WebSearchTool(BaseTool):
         *,
         engine: str | None = None,
         youcom_api_key: str | None = None,
+        serply_api_key: str | None = None,
+        serply_location: str | None = None,
     ):
         """Configure the search engine.
 
@@ -87,6 +96,8 @@ class WebSearchTool(BaseTool):
         """
         self._api_key = api_key or os.environ.get("TAVILY_API_KEY")
         self._youcom_api_key = youcom_api_key or os.environ.get(YOUCOM_API_KEY_ENV)
+        self._serply_api_key = serply_api_key or os.environ.get(SERPLY_API_KEY_ENV)
+        self._serply_location = serply_location or os.environ.get(SERPLY_LOCATION_ENV)
         self._max_results = max_results
 
         requested = (engine or os.environ.get(ENGINE_ENV) or "auto").strip().lower()
@@ -102,14 +113,20 @@ class WebSearchTool(BaseTool):
     def _resolve_engine(self) -> str:
         """Resolve ``auto`` to a concrete engine from what the env can serve.
 
-        Tavily wins when its key is set so existing installs are unchanged.
-        Otherwise You.com handles the query — keyed if a key is present,
-        keyless if not, which is the zero-config API-backed path.
+        Keyed engines come first, in the order they were added, so every
+        install that already had a key resolves exactly as it did before:
+        Tavily, then keyed You.com, then Serply. The keyless You.com tier is
+        last and remains the zero-config API-backed path, which means a Serply
+        key only ever wins over having no key at all.
         """
         if self._engine != "auto":
             return self._engine
         if self._api_key:
             return "tavily"
+        if self._youcom_api_key:
+            return "youcom"
+        if self._serply_api_key:
+            return "serply"
         return "youcom"
 
     @property
@@ -139,7 +156,11 @@ class WebSearchTool(BaseTool):
                 "requires_api_key": "TAVILY_API_KEY",
                 # web_search needs no key at all on the You.com keyless tier,
                 # so the keys above are upgrades rather than prerequisites.
-                "optional_api_keys": ["TAVILY_API_KEY", YOUCOM_API_KEY_ENV],
+                "optional_api_keys": [
+                    "TAVILY_API_KEY",
+                    YOUCOM_API_KEY_ENV,
+                    SERPLY_API_KEY_ENV,
+                ],
                 "engine": engine,
                 "engines": list(ENGINES),
                 "fallback": "duckduckgo",
@@ -328,6 +349,73 @@ class WebSearchTool(BaseTool):
                 return str(markdown)
         return None
 
+    @staticmethod
+    def _format_serply_results(payload: dict[str, Any]) -> tuple[str, int]:
+        """Render a Serply search payload in the shared result format.
+
+        Only ``results`` is mapped. The payload also carries ``answers``,
+        ``knowledge_graph`` and ``related_questions``, but those are filled for
+        some queries and empty for others, so nothing here depends on them.
+        """
+        parts: list[str] = []
+        count = 0
+        for item in payload.get("results") or []:
+            title = item.get("title") or "Untitled"
+            url = item.get("link", "")
+            content = item.get("description", "")
+            parts.append(f"### {title}\nSource: {url}\nSummary: {content}")
+            count += 1
+        return "\n\n---\n\n".join(parts), count
+
+    def _serply_search(self, query: str, max_results: int) -> ToolResult:
+        """Search via Serply, which proxies Google.
+
+        The query reaches Google as written, so operators survive the round
+        trip: ``site:`` restricts the corpus and ``after:``/``before:`` bound
+        results by date, neither of which an AI-search index can honour.
+        Setting ``SERPLY_PROXY_LOCATION`` to a country code asks for that
+        country's result set instead of the API's default region.
+        """
+        import httpx
+
+        headers = {
+            "Accept": "application/json",
+            "X-Api-Key": self._serply_api_key or "",
+        }
+        if self._serply_location:
+            headers["X-Proxy-Location"] = self._serply_location
+        try:
+            response = httpx.get(
+                SERPLY_SEARCH_URL,
+                params={"q": query, "num": max_results},
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status == 401:
+                raise _WebSearchEngineError(
+                    f"Serply rejected the credential in {SERPLY_API_KEY_ENV}"
+                ) from exc
+            raise _WebSearchEngineError(
+                f"Serply search failed with HTTP {status}"
+            ) from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            raise _WebSearchEngineError(f"Serply search failed: {exc}") from exc
+
+        formatted, count = self._format_serply_results(payload)
+        metadata: dict[str, Any] = {"num_results": count, "engine": "serply"}
+        if self._serply_location:
+            metadata["serply_location"] = self._serply_location
+        return ToolResult(
+            tool_name="web_search",
+            content=formatted or "No results found.",
+            success=True,
+            metadata=metadata,
+        )
+
     def _duckduckgo_search(self, query: str, max_results: int) -> str:
         """Search using DuckDuckGo as fallback."""
         from ddgs import DDGS
@@ -400,6 +488,8 @@ class WebSearchTool(BaseTool):
         try:
             if engine == "youcom":
                 return self._youcom_search(query, max_results)
+            if engine == "serply":
+                return self._serply_search(query, max_results)
             return self._tavily_search(query, max_results)
         except _WebSearchEngineError as exc:
             reason = str(exc)

@@ -1352,6 +1352,8 @@ class TestWebSearchDestination:
         for key in (
             "TAVILY_API_KEY",
             "YOUDOTCOM_API_KEY",
+            "SERPLY_API_KEY",
+            "SERPLY_PROXY_LOCATION",
             "OPENJARVIS_WEB_SEARCH_ENGINE",
         ):
             monkeypatch.delenv(key, raising=False)
@@ -1384,6 +1386,23 @@ class TestWebSearchDestination:
         monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", "duckduckgo")
         assert "DuckDuckGo" in _web_search_destination()
 
+    def test_serply_is_named(self, monkeypatch):
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("SERPLY_API_KEY", "srp-key")
+        assert "Serply" in _web_search_destination()
+
+    def test_serply_region_is_named_when_configured(self, monkeypatch):
+        """The proxy region decides which country's Google answers the query,
+        so the audit has to disclose it and not just the vendor."""
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("SERPLY_API_KEY", "srp-key")
+        monkeypatch.setenv("SERPLY_PROXY_LOCATION", "DE")
+        assert "region DE" in _web_search_destination()
+
     def test_matches_the_tool_resolution(self, monkeypatch):
         """Guard against the audit's copy of the precedence rule drifting from
         WebSearchTool._resolve_engine, which is the source of truth."""
@@ -1394,18 +1413,24 @@ class TestWebSearchDestination:
             "youcom": "You.com",
             "tavily": "Tavily",
             "duckduckgo": "DuckDuckGo",
+            "serply": "Serply",
         }
+        engines = (None, "auto", "youcom", "tavily", "duckduckgo", "serply")
         for tavily in (None, "tvly-key"):
             for youcom in (None, "ydc-key"):
-                for engine in (None, "auto", "youcom", "tavily", "duckduckgo"):
-                    self._clear(monkeypatch)
-                    if tavily:
-                        monkeypatch.setenv("TAVILY_API_KEY", tavily)
-                    if youcom:
-                        monkeypatch.setenv("YOUDOTCOM_API_KEY", youcom)
-                    if engine:
-                        monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", engine)
-                    resolved = WebSearchTool()._resolve_engine()
-                    assert labels[resolved] in _web_search_destination(), (
-                        f"tavily={tavily} youcom={youcom} engine={engine}"
-                    )
+                for serply in (None, "srp-key"):
+                    for engine in engines:
+                        self._clear(monkeypatch)
+                        if tavily:
+                            monkeypatch.setenv("TAVILY_API_KEY", tavily)
+                        if youcom:
+                            monkeypatch.setenv("YOUDOTCOM_API_KEY", youcom)
+                        if serply:
+                            monkeypatch.setenv("SERPLY_API_KEY", serply)
+                        if engine:
+                            monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", engine)
+                        resolved = WebSearchTool()._resolve_engine()
+                        assert labels[resolved] in _web_search_destination(), (
+                            f"tavily={tavily} youcom={youcom} serply={serply} "
+                            f"engine={engine}"
+                        )
