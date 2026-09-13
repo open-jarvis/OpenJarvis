@@ -118,3 +118,23 @@ class TestSecurityHeaders:
         assert "access-control-allow-origin" in resp.headers
         # Security headers should NOT be present on preflight
         assert "X-Frame-Options" not in resp.headers
+
+
+class TestSpeechHeaders:
+    """The security headers must not block the web UI's own speech features."""
+
+    def test_csp_allows_blob_media(self):
+        """Synthesized speech reaches the player as a blob URL."""
+        csp = SECURITY_HEADERS["Content-Security-Policy"]
+        assert "media-src 'self' blob:" in csp
+
+    def test_microphone_allowed_for_same_origin(self):
+        """An empty allowlist would block the chat UI's own voice input."""
+        policy = SECURITY_HEADERS["Permissions-Policy"]
+        assert "microphone=(self)" in policy
+        assert "microphone=()" not in policy
+
+    def test_camera_and_geolocation_stay_blocked(self):
+        policy = SECURITY_HEADERS["Permissions-Policy"]
+        assert "camera=()" in policy
+        assert "geolocation=()" in policy
