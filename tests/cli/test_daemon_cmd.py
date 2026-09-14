@@ -166,6 +166,22 @@ class TestDaemonDetachment:
             assert spawns, f"start did not spawn the server: {popen.call_args_list}"
             return spawns[-1].kwargs
 
+    def test_start_does_not_register_parent_pid(self) -> None:
+        """``jarvis start`` must let the spawned server register its own PID."""
+        with (
+            patch("openjarvis.cli.daemon_cmd._read_pid", return_value=None),
+            patch("openjarvis.cli.daemon_cmd.load_config"),
+            patch("openjarvis.cli.daemon_cmd.subprocess.Popen") as popen,
+            patch("builtins.open", MagicMock()),
+            patch("openjarvis.cli.daemon_cmd._write_pid") as write_pid,
+        ):
+            popen.return_value = MagicMock(pid=4321)
+
+            result = CliRunner().invoke(cli, ["start"])
+
+            assert result.exit_code == 0, result.output
+            write_pid.assert_not_called()
+
     def test_windows_spawn_is_detached_from_the_console(self) -> None:
         # These constants are only exported by ``subprocess`` on Windows.
         # Supply their documented values so the simulated Windows branch is
