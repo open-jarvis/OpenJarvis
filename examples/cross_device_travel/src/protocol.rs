@@ -26,7 +26,16 @@ pub enum Capability {
 impl Capability {
     /// An uncertain write must be reconciled with its owner, never blindly retried.
     pub fn is_read_only(self) -> bool {
-        self != Self::SaveDraft
+        // Exhaustive classification makes adding a capability require an explicit
+        // retry decision, instead of silently treating new actions as safe reads.
+        match self {
+            Self::MobileContext
+            | Self::PhotoInterests
+            | Self::CalendarAvailability
+            | Self::TravelResearch
+            | Self::ItineraryPlanning => true,
+            Self::SaveDraft => false,
+        }
     }
 }
 

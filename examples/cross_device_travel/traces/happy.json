@@ -7,6 +7,10 @@
         "Montreal is an illustrative destination",
         "No budget provided"
       ],
+      "execution": {
+        "backend": "mock",
+        "model_profile": "large_local"
+      },
       "itinerary": [
         {
           "activity": "Arrival and orientation",
@@ -34,7 +38,34 @@
           "architecture",
           "parks"
         ],
+        "lodging_options": [
+          {
+            "area": "Central area",
+            "destination": "Montreal",
+            "id": "fixture-central-stay",
+            "synthetic": true,
+            "verification": "unverified"
+          }
+        ],
         "lodging_research": "Compare central accommodation; availability and prices unverified",
+        "transport_options": [
+          {
+            "destination": "Montreal",
+            "id": "fixture-air",
+            "mode": "air",
+            "origin": "Boston",
+            "synthetic": true,
+            "verification": "unverified"
+          },
+          {
+            "destination": "Montreal",
+            "id": "fixture-rail",
+            "mode": "rail",
+            "origin": "Boston",
+            "synthetic": true,
+            "verification": "unverified"
+          }
+        ],
         "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
       },
       "scheduling": {
@@ -49,6 +80,23 @@
           "Verify transport, lodging, and opening hours"
         ],
         "requires_user_confirmation": true
+      },
+      "selected_options": {
+        "lodging": {
+          "area": "Central area",
+          "destination": "Montreal",
+          "id": "fixture-central-stay",
+          "synthetic": true,
+          "verification": "unverified"
+        },
+        "transport": {
+          "destination": "Montreal",
+          "id": "fixture-air",
+          "mode": "air",
+          "origin": "Boston",
+          "synthetic": true,
+          "verification": "unverified"
+        }
       },
       "synthetic": true,
       "title": "Hypothetical three-day Montreal trip"
@@ -215,7 +263,7 @@
           },
           "from_device": "laptop",
           "input": {
-            "request": "Make travel plans for me.",
+            "destination": "Montreal",
             "synthetic": true
           },
           "task_id": "research",
@@ -240,7 +288,34 @@
                 "architecture",
                 "parks"
               ],
+              "lodging_options": [
+                {
+                  "area": "Central area",
+                  "destination": "Montreal",
+                  "id": "fixture-central-stay",
+                  "synthetic": true,
+                  "verification": "unverified"
+                }
+              ],
               "lodging_research": "Compare central accommodation; availability and prices unverified",
+              "transport_options": [
+                {
+                  "destination": "Montreal",
+                  "id": "fixture-air",
+                  "mode": "air",
+                  "origin": "Boston",
+                  "synthetic": true,
+                  "verification": "unverified"
+                },
+                {
+                  "destination": "Montreal",
+                  "id": "fixture-rail",
+                  "mode": "rail",
+                  "origin": "Boston",
+                  "synthetic": true,
+                  "verification": "unverified"
+                }
+              ],
               "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
             },
             "status": "succeeded"
@@ -278,13 +353,40 @@
                 "architecture",
                 "parks"
               ],
+              "lodging_options": [
+                {
+                  "area": "Central area",
+                  "destination": "Montreal",
+                  "id": "fixture-central-stay",
+                  "synthetic": true,
+                  "verification": "unverified"
+                }
+              ],
               "lodging_research": "Compare central accommodation; availability and prices unverified",
+              "transport_options": [
+                {
+                  "destination": "Montreal",
+                  "id": "fixture-air",
+                  "mode": "air",
+                  "origin": "Boston",
+                  "synthetic": true,
+                  "verification": "unverified"
+                },
+                {
+                  "destination": "Montreal",
+                  "id": "fixture-rail",
+                  "mode": "rail",
+                  "origin": "Boston",
+                  "synthetic": true,
+                  "verification": "unverified"
+                }
+              ],
               "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
             }
           },
           "from_device": "laptop",
           "input": {
-            "request": "Make travel plans for me.",
+            "model_profile": "large_local",
             "synthetic": true
           },
           "task_id": "plan",
@@ -305,6 +407,10 @@
                 "Montreal is an illustrative destination",
                 "No budget provided"
               ],
+              "execution": {
+                "backend": "mock",
+                "model_profile": "large_local"
+              },
               "itinerary": [
                 {
                   "activity": "Arrival and orientation",
@@ -332,7 +438,34 @@
                   "architecture",
                   "parks"
                 ],
+                "lodging_options": [
+                  {
+                    "area": "Central area",
+                    "destination": "Montreal",
+                    "id": "fixture-central-stay",
+                    "synthetic": true,
+                    "verification": "unverified"
+                  }
+                ],
                 "lodging_research": "Compare central accommodation; availability and prices unverified",
+                "transport_options": [
+                  {
+                    "destination": "Montreal",
+                    "id": "fixture-air",
+                    "mode": "air",
+                    "origin": "Boston",
+                    "synthetic": true,
+                    "verification": "unverified"
+                  },
+                  {
+                    "destination": "Montreal",
+                    "id": "fixture-rail",
+                    "mode": "rail",
+                    "origin": "Boston",
+                    "synthetic": true,
+                    "verification": "unverified"
+                  }
+                ],
                 "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
               },
               "scheduling": {
@@ -347,6 +480,23 @@
                   "Verify transport, lodging, and opening hours"
                 ],
                 "requires_user_confirmation": true
+              },
+              "selected_options": {
+                "lodging": {
+                  "area": "Central area",
+                  "destination": "Montreal",
+                  "id": "fixture-central-stay",
+                  "synthetic": true,
+                  "verification": "unverified"
+                },
+                "transport": {
+                  "destination": "Montreal",
+                  "id": "fixture-air",
+                  "mode": "air",
+                  "origin": "Boston",
+                  "synthetic": true,
+                  "verification": "unverified"
+                }
               },
               "synthetic": true,
               "title": "Hypothetical three-day Montreal trip"
@@ -369,6 +519,10 @@
                 "Montreal is an illustrative destination",
                 "No budget provided"
               ],
+              "execution": {
+                "backend": "mock",
+                "model_profile": "large_local"
+              },
               "itinerary": [
                 {
                   "activity": "Arrival and orientation",
@@ -396,7 +550,34 @@
                   "architecture",
                   "parks"
                 ],
+                "lodging_options": [
+                  {
+                    "area": "Central area",
+                    "destination": "Montreal",
+                    "id": "fixture-central-stay",
+                    "synthetic": true,
+                    "verification": "unverified"
+                  }
+                ],
                 "lodging_research": "Compare central accommodation; availability and prices unverified",
+                "transport_options": [
+                  {
+                    "destination": "Montreal",
+                    "id": "fixture-air",
+                    "mode": "air",
+                    "origin": "Boston",
+                    "synthetic": true,
+                    "verification": "unverified"
+                  },
+                  {
+                    "destination": "Montreal",
+                    "id": "fixture-rail",
+                    "mode": "rail",
+                    "origin": "Boston",
+                    "synthetic": true,
+                    "verification": "unverified"
+                  }
+                ],
                 "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
               },
               "scheduling": {
@@ -411,6 +592,23 @@
                   "Verify transport, lodging, and opening hours"
                 ],
                 "requires_user_confirmation": true
+              },
+              "selected_options": {
+                "lodging": {
+                  "area": "Central area",
+                  "destination": "Montreal",
+                  "id": "fixture-central-stay",
+                  "synthetic": true,
+                  "verification": "unverified"
+                },
+                "transport": {
+                  "destination": "Montreal",
+                  "id": "fixture-air",
+                  "mode": "air",
+                  "origin": "Boston",
+                  "synthetic": true,
+                  "verification": "unverified"
+                }
               },
               "synthetic": true,
               "title": "Hypothetical three-day Montreal trip"
@@ -483,6 +681,10 @@
             "Montreal is an illustrative destination",
             "No budget provided"
           ],
+          "execution": {
+            "backend": "mock",
+            "model_profile": "large_local"
+          },
           "itinerary": [
             {
               "activity": "Arrival and orientation",
@@ -510,7 +712,34 @@
               "architecture",
               "parks"
             ],
+            "lodging_options": [
+              {
+                "area": "Central area",
+                "destination": "Montreal",
+                "id": "fixture-central-stay",
+                "synthetic": true,
+                "verification": "unverified"
+              }
+            ],
             "lodging_research": "Compare central accommodation; availability and prices unverified",
+            "transport_options": [
+              {
+                "destination": "Montreal",
+                "id": "fixture-air",
+                "mode": "air",
+                "origin": "Boston",
+                "synthetic": true,
+                "verification": "unverified"
+              },
+              {
+                "destination": "Montreal",
+                "id": "fixture-rail",
+                "mode": "rail",
+                "origin": "Boston",
+                "synthetic": true,
+                "verification": "unverified"
+              }
+            ],
             "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
           },
           "scheduling": {
@@ -525,6 +754,23 @@
               "Verify transport, lodging, and opening hours"
             ],
             "requires_user_confirmation": true
+          },
+          "selected_options": {
+            "lodging": {
+              "area": "Central area",
+              "destination": "Montreal",
+              "id": "fixture-central-stay",
+              "synthetic": true,
+              "verification": "unverified"
+            },
+            "transport": {
+              "destination": "Montreal",
+              "id": "fixture-air",
+              "mode": "air",
+              "origin": "Boston",
+              "synthetic": true,
+              "verification": "unverified"
+            }
           },
           "synthetic": true,
           "title": "Hypothetical three-day Montreal trip"
@@ -541,7 +787,34 @@
             "architecture",
             "parks"
           ],
+          "lodging_options": [
+            {
+              "area": "Central area",
+              "destination": "Montreal",
+              "id": "fixture-central-stay",
+              "synthetic": true,
+              "verification": "unverified"
+            }
+          ],
           "lodging_research": "Compare central accommodation; availability and prices unverified",
+          "transport_options": [
+            {
+              "destination": "Montreal",
+              "id": "fixture-air",
+              "mode": "air",
+              "origin": "Boston",
+              "synthetic": true,
+              "verification": "unverified"
+            },
+            {
+              "destination": "Montreal",
+              "id": "fixture-rail",
+              "mode": "rail",
+              "origin": "Boston",
+              "synthetic": true,
+              "verification": "unverified"
+            }
+          ],
           "transport_research": "Compare transport from Boston to Montreal; schedules and fares unverified"
         },
         "status": "succeeded"
@@ -598,7 +871,7 @@
         "device_kind": "laptop",
         "id": "research",
         "input": {
-          "request": "Make travel plans for me.",
+          "destination": "Montreal",
           "synthetic": true
         },
         "optional": false
@@ -613,7 +886,7 @@
         "device_kind": "laptop",
         "id": "plan",
         "input": {
-          "request": "Make travel plans for me.",
+          "model_profile": "large_local",
           "synthetic": true
         },
         "optional": false

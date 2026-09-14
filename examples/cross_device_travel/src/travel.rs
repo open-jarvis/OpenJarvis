@@ -1,5 +1,6 @@
 //! Fixed travel example: replace decomposition, discovery, and handlers independently.
 //! Every place, date, research result, and action below is a synthetic fixture.
+use crate::laptop::{research_travel, LaptopPlanner, MockLaptopPlanner, PlannerRequest};
 use crate::protocol::*;
 use crate::runtime::{DeviceTransport, Orchestrator};
 use serde_json::{json, Value};
@@ -75,7 +76,11 @@ pub fn decompose(request: &str) -> Result<Vec<TaskSpec>, TaskError> {
             device_kind,
             depends_on: dependencies.into_iter().map(String::from).collect(),
             optional,
-            input: json!({"request": request, "synthetic": true}),
+            input: match capability {
+                TravelResearch => json!({"destination": "Montreal", "synthetic": true}),
+                ItineraryPlanning => json!({"model_profile": "large_local", "synthetic": true}),
+                _ => json!({"request": request, "synthetic": true}),
+            },
         },
     )
     .collect())
@@ -164,73 +169,16 @@ impl DemoTransport {
                         true,
                     ));
                 }
-                let origin = request
-                    .context
-                    .get("mobile_context")
-                    .and_then(|v| v.get("origin"))
-                    .cloned()
-                    .unwrap_or(json!("unconfirmed"));
-                let interests = request
-                    .context
-                    .get("photo_interests")
-                    .and_then(|v| v.get("interests"))
-                    .cloned()
-                    .unwrap_or(json!(["city walks", "neighborhood food"]));
-                Ok(json!({
-                    "destination": "Montreal", "departure_origin": origin,
-                    "interests": interests,
-                    "interest_source": if request.context.contains_key("photo_interests") {
-                        "synthetic_phone_summary"
-                    } else { "assumed_generic_preferences" },
-                    "transport_research": format!("Compare transport from {} to Montreal; schedules and fares unverified", origin.as_str().unwrap_or("unconfirmed origin")),
-                    "lodging_research": "Compare central accommodation; availability and prices unverified",
-                    "evidence": "Hypothetical fixture; no live research or cited sources"
-                }))
+                let destination = input_string(request, "destination")?;
+                research_travel(destination, &request.context)
             }
             Capability::ItineraryPlanning => {
-                let research = request.context.get("research").ok_or_else(|| {
-                    TaskError::new(
-                        ErrorCode::ExecutionFailed,
-                        "Research output required",
-                        false,
-                    )
-                })?;
-                let dates = request
-                    .context
-                    .get("calendar")
-                    .and_then(|v| v.get("available_dates"))
-                    .cloned()
-                    .unwrap_or(json!(["unconfirmed", "unconfirmed", "unconfirmed"]));
-                let interests = research["interests"].as_array().ok_or_else(|| {
-                    TaskError::new(
-                        ErrorCode::ProtocolError,
-                        "Research interests must be an array",
-                        false,
-                    )
-                })?;
-                let itinerary: Vec<_> = (0..3).map(|day| json!({
-                    "day": day + 1, "date": dates[day],
-                    "activity": match day {
-                        0 => "Arrival and orientation".to_string(),
-                        1 => format!("Explore {} in Montreal", interests.first().and_then(Value::as_str).unwrap_or("city walks")),
-                        _ => format!("Explore {}; return travel", interests.get(1).and_then(Value::as_str).unwrap_or("local neighborhoods"))
-                    }
-                })).collect();
-                Ok(json!({
-                    "title": "Hypothetical three-day Montreal trip",
-                    "origin": request.context.get("mobile_context").and_then(|v| v.get("origin")).cloned().unwrap_or(json!("unconfirmed")),
-                    "research": research, "itinerary": itinerary,
-                    "scheduling": {
-                        "dates": dates,
-                        "dates_status": if request.context.contains_key("calendar") {
-                            "supported_by_synthetic_phone_availability"
-                        } else { "unconfirmed" },
-                        "requires_user_confirmation": true,
-                        "next_steps": ["Confirm origin, dates, and interests", "Verify transport, lodging, and opening hours"]
-                    },
-                    "assumptions": ["Montreal is an illustrative destination", "No budget provided"],
-                    "synthetic": true
-                }))
+                // The same task can call a real laptop model through this trait.
+                // The mock records the selected profile; it performs no inference.
+                MockLaptopPlanner.plan(PlannerRequest {
+                    model_profile: input_string(request, "model_profile")?,
+                    context: &request.context,
+                })
             }
             Capability::SaveDraft => {
                 self.save_calls += 1;
@@ -305,7 +253,30 @@ pub fn run_demo(scenario: Scenario) -> Result<Value, TaskError> {
     let tasks = decompose("Make travel plans for me.")?;
     let report =
         Orchestrator::new("laptop", DemoTransport::new(scenario)).run("travel-demo-001", &tasks)?;
-    let warnings: Vec<_> = tasks
+    let final_output = assemble_output(&report);
+    Ok(json!({"report": report, "final_output": final_output}))
+}
+
+fn input_string<'a>(request: &'a TaskRequest, name: &str) -> Result<&'a str, TaskError> {
+    request
+        .input
+        .get(name)
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            TaskError::new(
+                ErrorCode::ProtocolError,
+                format!("Missing or invalid input: {name}"),
+                false,
+            )
+        })
+}
+
+/// Summarize only verified outcomes: losing any action acknowledgement leaves
+/// its result unknown, even if the transport error was not called a timeout.
+fn assemble_output(report: &RunReport) -> Value {
+    let warnings: Vec<_> = report
+        .tasks
         .iter()
         .filter(|task| task.optional)
         .filter_map(|task| match report.results.get(&task.id) {
@@ -319,17 +290,17 @@ pub fn run_demo(scenario: Scenario) -> Result<Value, TaskError> {
     };
     let draft_status = match report.results.get("save_draft") {
         Some(Outcome::Succeeded { .. }) => "saved_in_demo_memory",
-        Some(Outcome::Failed { error }) if error.code == ErrorCode::Timeout => {
-            "uncertain_reconcile_with_phone"
-        }
+        Some(Outcome::Failed { .. }) if report.events.iter().any(|event| {
+            matches!(event, TraceEvent::Dispatch { request } if request.task_id == "save_draft")
+        }) => "uncertain_reconcile_with_phone",
         Some(Outcome::Failed { .. }) => "not_saved",
         None => "not_attempted",
     };
-    Ok(json!({"report": report, "final_output": {
+    json!({
         "status": if report.aborted { "aborted" } else { "completed" },
         "plan": plan, "warnings": warnings, "draft_status": draft_status,
         "notice": "Synthetic demo only: no live research, real device access, bookings, or persistent writes."
-    }}))
+    })
 }
 
 #[cfg(test)]
@@ -418,6 +389,56 @@ mod tests {
     }
 
     #[test]
+    fn lost_or_invalid_save_reply_leaves_the_action_outcome_unknown() {
+        struct LostSaveReply {
+            inner: DemoTransport,
+            corrupt_reply: bool,
+        }
+        impl DeviceTransport for LostSaveReply {
+            fn discover(&self) -> Vec<Device> {
+                self.inner.discover()
+            }
+            fn execute(&mut self, request: &TaskRequest) -> Result<TaskResponse, TaskError> {
+                let mut response = self.inner.execute(request)?;
+                if request.capability == Capability::SaveDraft {
+                    // Prove the write took place before the acknowledgement failed.
+                    assert_eq!(self.inner.drafts.len(), 1);
+                    if self.corrupt_reply {
+                        response.task_id = "wrong-task".into();
+                    } else {
+                        return Err(TaskError::new(
+                            ErrorCode::DeviceUnavailable,
+                            "Connection lost after saving",
+                            true,
+                        ));
+                    }
+                }
+                Ok(response)
+            }
+        }
+        for corrupt_reply in [false, true] {
+            let transport = LostSaveReply {
+                inner: DemoTransport::new(Scenario::Happy),
+                corrupt_reply,
+            };
+            let report = Orchestrator::new("laptop", transport)
+                .run(
+                    "test-save",
+                    &decompose("Make travel plans for me.").unwrap(),
+                )
+                .unwrap();
+            assert!(!report.aborted);
+            assert_eq!(
+                assemble_output(&report)["draft_status"],
+                "uncertain_reconcile_with_phone"
+            );
+            assert_eq!(report.events.iter().filter(|event| {
+                matches!(event, TraceEvent::Dispatch { request } if request.task_id == "save_draft")
+            }).count(), 1);
+        }
+    }
+
+    #[test]
     fn missing_laptop_aborts_without_final_plan() {
         let value = run_demo(Scenario::LaptopOffline).unwrap();
         assert_eq!(value["final_output"]["status"], "aborted");
@@ -437,7 +458,7 @@ mod tests {
             from_device: "laptop".into(),
             to_device: "laptop".into(),
             capability: Capability::TravelResearch,
-            input: json!({}),
+            input: json!({"destination": "Montreal"}),
             context: BTreeMap::from([
                 ("mobile_context".into(), json!({"origin": "Chicago"})),
                 (
@@ -450,6 +471,7 @@ mod tests {
         let research = transport.receive(&request).unwrap();
         assert_eq!(research["departure_origin"], "Chicago");
         request.capability = Capability::ItineraryPlanning;
+        request.input = json!({"model_profile": "large_local"});
         request.context.insert("research".into(), research);
         request.context.insert(
             "calendar".into(),

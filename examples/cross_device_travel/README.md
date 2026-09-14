@@ -6,7 +6,7 @@ routing, and failure behavior before building real infrastructure.
 
 Everything is deterministic and synthetic. Both devices run in one process;
 requests and responses cross an in-memory JSON serialization boundary. There is
-no network connection, mobile integration, model invocation, live travel research,
+no network connection, mobile integration, real model inference, live travel research,
 calendar write, or booking. Saving a draft only changes synthetic in-memory state.
 
 ## Run it
@@ -49,14 +49,23 @@ and synthetic trip assumptions. A future general natural-language planner can
 produce the same task structures. The happy path plans three days in Montreal
 from Boston, using phone-provided dates and interests.
 
-| Task | Owner | Purpose | Failure policy |
-| --- | --- | --- | --- |
-| `mobile_context` | Phone | Supply phone-resident mobile context. | Optional: omit failed context. |
-| `photo_interests` | Phone | Summarize interests from synthetic photos locally. | Optional: omit failed context. |
-| `calendar` | Phone | Supply synthetic availability for scheduling. | Optional: mark availability unavailable. |
-| `research` | Laptop | Research options using synthetic fixtures. | Required: abort after allowed retries. |
-| `plan` | Laptop | Assemble research and available context into an itinerary. | Required: abort on failure. |
-| `save_draft` | Phone | Save the assembled plan as a synthetic draft. | Optional: report failure or uncertainty. |
+The happy trace executes these six steps sequentially, one successful attempt each:
+
+| Task / executor | Input and dependency outputs | Synthetic output |
+| --- | --- | --- |
+| `mobile_context` / phone | Fixed travel request. | Origin: Boston; timezone: `America/New_York`. |
+| `photo_interests` / phone | Fixed travel request. | Interest summary: architecture and parks. |
+| `calendar` / phone | Fixed travel request. | Available dates: October 16–18, 2026. |
+| `research` / laptop | Destination: Montreal; `mobile_context` + `photo_interests`. | Air/rail candidates and a central-area stay, all synthetic and unverified. |
+| `plan` / laptop | Model profile: `large_local`; `mobile_context` + `calendar` + `research`. | Oct 16 arrival, Oct 17 architecture, Oct 18 parks/return; selects the air/stay fixtures; execution backend: `mock`. |
+| `save_draft` / phone | Completed `plan`. | Draft `travel-demo-001:save_draft` in demo memory; no bookings. |
+
+Dependency flow: `mobile_context + photo_interests → research`;
+`mobile_context + calendar + research → plan`; `plan → save_draft`.
+Research and planning are required; their failure aborts the remaining workflow.
+Phone tasks are optional; failures produce explicit gaps or an unsuccessful draft.
+The assembled `final_output` has `status: "completed"`, the plan, no warnings,
+and `draft_status: "saved_in_demo_memory"` on this happy path.
 
 The phone returns summaries and availability rather than its raw photo library.
 The laptop owns research and larger planning steps. Routing requires the requested
@@ -68,6 +77,8 @@ Only successful outputs from explicitly declared dependencies enter a task's
 `context`. Failed optional dependencies are omitted; their failures remain visible
 in the trace. The final report preserves missing inputs and unsuccessful actions
 so a partial plan cannot be mistaken for a confirmed booking or calendar update.
+Missing calendar context produces unconfirmed dates. Supplied `available_dates` must
+contain exactly three nonempty strings; invalid payload shapes are rejected.
 
 ## Code and interfaces
 
@@ -75,7 +86,8 @@ so a partial plan cannot be mistaken for a confirmed booking or calendar update.
 | --- | --- |
 | [`src/protocol.rs`](src/protocol.rs) | Serde request/response types and independent protocol version 1. |
 | [`src/runtime.rs`](src/runtime.rs) | `DeviceTransport`, discovery, routing, dependency context, retries, and failure handling. |
-| [`src/travel.rs`](src/travel.rs) | Fixed decomposition, synthetic fixtures, and mock device execution. |
+| [`src/travel.rs`](src/travel.rs) | Laptop decomposition, phone fixtures, mock device dispatch, and final output assembly. |
+| [`src/laptop.rs`](src/laptop.rs) | `research_travel` option records and the `LaptopPlanner` inference boundary; validates scheduling context and consumes research options. |
 | [`src/main.rs`](src/main.rs) | Scenario selection and JSON report output. |
 
 The same workflow can be invoked from Rust:
@@ -92,6 +104,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+The laptop handlers expose concrete research and heavier-model replacement points:
+
+```rust
+use std::collections::BTreeMap;
+use serde_json::Value;
+use openjarvis_cross_device_travel::protocol::TaskError;
+use openjarvis_cross_device_travel::laptop::{
+    research_travel, LaptopPlanner, MockLaptopPlanner, PlannerRequest,
+};
+
+fn run_laptop_steps(
+    research_context: &BTreeMap<String, Value>,
+    planning_context: &mut BTreeMap<String, Value>,
+) -> Result<Value, TaskError> {
+    let findings = research_travel("Montreal", research_context)?;
+    planning_context.insert("research".into(), findings);
+    MockLaptopPlanner.plan(PlannerRequest {
+        model_profile: "large_local", context: planning_context,
+    })
+}
+```
+
+Here research context contains successful `mobile_context` and `photo_interests`
+outputs; planning context starts with successful `mobile_context` and `calendar`
+outputs. `large_local` describes intended laptop placement; `MockLaptopPlanner`
+returns deterministic fixtures without loading a model. Replace its `LaptopPlanner`
+implementation with local inference, retaining the request/result boundary.
 
 `DeviceTransport::discover` supplies device advertisements to the laptop.
 The runtime selects a device by capability and device kind, then calls
@@ -123,7 +163,10 @@ Read capabilities get at most two attempts, and actions get one. Retries require
 a retryable timeout, unavailable-device error, or execution failure. Routing
 failures do not dispatch or retry; rediscovery requires another workflow run.
 A write timeout can mean the action happened but its reply was lost; `save_draft`
-is therefore never automatically retried. Stable task IDs support future
+is therefore never automatically retried. Any failed dispatched draft is
+conservatively reported as uncertain, including a disconnect or invalid reply;
+`not_saved` is reserved for routing failures that prevented dispatch.
+Stable task IDs support future
 idempotency work but do not provide durable deduplication or exactly-once delivery.
 
 Timeout enforcement belongs to the transport. The mock explicitly simulates
