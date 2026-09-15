@@ -160,16 +160,16 @@ export function VisualizerControls({
     return (
       <button
         onClick={() => setCollapsed(false)}
-        className="absolute bottom-6 left-4 z-20 w-10 h-10 rounded-xl flex items-center justify-center transition-all cursor-pointer hover:scale-110"
+        className="absolute bottom-6 left-4 z-20 w-9 h-9 flex items-center justify-center transition-all cursor-pointer hover:scale-110 opacity-70 hover:opacity-100"
         style={{
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          boxShadow: 'var(--shadow-md)',
+          background: 'none',
+          border: 'none',
+          boxShadow: 'none',
         }}
         title="Open panel"
         aria-label="Open AI Voice Visualizer controls"
       >
-        <Settings size={16} style={{ color: 'var(--color-text)' }} />
+        <Settings size={20} style={{ color: 'var(--color-text-secondary)' }} />
       </button>
     );
   }

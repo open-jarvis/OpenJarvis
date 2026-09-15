@@ -360,15 +360,15 @@ export function KioskPage() {
       <button
         onClick={() => navigate('/')}
         title="Exit kiosk"
-        className="absolute top-4 right-4 z-30 w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-bg-secondary)]"
+        className="absolute top-4 right-4 z-30 w-9 h-9 flex items-center justify-center cursor-pointer transition-all hover:scale-110 opacity-70 hover:opacity-100"
         style={{
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
+          background: 'none',
+          border: 'none',
+          boxShadow: 'none',
           color: 'var(--color-text-secondary)',
-          boxShadow: 'var(--shadow-sm)',
         }}
       >
-        <X size={16} />
+        <X size={20} />
       </button>
 
       {!share.unavailable && settings.style !== 'screen' && (
