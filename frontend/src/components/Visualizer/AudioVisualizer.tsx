@@ -37,42 +37,6 @@ function blendHex(a: string, b: string, t: number): string {
 
 interface RS { rotAngle: number; pulse: number; rotX: number; rotY: number }
 
-function renderWaveRing(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number,
-  avgVol: number, bassVol: number, ad: Float32Array | Uint8Array,
-  s: VisualizerSettings, rs: RS,
-) {
-  const pal = PALETTES[s.theme] ?? PALETTES['gold']!;
-  const base = s.size + bassVol * 50;
-  for (let l = 0; l < 3; l++) {
-    const phase = l * Math.PI * 0.33;
-    const grad = ctx.createRadialGradient(cx, cy, base * 0.4, cx, cy, base * 1.6);
-    if (l === 0)      { grad.addColorStop(0, pal[0]); grad.addColorStop(1, pal[1]); }
-    else if (l === 1) { grad.addColorStop(0, pal[1]); grad.addColorStop(1, '#8800ff'); }
-    else              { grad.addColorStop(0, pal[0] + 'aa'); grad.addColorStop(1, 'rgba(255,255,255,.3)'); }
-    ctx.save();
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 2.8 - l * 0.7;
-    ctx.globalAlpha = 0.9 - l * 0.25;
-    if (s.glow > 0 && l === 0) { ctx.shadowBlur = s.glow; ctx.shadowColor = pal[2]; }
-    ctx.beginPath();
-    for (let i = 0; i <= 200; i++) {
-      const ang = (i / 200) * Math.PI * 2;
-      const bi = Math.floor(
-        (Math.abs(Math.sin(ang)) * 0.65 + Math.abs(Math.cos(ang)) * 0.35) * (ad.length - 1) * 0.55,
-      );
-      const amp = ((ad[bi] ?? 0) / 255) * 58 * s.gain;
-      const rip = Math.sin(ang * 7 + rs.pulse * 1.4 + phase) * Math.cos(ang * 3 - rs.pulse * 0.75) * 7;
-      const ar = amp * Math.sin(ang * 11 + rs.pulse * 1.9 + phase);
-      const r = base + rip + ar;
-      const a = ang + rs.rotAngle * (1 - l * 0.14);
-      if (i === 0) ctx.moveTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
-      else          ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
-    }
-    ctx.closePath(); ctx.stroke(); ctx.restore();
-  }
-}
 
 function renderSphere(
   ctx: CanvasRenderingContext2D,
@@ -135,6 +99,34 @@ function renderSphere(
   ctx.globalAlpha = 1;
 }
 
+// ── Render loop scheduling ───────────────────────────────────────────────────
+
+/**
+ * Drive `draw` once per animation frame until the returned stop() is called.
+ *
+ * Exactly one frame is scheduled per tick. An earlier version scheduled a
+ * second frame on an early-return branch, which doubled the pending
+ * callbacks every frame (2, 4, 8, ...) and locked up the kiosk tab.
+ */
+export function startRenderLoop(
+  draw: () => void,
+  raf: (cb: () => void) => number = requestAnimationFrame,
+  cancel: (handle: number) => void = cancelAnimationFrame,
+): () => void {
+  let handle = 0;
+  let stopped = false;
+  const tick = () => {
+    if (stopped) return;
+    handle = raf(tick);
+    draw();
+  };
+  handle = raf(tick);
+  return () => {
+    stopped = true;
+    cancel(handle);
+  };
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -145,7 +137,6 @@ interface Props {
 export function AudioVisualizer({ getFrequencyData, settings }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const rafRef = useRef(0);
   const rsRef = useRef<RS>({ rotAngle: 0, pulse: 0, rotX: 0.45, rotY: 0.3 });
   const dragRef = useRef({ active: false, px: 0, py: 0 });
 
@@ -200,14 +191,16 @@ export function AudioVisualizer({ getFrequencyData, settings }: Props) {
     };
   }, []);
 
-  // RAF render loop
+  // RAF render loop — only alive while the 3D style is selected, so the
+  // loop is torn down rather than left spinning over a detached canvas.
+  const is3d = settings.style === '3d';
   useEffect(() => {
+    if (!is3d) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
 
-    const tick = () => {
-      rafRef.current = requestAnimationFrame(tick);
+    const draw = () => {
       const dpr = window.devicePixelRatio || 1;
       const W = canvas.width / dpr, H = canvas.height / dpr;
       if (W < 10 || H < 10) return;
@@ -231,15 +224,16 @@ export function AudioVisualizer({ getFrequencyData, settings }: Props) {
       rs.pulse += 0.028 + avgVol * 0.055;
 
       const cx = W / 2, cy = H / 2;
-      if (s.style === 'wave')
-        renderWaveRing(ctx, cx, cy, avgVol, bassVol, ad, s, rs);
-      else
-        renderSphere(ctx, cx, cy, avgVol, bassVol, ad, s, rs, dragRef.current.active);
+      renderSphere(ctx, cx, cy, avgVol, bassVol, ad, s, rs, dragRef.current.active);
     };
 
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, []); // loop is intentionally set up once; all state is via refs
+    return startRenderLoop(draw);
+    // Only re-runs when the style toggles; per-frame state lives in refs.
+  }, [is3d]);
+
+  if (!is3d) {
+    return null;
+  }
 
   return (
     <div

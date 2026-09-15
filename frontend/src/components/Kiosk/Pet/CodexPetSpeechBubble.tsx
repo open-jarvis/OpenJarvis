@@ -96,10 +96,10 @@ export function CodexPetSpeechBubble({
       <div
         className="relative w-max min-w-[160px] max-w-[280px] sm:max-w-[340px] px-3.5 py-2 rounded-xl text-xs font-medium leading-snug shadow-xl backdrop-blur-md whitespace-normal break-words"
         style={{
-          background: 'rgba(20, 20, 30, 0.88)',
-          border: '1px solid rgba(255, 255, 255, 0.15)',
-          color: '#ffffff',
-          boxShadow: '0 8px 24px -4px rgba(0, 0, 0, 0.5), 0 0 12px rgba(0, 242, 254, 0.15)',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          color: 'var(--color-text)',
+          boxShadow: '0 8px 24px -4px rgba(0, 0, 0, 0.25), 0 0 12px var(--color-accent-glow)',
         }}
       >
         {showTyping ? (
@@ -130,7 +130,7 @@ export function CodexPetSpeechBubble({
         <div
           className={`absolute -bottom-1.5 w-0 h-0 border-solid border-t-[6px] border-x-[5px] border-b-0 border-x-transparent ${tailClasses}`}
           style={{
-            borderTopColor: 'rgba(20, 20, 30, 0.88)',
+            borderTopColor: 'var(--color-surface)',
           }}
         />
       </div>

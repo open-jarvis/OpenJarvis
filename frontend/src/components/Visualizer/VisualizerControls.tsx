@@ -1,16 +1,8 @@
 import { useState } from 'react';
-import { AudioWaveform, Orbit, ChevronLeft, Settings, Languages } from 'lucide-react';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
-import { VOICE_UI_TEXT, panelStatusLabel } from '@/hooks/voiceUiText';
+import { ScreenShare, AudioLines, Settings, X } from 'lucide-react';
+import { VOICE_UI_TEXT } from '@/hooks/voiceUiText';
 import type { UiLanguage } from '@/hooks/useUiLanguage';
-import type { VisualizerSettings, VisualizerTheme, VoiceStatus } from './types';
-
-const STATUS_META: Record<VoiceStatus, { color: string }> = {
-  idle:      { color: '#6b7280' },
-  listening: { color: '#00e87a' },
-  thinking:  { color: '#ffb020' },
-  speaking:  { color: '#4facfe' },
-};
+import type { VisualizerSettings, VisualizerStyle, VisualizerTheme, VoiceStatus } from './types';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -22,74 +14,114 @@ const THEMES: { key: VisualizerTheme; label: string; gradient: string }[] = [
   { key: 'sunset', label: 'Sunset', gradient: 'linear-gradient(135deg,#ff0844,#ffb199)' },
 ];
 
+const displayOptions: { value: VisualizerStyle; label: string; icon: typeof ScreenShare }[] = [
+  { value: 'screen', label: 'Screen Share', icon: ScreenShare },
+  { value: '3d', label: '3D Sphere', icon: AudioLines },
+];
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Card & Row Components (matching SettingsPage card template) ─────────────
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-semibold tracking-widest uppercase mb-2.5" style={{ color: 'var(--color-text-tertiary)' }}>
-      {children}
+    <div
+      className="rounded-xl p-3.5 sm:p-4 flex flex-col"
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+      }}
+    >
+      <h3 className="text-xs sm:text-sm font-semibold mb-1" style={{ color: 'var(--color-text)' }}>
+        {title}
+      </h3>
+      <div className="flex flex-col">
+        {children}
+      </div>
     </div>
   );
 }
 
-function PanelButton({
-  active,
-  activeRed,
-  onClick,
+function SettingRow({
+  label,
+  description,
   children,
-  className,
-}: {
-  active?: boolean;
-  activeRed?: boolean;
-  onClick?: () => void;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  const base = 'flex flex-1 items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer border';
-  const style: React.CSSProperties = active
-    ? { background: 'var(--color-accent)', color: 'var(--color-on-accent)', borderColor: 'transparent', boxShadow: '0 0 18px var(--color-accent-glow)' }
-    : activeRed
-    ? { background: 'linear-gradient(135deg,#ff4060,#ff8c69)', color: '#fff', borderColor: 'transparent', boxShadow: '0 0 18px rgba(255,64,96,.35)' }
-    : { background: 'rgba(255,255,255,.05)', color: 'var(--color-text)', borderColor: 'var(--color-border)' };
-  return (
-    <button
-      onClick={onClick}
-      className={`${base}${className ? ` ${className}` : ''}`}
-      style={style}
-      onMouseEnter={(e) => { if (!active && !activeRed) e.currentTarget.style.background = 'rgba(255,255,255,.1)'; }}
-      onMouseLeave={(e) => { if (!active && !activeRed) e.currentTarget.style.background = 'rgba(255,255,255,.05)'; }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Slider({
-  label, value, min, max, step = 1,
-  format, onChange,
+  last = false,
+  vertical = false,
 }: {
   label: string;
-  value: number;
-  min: number; max: number; step?: number;
-  format: (v: number) => string;
-  onChange: (v: number) => void;
+  description?: React.ReactNode;
+  children: React.ReactNode;
+  last?: boolean;
+  vertical?: boolean;
+}) {
+  if (vertical) {
+    return (
+      <div
+        className="py-2.5 flex flex-col gap-2"
+        style={{ borderBottom: last ? 'none' : '1px solid var(--color-border-subtle)' }}
+      >
+        <div>
+          <div className="text-xs sm:text-sm font-medium leading-snug" style={{ color: 'var(--color-text)' }}>
+            {label}
+          </div>
+          {description && (
+            <div className="text-[11px] mt-0.5 leading-normal" style={{ color: 'var(--color-text-tertiary)' }}>
+              {description}
+            </div>
+          )}
+        </div>
+        <div>{children}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex items-center justify-between py-2.5 gap-3"
+      style={{ borderBottom: last ? 'none' : '1px solid var(--color-border-subtle)' }}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-xs sm:text-sm font-medium leading-snug" style={{ color: 'var(--color-text)' }}>
+          {label}
+        </div>
+        {description && (
+          <div className="text-[11px] mt-0.5 leading-normal" style={{ color: 'var(--color-text-tertiary)' }}>
+            {description}
+          </div>
+        )}
+      </div>
+      <div className="shrink-0 flex items-center">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SettingToggle({
+  checked,
+  onChange,
+  ariaLabel,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  ariaLabel?: string;
 }) {
   return (
-    <div className="mb-2.5">
-      <div className="flex justify-between text-[11px] mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>
-        <span>{label}</span>
-        <span style={{ color: 'var(--color-text)', fontWeight: 600 }}>{format(value)}</span>
-      </div>
-      <input
-        type="range"
-        min={min} max={max} step={step}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full h-1 rounded-full outline-none cursor-pointer appearance-none"
-        style={{ background: `linear-gradient(to right, var(--color-accent) ${((value - min) / (max - min)) * 100}%, var(--color-border) 0%)` }}
+    <button
+      onClick={() => onChange(!checked)}
+      className="relative w-11 h-6 rounded-full transition-colors cursor-pointer shrink-0 border-none outline-none"
+      style={{
+        background: checked ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+      }}
+      aria-label={ariaLabel}
+    >
+      <span
+        className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+        style={{
+          transform: checked ? 'translateX(20px)' : 'translateX(0)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+        }}
       />
-    </div>
+    </button>
   );
 }
 
@@ -101,20 +133,26 @@ interface Props {
   status: VoiceStatus;
   uiLanguage: UiLanguage;
   onUiLanguageChange: (language: UiLanguage) => void;
+  initialCollapsed?: boolean;
 }
 
-export function VisualizerControls({ settings, onSettingsChange, status, uiLanguage, onUiLanguageChange }: Props) {
-  const [collapsed, setCollapsed] = useState(true);
+export function VisualizerControls({
+  settings,
+  onSettingsChange,
+  status: _status,
+  uiLanguage,
+  onUiLanguageChange,
+  initialCollapsed = true,
+}: Props) {
+  const [collapsed, setCollapsed] = useState(initialCollapsed);
 
   const set = <K extends keyof VisualizerSettings>(key: K, val: VisualizerSettings[K]) =>
     onSettingsChange({ ...settings, [key]: val });
 
   const panelStyle: React.CSSProperties = {
-    background: 'rgba(10,10,22,0.84)',
+    background: 'var(--color-bg)',
     border: '1px solid var(--color-border)',
-    backdropFilter: 'blur(28px)',
-    WebkitBackdropFilter: 'blur(28px)',
-    boxShadow: '0 24px 56px rgba(0,0,0,.65)',
+    boxShadow: '0 24px 56px rgba(0,0,0,.22)',
     color: 'var(--color-text)',
   };
 
@@ -123,8 +161,13 @@ export function VisualizerControls({ settings, onSettingsChange, status, uiLangu
       <button
         onClick={() => setCollapsed(false)}
         className="absolute bottom-6 left-4 z-20 w-10 h-10 rounded-xl flex items-center justify-center transition-all cursor-pointer hover:scale-110"
-        style={{ background: 'none', border: 'none', boxShadow: 'none', backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+        style={{
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          boxShadow: 'var(--shadow-md)',
+        }}
         title="Open panel"
+        aria-label="Open AI Voice Visualizer controls"
       >
         <Settings size={16} style={{ color: 'var(--color-text)' }} />
       </button>
@@ -132,161 +175,226 @@ export function VisualizerControls({ settings, onSettingsChange, status, uiLangu
   }
 
   return (
-    // top-[54px] lines the panel's top edge up with the sidebar's model badge
-    // (sidebar header is 54px tall). Also clears the floating sidebar-toggle
-    // button (fixed top-3 left-3, ~46px tall) shown when the sidebar collapses.
-    <aside
-      className="absolute top-[54px] left-4 z-20 w-72 rounded-2xl flex flex-col gap-4 p-5 overflow-y-auto"
-      style={{ ...panelStyle, maxHeight: 'calc(100vh - 70px)' }}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 dark:bg-black/60 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) setCollapsed(true);
+      }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div
-          className="text-base font-bold tracking-tight"
-          style={{ background: 'linear-gradient(120deg,var(--color-accent),var(--color-text) 80%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-        >
-          AI Voice Visualizer
-        </div>
-        <button
-          onClick={() => setCollapsed(true)}
-          className="flex items-center gap-1 text-[11px] cursor-pointer transition-colors"
-          style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)' }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-text)')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-secondary)')}
-        >
-          Hide <ChevronLeft size={13} />
-        </button>
-      </div>
-
-      {/* Voice status */}
-      <div className="pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,.06)' }}>
-        <SectionLabel>Voice</SectionLabel>
-        <div
-          className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-wider px-2.5 py-1.5 rounded-full"
-          style={{ background: 'rgba(255,255,255,.05)' }}
-        >
-          <span
-            className="w-2 h-2 rounded-full"
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="voice-visualizer-title"
+        className="relative w-full max-w-lg max-h-[88vh] rounded-2xl flex flex-col gap-3.5 p-5 overflow-y-auto shadow-2xl"
+        style={panelStyle}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between pb-1">
+          <div
+            id="voice-visualizer-title"
+            className="text-base font-bold tracking-tight"
             style={{
-              background: STATUS_META[status].color,
-              animation: status === 'listening' || status === 'speaking' ? 'pulse 1.6s ease-in-out infinite' : 'none',
+              background: 'linear-gradient(120deg,var(--color-accent),var(--color-text) 80%)',
+              WebkitBackgroundClip: 'text',
+              backgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
             }}
-          />
-          {panelStatusLabel(uiLanguage, status)}
+          >
+            AI Voice Visualizer
+          </div>
+          <button
+            onClick={() => setCollapsed(true)}
+            className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text)]"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--color-text-secondary)',
+            }}
+            title="Close"
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <p className="text-[11px] mt-2 leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
-          Voice starts automatically after the kiosk greeting.
-        </p>
-      </div>
 
-      {/* Language */}
-      <div className="pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,.06)' }}>
-        <SectionLabel>Language</SectionLabel>
-        <div className="mt-2">
-          <Select
+      {/* Card 1: Language */}
+      <Section title="Language">
+        <SettingRow
+          label="Language"
+          description={VOICE_UI_TEXT[uiLanguage].languageHelper}
+          last
+        >
+          <select
             value={uiLanguage}
-            onValueChange={(val) => {
+            onChange={(e) => {
+              const val = e.target.value;
               if (val === 'vi' || val === 'en') onUiLanguageChange(val);
             }}
+            className="text-sm px-3 py-1.5 rounded-lg outline-none cursor-pointer"
+            style={{
+              background: 'var(--color-bg-secondary)',
+              color: 'var(--color-text)',
+              border: '1px solid var(--color-border)',
+            }}
           >
-            <SelectTrigger className="w-full h-9 rounded-lg" style={{ background: 'rgba(255,255,255,.05)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
-              <SelectValue placeholder="Language" />
-            </SelectTrigger>
-            <SelectContent
-              className="border border-white/10 rounded-lg overflow-hidden backdrop-blur-xl"
-              style={{ background: 'rgba(20,20,32,0.95)', color: 'var(--color-text)' }}
-            >
-              <SelectItem value="vi" className="cursor-pointer focus:bg-white/10 focus:text-white transition-colors">
-                <span className="flex items-center gap-2">🇻🇳 {VOICE_UI_TEXT[uiLanguage].language.vietnamese}</span>
-              </SelectItem>
-              <SelectItem value="en" className="cursor-pointer focus:bg-white/10 focus:text-white transition-colors">
-                <span className="flex items-center gap-2">🇺🇸 {VOICE_UI_TEXT[uiLanguage].language.english}</span>
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <p className="text-[11px] mt-2 leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
-          {VOICE_UI_TEXT[uiLanguage].languageHelper}
-        </p>
-      </div>
+            <option value="vi">{VOICE_UI_TEXT[uiLanguage].language.vietnamese}</option>
+            <option value="en">{VOICE_UI_TEXT[uiLanguage].language.english}</option>
+          </select>
+        </SettingRow>
+      </Section>
 
-      {/* Visual style */}
-      <div className="pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,.06)' }}>
-        <SectionLabel>Display Mode</SectionLabel>
-        <div className="flex gap-2">
-          <PanelButton active={settings.style === 'wave'} onClick={() => set('style', 'wave')}>
-            <AudioWaveform size={13} /> Wave
-          </PanelButton>
-          <PanelButton active={settings.style === '3d'} onClick={() => set('style', '3d')}>
-            <Orbit size={13} /> 3D Sphere
-          </PanelButton>
-        </div>
-        <p className="text-[11px] mt-2 leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
-          {settings.style === '3d'
-            ? '3D neon sphere reacts to bass & treble.'
-            : 'Liquid neon wave ring oscillates with audio.'}
-        </p>
-      </div>
-
-      {/* Customise */}
-      <div className="pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,.06)' }}>
-        <SectionLabel>Customize</SectionLabel>
-
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>Show Captions</span>
-          <button
-            onClick={() => set('showCaptions', !settings.showCaptions)}
-            className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer border-none outline-none"
-            style={{ background: settings.showCaptions ? 'var(--color-accent)' : 'rgba(255,255,255,.1)' }}
-          >
-            <span
-              className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
-              style={{ transform: settings.showCaptions ? 'translateX(18px)' : 'translateX(2px)' }}
-            />
-          </button>
-        </div>
-
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>Show Status Overlay</span>
-          <button
-            onClick={() => set('showOverlay', !settings.showOverlay)}
-            className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer border-none outline-none"
-            style={{ background: settings.showOverlay ? 'var(--color-accent)' : 'rgba(255,255,255,.1)' }}
-          >
-            <span
-              className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
-              style={{ transform: settings.showOverlay ? 'translateX(18px)' : 'translateX(2px)' }}
-            />
-          </button>
-        </div>
-        {/* Theme palette */}
-        <div className="mb-3">
-          <div className="text-[11px] mb-2" style={{ color: 'var(--color-text-secondary)' }}>Theme</div>
-          <div className="flex gap-2">
-            {THEMES.map((t) => (
-              <button
-                key={t.key}
-                title={t.label}
-                onClick={() => set('theme', t.key)}
-                className="w-6 h-6 rounded-full cursor-pointer transition-transform"
-                style={{
-                  background: t.gradient,
-                  border: 'none',
-                  opacity: settings.theme === t.key ? 1 : 0.38,
-                  transform: settings.theme === t.key ? 'scale(1.2)' : 'scale(1)',
-                }}
-              />
-            ))}
+      {/* Card 2: Visualizer & Display */}
+      <Section title="Visualizer & Display">
+        <SettingRow
+          label="Display mode"
+          description={
+            settings.style === '3d'
+              ? '3D neon sphere reacts to audio'
+              : 'Center screen share display'
+          }
+        >
+          <div className="flex gap-1 p-0.5 rounded-lg shrink-0" style={{ background: 'var(--color-bg-secondary)' }}>
+            {displayOptions.map((opt) => {
+              const isActive = settings.style === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => set('style', opt.value)}
+                  className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer"
+                  style={{
+                    background: isActive ? 'var(--color-surface)' : 'transparent',
+                    color: isActive ? 'var(--color-text)' : 'var(--color-text-tertiary)',
+                    boxShadow: isActive ? 'var(--shadow-sm)' : 'none',
+                  }}
+                >
+                  <opt.icon size={13} />
+                  {opt.label}
+                </button>
+              );
+            })}
           </div>
-        </div>
+        </SettingRow>
 
-        <Slider label="Size"  value={settings.size}  min={70}  max={230} format={(v) => `${Math.round(v)}px`} onChange={(v) => set('size', v)} />
-        <Slider label="Gain"  value={settings.gain}  min={0.2} max={4}   step={0.1} format={(v) => `${v.toFixed(1)}x`} onChange={(v) => set('gain', v)} />
-        <Slider label="Speed" value={settings.speed} min={0.1} max={3.5} step={0.1} format={(v) => `${v.toFixed(1)}x`} onChange={(v) => set('speed', v)} />
-        <Slider label="Glow"  value={settings.glow}  min={0}   max={50}  format={(v) => `${Math.round(v)}px`} onChange={(v) => set('glow', v)} />
+        <SettingRow
+          label="Theme"
+          description={THEMES.find((t) => t.key === settings.theme)?.label ?? 'Theme'}
+        >
+          <div className="flex items-center gap-2">
+            {THEMES.map((t) => {
+              const isSelected = settings.theme === t.key;
+              return (
+                <button
+                  key={t.key}
+                  title={t.label}
+                  onClick={() => set('theme', t.key)}
+                  className="w-5 h-5 rounded-full cursor-pointer transition-transform"
+                  style={{
+                    background: t.gradient,
+                    border: 'none',
+                    opacity: isSelected ? 1 : 0.4,
+                    transform: isSelected ? 'scale(1.3)' : 'scale(1)',
+                  }}
+                />
+              );
+            })}
+          </div>
+        </SettingRow>
 
+        <SettingRow label="Size" description={`${Math.round(settings.size)}px`}>
+          <input
+            type="range"
+            min={70}
+            max={230}
+            step={1}
+            value={settings.size}
+            onChange={(e) => set('size', parseFloat(e.target.value))}
+            className="w-28 sm:w-32 cursor-pointer accent-[var(--color-accent)]"
+            style={{ accentColor: 'var(--color-accent)' }}
+          />
+        </SettingRow>
+
+        <SettingRow label="Gain" description={`${settings.gain.toFixed(1)}x`}>
+          <input
+            type="range"
+            min={0.2}
+            max={4}
+            step={0.1}
+            value={settings.gain}
+            onChange={(e) => set('gain', parseFloat(e.target.value))}
+            className="w-28 sm:w-32 cursor-pointer accent-[var(--color-accent)]"
+            style={{ accentColor: 'var(--color-accent)' }}
+          />
+        </SettingRow>
+
+        <SettingRow label="Speed" description={`${settings.speed.toFixed(1)}x`}>
+          <input
+            type="range"
+            min={0.1}
+            max={3.5}
+            step={0.1}
+            value={settings.speed}
+            onChange={(e) => set('speed', parseFloat(e.target.value))}
+            className="w-28 sm:w-32 cursor-pointer accent-[var(--color-accent)]"
+            style={{ accentColor: 'var(--color-accent)' }}
+          />
+        </SettingRow>
+
+        <SettingRow label="Glow" description={`${Math.round(settings.glow)}px`} last>
+          <input
+            type="range"
+            min={0}
+            max={50}
+            step={1}
+            value={settings.glow}
+            onChange={(e) => set('glow', parseFloat(e.target.value))}
+            className="w-28 sm:w-32 cursor-pointer accent-[var(--color-accent)]"
+            style={{ accentColor: 'var(--color-accent)' }}
+          />
+        </SettingRow>
+      </Section>
+
+      {/* Card 3: Mascot & Captions */}
+      <Section title="Mascot & Captions">
+        <SettingRow
+          label="Show Captions"
+          description="Display live speech transcription"
+        >
+          <SettingToggle
+            checked={settings.showCaptions}
+            onChange={(val) => set('showCaptions', val)}
+            ariaLabel="Toggle Show Captions"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Show Mascot"
+          description="Floating Codex Pet companion on kiosk"
+        >
+          <SettingToggle
+            checked={settings.showPet}
+            onChange={(val) => set('showPet', val)}
+            ariaLabel="Toggle Show Mascot"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Pet Size"
+          description={`${settings.petScale.toFixed(1)}x`}
+          last
+        >
+          <input
+            type="range"
+            min={1}
+            max={4}
+            step={0.1}
+            value={settings.petScale}
+            onChange={(e) => set('petScale', parseFloat(e.target.value))}
+            className="w-28 sm:w-32 cursor-pointer accent-[var(--color-accent)]"
+            style={{ accentColor: 'var(--color-accent)' }}
+          />
+        </SettingRow>
+      </Section>
       </div>
-
-    </aside>
+    </div>
   );
 }
