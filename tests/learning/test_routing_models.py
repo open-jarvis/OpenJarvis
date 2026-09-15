@@ -83,6 +83,18 @@ class TestRouterWithNewModels:
         selected = router.select_model(ctx)
         assert selected == "gpt-oss:120b"
 
+    def test_unknown_cloud_model_escalates_over_known_local(self) -> None:
+        _setup_models()
+        router = HeuristicRouter(available_models=["qwen3:8b", "gpt-5-mini"])
+        ctx = RoutingContext(
+            query="prove this carefully",
+            query_length=20,
+            has_math=True,
+            complexity_score=0.4,
+        )
+
+        assert router.select_model(ctx) == "gpt-5-mini"
+
     def test_high_complexity_routes_to_largest(self) -> None:
         _setup_models()
         router = HeuristicRouter(
