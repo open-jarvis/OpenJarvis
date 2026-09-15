@@ -3,14 +3,15 @@
 Steps performed by ``import_skill``:
 
 1. Parse the source SKILL.md through SkillParser (strict + tolerant).
-2. Translate tool references in the markdown body via ToolTranslator.
-3. Decide on scripts (default-skip; opt-in via with_scripts=True).
-4. Write to disk at <target_root>/<source>/<name>/:
+2. Reject symlinks in directories that would be copied into the install.
+3. Translate tool references in the markdown body via ToolTranslator.
+4. Decide on scripts (default-skip; opt-in via with_scripts=True).
+5. Write to disk at <target_root>/<source>/<name>/:
    - translated SKILL.md
    - references/, assets/, templates/ (always copied)
    - scripts/ (only if approved)
    - .source metadata file
-5. Return ImportResult with status, warnings, translated/missing tools.
+6. Return ImportResult with status, warnings, translated/missing tools.
 """
 
 from __future__ import annotations
@@ -143,7 +144,29 @@ class SkillImporter:
                 "and/or write to the filesystem."
             )
 
-        # 2. Translate tool references
+        # 2. Validate copied resources and translate tool references
+        copied_subdirs = list(COPIED_SUBDIRS)
+        if with_scripts:
+            copied_subdirs.append("scripts")
+        symlinks = [
+            link
+            for subdir in copied_subdirs
+            for link in self._find_symlinks(resolved.path / subdir)
+        ]
+        if symlinks:
+            names = ", ".join(
+                str(link.relative_to(resolved.path)) for link in symlinks[:3]
+            )
+            if len(symlinks) > 3:
+                names += f", and {len(symlinks) - 3} more"
+            result.success = False
+            result.warnings.append(
+                "Refusing to install: skill contains symlinked entries in "
+                f"copied directories ({names}). Imported skills must not "
+                "read files outside their source package."
+            )
+            return result
+
         translated_body, untranslated = self._translator.translate_markdown(body)
         result.untranslated_tools = untranslated
         # Compute the list of translations actually applied
@@ -186,6 +209,15 @@ class SkillImporter:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _find_symlinks(root: Path) -> list[Path]:
+        """Return symlinks below *root* without following them."""
+        if not root.exists() and not root.is_symlink():
+            return []
+        if root.is_symlink():
+            return [root]
+        return [path for path in root.rglob("*") if path.is_symlink()]
 
     def _read_skill_md(self, path: Path) -> tuple[dict, str]:
         """Parse a SKILL.md file into (frontmatter dict, markdown body)."""
