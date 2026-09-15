@@ -64,26 +64,34 @@ jarvis ask "What is the capital of France?"
 | `--json`                      | flag    | off        | Output raw JSON result instead of plain text           |
 | `--no-stream`                 | flag    | off        | Disable streaming (synchronous mode)                   |
 | `--no-context`                | flag    | off        | Disable memory context injection                       |
-| `-a`, `--agent AGENT`         | string  | none       | Agent to use (`simple`, `orchestrator`)                |
+| `-a`, `--agent AGENT`         | string  | config (`simple`) | Agent to use; `""` selects direct mode            |
 | `--tools TOOLS`               | string  | none       | Comma-separated tool names to enable                   |
 | `-i`, `--image PATH`          | path    | none       | Image file for a vision model (e.g. `gemma3:4b`); repeatable |
 | `-S`, `--screen`              | flag    | off        | Capture the current screen and send it to the vision model  |
 
 ### Direct Mode vs Agent Mode
 
-**Direct mode** (default) sends the query straight to the inference engine:
+**Agent mode** is the default for text queries. When `--agent` is omitted, the CLI uses `agent.default_agent` from configuration, which defaults to `simple`. `SimpleAgent` makes a single inference call without a tool loop, while applying the configured system prompt and persona files (`SOUL.md`, `MEMORY.md`, and `USER.md`).
 
 ```bash
 jarvis ask "Explain quantum computing"
 ```
 
-**Agent mode** routes the query through an agent that can use tools and manage multi-turn interactions:
+Use `--agent` to select an agent explicitly. Agents such as `orchestrator` can use tools and manage multi-turn interactions:
 
 ```bash
 jarvis ask --agent orchestrator "What is 2+2?"
 jarvis ask --agent orchestrator --tools calculator,think "Calculate sqrt(144) + 3^2"
 jarvis ask --agent simple "Hello"
 ```
+
+**Direct mode** sends the query straight to the inference engine with optional memory context, bypassing the agent's system prompt and persona handling. Pass an empty agent name to select it:
+
+```bash
+jarvis ask --agent "" "Explain quantum computing"
+```
+
+To make direct mode the default, set `default_agent = ""` in the `[agent]` section of `~/.openjarvis/config.toml`.
 
 ### Usage Examples
 
@@ -124,7 +132,9 @@ jarvis ask -i chart-a.png -i chart-b.png "Compare these two charts"
 jarvis ask --screen "Summarize what's on my screen"
 ```
 
-Vision runs in **direct mode** only. If you also pass `--agent`, the image is
+Vision runs in **direct mode** only. When `--agent` is omitted, image and screen
+queries automatically use direct mode, overriding the configured default agent.
+If you explicitly select an agent, the image is
 ignored and a note is printed — re-run with `--agent ""` to force direct mode.
 
 The Ollama context window can be tuned for large images or long prompts with
