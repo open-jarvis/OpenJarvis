@@ -2,9 +2,57 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { KioskPage, computeEdgeGlowShadow, VOICE_STATUS_GLOW_RGB } from './KioskPage';
+import { KioskPage, computeEdgeGlowShadow } from './KioskPage';
+import type { LocalVoiceStatus } from '@/hooks/voiceStatus';
+import type { ScreenShareStatus } from '@/hooks/useScreenShare';
 
 const storageMap = new Map<string, string>();
+let mockUiLanguage = 'vi';
+
+let mockVoiceState = {
+  enabled: true,
+  status: 'idle' as LocalVoiceStatus,
+  activityDetail: null as string | null,
+  assistantCaptionText: '',
+  getFrequencyData: () => new Uint8Array(),
+  start: vi.fn().mockResolvedValue(undefined),
+  end: vi.fn().mockResolvedValue(undefined),
+};
+
+let mockScreenShare = {
+  unavailable: false,
+  status: 'idle' as ScreenShareStatus,
+  stream: null as MediaStream | null,
+  error: null as string | null,
+  start: vi.fn().mockResolvedValue(undefined),
+  stop: vi.fn(),
+};
+
+const mockCreateConversation = vi.fn(() => 'thread-123');
+const mockAddMessage = vi.fn();
+const mockSetVoiceSessionActive = vi.fn();
+
+const mockLifecycle = {
+  requestReset: vi.fn(),
+  setSessionId: vi.fn(),
+  endVoiceThenReset: vi.fn().mockResolvedValue(undefined),
+  markActive: vi.fn(),
+};
+
+let latestHeroProps: {
+  onStartVoice: () => void;
+  onStartScreenShare: () => void;
+  isVoiceActive?: boolean;
+} | null = null;
+
+let latestDockProps: {
+  voiceStatus: LocalVoiceStatus;
+  isVoiceActive: boolean;
+  shareStatus: ScreenShareStatus;
+  onToggleVoice: () => void;
+  onToggleScreenShare: () => void;
+} | null = null;
+
 beforeEach(() => {
   storageMap.clear();
   globalThis.localStorage = {
@@ -15,31 +63,62 @@ beforeEach(() => {
     key: (i: number) => Array.from(storageMap.keys())[i] ?? null,
     length: storageMap.size,
   } as unknown as Storage;
+
+  mockScreenShare = {
+    unavailable: false,
+    status: 'idle',
+    stream: null,
+    error: null,
+    start: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn(),
+  };
+
+  mockVoiceState = {
+    enabled: true,
+    status: 'idle',
+    activityDetail: null,
+    assistantCaptionText: '',
+    getFrequencyData: () => new Uint8Array(),
+    start: vi.fn().mockResolvedValue(undefined),
+    end: vi.fn().mockResolvedValue(undefined),
+  };
+
+  latestHeroProps = null;
+  latestDockProps = null;
+  mockCreateConversation.mockClear();
+  mockLifecycle.markActive.mockClear();
+  mockLifecycle.endVoiceThenReset.mockClear();
 });
 
 vi.mock('@/hooks/useKioskState', () => ({
   useKioskState: () => ({ state: 'prompting', micEnabled: false, respond: vi.fn() }),
 }));
 vi.mock('@/hooks/usePipecatVoiceMode', () => ({
-  usePipecatVoiceMode: () => ({ enabled: true, status: 'idle', assistantCaptionText: '', getFrequencyData: () => new Uint8Array() }),
+  usePipecatVoiceMode: () => mockVoiceState,
 }));
-vi.mock('@/hooks/useScreenShare', () => ({ useScreenShare: () => ({ unavailable: true, status: 'idle' }) }));
-let mockUiLanguage = 'vi';
+vi.mock('@/hooks/useScreenShare', () => ({
+  useScreenShare: () => mockScreenShare,
+}));
 vi.mock('@/hooks/useUiLanguage', () => ({
   useUiLanguage: () => ({ language: mockUiLanguage, setLanguage: (l: string) => { mockUiLanguage = l; } }),
 }));
 vi.mock('@/lib/store', () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) => selector({
-    addMessage: vi.fn(), createConversation: vi.fn(), selectedModel: 'gpt-5.6-luna',
-    modelsLoading: false, setVoiceSessionActive: vi.fn(),
+    addMessage: mockAddMessage,
+    createConversation: mockCreateConversation,
+    selectedModel: 'gpt-5.6-luna',
+    modelsLoading: false,
+    setVoiceSessionActive: mockSetVoiceSessionActive,
   }),
 }));
 vi.mock('@/lib/kioskPresentation', () => ({
-  createKioskPresentationLifecycle: () => ({ requestReset: vi.fn(), setSessionId: vi.fn(), endVoiceThenReset: vi.fn(), markActive: vi.fn() }),
+  createKioskPresentationLifecycle: () => mockLifecycle,
   ensurePresentationSession: vi.fn(),
   shouldEnsurePresentationSession: vi.fn(() => false),
 }));
-vi.mock('@/components/Visualizer/AudioVisualizer', () => ({ AudioVisualizer: () => null }));
+vi.mock('@/components/Visualizer/AudioVisualizer', () => ({
+  AudioVisualizer: () => <div data-testid="mock-audio-visualizer" />,
+}));
 vi.mock('@/components/Visualizer/VisualizerControls', () => ({ VisualizerControls: () => null }));
 vi.mock('@/components/Kiosk/Pet/FloatingCodexPet', () => ({
   FloatingCodexPet: (props: { scale?: number }) => (
@@ -47,6 +126,53 @@ vi.mock('@/components/Kiosk/Pet/FloatingCodexPet', () => ({
   ),
 }));
 vi.mock('@/components/Chat/voiceTurnRows', () => ({ currentVoiceTurnRows: () => [] }));
+
+vi.mock('@/components/Kiosk/ScreenShareHero', () => ({
+  ScreenShareHero: (props: {
+    onStartVoice: () => void;
+    onStartScreenShare: () => void;
+    isVoiceActive?: boolean;
+  }) => {
+    latestHeroProps = props;
+    return (
+      <div data-testid="screen-share-hero">
+        <button data-testid="hero-talk-btn" onClick={props.onStartVoice}>Talk</button>
+        <button data-testid="hero-share-btn" onClick={props.onStartScreenShare}>Share Screen</button>
+      </div>
+    );
+  },
+}));
+
+vi.mock('@/components/Kiosk/ScreenShareDock', () => ({
+  ScreenShareDock: (props: {
+    voiceStatus: LocalVoiceStatus;
+    isVoiceActive: boolean;
+    shareStatus: ScreenShareStatus;
+    onToggleVoice: () => void;
+    onToggleScreenShare: () => void;
+  }) => {
+    latestDockProps = props;
+    return (
+      <div data-testid="screen-share-dock">
+        <button data-testid="dock-mic-btn" onClick={props.onToggleVoice}>Mic</button>
+        <button data-testid="dock-share-btn" onClick={props.onToggleScreenShare}>Share</button>
+      </div>
+    );
+  },
+}));
+
+vi.mock('@/components/Kiosk/ScreenShareView', () => ({
+  ScreenShareView: (props: {
+    floating?: boolean;
+    initialPlacement?: 'top-right' | 'center';
+  }) => (
+    <div
+      data-testid="mock-screen-share-view"
+      data-floating={props.floating ? 'true' : 'false'}
+      data-placement={props.initialPlacement}
+    />
+  ),
+}));
 
 describe('KioskPage', () => {
   it('renders consent actions in Vietnamese when uiLanguage is vi', () => {
@@ -138,6 +264,129 @@ describe('KioskPage', () => {
     expect(markup).toContain('data-testid="mock-floating-codex-pet"');
     expect(markup).toContain('data-scale="3.5"');
     localStorage.removeItem('openjarvis_visualizer_settings');
+  });
+
+  describe('ScreenShare Hero and Dock integration', () => {
+    it('renders ScreenShareHero and ScreenShareDock when settings.style is screen and share is not live', () => {
+      mockScreenShare.status = 'idle';
+      const markup = renderToStaticMarkup(
+        <MemoryRouter>
+          <KioskPage />
+        </MemoryRouter>,
+      );
+
+      expect(markup).toContain('data-testid="screen-share-hero"');
+      expect(markup).toContain('data-testid="screen-share-dock"');
+      expect(markup).not.toContain('data-testid="mock-screen-share-view"');
+    });
+
+    it('hides top-left redundant screen share button when settings.style is screen', () => {
+      mockScreenShare.unavailable = false;
+      const markup = renderToStaticMarkup(
+        <MemoryRouter>
+          <KioskPage />
+        </MemoryRouter>,
+      );
+
+      expect(markup).not.toContain('title="Share Screen"');
+      expect(markup).not.toContain('title="Stop sharing"');
+    });
+
+    it('renders ScreenShareView and ScreenShareDock (but hides hero) when share.status is live', () => {
+      mockScreenShare.status = 'live';
+      const markup = renderToStaticMarkup(
+        <MemoryRouter>
+          <KioskPage />
+        </MemoryRouter>,
+      );
+
+      expect(markup).toContain('data-testid="mock-screen-share-view"');
+      expect(markup).toContain('data-placement="center"');
+      expect(markup).toContain('data-testid="screen-share-dock"');
+      expect(markup).not.toContain('data-testid="screen-share-hero"');
+    });
+
+    it('does not render ScreenShareHero or ScreenShareDock when settings.style is 3d', () => {
+      localStorage.setItem(
+        'openjarvis_kiosk_visualizer_settings',
+        JSON.stringify({ style: '3d' }),
+      );
+
+      const markup = renderToStaticMarkup(
+        <MemoryRouter>
+          <KioskPage />
+        </MemoryRouter>,
+      );
+
+      expect(markup).toContain('data-testid="mock-audio-visualizer"');
+      expect(markup).not.toContain('data-testid="screen-share-hero"');
+      expect(markup).not.toContain('data-testid="screen-share-dock"');
+      expect(markup).toContain('title="Share Screen"');
+    });
+
+    it('triggers voice start when onStartVoice is called in ScreenShareHero', () => {
+      renderToStaticMarkup(
+        <MemoryRouter>
+          <KioskPage />
+        </MemoryRouter>,
+      );
+
+      expect(latestHeroProps).not.toBeNull();
+      latestHeroProps!.onStartVoice();
+
+      expect(mockCreateConversation).toHaveBeenCalledWith('gpt-5.6-luna');
+      expect(mockLifecycle.markActive).toHaveBeenCalledWith('thread-123');
+      expect(mockVoiceState.start).toHaveBeenCalledWith('thread-123', 'gpt-5.6-luna');
+    });
+
+    it('toggles voice on and off via ScreenShareDock', () => {
+      renderToStaticMarkup(
+        <MemoryRouter>
+          <KioskPage />
+        </MemoryRouter>,
+      );
+
+      expect(latestDockProps).not.toBeNull();
+
+      // When voice is inactive, toggle starts voice
+      latestDockProps!.onToggleVoice();
+      expect(mockVoiceState.start).toHaveBeenCalledWith('thread-123', 'gpt-5.6-luna');
+
+      // Re-render with speaking voice status
+      mockVoiceState.status = 'speaking';
+      renderToStaticMarkup(
+        <MemoryRouter>
+          <KioskPage />
+        </MemoryRouter>,
+      );
+
+      latestDockProps!.onToggleVoice();
+      expect(mockLifecycle.endVoiceThenReset).toHaveBeenCalledWith(mockVoiceState.end);
+    });
+
+    it('toggles screen share via ScreenShareDock', () => {
+      mockScreenShare.status = 'idle';
+      renderToStaticMarkup(
+        <MemoryRouter>
+          <KioskPage />
+        </MemoryRouter>,
+      );
+
+      expect(latestDockProps).not.toBeNull();
+      latestDockProps!.onToggleScreenShare();
+      expect(mockScreenShare.start).toHaveBeenCalledTimes(1);
+
+      // When live, toggle calls stop
+      mockScreenShare.status = 'live';
+      renderToStaticMarkup(
+        <MemoryRouter>
+          <KioskPage />
+        </MemoryRouter>,
+      );
+
+      latestDockProps!.onToggleScreenShare();
+      expect(mockScreenShare.stop).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('computeEdgeGlowShadow', () => {

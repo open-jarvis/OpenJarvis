@@ -6,6 +6,8 @@ import { AudioVisualizer } from '@/components/Visualizer/AudioVisualizer';
 import { VisualizerControls } from '@/components/Visualizer/VisualizerControls';
 import { FloatingCodexPet } from '@/components/Kiosk/Pet/FloatingCodexPet';
 import { ScreenShareView } from '@/components/Kiosk/ScreenShareView';
+import { ScreenShareHero } from '@/components/Kiosk/ScreenShareHero';
+import { ScreenShareDock } from '@/components/Kiosk/ScreenShareDock';
 import { currentVoiceTurnRows } from '@/components/Chat/voiceTurnRows';
 import { useKioskState, type KioskState } from '@/hooks/useKioskState';
 import { usePipecatVoiceMode } from '@/hooks/usePipecatVoiceMode';
@@ -157,10 +159,38 @@ export function KioskPage() {
 
   micEnabledRef.current = micEnabled;
 
+  const isVoiceActive = !['idle', 'ended', 'error', 'busy'].includes(voice.status);
+
   useEffect(() => {
-    setVoiceSessionActive(!['idle', 'ended', 'error', 'busy'].includes(voice.status));
+    setVoiceSessionActive(isVoiceActive);
     return () => setVoiceSessionActive(false);
-  }, [setVoiceSessionActive, voice.status]);
+  }, [isVoiceActive, setVoiceSessionActive]);
+
+  const startVoice = useCallback(() => {
+    if (modelsLoading || !selectedModel) return;
+    const threadId = threadIdRef.current || createConversation(selectedModel);
+    threadIdRef.current = threadId;
+    startedRef.current = true;
+    presentationLifecycle.markActive(threadId);
+    void voice.start(threadId, selectedModel).catch(() => {});
+  }, [createConversation, modelsLoading, presentationLifecycle, selectedModel, voice]);
+
+  const toggleVoice = useCallback(() => {
+    if (isVoiceActive) {
+      startedRef.current = false;
+      void presentationLifecycle.endVoiceThenReset(voice.end).catch(() => {});
+    } else {
+      startVoice();
+    }
+  }, [isVoiceActive, presentationLifecycle, startVoice, voice.end]);
+
+  const toggleScreenShare = useCallback(() => {
+    if (share.status === 'live') {
+      share.stop();
+    } else {
+      void share.start().catch(() => {});
+    }
+  }, [share]);
 
   const ensurePresentation = useCallback(() => {
     void ensurePresentationSession(window.location.origin).then((sessionId) => {
@@ -220,6 +250,24 @@ export function KioskPage() {
           stream={share.stream}
           floating
           initialPlacement={settings.style === 'screen' ? 'center' : 'top-right'}
+        />
+      )}
+
+      {settings.style === 'screen' && share.status !== 'live' && (
+        <ScreenShareHero
+          onStartVoice={startVoice}
+          onStartScreenShare={share.start}
+          isVoiceActive={isVoiceActive}
+        />
+      )}
+
+      {settings.style === 'screen' && (
+        <ScreenShareDock
+          voiceStatus={voice.status}
+          isVoiceActive={isVoiceActive}
+          shareStatus={share.status}
+          onToggleVoice={toggleVoice}
+          onToggleScreenShare={toggleScreenShare}
         />
       )}
 
@@ -320,7 +368,7 @@ export function KioskPage() {
         <X size={16} />
       </button>
 
-      {!share.unavailable && (
+      {!share.unavailable && settings.style !== 'screen' && (
         <button
           onClick={share.status === 'live' ? share.stop : share.start}
           title={share.status === 'live' ? 'Stop sharing' : 'Share Screen'}
@@ -344,7 +392,11 @@ export function KioskPage() {
       )}
 
       {kioskState === 'active' && (
-        <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-3 px-4 pb-8 pointer-events-none">
+        <div
+          className={`absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-3 px-4 ${
+            settings.style === 'screen' ? 'pb-24' : 'pb-8'
+          } pointer-events-none`}
+        >
           {settings.showCaptions && (
             <div className="w-full max-w-2xl flex flex-col items-center gap-2 text-center">
               {rows.filter((row) => row.role === 'user').map((row) => (
