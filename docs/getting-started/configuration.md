@@ -114,7 +114,7 @@ host = "http://localhost:30000"
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `default` | string | Auto-detected | Default engine backend. One of: `ollama`, `vllm`, `llamacpp`, `sglang`, `cloud`. Set automatically by `jarvis init` based on hardware detection. |
+| `default` | string | Auto-detected | Default engine backend. Registered keys include `ollama`, `vllm`, `sglang`, `llamacpp`, `mlx`, `lmstudio`, `exo`, `nexa`, `uzu`, `apple_fm`, `afm`, `lemonade`, `nim`, `cloud`, `litellm`, and `gemma_cpp`. Optional engines are available only when their dependencies are installed. |
 
 **`[engine.ollama]`:**
 
@@ -704,20 +704,23 @@ graph TD
     A[detect_hardware] --> B{GPU detected?}
     B -->|No| C[llamacpp]
     B -->|Yes| D{GPU vendor?}
-    D -->|Apple| E[ollama]
+    D -->|Apple| E[mlx]
     D -->|NVIDIA| F{Datacenter GPU?}
-    D -->|AMD| G[vllm]
+    D -->|AMD| G{Datacenter GPU?}
     F -->|Yes: A100, H100, H200, L40, A10, A30| H[vllm]
     F -->|No: consumer GPU| I[ollama]
+    G -->|Yes: MI300, MI325, MI350, MI355| J[vllm]
+    G -->|No: consumer GPU| K[lemonade]
 ```
 
 | Hardware | Recommended Engine | Reason |
 |----------|--------------------|--------|
 | No GPU | `llamacpp` | Efficient CPU inference with GGUF quantized models |
-| Apple Silicon | `ollama` | Native Metal acceleration, easy model management |
+| Apple Silicon | `mlx` | Native inference through the MLX framework |
 | NVIDIA consumer GPU (RTX 3090, 4090, etc.) | `ollama` | Simple setup, good performance for single-user |
 | NVIDIA datacenter GPU (A100, H100, H200, L40, A10, A30) | `vllm` | High-throughput batched serving, continuous batching |
-| AMD GPU | `vllm` | ROCm support via vLLM |
+| AMD consumer GPU | `lemonade` | Optimized support for AMD GPUs and Ryzen AI NPUs |
+| AMD datacenter GPU (MI300, MI325, MI350, MI355) | `vllm` | High-throughput serving on supported datacenter accelerators |
 
 ---
 
@@ -730,10 +733,10 @@ graph TD
 # Apple Silicon MacBook Pro (M3 Max, 128 GB unified memory)
 
 [engine]
-default = "ollama"
+default = "mlx"
 
-[engine.ollama]
-host = "http://localhost:11434"
+[engine.mlx]
+host = "http://localhost:8080"
 
 [intelligence]
 default_model = "qwen3:8b"
