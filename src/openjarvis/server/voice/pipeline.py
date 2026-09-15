@@ -8,14 +8,14 @@ from typing import Any
 # transport resamples from there if the peer negotiated something else.
 VIENEU_SAMPLE_RATE_HZ = 48_000
 
-# How long the local analyser waits on silence before it calls the turn over.
-#
-# Half of turn detection; the other half is GEMINI_SILENCE_DURATION_MS in
-# pipecat_gemini_stt, and the two run in parallel, so they move together or
-# not at all. Measured at 0.6s: turn detection took 1.06s of a 2.35s perceived
-# latency. Lower is snappier and clips a speaker who pauses mid-sentence; the
-# only way to tell which side of that line a value is on is to listen.
-USER_SPEECH_TIMEOUT_S = 0.4
+# Keep transport endpointing and semantic turn detection separate. Silero's
+# short stop promptly sends Gemini ``audio_stream_end`` so the final transcript
+# starts arriving. Smart Turn then decides whether the pause completes the
+# thought; an incomplete thought stays open until speech resumes or the longer
+# fallback expires.
+VAD_STOP_SECS = 0.2
+MIN_TURN_SILENCE_SECS = 1.5
+SMART_TURN_STOP_SECS = 3.0
 
 
 class VoiceLeaseBusy(RuntimeError):
@@ -52,7 +52,12 @@ def build_voice_pipeline(
     Returns the worker and the shared context, which the caller reads on
     teardown to write the conversation to the Chat thread.
     """
+    from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
+    from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import (
+        LocalSmartTurnAnalyzerV3,
+    )
     from pipecat.audio.vad.silero import SileroVADAnalyzer
+    from pipecat.audio.vad.vad_analyzer import VADParams
     from pipecat.pipeline.pipeline import Pipeline
     from pipecat.pipeline.worker import PipelineParams, PipelineWorker
     from pipecat.processors.aggregators.llm_context import LLMContext
@@ -63,15 +68,15 @@ def build_voice_pipeline(
     )
     from pipecat.transports.base_transport import TransportParams
     from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
-    from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import (
-        SpeechTimeoutUserTurnStopStrategy,
-    )
 
     from openjarvis.server.voice.llm import (
         OpenJarvisLLMService,
         VoiceTurnState,
     )
     from openjarvis.server.voice.tts import VieNeuTTSService
+    from openjarvis.server.voice.turn_detection import (
+        ConfirmedTurnAnalyzerUserTurnStopStrategy,
+    )
 
     transport = SmallWebRTCTransport(
         webrtc_connection=connection,
@@ -80,32 +85,39 @@ def build_voice_pipeline(
     turn_state = VoiceTurnState()
     llm = OpenJarvisLLMService(binding, recall=recall, turn_state=turn_state)
     context = LLMContext()
-    # In 1.7.0 the VAD analyser belongs to the user aggregator, not the
-    # transport, and interruption is always on — there is no flag to enable.
-    # Running it here, locally, is what keeps barge-in independent of the
-    # round trip to the transcription service.
+    # The VAD analyser belongs to the user aggregator, not the transport, and
+    # interruption is always on — there is no flag to enable. Running it here,
+    # locally, is what keeps barge-in independent of the round trip to the
+    # transcription service. It also drives the transcript: the aggregator
+    # broadcasts VADUserStoppedSpeakingFrame *upstream*, where GeminiSTTService
+    # takes it as the signal to finalize the utterance. That is why the STT
+    # goes before the aggregator in the pipeline below — behind it, the frame
+    # would never reach the service and every transcript would wait out the
+    # model's own silence window instead.
     #
-    # realtime_service_mode must be forced off. The Gemini Live transcriber
-    # announces itself as a realtime service, which auto-flips the pair into
-    # realtime mode — and that mode drives the service's own speech-to-speech
-    # turn with event-only signals, never pushing LLMContextFrame. Our LLM is
-    # the OpenJarvis Agent, which only runs on LLMContextFrame; the Gemini
-    # service exists to transcribe, not to answer. Cascade mode is the mode
-    # the design assumes.
-    # The default turn stop waits ~3 s of silence (smart-turn model) before
-    # declaring the turn over; activity_end — and with it the transcript and
-    # the Agent run — only follows. 0.6 s keeps the turn snappy without
-    # clipping a pause mid-sentence. wait_for_transcript stays on so a turn
-    # never ends before its user message exists.
+    # realtime_service_mode stays pinned off. Left at None the pair infers the
+    # mode from what the services announce, and realtime mode drives a
+    # speech-to-speech turn with event-only signals, never pushing
+    # LLMContextFrame — which is the only thing the OpenJarvis Agent runs on.
+    # Inferring correctly today is not worth a silent no-answer tomorrow.
+    # Smart Turn can finish a complete utterance at a VAD stop while keeping an
+    # incomplete clause open. Its Vietnamese COMPLETE verdicts can still be
+    # over-eager, so require sustained silence before accepting one; speech
+    # resuming inside that window cancels the pending stop. Its stop_secs is the
+    # maximum-silence fallback. wait_for_transcript stays on so a turn never
+    # ends before its user message exists.
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(),
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=VAD_STOP_SECS)),
             user_turn_strategies=UserTurnStrategies(
                 stop=[
-                    SpeechTimeoutUserTurnStopStrategy(
-                        user_speech_timeout=USER_SPEECH_TIMEOUT_S,
+                    ConfirmedTurnAnalyzerUserTurnStopStrategy(
+                        turn_analyzer=LocalSmartTurnAnalyzerV3(
+                            params=SmartTurnParams(stop_secs=SMART_TURN_STOP_SECS)
+                        ),
                         wait_for_transcript=True,
+                        minimum_silence_secs=MIN_TURN_SILENCE_SECS,
                     )
                 ]
             ),

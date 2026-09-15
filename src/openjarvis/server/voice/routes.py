@@ -14,6 +14,10 @@ from pydantic import BaseModel
 
 from openjarvis.core.conversation import conversation_scope
 from openjarvis.kiosk.presentation import presentation_generation
+from openjarvis.server.voice.gate import (
+    DEFAULT_GEMINI_LIVE_MODEL,
+    GEMINI_LIVE_MODEL_ENV,
+)
 from openjarvis.server.voice.llm import message_text
 from openjarvis.server.voice.persistence import session_store_for
 from openjarvis.server.voice.pipeline import (
@@ -205,6 +209,14 @@ class WebRTCPatchRequest(BaseModel):
 
 _RENDERER: Any = None
 
+# GeminiSTTService publishes this to the downstream turn-stop strategy. The
+# built-in 0.60 s was below every other live sample on this deployment. The 24
+# earlier turns averaged 0.888 s and topped out at 1.121 s, but a later real
+# compound turn reached 1.340 s and dispatched its final transcript separately.
+# A 1.60 s safety deadline covers that observed tail with margin; finalized
+# transcripts still short-circuit it.
+GEMINI_STT_TTFS_P99_SECS = 1.6
+
 
 async def _renderer() -> Any:
     """The one local VieNeu renderer every session speaks through.
@@ -243,13 +255,42 @@ async def _renderer() -> Any:
 
 
 def _transcriber() -> Any:
-    """Build the Gemini Live transcriber, which local VAD drives."""
-    from openjarvis.server.voice.stt import GeminiLiveTranscriptionService
+    """Build the Gemini transcriber that the local Silero VAD drives.
+
+    ``GeminiSTTService`` is a plain cascade STT service: it transcribes and
+    nothing else, so none of the frame filtering the conversational Live model
+    needed survives here. It also finalizes on demand — the user aggregator
+    broadcasts ``VADUserStoppedSpeakingFrame`` upstream to this service, which
+    flushes the utterance instead of waiting out the model's own silence
+    window. That flush is why the transcript arrives when it does, and it only
+    works while this service sits *before* the aggregator in the pipeline.
+
+    OpenJarvis sends current Gemini language and vocabulary fields at connect
+    time. Pipecat 1.8.1 still builds the deprecated adaptation shape itself,
+    so the local adapter changes only that request boundary while retaining
+    Pipecat's streaming, finalization, and reconnect lifecycle.
+    """
+    from pipecat.services.google.gemini_live.stt import GeminiSTTService
+
+    from openjarvis.server.voice.transcription import (
+        OpenJarvisGeminiSTTService,
+        load_gemini_stt_profile,
+    )
 
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("gemini_api_key_required")
-    return GeminiLiveTranscriptionService(api_key=api_key)
+    # OPENJARVIS_GEMINI_LIVE_MODEL still overrides, so a bad model is one
+    # environment variable away from being rolled back.
+    model = (
+        os.environ.get(GEMINI_LIVE_MODEL_ENV, "").strip() or DEFAULT_GEMINI_LIVE_MODEL
+    )
+    return OpenJarvisGeminiSTTService(
+        api_key=api_key,
+        settings=GeminiSTTService.Settings(model=model),
+        profile=load_gemini_stt_profile(),
+        ttfs_p99_latency=GEMINI_STT_TTFS_P99_SECS,
+    )
 
 
 def _handler(request: Request) -> Any:
@@ -302,6 +343,7 @@ async def voice_webrtc_offer(body: WebRTCOfferRequest, request: Request):
     recall_backend, recall_config = _memory_recall(
         getattr(request.app.state, "memory_backend", None),
         getattr(request.app.state, "config", None),
+        agent=getattr(runtime, "agent", None),
     )
     recall = (recall_backend, recall_config) if recall_backend is not None else None
 

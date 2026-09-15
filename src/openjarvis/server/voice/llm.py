@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any, Literal
 
 from pipecat.frames.frames import (
@@ -244,15 +244,10 @@ class OpenJarvisLLMService(LLMService):
             turn_id = self._turn_state.begin_turn()
         yield voice_activity_frame("inference", model=self._binding.model)
         stream = self._binding.run_stream(prompt, context)
-        step: asyncio.Task | None = None
-        try:
-            while True:
-                step = asyncio.ensure_future(anext(stream))
-                try:
-                    event = await step
-                except StopAsyncIteration:
-                    step = None
-                    break
+        # Consume in one Task so run/worker ContextVars remain attached across
+        # yields. Closing the outer stream also closes its suspended binding.
+        async with aclosing(stream):
+            async for event in stream:
                 if not self._turn_state.is_active(turn_id):
                     return
 
@@ -277,9 +272,6 @@ class OpenJarvisLLMService(LLMService):
                         speech = projector.push(event.content)
                         if speech:
                             yield LLMTextFrame(speech)
-        finally:
-            if step is not None:
-                step.cancel()
         if tool_round_started:
             projector = _SpeechProjector()
             for content in later_round:
@@ -316,10 +308,19 @@ class OpenJarvisLLMService(LLMService):
             await self.push_frame(voice_activity_frame("processing"))
             await self.push_frame(LLMFullResponseStartFrame())
             await self.start_processing_metrics()
-            async for pushed in self.stream_agent(prompt, context, turn_id=turn_id):
-                if not self._turn_state.is_active(turn_id):
-                    break
-                await self.push_frame(pushed)
+            response = self.stream_agent(prompt, context, turn_id=turn_id)
+            async with aclosing(response):
+                async for pushed in response:
+                    if not self._turn_state.is_active(turn_id):
+                        break
+                    if isinstance(pushed, LLMTextFrame):
+                        # Pipecat system-frame interruption can overtake queued
+                        # text. Recheck ownership when TTS consumes that text,
+                        # not only when it is enqueued here.
+                        pushed.metadata["openjarvis_is_current"] = (
+                            lambda turn_id=turn_id: self._turn_state.is_active(turn_id)
+                        )
+                    await self.push_frame(pushed)
             completed = self._turn_state.is_active(turn_id)
         except Exception as error:  # noqa: BLE001 - surfaced as a pipeline error frame
             self._turn_state.interrupt()

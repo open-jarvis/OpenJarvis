@@ -60,7 +60,8 @@ inference-cloud = [
     "anthropic>=0.30",
 ]
 inference-google = [
-    "google-genai>=1.0",
+    # >=2.9.0: GeminiSTTService needs the Live transcription config types.
+    "google-genai>=2.9.0",
 ]
 inference-litellm = ["litellm>=1.40"]
 inference-gemma = ["pygemma>=0.1.3"]
@@ -136,7 +137,8 @@ speech-deepgram = ["deepgram-sdk>=3.0"]
 # /api/voice/availability reports "voice_runtime_missing" -- the API server
 # still starts, only the realtime path is absent.
 voice = [
-    "pipecat-ai[google,silero,webrtc]==1.7.0 ; python_full_version >= '3.11'",
+    # 1.8.1 is the first release carrying GeminiSTTService.
+    "pipecat-ai[google,silero,webrtc]==1.8.1 ; python_full_version >= '3.11'",
     "vieneu==3.2.3",
     # voice/text.py strips emoji and markdown before anything reaches TTS.
     "emoji>=2.12",

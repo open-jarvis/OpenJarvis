@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from pipecat.frames.frames import Frame, TTSAudioRawFrame
+from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.settings import TTSSettings
 from pipecat.services.tts_service import TTSService
 
@@ -35,6 +36,12 @@ class VieNeuTTSService(TTSService):
             **kwargs,
         )
         self._renderer = renderer
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        is_current = frame.metadata.pop("openjarvis_is_current", None)
+        if callable(is_current) and not is_current():
+            return
+        await super().process_frame(frame, direction)
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
         """Yield each rendered chunk as soon as it exists."""

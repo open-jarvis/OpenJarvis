@@ -17,6 +17,7 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.frame_processor import FrameDirection
 from pipecat.workers.runner import WorkerRunner
 
 from openjarvis.agents._stubs import (
@@ -30,6 +31,49 @@ from openjarvis.agents._stubs import (
 from openjarvis.server.voice.audio import RealtimeTtsChunk
 from openjarvis.server.voice.llm import OpenJarvisLLMService, agent_input
 from openjarvis.server.voice.tts import VieNeuTTSService
+
+# How long a step of a driven turn may take before the test calls it hung.
+# Generous on purpose: pipecat 1.8.1 needs ~0.3 s longer than 1.7.0 to bring a
+# pipeline up, which is enough to push a 0.5 s budget over on a loaded machine.
+# These bound a hang, they do not assert latency — tighten only with a measured
+# reason to.
+_STEP_TIMEOUT_S = 2.0
+_TURN_TIMEOUT_S = 10.0
+
+
+def test_voice_recall_uses_current_skill_registry(tmp_path):
+    from types import SimpleNamespace
+
+    from openjarvis.core.events import EventBus
+    from openjarvis.server.voice.runtime import _memory_recall
+    from openjarvis.skills.manager import SkillManager
+    from openjarvis.tools.skill_manage import SkillManageTool
+    from openjarvis.tools.storage._stubs import RetrievalResult
+
+    manager = SkillManager(EventBus(), overlay_dir=tmp_path / "overlays")
+    skill = SkillManageTool(skills_dir=tmp_path / "skills", skill_manager=manager)
+    memory = SimpleNamespace(retrieve=lambda *args, **kwargs: [
+        RetrievalResult(
+            content="Use known-read", source="openjarvis.skill_learning",
+            metadata={"skill_name": "known-read"},
+        ),
+    ])
+    config = SimpleNamespace(
+        agent=SimpleNamespace(context_from_memory=True),
+        memory=SimpleNamespace(
+            context_top_k=5, context_min_score=0, context_max_tokens=2048,
+        ),
+    )
+    recall = _memory_recall(memory, config, agent=SimpleNamespace(_tools=[skill]))
+    pipecat_context = LLMContext([{"role": "user", "content": "menu"}])
+    _, before = agent_input(pipecat_context, recall)
+    assert not any("known-read" in m.text for m in before.conversation.messages)
+    assert skill.execute(
+        action="create", name="known-read", steps=[{"tool_name": "http_request"}],
+    ).success
+    # The same active session sees newly registered skills, not a stale snapshot.
+    _, after = agent_input(pipecat_context, recall)
+    assert any("known-read" in m.text for m in after.conversation.messages)
 
 
 class _Binding:
@@ -169,20 +213,20 @@ async def test_interruption_does_not_flush_cancelled_response_into_tts():
                 LLMContext(messages=[{"role": "user", "content": "turn cũ"}])
             )
         )
-        await asyncio.wait_for(binding.waiting.wait(), timeout=0.5)
+        await asyncio.wait_for(binding.waiting.wait(), timeout=_STEP_TIMEOUT_S)
         await worker.queue_frame(InterruptionFrame())
         await worker.queue_frame(
             LLMContextFrame(
                 LLMContext(messages=[{"role": "user", "content": "turn mới"}])
             )
         )
-        await asyncio.wait_for(renderer.called.wait(), timeout=0.5)
+        await asyncio.wait_for(renderer.called.wait(), timeout=_STEP_TIMEOUT_S)
         await worker.queue_frame(EndFrame())
 
     await runner.add_workers(worker)
     await asyncio.wait_for(
         asyncio.gather(runner.run(), drive_turn()),
-        timeout=2.0,
+        timeout=_TURN_TIMEOUT_S,
     )
 
     assert binding.closed
@@ -209,13 +253,13 @@ async def test_completed_response_still_flushes_into_tts():
                 LLMContext(messages=[{"role": "user", "content": "turn mới"}])
             )
         )
-        await asyncio.wait_for(renderer.called.wait(), timeout=0.5)
+        await asyncio.wait_for(renderer.called.wait(), timeout=_STEP_TIMEOUT_S)
         await worker.queue_frame(EndFrame())
 
     await runner.add_workers(worker)
     await asyncio.wait_for(
         asyncio.gather(runner.run(), drive_turn()),
-        timeout=2.0,
+        timeout=_TURN_TIMEOUT_S,
     )
 
     assert renderer.requests == ["fresh response."]
@@ -242,19 +286,19 @@ async def test_failed_response_discards_partial_text_before_the_next_turn():
                 LLMContext(messages=[{"role": "user", "content": "turn lỗi"}])
             )
         )
-        await asyncio.wait_for(binding.failed.wait(), timeout=0.5)
+        await asyncio.wait_for(binding.failed.wait(), timeout=_STEP_TIMEOUT_S)
         await worker.queue_frame(
             LLMContextFrame(
                 LLMContext(messages=[{"role": "user", "content": "turn mới"}])
             )
         )
-        await asyncio.wait_for(renderer.called.wait(), timeout=0.5)
+        await asyncio.wait_for(renderer.called.wait(), timeout=_STEP_TIMEOUT_S)
         await worker.queue_frame(EndFrame())
 
     await runner.add_workers(worker)
     await asyncio.wait_for(
         asyncio.gather(runner.run(), drive_turns()),
-        timeout=2.0,
+        timeout=_TURN_TIMEOUT_S,
     )
 
     assert renderer.requests == ["fresh response."]
@@ -274,9 +318,7 @@ async def test_voice_speaks_the_first_tool_round_and_final_answer_only():
             AgentToolStarted("display_bill"),
             AgentToolFinished("display_bill", ok=True),
             AgentTextDelta("Đơn của bạn đã sẵn sàng."),
-            AgentRunCompleted(
-                AgentResult(content="Đơn của bạn đã sẵn sàng.", turns=4)
-            ),
+            AgentRunCompleted(AgentResult(content="Đơn của bạn đã sẵn sàng.", turns=4)),
         ]
     )
 
@@ -339,6 +381,46 @@ async def test_voice_stays_quiet_when_the_turn_speaks_straight_away():
     )
 
     assert speech == "Xin chào bạn."
+
+
+@pytest.mark.anyio
+async def test_cancellation_during_frame_delivery_closes_binding(monkeypatch):
+    binding = _Binding([AgentTextDelta("hello there "), AgentTextDelta("later")])
+    service = OpenJarvisLLMService(binding)
+    delivering = asyncio.Event()
+
+    async def blocked_delivery(frame, *args, **kwargs):
+        if isinstance(frame, LLMTextFrame):
+            delivering.set()
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(service, "push_frame", blocked_delivery)
+    task = asyncio.create_task(
+        service.process_frame(
+            LLMContextFrame(
+                LLMContext(messages=[{"role": "user", "content": "hello"}])
+            ),
+            FrameDirection.DOWNSTREAM,
+        )
+    )
+    await asyncio.wait_for(delivering.wait(), 0.5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert binding.closed
+
+
+@pytest.mark.anyio
+async def test_voice_consumer_close_immediately_closes_suspended_binding():
+    binding = _Binding([AgentTextDelta("xin chào. "), AgentTextDelta("later")])
+    service = OpenJarvisLLMService(binding)
+    stream = service.stream_agent("hello", AgentContext())
+    while True:
+        frame = await anext(stream)
+        if isinstance(frame, LLMTextFrame):
+            break
+    await stream.aclose()
+    assert binding.closed
 
 
 @pytest.mark.anyio

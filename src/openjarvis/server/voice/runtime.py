@@ -56,7 +56,7 @@ VOICE_SYSTEM_PROMPT = (
 
 
 def _memory_recall(
-    memory_backend: Any | None, config: Any | None
+    memory_backend: Any | None, config: Any | None, *, agent: Any | None = None
 ) -> tuple[Any | None, Any | None]:
     """Resolve the recall backend and its config, or (None, None) if disabled.
 
@@ -69,11 +69,20 @@ def _memory_recall(
         return None, None
     from openjarvis.tools.storage.context import ContextConfig
 
+    skill_exists = next(
+        (
+            tool.has_skill for tool in getattr(agent, "_tools", ())
+            if tool.spec.name == "skill_manage"
+            and callable(getattr(tool, "has_skill", None))
+        ),
+        None,
+    )
     memory = config.memory
     return memory_backend, ContextConfig(
         top_k=memory.context_top_k,
         min_score=memory.context_min_score,
         max_context_tokens=memory.context_max_tokens,
+        skill_exists=skill_exists,
     )
 
 
