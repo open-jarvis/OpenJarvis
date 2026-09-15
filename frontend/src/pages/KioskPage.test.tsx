@@ -132,10 +132,12 @@ vi.mock('@/components/Kiosk/ScreenShareHero', () => ({
     onStartVoice: () => void;
     onStartScreenShare: () => void;
     isVoiceActive?: boolean;
+    isShareUnavailable?: boolean;
+    uiLanguage?: string;
   }) => {
     latestHeroProps = props;
     return (
-      <div data-testid="screen-share-hero">
+      <div data-testid="screen-share-hero" data-unavailable={String(props.isShareUnavailable)}>
         <button data-testid="hero-talk-btn" onClick={props.onStartVoice}>Talk</button>
         <button data-testid="hero-share-btn" onClick={props.onStartScreenShare}>Share Screen</button>
       </div>
@@ -148,12 +150,13 @@ vi.mock('@/components/Kiosk/ScreenShareDock', () => ({
     voiceStatus: LocalVoiceStatus;
     isVoiceActive: boolean;
     shareStatus: ScreenShareStatus;
+    isShareUnavailable?: boolean;
     onToggleVoice: () => void;
     onToggleScreenShare: () => void;
   }) => {
     latestDockProps = props;
     return (
-      <div data-testid="screen-share-dock">
+      <div data-testid="screen-share-dock" data-unavailable={String(props.isShareUnavailable)}>
         <button data-testid="dock-mic-btn" onClick={props.onToggleVoice}>Mic</button>
         <button data-testid="dock-share-btn" onClick={props.onToggleScreenShare}>Share</button>
       </div>
@@ -386,6 +389,19 @@ describe('KioskPage', () => {
 
       latestDockProps!.onToggleScreenShare();
       expect(mockScreenShare.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('propagates isShareUnavailable to ScreenShareHero and ScreenShareDock when screen share is unsupported', () => {
+      mockScreenShare.unavailable = true;
+      const markup = renderToStaticMarkup(
+        <MemoryRouter>
+          <KioskPage />
+        </MemoryRouter>,
+      );
+
+      expect(markup).toContain('data-testid="screen-share-hero" data-unavailable="true"');
+      expect(markup).toContain('data-testid="screen-share-dock" data-unavailable="true"');
+      mockScreenShare.unavailable = false;
     });
   });
 

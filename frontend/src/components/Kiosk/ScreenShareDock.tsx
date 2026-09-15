@@ -7,6 +7,7 @@ export interface ScreenShareDockProps {
   voiceStatus: LocalVoiceStatus;
   isVoiceActive: boolean;
   shareStatus: ScreenShareStatus;
+  isShareUnavailable?: boolean;
   onToggleVoice: () => void;
   onToggleScreenShare: () => void;
   className?: string;
@@ -16,6 +17,7 @@ export function ScreenShareDock({
   voiceStatus,
   isVoiceActive,
   shareStatus,
+  isShareUnavailable = false,
   onToggleVoice,
   onToggleScreenShare,
   className = '',
@@ -32,7 +34,7 @@ export function ScreenShareDock({
       <div
         className="flex items-center gap-2 p-1.5 rounded-full shadow-2xl backdrop-blur-md transition-all duration-300"
         style={{
-          background: 'var(--color-surface)',
+          background: 'color-mix(in srgb, var(--color-surface) 85%, transparent)',
           border: '1px solid var(--color-border)',
           boxShadow: '0 20px 40px -10px rgba(0,0,0,0.25)',
         }}
@@ -81,6 +83,7 @@ export function ScreenShareDock({
             type="button"
             data-testid="dock-mic-btn"
             onClick={onToggleVoice}
+            aria-pressed={isVoiceActive}
             title={isVoiceActive ? 'Stop voice (Dừng hội thoại)' : 'Start voice (Bật hội thoại)'}
             aria-label={isVoiceActive ? 'Stop voice' : 'Start voice'}
             className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95"
@@ -98,10 +101,28 @@ export function ScreenShareDock({
         <button
           type="button"
           data-testid="dock-share-btn"
-          onClick={onToggleScreenShare}
-          title={isLive ? 'Stop sharing screen' : 'Share screen'}
-          aria-label={isLive ? 'Stop sharing screen' : 'Share screen'}
-          className="relative w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95"
+          disabled={isShareUnavailable}
+          onClick={isShareUnavailable ? undefined : onToggleScreenShare}
+          aria-pressed={isLive}
+          title={
+            isShareUnavailable
+              ? 'Screen sharing is unavailable on this device (Không hỗ trợ trên thiết bị này)'
+              : isLive
+              ? 'Stop sharing screen (Dừng chia sẻ màn hình)'
+              : 'Share screen (Chia sẻ màn hình)'
+          }
+          aria-label={
+            isShareUnavailable
+              ? 'Screen sharing is unavailable on this device'
+              : isLive
+              ? 'Stop sharing screen'
+              : 'Share screen'
+          }
+          className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 ${
+            isShareUnavailable
+              ? 'opacity-40 cursor-not-allowed'
+              : 'cursor-pointer hover:scale-105 active:scale-95'
+          }`}
           style={{
             background: isLive ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
             color: isLive ? 'var(--color-text-inverse, #ffffff)' : 'var(--color-text)',

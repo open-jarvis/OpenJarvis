@@ -30,5 +30,35 @@ describe('ScreenShareHero', () => {
     );
 
     expect(markup).toContain('Talking...');
+    expect(markup).toContain('aria-pressed="true"');
+  });
+
+  it('renders localized Vietnamese text when uiLanguage is vi', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(ScreenShareHero, {
+        onStartVoice: vi.fn(),
+        onStartScreenShare: vi.fn(),
+        isVoiceActive: false,
+        uiLanguage: 'vi',
+      })
+    );
+
+    expect(markup).toContain('Thử Jarvis Trực Tiếp');
+    expect(markup).toContain('Trò chuyện');
+    expect(markup).toContain('Chia sẻ màn hình');
+  });
+
+  it('disables screen share button when isShareUnavailable is true', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(ScreenShareHero, {
+        onStartVoice: vi.fn(),
+        onStartScreenShare: vi.fn(),
+        isVoiceActive: false,
+        isShareUnavailable: true,
+      })
+    );
+
+    expect(markup).toContain('disabled=""');
+    expect(markup).toContain('opacity-40 cursor-not-allowed');
   });
 });

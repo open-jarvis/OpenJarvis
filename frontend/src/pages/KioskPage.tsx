@@ -258,6 +258,8 @@ export function KioskPage() {
           onStartVoice={toggleVoice}
           onStartScreenShare={share.start}
           isVoiceActive={isVoiceActive}
+          isShareUnavailable={share.unavailable}
+          uiLanguage={uiLanguage}
         />
       )}
 
@@ -266,6 +268,7 @@ export function KioskPage() {
           voiceStatus={voice.status}
           isVoiceActive={isVoiceActive}
           shareStatus={share.status}
+          isShareUnavailable={share.unavailable}
           onToggleVoice={toggleVoice}
           onToggleScreenShare={toggleScreenShare}
         />
