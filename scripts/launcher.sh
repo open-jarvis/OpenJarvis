@@ -232,7 +232,7 @@ if [ "$WITH_VISION" = 1 ] && [ -d "$VISION_DIR" ]; then
     # which then blocks in wait() and the launcher never returns.
     (cd "$VISION_DIR" && setsid env LD_LIBRARY_PATH="$VISION_LD:${LD_LIBRARY_PATH:-}" \
         python3 main.py >"$VISION_LOG" 2>&1 </dev/null &)
-    log_info "Vision service started -> $VISION_LOG"
+    log_info "Vision service started: $VISION_LOG"
 fi
 
 # ---------- Backend ----------
@@ -246,13 +246,13 @@ fi
     OPENJARVIS_CONFIG="$MCP_CONFIG" \
     .venv/bin/jarvis serve --host 127.0.0.1 --port 8000 --engine cloud --model "$MODEL" \
     >"$BACKEND_LOG" 2>&1 </dev/null &)
-log_info "Backend service started on :8000 -> $BACKEND_LOG"
+log_info "Backend service started on :8000: $BACKEND_LOG"
 
 # ---------- Frontend ----------
 (cd "$ROOT_DIR/frontend" && setsid npm run dev -- \
     --host 127.0.0.1 --port 5173 --strictPort \
     >"$FRONTEND_LOG" 2>&1 </dev/null &)
-log_info "Frontend service started on :5173 -> $FRONTEND_LOG"
+log_info "Frontend service started on :5173: $FRONTEND_LOG"
 
 # ---------- Healthcheck ----------
 log_info "Waiting for stack services to become healthy (timeout 90s)..."
