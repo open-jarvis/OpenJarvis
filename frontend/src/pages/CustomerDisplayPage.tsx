@@ -124,6 +124,29 @@ function EditorialFooter() {
   );
 }
 
+function ReceiptFooter() {
+  return (
+    <footer className="mt-6 flex flex-wrap items-center justify-between gap-5 border-t-[1.5px] border-[#783820] pt-4 text-[#783820]">
+      <div className="flex items-center gap-3 font-['Josefin_Sans',sans-serif] uppercase">
+        <svg className="h-8 w-8 shrink-0" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.25" aria-hidden="true">
+          <path d="M16 3 3 29h26L16 3Z" />
+          <path d="M16 3v26M10 29l6-26 6 26" />
+        </svg>
+        <div
+          aria-label="TREND COFFEE & RESTAURANT"
+          className="text-[11px] font-bold tracking-[0.24em] leading-tight"
+        >
+          <div>TREND</div>
+          <div className="text-[8px] font-semibold tracking-[0.34em]">COFFEE &amp; RESTAURANT</div>
+        </div>
+      </div>
+      <div className="font-['Playfair_Display',serif] text-[14px] tracking-wide uppercase">
+        THANK YOU FOR DINING WITH US.
+      </div>
+    </footer>
+  );
+}
+
 interface MenuCategorySection {
   title: string;
   items: {
@@ -322,6 +345,12 @@ function orderTypeLabel(orderType: string): string {
   return 'CHƯA CHỌN';
 }
 
+function englishOrderTypeLabel(orderType: string): string {
+  if (orderType === 'at-table') return 'AT TABLE';
+  if (orderType === 'take-out') return 'TAKE OUT';
+  return 'NOT SELECTED';
+}
+
 // VIEW 2: LOCAL CART DRAFT
 export function CartView({
   lines,
@@ -337,19 +366,26 @@ export function CartView({
   table_name: string;
 }) {
   return (
-    <div className="mx-auto w-full max-w-[680px] flex-1 px-10 py-8 text-left font-['Josefin_Sans',sans-serif] text-[#783820]">
+    <div className="mx-auto flex w-full max-w-[680px] flex-1 flex-col px-10 py-8 text-left font-['Josefin_Sans',sans-serif] text-[#783820]">
       <div className="flex items-baseline justify-between border-b-[1.5px] border-[#783820] pb-2">
         <h1 className="font-['Playfair_Display',serif] text-4xl font-normal tracking-wide uppercase sm:text-5xl">
           CART
         </h1>
         <div className="text-right text-[11px] font-semibold tracking-wider uppercase leading-tight">
-          CHƯA TẠO ĐƠN HÀNG
+          ORDER NOT CREATED
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-x-8 gap-y-1 pt-3 pb-6 text-[11px] font-semibold tracking-wider uppercase leading-relaxed">
-        <div>HÌNH THỨC: {orderTypeLabel(order_type)}</div>
-        {order_type === 'at-table' && table_name && <div>BÀN: {table_name}</div>}
+      <div className="space-y-2 pt-3 pb-6 text-[10px] font-semibold tracking-wider uppercase leading-relaxed">
+        <div>
+          <div>03 NGUYEN CONG TRU STREET, BINH THO WARD, THU DUC CITY</div>
+          <div>ORDER@TRENDCOFFEE.VN | +84 90 123 4567</div>
+          <div>WWW.TRENDCOFFEE.NET</div>
+        </div>
+        <div className="flex flex-wrap gap-x-8 gap-y-1 text-[11px]">
+          <div>ORDER TYPE: {englishOrderTypeLabel(order_type)}</div>
+          {order_type === 'at-table' && table_name && <div>TABLE: {table_name}</div>}
+        </div>
       </div>
 
       <div className="grid grid-cols-12 border-b-[1.5px] border-[#783820] pb-1.5 text-[12px] font-bold tracking-widest uppercase">
@@ -375,7 +411,7 @@ export function CartView({
                   <div>{line.name}{line.size ? ` (${line.size})` : ''}</div>
                   {line.note && (
                     <div className="mt-1 text-[10px] font-normal normal-case tracking-normal text-[#9b7352]">
-                      Ghi chú: {line.note}
+                      Note: {line.note}
                     </div>
                   )}
                 </div>
@@ -387,26 +423,43 @@ export function CartView({
           })
         ) : (
           <div className="py-4 text-center text-sm normal-case tracking-normal text-[#9b7352]">
-            Giỏ hàng trống.
+            Cart is empty.
           </div>
         )}
       </div>
 
-      <div className="flex justify-end border-t-[1.5px] border-[#783820] pt-3 pb-6">
-        <div className="w-64 space-y-1.5 text-[12px] font-semibold tracking-wider uppercase">
-          <div className="flex justify-between pt-1 text-[14px] font-bold">
-            <span>TỔNG TẠM TÍNH</span>
+      <div className="border-t-[1.5px] border-[#783820] pt-3 pb-6">
+        <div className="ml-auto w-full max-w-64 space-y-1.5 text-[12px] font-semibold tracking-wider uppercase">
+          <div className="flex justify-between text-[10px]">
+            <span>SUBTOTAL</span>
+            <span className="tabular-nums">{money(total)}</span>
+          </div>
+          <div className="flex justify-between text-[10px]">
+            <span>SERVICE CHARGE (10%)</span>
+            <span className="tabular-nums">{money(0)}</span>
+          </div>
+          <div className="flex justify-between border-t border-[#783820] pt-2 text-[14px] font-bold">
+            <span>TOTAL ESTIMATED</span>
             <span className="text-[15px] font-extrabold tabular-nums">{money(total)}</span>
           </div>
+        </div>
+        <div className="mt-8 max-w-[440px] space-y-1 text-[10px] font-medium tracking-wider uppercase leading-relaxed">
+          <div>CREDIT &amp; DEBIT CARDS: VISA, MASTERCARD, NAPAS</div>
+          <div className="pt-2">BANK TRANSFER:</div>
+          <div>ACCOUNT NAME: CONG TY CO PHAN TREND COFFEE</div>
+          <div>MB BANK: 9999.8888.68</div>
+          <div className="pt-2">STATUS: ORDER IN PROGRESS (PLEASE CHECK YOUR ITEMS).</div>
         </div>
       </div>
 
       {order_note && (
         <div className="border-t-[1.5px] border-[#783820] pt-4 text-[11px] leading-relaxed">
-          <span className="font-bold tracking-wider uppercase">GHI CHÚ ĐƠN: </span>
+          <span className="font-bold tracking-wider uppercase">ORDER NOTE: </span>
           <span>{order_note}</span>
         </div>
       )}
+
+      <ReceiptFooter />
     </div>
   );
 }
@@ -428,7 +481,7 @@ export function BillView({
   total: number;
 }) {
   return (
-    <div className="mx-auto w-full max-w-[680px] flex-1 px-10 py-8 text-left font-['Josefin_Sans',sans-serif] text-[#783820]">
+    <div className="mx-auto flex w-full max-w-[680px] flex-1 flex-col px-10 py-8 text-left font-['Josefin_Sans',sans-serif] text-[#783820]">
       <div className="flex items-baseline justify-between border-b-[1.5px] border-[#783820] pb-2">
         <h1 className="font-['Playfair_Display',serif] text-4xl font-normal tracking-wide uppercase sm:text-5xl">
           INVOICE
@@ -439,9 +492,15 @@ export function BillView({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-x-8 gap-y-1 pt-3 pb-6 text-[11px] font-semibold tracking-wider uppercase leading-relaxed">
-        <div>BRANCH: {branch}</div>
-        <div>HÌNH THỨC: {orderTypeLabel(order_type ?? '')}</div>
+      <div className="space-y-2 pt-3 pb-6 text-[10px] font-semibold tracking-wider uppercase leading-relaxed">
+        <div className="flex flex-wrap gap-x-8 gap-y-1 text-[11px]">
+          <div>BRANCH: {branch}</div>
+          <div>ORDER TYPE: {englishOrderTypeLabel(order_type ?? '')}</div>
+        </div>
+        <div>
+          <div>RESERVATIONS@TRENDCOFFEE.VN | +84 90 123 4567</div>
+          <div>WWW.TRENDCOFFEE.NET</div>
+        </div>
       </div>
 
       <div className="grid grid-cols-12 border-b-[1.5px] border-[#783820] pb-1.5 text-[12px] font-bold tracking-widest uppercase">
@@ -480,71 +539,163 @@ export function BillView({
         )}
       </div>
 
-      <div className="flex justify-end border-t-[1.5px] border-[#783820] pt-3 pb-6">
-        <div className="w-64 space-y-1.5 text-[12px] font-semibold tracking-wider uppercase">
-          <div className="flex justify-between pt-1 text-[14px] font-bold">
+      <div className="border-t-[1.5px] border-[#783820] pt-3 pb-6">
+        <div className="ml-auto w-full max-w-64 space-y-1.5 text-[12px] font-semibold tracking-wider uppercase">
+          <div className="flex justify-between text-[10px]">
+            <span>SUBTOTAL</span>
+            <span className="tabular-nums">{money(total)}</span>
+          </div>
+          <div className="flex justify-between text-[10px]">
+            <span>SERVICE CHARGE (10%)</span>
+            <span className="tabular-nums">{money(0)}</span>
+          </div>
+          <div className="flex justify-between border-t border-[#783820] pt-2 text-[14px] font-bold">
             <span>TOTAL AMOUNT DUE</span>
             <span className="text-[15px] font-extrabold tabular-nums">{money(total)}</span>
           </div>
         </div>
+        <div className="mt-8 max-w-[440px] space-y-1 text-[10px] font-medium tracking-wider uppercase leading-relaxed">
+          <div>CREDIT &amp; DEBIT CARDS: VISA, MASTERCARD, AMERICAN EXPRESS, NAPAS</div>
+          <div className="pt-2">BANK TRANSFER:</div>
+          <div>ACCOUNT NAME: CONG TY CO PHAN TREND COFFEE</div>
+          <div>MB BANK: 9999.8888.68</div>
+          <div className="pt-2">CASH PAYMENTS: IN-PERSON ONLY.</div>
+        </div>
       </div>
 
+      <ReceiptFooter />
     </div>
   );
 }
 
-// VIEW 4: PAYMENT QR (MINIMALIST SAMPLE)
+// VIEW 4: PAYMENT QR RECEIPT
 export function PaymentQrView({
   qr_code,
   total,
   order_id,
+  status,
+  order_type,
+  branch,
+  table_name,
+  lines = [],
 }: {
   qr_code: string;
   total?: number;
   order_id: string;
+  status?: string;
+  order_type?: string;
+  branch?: string;
+  table_name?: string;
+  lines?: CustomerDisplayLine[];
 }) {
   const isImage = isSafeQrImageSource(qr_code);
+  const statusLabel = status?.toLowerCase() === 'pending'
+    ? 'PENDING PAYMENT'
+    : (status?.toUpperCase() ?? 'PAYMENT STATUS UNAVAILABLE');
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-8 py-10 text-center font-['Josefin_Sans',sans-serif]">
-      <div className="mb-4 -rotate-2 font-['Alex_Brush',cursive] text-6xl leading-none text-[#6e2b14] sm:text-7xl">
-        Payment
+    <div className="mx-auto flex w-full max-w-[680px] flex-1 flex-col px-10 py-8 text-left font-['Josefin_Sans',sans-serif] text-[#783820]">
+      <div className="flex items-baseline justify-between border-b-[1.5px] border-[#783820] pb-2">
+        <h1 className="font-['Playfair_Display',serif] text-4xl font-normal tracking-wide uppercase sm:text-5xl">
+          INVOICE
+        </h1>
+        <div className="text-right text-[11px] font-semibold tracking-wider uppercase leading-tight">
+          <div>INVOICE NO.: {order_id}</div>
+          <div>STATUS: {statusLabel}</div>
+        </div>
       </div>
 
-      {isImage ? (
-        <div className="mb-4 inline-block overflow-hidden rounded-2xl border border-[#c4ab91] bg-white p-1 shadow-xl">
-          <div className="overflow-hidden rounded-xl">
-            <img
-              src={qr_code}
-              alt="Mã thanh toán QR"
-              className="mx-auto h-64 w-64 scale-112 object-contain sm:h-72 sm:w-72"
-            />
-          </div>
+      <div className="space-y-2 pt-3 pb-6 text-[10px] font-semibold tracking-wider uppercase leading-relaxed">
+        <div className="flex flex-wrap gap-x-8 gap-y-1 text-[11px]">
+          {branch && <div>BRANCH: {branch}</div>}
+          {order_type && <div>ORDER TYPE: {englishOrderTypeLabel(order_type)}</div>}
+          {order_type === 'at-table' && table_name && <div>TABLE: {table_name}</div>}
         </div>
-      ) : (
-        <div className="mb-4 rounded-xl border border-[#c4ab91] px-6 py-8 text-sm font-semibold text-[#6e2b14]">
-          Không thể hiển thị mã QR an toàn.
+        <div>
+          <div>03 NGUYEN CONG TRU STREET, BINH THO WARD, THU DUC CITY</div>
+          <div>RESERVATIONS@TRENDCOFFEE.VN | +84 90 123 4567</div>
+          <div>WWW.TRENDCOFFEE.NET</div>
         </div>
-      )}
+      </div>
 
-      {isImage && (
-        <div className="mb-1 text-base font-medium tracking-[0.2em] uppercase text-[#6e2b14] sm:text-lg">
-          Scan Now
-        </div>
-      )}
+      <div className="grid grid-cols-12 border-b-[1.5px] border-[#783820] pb-1.5 text-[12px] font-bold tracking-widest uppercase">
+        <div className="col-span-6">ITEM</div>
+        <div className="col-span-2 text-center">QTY</div>
+        <div className="col-span-2 text-right">UNIT PRICE</div>
+        <div className="col-span-2 text-right">SUBTOTAL</div>
+      </div>
 
-      <div className="mt-2 space-y-0.5 text-xs text-[#8c6239]">
-        {total !== undefined && total > 0 && (
-          <div className="text-lg font-bold tabular-nums text-[#6e2b14]">
-            {money(total)}
-          </div>
-        )}
-        {order_id && (
-          <div className="text-[10px] text-[#9b7352] opacity-75">
-            Mã đơn hàng: {order_id}
+      <div className="space-y-2.5 py-3 text-[12.5px] font-medium tracking-wide">
+        {lines.length > 0 ? lines.map((line, index) => {
+          const qty = line.quantity ?? 1;
+          const lineTotal = line.line_total ?? ((line.unit_price ?? 0) * qty);
+          const unitPrice = line.unit_price ?? (qty > 0 ? Math.round(lineTotal / qty) : 0);
+          return (
+            <div key={line.line_id ?? `${line.name}-${index}`} className="grid grid-cols-12 items-start">
+              <div className="col-span-6 font-semibold uppercase">
+                <div>{line.name}{line.size ? ` (${line.size})` : ''}</div>
+                {line.note && (
+                  <div className="mt-1 text-[10px] font-normal normal-case tracking-normal text-[#9b7352]">
+                    Note: {line.note}
+                  </div>
+                )}
+              </div>
+              <div className="col-span-2 text-center font-normal">{qty}</div>
+              <div className="col-span-2 text-right tabular-nums">{money(unitPrice)}</div>
+              <div className="col-span-2 text-right font-semibold tabular-nums">{money(lineTotal)}</div>
+            </div>
+          );
+        }) : (
+          <div className="py-3 text-center text-[11px] font-semibold tracking-wider uppercase text-[#9b7352]">
+            ORDER DETAILS UNAVAILABLE.
           </div>
         )}
       </div>
+
+      <div className="border-t-[1.5px] border-[#783820] pt-3">
+        <div className="ml-auto w-full max-w-64 space-y-1.5 font-semibold tracking-wider uppercase">
+          {total !== undefined && (
+            <div className="flex justify-between text-[10px]">
+              <span>SUBTOTAL</span>
+              <span className="tabular-nums">{money(total)}</span>
+            </div>
+          )}
+          <div className="flex justify-between text-[10px]">
+            <span>SERVICE CHARGE (10%)</span>
+            <span className="tabular-nums">{money(0)}</span>
+          </div>
+          <div className="flex justify-between border-t border-[#783820] pt-2 text-[14px] font-bold">
+            <span>TOTAL AMOUNT DUE</span>
+            <span className="text-[15px] font-extrabold tabular-nums">
+              {total !== undefined ? money(total) : '—'}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-7 grid grid-cols-12 items-end gap-6">
+          <div className="col-span-7 space-y-1 text-[9.5px] font-medium tracking-wider uppercase leading-relaxed">
+            <div>CREDIT &amp; DEBIT CARDS: VISA, MASTERCARD, AMERICAN EXPRESS, NAPAS</div>
+            <div className="pt-2">BANK TRANSFER:</div>
+            <div>ACCOUNT NAME: CONG TY CO PHAN TREND COFFEE</div>
+            <div>MB BANK: 9999.8888.68</div>
+          </div>
+          <div className="col-span-5 flex justify-end">
+            {isImage ? (
+              <img
+                src={qr_code}
+                alt="Verified payment QR code"
+                className="h-36 w-36 object-contain mix-blend-multiply"
+              />
+            ) : (
+              <div className="max-w-36 border border-[#c4ab91] px-3 py-5 text-center text-[9px] font-semibold tracking-wider uppercase">
+                UNABLE TO DISPLAY A VERIFIED QR CODE.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <ReceiptFooter />
     </div>
   );
 }
@@ -720,6 +871,11 @@ export function CustomerDisplayPage() {
                 qr_code={state.qr_code}
                 total={state.total}
                 order_id={state.order_id}
+                status={state.status}
+                order_type={state.order_type}
+                branch={state.branch}
+                table_name={state.table_name}
+                lines={state.lines}
               />
             )}
 

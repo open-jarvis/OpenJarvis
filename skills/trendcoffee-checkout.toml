@@ -22,4 +22,4 @@ assertions_json = '''[{"actual":"{payment.result.amount}","equals":"{draft_cart.
 
 [[skill.steps]]
 tool_name = "display_payment_qr"
-arguments_template = '''{"order_id":"{created.result.slug}","payment_slug":"{payment.result.slug}","status":"{payment.result.statusCode}","total":"{payment.result.amount}","customer_message":"{customer_message}"}'''
+arguments_template = '''{"order_id":"{created.result.slug}","payment_slug":"{payment.result.slug}","status":"{payment.result.statusCode}","order_type":"{created.result.type}","branch":"ba9355f797","table_name":{"$coalesce":["{created.result.table.name}",""]},"lines":{"$map":"{draft_cart.lines}","as":"line","value":{"line_id":"{line.line_id}","name":"{line.name}","size":"{line.size}","note":"{line.note}","quantity":"{line.quantity}","unit_price":"{line.unit_price}","line_total":"{line.line_total}"}},"total":"{payment.result.amount}","customer_message":"{customer_message}"}'''

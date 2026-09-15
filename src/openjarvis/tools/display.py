@@ -44,7 +44,17 @@ _LINE_FIELDS = (
     "line_total",
 )
 _BILL_FIELDS = ("order_id", "status", "order_type", "branch", "lines", "total")
-_PAYMENT_QR_FIELDS = ("order_id", "payment_slug", "status", "qr_code", "total")
+_PAYMENT_QR_FIELDS = (
+    "order_id",
+    "payment_slug",
+    "status",
+    "qr_code",
+    "order_type",
+    "branch",
+    "table_name",
+    "lines",
+    "total",
+)
 _REQUIRED_PAYMENT_QR_FIELDS = ("order_id", "payment_slug", "status", "qr_code")
 
 
@@ -960,6 +970,10 @@ class DisplayPaymentQrTool(_DisplayTool):
                     "payment_slug": {"type": "string"},
                     "status": {"type": "string"},
                     "qr_code": {"type": "string"},
+                    "order_type": {"type": "string"},
+                    "branch": {"type": "string"},
+                    "table_name": {"type": "string"},
+                    "lines": {"type": "array", "items": {"type": "object"}},
                     "total": {
                         "type": "integer",
                         "description": "Payment amount in VND.",
@@ -1016,6 +1030,13 @@ class DisplayPaymentQrTool(_DisplayTool):
                 pass
 
         payment = _picked(params, _PAYMENT_QR_FIELDS)
+        rows = payment.get("lines")
+        if isinstance(rows, list):
+            payment["lines"] = [
+                line for row in rows if (line := _picked(row, _LINE_FIELDS))
+            ]
+        else:
+            payment.pop("lines", None)
         complete = all(
             isinstance(payment.get(field), str) and payment[field].strip()
             for field in _REQUIRED_PAYMENT_QR_FIELDS

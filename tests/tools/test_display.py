@@ -835,7 +835,7 @@ def test_display_bill_keeps_only_merchant_bill_fields_and_normalizes_total():
     }
 
 
-def test_display_payment_qr_drops_every_field_outside_the_verified_view():
+def test_display_payment_qr_publishes_a_normalized_receipt_snapshot():
     tool, recorder = _wired(DisplayPaymentQrTool)
     tool._payment_trusted_origins = (("https", "merchant.example", 443),)
 
@@ -853,6 +853,20 @@ def test_display_payment_qr_drops_every_field_outside_the_verified_view():
                 payment_slug="payment-1",
                 status="pending",
                 qr_code="merchant-opaque-qr",
+                order_type="at-table",
+                branch="br-thu-duc",
+                table_name="73",
+                lines=[
+                    {
+                        "name": "Cà phê đen",
+                        "size": "tiêu chuẩn",
+                        "quantity": 2,
+                        "unit_price": 35_000,
+                        "line_total": 70_000,
+                        "html": "<script>x</script>",
+                    }
+                ],
+                total=70_000,
                 html="<img src=x onerror=alert(1)>",
                 receipt_id="receipt-that-must-not-be-shown",
             )
@@ -866,6 +880,19 @@ def test_display_payment_qr_drops_every_field_outside_the_verified_view():
         "payment_slug": "payment-1",
         "status": "pending",
         "qr_code": "merchant-opaque-qr",
+        "order_type": "at-table",
+        "branch": "br-thu-duc",
+        "table_name": "73",
+        "lines": [
+            {
+                "name": "Cà phê đen",
+                "size": "tiêu chuẩn",
+                "quantity": 2,
+                "unit_price": 35_000,
+                "line_total": 70_000,
+            }
+        ],
+        "total": 70_000,
     }
 
 

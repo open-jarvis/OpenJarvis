@@ -202,13 +202,23 @@ describe('reduceCustomerDisplay', () => {
     });
   });
 
-  it('accepts only the normalized payment QR fields', () => {
+  it('accepts a self-contained normalized payment receipt snapshot', () => {
     expect(reduceCustomerDisplay(waitingState, displayEvent('A', {
       view: 'payment_qr',
       order_id: 'order-1',
       payment_slug: 'payment-1',
       status: 'pending',
       qr_code: 'merchant-opaque-qr',
+      order_type: 'at-table',
+      branch: 'br-thu-duc',
+      table_name: '73',
+      lines: [{
+        name: 'Cà phê đen',
+        quantity: 2,
+        unit_price: 35000,
+        line_total: 70000,
+        html: '<script>x</script>',
+      }],
       total: 45000,
       html: '<img src=x onerror=alert(1)>',
       receipt_id: 'receipt-that-must-not-be-shown',
@@ -218,11 +228,20 @@ describe('reduceCustomerDisplay', () => {
       payment_slug: 'payment-1',
       status: 'pending',
       qr_code: 'merchant-opaque-qr',
+      order_type: 'at-table',
+      branch: 'br-thu-duc',
+      table_name: '73',
+      lines: [{
+        name: 'Cà phê đen',
+        quantity: 2,
+        unit_price: 35000,
+        line_total: 70000,
+      }],
       total: 45000,
     });
   });
 
-  it('inherits total from prior bill/cart state if omitted in payment_qr event', () => {
+  it('does not inherit receipt data from the previously displayed view', () => {
     const priorBill: CustomerDisplayState = {
       view: 'bill',
       order_id: 'order-1',
@@ -245,7 +264,6 @@ describe('reduceCustomerDisplay', () => {
       payment_slug: 'payment-1',
       status: 'pending',
       qr_code: 'merchant-opaque-qr',
-      total: 40000,
     });
   });
 });

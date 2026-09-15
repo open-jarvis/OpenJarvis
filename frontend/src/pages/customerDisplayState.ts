@@ -54,6 +54,10 @@ export type CustomerDisplayState =
       payment_slug: string;
       status: string;
       qr_code: string;
+      order_type?: string;
+      branch?: string;
+      table_name?: string;
+      lines?: CustomerDisplayLine[];
       total?: number;
     };
 
@@ -208,9 +212,9 @@ export function reduceCustomerDisplay(
     && typeof data.status === 'string'
     && typeof data.qr_code === 'string'
   ) {
-    const priorTotal = ('total' in state && typeof state.total === 'number') ? state.total : undefined;
+    const lines = data.lines === undefined ? undefined : pickRows(data.lines, pickLine);
+    if (lines === null) return state;
     const incomingTotal = optionalNumber(data, 'total');
-    const finalTotal = incomingTotal !== undefined ? incomingTotal : priorTotal;
 
     return {
       view: 'payment_qr',
@@ -218,7 +222,17 @@ export function reduceCustomerDisplay(
       payment_slug: data.payment_slug,
       status: data.status,
       qr_code: data.qr_code,
-      ...(finalTotal !== undefined ? { total: finalTotal } : {}),
+      ...(optionalString(data, 'order_type') !== undefined
+        ? { order_type: optionalString(data, 'order_type') }
+        : {}),
+      ...(optionalString(data, 'branch') !== undefined
+        ? { branch: optionalString(data, 'branch') }
+        : {}),
+      ...(optionalString(data, 'table_name') !== undefined
+        ? { table_name: optionalString(data, 'table_name') }
+        : {}),
+      ...(lines !== undefined ? { lines } : {}),
+      ...(incomingTotal !== undefined ? { total: incomingTotal } : {}),
     };
   }
 

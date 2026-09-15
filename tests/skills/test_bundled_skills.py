@@ -454,7 +454,19 @@ def test_workspace_checkout_sends_selected_at_table_type_and_slug() -> None:
             "total": 200_000,
         }
     ]
-    assert len(display.calls) == 1
+    assert display.calls == [
+        {
+            "order_id": "order-1",
+            "payment_slug": "payment-1",
+            "status": "pending",
+            "order_type": "at-table",
+            "branch": "ba9355f797",
+            "table_name": "73",
+            "lines": bill.calls[0]["lines"],
+            "total": 200_000,
+            "customer_message": "Payment ready",
+        }
+    ]
 
 
 def test_workspace_checkout_stops_before_payment_on_order_type_mismatch() -> None:
