@@ -23,7 +23,7 @@ import {
 import { VISUALIZER_DEFAULTS } from '@/components/Visualizer/types';
 import type { VisualizerSettings, VoiceStatus } from '@/components/Visualizer/types';
 import type { LocalVoiceStatus } from '@/hooks/voiceStatus';
-import { kioskVoiceCommand } from './kioskVoicePolicy';
+import { kioskVoiceCommand, type KioskVoiceOwner } from './kioskVoicePolicy';
 
 const GLOW: Record<LocalVoiceStatus, string> = {
   idle: 'radial-gradient(ellipse 56% 56% at 50% 50%, rgba(0,242,254,0.04) 0%, transparent 70%)',
@@ -147,14 +147,13 @@ export function KioskPage() {
   const selectedModel = useAppStore((state) => state.selectedModel);
   const modelsLoading = useAppStore((state) => state.modelsLoading);
   const setVoiceSessionActive = useAppStore((state) => state.setVoiceSessionActive);
-  const startedRef = useRef(false);
+  const voiceOwnerRef = useRef<KioskVoiceOwner | null>(null);
   const presentationLifecycleRef = useRef<ReturnType<typeof createKioskPresentationLifecycle> | null>(null);
   if (presentationLifecycleRef.current === null) {
     presentationLifecycleRef.current = createKioskPresentationLifecycle();
   }
   const presentationLifecycle = presentationLifecycleRef.current;
   const resetPresentation = presentationLifecycle.requestReset;
-  const policyEpochRef = useRef(0);
   const micEnabledRef = useRef(micEnabled);
 
   micEnabledRef.current = micEnabled;
@@ -166,23 +165,27 @@ export function KioskPage() {
     return () => setVoiceSessionActive(false);
   }, [isVoiceActive, setVoiceSessionActive]);
 
-  const startVoice = useCallback(() => {
+  const startVoice = useCallback((owner: KioskVoiceOwner = 'manual') => {
     if (modelsLoading || !selectedModel) return;
     const threadId = threadIdRef.current || createConversation(selectedModel);
     threadIdRef.current = threadId;
-    startedRef.current = true;
+    voiceOwnerRef.current = owner;
     presentationLifecycle.markActive(threadId);
     void voice.start(threadId, selectedModel).catch(() => {});
   }, [createConversation, modelsLoading, presentationLifecycle, selectedModel, voice.start]);
 
+  const endVoice = useCallback(() => {
+    voiceOwnerRef.current = null;
+    return presentationLifecycle.endVoiceThenReset(voice.end);
+  }, [presentationLifecycle, voice.end]);
+
   const toggleVoice = useCallback(() => {
     if (isVoiceActive) {
-      startedRef.current = false;
-      void presentationLifecycle.endVoiceThenReset(voice.end).catch(() => {});
+      void endVoice().catch(() => {});
     } else {
-      startVoice();
+      startVoice('manual');
     }
-  }, [isVoiceActive, presentationLifecycle, startVoice, voice.end]);
+  }, [endVoice, isVoiceActive, startVoice]);
 
   const toggleScreenShare = useCallback(() => {
     if (share.status === 'live') {
@@ -207,38 +210,39 @@ export function KioskPage() {
   }, [ensurePresentation, kioskState]);
 
   useEffect(() => {
-    const epoch = ++policyEpochRef.current;
-    const command = kioskVoiceCommand({ micEnabled, voiceEnabled: voice.enabled, started: startedRef.current });
+    const command = kioskVoiceCommand({
+      micEnabled,
+      voiceEnabled: voice.enabled,
+      owner: voiceOwnerRef.current,
+    });
 
     if (command === 'unavailable') {
       return;
     }
     if (command === 'end') {
-      startedRef.current = false;
-      void presentationLifecycle.endVoiceThenReset(voice.end).catch(() => {});
+      void endVoice().catch(() => {});
       return;
     }
     if (command !== 'start' || modelsLoading || !selectedModel) return;
 
     const threadId = createConversation(selectedModel);
     threadIdRef.current = threadId;
-    startedRef.current = true;
+    voiceOwnerRef.current = 'policy';
     presentationLifecycle.markActive(threadId);
     void voice.start(threadId, selectedModel).then(() => {
-      if (epoch !== policyEpochRef.current || !micEnabledRef.current) {
-        void presentationLifecycle.endVoiceThenReset(voice.end).catch(() => {});
+      if (voiceOwnerRef.current === 'policy' && !micEnabledRef.current) {
+        void endVoice().catch(() => {});
       }
     }).catch(() => {});
-  }, [createConversation, micEnabled, modelsLoading, presentationLifecycle, resetPresentation, selectedModel, voice.enabled, voice.end, voice.start]);
+  }, [createConversation, endVoice, micEnabled, modelsLoading, presentationLifecycle, resetPresentation, selectedModel, voice.enabled, voice.start]);
 
   useEffect(() => () => {
-    if (startedRef.current) {
-      startedRef.current = false;
-      void presentationLifecycle.endVoiceThenReset(voice.end).catch(() => {});
+    if (voiceOwnerRef.current !== null) {
+      void endVoice().catch(() => {});
     } else {
       resetPresentation();
     }
-  }, [presentationLifecycle, resetPresentation, voice.end]);
+  }, [endVoice, resetPresentation]);
 
   const rows = currentVoiceTurnRows({ ...voice, assistantText: voice.assistantCaptionText });
   const voiceStatusShimmers = shouldShimmerVoiceStatus(voice.status);
@@ -271,6 +275,7 @@ export function KioskPage() {
           isShareUnavailable={share.unavailable}
           onToggleVoice={toggleVoice}
           onToggleScreenShare={toggleScreenShare}
+          getFrequencyData={voice.getFrequencyData}
         />
       )}
 
@@ -319,7 +324,7 @@ export function KioskPage() {
         />
       )}
 
-      {kioskState === 'prompting' && (
+      {kioskState === 'prompting' && !isVoiceActive && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div
             className="mx-4 max-w-sm rounded-2xl p-8 text-center shadow-2xl"
@@ -336,7 +341,10 @@ export function KioskPage() {
             </p>
             <div className="flex justify-center gap-3">
               <button
-                onClick={() => void respond(true)}
+                onClick={() => {
+                  startVoice('manual');
+                  void respond(true);
+                }}
                 className="cursor-pointer rounded-xl bg-[var(--color-accent)] px-6 py-2.5 text-sm font-semibold text-white transition-transform hover:scale-105"
               >
                 {uiLanguage === 'vi' ? 'Bắt đầu trò chuyện' : 'Start chatting'}

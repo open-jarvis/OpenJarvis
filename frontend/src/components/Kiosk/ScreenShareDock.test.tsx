@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ScreenShareDock } from './ScreenShareDock';
+import { ScreenShareDock, computeWaveformHeights } from './ScreenShareDock';
 
 describe('ScreenShareDock', () => {
   it('renders floating dock with mic pill and screen share toggle button', () => {
@@ -21,7 +21,7 @@ describe('ScreenShareDock', () => {
     expect(markup).toContain('data-testid="dock-share-btn"');
   });
 
-  it('renders animated waveform bars when voice is speaking or listening', () => {
+  it('renders reactive waveform bars when voice is speaking or listening', () => {
     const speakingMarkup = renderToStaticMarkup(
       React.createElement(ScreenShareDock, {
         voiceStatus: 'speaking',
@@ -32,7 +32,27 @@ describe('ScreenShareDock', () => {
       })
     );
 
-    expect(speakingMarkup).toContain('animate-pulse');
+    expect(speakingMarkup).toContain('data-testid="dock-waveform-bar-0"');
+    expect(speakingMarkup).toContain('data-testid="dock-waveform-bar-1"');
+    expect(speakingMarkup).toContain('data-testid="dock-waveform-bar-2"');
+    expect(speakingMarkup).toContain('bg-[var(--color-accent)]');
+  });
+
+  it('computes idle bar heights when not speaking or listening', () => {
+    expect(computeWaveformHeights(new Uint8Array([255, 255]), false)).toEqual([4, 8, 4]);
+  });
+
+  it('computes dynamic reactive bar heights from frequency data when speaking', () => {
+    const data = new Uint8Array(64);
+    // Fill bass with high volume, mid with low volume, high with medium volume
+    for (let i = 2; i < 9; i++) data[i] = 255;
+    for (let i = 9; i < 25; i++) data[i] = 40;
+    for (let i = 25; i < 55; i++) data[i] = 180;
+
+    const heights = computeWaveformHeights(data, true, [4, 4, 4]);
+    expect(heights[0]).toBeGreaterThan(heights[1]);
+    expect(heights[0]).toBeGreaterThan(4);
+    expect(heights[2]).toBeGreaterThan(heights[1]);
   });
 
   it('renders active live dot badge when screen share is live', () => {
