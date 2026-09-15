@@ -173,7 +173,7 @@ export function KioskPage() {
     startedRef.current = true;
     presentationLifecycle.markActive(threadId);
     void voice.start(threadId, selectedModel).catch(() => {});
-  }, [createConversation, modelsLoading, presentationLifecycle, selectedModel, voice]);
+  }, [createConversation, modelsLoading, presentationLifecycle, selectedModel, voice.start]);
 
   const toggleVoice = useCallback(() => {
     if (isVoiceActive) {
@@ -255,7 +255,7 @@ export function KioskPage() {
 
       {settings.style === 'screen' && share.status !== 'live' && (
         <ScreenShareHero
-          onStartVoice={startVoice}
+          onStartVoice={toggleVoice}
           onStartScreenShare={share.start}
           isVoiceActive={isVoiceActive}
         />
