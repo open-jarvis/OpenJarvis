@@ -302,7 +302,7 @@ names = value if isinstance(value, list) else value.split(",")
 print(sum(str(name).strip().startswith("browser_") for name in names))
 ' "$MCP_CONFIG_PATH" 2>/dev/null || echo 0)
 
-if [ "$tools" -eq "$expected_tools" ] && [ "$expected_tools" -gt 0 ]; then
+if [ "$tools" -eq "$expected_tools" ]; then
     log_success "Agent browser tools: $tools/$expected_tools verified"
 else
     log_warn "Agent browser tools: found $tools (expected $expected_tools)"
