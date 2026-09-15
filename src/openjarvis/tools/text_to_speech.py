@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -78,7 +80,11 @@ class TextToSpeechTool(BaseTool):
         _ALIASES = {"openai": "openai_tts"}
         backend_key = _ALIASES.get(backend_key, backend_key)
         output_dir = params.get("output_dir", "")
-        speed = float(params.get("speed", 1.0))
+        # Read speed without a falsy default so "the caller did not set speed"
+        # stays distinct from a real value. Note 0 is a legitimate value and
+        # must not be discarded here.
+        raw_speed = params.get("speed")
+        speed = float(raw_speed) if raw_speed not in (None, "") else None
 
         if not text:
             return ToolResult(
@@ -97,7 +103,17 @@ class TextToSpeechTool(BaseTool):
         backend_cls = TTSRegistry.get(backend_key)
         backend = backend_cls()
 
-        result = backend.synthesize(text, voice_id=voice_id, speed=speed)
+        # Only forward parameters the caller (or config) actually set. Passing
+        # voice_id="" or speed=1.0 unconditionally overrides each backend's own
+        # default value: kokoro's synthesize() defaults voice_id to "af_heart",
+        # and an empty string overrides it so the local backend is asked for a
+        # voice named "" and 404s while paid backends happen to tolerate it.
+        synth_kwargs: dict[str, Any] = {}
+        if voice_id:
+            synth_kwargs["voice_id"] = voice_id
+        if speed is not None:
+            synth_kwargs["speed"] = speed
+        result = backend.synthesize(text, **synth_kwargs)
 
         # Save to file
         if output_dir:
@@ -107,7 +123,12 @@ class TextToSpeechTool(BaseTool):
 
         out_dir.mkdir(parents=True, exist_ok=True)
         ext = result.format or "mp3"
-        audio_path = out_dir / f"digest.{ext}"
+        # Name each file uniquely so several lines saved to one output_dir do
+        # not overwrite each other. A random token (not a timestamp) guarantees
+        # uniqueness even for back-to-back calls with identical text and voice.
+        slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "line"
+        voice_tag = (result.voice_id or "")[:8] or backend_key
+        audio_path = out_dir / f"{slug}-{voice_tag}-{uuid.uuid4().hex[:8]}.{ext}"
         result.save(audio_path)
 
         return ToolResult(
