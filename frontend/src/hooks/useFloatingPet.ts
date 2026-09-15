@@ -24,10 +24,12 @@ export interface PetOffsetConfig {
   bottomVh?: number;
   rightPx?: number;
   bottomPx?: number;
+  placement?: 'bottom-right' | 'center';
 }
 
 export interface UseFloatingPetOptions {
   initialPosition?: PetPosition;
+  initialPlacement?: 'bottom-right' | 'center';
   initialScale?: number;
   baseSize?: PetSize;
   petSize?: PetSize;
@@ -103,7 +105,14 @@ export function calculateDefaultPetPosition(
   petSize: PetSize = DEFAULT_PET_SIZE,
   offset?: PetOffsetConfig,
   margin = DEFAULT_SAFE_MARGIN,
+  placement: 'bottom-right' | 'center' = 'bottom-right',
 ): PetPosition {
+  if (placement === 'center' || offset?.placement === 'center') {
+    const rawX = (viewport.width - petSize.width) / 2;
+    const rawY = (viewport.height - petSize.height) / 2;
+    return clampPetPosition({ x: rawX, y: rawY }, petSize, viewport, margin);
+  }
+
   const rightOffset =
     offset?.rightPx !== undefined
       ? offset.rightPx
@@ -288,6 +297,7 @@ export function calculateWanderStep(
 export function useFloatingPet(options: UseFloatingPetOptions = {}): UseFloatingPetResult {
   const {
     initialPosition,
+    initialPlacement = 'bottom-right',
     initialScale,
     baseSize = DEFAULT_BASE_PET_SIZE,
     petSize: petSizeProp,
@@ -340,7 +350,7 @@ export function useFloatingPet(options: UseFloatingPetOptions = {}): UseFloating
     if (stored) {
       return clampPetPosition(stored, currentPetSize, viewport, safeMargin);
     }
-    return calculateDefaultPetPosition(viewport, currentPetSize, offset, safeMargin);
+    return calculateDefaultPetPosition(viewport, currentPetSize, offset, safeMargin, initialPlacement);
   });
 
   const [isDragging, setIsDragging] = useState(false);
@@ -404,9 +414,9 @@ export function useFloatingPet(options: UseFloatingPetOptions = {}): UseFloating
       height: Math.round(basePetSize.height * defaultScale),
     };
     const vp = getViewport();
-    const defaultPos = calculateDefaultPetPosition(vp, defaultSize, offset, safeMargin);
+    const defaultPos = calculateDefaultPetPosition(vp, defaultSize, offset, safeMargin, initialPlacement);
     setPosition(defaultPos);
-  }, [basePetSize.height, basePetSize.width, getViewport, initialScale, offset, safeMargin, scaleStorageKey, storage, storageKey]);
+  }, [basePetSize.height, basePetSize.width, getViewport, initialPlacement, initialScale, offset, safeMargin, scaleStorageKey, storage, storageKey]);
 
   // Pointer drag handlers
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {

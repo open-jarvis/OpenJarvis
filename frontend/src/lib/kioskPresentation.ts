@@ -1,18 +1,33 @@
 import { apiFetch } from './api';
+import type { KioskState } from '@/hooks/useKioskState';
+
+const PRESENTATION_RETRY_DELAY_MS = 500;
+const PRESENTATION_MAX_ATTEMPTS = 20;
+
+export function shouldEnsurePresentationSession(state: KioskState): boolean {
+  return state === 'approaching' || state === 'prompting' || state === 'active';
+}
 
 export async function ensurePresentationSession(displayOrigin: string): Promise<string> {
-  const response = await apiFetch('/api/kiosk/presentation/ensure', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ display_origin: displayOrigin }),
-  });
-  if (!response.ok) throw new Error('Unable to start customer display');
-
-  const payload = await response.json() as { presentation_session_id?: unknown };
-  if (typeof payload.presentation_session_id !== 'string' || !payload.presentation_session_id) {
-    throw new Error('Unable to start customer display');
+  for (let attempt = 1; attempt <= PRESENTATION_MAX_ATTEMPTS; attempt += 1) {
+    const response = await apiFetch('/api/kiosk/presentation/ensure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_origin: displayOrigin }),
+    });
+    if (response.ok) {
+      const payload = await response.json() as { presentation_session_id?: unknown };
+      if (typeof payload.presentation_session_id === 'string' && payload.presentation_session_id) {
+        return payload.presentation_session_id;
+      }
+      throw new Error('Unable to start customer display');
+    }
+    if (response.status !== 503 || attempt === PRESENTATION_MAX_ATTEMPTS) {
+      throw new Error('Unable to start customer display');
+    }
+    await new Promise((resolve) => setTimeout(resolve, PRESENTATION_RETRY_DELAY_MS));
   }
-  return payload.presentation_session_id;
+  throw new Error('Unable to start customer display');
 }
 
 export async function resetPresentationSession(
@@ -45,7 +60,7 @@ export function createKioskPresentationLifecycle(
   let sessionId: string | undefined;
   let lifecycleEpoch = 0;
   let voiceGeneration: string | undefined;
-  let resetRequired = true;
+  let resetRequired = false;
   let resetPending: { generation?: string } | null = null;
   let teardown: { generation: number; promise: Promise<void> } | null = null;
 

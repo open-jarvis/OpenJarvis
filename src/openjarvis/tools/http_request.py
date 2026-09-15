@@ -6,7 +6,7 @@ import json
 import os
 import time
 import urllib.parse
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -59,6 +59,7 @@ class HttpRequestTool(BaseTool):
 
     tool_id = "http_request"
     is_local = False
+    _checkout_guard: Callable[[], bool] | None = None
 
     @property
     def spec(self) -> ToolSpec:
@@ -113,6 +114,18 @@ class HttpRequestTool(BaseTool):
             )
 
         method = params.get("method", "GET").upper()
+        if (
+            method in _STATE_CHANGING_METHODS
+            and self._checkout_guard is not None
+            and not self._checkout_guard()
+        ):
+            return ToolResult(
+                tool_name=self.spec.name,
+                success=False,
+                content=(
+                    "checkout_confirmation_required: use the guarded checkout skill"
+                ),
+            )
         if method not in _ALLOWED_METHODS:
             return ToolResult(
                 tool_name="http_request",
@@ -148,10 +161,11 @@ class HttpRequestTool(BaseTool):
                 headers["Content-Type"] = "application/json"
         timeout = params.get("timeout", 30)
 
-        # One exact mutation, one dispatch. The kiosk has no cart: the order is
-        # rebuilt as a body every turn, so a model that re-sends a confirmed
-        # order would otherwise buy a second coffee. Reads are exempt -- they
-        # change nothing and the agent legitimately re-reads.
+        # One exact mutation, one dispatch. The merchant has no cart endpoint:
+        # its local draft is rebuilt as an order body at checkout, so a model
+        # that re-sends a confirmed order would otherwise buy a second coffee.
+        # Reads are exempt -- they change nothing and the agent legitimately
+        # re-reads.
         claim = None
         if method in _STATE_CHANGING_METHODS:
             claim = evidence.claim_mutation(method, url, body)

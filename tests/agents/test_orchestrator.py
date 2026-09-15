@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
@@ -17,7 +18,7 @@ from openjarvis.agents._stubs import (
     AgentTextDelta,
 )
 from openjarvis.agents.orchestrator import OrchestratorAgent
-from openjarvis.core.conversation import conversation_scope
+from openjarvis.core.conversation import conversation_scope, current_turn_nonce
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Conversation, Message, Role, ToolCall, ToolResult
 from openjarvis.engine._stubs import StreamChunk
@@ -28,6 +29,7 @@ from openjarvis.kiosk.presentation import (
 from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
 from openjarvis.tools import evidence
 from openjarvis.tools._stubs import BaseTool, ToolSpec
+from openjarvis.tools.display import DisplayCartTool
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -411,6 +413,144 @@ def _make_engine_multi_tool() -> MagicMock:
 
 
 class TestOrchestratorAgent:
+    def test_runtime_cart_context_is_refreshed_after_a_cart_edit(self):
+        cart = DisplayCartTool()
+        cart._bus = EventBus()
+        revisions = []
+        item = {
+            "variant_id": "coffee",
+            "name": "Coffee",
+            "unit_price": 100,
+            "quantity": 1,
+        }
+
+        def generate(messages, **kwargs):
+            contexts = [m.text for m in messages if "<runtime_context>" in m.text]
+            assert len(contexts) == 1
+            payload = json.loads(
+                contexts[0].split("<runtime_context>")[1].split("</runtime_context>")[0]
+            )
+            revisions.append(payload["draft_cart"]["revision"])
+            if len(revisions) == 1:
+                return {
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "name": "display_cart",
+                            "arguments": json.dumps({"action": "add", "item": item}),
+                        }
+                    ],
+                }
+            return {"content": "ready"}
+
+        engine = MagicMock()
+        engine.generate.side_effect = generate
+        agent = OrchestratorAgent(engine, "test", tools=[cart])
+        with conversation_scope("cart-edit-context"):
+            cart.execute(action="add", item=item)
+            assert agent.run("Add another and checkout").content == "ready"
+        assert revisions == [1, 2]
+
+    def test_first_inference_receives_current_cart_revision_and_turn_nonce(
+        self,
+    ) -> None:
+        cart = DisplayCartTool()
+        cart._bus = EventBus()
+        captured: dict[str, Any] = {}
+
+        def generate(messages, **_kwargs):
+            captured["messages"] = messages
+            captured["nonce"] = current_turn_nonce()
+            return {"content": "ready", "finish_reason": "stop"}
+
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.side_effect = generate
+        agent = OrchestratorAgent(engine, "test-model", tools=[cart])
+
+        with conversation_scope("checkout-runtime-context"):
+            cart.execute(
+                action="add",
+                item={
+                    "variant_id": "latte-standard",
+                    "name": "Latte",
+                    "unit_price": 51_000,
+                    "quantity": 1,
+                },
+            )
+            result = agent.run("Thanh toán giỏ này")
+
+        context_message = next(
+            message.text
+            for message in captured["messages"]
+            if "<runtime_context>" in message.text
+        )
+        payload = json.loads(
+            context_message.split("<runtime_context>", 1)[1].split(
+                "</runtime_context>", 1
+            )[0]
+        )
+        assert result.content == "ready"
+        assert captured["nonce"]
+        line_id = payload["draft_cart"]["lines"][0]["line_id"]
+        assert payload == {
+            "turn_nonce": captured["nonce"],
+            "draft_cart": {
+                "revision": 1,
+                "lines": [
+                    {
+                        "line_id": line_id,
+                        "variant_id": "latte-standard",
+                        "name": "Latte",
+                        "size": "",
+                        "note": "",
+                        "quantity": 1,
+                        "unit_price": 51_000,
+                        "line_total": 51_000,
+                    }
+                ],
+                "total": 51_000,
+                "order_note": "",
+                "order_type": "",
+                "table": "",
+                "table_name": "",
+            },
+        }
+        assert current_turn_nonce() == ""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("display_success", [True, False])
+    async def test_streaming_acknowledged_message_requires_success(
+        self, display_success: bool,
+    ) -> None:
+        class DisplayWithMessage(_DisplayStub):
+            def execute(self, **params: Any) -> ToolResult:
+                return ToolResult(
+                    tool_name="display_menu", content="shown",
+                    success=display_success,
+                    metadata={"customer_message": "Đã hiển thị."},
+                )
+
+        engine = StreamingEngine([
+            [StreamChunk(tool_calls=[{
+                "index": 0, "id": "display-1",
+                "function": {"name": "display_menu", "arguments": "{}"},
+            }]), StreamChunk(finish_reason="tool_calls")],
+            [StreamChunk(content="Màn hình chưa sẵn sàng."),
+             StreamChunk(finish_reason="stop")],
+        ])
+        agent = OrchestratorAgent(
+            engine, "deepseek-v4-flash", tools=[DisplayWithMessage()],
+        )
+        events = [event async for event in agent.run_stream("show menu")]
+        text = "".join(
+            event.content for event in events if isinstance(event, AgentTextDelta)
+        )
+        expected = "Đã hiển thị." if display_success else "Màn hình chưa sẵn sàng."
+        assert text == expected
+        assert len(engine.calls) == (1 if display_success else 2)
+        assert events[-1].result.content == text
+
     def test_display_call_with_customer_text_finishes_without_another_inference(
         self,
     ) -> None:
@@ -436,6 +576,54 @@ class TestOrchestratorAgent:
         assert result.turns == 1
         assert result.content == "Dạ menu đang ở trên màn hình. Bạn chọn món nào ạ?"
         assert result.tool_results[0].success is True
+
+    def test_cart_view_with_preamble_continues_instead_of_stalling(self) -> None:
+        class CartView(BaseTool):
+            @property
+            def spec(self) -> ToolSpec:
+                return ToolSpec(
+                    name="display_cart",
+                    description="Return the current draft cart.",
+                    metadata={"displays": True},
+                )
+
+            def execute(self, **params: Any) -> ToolResult:
+                return ToolResult(
+                    tool_name="display_cart",
+                    content=(
+                        '{"cart":{"lines":[{"variant_id":"latte",'
+                        '"quantity":2,"unit_price":40000}],"total":80000}}'
+                    ),
+                    metadata={"continue_agent": True},
+                )
+
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.side_effect = [
+            {
+                "content": "Dạ em kiểm tra giỏ hàng rồi thanh toán nhé.",
+                "tool_calls": [
+                    {
+                        "id": "cart-view",
+                        "name": "display_cart",
+                        "arguments": '{"action":"view"}',
+                    }
+                ],
+                "finish_reason": "tool_calls",
+            },
+            {
+                "content": "Đơn đã được tạo và QR đã hiển thị.",
+                "tool_calls": [],
+                "finish_reason": "stop",
+            },
+        ]
+        agent = OrchestratorAgent(engine, "test-model", tools=[CartView()])
+
+        result = agent.run("Thanh toán giỏ hàng giúp tôi")
+
+        assert engine.generate.call_count == 2
+        assert result.turns == 2
+        assert result.content == "Đơn đã được tạo và QR đã hiển thị."
 
     def test_failed_display_call_still_allows_the_model_to_recover(self) -> None:
         engine = MagicMock()
@@ -495,6 +683,81 @@ class TestOrchestratorAgent:
 
         assert engine.generate.call_count == 1
         assert result.content == "Dạ menu mới nhất đang ở trên màn hình."
+
+    @pytest.mark.parametrize(
+        ("pre_tool_text", "expected"),
+        [
+            (
+                "Dạ, mình xem các món có khoai nhé.",
+                "Dạ, mình xem các món có khoai nhé.\nĐã tìm thấy 1 kết quả.",
+            ),
+            ("Đã tìm thấy 1 kết quả.", "Đã tìm thấy 1 kết quả."),
+        ],
+        ids=["after-acknowledgement", "not-repeated"],
+    )
+    def test_result_derived_display_message_follows_pre_tool_text(
+        self, pre_tool_text: str, expected: str
+    ) -> None:
+        class ResultDisplay(_DisplayStub):
+            def execute(self, **params: Any) -> ToolResult:
+                return ToolResult(
+                    tool_name="display_menu",
+                    content="shown",
+                    metadata={"customer_message": "Đã tìm thấy 1 kết quả."},
+                )
+
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.return_value = {
+            "content": pre_tool_text,
+            "tool_calls": [
+                {"id": "display-1", "name": "display_menu", "arguments": "{}"}
+            ],
+            "finish_reason": "tool_calls",
+        }
+        agent = OrchestratorAgent(engine, "test-model", tools=[ResultDisplay()])
+
+        result = agent.run("món có khoai")
+
+        assert engine.generate.call_count == 1
+        assert result.content == expected
+
+    @pytest.mark.asyncio
+    async def test_streaming_result_message_is_spoken_after_the_tool(self) -> None:
+        class ResultDisplay(_DisplayStub):
+            def execute(self, **params: Any) -> ToolResult:
+                return ToolResult(
+                    tool_name="display_menu",
+                    content="shown",
+                    metadata={"customer_message": "Đã tìm thấy 1 kết quả."},
+                )
+
+        engine = StreamingEngine([
+            [
+                StreamChunk(content="Dạ, mình xem nhé."),
+                StreamChunk(tool_calls=[{
+                    "index": 0, "id": "display-1",
+                    "function": {"name": "display_menu", "arguments": "{}"},
+                }]),
+                StreamChunk(finish_reason="tool_calls"),
+            ],
+        ])
+        agent = OrchestratorAgent(engine, "test-model", tools=[ResultDisplay()])
+
+        events = [event async for event in agent.run_stream("món có khoai")]
+        finished = next(
+            index for index, event in enumerate(events)
+            if type(event).__name__ == "AgentToolFinished"
+        )
+        text = "".join(
+            event.content for event in events if isinstance(event, AgentTextDelta)
+        )
+
+        assert len(engine.calls) == 1
+        assert isinstance(events[finished + 1], AgentTextDelta)
+        assert events[finished + 1].content == "\nĐã tìm thấy 1 kết quả."
+        assert text == "Dạ, mình xem nhé.\nĐã tìm thấy 1 kết quả."
+        assert events[-1].result.content == text
 
     @pytest.mark.asyncio
     async def test_streaming_display_text_finishes_after_the_display_call(self) -> None:
@@ -1450,6 +1713,69 @@ class TestOrchestratorAgent:
         tool_msgs = [m for m in messages if m.role == Role.TOOL]
         assert len(tool_msgs) == 1
         assert tool_msgs[0].tool_call_id == "abc123"
+
+    def test_response_items_are_preserved_for_next_tool_round(self):
+        response_items = [
+            {
+                "id": "rs_1",
+                "type": "reasoning",
+                "summary": [],
+                "encrypted_content": "opaque",
+            },
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "calculator",
+                "arguments": '{"expression":"2+2"}',
+            },
+        ]
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.side_effect = [
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "name": "calculator",
+                        "arguments": '{"expression":"2+2"}',
+                    }
+                ],
+                "response_items": response_items,
+                "usage": {
+                    "prompt_tokens": 5,
+                    "completion_tokens": 3,
+                    "total_tokens": 8,
+                },
+                "model": "test-model",
+                "finish_reason": "tool_calls",
+            },
+            {
+                "content": "The answer is 4.",
+                "usage": {
+                    "prompt_tokens": 15,
+                    "completion_tokens": 5,
+                    "total_tokens": 20,
+                },
+                "model": "test-model",
+                "finish_reason": "stop",
+            },
+        ]
+        agent = OrchestratorAgent(
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
+        )
+
+        agent.run("What is 2+2?")
+
+        second_call_messages = engine.generate.call_args_list[1][0][0]
+        assistant = next(
+            message
+            for message in second_call_messages
+            if message.role == Role.ASSISTANT and message.tool_calls
+        )
+        assert assistant.metadata["response_items"] == response_items
 
     def test_no_bus_works(self):
         engine = _make_engine_with_tool_call()

@@ -12,8 +12,10 @@ Supports two modes:
 
 from __future__ import annotations
 
+import asyncio
 import concurrent.futures
 import contextvars
+import json
 import re
 from collections.abc import AsyncIterator
 from contextlib import aclosing
@@ -28,8 +30,10 @@ from openjarvis.agents._stubs import (
     AgentToolFinished,
     AgentToolStarted,
     ToolUsingAgent,
+    check_agent_cancelled,
     run_agent_sync_worker,
 )
+from openjarvis.core.conversation import agent_turn_scope, current_turn_nonce
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
@@ -55,6 +59,10 @@ class OrchestratorAgent(ToolUsingAgent):
     """
 
     agent_id = "orchestrator"
+    # Run state is local; shared tools are protected by the runtime tool gate.
+    # Runtime checks the concrete class dictionary, so subclasses must audit
+    # and explicitly opt in rather than accidentally inheriting this promise.
+    supports_run_preemption = True
     _default_temperature = 0.7
     _default_max_tokens = 1024
     _default_max_turns = 10
@@ -102,11 +110,45 @@ class OrchestratorAgent(ToolUsingAgent):
         context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
-        if self._mode == "structured":
-            return self._run_structured(input, context, **kwargs)
-        return self._run_function_calling(input, context, **kwargs)
+        with agent_turn_scope():
+            if self._mode == "structured":
+                return self._run_structured(input, context, **kwargs)
+            return self._run_function_calling(input, context, **kwargs)
 
     async def run_stream(
+        self,
+        input: str,
+        context: AgentContext | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[AgentStreamEvent]:
+        # Consumers may resume the generator from different tasks. Keep the
+        # nonce's creation, execution and cleanup in one copied context.
+        turn_context = contextvars.copy_context()
+        stream = self._run_stream_scoped(input, context, **kwargs)
+        try:
+            while True:
+                try:
+                    event = await asyncio.create_task(
+                        anext(stream),
+                        context=turn_context,
+                    )
+                except StopAsyncIteration:
+                    break
+                yield event
+        finally:
+            await asyncio.create_task(stream.aclose(), context=turn_context)
+
+    async def _run_stream_scoped(
+        self,
+        input: str,
+        context: AgentContext | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[AgentStreamEvent]:
+        with agent_turn_scope():
+            async for event in self._run_stream_in_turn(input, context, **kwargs):
+                yield event
+
+    async def _run_stream_in_turn(
         self,
         input: str,
         context: AgentContext | None = None,
@@ -142,6 +184,7 @@ class OrchestratorAgent(ToolUsingAgent):
             context,
             system_prompt=self._system_prompt,
         )
+        runtime_message = None
         openai_tools = self._executor.get_openai_tools() if self._tools else []
         all_tool_results: list[ToolResult] = []
         total_prompt_tokens = 0
@@ -150,6 +193,7 @@ class OrchestratorAgent(ToolUsingAgent):
         for turns in range(1, self._max_turns + 1):
             if loop_guard:
                 messages = loop_guard.compress_context(messages)
+            runtime_message = self._inject_runtime_context(messages, runtime_message)
 
             gen_kwargs: dict[str, Any] = {}
             if openai_tools:
@@ -265,9 +309,15 @@ class OrchestratorAgent(ToolUsingAgent):
                     )
                     return
                 content = "".join(visible_parts)
-                if content.strip() and self._completed_display_batch(
-                    tool_calls, new_tool_results
-                ):
+                completed = self._completed_display_batch(tool_calls, new_tool_results)
+                if completed:
+                    delta = _display_message_delta(
+                        content, self._display_customer_message(new_tool_results)
+                    )
+                    if delta:
+                        content += delta
+                        yield AgentTextDelta(delta)
+                if content.strip() and completed:
                     metadata = {
                         "prompt_tokens": total_prompt_tokens,
                         "completion_tokens": total_completion_tokens,
@@ -320,6 +370,7 @@ class OrchestratorAgent(ToolUsingAgent):
         yield AgentRunCompleted(result)
 
     def _emit_stream_inference_start(self, *, model: str | None = None) -> None:
+        check_agent_cancelled()
         if self._bus and not getattr(
             self._engine,
             "_publishes_stream_events",
@@ -493,6 +544,7 @@ class OrchestratorAgent(ToolUsingAgent):
             context,
             system_prompt=self._system_prompt,
         )
+        runtime_message = None
 
         # Get OpenAI-format tool definitions
         openai_tools = self._executor.get_openai_tools() if self._tools else []
@@ -507,6 +559,7 @@ class OrchestratorAgent(ToolUsingAgent):
 
             if loop_guard:
                 messages = loop_guard.compress_context(messages)
+            runtime_message = self._inject_runtime_context(messages, runtime_message)
 
             # Build generate kwargs
             gen_kwargs: dict[str, Any] = {}
@@ -556,6 +609,11 @@ class OrchestratorAgent(ToolUsingAgent):
                     role=Role.ASSISTANT,
                     content=content,
                     tool_calls=tool_calls,
+                    metadata={
+                        "response_items": result["response_items"]
+                    }
+                    if result.get("response_items")
+                    else {},
                 )
             )
 
@@ -568,9 +626,12 @@ class OrchestratorAgent(ToolUsingAgent):
             )
             new_tool_results = all_tool_results[previous_tool_results:]
             final_content = self._strip_think_tags(content)
-            if final_content and self._completed_display_batch(
-                tool_calls, new_tool_results
-            ):
+            completed = self._completed_display_batch(tool_calls, new_tool_results)
+            if completed:
+                final_content += _display_message_delta(
+                    final_content, self._display_customer_message(new_tool_results)
+                )
+            if final_content and completed:
                 metadata = {
                     "prompt_tokens": total_prompt_tokens,
                     "completion_tokens": total_completion_tokens,
@@ -598,6 +659,48 @@ class OrchestratorAgent(ToolUsingAgent):
             turns=turns,
             metadata=metadata,
         )
+
+    def _inject_runtime_context(
+        self,
+        messages: list[Message],
+        previous: Message | None = None,
+    ) -> Message | None:
+        """Expose compact tool-owned state needed before the first tool call."""
+        if previous is not None:
+            messages[:] = [message for message in messages if message is not previous]
+        runtime_context: dict[str, Any] = {}
+        for tool in self._tools:
+            provider = getattr(tool, "agent_context", None)
+            if not callable(provider):
+                continue
+            supplied = provider()
+            if isinstance(supplied, dict):
+                runtime_context.update(supplied)
+        if not runtime_context:
+            return
+        runtime_context["turn_nonce"] = current_turn_nonce()
+        message = Message(
+            role=Role.SYSTEM,
+            content=(
+                "Current runtime state. For a checkout skill, copy turn_nonce "
+                "and draft_cart.revision as cart_revision into its arguments "
+                "(or skill_manage.context when using run). "
+                "They are validated by code and expire when this turn or cart "
+                "changes.\n<runtime_context>"
+                + json.dumps(runtime_context, ensure_ascii=False, separators=(",", ":"))
+                + "</runtime_context>"
+            ),
+        )
+        user_index = next(
+            (
+                index
+                for index in range(len(messages) - 1, -1, -1)
+                if messages[index].role == Role.USER
+            ),
+            len(messages),
+        )
+        messages.insert(user_index, message)
+        return message
 
     def _execute_function_tool_calls(
         self,
@@ -666,6 +769,17 @@ class OrchestratorAgent(ToolUsingAgent):
             return [(tc, results[id(tc)]) for tc in tool_calls]
         return [(tc, execute(tc)) for tc in tool_calls]
 
+    def _display_customer_message(self, tool_results: list[ToolResult]) -> str:
+        """Use acknowledged display text only after the whole batch succeeds."""
+        return self._strip_think_tags(
+            "\n".join(
+                message.strip()
+                for result in tool_results
+                if isinstance(message := result.metadata.get("customer_message"), str)
+                and message.strip()
+            )
+        )
+
     def _completed_display_batch(
         self,
         tool_calls: list[ToolCall],
@@ -673,6 +787,11 @@ class OrchestratorAgent(ToolUsingAgent):
     ) -> bool:
         """Whether a successful display-only batch can finish this turn."""
         if len(tool_calls) != len(tool_results) or not tool_results:
+            return False
+        if any(
+            result.metadata.get("continue_agent") is True
+            for result in tool_results
+        ):
             return False
         display_tools = {
             tool.spec.name
@@ -808,6 +927,13 @@ def _build_tool_calls(
         )
         for index, fragment in sorted(fragments.items())
     ]
+
+
+def _display_message_delta(content: str, message: str) -> str:
+    """Result-derived display text still owed after any pre-tool text."""
+    if not message or message in content:
+        return ""
+    return f"\n{message}" if content.strip() else message
 
 
 def _requires_pending_approval(value: Any) -> bool:

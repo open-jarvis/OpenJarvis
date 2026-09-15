@@ -108,8 +108,17 @@ def _completed_transaction_trace(*, headers: dict | None = None) -> Trace:
 
 
 def _completed_menu_trace(*, headers: dict | None = None) -> Trace:
-    """A cold discovery turn that fetched and displayed a live menu."""
+    """A cold read whose changed request, replay, render, and display correspond."""
     today = datetime.now().astimezone().date().isoformat()
+    before_url = f"https://shop.example/menu?date={today}&q="
+    observed_url = f"https://shop.example/menu?date={today}&q=Fresh%20noodles"
+    request_headers = headers or {"Accept": "application/json"}
+    response = {
+        "items": [
+            {"id": "noodles-1", "name": "Fresh noodles", "price": 59_000}
+        ],
+        "hasNext": False,
+    }
     return Trace(
         query="Show me the food menu",
         result="Here is the food menu.",
@@ -121,38 +130,150 @@ def _completed_menu_trace(*, headers: dict | None = None) -> Trace:
                     "tool": "browser_network_requests",
                     "arguments": {"includeStatic": False},
                 },
-                output={"success": True, "result": "discovered menu endpoint"},
-            ),
-            TraceStep(
-                step_type=StepType.TOOL_CALL,
-                timestamp=2.0,
-                input={
-                    "tool": "http_request",
-                    "arguments": {
-                        "method": "GET",
-                        "url": f"https://shop.example/menu?date={today}",
-                        "headers": headers or {"Accept": "application/json"},
-                    },
-                },
                 output={
                     "success": True,
                     "result": json.dumps(
-                        {"items": [{"name": "Fresh noodles", "price": 59_000}]}
+                        {
+                            "requests": [
+                                {
+                                    "method": "GET",
+                                    "url": before_url,
+                                    "headers": request_headers,
+                                }
+                            ]
+                        }
                     ),
                 },
             ),
             TraceStep(
                 step_type=StepType.TOOL_CALL,
+                timestamp=2.0,
+                input={
+                    "tool": "browser_fill_form",
+                    "arguments": {
+                        "selector": "#search",
+                        "value": "Fresh noodles",
+                    },
+                },
+                output={"success": True, "result": "filled"},
+            ),
+            TraceStep(
+                step_type=StepType.TOOL_CALL,
                 timestamp=3.0,
+                input={
+                    "tool": "browser_network_requests",
+                    "arguments": {"includeStatic": False},
+                },
+                output={
+                    "success": True,
+                    "result": json.dumps(
+                        {
+                            "requests": [
+                                {
+                                    "method": "GET",
+                                    "url": before_url,
+                                    "headers": request_headers,
+                                },
+                                {
+                                    "method": "GET",
+                                    "url": observed_url,
+                                    "headers": request_headers,
+                                },
+                            ]
+                        }
+                    ),
+                },
+            ),
+            TraceStep(
+                step_type=StepType.TOOL_CALL,
+                timestamp=4.0,
+                input={
+                    "tool": "http_request",
+                    "arguments": {
+                        "method": "GET",
+                        "url": observed_url,
+                        "headers": request_headers,
+                    },
+                },
+                output={
+                    "success": True,
+                    "result": json.dumps(response),
+                },
+                metadata={
+                    "status_code": 200,
+                    "content_type": "application/json; charset=utf-8",
+                    "truncated": False,
+                    "final_url": observed_url,
+                },
+            ),
+            TraceStep(
+                step_type=StepType.TOOL_CALL,
+                timestamp=5.0,
+                input={
+                    "tool": "browser_verify_list_visible",
+                    "arguments": {"selector": "[data-result-item]"},
+                },
+                output={
+                    "success": True,
+                    "result": json.dumps(
+                        {
+                            "count": 1,
+                            "items": [
+                                {"id": "noodles-1", "text": "Fresh noodles"}
+                            ],
+                            "has_pagination": False,
+                            "complete": {"path": "hasNext", "equals": False},
+                        }
+                    ),
+                },
+            ),
+            TraceStep(
+                step_type=StepType.TOOL_CALL,
+                timestamp=6.0,
                 input={
                     "tool": "display_menu",
                     "arguments": {
-                        "items": [{"name": "Fresh noodles", "price": 59_000}]
+                        "items": [
+                            {
+                                "id": "noodles-1",
+                                "name": "Fresh noodles",
+                                "price": 59_000,
+                            }
+                        ],
+                        "result_complete": True,
                     },
                 },
                 output={"success": True, "result": "displayed"},
             ),
         ],
+    )
+
+
+def _menu_step(trace: Trace, tool_name: str, occurrence: int = 0) -> TraceStep:
+    return [
+        step
+        for step in trace.steps
+        if step.input.get("tool") == tool_name
+    ][occurrence]
+
+
+def _sync_menu_correspondence(trace: Trace) -> None:
+    replay = _menu_step(trace, "http_request")
+    response = json.loads(replay.output["result"])
+    response["complete"] = False
+    replay.output["result"] = json.dumps(response)
+    display_arguments = _menu_step(trace, "display_menu").input["arguments"]
+    display_arguments["result_complete"] = True
+    items = display_arguments["items"]
+    _menu_step(trace, "browser_verify_list_visible").output["result"] = json.dumps(
+        {
+            "count": len(items),
+            "items": [
+                {"id": item["id"], "text": item["name"]} for item in items
+            ],
+            "has_pagination": False,
+            "complete": {"path": "complete", "equals": False},
+        }
     )
 
 
@@ -162,6 +283,13 @@ def _completed_menu_trace(*, headers: dict | None = None) -> Trace:
 
 
 class TestSkillDiscovery:
+    def test_interrupted_diagnostics_do_not_raise_successful_recipe_frequency(self):
+        traces = [_make_dict_trace(["web_search", "calculator"]) for _ in range(2)]
+        interrupted = _make_dict_trace(["web_search", "calculator"], outcome=0.0)
+        interrupted["metadata"] = {"status": "interrupted"}
+        traces.append(interrupted)
+        assert SkillDiscovery(min_frequency=3).analyze_traces(traces) == []
+
     def test_empty_traces(self):
         sd = SkillDiscovery()
         result = sd.analyze_traces([])
@@ -421,6 +549,28 @@ class TestTransactionTraceParameterization:
 
 
 class TestReadDisplayTraceParameterization:
+    def test_does_not_learn_a_local_cart_mutation_as_a_read_recipe(self):
+        discovery = SkillDiscovery()
+        trace = _completed_menu_trace()
+        trace.query = "Add two pizzas to my cart"
+        trace.steps[-1].input = {
+            "tool": "display_cart",
+            "arguments": {
+                "action": "add",
+                "item": {
+                    "variant_id": "pizza-standard",
+                    "name": "Pizza Truyền Thống Ý",
+                    "size": "tiêu chuẩn",
+                    "unit_price": 107_000,
+                    "quantity": 2,
+                    "note": "",
+                },
+            },
+        }
+
+        assert discovery.is_successful_read_display(trace) is False
+        assert discovery.parameterize_trace(trace) is None
+
     def test_learns_a_completed_read_that_was_displayed(self):
         discovery = SkillDiscovery()
         trace = _completed_menu_trace()
@@ -436,17 +586,33 @@ class TestReadDisplayTraceParameterization:
         arguments = json.loads(manifest.steps[0].arguments_template)
         assert arguments == {
             "method": "GET",
-            "url": "https://shop.example/menu?date={today}",
+            "url": "https://shop.example/menu?date={today}&q={q|urlencode}",
             "headers": {"Accept": "application/json"},
+        }
+        assert manifest.input_schema["properties"] == {
+            "q": {"type": "string", "minLength": 1}
+        }
+        assert manifest.metadata["openjarvis"]["request_recipe"] == {
+            "origin": "https://shop.example",
+            "method": "GET",
+            "read_only": True,
+            "captured_from": "browser_network_requests",
+            "allowed_content_types": ["application/json"],
+            "required_paths_json": (
+                '[{"path": "items", "type": "array"}, '
+                '{"path": "hasNext", "type": "boolean"}]'
+            ),
         }
         display_arguments = json.loads(manifest.steps[1].arguments_template)
         assert display_arguments == {
             "items": [
                 {
+                    "id": "{step_0.items.0.id}",
                     "name": "{step_0.items.0.name}",
                     "price": "{step_0.items.0.price}",
                 }
-            ]
+            ],
+            "result_complete": True,
         }
         assert manifest.metadata["requires_fresh_confirmation"] is False
 
@@ -454,7 +620,7 @@ class TestReadDisplayTraceParameterization:
         discovery = SkillDiscovery()
         trace = _completed_menu_trace()
         trace.query = "goi y cac mon co dau tay"
-        trace.steps[1].output["result"] = json.dumps(
+        _menu_step(trace, "http_request").output["result"] = json.dumps(
             {"items": [{"name": "Strawberry matcha latte", "price": 60_000}]}
         )
         trace.steps.insert(
@@ -486,23 +652,7 @@ class TestReadDisplayTraceParameterization:
 
         manifest = discovery.parameterize_trace(trace)
 
-        assert manifest is not None
-        assert [step.tool_name for step in manifest.steps] == [
-            "http_request",
-            "http_request",
-            "display_menu",
-        ]
-        display_arguments = json.loads(manifest.steps[-1].arguments_template)
-        assert display_arguments["items"] == [
-            {
-                "name": "{step_0.items.0.name}",
-                "price": "{step_0.items.0.price}",
-            },
-            {
-                "name": "{step_1.items.0.name}",
-                "price": "{step_1.items.0.price}",
-            },
-        ]
+        assert manifest is None
 
     def test_learns_an_evidence_native_complete_menu_display(self):
         discovery = SkillDiscovery()
@@ -511,10 +661,7 @@ class TestReadDisplayTraceParameterization:
 
         manifest = discovery.parameterize_trace(trace)
 
-        assert manifest is not None
-        assert json.loads(manifest.steps[1].arguments_template) == {
-            "all_from_latest_http": True
-        }
+        assert manifest is None
 
     def test_omits_an_optional_display_value_not_grounded_in_the_read(self):
         discovery = SkillDiscovery()
@@ -530,7 +677,7 @@ class TestReadDisplayTraceParameterization:
     def test_duplicate_prices_are_grounded_to_the_matching_product_record(self):
         discovery = SkillDiscovery()
         trace = _completed_menu_trace()
-        trace.steps[1].output["result"] = json.dumps(
+        _menu_step(trace, "http_request").output["result"] = json.dumps(
             {
                 "result": {
                     "items": [
@@ -558,6 +705,7 @@ class TestReadDisplayTraceParameterization:
                 {"id": "tea-2", "name": "Tea two", "price": 49_000},
             ]
         }
+        _sync_menu_correspondence(trace)
 
         manifest = discovery.parameterize_trace(trace)
 
@@ -575,7 +723,7 @@ class TestReadDisplayTraceParameterization:
     ):
         discovery = SkillDiscovery()
         trace = _completed_menu_trace()
-        trace.steps[1].output["result"] = json.dumps(
+        _menu_step(trace, "http_request").output["result"] = json.dumps(
             {
                 "result": {
                     "items": [
@@ -603,6 +751,7 @@ class TestReadDisplayTraceParameterization:
                 {"id": "Taco ga", "name": "Taco ga", "price": 86_000},
             ]
         }
+        _sync_menu_correspondence(trace)
 
         manifest = discovery.parameterize_trace(trace)
 
@@ -618,7 +767,7 @@ class TestReadDisplayTraceParameterization:
     def test_display_name_composed_from_product_fields_is_fully_grounded(self):
         discovery = SkillDiscovery()
         trace = _completed_menu_trace()
-        trace.steps[1].output["result"] = json.dumps(
+        _menu_step(trace, "http_request").output["result"] = json.dumps(
             {
                 "result": {
                     "items": [
@@ -643,6 +792,7 @@ class TestReadDisplayTraceParameterization:
                 }
             ]
         }
+        _sync_menu_correspondence(trace)
 
         manifest = discovery.parameterize_trace(trace)
 
@@ -656,14 +806,16 @@ class TestReadDisplayTraceParameterization:
     def test_duplicate_name_and_description_prefers_the_name_field(self):
         discovery = SkillDiscovery()
         trace = _completed_menu_trace()
-        trace.steps[1].output["result"] = json.dumps(
+        _menu_step(trace, "http_request").output["result"] = json.dumps(
             {
-                "product": {
+                "items": [{
+                    "product": {
                     "slug": "smoothie-1",
                     "name": "Berry smoothie",
                     "description": "Berry smoothie",
                     "price": 65_000,
-                }
+                    }
+                }]
             }
         )
         trace.steps[-1].input["arguments"] = {
@@ -675,24 +827,29 @@ class TestReadDisplayTraceParameterization:
                 }
             ]
         }
+        _sync_menu_correspondence(trace)
 
         manifest = discovery.parameterize_trace(trace)
 
         assert manifest is not None
         display_arguments = json.loads(manifest.steps[1].arguments_template)
-        assert display_arguments["items"][0]["name"] == "{step_0.product.name}"
+        assert display_arguments["items"][0]["name"] == (
+            "{step_0.items.0.product.name}"
+        )
 
     def test_unverifiable_name_suffix_falls_back_to_the_grounded_product_name(self):
         discovery = SkillDiscovery()
         trace = _completed_menu_trace()
-        trace.steps[1].output["result"] = json.dumps(
+        _menu_step(trace, "http_request").output["result"] = json.dumps(
             {
-                "product": {
+                "items": [{
+                    "product": {
                     "slug": "cake-1",
                     "name": "Salted egg croissant",
                     "description": "Bánh croissant than tre kim sa",
                     "price": 65_000,
-                }
+                    }
+                }]
             }
         )
         trace.steps[-1].input["arguments"] = {
@@ -704,12 +861,15 @@ class TestReadDisplayTraceParameterization:
                 }
             ]
         }
+        _sync_menu_correspondence(trace)
 
         manifest = discovery.parameterize_trace(trace)
 
         assert manifest is not None
         display_arguments = json.loads(manifest.steps[1].arguments_template)
-        assert display_arguments["items"][0]["name"] == "{step_0.product.name}"
+        assert display_arguments["items"][0]["name"] == (
+            "{step_0.items.0.product.name}"
+        )
 
     def test_learns_despite_a_failed_skill_manage_recall_before_the_read(self):
         discovery = SkillDiscovery()
@@ -748,7 +908,7 @@ class TestReadDisplayTraceParameterization:
     def test_does_not_learn_multiple_reads_that_cannot_all_be_returned(self):
         discovery = SkillDiscovery()
         trace = _completed_menu_trace()
-        trace.steps.insert(2, trace.steps[1])
+        trace.steps.insert(4, _menu_step(trace, "http_request"))
 
         assert discovery.parameterize_trace(trace) is None
 
@@ -761,13 +921,14 @@ class TestReadDisplayTraceParameterization:
     def test_parallel_end_metadata_wins_over_a_stale_step_input(self):
         discovery = SkillDiscovery()
         trace = _completed_menu_trace()
-        read = trace.steps[1]
+        read = _menu_step(trace, "http_request")
         read.input["arguments"]["url"] = "https://shop.example/wrong"
         read.metadata["arguments"] = {
             "method": "GET",
             "url": (
                 "https://shop.example/menu?date="
                 f"{datetime.now().astimezone().date().isoformat()}"
+                "&q=Fresh%20noodles"
             ),
             "headers": {"Accept": "application/json"},
         }
@@ -776,4 +937,93 @@ class TestReadDisplayTraceParameterization:
 
         assert manifest is not None
         arguments = json.loads(manifest.steps[0].arguments_template)
-        assert arguments["url"] == "https://shop.example/menu?date={today}"
+        assert arguments["url"] == "https://shop.example/menu?date={today}&q={q|urlencode}"
+
+    @pytest.mark.parametrize("occurrence", [0, 1])
+    def test_rejects_when_either_network_snapshot_is_missing(self, occurrence):
+        trace = _completed_menu_trace()
+        trace.steps.remove(_menu_step(trace, "browser_network_requests", occurrence))
+
+        assert SkillDiscovery().parameterize_trace(trace) is None
+
+    def test_rejects_when_observed_request_did_not_change(self):
+        trace = _completed_menu_trace()
+        before = _menu_step(trace, "browser_network_requests", 0)
+        after = _menu_step(trace, "browser_network_requests", 1)
+        after.output["result"] = before.output["result"]
+
+        assert SkillDiscovery().parameterize_trace(trace) is None
+
+    @pytest.mark.parametrize(
+        "field, value",
+        [
+            ("method", "HEAD"),
+            ("url", "https://other.example/menu?q=Fresh%20noodles"),
+            ("url", "https://shop.example/other?q=Fresh%20noodles"),
+        ],
+    )
+    def test_rejects_when_direct_replay_differs_from_observed_request(
+        self, field, value
+    ):
+        trace = _completed_menu_trace()
+        _menu_step(trace, "http_request").input["arguments"][field] = value
+
+        assert SkillDiscovery().parameterize_trace(trace) is None
+
+    @pytest.mark.parametrize(
+        "verification",
+        [
+            {"count": 2, "items": [{"id": "noodles-1", "text": "Fresh noodles"}]},
+            {"count": 1, "items": [{"id": "other", "text": "Fresh noodles"}]},
+        ],
+    )
+    def test_rejects_browser_results_that_do_not_correspond(self, verification):
+        trace = _completed_menu_trace()
+        verification["has_pagination"] = False
+        verification["complete"] = {"path": "hasNext", "equals": False}
+        _menu_step(trace, "browser_verify_list_visible").output["result"] = json.dumps(
+            verification
+        )
+
+        assert SkillDiscovery().parameterize_trace(trace) is None
+
+    @pytest.mark.parametrize(
+        "failure", ["truncated", "non_json", "incomplete", "no_id"]
+    )
+    def test_rejects_incomplete_or_unidentified_replay(self, failure):
+        trace = _completed_menu_trace()
+        replay = _menu_step(trace, "http_request")
+        if failure == "truncated":
+            replay.metadata["truncated"] = True
+        elif failure == "non_json":
+            replay.output["result"] = "not-json"
+        else:
+            body = json.loads(replay.output["result"])
+            if failure == "incomplete":
+                body["hasNext"] = True
+            else:
+                body["items"][0].pop("id")
+            replay.output["result"] = json.dumps(body)
+
+        assert SkillDiscovery().parameterize_trace(trace) is None
+
+    def test_rejects_display_items_not_grounded_in_replay(self):
+        trace = _completed_menu_trace()
+        _menu_step(trace, "display_menu").input["arguments"]["items"][0]["id"] = (
+            "invented"
+        )
+
+        assert SkillDiscovery().parameterize_trace(trace) is None
+
+    def test_rejects_cross_origin_final_url(self):
+        trace = _completed_menu_trace()
+        _menu_step(trace, "http_request").metadata["final_url"] = (
+            "https://other.example/menu"
+        )
+
+        assert SkillDiscovery().parameterize_trace(trace) is None
+
+    def test_narration_without_evidence_is_never_a_recipe(self):
+        trace = Trace(query="menu", result="Đã tìm thấy món", steps=[])
+
+        assert SkillDiscovery().parameterize_trace(trace) is None

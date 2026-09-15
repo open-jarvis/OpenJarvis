@@ -13,6 +13,7 @@ import re
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -39,10 +40,40 @@ def _invoke_quietly(callback: Callable[[], None]) -> None:
         pass
 
 
+class AgentToolGate:
+    """Keep shared tools with their owner while conversation can be preempted.
+
+    Nested/parallel calls in the same run are allowed. Another run gets a
+    pending result, never a blocking wait or access to an unsettled resource.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._owner = None
+        self._depth = 0
+
+    @contextmanager
+    def enter(self, owner):
+        with self._lock:
+            acquired = self._owner is None or self._owner is owner
+            if acquired:
+                self._owner = owner
+                self._depth += 1
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                with self._lock:
+                    self._depth -= 1
+                    if not self._depth:
+                        self._owner = None
+
+
 class AgentWorkerLease:
     """Retain caller ownership until every task-local sync worker settles."""
 
-    def __init__(self) -> None:
+    def __init__(self, tool_gate: AgentToolGate | None = None) -> None:
+        self.tool_gate = tool_gate or AgentToolGate()
         self._pending: set[asyncio.Task[Any]] = set()
         self._settled_callbacks: list[Callable[[], None]] = []
         # Registration happens on the ``to_thread`` worker, signaling on the
@@ -58,6 +89,7 @@ class AgentWorkerLease:
 
     async def run_sync(self, function: Callable[..., Any], /, *args: Any) -> Any:
         """Run one sync child while keeping its completion attached to this lease."""
+        self.check_cancelled()
         task = asyncio.create_task(asyncio.to_thread(function, *args))
         self._pending.add(task)
         task.add_done_callback(self._worker_settled)
@@ -97,6 +129,11 @@ class AgentWorkerLease:
         for callback in callbacks:
             _invoke_quietly(callback)
 
+    def check_cancelled(self) -> None:
+        with self._cancel_lock:
+            if self._cancelled:
+                raise asyncio.CancelledError("agent_turn_interrupted")
+
     def when_settled(self, callback: Callable[[], None]) -> None:
         """Call ``callback`` now or after the final retained worker exits."""
         if not self._pending:
@@ -117,6 +154,13 @@ class AgentWorkerLease:
 
 
 _RUN_WORKER_LEASE = ContextVar("openjarvis_run_worker_lease", default=None)
+
+
+def check_agent_cancelled() -> None:
+    """Cooperative boundary before new inference, dispatch, or publication."""
+    lease = _RUN_WORKER_LEASE.get()
+    if lease is not None:
+        lease.check_cancelled()
 
 
 async def run_agent_sync_worker(
@@ -149,25 +193,34 @@ class AgentPersistenceStaging:
 
     def __init__(self) -> None:
         self._staged: list[Callable[[], None]] = []
+        self._lock = threading.Lock()
+        self._settled = False
 
     @property
     def has_staged_writes(self) -> bool:
         """Return whether any answer-derived write is still uncommitted."""
-        return bool(self._staged)
+        with self._lock:
+            return bool(self._staged)
 
     def stage(self, write: Callable[[], None]) -> None:
         """Retain ``write`` until :meth:`commit` or :meth:`discard` decides it."""
-        self._staged.append(write)
+        with self._lock:
+            if not self._settled:
+                self._staged.append(write)
 
     def commit(self) -> None:
         """Apply every retained write in the order it was staged."""
-        staged, self._staged = self._staged, []
+        with self._lock:
+            self._settled = True
+            staged, self._staged = self._staged, []
         for write in staged:
             write()
 
     def discard(self) -> None:
         """Drop every retained write, leaving the durable stores untouched."""
-        self._staged = []
+        with self._lock:
+            self._settled = True
+            self._staged = []
 
 
 _RUN_PERSISTENCE: ContextVar[AgentPersistenceStaging | None] = ContextVar(
@@ -454,6 +507,8 @@ class BaseAgent(ABC):
         Publishes INFERENCE_START/END events on the bus when the engine
         does not publish its own (i.e. non-instrumented engines).
         """
+        if type(self).__dict__.get("supports_run_preemption", False):
+            check_agent_cancelled()
         model = self._effective_model()
         if self._bus and not getattr(self._engine, "_publishes_events", False):
             engine_id = getattr(self._engine, "engine_id", "")
@@ -484,6 +539,10 @@ class BaseAgent(ABC):
                 },
             )
 
+        # Keep the actual response telemetry, but never execute its late tool
+        # calls or begin another reasoning round after interruption.
+        if type(self).__dict__.get("supports_run_preemption", False):
+            check_agent_cancelled()
         return result
 
     def _run_with_model(

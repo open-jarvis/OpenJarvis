@@ -122,6 +122,7 @@ export function FloatingCodexPet({
   const {
     position,
     scale,
+    setScale,
     isDragging,
     isResizing,
     dragDeltaX,
@@ -135,6 +136,15 @@ export function FloatingCodexPet({
     baseSize,
     enableWandering,
   });
+
+  // Dynamically update pet scale when scaleProp changes (e.g. from settings slider)
+  useEffect(() => {
+    if (scaleProp !== undefined) {
+      setScale(scaleProp);
+    }
+  }, [scaleProp, setScale]);
+
+  const effectiveScale = scaleProp ?? scale;
 
   const petState = resolvePetState(
     voiceStatus,
@@ -174,7 +184,7 @@ export function FloatingCodexPet({
         robotSceneUrl={robotSceneUrl}
         manifest={activeManifest}
         state={petState}
-        scale={scale}
+        scale={effectiveScale}
         renderMode={renderMode}
         isDragging={isDragging}
         dragDeltaX={dragDeltaX}

@@ -33,6 +33,30 @@ afterEach(() => {
 });
 
 describe('setModels', () => {
+  it('retains the selected Luna model after reloading the store', async () => {
+    const { useAppStore } = await import('./store');
+    useAppStore.getState().setSelectedModel('gpt-5.6-luna');
+    vi.resetModules();
+    const { useAppStore: reloaded } = await import('./store');
+    expect(reloaded.getState().selectedModel).toBe('gpt-5.6-luna');
+    // /v1/models can list only the installed engine's models; Cloud Models
+    // is a separate picker and Luna need not be in that response.
+    reloaded.getState().setModels([model('other-model')]);
+    expect(reloaded.getState().selectedModel).toBe('gpt-5.6-luna');
+  });
+
+  it('does not replace the bound model during an active Voice session', async () => {
+    const { useAppStore } = await import('./store');
+    useAppStore.getState().setSelectedModel('gpt-5.6-luna');
+    useAppStore.getState().setVoiceSessionActive(true);
+    useAppStore.getState().setModels([model('other-model')]);
+    useAppStore.getState().setSelectedModel('other-model');
+    expect(useAppStore.getState().selectedModel).toBe('gpt-5.6-luna');
+    useAppStore.getState().setVoiceSessionActive(false);
+    useAppStore.getState().setSelectedModel('other-model');
+    expect(useAppStore.getState().selectedModel).toBe('other-model');
+  });
+
   it('does not select an embedding-only model', async () => {
     const { useAppStore } = await import('./store');
 

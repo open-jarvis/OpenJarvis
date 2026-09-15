@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import urllib.parse
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +19,133 @@ except ModuleNotFoundError:
 import logging
 
 LOGGER = logging.getLogger(__name__)
+
+_SUPPORTED_SCHEMA_KEYS = {
+    "type",
+    "properties",
+    "required",
+    "additionalProperties",
+    "minLength",
+    "minimum",
+    "maximum",
+    "enum",
+    "items",
+}
+_SUPPORTED_SCHEMA_TYPES = {"object", "array", "string", "integer", "number", "boolean"}
+
+
+def _validate_schema_node(schema: object, path: str) -> None:
+    if not isinstance(schema, dict):
+        raise ValueError(f"input_schema {path} must be an object")
+
+    unsupported = set(schema) - _SUPPORTED_SCHEMA_KEYS
+    if unsupported:
+        names = ", ".join(sorted(unsupported))
+        raise ValueError(f"input_schema {path} uses unsupported keyword(s): {names}")
+
+    schema_type = schema.get("type")
+    if schema_type is not None and schema_type not in _SUPPORTED_SCHEMA_TYPES:
+        raise ValueError(f"input_schema {path}.type is unsupported")
+
+    properties = schema.get("properties")
+    if properties is not None:
+        if not isinstance(properties, dict):
+            raise ValueError(f"input_schema {path}.properties must be an object")
+        for name, child in properties.items():
+            if not isinstance(name, str):
+                raise ValueError(
+                    f"input_schema {path}.properties names must be strings"
+                )
+            _validate_schema_node(child, f"{path}.properties.{name}")
+
+    required = schema.get("required")
+    if required is not None:
+        if not isinstance(required, list) or not all(
+            isinstance(name, str) for name in required
+        ):
+            raise ValueError(f"input_schema {path}.required must be a string list")
+        declared = set(properties or {})
+        if not set(required).issubset(declared):
+            raise ValueError(
+                f"input_schema {path}.required contains undeclared properties"
+            )
+
+    additional = schema.get("additionalProperties")
+    if additional is not None and not isinstance(additional, bool):
+        raise ValueError(
+            f"input_schema {path}.additionalProperties must be a boolean"
+        )
+
+    min_length = schema.get("minLength")
+    if min_length is not None and (
+        not isinstance(min_length, int)
+        or isinstance(min_length, bool)
+        or min_length < 0
+    ):
+        raise ValueError(
+            f"input_schema {path}.minLength must be a non-negative integer"
+        )
+
+    for keyword in ("minimum", "maximum"):
+        value = schema.get(keyword)
+        if value is not None and (
+            not isinstance(value, (int, float)) or isinstance(value, bool)
+        ):
+            raise ValueError(f"input_schema {path}.{keyword} must be a number")
+
+    if "enum" in schema and not isinstance(schema["enum"], list):
+        raise ValueError(f"input_schema {path}.enum must be an array")
+
+    if "items" in schema:
+        _validate_schema_node(schema["items"], f"{path}.items")
+
+
+def _parse_input_schema(skill_data: dict) -> dict:
+    if "input_schema_json" not in skill_data:
+        return {}
+    try:
+        schema = json.loads(skill_data["input_schema_json"])
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ValueError("input_schema_json must contain valid JSON") from exc
+    if not isinstance(schema, dict):
+        raise ValueError("input_schema must be an object")
+    _validate_schema_node(schema, "root")
+    if schema.get("type") != "object":
+        raise ValueError("input_schema root type must be object")
+    if not isinstance(schema.get("properties"), dict):
+        raise ValueError("input_schema root properties must be an object")
+    return schema
+
+
+def _validate_request_recipe_metadata(recipe: object, input_schema: dict) -> None:
+    if not isinstance(recipe, dict):
+        raise ValueError("request_recipe metadata must be an object")
+
+    origin = recipe.get("origin")
+    try:
+        parsed = urllib.parse.urlsplit(origin if isinstance(origin, str) else "")
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("request_recipe origin must be a valid HTTP origin") from exc
+    valid_origin = (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.hostname)
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.path in {"", "/"}
+        and not parsed.query
+        and not parsed.fragment
+    )
+    if not valid_origin:
+        raise ValueError("request_recipe origin must be a valid HTTP origin")
+    if recipe.get("method") not in {"GET", "HEAD"}:
+        raise ValueError("request_recipe method must be exactly GET or HEAD")
+    if recipe.get("read_only") is not True:
+        raise ValueError("request_recipe read_only must be true")
+    if input_schema.get("additionalProperties") is not False:
+        raise ValueError(
+            "request_recipe input_schema additionalProperties must be false"
+        )
 
 
 def _read_source_metadata(path: Path) -> dict:
@@ -78,6 +207,21 @@ def load_skill(
         data = tomllib.load(fh)
 
     skill_data = data.get("skill", {})
+    input_schema = _parse_input_schema(skill_data)
+    if skill_data.get("checkout", False) and "input_schema_json" in skill_data:
+        raise ValueError("checkout skill cannot replace its guarded input schema")
+
+    metadata = skill_data.get("metadata", {})
+    openjarvis_metadata = (
+        metadata.get("openjarvis", {}) if isinstance(metadata, dict) else {}
+    )
+    if (
+        isinstance(openjarvis_metadata, dict)
+        and "request_recipe" in openjarvis_metadata
+    ):
+        _validate_request_recipe_metadata(
+            openjarvis_metadata["request_recipe"], input_schema
+        )
 
     steps = []
     for step_data in skill_data.get("steps", []):
@@ -87,18 +231,26 @@ def load_skill(
                 skill_name=step_data.get("skill_name", ""),
                 arguments_template=step_data.get("arguments_template", "{}"),
                 output_key=step_data.get("output_key", ""),
+                assertions=(
+                    json.loads(step_data["assertions_json"])
+                    if "assertions_json" in step_data
+                    else step_data.get("assertions", [])
+                ),
             )
         )
 
     manifest = SkillManifest(
         name=skill_data.get("name", path.stem),
+        checkout=skill_data.get("checkout", False),
+        accepts_cart_lines=skill_data.get("accepts_cart_lines", False),
         version=skill_data.get("version", "0.1.0"),
         description=skill_data.get("description", ""),
         author=skill_data.get("author", ""),
         steps=steps,
         required_capabilities=skill_data.get("required_capabilities", []),
         signature=skill_data.get("signature", ""),
-        metadata=skill_data.get("metadata", {}),
+        metadata=metadata,
+        input_schema=input_schema,
         tags=skill_data.get("tags", []),
         depends=skill_data.get("depends", []),
         user_invocable=skill_data.get("user_invocable", True),
@@ -237,6 +389,7 @@ def load_skill_directory(path: str | Path) -> SkillManifest:
                 required_capabilities=manifest.required_capabilities,
                 signature=manifest.signature,
                 metadata=manifest.metadata,
+                input_schema=manifest.input_schema,
                 tags=manifest.tags,
                 depends=manifest.depends,
                 user_invocable=manifest.user_invocable,

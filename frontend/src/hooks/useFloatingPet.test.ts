@@ -66,6 +66,12 @@ describe('useFloatingPet - Geometry & Positioning', () => {
       expect(pos.x).toBe(876);
       expect(pos.y).toBe(640);
     });
+
+    it('calculates centered position when placement is center', () => {
+      // x = (1000 - 64) / 2 = 468, y = (800 - 64) / 2 = 368
+      const pos = calculateDefaultPetPosition(defaultViewport, petSize, undefined, 16, 'center');
+      expect(pos).toEqual({ x: 468, y: 368 });
+    });
   });
 
   describe('clampPetPosition', () => {

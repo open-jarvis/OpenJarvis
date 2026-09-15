@@ -229,6 +229,7 @@ class SystemBuilder:
         )
         for tool in tool_list:
             self._inject_display_presentation(tool, presentation)
+        self._inject_draft_cart_settler(tool_list)
         # The policy has to travel with the executor: ToolExecutor.execute()
         # consults it before dispatch, and a None policy silently disables the
         # capability check for every tool routed through this executor.
@@ -275,14 +276,18 @@ class SystemBuilder:
                 if config.skills.enabled:
                     skill_tools = skill_manager.get_skill_tools(
                         tool_executor=tool_executor,
+                        active=config.skills.active,
                     )
                     tool_list.extend(skill_tools)
                     if tool_list:
                         tool_executor = ToolExecutor(
                             tool_list, bus, capability_policy=sec.capability_policy
                         )
+                    self._configure_initial_display(presentation, tool_list)
                     skill_few_shot_examples = skill_manager.get_few_shot_examples()
             except Exception as exc:
+                if config.skills.enabled and config.skills.active != "*":
+                    raise
                 logger.warning("Failed to initialize skills: %s", exc)
 
         trusted_origins = self._parse_trusted_origins(
@@ -290,6 +295,11 @@ class SystemBuilder:
         )
         for tool in tool_list:
             self._inject_payment_trusted_origins(tool, trusted_origins)
+        if any(
+            getattr(getattr(t, "_manifest", None), "checkout", False)
+            for t in tool_list
+        ):
+            self._inject_checkout_guard(tool_list)
 
         agent_name = self._agent_name or config.agent.default_agent
         container_runner = self._setup_sandbox(config)
@@ -376,7 +386,7 @@ class SystemBuilder:
             engine_key=engine_key,
             model=model,
             agent_name=agent_name,
-            tools=tool_list,
+            tools=self._model_visible_tools(tool_list, config.tools.model_hidden),
             mcp_tools=list(self._mcp_tools),
             tool_executor=tool_executor,
             memory_backend=memory_backend,
@@ -605,6 +615,67 @@ class SystemBuilder:
         """Hand the session-scoped presentation manager to every display tool."""
         if tool.spec.category == "display" and hasattr(tool, "_presentation"):
             tool._presentation = presentation
+
+    @staticmethod
+    def _configure_initial_display(presentation, tools) -> None:
+        """Bind the first recipe that declares initial customer-display inputs."""
+        for tool in tools:
+            manifest = getattr(tool, "_manifest", None)
+            metadata = getattr(manifest, "metadata", {})
+            openjarvis = (
+                metadata.get("openjarvis", {}) if isinstance(metadata, dict) else {}
+            )
+            initial = (
+                openjarvis.get("initial_display", {})
+                if isinstance(openjarvis, dict)
+                else {}
+            )
+            inputs = initial.get("inputs") if isinstance(initial, dict) else None
+            if not isinstance(inputs, dict):
+                continue
+            presentation.configure_initial_display(
+                lambda tool=tool, inputs=dict(inputs): tool.execute(**inputs)
+            )
+            return
+
+    @staticmethod
+    def _model_visible_tools(tools, hidden: str):
+        """Keep skill primitives in the internal executor, outside agent schemas."""
+        names = {name.strip() for name in hidden.split(",") if name.strip()}
+        return [tool for tool in tools if tool.spec.name not in names]
+
+    @staticmethod
+    def _inject_checkout_guard(tools) -> None:
+        cart = next((t for t in tools if t.spec.name == "display_cart"), None)
+        if cart is None:
+            raise ValueError("guarded checkout requires display_cart")
+        cart._checkout_contracts = {
+            t._manifest.manifest_bytes() for t in tools
+            if getattr(getattr(t, "_manifest", None), "checkout", False)
+        }
+        for tool in tools:
+            if tool.spec.name == "http_request":
+                tool._checkout_guard = cart.checkout_write_allowed
+
+    @staticmethod
+    def _inject_draft_cart_settler(tools) -> None:
+        """Settle the conversation draft once payment evidence is verified."""
+        settler = next(
+            (
+                tool.settle_current
+                for tool in tools
+                if tool.spec.name == "display_cart"
+                and callable(getattr(tool, "settle_current", None))
+            ),
+            None,
+        )
+        if settler is None:
+            return
+        for tool in tools:
+            if tool.spec.name == "display_payment_qr" and hasattr(
+                tool, "_cart_settler"
+            ):
+                tool._cart_settler = settler
 
     @staticmethod
     def _parse_trusted_origins(raw: str) -> tuple:

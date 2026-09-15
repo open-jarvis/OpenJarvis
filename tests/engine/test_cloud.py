@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 
 from openjarvis.core.registry import EngineRegistry
-from openjarvis.core.types import Message, Role
+from openjarvis.core.types import Message, Role, ToolCall
 from openjarvis.engine._base import EngineConnectionError
 from openjarvis.engine.cloud import (
     CloudEngine,
@@ -88,6 +88,136 @@ class TestCloudEngineGenerate:
         )
         assert result["content"] == "Hello!"
         assert result["usage"]["prompt_tokens"] == 10
+
+    def test_gpt_5_6_tool_calls_use_responses_with_high_reasoning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        fake_client = mock.MagicMock()
+        response_items = [
+            SimpleNamespace(
+                type="reasoning",
+                model_dump=lambda **_: {
+                    "id": "rs_1",
+                    "type": "reasoning",
+                    "summary": [],
+                },
+            ),
+            SimpleNamespace(
+                type="function_call",
+                call_id="call_1",
+                name="lookup",
+                arguments='{"query":"menu"}',
+                model_dump=lambda **_: {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "lookup",
+                    "arguments": '{"query":"menu"}',
+                },
+            ),
+        ]
+        fake_client.responses.create.return_value = SimpleNamespace(
+            output_text="",
+            output=response_items,
+            usage=SimpleNamespace(
+                input_tokens=10,
+                output_tokens=5,
+                total_tokens=15,
+            ),
+            model="gpt-5.6-luna",
+            status="completed",
+        )
+        engine = CloudEngine()
+        engine._openai_client = fake_client
+
+        engine.generate(
+            [Message(role=Role.USER, content="Hi")],
+            model="gpt-5.6-luna",
+            tools=[{"type": "function", "function": {"name": "lookup"}}],
+            reasoning_effort="none",
+        )
+
+        fake_client.chat.completions.create.assert_not_called()
+        sent = fake_client.responses.create.call_args.kwargs
+        assert sent["reasoning"] == {"effort": "high"}
+        assert "reasoning_effort" not in sent
+        assert sent["include"] == ["reasoning.encrypted_content"]
+        assert sent["tools"] == [
+            {
+                "type": "function",
+                "name": "lookup",
+                "parameters": None,
+                "strict": False,
+            }
+        ]
+        assert sent["store"] is False
+
+    def test_gpt_5_6_replays_response_items_and_tool_output(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        fake_client = mock.MagicMock()
+        fake_client.responses.create.return_value = SimpleNamespace(
+            output_text="Done.",
+            output=[],
+            usage=SimpleNamespace(
+                input_tokens=20,
+                output_tokens=4,
+                total_tokens=24,
+            ),
+            model="gpt-5.6-luna",
+            status="completed",
+        )
+        engine = CloudEngine()
+        engine._openai_client = fake_client
+        response_items = [
+            {
+                "id": "rs_1",
+                "type": "reasoning",
+                "summary": [],
+                "encrypted_content": "opaque",
+            },
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "lookup",
+                "arguments": '{"query":"menu"}',
+            },
+        ]
+
+        engine.generate(
+            [
+                Message(role=Role.USER, content="Find the menu"),
+                Message(
+                    role=Role.ASSISTANT,
+                    tool_calls=[
+                        ToolCall(
+                            id="call_1",
+                            name="lookup",
+                            arguments='{"query":"menu"}',
+                        )
+                    ],
+                    metadata={"response_items": response_items},
+                ),
+                Message(
+                    role=Role.TOOL,
+                    content='{"ok":true}',
+                    tool_call_id="call_1",
+                ),
+            ],
+            model="gpt-5.6-luna",
+            tools=[{"type": "function", "function": {"name": "lookup"}}],
+        )
+
+        assert fake_client.responses.create.call_args.kwargs["input"] == [
+            {"role": "user", "content": "Find the menu"},
+            *response_items,
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": '{"ok":true}',
+            },
+        ]
 
     def test_generate_anthropic(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)

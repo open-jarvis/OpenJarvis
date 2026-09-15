@@ -19,16 +19,29 @@ function displayEvent(
   };
 }
 
+function verifiedMenu(items: Record<string, unknown>[]) {
+  return {
+    view: 'menu',
+    items,
+    result_complete: true,
+    projected_count: items.length,
+    published_count: items.length,
+  };
+}
+
 describe('reduceCustomerDisplay', () => {
   it('accepts a matching menu event and ignores another session', () => {
-    const state = reduceCustomerDisplay(waitingState, displayEvent('A', {
-      view: 'menu',
-      items: [{ id: 'latte', name: 'Latte', price: 45000 }],
-    }), 'A');
+    const state = reduceCustomerDisplay(waitingState, displayEvent('A', verifiedMenu([
+      { id: 'latte', name: 'Latte', price: 45000 },
+    ])), 'A');
 
     expect(state).toEqual({
       view: 'menu',
       items: [{ id: 'latte', name: 'Latte', price: 45000 }],
+      resultComplete: true,
+      projectedCount: 1,
+      publishedCount: 1,
+      preview: false,
     });
     expect(reduceCustomerDisplay(
       state,
@@ -37,10 +50,47 @@ describe('reduceCustomerDisplay', () => {
     )).toBe(state);
   });
 
+  it.each([0, 1, 6, 7, 100])('accepts all %i verified menu items', (count) => {
+    const items = Array.from({ length: count }, (_, index) => ({
+      id: `item-${index}`,
+      name: `Item ${index}`,
+    }));
+
+    expect(reduceCustomerDisplay(
+      waitingState,
+      displayEvent('A', verifiedMenu(items)),
+      'A',
+    )).toEqual({
+      view: 'menu',
+      items,
+      resultComplete: true,
+      projectedCount: count,
+      publishedCount: count,
+      preview: false,
+    });
+  });
+
+  it('retains previous state when complete menu counts do not match', () => {
+    const prior = waitingState;
+    const data = verifiedMenu([{ id: 'one', name: 'One' }]);
+
+    for (const mismatch of [
+      { ...data, projected_count: 2 },
+      { ...data, published_count: 0 },
+      { ...data, result_complete: false },
+    ]) {
+      expect(reduceCustomerDisplay(prior, displayEvent('A', mismatch), 'A')).toBe(prior);
+    }
+  });
+
   it('returns waiting state on a matching reset event', () => {
     const menuState: CustomerDisplayState = {
       view: 'menu',
       items: [{ id: 'latte', name: 'Latte', price: 45000 }],
+      resultComplete: true,
+      projectedCount: 1,
+      publishedCount: 1,
+      preview: false,
     };
 
     expect(reduceCustomerDisplay(
@@ -51,18 +101,20 @@ describe('reduceCustomerDisplay', () => {
   });
 
   it('ignores malformed payloads and drops fields the display does not render', () => {
-    const state = reduceCustomerDisplay(waitingState, displayEvent('A', {
-      view: 'menu',
-      items: [{ id: 'latte', price: 45000 }],
-    }), 'A');
+    const state = reduceCustomerDisplay(waitingState, displayEvent('A', verifiedMenu([
+      { id: 'latte', price: 45000 },
+    ])), 'A');
     expect(state).toBe(waitingState);
 
-    expect(reduceCustomerDisplay(waitingState, displayEvent('A', {
-      view: 'menu',
-      items: [{ id: 'latte', name: 'Latte', price: 45000, html: '<script>x</script>' }],
-    }), 'A')).toEqual({
+    expect(reduceCustomerDisplay(waitingState, displayEvent('A', verifiedMenu([
+      { id: 'latte', name: 'Latte', price: 45000, html: '<script>x</script>' },
+    ])), 'A')).toEqual({
       view: 'menu',
       items: [{ id: 'latte', name: 'Latte', price: 45000 }],
+      resultComplete: true,
+      projectedCount: 1,
+      publishedCount: 1,
+      preview: false,
     });
   });
 
@@ -70,6 +122,10 @@ describe('reduceCustomerDisplay', () => {
     const state: CustomerDisplayState = {
       view: 'menu',
       items: [{ id: 'latte', name: 'Latte', price: 45000 }],
+      resultComplete: true,
+      projectedCount: 1,
+      publishedCount: 1,
+      preview: false,
     };
 
     for (const data of [null, 'not-an-object']) {
@@ -80,6 +136,44 @@ describe('reduceCustomerDisplay', () => {
       } as unknown as AgentEvent;
       expect(reduceCustomerDisplay(state, event, 'A')).toBe(state);
     }
+  });
+
+  it('keeps normalized draft identity, prices, notes, and order type', () => {
+    expect(reduceCustomerDisplay(waitingState, displayEvent('A', {
+      view: 'cart',
+      lines: [{
+        line_id: 'line-1',
+        name: 'Cà phê sữa',
+        size: 'tiêu chuẩn',
+        note: 'ít đá',
+        quantity: 3,
+        unit_price: 40000,
+        line_total: 120000,
+        html: '<script>x</script>',
+      }],
+      total: 120000,
+      order_note: 'Làm nhanh giúp mình',
+      order_type: 'at-table',
+      table: 'table-73',
+      table_name: '73',
+      provider_status: 'invented',
+    }), 'A')).toEqual({
+      view: 'cart',
+      lines: [{
+        line_id: 'line-1',
+        name: 'Cà phê sữa',
+        size: 'tiêu chuẩn',
+        note: 'ít đá',
+        quantity: 3,
+        unit_price: 40000,
+        line_total: 120000,
+      }],
+      total: 120000,
+      order_note: 'Làm nhanh giúp mình',
+      order_type: 'at-table',
+      table: 'table-73',
+      table_name: '73',
+    });
   });
 
   it('accepts a normalized bill and drops invented line fields', () => {

@@ -31,6 +31,8 @@ class SideEffect:
 
     kind: Literal[
         "publish_state",
+        "publish_display",
+        "load_initial_display",
         "tts_greeting",
         "tts_warning",
         "tts_goodbye",
@@ -50,6 +52,7 @@ class KioskDependencies:
 
     bus: Any | None = None                         # has .publish(event_type, data)
     tts: Callable[[str], Awaitable[None]] | None = None  # async text-to-speech
+    presentation: Any | None = None                 # has .publish(payload)
 
 
 # -- Runner -----------------------------------------------------------
@@ -64,6 +67,12 @@ async def run_side_effects(
         try:
             if fx.kind == "publish_state" and deps.bus is not None:
                 deps.bus.publish(EventType.KIOSK_STATE_CHANGED, fx.data)
+
+            elif fx.kind == "publish_display" and deps.presentation is not None:
+                deps.presentation.publish(fx.data)
+
+            elif fx.kind == "load_initial_display" and deps.presentation is not None:
+                deps.presentation.load_initial_display()
 
             elif fx.kind in _TTS_MAP and deps.tts is not None:
                 text = fx.data.get("text", _TTS_MAP[fx.kind])

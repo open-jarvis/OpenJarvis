@@ -461,7 +461,6 @@ def skills(
                 f"{result.total_runtime_seconds:.1f}",
             )
         console.print(table)
-
         if comparison.deltas:
             console.print("\n[bold]Deltas:[/bold]")
             for name, value in comparison.deltas.items():
@@ -485,3 +484,61 @@ def skills(
         table.add_row("Total tokens", str(result.total_tokens))
         table.add_row("Runtime (s)", f"{result.total_runtime_seconds:.1f}")
         console.print(table)
+
+
+@bench.command("stack")
+@click.option(
+    "--pid",
+    "root_pids",
+    multiple=True,
+    required=True,
+    type=click.IntRange(min=1),
+    help="Root PID to measure; repeat for each stack root.",
+)
+@click.option(
+    "--seconds",
+    default=60.0,
+    show_default=True,
+    type=click.FloatRange(min=0.1),
+    help="Total measurement duration.",
+)
+@click.option(
+    "--interval",
+    "interval_seconds",
+    default=1.0,
+    show_default=True,
+    type=click.FloatRange(min=0.1),
+    help="Seconds between samples.",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path, dir_okay=False, writable=True),
+    required=True,
+    help="JSONL path for raw resource-only samples.",
+)
+def stack(
+    root_pids: tuple[int, ...],
+    seconds: float,
+    interval_seconds: float,
+    output: Path,
+) -> None:
+    """Measure a live local process tree without inspecting request content."""
+
+    from openjarvis.telemetry.stack import (
+        collect_stack_samples,
+        summarize_samples,
+        write_jsonl,
+    )
+
+    try:
+        samples = collect_stack_samples(
+            root_pids,
+            seconds=seconds,
+            interval_seconds=interval_seconds,
+        )
+    except (ProcessLookupError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    output.parent.mkdir(parents=True, exist_ok=True)
+    write_jsonl(output, samples)
+    click.echo(json_mod.dumps(summarize_samples(samples), sort_keys=True))
+    click.echo(f"Raw samples written to {output}")

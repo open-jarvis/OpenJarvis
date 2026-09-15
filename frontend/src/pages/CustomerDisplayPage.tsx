@@ -17,16 +17,6 @@ function money(value: number | undefined): string {
   return `${vnd.format(value ?? 0)}đ`;
 }
 
-// Fallback high quality dish assets
-const defaultDishImages = [
-  'https://trendcoffee.net/assets/highlight_menu_2-DP6SYppA.webp',
-  'https://trendcoffee.net/assets/highlight_menu_5-CTt7s1hO.webp',
-  'https://trendcoffee.net/assets/highlight_menu_4-4H0ItU9q.webp',
-  'https://trendcoffee.net/assets/news_article_3_2-BhZ3ccgg.webp',
-  'https://trendcoffee.net/assets/news_article_2_2-Ci68oNOp.webp',
-  'https://trendcoffee.net/assets/highlight_menu_3-U5KOrbP8.webp',
-];
-
 // Striped Band Components
 function StripedBand() {
   return (
@@ -40,35 +30,47 @@ function StripedBand() {
 }
 
 // Swallowtail Ribbon Header
-function VintageRibbon({ title }: { title: string }) {
+function ColumnRibbon({
+  title,
+  dotsLeft = true,
+  dotsRight = true,
+}: {
+  title: string;
+  dotsLeft?: boolean;
+  dotsRight?: boolean;
+}) {
   return (
-    <div className="relative my-4 flex w-full items-center justify-center">
+    <div className="relative mb-5 flex w-full min-w-0 items-center">
+      {dotsLeft && (
+        <div
+          className="h-1.5 min-w-[12px] flex-1"
+          style={{
+            backgroundImage: 'radial-gradient(circle, #8c6239 1.6px, transparent 1.6px)',
+            backgroundSize: '10px 6px',
+            backgroundRepeat: 'repeat-x',
+            backgroundPosition: 'center',
+          }}
+        />
+      )}
       <div
-        className="h-1.5 flex-1"
+        className="relative z-10 flex h-8 min-w-0 max-w-full items-center justify-center bg-[#8c6239] px-4 sm:px-7 text-xs font-semibold tracking-[0.22em] sm:tracking-[0.32em] text-white uppercase shadow-sm shrink-0 truncate"
         style={{
-          backgroundImage: 'radial-gradient(circle, #8c6239 1.6px, transparent 1.6px)',
-          backgroundSize: '10px 6px',
-          backgroundRepeat: 'repeat-x',
-          backgroundPosition: 'center',
-        }}
-      />
-      <div
-        className="relative z-10 flex h-8 w-[450px] max-w-[52%] items-center justify-center bg-[#8c6239] text-sm font-semibold tracking-[0.32em] text-white uppercase shadow-sm"
-        style={{
-          clipPath: 'polygon(0% 0%, 100% 0%, calc(100% - 18px) 50%, 100% 100%, 0% 100%, 18px 50%)',
+          clipPath: 'polygon(0% 0%, 100% 0%, calc(100% - 14px) 50%, 100% 100%, 0% 100%, 14px 50%)',
         }}
       >
         {title}
       </div>
-      <div
-        className="h-1.5 flex-1"
-        style={{
-          backgroundImage: 'radial-gradient(circle, #8c6239 1.6px, transparent 1.6px)',
-          backgroundSize: '10px 6px',
-          backgroundRepeat: 'repeat-x',
-          backgroundPosition: 'center',
-        }}
-      />
+      {dotsRight && (
+        <div
+          className="h-1.5 min-w-[12px] flex-1"
+          style={{
+            backgroundImage: 'radial-gradient(circle, #8c6239 1.6px, transparent 1.6px)',
+            backgroundSize: '10px 6px',
+            backgroundRepeat: 'repeat-x',
+            backgroundPosition: 'center',
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -122,164 +124,232 @@ function EditorialFooter() {
   );
 }
 
-interface CatalogCategory {
-  slug: string;
-  name: string;
-  subtitle: string;
-  image: string;
+interface MenuCategorySection {
+  title: string;
+  items: {
+    name: string;
+    price: string | number;
+  }[];
 }
 
-const trendCoffeeCategories: CatalogCategory[] = [
+const vintageMenuSections: MenuCategorySection[] = [
   {
-    slug: 'd07665b001',
-    name: 'Cà phê',
-    subtitle: 'Đen, Sữa, Bạc xỉu, Cold Brew, Espresso',
-    image: 'https://trendcoffee.s3.ap-southeast-1.amazonaws.com/capheden-1772763183937',
+    title: 'CÀ PHÊ',
+    items: [
+      { name: 'Espresso', price: 45 },
+      { name: 'Bạc xỉu', price: 55 },
+      { name: 'Cold Brew', price: 60 },
+      { name: 'Cappuccino', price: 65 },
+    ],
   },
   {
-    slug: 'a87d969ab5',
-    name: 'Món trà',
-    subtitle: 'Trà thảo mộc mật ong, Trà sen vàng thanh mát',
-    image: 'https://trendcoffee.s3.ap-southeast-1.amazonaws.com/trathaomocmatong-1772762966320',
+    title: 'MÓN TRÀ',
+    items: [
+      { name: 'Trà đen', price: 40 },
+      { name: 'Trà nhài', price: 45 },
+      { name: 'Trà sữa', price: 55 },
+      { name: 'Trà ô long', price: 50 },
+    ],
   },
   {
-    slug: 'e6cfb79d94',
-    name: 'Sinh tố',
-    subtitle: 'Sinh tố hoa quả nhiệt đới, Nước dừa tươi',
-    image: 'https://trendcoffee.s3.ap-southeast-1.amazonaws.com/nuocdua-1772762836291',
+    title: 'SINH TỐ',
+    items: [
+      { name: 'Sinh tố bơ', price: 55 },
+      { name: 'Sinh tố dâu', price: 55 },
+      { name: 'Sinh tố xoài', price: 55 },
+      { name: 'Nước dừa tươi', price: 45 },
+    ],
   },
   {
-    slug: '12f10617d2',
-    name: 'Nước giải khát',
-    subtitle: 'Coca-Cola, soda đóng chai mát lạnh',
-    image: 'https://trendcoffee.s3.ap-southeast-1.amazonaws.com/coca-1781090606277.jfif',
+    title: 'NƯỚC GIẢI KHÁT',
+    items: [
+      { name: 'Coca Cola', price: 25 },
+      { name: 'Soda chanh', price: 35 },
+      { name: 'Nước cam', price: 40 },
+      { name: 'Nước ép dứa', price: 45 },
+    ],
   },
   {
-    slug: '29e0552928',
-    name: 'Món bánh',
-    subtitle: 'Croissant Ham & Cheese, Tiramisu, Panna Cotta',
-    image: 'https://trendcoffee.s3.ap-southeast-1.amazonaws.com/banhlanh-1772762278613',
+    title: 'MÓN BÁNH',
+    items: [
+      { name: 'Croissant', price: 35 },
+      { name: 'Cheesecake', price: 55 },
+      { name: 'Tiramisu', price: 60 },
+      { name: 'Panna Cotta', price: 50 },
+    ],
   },
   {
-    slug: '24dffe01f6',
-    name: 'Món ăn',
-    subtitle: 'Súp trong ngày, Khoai tây chiên, Burger & Pasta',
-    image: 'https://trendcoffee.s3.ap-southeast-1.amazonaws.com/xoup_bi_do-1781776637091.avif',
+    title: 'MÓN ĂN',
+    items: [
+      { name: 'Súp', price: 45 },
+      { name: 'Khoai tây chiên', price: 50 },
+      { name: 'Burger', price: 85 },
+      { name: 'Pasta', price: 95 },
+    ],
   },
   {
-    slug: 'd60c1f2946',
-    name: 'Bia/ rượu vang',
-    subtitle: 'Corona Extra, bia Bỉ, rượu vang cao cấp',
-    image: 'https://trendcoffee.s3.ap-southeast-1.amazonaws.com/corona_extra-1781751048582.jpeg',
+    title: 'BIA/ RƯỢU VANG',
+    items: [
+      { name: 'Corona Extra', price: 55 },
+      { name: 'Bia Hà', price: 35 },
+      { name: 'Vang đỏ ly', price: 90 },
+      { name: 'Vang trắng ly', price: 90 },
+    ],
   },
   {
-    slug: '8c25bf5866',
-    name: 'Giá tùy chỉnh',
-    subtitle: 'Combo ưu đãi, thực đơn theo yêu cầu riêng',
-    image: 'https://trendcoffee.net/assets/highlight_menu_2-DP6SYppA.webp',
+    title: 'GIÁ TÙY CHỈNH',
+    items: [
+      { name: 'Combo nhỏ', price: 79 },
+      { name: 'Combo vừa', price: 99 },
+      { name: 'Combo lớn', price: 129 },
+      { name: 'Theo yêu cầu', price: '-' },
+    ],
   },
 ];
 
 // VIEW 1: APPROVED MENU
-function MenuView({ items }: { items: CustomerMenuItem[] }) {
-  const mainDishes = items.length > 0 ? items.slice(0, 6) : [
-    { name: 'CÀ PHÊ SỮA', price: 40000, note: 'Cà phê pha phin truyền thống thơm nồng kết hợp sữa đặc ngọt ngào.' },
-    { name: 'CÀ PHÊ BẠC XỈU', price: 48000, note: 'Hòa quyện giữa nhiều sữa béo ấm và một chút hương cà phê nhẹ nhàng.' },
-    { name: 'SÚP TRONG NGÀY', price: 64000, note: 'Súp bí đỏ kem tươi béo ngậy nấu theo công thức đặc biệt mỗi ngày.' },
-    { name: 'KHOAI TÂY CHIÊN', price: 75000, note: 'Khoai tây giòn rụm chấm cùng xốt tương ớt và mayonnaise đặc trưng.' },
-    { name: 'BÁNH CROISSANT HAM & CHEESE', price: 49000, note: 'Bánh sừng bò nướng nóng giòn kẹp thịt nguội và phô mai tan chảy.' },
-    { name: 'BÁNH PANNA COTTA', price: 64000, note: 'Món tráng miệng Ý mềm mịn thanh mát kết hợp xốt dâu thơm dịu.' },
+export function MenuView({
+  items,
+  resultComplete,
+  projectedCount,
+  publishedCount,
+  preview,
+}: {
+  items: CustomerMenuItem[];
+  resultComplete: boolean;
+  projectedCount: number;
+  publishedCount: number;
+  preview: boolean;
+}) {
+  const demoMenuItems: CustomerMenuItem[] = [
+    {
+      name: 'MÌ Ý BÒ BẰM',
+      price: 107000,
+      note: 'Special gourmet recipe prepared fresh daily with premium ingredients.',
+    },
+    {
+      name: 'MÌ Ý CARBONARA',
+      price: 150000,
+      note: 'Special gourmet recipe prepared fresh daily with premium ingredients.',
+    },
+    {
+      name: 'MÌ Ý TÔM',
+      price: 172000,
+      note: 'Special gourmet recipe prepared fresh daily with premium ingredients.',
+    },
   ];
+  const mainDishes = preview ? demoMenuItems : items;
+
+  if (resultComplete && !preview && items.length === 0) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-8 py-16 text-center text-[#8c6239]">
+        <p className="font-['Cormorant_Garamond',serif] text-2xl">
+          Không có kết quả phù hợp.
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-1 flex-col px-8 pb-6 text-[#8c6239]">
-      <VintageRibbon title={items.length > 0 ? "RECOMMENDATIONS" : "SIGNATURE DISHES"} />
-      <div className="mb-6 grid grid-cols-1 gap-6 md:grid-cols-3">
-        {mainDishes.slice(0, 3).map((item, index) => (
-          <div key={item.id ?? `${item.name}-${index}`} className="flex flex-col">
-            <div className="mb-2 h-40 w-full overflow-hidden rounded-[4px] border border-[#d9c2a7] bg-white/70 p-2 shadow-[0_2px_5px_rgba(110,71,38,0.12)] flex items-center justify-center">
-              <img
-                src={item.image_url || defaultDishImages[index % defaultDishImages.length]}
-                alt={item.name}
-                className="max-h-full max-w-full object-contain transition-transform duration-300 hover:scale-105"
-                onError={(e) => {
-                  e.currentTarget.src = defaultDishImages[index % defaultDishImages.length];
-                }}
-              />
-            </div>
-            <div className="flex items-center justify-between font-bold text-[12.5px] tracking-[0.12em] uppercase">
-              <span>{item.name}</span>
-              <span className="tabular-nums">{item.price !== undefined ? (item.price >= 1000 ? Math.round(item.price / 1000) : item.price) : '10'}</span>
-            </div>
-            <p className="mt-0.5 font-['Cormorant_Garamond',serif] text-[14px] italic leading-tight text-[#9b7352]">
-              {item.note || 'Special gourmet recipe prepared fresh daily with premium ingredients.'}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      {mainDishes.length > 3 && (
-        <div className="mb-4 grid grid-cols-1 gap-x-6 gap-y-3.5 pb-2 text-[12px] md:grid-cols-3">
-          {mainDishes.slice(3).map((item, index) => (
-            <div key={item.id ?? `${item.name}-${index + 3}`}>
-              <div className="flex items-center justify-between font-bold text-[12px] tracking-[0.12em] uppercase">
-                <span>{item.name}</span>
-                <span className="tabular-nums">{item.price !== undefined ? (item.price >= 1000 ? Math.round(item.price / 1000) : item.price) : '15'}</span>
+    <div
+      className="flex flex-1 flex-col w-full min-w-0 px-3 sm:px-6 md:px-8 pb-6 text-[#8c6239]"
+      data-projected-count={projectedCount}
+      data-published-count={publishedCount}
+    >
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 lg:gap-x-12 gap-y-8 w-full min-w-0">
+        {/* LEFT COLUMN: MENU */}
+        <div className="flex flex-col min-w-0 w-full">
+          <ColumnRibbon title="MENU" dotsLeft={true} dotsRight={true} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2 gap-x-4 sm:gap-x-6 lg:gap-x-8 gap-y-6 sm:gap-y-8 w-full min-w-0">
+            {vintageMenuSections.map((section) => (
+              <div key={section.title} className="flex flex-col min-w-0">
+                <h3 className="mb-2 text-center font-bold text-[14.5px] sm:text-[15.5px] tracking-[0.1em] uppercase text-[#8c6239]">
+                  {section.title}
+                </h3>
+                <div className="flex flex-col space-y-2 min-w-0">
+                  {section.items.map((it) => (
+                    <div
+                      key={it.name}
+                      className="flex items-baseline justify-between text-[15px] sm:text-[16px] font-semibold tracking-[0.03em] text-[#8c6239] min-w-0"
+                    >
+                      <span className="truncate pr-1">{it.name}</span>
+                      <span className="tabular-nums font-bold shrink-0">{it.price}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <p className="font-['Cormorant_Garamond',serif] text-[13.5px] italic leading-tight text-[#9b7352]">
-                {item.note || 'Delicate blend of herbs and chef signature sauce.'}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <VintageRibbon title="CATEGORIES" />
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 md:grid-cols-4 md:gap-5">
-        {trendCoffeeCategories.map((cat, index) => (
-          <div key={cat.slug} className="group flex flex-col transition-transform duration-200 hover:-translate-y-0.5">
-            <div className="mb-2 aspect-square w-full overflow-hidden rounded-[4px] border border-[#d9c2a7] bg-white/70 p-2.5 shadow-[0_2px_5px_rgba(110,71,38,0.12)] flex items-center justify-center">
-              <img
-                src={cat.image}
-                alt={cat.name}
-                className="max-h-full max-w-full object-contain transition-transform duration-300 group-hover:scale-105"
-                onError={(e) => {
-                  e.currentTarget.src = defaultDishImages[index % defaultDishImages.length];
-                }}
-              />
-            </div>
-            <div className="flex items-center justify-between font-bold text-[12px] tracking-[0.12em] uppercase text-[#8c6239]">
-              <span>{cat.name}</span>
-            </div>
-            <p className="mt-0.5 font-['Cormorant_Garamond',serif] text-[13px] italic leading-tight text-[#9b7352]">
-              {cat.subtitle}
-            </p>
+            ))}
           </div>
-        ))}
+        </div>
+
+        {/* RIGHT COLUMN: RECOMMENDATIONS */}
+        <div className="flex flex-col min-w-0 w-full">
+          <ColumnRibbon title="RECOMMENDATIONS" dotsLeft={true} dotsRight={true} />
+          <div className="flex flex-col space-y-4 w-full min-w-0">
+            {mainDishes.map((item, index) => {
+              const displayPrice =
+                item.price !== undefined
+                  ? item.price >= 1000
+                    ? Math.round(item.price / 1000)
+                    : item.price
+                  : '10';
+              return (
+                <div
+                  key={item.id ?? `${item.name}-${index}`}
+                  className="flex flex-col min-w-0"
+                  data-menu-item
+                >
+                  <div className="flex items-center justify-between font-bold text-[15px] sm:text-[16px] tracking-[0.12em] uppercase text-[#8c6239] min-w-0">
+                    <span className="truncate pr-2">{item.name}</span>
+                    <span className="tabular-nums font-bold shrink-0 ml-4">{displayPrice}</span>
+                  </div>
+                  <p className="mt-0.5 font-['Cormorant_Garamond',serif] text-[14px] sm:text-[14.5px] italic leading-tight text-[#9b7352]">
+                    {item.note || 'Special gourmet recipe prepared fresh daily with premium ingredients.'}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// VIEW 2: CART (ORDER SLIP LUXURY INVOICE)
-function CartView({ lines, total }: { lines: CustomerDisplayLine[]; total: number }) {
+function orderTypeLabel(orderType: string): string {
+  if (orderType === 'at-table') return 'TẠI BÀN';
+  if (orderType === 'take-out') return 'MANG ĐI';
+  return 'CHƯA CHỌN';
+}
+
+// VIEW 2: LOCAL CART DRAFT
+export function CartView({
+  lines,
+  total,
+  order_note,
+  order_type,
+  table_name,
+}: {
+  lines: CustomerDisplayLine[];
+  total: number;
+  order_note: string;
+  order_type: string;
+  table_name: string;
+}) {
   return (
     <div className="mx-auto w-full max-w-[680px] flex-1 px-10 py-8 text-left font-['Josefin_Sans',sans-serif] text-[#783820]">
       <div className="flex items-baseline justify-between border-b-[1.5px] border-[#783820] pb-2">
         <h1 className="font-['Playfair_Display',serif] text-4xl font-normal tracking-wide uppercase sm:text-5xl">
-          ORDER SLIP
+          CART
         </h1>
         <div className="text-right text-[11px] font-semibold tracking-wider uppercase leading-tight">
-          <div>ORDER NO.: TC-000245</div>
-          <div>DATE OF ISSUE: AUGUST 28, 2026</div>
+          CHƯA TẠO ĐƠN HÀNG
         </div>
       </div>
 
-      <div className="pt-3 pb-6 text-[11px] font-medium tracking-wider uppercase leading-relaxed">
-        <div>SỐ 03 NGUYỄN CÔNG TRỨ, PHƯỜNG BÌNH THỌ, TP. THỦ ĐỨC</div>
-        <div>ORDER@TRENDCOFFEE.VN | +84 90 123 4567</div>
-        <div>WWW.TRENDCOFFEE.NET</div>
-        <div>ORDER CHANNEL: COUNTER #01</div>
+      <div className="flex flex-wrap gap-x-8 gap-y-1 pt-3 pb-6 text-[11px] font-semibold tracking-wider uppercase leading-relaxed">
+        <div>HÌNH THỨC: {orderTypeLabel(order_type)}</div>
+        {order_type === 'at-table' && table_name && <div>BÀN: {table_name}</div>}
       </div>
 
       <div className="grid grid-cols-12 border-b-[1.5px] border-[#783820] pb-1.5 text-[12px] font-bold tracking-widest uppercase">
@@ -293,12 +363,21 @@ function CartView({ lines, total }: { lines: CustomerDisplayLine[]; total: numbe
         {lines.length > 0 ? (
           lines.map((line, index) => {
             const qty = line.quantity ?? 1;
-            const lineTotal = line.line_total ?? (line.quantity ? line.quantity * 35000 : 35000);
-            const unitPrice = qty > 0 ? Math.round(lineTotal / qty) : lineTotal;
+            const lineTotal = line.line_total ?? ((line.unit_price ?? 0) * qty);
+            const unitPrice = line.unit_price ?? (qty > 0 ? Math.round(lineTotal / qty) : 0);
             return (
-              <div key={`${line.name}-${index}`} className="grid grid-cols-12 items-center">
+              <div
+                key={line.line_id ?? `${line.name}-${index}`}
+                className="grid grid-cols-12 items-start"
+                data-cart-line={line.line_id ?? ''}
+              >
                 <div className="col-span-6 font-semibold uppercase">
-                  “{line.name}”{line.size ? ` (${line.size})` : ''}
+                  <div>{line.name}{line.size ? ` (${line.size})` : ''}</div>
+                  {line.note && (
+                    <div className="mt-1 text-[10px] font-normal normal-case tracking-normal text-[#9b7352]">
+                      Ghi chú: {line.note}
+                    </div>
+                  )}
                 </div>
                 <div className="col-span-2 text-center font-normal">{qty}</div>
                 <div className="col-span-2 text-right tabular-nums">{money(unitPrice)}</div>
@@ -307,88 +386,43 @@ function CartView({ lines, total }: { lines: CustomerDisplayLine[]; total: numbe
             );
           })
         ) : (
-          <>
-            <div className="grid grid-cols-12 items-center">
-              <div className="col-span-6 font-semibold uppercase">“TRUYỀN THỐNG” CÀ PHÊ PHIN</div>
-              <div className="col-span-2 text-center font-normal">2</div>
-              <div className="col-span-2 text-right tabular-nums">29.000đ</div>
-              <div className="col-span-2 text-right font-semibold tabular-nums">58.000đ</div>
-            </div>
-            <div className="grid grid-cols-12 items-center">
-              <div className="col-span-6 font-semibold uppercase">TRÀ ĐÀO CAM SẢ ĐẶC BIỆT</div>
-              <div className="col-span-2 text-center font-normal">1</div>
-              <div className="col-span-2 text-right tabular-nums">45.000đ</div>
-              <div className="col-span-2 text-right font-semibold tabular-nums">45.000đ</div>
-            </div>
-            <div className="grid grid-cols-12 items-center">
-              <div className="col-span-6 font-semibold uppercase">BÁNH CROISSANT BƠ PHÁP</div>
-              <div className="col-span-2 text-center font-normal">1</div>
-              <div className="col-span-2 text-right tabular-nums">35.000đ</div>
-              <div className="col-span-2 text-right font-semibold tabular-nums">35.000đ</div>
-            </div>
-          </>
+          <div className="py-4 text-center text-sm normal-case tracking-normal text-[#9b7352]">
+            Giỏ hàng trống.
+          </div>
         )}
       </div>
 
       <div className="flex justify-end border-t-[1.5px] border-[#783820] pt-3 pb-6">
         <div className="w-64 space-y-1.5 text-[12px] font-semibold tracking-wider uppercase">
-          <div className="flex justify-between">
-            <span>SUBTOTAL</span>
-            <span className="tabular-nums">{money(total)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>SERVICE CHARGE (0%)</span>
-            <span className="tabular-nums">0đ</span>
-          </div>
           <div className="flex justify-between pt-1 text-[14px] font-bold">
-            <span>TOTAL ESTIMATED</span>
+            <span>TỔNG TẠM TÍNH</span>
             <span className="text-[15px] font-extrabold tabular-nums">{money(total)}</span>
           </div>
         </div>
       </div>
 
-      <div className="space-y-2 pt-4 text-[10.5px] font-medium tracking-wider uppercase leading-relaxed">
-        <div>CREDIT &amp; DEBIT CARDS: VISA, MASTERCARD, NAPAS</div>
-        <div>
-          BANK TRANSFER:<br />
-          ACCOUNT NAME: CONG TY CO PHAN TREND COFFEE<br />
-          MB BANK: 9999.8888.68
+      {order_note && (
+        <div className="border-t-[1.5px] border-[#783820] pt-4 text-[11px] leading-relaxed">
+          <span className="font-bold tracking-wider uppercase">GHI CHÚ ĐƠN: </span>
+          <span>{order_note}</span>
         </div>
-        <div>STATUS: ORDER IN PROGRESS (QUÝ KHÁCH VUI LÒNG KIỂM TRA MÓN).</div>
-      </div>
-
-      <div className="mt-8 flex items-center justify-between border-t-[1.5px] border-[#783820] pt-3">
-        <div className="flex items-center gap-3">
-          <svg className="h-8 w-8 text-[#783820]" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="3">
-            <polygon points="50,10 90,85 10,85" />
-            <line x1="50" y1="10" x2="30" y2="85" />
-            <line x1="50" y1="10" x2="70" y2="85" />
-            <line x1="50" y1="10" x2="50" y2="85" />
-          </svg>
-          <div className="text-left leading-tight">
-            <div className="text-sm font-bold tracking-[0.2em] uppercase">TREND</div>
-            <div className="text-[9.5px] font-medium tracking-[0.25em] uppercase">COFFEE &amp; RESTAURANT</div>
-          </div>
-        </div>
-        <div className="font-['Playfair_Display',serif] text-sm tracking-wider uppercase sm:text-base text-right">
-          THANK YOU FOR DINING WITH US.
-        </div>
-      </div>
+      )}
     </div>
   );
 }
 
 // VIEW 3: BILL (INVOICE LUXURY INVOICE)
-function BillView({
+export function BillView({
   order_id,
   branch,
+  order_type,
   status,
   lines,
   total,
 }: {
   order_id: string;
   branch: string;
-  order_type: string;
+  order_type?: string;
   status: string;
   lines: CustomerDisplayLine[];
   total: number;
@@ -400,16 +434,14 @@ function BillView({
           INVOICE
         </h1>
         <div className="text-right text-[11px] font-semibold tracking-wider uppercase leading-tight">
-          <div>INVOICE NO.: {order_id || 'INV-000245'}</div>
+          <div>INVOICE NO.: {order_id}</div>
           <div>STATUS: {status.toUpperCase()}</div>
         </div>
       </div>
 
-      <div className="pt-3 pb-6 text-[11px] font-medium tracking-wider uppercase leading-relaxed">
-        <div>{branch || 'SỐ 03 NGUYỄN CÔNG TRỨ, PHƯỜNG BÌNH THỌ, TP. THỦ ĐỨC'}</div>
-        <div>RESERVATIONS@TRENDCOFFEE.VN | +84 90 123 4567</div>
-        <div>WWW.TRENDCOFFEE.NET</div>
-        <div>MST / CUIT: 30-71234567-8</div>
+      <div className="flex flex-wrap gap-x-8 gap-y-1 pt-3 pb-6 text-[11px] font-semibold tracking-wider uppercase leading-relaxed">
+        <div>BRANCH: {branch}</div>
+        <div>HÌNH THỨC: {orderTypeLabel(order_type ?? '')}</div>
       </div>
 
       <div className="grid grid-cols-12 border-b-[1.5px] border-[#783820] pb-1.5 text-[12px] font-bold tracking-widest uppercase">
@@ -423,12 +455,17 @@ function BillView({
         {lines.length > 0 ? (
           lines.map((line, index) => {
             const qty = line.quantity ?? 1;
-            const lineTotal = line.line_total ?? (line.quantity ? line.quantity * 35000 : 35000);
-            const unitPrice = qty > 0 ? Math.round(lineTotal / qty) : lineTotal;
+            const lineTotal = line.line_total ?? ((line.unit_price ?? 0) * qty);
+            const unitPrice = line.unit_price ?? (qty > 0 ? Math.round(lineTotal / qty) : 0);
             return (
-              <div key={`${line.name}-${index}`} className="grid grid-cols-12 items-center">
+              <div key={line.line_id ?? `${line.name}-${index}`} className="grid grid-cols-12 items-start">
                 <div className="col-span-6 font-semibold uppercase">
-                  “{line.name}”{line.size ? ` (${line.size})` : ''}
+                  <div>{line.name}{line.size ? ` (${line.size})` : ''}</div>
+                  {line.note && (
+                    <div className="mt-1 text-[10px] font-normal normal-case tracking-normal text-[#9b7352]">
+                      Ghi chú: {line.note}
+                    </div>
+                  )}
                 </div>
                 <div className="col-span-2 text-center font-normal">{qty}</div>
                 <div className="col-span-2 text-right tabular-nums">{money(unitPrice)}</div>
@@ -437,39 +474,14 @@ function BillView({
             );
           })
         ) : (
-          <>
-            <div className="grid grid-cols-12 items-center">
-              <div className="col-span-6 font-semibold uppercase">“LA NUIT” TASTING MENU (COMBO)</div>
-              <div className="col-span-2 text-center font-normal">1</div>
-              <div className="col-span-2 text-right tabular-nums">58.000đ</div>
-              <div className="col-span-2 text-right font-semibold tabular-nums">58.000đ</div>
-            </div>
-            <div className="grid grid-cols-12 items-center">
-              <div className="col-span-6 font-semibold uppercase">TRÀ ĐÀO CAM SẢ ĐẶC BIỆT</div>
-              <div className="col-span-2 text-center font-normal">1</div>
-              <div className="col-span-2 text-right tabular-nums">45.000đ</div>
-              <div className="col-span-2 text-right font-semibold tabular-nums">45.000đ</div>
-            </div>
-            <div className="grid grid-cols-12 items-center">
-              <div className="col-span-6 font-semibold uppercase">BÁNH CROISSANT BƠ PHÁP</div>
-              <div className="col-span-2 text-center font-normal">1</div>
-              <div className="col-span-2 text-right tabular-nums">35.000đ</div>
-              <div className="col-span-2 text-right font-semibold tabular-nums">35.000đ</div>
-            </div>
-          </>
+          <div className="py-4 text-center text-sm normal-case tracking-normal text-[#9b7352]">
+            Provider không trả về dòng món nào.
+          </div>
         )}
       </div>
 
       <div className="flex justify-end border-t-[1.5px] border-[#783820] pt-3 pb-6">
         <div className="w-64 space-y-1.5 text-[12px] font-semibold tracking-wider uppercase">
-          <div className="flex justify-between">
-            <span>SUBTOTAL</span>
-            <span className="tabular-nums">{money(total)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>SERVICE CHARGE (10%)</span>
-            <span className="tabular-nums">0đ</span>
-          </div>
           <div className="flex justify-between pt-1 text-[14px] font-bold">
             <span>TOTAL AMOUNT DUE</span>
             <span className="text-[15px] font-extrabold tabular-nums">{money(total)}</span>
@@ -477,40 +489,12 @@ function BillView({
         </div>
       </div>
 
-      <div className="space-y-2 pt-4 text-[10.5px] font-medium tracking-wider uppercase leading-relaxed">
-        <div>CREDIT &amp; DEBIT CARDS: VISA, MASTERCARD, AMERICAN EXPRESS</div>
-        <div>
-          BANK TRANSFER:<br />
-          ACCOUNT NAME: CONG TY CO PHAN TREND COFFEE<br />
-          MB BANK: 9999.8888.68<br />
-          MST: 30-71234567-8
-        </div>
-        <div>CASH PAYMENTS: IN-PERSON ONLY.</div>
-      </div>
-
-      <div className="mt-8 flex items-center justify-between border-t-[1.5px] border-[#783820] pt-3">
-        <div className="flex items-center gap-3">
-          <svg className="h-8 w-8 text-[#783820]" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="3">
-            <polygon points="50,10 90,85 10,85" />
-            <line x1="50" y1="10" x2="30" y2="85" />
-            <line x1="50" y1="10" x2="70" y2="85" />
-            <line x1="50" y1="10" x2="50" y2="85" />
-          </svg>
-          <div className="text-left leading-tight">
-            <div className="text-sm font-bold tracking-[0.2em] uppercase">TREND</div>
-            <div className="text-[9.5px] font-medium tracking-[0.25em] uppercase">COFFEE &amp; RESTAURANT</div>
-          </div>
-        </div>
-        <div className="font-['Playfair_Display',serif] text-sm tracking-wider uppercase sm:text-base text-right">
-          THANK YOU FOR DINING WITH US.
-        </div>
-      </div>
     </div>
   );
 }
 
 // VIEW 4: PAYMENT QR (MINIMALIST SAMPLE)
-function PaymentQrView({
+export function PaymentQrView({
   qr_code,
   total,
   order_id,
@@ -527,8 +511,8 @@ function PaymentQrView({
         Payment
       </div>
 
-      <div className="mb-4 inline-block overflow-hidden rounded-2xl border border-[#c4ab91] bg-white p-1 shadow-xl">
-        {isImage ? (
+      {isImage ? (
+        <div className="mb-4 inline-block overflow-hidden rounded-2xl border border-[#c4ab91] bg-white p-1 shadow-xl">
           <div className="overflow-hidden rounded-xl">
             <img
               src={qr_code}
@@ -536,66 +520,18 @@ function PaymentQrView({
               className="mx-auto h-64 w-64 scale-112 object-contain sm:h-72 sm:w-72"
             />
           </div>
-        ) : (
-          <svg className="mx-auto h-64 w-64 sm:h-72 sm:w-72" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="120" height="120" fill="white" />
-            <rect x="8" y="8" width="30" height="30" rx="3" fill="#6e2b14" />
-            <rect x="13" y="13" width="20" height="20" rx="2" fill="white" />
-            <rect x="17" y="17" width="12" height="12" rx="1.5" fill="#6e2b14" />
+        </div>
+      ) : (
+        <div className="mb-4 rounded-xl border border-[#c4ab91] px-6 py-8 text-sm font-semibold text-[#6e2b14]">
+          Không thể hiển thị mã QR an toàn.
+        </div>
+      )}
 
-            <rect x="82" y="8" width="30" height="30" rx="3" fill="#6e2b14" />
-            <rect x="87" y="13" width="20" height="20" rx="2" fill="white" />
-            <rect x="91" y="17" width="12" height="12" rx="1.5" fill="#6e2b14" />
-
-            <rect x="8" y="82" width="30" height="30" rx="3" fill="#6e2b14" />
-            <rect x="13" y="87" width="20" height="20" rx="2" fill="white" />
-            <rect x="17" y="91" width="12" height="12" rx="1.5" fill="#6e2b14" />
-
-            <rect x="44" y="10" width="5" height="5" fill="#6e2b14" />
-            <rect x="54" y="10" width="10" height="5" fill="#6e2b14" />
-            <rect x="70" y="10" width="5" height="5" fill="#6e2b14" />
-            <rect x="48" y="18" width="8" height="5" fill="#6e2b14" />
-            <rect x="62" y="18" width="12" height="5" fill="#6e2b14" />
-            <rect x="44" y="26" width="6" height="6" fill="#6e2b14" />
-            <rect x="56" y="26" width="6" height="6" fill="#6e2b14" />
-            <rect x="68" y="26" width="6" height="6" fill="#6e2b14" />
-
-            <rect x="46" y="46" width="28" height="28" rx="2" fill="#6e2b14" />
-            <rect x="52" y="52" width="16" height="16" rx="1" fill="white" />
-            <rect x="56" y="56" width="8" height="8" fill="#6e2b14" />
-
-            <rect x="10" y="44" width="8" height="8" fill="#6e2b14" />
-            <rect x="24" y="44" width="14" height="6" fill="#6e2b14" />
-            <rect x="12" y="56" width="6" height="14" fill="#6e2b14" />
-            <rect x="24" y="64" width="12" height="8" fill="#6e2b14" />
-
-            <rect x="80" y="44" width="10" height="6" fill="#6e2b14" />
-            <rect x="96" y="44" width="14" height="8" fill="#6e2b14" />
-            <rect x="84" y="56" width="14" height="8" fill="#6e2b14" />
-            <rect x="102" y="58" width="10" height="14" fill="#6e2b14" />
-            <rect x="80" y="68" width="8" height="6" fill="#6e2b14" />
-            <rect x="94" y="68" width="18" height="6" fill="#6e2b14" />
-
-            <rect x="44" y="82" width="12" height="6" fill="#6e2b14" />
-            <rect x="62" y="82" width="8" height="6" fill="#6e2b14" />
-            <rect x="76" y="82" width="14" height="6" fill="#6e2b14" />
-            <rect x="96" y="82" width="14" height="6" fill="#6e2b14" />
-
-            <rect x="46" y="94" width="8" height="8" fill="#6e2b14" />
-            <rect x="60" y="94" width="18" height="8" fill="#6e2b14" />
-            <rect x="84" y="94" width="8" height="16" fill="#6e2b14" />
-            <rect x="98" y="94" width="14" height="8" fill="#6e2b14" />
-
-            <rect x="44" y="106" width="16" height="6" fill="#6e2b14" />
-            <rect x="66" y="106" width="12" height="6" fill="#6e2b14" />
-            <rect x="98" y="106" width="14" height="6" fill="#6e2b14" />
-          </svg>
-        )}
-      </div>
-
-      <div className="mb-1 text-base font-medium tracking-[0.2em] uppercase text-[#6e2b14] sm:text-lg">
-        Scan Now
-      </div>
+      {isImage && (
+        <div className="mb-1 text-base font-medium tracking-[0.2em] uppercase text-[#6e2b14] sm:text-lg">
+          Scan Now
+        </div>
+      )}
 
       <div className="mt-2 space-y-0.5 text-xs text-[#8c6239]">
         {total !== undefined && total > 0 && (
@@ -603,9 +539,6 @@ function PaymentQrView({
             {money(total)}
           </div>
         )}
-        <div className="text-[11px] opacity-85">
-          MB Bank &bull; STK: <strong>9999.8888.68</strong> &bull; CONG TY CO PHAN TREND COFFEE
-        </div>
         {order_id && (
           <div className="text-[10px] text-[#9b7352] opacity-75">
             Mã đơn hàng: {order_id}
@@ -698,14 +631,28 @@ export function CustomerDisplayPage() {
   const sessionId = searchParams.get('session')?.trim() || undefined;
   const preview = searchParams.get('preview')?.trim();
   const [state, setState] = useState<CustomerDisplayState>(() => {
-    if (preview === 'menu') return { view: 'menu', items: [] };
+    if (preview === 'menu') return {
+      view: 'menu',
+      items: [],
+      resultComplete: false,
+      projectedCount: 0,
+      publishedCount: 0,
+      preview: true,
+    };
     if (preview === 'waiting') return { view: 'waiting' };
     return waitingState;
   });
 
   useEffect(() => {
     if (preview === 'menu') {
-      setState({ view: 'menu', items: [] });
+      setState({
+        view: 'menu',
+        items: [],
+        resultComplete: false,
+        projectedCount: 0,
+        publishedCount: 0,
+        preview: true,
+      });
     } else {
       setState(waitingState);
     }
@@ -719,12 +666,12 @@ export function CustomerDisplayPage() {
   useAgentEvents(undefined, handleEvent, ['display_update'], sessionId);
 
   return (
-    <div className="min-h-screen w-full bg-[#fae7cd] text-[#8c6239] font-['Josefin_Sans',sans-serif] flex flex-col justify-between overflow-x-hidden selection:bg-[#8c6239] selection:text-white">
+    <div className="h-screen w-full bg-[#fae7cd] text-[#8c6239] font-['Josefin_Sans',sans-serif] flex flex-col justify-between overflow-x-hidden overflow-y-auto selection:bg-[#8c6239] selection:text-white">
       {/* Top Striped Band on Full Page */}
       <StripedBand />
 
       {/* Main Container */}
-      <main className="w-full flex-1 flex flex-col justify-between max-w-[1024px] mx-auto py-2">
+      <main className="w-full flex-1 flex flex-col justify-between max-w-[1440px] xl:max-w-[1600px] mx-auto py-2 px-2 sm:px-4 md:px-6">
         {!sessionId && !preview ? (
           <div className="my-auto flex flex-col items-center justify-center p-8 text-center">
             <h2 className="font-['Alex_Brush',cursive] text-5xl text-[#8c6239] mb-2">Trend Coffee</h2>
@@ -737,12 +684,24 @@ export function CustomerDisplayPage() {
             {state.view === 'menu' && (
               <>
                 <RestaurantHeader />
-                <MenuView items={state.items} />
+                <MenuView
+                  items={state.items}
+                  resultComplete={state.resultComplete}
+                  projectedCount={state.projectedCount}
+                  publishedCount={state.publishedCount}
+                  preview={state.preview}
+                />
               </>
             )}
 
             {state.view === 'cart' && (
-              <CartView lines={state.lines} total={state.total} />
+              <CartView
+                lines={state.lines}
+                total={state.total}
+                order_note={state.order_note}
+                order_type={state.order_type}
+                table_name={state.table_name}
+              />
             )}
 
             {state.view === 'bill' && (

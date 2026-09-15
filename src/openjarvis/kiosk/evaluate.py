@@ -126,6 +126,7 @@ def _evaluate_prompting(
     if user_response == "accept":
         return ("active", [
             _publish_state("active", mic_enabled=False),
+            SideEffect("load_initial_display"),
             SideEffect("tts_greeting"),
             _publish_state("active", mic_enabled=True),
         ])

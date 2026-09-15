@@ -12,7 +12,7 @@ from openjarvis.core.events import EventBus
 from openjarvis.core.types import ToolCall, ToolResult
 from openjarvis.tools import evidence
 from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
-from openjarvis.tools.display import DisplayPaymentQrTool
+from openjarvis.tools.display import DisplayCartTool, DisplayPaymentQrTool
 
 _PAYMENT = {
     "order_id": "ORD-1",
@@ -82,6 +82,64 @@ def test_a_qr_a_trusted_call_returned_is_published():
     assert result.success is True
 
 
+@pytest.mark.parametrize("display_available", [True, False])
+def test_customer_message_is_released_only_after_display_succeeds(display_available):
+    tool = _display_tool()
+    if not display_available:
+        tool._bus = None
+    with conversation_scope("customer-message"):
+        _observe(
+            ToolExecutor([_Http()]), '{"qrCode": "QR_REAL_789"}', 201,
+            "https://trendcoffee.net/api/latest/payment/initiate/public",
+        )
+        result = tool.execute(**_PAYMENT, customer_message="QR đã hiển thị.")
+    assert result.success is display_available
+    assert result.metadata.get("customer_message") == (
+        "QR đã hiển thị." if display_available else None
+    )
+
+
+@pytest.mark.parametrize("display_available", [True, False])
+def test_verified_payment_settles_the_current_conversation_cart(display_available):
+    cart = DisplayCartTool()
+    cart._bus = EventBus()
+    payment = _display_tool()
+    if not display_available:
+        payment._bus = None
+    payment._cart_settler = getattr(cart, "settle_current", lambda: None)
+
+    with conversation_scope("settled-cart"):
+        added = cart.execute(
+            action="add",
+            item={
+                "variant_id": "latte",
+                "name": "Cà phê sữa",
+                "size": "tiêu chuẩn",
+                "unit_price": 40_000,
+                "quantity": 2,
+                "note": "",
+            },
+        )
+        _observe(
+            ToolExecutor([_Http()]),
+            '{"qrCode": "QR_REAL_789"}',
+            201,
+            "https://trendcoffee.net/api/latest/payment/initiate/public",
+        )
+        payment.execute(**_PAYMENT, customer_message="QR đã sẵn sàng.")
+        viewed = cart.execute(action="view")
+
+    assert added.success
+    assert json.loads(viewed.content)["cart"] == {
+        "lines": [],
+        "total": 0,
+        "order_note": "",
+        "order_type": "",
+        "table": "",
+        "table_name": "",
+    }
+
+
 def test_a_trusted_payment_response_can_supply_qr_without_copying_it_through_llm():
     """Large base64 QR values stay in evidence instead of tool-call arguments."""
     executor = ToolExecutor([_Http()])
@@ -106,7 +164,7 @@ def test_a_trusted_payment_response_can_supply_qr_without_copying_it_through_llm
 def test_qr_code_is_optional_in_the_agent_tool_schema():
     required = DisplayPaymentQrTool().spec.parameters["required"]
 
-    assert required == ["order_id", "payment_slug", "status"]
+    assert required == ["order_id", "payment_slug", "status", "customer_message"]
 
 
 def test_a_qr_fetched_by_a_different_executor_is_still_accepted():
@@ -271,7 +329,9 @@ def test_payment_qr_includes_total_when_provided_or_extracted():
     executor = ToolExecutor([_Http()])
     tool = _display_tool()
     published = []
-    tool._bus.subscribe(EventType.DISPLAY_UPDATE, lambda event: published.append(event.data))
+    tool._bus.subscribe(
+        EventType.DISPLAY_UPDATE, lambda event: published.append(event.data)
+    )
 
     with conversation_scope("a"):
         _observe(
@@ -289,4 +349,3 @@ def test_payment_qr_includes_total_when_provided_or_extracted():
     assert result.success is True
     assert len(published) == 1
     assert published[0]["total"] == 40000
-

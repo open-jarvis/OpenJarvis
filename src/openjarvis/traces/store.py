@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
+import threading
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from functools import wraps
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -77,6 +82,25 @@ INSERT INTO trace_steps (
 """
 
 
+def _serialized(method):
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        self.flush()
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return guarded
+
+
+def _transaction(method):
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._lock, self._conn:
+            return method(self, *args, **kwargs)
+
+    return guarded
+
+
 def _json_default(value: Any) -> str:
     """Render a value ``json.dumps`` cannot serialize (e.g. raw ``bytes``
     a tool put into a step's input/output/metadata).
@@ -96,19 +120,31 @@ class TraceStore:
     """Append-only SQLite store for interaction traces."""
 
     def __init__(self, db_path: str | Path) -> None:
+        self._lock = threading.RLock()
+        self._writer = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="trace-writer"
+        )
+        self._write_slots = threading.BoundedSemaphore(1024)
         self._db_path = str(db_path)
         if self._db_path != ":memory:":
             from openjarvis.security.file_utils import secure_create
 
             secure_create(Path(self._db_path))
-        # check_same_thread=False is safe with WAL mode.  The
-        # AgenticRunner dispatches agent work to a ThreadPoolExecutor
-        # (for Playwright compat), so trace writes may originate from
-        # a different thread than the one that opened the connection.
+        # WAL alone does not serialize use of this connection. Every access
+        # is guarded, and writes own a short transaction (never network I/O).
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_CREATE_TRACES)
         self._conn.execute(_CREATE_STEPS)
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS run_events ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, "
+            "event_type TEXT NOT NULL, timestamp REAL NOT NULL, "
+            "monotonic_timestamp REAL NOT NULL, data TEXT NOT NULL)"
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS run_events_run ON run_events(run_id, id)"
+        )
         self._conn.execute(_CREATE_FTS)
         self._conn.execute(_FTS_SYNC_INSERT)
         # Migrate: add messages column if missing (pre-existing databases)
@@ -120,6 +156,32 @@ class TraceStore:
             pass  # Column already exists
         self._conn.commit()
 
+    def submit_write(self, method, /, *args, **kwargs) -> Future:
+        """Queue a bounded write without doing SQLite I/O on the voice loop."""
+        if not self._write_slots.acquire(blocking=False):
+            raise RuntimeError("trace_writer_capacity_exhausted")
+        try:
+            future = self._writer.submit(method, *args, **kwargs)
+        except BaseException:
+            self._write_slots.release()
+            raise
+
+        def finished(result):
+            self._write_slots.release()
+            if not result.cancelled() and result.exception() is not None:
+                logging.getLogger(__name__).error(
+                    "trace writer failed",
+                    exc_info=result.exception(),
+                )
+
+        future.add_done_callback(finished)
+        return future
+
+    def flush(self) -> None:
+        """Synchronous readers/shutdown observe all previously queued writes."""
+        self._writer.submit(lambda: None).result()
+
+    @_transaction
     def save(self, trace: Trace) -> None:
         """Persist a complete trace with all its steps.
 
@@ -167,6 +229,59 @@ class TraceStore:
             )
         self._conn.commit()
 
+    @_transaction
+    def append_run_event(
+        self,
+        run_id: str,
+        event_type: str,
+        data: dict[str, Any],
+        *,
+        timestamp: float | None = None,
+        monotonic_timestamp: float | None = None,
+    ) -> None:
+        """Persist lifecycle/late-worker evidence independently of an answer."""
+        self._conn.execute(
+            "INSERT INTO run_events "
+            "(run_id, event_type, timestamp, monotonic_timestamp, data) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                run_id,
+                event_type,
+                timestamp if timestamp is not None else time.time(),
+                monotonic_timestamp
+                if monotonic_timestamp is not None
+                else time.monotonic(),
+                json.dumps(data, default=_json_default),
+            ),
+        )
+
+    @_serialized
+    def run_events(self, run_id: str | None = None, *, limit: int = 1000) -> list[dict]:
+        """Read admission, partial steps, cancellation, and late settlement."""
+        rows = self._conn.execute(
+            "SELECT id, run_id, event_type, timestamp, monotonic_timestamp, data "
+            "FROM run_events WHERE (? IS NULL OR run_id = ?) ORDER BY id LIMIT ?",
+            (run_id, run_id, limit),
+        ).fetchall()
+        return [
+            dict(
+                zip(
+                    (
+                        "id",
+                        "run_id",
+                        "event_type",
+                        "timestamp",
+                        "monotonic_timestamp",
+                        "data",
+                    ),
+                    (*row[:5], json.loads(row[5])),
+                    strict=True,
+                )
+            )
+            for row in rows
+        ]
+
+    @_serialized
     def get(self, trace_id: str) -> Optional[Trace]:
         """Retrieve a trace by id, or ``None`` if not found."""
         row = self._conn.execute(
@@ -176,6 +291,7 @@ class TraceStore:
             return None
         return self._row_to_trace(row)
 
+    @_serialized
     def list_traces(
         self,
         *,
@@ -210,11 +326,13 @@ class TraceStore:
         rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_trace(r) for r in rows]
 
+    @_serialized
     def count(self) -> int:
         """Return the total number of stored traces."""
         row = self._conn.execute("SELECT COUNT(*) FROM traces").fetchone()
         return row[0] if row else 0
 
+    @_serialized
     def search(
         self,
         query: str,
@@ -258,6 +376,7 @@ class TraceStore:
         if isinstance(trace, Trace):
             self.save(trace)
 
+    @_transaction
     def update_feedback(self, trace_id: str, score: float) -> bool:
         """Update the feedback score for a trace.
 
@@ -272,7 +391,10 @@ class TraceStore:
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""
-        self._conn.close()
+        # Do not hold the connection lock while joining a writer that needs it.
+        self._writer.shutdown(wait=True)
+        with self._lock:
+            self._conn.close()
 
     # -- internal helpers ------------------------------------------------------
 
@@ -315,6 +437,7 @@ class TraceStore:
             steps=steps,
         )
 
+    @_serialized
     def _fetchall(self, sql: str = "SELECT * FROM traces") -> list:
         return self._conn.execute(sql).fetchall()
 

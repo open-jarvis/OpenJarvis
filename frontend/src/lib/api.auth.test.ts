@@ -90,6 +90,25 @@ describe('authHeaders', () => {
   });
 });
 
+describe('cloud key status', () => {
+  it('reads configured provider status from the web server', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ OPENAI_API_KEY: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const { getCloudKeyStatus } = await freshApi();
+
+    await expect(getCloudKeyStatus()).resolves.toEqual({
+      OPENAI_API_KEY: true,
+    });
+    expect(fetchMock).toHaveBeenCalledWith('/v1/cloud/key-status', {
+      headers: {},
+    });
+  });
+});
+
 describe('tool credentials', () => {
   it('reads credential status from the local server', async () => {
     fetchMock.mockResolvedValue(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -27,6 +28,7 @@ class _FakePresentationManager:
     session_id: str = "session-1"
     ensure_error: Exception | None = None
     ensure_origins: list[str] = field(default_factory=list)
+    preload_calls: int = 0
 
     def ensure(self, display_origin: str):
         self.ensure_origins.append(display_origin)
@@ -39,6 +41,10 @@ class _FakePresentationManager:
 
     def replay(self, session_id: str):
         return {"view": "none"} if session_id == self.session_id else None
+
+    def preload_initial_display(self) -> bool:
+        self.preload_calls += 1
+        return True
 
 
 @pytest.fixture
@@ -65,6 +71,18 @@ def test_ensure_returns_one_session_and_passes_the_frontend_origin(
     assert response.status_code == 200
     assert response.json() == {"presentation_session_id": "session-1"}
     assert manager.ensure_origins == ["http://127.0.0.1:5173"]
+
+
+def test_ensure_preserves_the_waiting_display_until_kiosk_becomes_active(
+    client: TestClient, manager: _FakePresentationManager
+) -> None:
+    response = client.post(
+        "/api/kiosk/presentation/ensure",
+        json={"display_origin": "http://127.0.0.1:5173"},
+    )
+
+    assert response.status_code == 200
+    assert manager.preload_calls == 0
 
 
 def test_ensure_awaits_the_threadpool_for_blocking_mcp_work(
@@ -115,17 +133,21 @@ def test_ensure_returns_503_when_presentation_is_unavailable(
 
 
 def test_ensure_returns_503_when_manager_reports_an_mcp_failure(
-    client: TestClient, manager: _FakePresentationManager
+    client: TestClient,
+    manager: _FakePresentationManager,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     manager.ensure_error = PresentationUnavailableError("browser_navigate unavailable")
 
-    response = client.post(
-        "/api/kiosk/presentation/ensure",
-        json={"display_origin": "http://127.0.0.1:5173"},
-    )
+    with caplog.at_level(logging.WARNING, logger="openjarvis.kiosk.routes"):
+        response = client.post(
+            "/api/kiosk/presentation/ensure",
+            json={"display_origin": "http://127.0.0.1:5173"},
+        )
 
     assert response.status_code == 503
     assert response.json() == {"detail": "presentation_unavailable"}
+    assert any("browser_navigate unavailable" in message for message in caplog.messages)
 
 
 def test_ensure_returns_400_for_a_malformed_origin(

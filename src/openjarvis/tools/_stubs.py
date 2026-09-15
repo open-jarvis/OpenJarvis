@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextvars
-import functools
 import json
 import time
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
+from uuid import uuid4
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import ToolCall, ToolResult
@@ -121,7 +122,33 @@ class ToolExecutor:
         self._boundary_guard = boundary_guard
 
     def execute(self, tool_call: ToolCall) -> ToolResult:
+        from openjarvis.agents._stubs import (
+            _RUN_WORKER_LEASE,
+            check_agent_cancelled,
+        )
+
+        check_agent_cancelled()
+        lease = _RUN_WORKER_LEASE.get()
+        scope = lease.tool_gate.enter(lease) if lease is not None else nullcontext(True)
+        with scope as acquired:
+            if not acquired:
+                return ToolResult(
+                    tool_name=tool_call.name,
+                    success=False,
+                    content=(
+                        "A previous turn's tool operation is still running. "
+                        "No new tool was dispatched. Its outcome is pending, "
+                        "not failed or cancelled. Explain this to the user; "
+                        "do not retry or claim completion."
+                    ),
+                    metadata={"pending_operation": True, "dispatched": False},
+                )
+            check_agent_cancelled()
+            return self._execute(tool_call)
+
+    def _execute(self, tool_call: ToolCall) -> ToolResult:
         """Parse arguments, dispatch to tool, measure latency, emit events."""
+        invocation_id = uuid4().hex
         tool = self._tools.get(tool_call.name)
         if tool is None:
             return ToolResult(
@@ -239,6 +266,8 @@ class ToolExecutor:
                     "tool": tool_call.name,
                     "arguments": params,
                     "agent": self._agent_id,
+                    "invocation_id": invocation_id,
+                    "tool_call_id": tool_call.id,
                 },
             )
 
@@ -251,9 +280,14 @@ class ToolExecutor:
                 # hide the caller's Agent worker lease from the tool (and with
                 # it, cooperative cancellation of long MCP calls).
                 context = contextvars.copy_context()
-                future = pool.submit(
-                    context.run, functools.partial(tool.execute, **params)
-                )
+
+                def invoke():
+                    from openjarvis.agents._stubs import check_agent_cancelled
+
+                    check_agent_cancelled()
+                    return tool.execute(**params)
+
+                future = pool.submit(context.run, invoke)
                 result = future.result(timeout=timeout)
         except concurrent.futures.TimeoutError:
             if self._bus:
@@ -327,6 +361,8 @@ class ToolExecutor:
                 {
                     "tool": tool_call.name,
                     "success": result.success,
+                    "invocation_id": invocation_id,
+                    "tool_call_id": tool_call.id,
                     "latency": latency,
                     "result": result_text,
                     "metadata": event_metadata,
@@ -368,6 +404,10 @@ class ToolExecutor:
     def available_tools(self) -> List[ToolSpec]:
         """Return specs for all available tools."""
         return [t.spec for t in self._tools.values()]
+
+    def get_tool(self, name: str) -> Optional[BaseTool]:
+        """Resolve an internal collaborator without exposing another model schema."""
+        return self._tools.get(name)
 
     def get_openai_tools(self) -> List[Dict[str, Any]]:
         """Return tools in OpenAI function-calling format."""

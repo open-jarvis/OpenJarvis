@@ -3,14 +3,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createKioskPresentationLifecycle,
   ensurePresentationSession,
+  shouldEnsurePresentationSession,
   resetPresentationSession,
 } from './kioskPresentation';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe('kiosk presentation API', () => {
+  it('re-ensures presentation while a customer is approaching or being served', () => {
+    expect(shouldEnsurePresentationSession('idle')).toBe(false);
+    expect(shouldEnsurePresentationSession('cleanup')).toBe(false);
+    expect(shouldEnsurePresentationSession('approaching')).toBe(true);
+    expect(shouldEnsurePresentationSession('prompting')).toBe(true);
+    expect(shouldEnsurePresentationSession('active')).toBe(true);
+  });
+
   it('ensures a presentation session for the current frontend origin', async () => {
     vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:5173' } });
     const fetchMock = vi.fn().mockResolvedValue({
@@ -64,27 +74,39 @@ describe('kiosk presentation API', () => {
     await expect(resetPresentationSession('session-1'))
       .rejects.toThrow('Unable to reset customer display');
   });
+
+  it('retries a transient presentation failure until the display session is ready', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ presentation_session_id: 'recovered-session' }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const session = ensurePresentationSession('http://127.0.0.1:5173');
+    const recovered = expect(session).resolves.toBe('recovered-session');
+    await vi.advanceTimersByTimeAsync(500);
+
+    await recovered;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('kiosk presentation lifecycle', () => {
-  it('defers and coalesces reset requests until the ensured session resolves', () => {
+  it('does not reset a preloaded display before the first voice turn', () => {
     const reset = vi.fn().mockResolvedValue(undefined);
     const lifecycle = createKioskPresentationLifecycle(reset);
 
     lifecycle.requestReset();
-    lifecycle.requestReset();
-    expect(reset).not.toHaveBeenCalled();
-
     lifecycle.setSessionId('session-1');
-    expect(reset).toHaveBeenCalledTimes(1);
-    expect(reset).toHaveBeenLastCalledWith('session-1');
-
-    lifecycle.requestReset();
-    expect(reset).toHaveBeenCalledTimes(1);
+    expect(reset).not.toHaveBeenCalled();
 
     lifecycle.markActive('thread-1');
     lifecycle.requestReset();
-    expect(reset).toHaveBeenCalledTimes(2);
+    expect(reset).toHaveBeenCalledOnce();
+    expect(reset).toHaveBeenLastCalledWith('session-1', 'thread-1');
   });
 
   it('waits for voice teardown before requesting presentation reset', async () => {
@@ -95,6 +117,7 @@ describe('kiosk presentation lifecycle', () => {
     const reset = vi.fn().mockResolvedValue(undefined);
     const lifecycle = createKioskPresentationLifecycle(reset);
     lifecycle.setSessionId('session-1');
+    lifecycle.markActive('thread-1');
 
     const teardown = lifecycle.endVoiceThenReset(endVoice);
     const duplicateTeardown = lifecycle.endVoiceThenReset(endVoice);

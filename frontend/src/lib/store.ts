@@ -14,7 +14,7 @@ import type {
   ToolCallInfo,
   TokenUsage,
 } from '../types';
-import type { ManagedAgent } from './api';
+import { isCloudModel, type ManagedAgent } from './api';
 import { isEmbedOnlyModel } from './model-capabilities';
 import { serializeToolCallArguments } from './tool-call';
 
@@ -35,6 +35,7 @@ export interface AgentEvent {
 
 const CONVERSATIONS_KEY = 'openjarvis-conversations';
 const SETTINGS_KEY = 'openjarvis-settings';
+const SELECTED_MODEL_KEY = 'openjarvis-selected-model';
 const OPTIN_KEY = 'openjarvis-optin';
 const OPTIN_NAME_KEY = 'openjarvis-display-name';
 const OPTIN_EMAIL_KEY = 'openjarvis-email';
@@ -284,7 +285,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
     models: [],
     modelsLoading: true,
-    selectedModel: '',
+    selectedModel: localStorage.getItem(SELECTED_MODEL_KEY) || '',
     voiceSessionActive: false,
     serverInfo: null,
     savings: null,
@@ -504,6 +505,7 @@ export const useAppStore = create<AppState>((set, get) => {
         // same list as chat models. Auto-picking models[0] selected the
         // embedder and every chat failed with HTTP 400 "does not support
         // chat". Prefer a real chat model for selection / fallback.
+        if (state.voiceSessionActive) return { models };
         const chatModels = models.filter((m) => !isEmbedOnlyModel(m.id));
         const preferred =
           (state.settings.defaultModel &&
@@ -517,6 +519,7 @@ export const useAppStore = create<AppState>((set, get) => {
           !!state.selectedModel && isEmbedOnlyModel(state.selectedModel);
         const currentMissing =
           !!state.selectedModel &&
+          !isCloudModel(state.selectedModel) &&
           !models.some((m) => m.id === state.selectedModel);
 
         if (!state.selectedModel || currentIsBad || currentMissing) {
@@ -533,6 +536,11 @@ export const useAppStore = create<AppState>((set, get) => {
     setSelectedModel: (model: string) => {
       if (!canChangeModel({ voiceSessionActive: get().voiceSessionActive })) return;
       set({ selectedModel: model });
+      try {
+        localStorage.setItem(SELECTED_MODEL_KEY, model);
+      } catch {
+        // The current selection still works when browser storage is unavailable.
+      }
     },
     setVoiceSessionActive: (active: boolean) => set({ voiceSessionActive: active }),
     setServerInfo: (info: ServerInfo | null) => set({ serverInfo: info }),

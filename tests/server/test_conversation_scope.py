@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
+from openjarvis.core import conversation
 from openjarvis.core.conversation import conversation_scope, current_conversation_id
 from openjarvis.server.middleware import create_conversation_scope_middleware
 
@@ -25,6 +26,32 @@ def test_nested_scopes_restore_the_outer_one():
         with conversation_scope("inner"):
             assert current_conversation_id() == "inner"
         assert current_conversation_id() == "outer"
+
+
+def test_agent_turn_scope_issues_a_fresh_nonce_and_restores_the_outer_turn():
+    assert hasattr(conversation, "agent_turn_scope")
+    assert conversation.current_turn_nonce() == ""
+
+    with conversation.agent_turn_scope() as outer:
+        assert conversation.current_turn_nonce() == outer
+        with conversation.agent_turn_scope() as inner:
+            assert inner != outer
+            assert conversation.current_turn_nonce() == inner
+        assert conversation.current_turn_nonce() == outer
+
+    assert conversation.current_turn_nonce() == ""
+
+
+def test_checkout_nonce_is_single_use_and_expires_in_copied_context():
+    from contextvars import copy_context
+
+    with conversation_scope("checkout-nonce"):
+        with conversation.agent_turn_scope() as nonce:
+            copied = copy_context()
+            assert conversation.claim_turn_nonce("wrong") is False
+            assert conversation.claim_turn_nonce(nonce) is True
+            assert conversation.claim_turn_nonce(nonce) is False
+        assert copied.run(conversation.turn_nonce_is_active, nonce) is False
 
 
 def _app_with_middleware(**kwargs) -> tuple:

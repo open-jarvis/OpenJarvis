@@ -1,0 +1,72 @@
+[skill]
+name = "trendcoffee-add-to-cart"
+description = "Resolve one or more requested TrendCoffee items from one fresh complete menu read and add the verified batch to the local draft cart. Each contains value must match exactly one current product; otherwise nothing is added."
+required_capabilities = ["network:fetch"]
+input_schema_json = '''
+{
+  "type":"object",
+  "properties":{
+    "items":{
+      "type":"array",
+      "items":{
+        "type":"object",
+        "properties":{
+          "contains":{"type":"string","minLength":1},
+          "quantity":{"type":"integer","minimum":1},
+          "note":{"type":"string"}
+        },
+        "required":["contains","quantity","note"],
+        "additionalProperties":false
+      }
+    },
+    "customer_message":{"type":"string","minLength":1}
+  },
+  "required":["items","customer_message"],
+  "additionalProperties":false
+}
+'''
+
+[skill.metadata.openjarvis.request_recipe]
+origin = "https://trendcoffee.net"
+method = "GET"
+read_only = true
+captured_from = "browser_network_requests"
+allowed_content_types = ["application/json"]
+required_paths_json = '''[{"path":"result.items","type":"array"},{"path":"result.hasNext","type":"boolean"}]'''
+
+[[skill.steps]]
+tool_name = "http_request"
+output_key = "menu"
+arguments_template = '''{"url":"https://trendcoffee.net/api/latest/menu/specific/public?date={today|urlencode}&branch=ba9355f797&catalog=&minPrice=0&maxPrice=1000000000&size=200&hasPaging=true&page=1","method":"GET","timeout":5}'''
+assertions_json = '''[{"actual":"{menu.result.hasNext}","equals":false},{"actual":{"$map":"{menu.result.items.0.menuItems}","as":"entry","value":"{entry.product.variants.0.slug}"},"all_unique_non_empty":true}]'''
+
+[[skill.steps]]
+tool_name = "display_cart"
+arguments_template = '''
+{
+  "action":"add",
+  "items":{
+    "$map":"{items}",
+    "as":"request",
+    "value":{
+      "$expect_one":{
+        "$map":{
+          "$filter":"{menu.result.items.0.menuItems}",
+          "as":"entry",
+          "where":{"contains_folded":["{entry.product.name}","{request.contains}"]}
+        },
+        "as":"entry",
+        "value":{
+          "variant_id":"{entry.product.variants.0.slug}",
+          "name":"{entry.product.name}",
+          "size":"{entry.product.variants.0.size.name}",
+          "note":"{request.note}",
+          "available":"{entry.product.isActive}",
+          "unit_price":"{entry.product.variants.0.price}",
+          "quantity":"{request.quantity}"
+        }
+      }
+    }
+  }
+}
+'''

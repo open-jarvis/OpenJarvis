@@ -66,11 +66,21 @@ describe('voice UI translations', () => {
     expect(voiceStatusLabel('en', 'ended')).toBe('Voice ended');
   });
 
-  it('hides model details while preserving the literal tool name', () => {
+  it('hides model details and names tool activity for customers', () => {
     expect(voiceStatusLabel('vi', 'inference', 'deepseek-v4-flash'))
       .toBe('Suy luận...');
+    expect(voiceStatusLabel('vi', 'tool', 'skill_trendcoffee-menu'))
+      .toBe('Đang tìm trong menu...');
+    expect(voiceStatusLabel('vi', 'tool', 'skill_trendcoffee-checkout'))
+      .toBe('Đang tạo đơn...');
+    expect(voiceStatusLabel('vi', 'tool', 'display_cart'))
+      .toBe('Đang cập nhật giỏ hàng...');
+    expect(voiceStatusLabel('vi', 'tool', 'skill_manage'))
+      .toBe('Đang thực hiện...');
+    expect(voiceStatusLabel('en', 'tool', 'skill_trendcoffee-menu'))
+      .toBe('Searching the menu...');
     expect(voiceStatusLabel('en', 'tool', 'browser_open'))
-      .toBe('browser_open...');
+      .toBe('Working...');
   });
 
   it('localizes the selector labels, helper text, and compact voice badge', () => {

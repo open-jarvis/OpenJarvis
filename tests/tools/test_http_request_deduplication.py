@@ -1,8 +1,8 @@
 """One exact mutation, one network dispatch -- across turns and threads.
 
-The kiosk has no cart: the order lives in conversation and is rebuilt as a
-request body each time. A model that re-sends the same confirmed order, or two
-turns racing, must not become two coffees.
+The merchant has no cart endpoint: the local draft becomes a request body at
+checkout. A model that re-sends the same confirmed order, or two turns racing,
+must not become two coffees.
 """
 
 from __future__ import annotations

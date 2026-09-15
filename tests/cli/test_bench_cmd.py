@@ -82,3 +82,31 @@ class TestBenchCLI:
             )
         assert result.exit_code == 0
         assert out_file.exists()
+
+    def test_stack_writes_resource_only_jsonl(self, tmp_path):
+        from openjarvis.telemetry.stack import StackSample
+
+        output = tmp_path / "stack.jsonl"
+        with patch(
+            "openjarvis.telemetry.stack.collect_stack_samples",
+            return_value=[StackSample(1, (10,), 100, 200, 10.0, 1.25, None, None)],
+        ):
+            result = CliRunner().invoke(
+                cli,
+                [
+                    "bench",
+                    "stack",
+                    "--pid",
+                    "10",
+                    "--seconds",
+                    "1",
+                    "--interval",
+                    "1",
+                    "--output",
+                    str(output),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert output.exists()
+        assert "cpu_percent_machine" in result.output

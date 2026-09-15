@@ -106,6 +106,11 @@ export function voiceStatusForActivity(activity: VoiceActivity): {
   return { status: 'tool', detail: activity.toolName };
 }
 
+/** Server phases can arrive before this client event; never downgrade them. */
+export function statusAfterUserStoppedSpeaking(current: LocalVoiceStatus): LocalVoiceStatus {
+  return current === 'inference' || current === 'tool' ? current : 'processing';
+}
+
 export function hasAudibleSpectrum(spectrum: Uint8Array): boolean {
   let sum = 0;
   for (const value of spectrum) sum += value;
@@ -358,8 +363,7 @@ export function usePipecatVoiceMode(options: { onTurn?: (message: ChatMessage) =
       setAssistantCaptionText('');
     });
     client.on(RTVIEvent.UserStoppedSpeaking, () => {
-      setStatus('processing');
-      setActivityDetail(null);
+      setStatus(statusAfterUserStoppedSpeaking);
     });
     client.on(RTVIEvent.ServerMessage, (message: unknown) => {
       const activity = voiceActivityFromServerMessage(message);

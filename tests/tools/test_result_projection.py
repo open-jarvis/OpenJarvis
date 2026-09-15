@@ -54,6 +54,25 @@ def _large_trend_menu() -> str:
     )
 
 
+def _large_trend_tables() -> str:
+    tables = [
+        {
+            "name": str(index),
+            "location": "Ground floor" if index <= 50 else "First floor",
+            "xPosition": None,
+            "yPosition": None,
+            "status": "reserved" if index in {2, 3, 50, 79} else "available",
+            "createdAt": "Sat Apr 19 2025 09:05:09 GMT+0700 (Indochina Time)",
+            "slug": f"table-{index:03d}",
+        }
+        for index in range(1, 101)
+    ]
+    return json.dumps(
+        {"statusCode": 200, "message": "ok", "result": tables},
+        ensure_ascii=False,
+    )
+
+
 def test_small_json_is_unchanged() -> None:
     content = '{"orderId":"ord-7","status":"pending"}'
 
@@ -94,6 +113,28 @@ def test_large_trend_menu_keeps_every_product_for_model_side_filtering() -> None
     assert "variant-40" in projected
     assert "Ingredient 40" in projected
     assert "https://example.test" not in projected
+
+
+def test_large_trend_table_list_keeps_live_status_and_order_slug() -> None:
+    content = _large_trend_tables()
+
+    projected = project_tool_content(content, max_chars=16_000)
+    payload = json.loads(projected)
+
+    assert len(content) > 16_000
+    assert len(projected) < len(content)
+    assert len(projected) <= 16_000
+    assert payload["result"][0] == {
+        "name": "1",
+        "slug": "table-001",
+        "status": "available",
+        "location": "Ground floor",
+    }
+    assert payload["result"][49]["slug"] == "table-050"
+    assert payload["result"][49]["status"] == "reserved"
+    assert payload["result"][99]["slug"] == "table-100"
+    assert "createdAt" not in projected
+    assert "xPosition" not in projected
 
 
 def test_large_non_json_text_has_an_explicit_marker() -> None:

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from unittest.mock import Mock
+
+import pytest
+
 from openjarvis.core.types import ToolResult
 from openjarvis.skills.executor import SkillExecutor
 from openjarvis.skills.tool_adapter import SkillTool
@@ -28,7 +32,104 @@ def _make_executor(*extra_tools):
     return SkillExecutor(tool_executor)
 
 
+class _RememberingMenu(BaseTool):
+    tool_id = "display_menu"
+
+    @property
+    def spec(self):
+        return ToolSpec(name="display_menu", description="Show a menu")
+
+    def execute(self, **params):
+        return ToolResult(tool_name="display_menu", content="shown")
+
+    def agent_context(self):
+        return {"displayed_menu": [{"id": "v-1", "name": "Taco gà", "price": 86000}]}
+
+
+def test_menu_skill_forwards_the_displayed_menu_to_the_agent():
+    manifest = SkillManifest(
+        name="site-menu",
+        steps=[SkillStep(tool_name="display_menu", arguments_template="{}")],
+    )
+
+    tool = SkillTool(manifest, _make_executor(_RememberingMenu()))
+
+    assert tool.agent_context() == {
+        "displayed_menu": [{"id": "v-1", "name": "Taco gà", "price": 86000}]
+    }
+
+
+def test_skill_without_a_menu_step_adds_no_agent_context():
+    manifest = SkillManifest(
+        name="echo-skill",
+        steps=[SkillStep(tool_name="echo", arguments_template='{"text":"x"}')],
+    )
+
+    tool = SkillTool(manifest, _make_executor(_RememberingMenu()))
+
+    assert tool.agent_context() == {}
+
+
 class TestParameterExtraction:
+    @pytest.mark.parametrize(
+        "schema, expected",
+        [
+            (
+                {
+                    "type": "object",
+                    "properties": {"q": {"type": "string"}},
+                    "required": ["q"],
+                    "additionalProperties": False,
+                },
+                {"q"},
+            ),
+            (
+                {
+                    "type": "object",
+                    "properties": {
+                        "department_code": {"type": "string"},
+                        "day": {"type": "integer"},
+                    },
+                    "required": ["department_code", "day"],
+                    "additionalProperties": False,
+                },
+                {"department_code", "day"},
+            ),
+        ],
+    )
+    def test_explicit_schema_exposes_exact_declared_names(self, schema, expected):
+        manifest = SkillManifest(
+            name="native-search",
+            input_schema=schema,
+            steps=[
+                SkillStep(
+                    tool_name="echo",
+                    arguments_template='{"text":"{q|urlencode}"}',
+                )
+            ],
+        )
+
+        parameters = SkillTool(manifest, _make_executor()).spec.parameters
+
+        assert set(parameters["properties"]) == expected
+        assert parameters == schema
+        assert parameters is not schema
+
+    def test_filtered_placeholder_does_not_invent_filter_parameter(self):
+        manifest = SkillManifest(
+            name="filtered",
+            steps=[
+                SkillStep(
+                    tool_name="echo",
+                    arguments_template='{"text":"{q|urlencode}"}',
+                )
+            ],
+        )
+
+        props = SkillTool(manifest, _make_executor()).spec.parameters["properties"]
+
+        assert set(props) == {"q"}
+
     def test_pipeline_params_extracted(self):
         """Placeholders in arguments_template become input params."""
         manifest = SkillManifest(
@@ -141,6 +242,86 @@ class TestParameterExtraction:
         props = skill_tool.spec.parameters.get("properties", {})
         assert "first" in props
         assert "second" in props
+
+
+class TestExplicitParameterValidation:
+    @pytest.mark.parametrize(
+        "params, field",
+        [
+            ({"count": 1, "mode": "brief"}, "q"),
+            ({"q": "ok", "count": 1, "mode": "brief", "extra": "x"}, "extra"),
+            ({"q": 123, "count": 1, "mode": "brief"}, "q"),
+            ({"q": "", "count": 1, "mode": "brief"}, "q"),
+            ({"q": "ok", "count": 0, "mode": "brief"}, "count"),
+            ({"q": "ok", "count": 4, "mode": "brief"}, "count"),
+            ({"q": "ok", "count": 1, "mode": "secret-mode"}, "mode"),
+        ],
+    )
+    def test_invalid_arguments_never_call_executor(self, params, field):
+        schema = {
+            "type": "object",
+            "properties": {
+                "q": {"type": "string", "minLength": 1},
+                "count": {"type": "integer", "minimum": 1, "maximum": 3},
+                "mode": {"type": "string", "enum": ["brief", "full"]},
+            },
+            "required": ["q", "count", "mode"],
+            "additionalProperties": False,
+        }
+        executor = _make_executor()
+        executor.run = Mock()
+        tool = SkillTool(
+            SkillManifest(
+                name="validated",
+                input_schema=schema,
+                steps=[
+                    SkillStep(tool_name="echo", arguments_template='{"text":"{q}"}')
+                ],
+            ),
+            executor,
+        )
+
+        result = tool.execute(**params)
+
+        assert not result.success
+        assert result.content.startswith("invalid_skill_arguments:")
+        assert field in result.content
+        assert "secret-mode" not in result.content
+        executor.run.assert_not_called()
+
+    def test_valid_arguments_reach_executor_without_coercion(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "q": {"type": "string"},
+                "filters": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"active": {"type": "boolean"}},
+                        "required": ["active"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["q", "filters"],
+            "additionalProperties": False,
+        }
+        tool = SkillTool(
+            SkillManifest(
+                name="validated",
+                input_schema=schema,
+                steps=[
+                    SkillStep(tool_name="echo", arguments_template='{"text":"{q}"}')
+                ],
+            ),
+            _make_executor(),
+        )
+
+        result = tool.execute(q="coffee", filters=[{"active": True}])
+
+        assert result.success
+        assert result.content == "coffee"
 
 
 class TestMarkdownReturn:

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   clampPosition,
   computeCornerResize,
+  computeHandleResize,
   computeResizeDimensions,
   getInitialPosition,
   type Dimensions,
@@ -169,6 +170,18 @@ describe('floatingGeometry', () => {
       expect(size).toEqual({ width: 400, height: 225 });
       expect(position).toEqual({ x: 220, y: 155 }); // x: 220, y: 155
     });
+
+    it('resizes based on vertical drag when vertical movement is dominant', () => {
+      // Dragging SE downwards (+90px vertically) expands width by 90 * (16/9) = 160
+      const { position, size } = computeCornerResize(
+        { startPos, startSize, corner: 'se' },
+        0,
+        90,
+        16 / 9,
+      );
+      expect(size).toEqual({ width: 480, height: 270 });
+      expect(position).toEqual({ x: 300, y: 200 });
+    });
   });
 
   describe('getInitialPosition', () => {
@@ -202,6 +215,110 @@ describe('floatingGeometry', () => {
       // rawY = 16 (within bounds or clamped)
       expect(pos.x).toBeGreaterThanOrEqual(0);
       expect(pos.y).toBeGreaterThanOrEqual(0);
+    });
+
+    it('calculates centered position when placement is center', () => {
+      // x = (1920 - 320) / 2 = 800, y = (1080 - 180) / 2 = 450
+      const pos = getInitialPosition(size, bounds, undefined, 'center');
+      expect(pos).toEqual({ x: 800, y: 450 });
+    });
+  });
+
+  describe('computeHandleResize (all 4 edges and 4 corners)', () => {
+    const startPos = { x: 300, y: 200 };
+    const startSize = { width: 400, height: 250 };
+    const viewport = { width: 1920, height: 1080 };
+
+    it('resizes right edge (e) expanding width without moving position', () => {
+      const { position, size } = computeHandleResize(
+        { startPos, startSize, handle: 'e' },
+        60,
+        0,
+        { viewport },
+      );
+      expect(size).toEqual({ width: 460, height: 250 });
+      expect(position).toEqual({ x: 300, y: 200 });
+    });
+
+    it('resizes left edge (w) moving X left and keeping right edge fixed', () => {
+      // Dragging left (-60px) expands width to 460, moving X from 300 to 240 (right edge remains at 700)
+      const { position, size } = computeHandleResize(
+        { startPos, startSize, handle: 'w' },
+        -60,
+        0,
+        { viewport },
+      );
+      expect(size).toEqual({ width: 460, height: 250 });
+      expect(position).toEqual({ x: 240, y: 200 });
+    });
+
+    it('resizes bottom edge (s) expanding height without moving position', () => {
+      const { position, size } = computeHandleResize(
+        { startPos, startSize, handle: 's' },
+        0,
+        50,
+        { viewport },
+      );
+      expect(size).toEqual({ width: 400, height: 300 });
+      expect(position).toEqual({ x: 300, y: 200 });
+    });
+
+    it('resizes top edge (n) moving Y up and keeping bottom edge fixed', () => {
+      // Dragging up (-50px) expands height to 300, moving Y from 200 to 150 (bottom edge remains at 450)
+      const { position, size } = computeHandleResize(
+        { startPos, startSize, handle: 'n' },
+        0,
+        -50,
+        { viewport },
+      );
+      expect(size).toEqual({ width: 400, height: 300 });
+      expect(position).toEqual({ x: 300, y: 150 });
+    });
+
+    it('resizes SE corner expanding both width and height from bottom-right', () => {
+      const { position, size } = computeHandleResize(
+        { startPos, startSize, handle: 'se' },
+        80,
+        40,
+        { viewport },
+      );
+      expect(size).toEqual({ width: 480, height: 290 });
+      expect(position).toEqual({ x: 300, y: 200 });
+    });
+
+    it('resizes NW corner expanding both width and height while moving position', () => {
+      const { position, size } = computeHandleResize(
+        { startPos, startSize, handle: 'nw' },
+        -80,
+        -40,
+        { viewport },
+      );
+      expect(size).toEqual({ width: 480, height: 290 });
+      expect(position).toEqual({ x: 220, y: 160 });
+    });
+
+    it('clamps to minWidth and minHeight when dragged inward excessively', () => {
+      const { position, size } = computeHandleResize(
+        { startPos, startSize, handle: 'se' },
+        -350,
+        -200,
+        { minWidth: 160, minHeight: 100, viewport },
+      );
+      expect(size).toEqual({ width: 160, height: 100 });
+      expect(position).toEqual({ x: 300, y: 200 });
+    });
+
+    it('does not allow left drag to push window past viewport boundary x=0', () => {
+      // startPos.x is 300, startSize.width is 400 -> rightEdge = 700.
+      // If user drags -800 to the left, newWidth cannot exceed 700, and newX stops at 0.
+      const { position, size } = computeHandleResize(
+        { startPos, startSize, handle: 'w' },
+        -800,
+        0,
+        { viewport },
+      );
+      expect(position.x).toBe(0);
+      expect(size.width).toBe(700);
     });
   });
 });

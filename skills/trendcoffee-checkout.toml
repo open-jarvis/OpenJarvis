@@ -1,0 +1,25 @@
+[skill]
+name = "trendcoffee-checkout"
+description = "Checkout a freshly confirmed take-out or at-table order in one call, show the verified bill, and display its payment QR. Pass order_type and order_note matching the saved draft, with table empty for take-out or the available table slug already selected from a fresh table read for at-table, plus either cart_revision or cart_lines, turn_nonce, and customer_message. Delivery is not supported."
+checkout = true
+accepts_cart_lines = true
+
+[[skill.steps]]
+tool_name = "http_request"
+output_key = "created"
+arguments_template = '''{"url":"https://trendcoffee.net/api/latest/orders/public","method":"POST","body":{"$json":{"type":"{order_type}","branch":"ba9355f797","timeLeftTakeOut":0,"deliveryTo":"","deliveryPhone":"","table":"{table}","owner":"","approvalBy":"","orderItems":{"$map":"{draft_cart.lines}","as":"line","value":{"quantity":"{line.quantity}","variant":"{line.variant_id}","promotion":null,"note":"{line.note}"}},"voucher":null,"description":"{order_note}"}}}'''
+assertions_json = '''[{"actual":"{created.result.subtotal}","equals":"{draft_cart.total}"},{"actual":"{created.result.type}","equals":"{order_type}"},{"actual":"{created.result.description}","equals":"{order_note}"},{"actual":{"$coalesce":["{created.result.table.slug}",""]},"equals":"{table}"},{"actual":{"$map":"{created.result.orderItems}","as":"line","value":{"variant":"{line.variant.slug}","quantity":"{line.quantity}","note":"{line.note}"}},"equals":{"$map":"{draft_cart.lines}","as":"line","value":{"variant":"{line.variant_id}","quantity":"{line.quantity}","note":"{line.note}"}}}]'''
+
+[[skill.steps]]
+tool_name = "display_bill"
+arguments_template = '''{"order_id":"{created.result.slug}","status":"{created.result.status}","order_type":"{created.result.type}","branch":"ba9355f797","lines":{"$map":"{draft_cart.lines}","as":"line","value":{"line_id":"{line.line_id}","name":"{line.name}","size":"{line.size}","note":"{line.note}","quantity":"{line.quantity}","unit_price":"{line.unit_price}","line_total":"{line.line_total}"}},"total":"{created.result.subtotal}"}'''
+
+[[skill.steps]]
+tool_name = "http_request"
+output_key = "payment"
+arguments_template = '''{"url":"https://trendcoffee.net/api/latest/payment/initiate/public","method":"POST","body":{"$json":{"orderSlug":"{created.result.slug}","paymentMethod":"bank-transfer"}}}'''
+assertions_json = '''[{"actual":"{payment.result.amount}","equals":"{draft_cart.total}"},{"actual":"{payment.result.paymentMethod}","equals":"bank-transfer"},{"actual":"{payment.result.statusCode}","equals":"pending"}]'''
+
+[[skill.steps]]
+tool_name = "display_payment_qr"
+arguments_template = '''{"order_id":"{created.result.slug}","payment_slug":"{payment.result.slug}","status":"{payment.result.statusCode}","total":"{payment.result.amount}","customer_message":"{customer_message}"}'''

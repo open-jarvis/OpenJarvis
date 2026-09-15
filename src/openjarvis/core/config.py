@@ -984,6 +984,7 @@ class ToolsConfig:
     mcp: MCPConfig = field(default_factory=MCPConfig)
     browser: BrowserConfig = field(default_factory=BrowserConfig)
     enabled: str = ""  # comma-separated default tools
+    model_hidden: str = ""  # registered for internal skills, absent from model schemas
     # Origins whose HTTP responses may supply a payment QR. Each entry includes
     # scheme and optional port. Empty means no QR can be displayed.
     payment_trusted_origins: str = ""

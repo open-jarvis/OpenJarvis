@@ -35,6 +35,7 @@ PRICING: Dict[str, tuple[float, float]] = {
     "gpt-5": (10.00, 30.00),
     "gpt-5.4": (15.00, 60.00),
     "gpt-5-mini": (0.25, 2.00),
+    "gpt-5.6-luna": (0.20, 1.20),
     "o3-mini": (1.10, 4.40),
     "claude-sonnet-4-20250514": (3.00, 15.00),
     "claude-opus-4-20250514": (15.00, 75.00),
@@ -65,6 +66,7 @@ _OPENAI_MODELS = [
     "gpt-5",
     "gpt-5.4",
     "gpt-5-mini",
+    "gpt-5.6-luna",
     "o3-mini",
 ]
 _ANTHROPIC_MODELS = [
@@ -180,6 +182,11 @@ def _is_openai_reasoning_model(model: str) -> bool:
     if m.startswith(("o1", "o3")):
         return True
     return m == "gpt-5-mini" or m.startswith("gpt-5-mini-")
+
+
+def _uses_openai_responses(model: str) -> bool:
+    """Return whether this OpenAI model requires the Responses API here."""
+    return model.lower().startswith("gpt-5.6-")
 
 
 def _is_unsupported_temperature_error(exc: Exception) -> bool:
@@ -579,6 +586,192 @@ class CloudEngine(InferenceEngine):
             "cost_usd": 0.0,
             "ttft": elapsed,
         }
+
+    @staticmethod
+    def _openai_responses_input(
+        messages: Sequence[Message],
+    ) -> tuple[str, List[Dict[str, Any]]]:
+        """Convert canonical messages into stateless Responses API input."""
+        instructions: list[str] = []
+        input_items: List[Dict[str, Any]] = []
+        for message in messages:
+            if message.role.value == "system":
+                if message.content:
+                    instructions.append(message.content)
+                continue
+
+            response_items = message.metadata.get("response_items")
+            if message.role.value == "assistant" and response_items:
+                input_items.extend(response_items)
+                continue
+
+            if message.role.value == "tool":
+                input_items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": message.tool_call_id or "",
+                        "output": message.content or "",
+                    }
+                )
+                continue
+
+            if message.role.value == "assistant" and message.tool_calls:
+                if message.content:
+                    input_items.append(
+                        {"role": "assistant", "content": message.content}
+                    )
+                input_items.extend(
+                    {
+                        "type": "function_call",
+                        "call_id": tool_call.id,
+                        "name": tool_call.name,
+                        "arguments": tool_call.arguments,
+                    }
+                    for tool_call in message.tool_calls
+                )
+                continue
+
+            input_items.append(
+                {
+                    "role": message.role.value,
+                    "content": message.content or "",
+                }
+            )
+        return "\n\n".join(instructions), input_items
+
+    @staticmethod
+    def _openai_responses_tools(
+        tools: Sequence[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Flatten Chat Completions function tools for the Responses API."""
+        converted: List[Dict[str, Any]] = []
+        for tool in tools:
+            function = tool.get("function", {})
+            item: Dict[str, Any] = {
+                "type": "function",
+                "name": function.get("name", ""),
+                "parameters": function.get("parameters"),
+                "strict": bool(function.get("strict", False)),
+            }
+            if function.get("description"):
+                item["description"] = function["description"]
+            converted.append(item)
+        return converted
+
+    def _generate_openai_responses(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """Generate with high reasoning and function tools via Responses."""
+        del temperature
+        if self._openai_client is None:
+            raise EngineConnectionError(
+                "OpenAI client not available — set "
+                "OPENAI_API_KEY and install "
+                "openjarvis[inference-cloud]"
+            )
+
+        instructions, input_items = self._openai_responses_input(messages)
+        raw_tools = kwargs.pop("tools", None)
+        response_format = kwargs.pop("response_format", None)
+        tool_choice = kwargs.pop("tool_choice", None)
+        requested_include = kwargs.pop("include", [])
+        kwargs.pop("reasoning", None)
+        kwargs.pop("reasoning_effort", None)
+        kwargs.pop("store", None)
+        create_kwargs: Dict[str, Any] = {
+            "model": model,
+            "input": input_items,
+            "max_output_tokens": max_tokens,
+            **kwargs,
+            "reasoning": {"effort": "high"},
+            "include": list(
+                dict.fromkeys(
+                    [*requested_include, "reasoning.encrypted_content"]
+                )
+            ),
+            "store": False,
+        }
+        if instructions:
+            create_kwargs["instructions"] = instructions
+        if raw_tools:
+            create_kwargs["tools"] = self._openai_responses_tools(raw_tools)
+        if isinstance(tool_choice, dict) and isinstance(
+            tool_choice.get("function"), dict
+        ):
+            create_kwargs["tool_choice"] = {
+                "type": "function",
+                "name": tool_choice["function"].get("name", ""),
+            }
+        elif tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
+        if response_format is not None:
+            from openjarvis.engine._stubs import ResponseFormat
+
+            if isinstance(response_format, ResponseFormat):
+                format_type = response_format.type
+                schema = response_format.schema
+                format_name = "response"
+                strict = True
+            else:
+                format_type = response_format.get("type", "json_object")
+                json_schema = response_format.get("json_schema", {})
+                schema = json_schema.get("schema")
+                format_name = json_schema.get("name", "response")
+                strict = json_schema.get("strict", True)
+            text_format: Dict[str, Any] = {"type": format_type}
+            if format_type == "json_schema" and schema:
+                text_format.update(
+                    {
+                        "name": format_name,
+                        "schema": schema,
+                        "strict": strict,
+                    }
+                )
+            create_kwargs["text"] = {"format": text_format}
+
+        t0 = time.monotonic()
+        resp = self._openai_client.responses.create(**create_kwargs)
+        elapsed = time.monotonic() - t0
+        usage = getattr(resp, "usage", None)
+        prompt_tokens = getattr(usage, "input_tokens", 0) if usage else 0
+        completion_tokens = getattr(usage, "output_tokens", 0) if usage else 0
+        output_items = [
+            item.model_dump(exclude_none=True)
+            if hasattr(item, "model_dump")
+            else dict(item)
+            for item in resp.output
+        ]
+        result: Dict[str, Any] = {
+            "content": resp.output_text or "",
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": getattr(usage, "total_tokens", 0) if usage else 0,
+            },
+            "model": resp.model,
+            "finish_reason": "stop" if resp.status == "completed" else resp.status,
+            "cost_usd": estimate_cost(model, prompt_tokens, completion_tokens),
+            "ttft": elapsed,
+            "response_items": output_items,
+        }
+        tool_calls = [
+            {
+                "id": item.call_id,
+                "name": item.name,
+                "arguments": item.arguments,
+            }
+            for item in resp.output
+            if getattr(item, "type", None) == "function_call"
+        ]
+        if tool_calls:
+            result["tool_calls"] = tool_calls
+        return result
 
     def _generate_openai(
         self,
@@ -1155,6 +1348,8 @@ class CloudEngine(InferenceEngine):
             return self._generate_anthropic(messages, **kw)
         if _is_google_model(model):
             return self._generate_google(messages, **kw)
+        if _uses_openai_responses(model):
+            return self._generate_openai_responses(messages, **kw)
         return self._generate_openai(messages, **kw)
 
     async def stream(

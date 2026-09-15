@@ -6,6 +6,7 @@ import {
   hasAudibleSpectrum,
   voiceAvailability,
   voiceErrorMessage,
+  statusAfterUserStoppedSpeaking,
   voiceWebRtcRequestParams,
   voiceStatusForActivity,
   voiceStatusForError,
@@ -144,6 +145,18 @@ describe('voiceStatusForActivity', () => {
       status: 'tool',
       detail: 'browser_open',
     });
+  });
+});
+
+describe('statusAfterUserStoppedSpeaking', () => {
+  it('keeps a server phase that arrived before the client event', () => {
+    expect(statusAfterUserStoppedSpeaking('inference')).toBe('inference');
+    expect(statusAfterUserStoppedSpeaking('tool')).toBe('tool');
+  });
+
+  it('shows processing when no server phase has arrived yet', () => {
+    expect(statusAfterUserStoppedSpeaking('listening')).toBe('processing');
+    expect(statusAfterUserStoppedSpeaking('speaking')).toBe('processing');
   });
 });
 

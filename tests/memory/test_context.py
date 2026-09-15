@@ -81,6 +81,28 @@ def test_format_context_empty():
     assert format_context([]) == ""
 
 
+def test_recall_omits_missing_skills_but_keeps_live_skills_and_other_memory():
+    results = [
+        RetrievalResult(
+            content="Run deleted-read", source="openjarvis.skill_learning",
+            metadata={"skill_name": "deleted-read"},
+        ),
+        RetrievalResult(
+            content="Run live-read", source="openjarvis.skill_learning",
+            metadata={"skill_name": "live-read"},
+        ),
+        RetrievalResult(content="Customer prefers take-away", source="notes"),
+    ]
+    cfg = ContextConfig(skill_exists=lambda name: name == "live-read")
+    messages = inject_context("menu", [], _FakeMemory(results), config=cfg)
+    text = messages[0].text
+    assert "deleted-read" not in text
+    assert "live-read" in text
+    assert "Customer prefers take-away" in text
+    # Filtering does not delete durable records or mutate the retrieval result.
+    assert len(results) == 3
+
+
 def test_build_context_message_role():
     results = [
         RetrievalResult(content="test", score=1.0, source="s.md"),

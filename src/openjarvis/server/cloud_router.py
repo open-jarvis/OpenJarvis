@@ -23,6 +23,15 @@ from openjarvis.core.types import Message
 
 _CLOUD_ENV_FILE = get_config_dir() / "cloud-keys.env"
 
+_CLOUD_API_KEY_NAMES = (
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "OPENROUTER_API_KEY",
+    "MINIMAX_API_KEY",
+)
+
 _OPENAI_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "chatgpt-")
 _ANTHROPIC_PREFIXES = ("claude-",)
 _GOOGLE_PREFIXES = ("gemini-",)
@@ -48,18 +57,25 @@ def _load_keys() -> dict[str, str]:
                 k, v = line.split("=", 1)
                 keys[k.strip()] = v.strip()
     # Process env can override (e.g. during testing)
-    for name in (
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "GEMINI_API_KEY",
-        "GOOGLE_API_KEY",
-        "OPENROUTER_API_KEY",
-        "MINIMAX_API_KEY",
-    ):
+    for name in _CLOUD_API_KEY_NAMES:
         val = os.environ.get(name)
         if val:
             keys[name] = val
     return keys
+
+
+def get_cloud_key_status() -> dict[str, bool]:
+    """Return provider key presence without exposing credential values."""
+    keys = _load_keys()
+    return {
+        "OPENAI_API_KEY": bool(keys.get("OPENAI_API_KEY")),
+        "ANTHROPIC_API_KEY": bool(keys.get("ANTHROPIC_API_KEY")),
+        "GEMINI_API_KEY": bool(
+            keys.get("GEMINI_API_KEY") or keys.get("GOOGLE_API_KEY")
+        ),
+        "OPENROUTER_API_KEY": bool(keys.get("OPENROUTER_API_KEY")),
+        "MINIMAX_API_KEY": bool(keys.get("MINIMAX_API_KEY")),
+    }
 
 
 def get_provider(model: str) -> str | None:

@@ -199,4 +199,15 @@ describe('FloatingCodexPet', () => {
     expect(html).toContain('custom-floating-layer');
     expect(html).toContain('opacity:0.95');
   });
+
+  it('renders with custom scale prop', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(FloatingCodexPet, {
+        scale: 3.0,
+      })
+    );
+    // baseWidth 110 * (3.0 / 2) = 165px
+    expect(html).toContain('width:165px');
+    expect(html).toContain('height:165px');
+  });
 });

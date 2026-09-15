@@ -37,6 +37,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallbackDenylist: [/^\/v1\//, /^\/health/, /^\/dashboard/, /^\/api\//],
       },
     }),
@@ -49,6 +50,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           react: ['react', 'react-dom'],
+          three: ['three'],
           markdown: ['react-markdown', 'rehype-highlight', 'remark-gfm'],
           charts: ['recharts'],
           router: ['react-router'],

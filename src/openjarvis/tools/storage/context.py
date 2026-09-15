@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, List, Optional, Sequence
 
@@ -21,6 +22,7 @@ class ContextConfig:
     top_k: int = 5
     min_score: float = 0.0
     max_context_tokens: int = 2048
+    skill_exists: Callable[[str], bool] | None = None
 
 
 def _count_tokens(text: str) -> int:
@@ -141,6 +143,13 @@ def inject_context(
 
     # Filter by minimum score
     results = [r for r in results if r.score >= cfg.min_score]
+    if cfg.skill_exists is not None:
+        results = [
+            r for r in results
+            if r.source != "openjarvis.skill_learning"
+            or not isinstance(r.metadata.get("skill_name"), str)
+            or cfg.skill_exists(r.metadata["skill_name"])
+        ]
 
     # When both sources have data, cap facts at half the total budget so they
     # cannot starve query-specific document retrieval. Unused fact budget is

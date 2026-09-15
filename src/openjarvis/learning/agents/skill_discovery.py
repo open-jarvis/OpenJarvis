@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.parse
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -80,6 +81,9 @@ class SkillDiscovery:
         sequence_inputs: Dict[Tuple[str, ...], List[str]] = defaultdict(list)
 
         for trace in traces:
+            metadata = self._trace_value(trace, "metadata", {}) or {}
+            if metadata.get("status", "completed") != "completed":
+                continue
             tool_calls = self._extract_tool_sequence(trace)
             outcome = self._extract_outcome(trace)
             query = self._extract_query(trace)
@@ -304,11 +308,11 @@ class SkillDiscovery:
     def _parameterize_read_display(
         self, trace: Any, *, name: str, query: str
     ) -> SkillManifest | None:
-        steps = self._tool_steps(trace)
-        reads = [step for step in steps if self._tool_name(step) == "http_request"]
-        display = next(
-            step for step in steps if self._tool_name(step).startswith("display_")
-        )
+        evidence = self._validated_read_evidence(trace)
+        if evidence is None:
+            return None
+        read, display, request_arguments, input_schema, recipe = evidence
+        reads = [read]
         learned_steps: List[SkillStep] = []
         source_values: List[Tuple[str, Any]] = []
         for index, read in enumerate(reads):
@@ -317,7 +321,7 @@ class SkillDiscovery:
                 SkillStep(
                     tool_name="http_request",
                     arguments_template=json.dumps(
-                        self._parameterize_current_date(self._step_arguments(read)),
+                        self._parameterize_current_date(request_arguments),
                         ensure_ascii=False,
                     ),
                     output_key=output_key,
@@ -341,6 +345,7 @@ class SkillDiscovery:
             )
         if not grounded:
             return None
+        display_arguments["result_complete"] = True
 
         learned_steps.append(
             SkillStep(
@@ -354,8 +359,12 @@ class SkillDiscovery:
             name=name,
             description=f"Learned read: {query}",
             steps=learned_steps,
+            input_schema=input_schema,
             metadata={
-                "openjarvis": {"source": "learned"},
+                "openjarvis": {
+                    "source": "learned",
+                    "request_recipe": recipe,
+                },
                 "intent": query,
                 "requires_fresh_confirmation": False,
             },
@@ -369,30 +378,330 @@ class SkillDiscovery:
         if outcome is not None and str(outcome).lower() != "success":
             return False
 
-        reads: List[int] = []
-        displays: List[int] = []
-        for index, step in enumerate(self._tool_steps(trace)):
-            tool_name = self._tool_name(step)
-            # A failed bookkeeping call (e.g. skill_manage recalling a since
-            # -deleted skill by name before the agent falls back to a manual
-            # read) doesn't taint the read+display pattern that follows it.
-            if tool_name in _BOOKKEEPING_TOOLS:
+        return self._validated_read_evidence(trace) is not None
+
+    def _validated_read_evidence(
+        self, trace: Any
+    ) -> Tuple[Any, Any, Dict[str, Any], Dict[str, Any], Dict[str, Any]] | None:
+        steps = [
+            step
+            for step in self._tool_steps(trace)
+            if self._tool_name(step) not in _BOOKKEEPING_TOOLS
+        ]
+        names = [self._tool_name(step) for step in steps]
+        if (
+            len(steps) != 6
+            or names[0] != "browser_network_requests"
+            or names[1] not in {"browser_fill_form", "browser_click"}
+            or names[2] != "browser_network_requests"
+            or names[3:] != [
+                "http_request",
+                "browser_verify_list_visible",
+                "display_menu",
+            ]
+        ):
+            return None
+        if any(not self._step_output(step).get("success", False) for step in steps):
+            return None
+        if any(self._has_secret_headers(self._step_arguments(step)) for step in steps):
+            return None
+
+        before = self._network_requests(steps[0])
+        after = self._network_requests(steps[2])
+        if before is None or after is None:
+            return None
+        before_keys = {self._request_key(request) for request in before}
+        changed = [
+            request
+            for request in after
+            if self._request_key(request) not in before_keys
+        ]
+        if len(changed) != 1:
+            return None
+        observed = changed[0]
+        observed_method = str(observed.get("method", "")).upper()
+        observed_url = observed.get("url")
+        if observed_method not in _READ_METHODS or not isinstance(observed_url, str):
+            return None
+
+        changed_parameter = self._changed_query_parameter(before, observed)
+        if changed_parameter is None:
+            return None
+        parameter_name, parameter_value = changed_parameter
+        interaction_strings = {
+            value
+            for value in self._step_arguments(steps[1]).values()
+            if isinstance(value, str)
+        }
+        if parameter_value not in interaction_strings:
+            return None
+
+        read = steps[3]
+        replay = self._step_arguments(read)
+        if (
+            str(replay.get("method", "")).upper() != observed_method
+            or replay.get("url") != observed_url
+            or self._has_secret_headers(replay)
+        ):
+            return None
+        read_metadata = self._step_metadata(read)
+        status_code = read_metadata.get("status_code")
+        content_type = read_metadata.get("content_type")
+        final_url = read_metadata.get("final_url")
+        if (
+            type(status_code) is not int
+            or not 200 <= status_code < 300
+            or not isinstance(content_type, str)
+            or not content_type.startswith("application/json")
+            or read_metadata.get("truncated") is not False
+            or self._origin(final_url) != self._origin(observed_url)
+        ):
+            return None
+        response = self._json_output(read)
+        verification = self._json_output(steps[4])
+        display_arguments = self._step_arguments(steps[5])
+        display_items = display_arguments.get("items")
+        if (
+            response is _MISSING
+            or not isinstance(verification, dict)
+            or verification.get("has_pagination") is not False
+            or not isinstance(display_items, list)
+            or display_arguments.get("result_complete") is not True
+        ):
+            return None
+        browser_items = verification.get("items")
+        browser_count = verification.get("count")
+        completeness = verification.get("complete")
+        if (
+            not isinstance(browser_items, list)
+            or type(browser_count) is not int
+            or browser_count != len(browser_items)
+            or browser_count != len(display_items)
+            or not isinstance(completeness, dict)
+            or set(completeness) != {"path", "equals"}
+            or not isinstance(completeness["path"], str)
+            or self._resolve_path(response, completeness["path"])
+            is not completeness["equals"]
+        ):
+            return None
+        browser_ids = [
+            item.get("id") if isinstance(item, dict) else None for item in browser_items
+        ]
+        display_ids = [
+            item.get("id") if isinstance(item, dict) else None for item in display_items
+        ]
+        if (
+            any(not isinstance(item, str) or not item for item in browser_ids)
+            or len(browser_ids) != len(set(browser_ids))
+            or browser_ids != display_ids
+        ):
+            return None
+
+        response_list = self._corresponding_list(response, browser_ids)
+        if response_list is None:
+            return None
+        list_path, _rows = response_list
+
+        parameterized_request = dict(replay)
+        parameterized_request["url"] = self._parameterized_url(
+            observed_url, parameter_name
+        )
+        required_paths = [{"path": list_path, "type": "array"}]
+        required_paths.extend(self._boolean_paths(response))
+        recipe = {
+            "origin": self._origin(observed_url),
+            "method": observed_method,
+            "read_only": True,
+            "captured_from": "browser_network_requests",
+            "allowed_content_types": ["application/json"],
+            "required_paths_json": json.dumps(required_paths),
+        }
+        input_schema = {
+            "type": "object",
+            "properties": {
+                parameter_name: {"type": "string", "minLength": 1}
+            },
+            "required": [parameter_name],
+            "additionalProperties": False,
+        }
+        return read, steps[5], parameterized_request, input_schema, recipe
+
+    @classmethod
+    def _network_requests(cls, step: Any) -> List[Dict[str, Any]] | None:
+        payload = cls._json_output(step)
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("requests"), list
+        ):
+            return None
+        requests = payload["requests"]
+        return requests if all(isinstance(item, dict) for item in requests) else None
+
+    @staticmethod
+    def _request_key(request: Dict[str, Any]) -> Tuple[str, str]:
+        return str(request.get("method", "")).upper(), str(request.get("url", ""))
+
+    @classmethod
+    def _changed_query_parameter(
+        cls, before: List[Dict[str, Any]], observed: Dict[str, Any]
+    ) -> Tuple[str, str] | None:
+        observed_url = observed.get("url")
+        if not isinstance(observed_url, str):
+            return None
+        observed_parts = urllib.parse.urlsplit(observed_url)
+        observed_query = dict(
+            urllib.parse.parse_qsl(observed_parts.query, keep_blank_values=True)
+        )
+        for request in before:
+            url = request.get("url")
+            if (
+                not isinstance(url, str)
+                or str(request.get("method", "")).upper()
+                != str(observed.get("method", "")).upper()
+            ):
                 continue
-            if not self._step_output(step).get("success", False):
-                return False
-            arguments = self._step_arguments(step)
-            if tool_name == "repl" or self._has_secret_headers(arguments):
-                return False
-            if tool_name == "http_request":
-                method = str(arguments.get("method", "GET")).upper()
-                if method not in _READ_METHODS:
-                    return False
-                reads.append(index)
-            elif tool_name.startswith("display_"):
-                displays.append(index)
-            elif not tool_name.startswith("browser_"):
-                return False
-        return bool(reads) and len(displays) == 1 and displays[0] > max(reads)
+            parts = urllib.parse.urlsplit(url)
+            if (parts.scheme, parts.netloc, parts.path) != (
+                observed_parts.scheme,
+                observed_parts.netloc,
+                observed_parts.path,
+            ):
+                continue
+            prior_query = dict(
+                urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+            )
+            changed = [
+                key
+                for key in set(prior_query) | set(observed_query)
+                if prior_query.get(key) != observed_query.get(key)
+            ]
+            if len(changed) == 1 and observed_query.get(changed[0]):
+                return changed[0], observed_query[changed[0]]
+        return None
+
+    @staticmethod
+    def _parameterized_url(url: str, parameter_name: str) -> str:
+        parts = urllib.parse.urlsplit(url)
+        pairs = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        query = "&".join(
+            f"{urllib.parse.quote(name, safe='')}="
+            + (
+                f"{{{name}|urlencode}}"
+                if name == parameter_name
+                else urllib.parse.quote(value, safe="")
+            )
+            for name, value in pairs
+        )
+        return urllib.parse.urlunsplit(
+            (parts.scheme, parts.netloc, parts.path, query, parts.fragment)
+        )
+
+    @staticmethod
+    def _origin(url: Any) -> str:
+        if not isinstance(url, str):
+            return ""
+        try:
+            parts = urllib.parse.urlsplit(url)
+            port = parts.port
+        except ValueError:
+            return ""
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+        ):
+            return ""
+        return f"{parts.scheme}://{parts.hostname}{f':{port}' if port else ''}"
+
+    @classmethod
+    def _json_output(cls, step: Any) -> Any:
+        result = cls._step_output(step).get("result")
+        if not isinstance(result, str):
+            return _MISSING
+        try:
+            return json.loads(result)
+        except json.JSONDecodeError:
+            return _MISSING
+
+    @classmethod
+    def _corresponding_list(
+        cls, response: Any, identities: List[str]
+    ) -> Tuple[str, List[Any]] | None:
+        candidates: List[Tuple[str, List[Any]]] = []
+
+        def visit(value: Any, path: str) -> None:
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    visit(child, f"{path}.{key}" if path else key)
+            elif isinstance(value, list):
+                candidates.append((path, value))
+                for index, child in enumerate(value):
+                    visit(child, f"{path}.{index}")
+
+        visit(response, "")
+        for path, rows in candidates:
+            if len(rows) != len(identities):
+                continue
+            if all(
+                any(
+                    identity == value
+                    or (
+                        isinstance(value, str)
+                        and identity.strip() == value.strip()
+                    )
+                    for value in cls._scalar_values(row)
+                )
+                for identity, row in zip(identities, rows)
+            ):
+                return path, rows
+        return None
+
+    @staticmethod
+    def _scalar_values(value: Any) -> set[Any]:
+        values: set[Any] = set()
+
+        def visit(child: Any) -> None:
+            if isinstance(child, dict):
+                for nested in child.values():
+                    visit(nested)
+            elif isinstance(child, list):
+                for nested in child:
+                    visit(nested)
+            elif isinstance(child, (str, int, float, bool)):
+                values.add(child)
+
+        visit(value)
+        return values
+
+    @staticmethod
+    def _resolve_path(value: Any, path: str) -> Any:
+        current = value
+        for segment in path.split("."):
+            if isinstance(current, dict) and segment in current:
+                current = current[segment]
+            elif (
+                isinstance(current, list)
+                and segment.isdigit()
+                and int(segment) < len(current)
+            ):
+                current = current[int(segment)]
+            else:
+                return _MISSING
+        return current
+
+    @staticmethod
+    def _boolean_paths(response: Any) -> List[Dict[str, str]]:
+        paths: List[Dict[str, str]] = []
+
+        def visit(value: Any, path: str) -> None:
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    visit(child, f"{path}.{key}" if path else key)
+            elif isinstance(value, bool):
+                paths.append({"path": path, "type": "boolean"})
+
+        visit(response, "")
+        return paths
 
     @staticmethod
     def _normalized_intent(query: str) -> str:

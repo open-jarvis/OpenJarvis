@@ -10,6 +10,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional
+from urllib.parse import urlsplit
 
 from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import ToolRegistry
@@ -96,6 +97,13 @@ class SkillManageTool(BaseTool):
                         "type": "boolean",
                         "description": "Whether replay requires a new confirmation.",
                     },
+                    "checkout": {
+                        "type": "boolean",
+                        "description": (
+                            "Enforce a single-use turn nonce and cart revision "
+                            "for this procedure."
+                        ),
+                    },
                 },
                 "required": ["action"],
             },
@@ -112,6 +120,7 @@ class SkillManageTool(BaseTool):
                 params.get("steps", []),
                 params.get("intent"),
                 params.get("requires_fresh_confirmation", True),
+                params.get("checkout", False),
             )
         elif action == "list":
             return self._list()
@@ -134,6 +143,7 @@ class SkillManageTool(BaseTool):
         steps: List[dict],
         intent: Optional[str] = None,
         requires_fresh_confirmation: bool = True,
+        checkout: bool = False,
     ) -> ToolResult:
         path = self._skill_path(name)
         if path is None:
@@ -143,6 +153,7 @@ class SkillManageTool(BaseTool):
             "[skill]",
             f"name = {_toml_string(name)}",
             f"description = {_toml_string(description)}",
+            f"checkout = {'true' if checkout else 'false'}",
             "",
         ]
         for step in steps:
@@ -154,6 +165,10 @@ class SkillManageTool(BaseTool):
                 )
             if "output_key" in step:
                 lines.append(f"output_key = {_toml_string(step['output_key'])}")
+            if step.get("assertions"):
+                lines.append(
+                    "assertions_json = " + _toml_string(json.dumps(step["assertions"]))
+                )
             lines.append("")
         fd, temp_path = tempfile.mkstemp(dir=self._skills_dir, suffix=".toml")
         try:
@@ -203,6 +218,110 @@ class SkillManageTool(BaseTool):
             content=f"Created skill: {name}",
         )
 
+    def has_skill(self, name: str) -> bool:
+        """Whether a recalled procedure is executable in this runtime now."""
+        exists = (
+            self._skill_manager is not None
+            and name in self._skill_manager.skill_names()
+        )
+        return bool(
+            exists
+            and not self._is_unguarded_transaction(name)
+            and not self._is_superseded_learned_read(name)
+        )
+
+    @staticmethod
+    def _http_origins(manifest: Any) -> set[tuple[str, str]]:
+        origins: set[tuple[str, str]] = set()
+        for step in manifest.steps:
+            if step.tool_name != "http_request":
+                continue
+            try:
+                url = json.loads(step.arguments_template).get("url", "")
+            except (AttributeError, json.JSONDecodeError):
+                continue
+            parsed = urlsplit(str(url))
+            if parsed.scheme and parsed.netloc:
+                origins.add((parsed.scheme.lower(), parsed.netloc.lower()))
+        return origins
+
+    def _is_superseded_learned_read(self, name: Any) -> bool:
+        if not isinstance(name, str) or not name.startswith("learned-read-"):
+            return False
+        resolve = getattr(self._skill_manager, "resolve", None)
+        if not callable(resolve):
+            return False
+        try:
+            learned = resolve(name)
+        except (KeyError, TypeError):
+            return False
+        display = next(
+            (
+                step.tool_name
+                for step in reversed(learned.steps)
+                if step.tool_name.startswith("display_")
+            ),
+            "",
+        )
+        origins = self._http_origins(learned)
+        if not display or not origins:
+            return False
+        for candidate_name in self._skill_manager.skill_names():
+            if candidate_name == name or candidate_name.startswith("learned-"):
+                continue
+            try:
+                candidate = resolve(candidate_name)
+            except (KeyError, TypeError):
+                continue
+            candidate_display = next(
+                (
+                    step.tool_name
+                    for step in reversed(candidate.steps)
+                    if step.tool_name.startswith("display_")
+                ),
+                "",
+            )
+            if (
+                candidate_display == display
+                and origins & self._http_origins(candidate)
+            ):
+                return True
+        return False
+
+    def _is_unguarded_transaction(self, name: Any) -> bool:
+        resolve = getattr(self._skill_manager, "resolve", None)
+        if not callable(resolve):
+            return False
+        try:
+            manifest = resolve(name)
+        except (KeyError, TypeError):
+            return False
+        if manifest.checkout:
+            return False
+        source = (manifest.metadata.get("openjarvis", {}) or {}).get("source")
+        learned_transaction = (
+            isinstance(name, str) and name.startswith("learned-transaction-")
+        ) or (
+            source == "learned"
+            and manifest.metadata.get("requires_fresh_confirmation") is True
+        )
+        if not learned_transaction:
+            return False
+        for step in manifest.steps:
+            if step.tool_name != "http_request":
+                continue
+            try:
+                method = json.loads(step.arguments_template).get("method", "GET")
+            except (AttributeError, json.JSONDecodeError):
+                match = re.search(
+                    r'["\']method["\']\s*:\s*["\']([A-Za-z]+)',
+                    step.arguments_template,
+                )
+                method = match.group(1) if match else "GET"
+            if str(method).upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+                return True
+        return False
+
     def _run(self, name: Any, context: Any) -> ToolResult:
         if self._skill_manager is None:
             return ToolResult(
@@ -215,6 +334,24 @@ class SkillManageTool(BaseTool):
                 tool_name=self.spec.name,
                 success=False,
                 content="Skill context must be an object.",
+            )
+        if self._is_unguarded_transaction(name):
+            return ToolResult(
+                tool_name=self.spec.name,
+                success=False,
+                content=(
+                    "Blocked unguarded transaction skill; use an active "
+                    "checkout procedure with fresh confirmation."
+                ),
+            )
+        if self._is_superseded_learned_read(name):
+            return ToolResult(
+                tool_name=self.spec.name,
+                success=False,
+                content=(
+                    "Blocked stale learned read; use the canonical read procedure "
+                    "for this merchant."
+                ),
             )
         context = {
             "today": datetime.now().astimezone().date().isoformat(),
@@ -249,15 +386,20 @@ class SkillManageTool(BaseTool):
         )
 
     def _list(self) -> ToolResult:
-        if not self._skills_dir.exists():
-            return ToolResult(
-                tool_name=self.spec.name,
-                success=True,
-                content="No skills directory found.",
+        if self._skill_manager is not None:
+            skills = sorted(
+                name
+                for name in self._skill_manager.skill_names()
+                if self.has_skill(name)
             )
-        skills = []
-        for f in sorted(self._skills_dir.glob("*.toml")):
-            skills.append(f.stem)
+        else:
+            if not self._skills_dir.exists():
+                return ToolResult(
+                    tool_name=self.spec.name,
+                    success=True,
+                    content="No skills directory found.",
+                )
+            skills = [f.stem for f in sorted(self._skills_dir.glob("*.toml"))]
         if not skills:
             return ToolResult(
                 tool_name=self.spec.name,

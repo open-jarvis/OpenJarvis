@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 import time
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from openjarvis.agents._stubs import (
+    _RUN_WORKER_LEASE,
     AgentContext,
     AgentResult,
     AgentRunCompleted,
     AgentStreamEvent,
+    AgentTextDelta,
     BaseAgent,
 )
-from openjarvis.core.events import EventBus, EventType
+from openjarvis.core.events import RUN_ID, EventBus, EventType
 from openjarvis.core.types import StepType, Trace, TraceStep
 from openjarvis.traces.store import TraceStore
 
@@ -52,6 +58,15 @@ class TraceCollector:
         self._current_model: str = ""
         self._current_engine: str = ""
         self._last_trace: Optional[Trace] = None
+        self._trace_id = uuid4().hex
+        self._state_lock = threading.RLock()
+        self._terminal = False
+        self._ttft: float | None = None
+        self._first_text: float | None = None
+        self._pending_inference: Any = None
+        self._pending_tools: dict[str, Any] = {}
+        self._async_writes = False
+        self._queue_wait: float | None = None
 
     def run(
         self,
@@ -59,48 +74,164 @@ class TraceCollector:
         context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
-        """Execute the wrapped agent and record a trace."""
-        self._current_steps = []
-        self._current_model = ""
-        self._current_engine = ""
-
-        # Subscribe to events for trace collection
-        unsubs = self._subscribe()
-
-        started_at = time.time()
+        """Execute with invocation-local collection state."""
+        session = TraceCollector(self._agent, store=self._store, bus=self._bus)
+        token, unsubs = session._begin(input, kwargs.get("model", ""))
+        result = None
+        status = "failed"
         try:
             result = self._agent.run(input, context=context, **kwargs)
+            status = "completed"
+            return result
+        except (asyncio.CancelledError, GeneratorExit):
+            status = "interrupted"
+            raise
         finally:
-            self._unsubscribe(unsubs)
-
-        self._record_completed(input, result, started_at, time.time())
-
-        return result
+            session._finish(input, result, status, token, unsubs)
+            self._last_trace = session.last_trace
 
     async def run_stream(
         self,
         input: str,
         context: Optional[AgentContext] = None,
+        *,
+        wait_for_admission: Any = None,
         **kwargs: Any,
     ) -> AsyncIterator[AgentStreamEvent]:
-        """Forward a fully drained agent stream and record its completed trace."""
-        self._current_steps = []
-        self._current_model = ""
-        self._current_engine = ""
-
-        unsubs = self._subscribe()
-        started_at = time.time()
+        """Record admission and all terminal paths without sharing run state."""
+        session = TraceCollector(self._agent, store=self._store, bus=self._bus)
+        session._async_writes = True
+        token, unsubs = session._begin(input, kwargs.get("model", ""))
         completed: AgentResult | None = None
+        status = "failed"
         try:
-            async for event in self._agent.run_stream(input, context=context, **kwargs):
-                if isinstance(event, AgentRunCompleted):
-                    completed = event.result
-                yield event
+            if self._store is not None and session._admission_write is None:
+                raise RuntimeError("trace_admission_not_durable")
+            if session._admission_write is not None:
+                # Durable admission before execution, but never block the
+                # event loop or cancel the writer with a barge-in task.
+                await asyncio.shield(asyncio.wrap_future(session._admission_write))
+            if wait_for_admission is not None:
+                session._journal("runtime_acquire_requested", {})
+                acquire_requested = time.monotonic()
+                await wait_for_admission()
+                session._queue_wait = time.monotonic() - acquire_requested
+                session._journal(
+                    "runtime_acquired",
+                    {
+                        "queue_wait_seconds": session._queue_wait,
+                    },
+                )
+            stream = self._agent.run_stream(input, context=context, **kwargs)
+            async with aclosing(stream):
+                async for event in stream:
+                    if isinstance(event, AgentRunCompleted):
+                        completed = event.result
+                    if (
+                        isinstance(event, AgentTextDelta)
+                        and session._first_text is None
+                    ):
+                        session._first_text = time.monotonic() - session._started_mono
+                    yield event
+            status = "completed" if completed is not None else "failed"
+        except (asyncio.CancelledError, GeneratorExit):
+            status = "interrupted"
+            raise
         finally:
-            self._unsubscribe(unsubs)
+            session._finish(input, completed, status, token, unsubs)
+            self._last_trace = session.last_trace
 
-        if completed is not None:
-            self._record_completed(input, completed, started_at, time.time())
+    def _begin(self, input: str, model: str):
+        self._started_at = time.time()
+        self._started_mono = time.monotonic()
+        self._current_model = model
+        token = RUN_ID.set(self._trace_id)
+        self._admission_write = self._journal(
+            "run_admitted",
+            {"query": input, "model": model},
+        )
+        return token, self._subscribe()
+
+    def _journal(self, event_type: str, data: dict, **timing: Any) -> Any:
+        if self._store is not None:
+            try:
+                timing.setdefault("timestamp", time.time())
+                timing.setdefault("monotonic_timestamp", time.monotonic())
+                if self._async_writes:
+                    return self._store.submit_write(
+                        self._store.append_run_event,
+                        self._trace_id,
+                        event_type,
+                        dict(data),
+                        **timing,
+                    )
+                self._store.append_run_event(self._trace_id, event_type, data, **timing)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "run journal write failed: run_id=%s event=%s",
+                    self._trace_id,
+                    event_type,
+                )
+
+    def _finish(self, input, result, status, token, unsubs) -> None:
+        try:
+            with self._state_lock:
+                self._terminal = True
+                if self._pending_inference is not None:
+                    event = self._pending_inference
+                    self._current_steps.append(
+                        TraceStep(
+                            step_type=StepType.GENERATE,
+                            timestamp=event.timestamp,
+                            duration_seconds=max(
+                                0.0, time.monotonic() - event.monotonic_timestamp
+                            ),
+                            input={"model": self._current_model},
+                            metadata={"status": status, "ttft": None},
+                        )
+                    )
+                for event in self._pending_tools.values():
+                    self._current_steps.append(
+                        TraceStep(
+                            step_type=StepType.TOOL_CALL,
+                            timestamp=event.timestamp,
+                            duration_seconds=max(
+                                0.0, time.monotonic() - event.monotonic_timestamp
+                            ),
+                            input={
+                                "tool": event.data.get("tool"),
+                                "arguments": event.data.get("arguments", {}),
+                            },
+                            metadata={
+                                "status": "outcome_pending",
+                                "invocation_id": event.data.get("invocation_id"),
+                            },
+                        )
+                    )
+                self._journal(f"run_{status}", {"status": status})
+                self._record_completed(
+                    input,
+                    result or AgentResult(content=""),
+                    self._started_at,
+                    time.time(),
+                    status=status,
+                )
+            lease = _RUN_WORKER_LEASE.get()
+            if lease is not None and lease.has_pending_workers:
+
+                def settled():
+                    self._journal("worker_settled", {})
+                    self._unsubscribe(unsubs)
+
+                lease.when_settled(settled)
+            else:
+                self._unsubscribe(unsubs)
+        finally:
+            try:
+                RUN_ID.reset(token)
+            except ValueError:
+                # A consumer may close a suspended iterator in another Task.
+                pass
 
     def _record_completed(
         self,
@@ -108,37 +239,47 @@ class TraceCollector:
         result: AgentResult,
         started_at: float,
         ended_at: float,
+        *,
+        status: str = "completed",
     ) -> None:
         """Build, persist, and publish the trace for one completed result."""
 
         # Add final respond step
-        self._current_steps.append(
-            TraceStep(
-                step_type=StepType.RESPOND,
-                timestamp=ended_at,
-                duration_seconds=0.0,
-                output={"content": result.content, "turns": result.turns},
+        if status == "completed":
+            self._current_steps.append(
+                TraceStep(
+                    step_type=StepType.RESPOND,
+                    timestamp=ended_at,
+                    duration_seconds=0.0,
+                    output={"content": result.content, "turns": result.turns},
+                )
             )
-        )
 
         # Extract messages from agent result metadata
         messages: List[Dict[str, Any]] = result.metadata.get("messages", [])
 
         # Build and persist the trace
         trace = Trace(
+            trace_id=self._trace_id,
             query=input,
             agent=getattr(self._agent, "agent_id", "unknown"),
             model=self._current_model,
             engine=self._current_engine,
             steps=list(self._current_steps),
-            result=result.content,
+            result=result.content if status == "completed" else "",
             messages=messages,
             started_at=started_at,
             ended_at=ended_at,
+            metadata={
+                "status": status,
+                "ttft_seconds": self._ttft,
+                "first_text_seconds": self._first_text,
+                "queue_wait_seconds": self._queue_wait,
+            },
         )
-        # Recompute totals from steps
+        # Nested/parallel spans cannot be summed into wall-clock latency.
+        trace.total_latency_seconds = max(0.0, time.monotonic() - self._started_mono)
         for step in trace.steps:
-            trace.total_latency_seconds += step.duration_seconds
             trace.total_tokens += step.output.get("tokens", 0)
 
         self._last_trace = trace
@@ -150,15 +291,17 @@ class TraceCollector:
             # than swallowing it; see traces/store.py's _json_default for
             # the fix to the actual bytes-in-output cause.
             try:
-                self._store.save(trace)
+                if self._async_writes:
+                    self._store.submit_write(self._store.save, trace)
+                else:
+                    self._store.save(trace)
             except Exception:
                 logging.getLogger("openjarvis.traces").exception(
-                    "trace persistence failed for trace_id=%s; continuing "
-                    "without it",
+                    "trace persistence failed for trace_id=%s; continuing without it",
                     trace.trace_id,
                 )
 
-        if self._bus is not None:
+        if self._bus is not None and status == "completed":
             self._bus.publish(EventType.TRACE_COMPLETE, {"trace": trace})
 
     @property
@@ -178,9 +321,25 @@ class TraceCollector:
             (EventType.TOOL_CALL_END, self._on_tool_end),
             (EventType.MEMORY_RETRIEVE, self._on_memory_retrieve),
         ]
+        subscriptions = []
         for evt_type, handler in handlers:
-            self._bus.subscribe(evt_type, handler)
-        return handlers
+
+            def scoped(event, handler=handler):
+                if event.run_id != self._trace_id:
+                    return
+                with self._state_lock:
+                    self._journal(
+                        event.event_type.value,
+                        event.data,
+                        timestamp=event.timestamp,
+                        monotonic_timestamp=event.monotonic_timestamp,
+                    )
+                    if not self._terminal:
+                        handler(event)
+
+            self._bus.subscribe(evt_type, scoped)
+            subscriptions.append((evt_type, scoped))
+        return subscriptions
 
     def _unsubscribe(self, handlers: list[tuple]) -> None:
         if self._bus is None:
@@ -189,14 +348,18 @@ class TraceCollector:
             self._bus.unsubscribe(evt_type, handler)
 
     def _on_inference_start(self, event: Any) -> None:
+        self._pending_inference = event
         self._current_model = event.data.get("model", self._current_model)
         self._current_engine = event.data.get("engine", self._current_engine)
         self._inference_start_time = event.timestamp
 
     def _on_inference_end(self, event: Any) -> None:
+        self._pending_inference = None
         start = getattr(self, "_inference_start_time", event.timestamp)
         data = event.data
         usage = data.get("usage", {})
+        if self._ttft is None:
+            self._ttft = data.get("ttft")
         self._current_steps.append(
             TraceStep(
                 step_type=StepType.GENERATE,
@@ -237,10 +400,19 @@ class TraceCollector:
     def _on_tool_start(self, event: Any) -> None:
         self._tool_start_time = event.timestamp
         self._tool_start_data = event.data
+        self._pending_tools[
+            event.data.get("invocation_id", event.data.get("tool", ""))
+        ] = event
 
     def _on_tool_end(self, event: Any) -> None:
         start = getattr(self, "_tool_start_time", event.timestamp)
         start_data = getattr(self, "_tool_start_data", {})
+        pending = self._pending_tools.pop(
+            event.data.get("invocation_id", event.data.get("tool", "")),
+            None,
+        )
+        if pending is not None:
+            start, start_data = pending.timestamp, pending.data
         # Pull through any metadata the tool attached to its ToolResult
         # (e.g. SkillTool's skill/skill_source/skill_kind tags) so the
         # SkillOptimizer can bucket traces by skill name.

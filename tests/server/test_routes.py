@@ -963,6 +963,56 @@ class TestIdentityPromptInjection:
         assert "OpenJarvis" in system_messages[0].content
         assert "favorite color is blue" in system_messages[0].content
 
+    def test_direct_memory_omits_a_skill_the_runtime_rejects(self):
+        from types import SimpleNamespace
+
+        from openjarvis.tools.storage._stubs import RetrievalResult
+
+        class _Memory:
+            def retrieve(self, query, *, top_k=5):
+                return [
+                    RetrievalResult(
+                        content="Run stale learned menu",
+                        score=1.0,
+                        source="openjarvis.skill_learning",
+                        metadata={"skill_name": "learned-read-stale"},
+                    )
+                ]
+
+        agent = _make_agent()
+        agent._tools = [
+            SimpleNamespace(
+                spec=SimpleNamespace(name="skill_manage"),
+                has_skill=lambda name: name != "learned-read-stale",
+            )
+        ]
+        cfg = _test_config()
+        cfg.agent.context_from_memory = True
+        client = TestClient(
+            create_app(
+                _make_engine(),
+                "test-model",
+                agent=agent,
+                memory_backend=_Memory(),
+                config=cfg,
+            )
+        )
+
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "show menu"}],
+            },
+        )
+
+        assert response.status_code == 200
+        context = agent.run.call_args.kwargs["context"]
+        assert all(
+            "stale learned menu" not in message.text
+            for message in context.conversation.messages
+        )
+
     def test_memory_context_preserves_assistant_tool_calls(self):
         from openjarvis.memory.store import Fact
 
@@ -1085,6 +1135,28 @@ class TestIdentityPromptInjection:
 
 
 class TestModelsEndpoint:
+    def test_cloud_key_status_exposes_presence_without_secrets(self, client):
+        configured = {
+            "OPENAI_API_KEY": "sk-secret-value",
+            "GEMINI_API_KEY": "google-secret-value",
+        }
+        with patch(
+            "openjarvis.server.cloud_router._load_keys",
+            return_value=configured,
+        ):
+            resp = client.get("/v1/cloud/key-status")
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "OPENAI_API_KEY": True,
+            "ANTHROPIC_API_KEY": False,
+            "GEMINI_API_KEY": True,
+            "OPENROUTER_API_KEY": False,
+            "MINIMAX_API_KEY": False,
+        }
+        assert "sk-secret-value" not in resp.text
+        assert "google-secret-value" not in resp.text
+
     def test_list_models(self, client):
         resp = client.get("/v1/models")
         assert resp.status_code == 200

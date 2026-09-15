@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import threading
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional  # noqa: I001
+
+RUN_ID: ContextVar[str | None] = ContextVar("openjarvis_event_run_id", default=None)
 
 # ---------------------------------------------------------------------------
 # Event taxonomy
@@ -100,6 +103,8 @@ class Event:
     event_type: EventType
     timestamp: float
     data: Dict[str, Any] = field(default_factory=dict)
+    run_id: str | None = None
+    monotonic_timestamp: float = field(default_factory=time.monotonic)
 
 
 # Type alias for subscriber callbacks
@@ -152,7 +157,12 @@ class EventBus:
 
         Returns the published ``Event`` instance.
         """
-        event = Event(event_type=event_type, timestamp=time.time(), data=data or {})
+        event = Event(
+            event_type=event_type,
+            timestamp=time.time(),
+            data=data or {},
+            run_id=RUN_ID.get(),
+        )
 
         with self._lock:
             if self._record_history:

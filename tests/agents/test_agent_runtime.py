@@ -8,6 +8,7 @@ import pytest
 
 from openjarvis.agents._stubs import (
     AgentContext,
+    AgentPersistenceStaging,
     AgentResult,
     AgentRunCompleted,
     AgentTextDelta,
@@ -46,6 +47,47 @@ class RecordingEngine:
 
     def supports_semantic_reasoning_stream(self, model: str) -> bool:
         return False
+
+
+def test_discarded_staging_rejects_late_worker_writes():
+    writes = []
+    staging = AgentPersistenceStaging()
+    staging.stage(lambda: writes.append("before"))
+    staging.discard()
+    staging.stage(lambda: writes.append("late"))
+    staging.commit()
+    assert writes == []
+
+
+@pytest.mark.asyncio
+async def test_abandoned_workers_have_a_bounded_admission_budget():
+    release = threading.Event()
+    started = [threading.Event() for _ in range(4)]
+
+    class StuckEngine(RecordingEngine):
+        def generate(self, messages, *, model, **kwargs):
+            index = int(messages[-1].content)
+            if index >= len(started):
+                return {"content": "overflow dispatched"}
+            started[index].set()
+            assert release.wait(5)
+            return {"content": "late"}
+
+    binding = NativeAgentRuntime(OrchestratorAgent(StuckEngine(), "default")).bind(
+        model="luna"
+    )
+    try:
+        for index in range(4):
+            task = asyncio.create_task(binding.run(str(index), AgentContext()))
+            assert await asyncio.to_thread(started[index].wait, 0.5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        with pytest.raises(RuntimeError, match="agent_worker_capacity_exhausted"):
+            await asyncio.wait_for(binding.run("4", AgentContext()), 0.5)
+    finally:
+        release.set()
+        await asyncio.sleep(0.05)
 
 
 @pytest.mark.asyncio
@@ -165,8 +207,10 @@ async def test_runtime_pins_model_for_orchestrator_nonsemantic_fallback() -> Non
     engine = RecordingEngine()
     agent = OrchestratorAgent(engine, "server-default")
 
-    result = await NativeAgentRuntime(agent).bind(model="voice-pinned").run(
-        "hello", AgentContext()
+    result = (
+        await NativeAgentRuntime(agent)
+        .bind(model="voice-pinned")
+        .run("hello", AgentContext())
     )
 
     assert result.content == "answer:voice-pinned"
@@ -175,7 +219,7 @@ async def test_runtime_pins_model_for_orchestrator_nonsemantic_fallback() -> Non
 
 
 @pytest.mark.asyncio
-async def test_cancelled_orchestrator_fallback_retains_worker_lease() -> None:
+async def test_cancelled_orchestrator_fallback_does_not_block_next_turn() -> None:
     first_started = threading.Event()
     release_first = threading.Event()
     second_started = threading.Event()
@@ -204,7 +248,8 @@ async def test_cancelled_orchestrator_fallback_retains_worker_lease() -> None:
 
     second = asyncio.create_task(binding.run("second", AgentContext()))
     try:
-        assert not await asyncio.to_thread(second_started.wait, 0.05)
+        assert await asyncio.to_thread(second_started.wait, 0.5)
+        assert (await asyncio.wait_for(second, 0.5)).content == "second"
     finally:
         release_first.set()
 
@@ -264,7 +309,7 @@ class _StreamingToolEngine:
 
 
 @pytest.mark.asyncio
-async def test_cancelled_streaming_tool_retains_worker_lease() -> None:
+async def test_cancelled_streaming_tool_retains_resource_not_conversation() -> None:
     tool = _BlockingStreamingTool()
     runtime = NativeAgentRuntime(
         OrchestratorAgent(
@@ -283,7 +328,9 @@ async def test_cancelled_streaming_tool_retains_worker_lease() -> None:
 
     second = asyncio.create_task(binding.run("second", AgentContext()))
     try:
-        assert not await asyncio.to_thread(tool.second_started.wait, 0.05)
+        result = await asyncio.wait_for(second, 0.5)
+        assert result.tool_results[0].metadata["pending_operation"] is True
+        assert not tool.second_started.is_set()
     finally:
         tool.release_first.set()
 
@@ -301,9 +348,7 @@ async def test_stream_closed_by_another_task_still_releases_runtime() -> None:
     # Context is not the one that entered the run and set the worker lease.
     await asyncio.create_task(stream.aclose())
 
-    second = await asyncio.wait_for(
-        binding.run("second", AgentContext()), timeout=1
-    )
+    second = await asyncio.wait_for(binding.run("second", AgentContext()), timeout=1)
     assert second.content == "answer:voice-pinned"
 
 
@@ -332,8 +377,7 @@ class _PersistentMemory:
         return [
             document
             for document in self.documents
-            if document.source == query
-            or document.metadata.get("state_key") == query
+            if document.source == query or document.metadata.get("state_key") == query
         ][-top_k:]
 
 
@@ -386,9 +430,7 @@ async def test_cancelled_persistent_agent_discards_assistant_and_state(
     with pytest.raises(asyncio.CancelledError):
         await first
     assert (await binding.run("second", AgentContext())).content == "answer:second"
-    persisted = sessions.get_or_create(
-        f"{agent_type.agent_id}:voice-operator"
-    ).messages
+    persisted = sessions.get_or_create(f"{agent_type.agent_id}:voice-operator").messages
     try:
         assert ("user", "first") in [
             (message.role, message.content) for message in persisted
@@ -424,9 +466,9 @@ async def test_discarded_persistence_key_never_reaches_durable_stores(
         await binding.commit_persistence("barged-turn")
 
         session = sessions.get_or_create(f"{OperativeAgent.agent_id}:voice-operator")
-        assert [
-            (message.role, message.content) for message in session.messages
-        ] == [("user", "first")]
+        assert [(message.role, message.content) for message in session.messages] == [
+            ("user", "first")
+        ]
         assert memory.documents == []
     finally:
         sessions.close()
@@ -512,7 +554,7 @@ class _CancellableStreamingTool(BaseTool):
 
 
 @pytest.mark.asyncio
-async def test_cancelled_stream_signals_worker_and_holds_turn_until_settled() -> None:
+async def test_cancelled_stream_signals_worker_without_holding_conversation() -> None:
     tool = _CancellableStreamingTool()
     runtime = NativeAgentRuntime(
         OrchestratorAgent(_StreamingToolEngine(), "server-default", tools=[tool])
@@ -527,9 +569,101 @@ async def test_cancelled_stream_signals_worker_and_holds_turn_until_settled() ->
     assert tool.cancel_signalled.wait(timeout=1)
 
     second = asyncio.create_task(binding.run("second", AgentContext()))
-    assert not await asyncio.to_thread(tool.second_started.wait, 0.05)
-    tool.settled.set()
-    assert (await second).content == "done"
+    try:
+        result = await asyncio.wait_for(second, 0.5)
+        assert result.tool_results[0].metadata["pending_operation"] is True
+        assert not tool.second_started.is_set()
+    finally:
+        tool.settled.set()
+
+
+@pytest.mark.asyncio
+async def test_dispatched_tool_keeps_late_evidence_in_its_original_journal(tmp_path):
+    tool = _CancellableStreamingTool()
+    bus = EventBus(record_history=True)
+    store = TraceStore(tmp_path / "trace.db")
+    binding = NativeAgentRuntime(
+        OrchestratorAgent(_StreamingToolEngine(), "default", tools=[tool], bus=bus),
+        trace_store=store,
+        bus=bus,
+    ).bind(model="voice")
+    first = asyncio.create_task(binding.run("old", AgentContext()))
+    assert await asyncio.to_thread(tool.started.wait, 1)
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    old_id = store.list_traces()[0].trace_id
+    try:
+        result = await asyncio.wait_for(binding.run("new", AgentContext()), 0.5)
+        assert result.tool_results[0].metadata["pending_operation"] is True
+    finally:
+        tool.settled.set()
+    await asyncio.sleep(0.05)
+    events = store.run_events(old_id)
+    end = next(e for e in events if e["event_type"] == "tool_call_end")
+    start = next(e for e in events if e["event_type"] == "tool_call_start")
+    assert start["data"]["invocation_id"] == end["data"]["invocation_id"]
+    assert end["data"]["success"] is True
+    assert end["data"]["result"] == "ok"
+    assert events[-1]["event_type"] == "worker_settled"
+    completed = [e for e in bus.history if e.event_type == EventType.TRACE_COMPLETE]
+    assert [e.data["trace"].query for e in completed] == ["new"]
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_model_cannot_dispatch_a_late_tool(tmp_path) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    returned = threading.Event()
+    tool = _BlockingStreamingTool()
+    tool.release_first.set()
+
+    class LateToolEngine(RecordingEngine):
+        def generate(self, messages, *, model, **kwargs):
+            if messages[-1].content == "first":
+                started.set()
+                assert release.wait(2)
+                returned.set()
+                return {
+                    "tool_calls": [
+                        {
+                            "id": "late",
+                            "name": "blocking_tool",
+                            "arguments": "{}",
+                        }
+                    ]
+                }
+            return {"content": "fresh"}
+
+    bus = EventBus(record_history=True)
+    store = TraceStore(tmp_path / "trace.db")
+    runtime = NativeAgentRuntime(
+        OrchestratorAgent(LateToolEngine(), "default", tools=[tool], bus=bus),
+        trace_store=store,
+        bus=bus,
+    )
+    binding = runtime.bind(model="gpt-5.6-luna")
+    first = asyncio.create_task(binding.run("first", AgentContext()))
+    assert await asyncio.to_thread(started.wait, 1)
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    try:
+        fresh = await asyncio.wait_for(binding.run("second", AgentContext()), 0.5)
+        assert fresh.content == "fresh"
+    finally:
+        release.set()
+    assert await asyncio.to_thread(returned.wait, 1)
+    await asyncio.sleep(0.05)
+    assert tool.calls == 0
+    traces = {trace.query: trace for trace in store.list_traces()}
+    assert traces["first"].metadata["status"] == "interrupted"
+    assert traces["second"].metadata["status"] == "completed"
+    old_events = store.run_events(traces["first"].trace_id)
+    assert any(e["event_type"] == "worker_settled" for e in old_events)
+    assert not any(e["event_type"] == "tool_call_start" for e in old_events)
+    store.close()
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ from openjarvis.core.types import ToolResult
 from openjarvis.skills.executor import SkillResult
 from openjarvis.skills.loader import load_skill
 from openjarvis.skills.manager import SkillManager
+from openjarvis.skills.types import SkillManifest, SkillStep
 from openjarvis.tools.skill_manage import SkillManageTool
 
 
@@ -145,7 +146,10 @@ def test_skill_run_marks_a_successful_inner_display_and_supplies_today(
                     ToolResult(
                         tool_name="display_menu",
                         content="shown",
-                        metadata={"presentation_id": "p-1"},
+                        metadata={
+                            "presentation_id": "p-1",
+                            "customer_message": "Menu đang hiển thị.",
+                        },
                     ),
                 ],
             )
@@ -157,8 +161,97 @@ def test_skill_run_marks_a_successful_inner_display_and_supplies_today(
     assert result.success is True
     assert result.metadata == {
         "presentation_id": "p-1",
+        "customer_message": "Menu đang hiển thị.",
         "completed_display": True,
     }
+
+
+def test_unguarded_learned_transaction_is_not_recalled_or_executed(
+    skills_dir: Path,
+) -> None:
+    class Manager:
+        manifest = SkillManifest(
+            name="learned-transaction-fixture",
+            steps=[
+                SkillStep(
+                    tool_name="http_request",
+                    arguments_template='{"url":"https://merchant.test/orders","method":"POST"}',
+                )
+            ],
+        )
+
+        def skill_names(self) -> list[str]:
+            return [self.manifest.name]
+
+        def resolve(self, name: str) -> SkillManifest:
+            assert name == self.manifest.name
+            return self.manifest
+
+        def execute(self, name: str, context: dict) -> SkillResult:
+            raise AssertionError("unguarded transaction must not execute")
+
+    tool = SkillManageTool(skills_dir=skills_dir, skill_manager=Manager())
+
+    assert tool.has_skill("learned-transaction-fixture") is False
+    result = tool.execute(
+        action="run", name="learned-transaction-fixture", context={}
+    )
+    assert result.success is False
+    assert "unguarded transaction" in result.content.lower()
+
+
+def test_learned_read_is_suppressed_when_a_canonical_read_exists(
+    skills_dir: Path,
+) -> None:
+    learned = SkillManifest(
+        name="learned-read-menu",
+        steps=[
+            SkillStep(
+                tool_name="http_request",
+                arguments_template=(
+                    '{"url":"https://merchant.test/menu?category=stale",'
+                    '"method":"GET"}'
+                ),
+            ),
+            SkillStep(tool_name="display_menu"),
+        ],
+    )
+    canonical = SkillManifest(
+        name="merchant-menu",
+        steps=[
+            SkillStep(
+                tool_name="http_request",
+                arguments_template=(
+                    '{"url":"https://merchant.test/menu?category={category}",'
+                    '"method":"GET"}'
+                ),
+            ),
+            SkillStep(tool_name="display_menu"),
+        ],
+    )
+
+    class Manager:
+        manifests = {item.name: item for item in (learned, canonical)}
+
+        def skill_names(self) -> list[str]:
+            return list(self.manifests)
+
+        def resolve(self, name: str) -> SkillManifest:
+            return self.manifests[name]
+
+        def execute(self, name: str, context: dict) -> SkillResult:
+            raise AssertionError("superseded learned read must not execute")
+
+    tool = SkillManageTool(skills_dir=skills_dir, skill_manager=Manager())
+
+    assert tool.has_skill("merchant-menu") is True
+    assert tool.has_skill("learned-read-menu") is False
+    listed = tool.execute(action="list")
+    assert "merchant-menu" in listed.content
+    assert "learned-read-menu" not in listed.content
+    result = tool.execute(action="run", name="learned-read-menu", context={})
+    assert result.success is False
+    assert "canonical read" in result.content.lower()
 
 
 def test_skill_run_without_runtime_dependencies_does_not_create_a_directory(

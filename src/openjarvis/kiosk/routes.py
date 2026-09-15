@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -11,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from openjarvis.kiosk.presentation import PresentationUnavailableError
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class KioskRespondRequest(BaseModel):
@@ -46,13 +48,17 @@ async def kiosk_state(request: Request):
 
 
 @router.post("/api/kiosk/presentation/ensure")
-async def ensure_presentation(body: EnsurePresentationRequest, request: Request):
+async def ensure_presentation(
+    body: EnsurePresentationRequest,
+    request: Request,
+):
     manager = getattr(request.app.state, "presentation_session_manager", None)
     if manager is None:
         raise HTTPException(status_code=503, detail="presentation_unavailable")
     try:
         session = await run_in_threadpool(manager.ensure, body.display_origin)
     except PresentationUnavailableError as exc:
+        logger.warning("Customer display unavailable: %s", exc)
         raise HTTPException(
             status_code=503, detail="presentation_unavailable"
         ) from exc

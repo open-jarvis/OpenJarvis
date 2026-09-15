@@ -36,7 +36,7 @@ default_model = "qwen3.5:9b"        # needs reliable function calling
 # only ~130 tokens. This is per inference call, not per turn.
 max_tokens = 4096
 # Not yet exercised end to end. `scripts/launcher.sh` passes
-# `--engine cloud --model "$MODEL"` on the CLI (default deepseek-v4-pro),
+# `--engine cloud --model "$MODEL"` on the CLI (default gpt-5.6-luna),
 # which overrides both keys above -- that combination is what the manual
 # ordering run has actually verified calls these tools. The local ollama
 # target above is the intended one; it just hasn't been proven yet.
@@ -76,16 +76,18 @@ parallel_tools = true
 # every ordinary kiosk inference. `repl` stays absent (ruling R9: in-process
 # object-graph escape on a public terminal).
 enabled = "http_request,skill_manage,display_menu,display_cart,display_bill,display_payment_qr,display_clear"
+# Draft editing, clearing, and guarded public HTTP reads remain interactive.
+# Terminal menu/payment display primitives execute inside prepared procedures.
+model_hidden = "display_menu,display_bill,display_payment_qr"
 # Only this origin may supply a payment QR. Empty would mean no QR can ever be
 # displayed; a wide list would mean the guard proves nothing.
 payment_trusted_origins = "https://trendcoffee.net"
 
 [skills]
-# The provider contract already lives in the system prompt. Loading the same
-# workspace skill as another Agent tool duplicates it and adds another route.
-# A learned skill still reaches the customer -- through `skill_manage run`,
-# which resolves it in the live manager without touching the agent's tool list.
-enabled = false
+# Expose only this merchant's prepared menu and guarded checkout procedures.
+# Learned procedures remain available to skill_manage's internal executor.
+enabled = true
+active = "trendcoffee-menu,trendcoffee-add-to-cart,trendcoffee-checkout"
 
 [learning]
 # A completed, verified transaction becomes a replayable skill in this same

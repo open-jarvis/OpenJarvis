@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 import openjarvis.kiosk.presentation as presentation_module
 from openjarvis.core.events import EventBus, EventType
+from openjarvis.core.types import ToolResult
 from openjarvis.kiosk.presentation import (
     PresentationSessionManager,
     PresentationUnavailableError,
@@ -42,23 +45,122 @@ def bus() -> EventBus:
     return EventBus(record_history=True)
 
 
-def test_ensure_creates_display_tab_once_and_reselects_live_tab(bus: EventBus) -> None:
-    """Would fail if bootstrap creates a second tab or leaves it selected."""
+def test_cancelled_worker_cannot_publish_a_late_display(bus):
+    from openjarvis.agents._stubs import _RUN_WORKER_LEASE, AgentWorkerLease
+
+    manager = PresentationSessionManager(bus, _FakeMCPClient(server_name="playwright"))
+    session = manager.ensure("http://127.0.0.1:5173")
+    lease = AgentWorkerLease()
+    token = _RUN_WORKER_LEASE.set(lease)
+    try:
+        lease._signal_cancelled()
+        with pytest.raises(asyncio.CancelledError):
+            manager.publish({"view": "payment_qr", "text": "stale"})
+    finally:
+        _RUN_WORKER_LEASE.reset(token)
+    assert session.last_payload == {"view": "none"}
+    assert not any(e.event_type == EventType.DISPLAY_UPDATE for e in bus.history)
+
+
+def test_ensure_navigates_the_display_tab_without_creating_a_blank_tab(
+    bus: EventBus,
+) -> None:
+    """Would fail if the kiosk created a visible about:blank tab for customers."""
     client = _FakeMCPClient(server_name="playwright")
-    client.tab_list_text = "0: http://127.0.0.1:5173/kiosk\n2: (current) kiosk home"
+    client.tab_list_text = "0: (current) about:blank"
     manager = PresentationSessionManager(bus, client)
 
     first = manager.ensure("http://127.0.0.1:5173")
+    client.tab_list_text = f"0: (current) {first.display_url}"
     second = manager.ensure("http://127.0.0.1:5173")
 
     assert second is first
-    assert first.live_tab_index == 2
+    assert first.display_tab_index == 0
     assert client.calls == [
         ("browser_tabs", {"action": "list"}),
-        ("browser_tabs", {"action": "new"}),
         ("browser_navigate", {"url": first.display_url}),
-        ("browser_tabs", {"action": "select", "index": first.live_tab_index}),
+        ("browser_tabs", {"action": "select", "index": 0}),
+        ("browser_tabs", {"action": "list"}),
+        ("browser_tabs", {"action": "select", "index": 0}),
     ]
+
+
+def test_initial_display_loads_once_and_cannot_overwrite_a_new_voice_turn(
+    bus: EventBus,
+) -> None:
+    manager = PresentationSessionManager(bus, _FakeMCPClient(server_name="playwright"))
+    session = manager.ensure("http://127.0.0.1:5173")
+    calls: list[str] = []
+
+    def load() -> ToolResult:
+        calls.append("load")
+        manager.publish({"view": "menu", "items": [{"id": "latte"}]})
+        return ToolResult(tool_name="skill_menu", content="shown", success=True)
+
+    manager.configure_initial_display(load)
+
+    assert manager.preload_initial_display() is True
+    assert manager.preload_initial_display() is False
+    assert calls == ["load"]
+    assert manager.replay(session.session_id)["view"] == "menu"
+
+    manager.activate("voice-1")
+    assert manager.preload_initial_display() is False
+
+
+def test_active_session_reloads_the_initial_menu_after_reset(bus: EventBus) -> None:
+    manager = PresentationSessionManager(bus, _FakeMCPClient(server_name="playwright"))
+    session = manager.ensure("http://127.0.0.1:5173")
+    calls: list[str] = []
+
+    def load() -> ToolResult:
+        calls.append("load")
+        manager.publish(
+            {
+                "view": "menu",
+                "items": [{"name": "Cà phê sữa"}],
+                "result_complete": True,
+                "projected_count": 1,
+                "published_count": 1,
+            }
+        )
+        return ToolResult(tool_name="skill_menu", content="shown", success=True)
+
+    manager.configure_initial_display(load)
+    assert manager.preload_initial_display() is True
+    assert manager.reset(session.session_id) is True
+    assert manager.activate("voice-1") is True
+
+    assert manager.load_initial_display() is True
+    assert calls == ["load", "load"]
+    assert manager.replay(session.session_id)["view"] == "menu"
+
+
+def test_initial_display_logs_a_recipe_failure(bus: EventBus, caplog) -> None:
+    manager = PresentationSessionManager(bus, _FakeMCPClient(server_name="playwright"))
+    manager.ensure("http://127.0.0.1:5173")
+    manager.configure_initial_display(
+        lambda: ToolResult(
+            tool_name="skill_menu", content="recipe_stale", success=False
+        )
+    )
+
+    assert manager.preload_initial_display() is False
+    assert "Initial display recipe failed." in caplog.messages
+
+
+def test_activate_restores_display_focus_after_browser_automation(
+    bus: EventBus,
+) -> None:
+    """Would fail if a new Voice session left automation in the foreground."""
+    client = _FakeMCPClient(server_name="playwright")
+    manager = PresentationSessionManager(bus, client)
+    session = manager.ensure("http://127.0.0.1:5173")
+    client.calls.clear()
+
+    assert manager.activate("voice-2") is True
+    assert client.calls == [("browser_tabs", {"action": "select", "index": 0})]
+    assert session.display_tab_index == 0
 
 
 def test_ensure_reselects_the_live_tab_when_display_navigation_raises(
@@ -79,12 +181,11 @@ def test_ensure_reselects_the_live_tab_when_display_navigation_raises(
 
 @pytest.mark.parametrize(
     ("tool_name", "arguments"),
-    [
-        ("browser_tabs", {"action": "list"}),
-        ("browser_tabs", {"action": "new"}),
-        ("browser_navigate", {"url": "ignored"}),
-        ("browser_tabs", {"action": "select", "index": 0}),
-    ],
+        [
+            ("browser_tabs", {"action": "list"}),
+            ("browser_navigate", {"url": "ignored"}),
+            ("browser_tabs", {"action": "select", "index": 0}),
+        ],
 )
 @pytest.mark.parametrize("failure", ["is_error", RuntimeError("transport failed")])
 def test_ensure_rejects_each_mcp_lifecycle_failure_without_committing_a_session(
@@ -193,10 +294,10 @@ def test_reset_clears_previous_customer_state(bus: EventBus) -> None:
     assert manager.replay(session.session_id)["view"] == "none"
 
 
-def test_publish_recovers_a_disconnected_display_tab_without_navigating_live_tab(
+def test_publish_recovers_a_disconnected_display_tab_and_keeps_it_selected(
     bus: EventBus,
 ) -> None:
-    """Would fail if reconnect recovery repurposed the live kiosk tab."""
+    """Would fail if reconnect recovery returned focus to automation."""
     client = _FakeMCPClient(server_name="playwright")
     manager = PresentationSessionManager(bus, client)
     session = manager.ensure("http://127.0.0.1:5173")
@@ -208,9 +309,47 @@ def test_publish_recovers_a_disconnected_display_tab_without_navigating_live_tab
 
     assert client.calls[calls_before_recovery:] == [
         ("browser_tabs", {"action": "list"}),
-        ("browser_tabs", {"action": "new"}),
         ("browser_navigate", {"url": session.display_url}),
-        ("browser_tabs", {"action": "select", "index": session.live_tab_index}),
+        ("browser_tabs", {"action": "select", "index": 0}),
+    ]
+
+
+def test_ensure_recovers_a_disconnected_display_without_creating_another_tab(
+    bus: EventBus,
+) -> None:
+    client = _FakeMCPClient(server_name="playwright")
+    manager = PresentationSessionManager(bus, client)
+    session = manager.ensure("http://127.0.0.1:5173")
+    manager.mark_display_disconnected(session.session_id)
+    client.tab_list_text = "0: (current) about:blank"
+    calls_before_recovery = len(client.calls)
+
+    recovered = manager.ensure("http://127.0.0.1:5173")
+
+    assert recovered is session
+    assert client.calls[calls_before_recovery:] == [
+        ("browser_tabs", {"action": "list"}),
+        ("browser_navigate", {"url": session.display_url}),
+        ("browser_tabs", {"action": "select", "index": 0}),
+    ]
+
+
+def test_ensure_recovers_when_the_tab_closes_before_websocket_disconnect(
+    bus: EventBus,
+) -> None:
+    client = _FakeMCPClient(server_name="playwright")
+    manager = PresentationSessionManager(bus, client)
+    session = manager.ensure("http://127.0.0.1:5173")
+    client.tab_list_text = "0: (current) about:blank"
+    calls_before_recovery = len(client.calls)
+
+    recovered = manager.ensure("http://127.0.0.1:5173")
+
+    assert recovered is session
+    assert client.calls[calls_before_recovery:] == [
+        ("browser_tabs", {"action": "list"}),
+        ("browser_navigate", {"url": session.display_url}),
+        ("browser_tabs", {"action": "select", "index": 0}),
     ]
 
 
@@ -230,7 +369,7 @@ def test_publish_fails_safely_when_recovery_tab_listing_is_an_mcp_error(
 
     assert client.calls[calls_before_recovery:] == [
         ("browser_tabs", {"action": "list"}),
-        ("browser_tabs", {"action": "select", "index": session.live_tab_index}),
+        ("browser_tabs", {"action": "select", "index": session.display_tab_index}),
     ]
 
 
@@ -238,7 +377,6 @@ def test_publish_fails_safely_when_recovery_tab_listing_is_an_mcp_error(
     ("tool_name", "arguments"),
     [
         ("browser_tabs", {"action": "list"}),
-        ("browser_tabs", {"action": "new"}),
         ("browser_navigate", {"url": "ignored"}),
         ("browser_tabs", {"action": "select", "index": 0}),
     ],
@@ -270,12 +408,12 @@ def test_recovery_rejects_each_mcp_lifecycle_failure_without_publishing(
     if tool_name == "browser_tabs" and arguments == {"action": "list"}:
         assert client.calls[calls_before_recovery:] == [
             ("browser_tabs", {"action": "list"}),
-            ("browser_tabs", {"action": "select", "index": session.live_tab_index}),
+            ("browser_tabs", {"action": "select", "index": session.display_tab_index}),
         ]
     else:
         assert client.calls[-1] == (
             "browser_tabs",
-            {"action": "select", "index": session.live_tab_index},
+            {"action": "select", "index": session.display_tab_index},
         )
 
 

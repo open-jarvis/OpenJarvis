@@ -27,6 +27,10 @@ def project_tool_content(content: str, *, max_chars: int = _DEFAULT_MAX_CHARS) -
     except (TypeError, json.JSONDecodeError):
         return _truncate_text(content, max_chars)
 
+    table_projection = _project_trend_tables(payload, max_chars=max_chars)
+    if table_projection is not None:
+        return table_projection
+
     menu_projection = _project_trend_menu(payload, max_chars=max_chars)
     if menu_projection is not None:
         return menu_projection
@@ -56,6 +60,42 @@ def project_tool_content(content: str, *, max_chars: int = _DEFAULT_MAX_CHARS) -
         encoded = _encode(projected)
 
     return encoded if len(encoded) <= max_chars else _truncate_text(encoded, max_chars)
+
+
+def _project_trend_tables(payload: Any, *, max_chars: int) -> str | None:
+    """Keep the live table fields needed to choose and place an at-table order."""
+    if not isinstance(payload, dict):
+        return None
+    result = payload.get("result")
+    if not isinstance(result, list) or not result:
+        return None
+    if not all(
+        isinstance(table, dict)
+        and isinstance(table.get("name"), str)
+        and isinstance(table.get("slug"), str)
+        and isinstance(table.get("status"), str)
+        for table in result
+    ):
+        return None
+
+    projected = {
+        _NOTICE_KEY: "response compacted",
+        **{
+            str(key): _compact_scalar(value, 96)
+            for key, value in payload.items()
+            if key != "result" and not isinstance(value, (dict, list))
+        },
+        "result": [
+            {
+                key: _compact_scalar(table[key], 96)
+                for key in ("name", "slug", "status", "location")
+                if key in table and not isinstance(table[key], (dict, list))
+            }
+            for table in result
+        ],
+    }
+    encoded = _encode(projected)
+    return encoded if len(encoded) <= max_chars else None
 
 
 def _project_trend_menu(payload: Any, *, max_chars: int) -> str | None:

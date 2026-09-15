@@ -23,9 +23,22 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${OPENJARVIS_ENV_FILE:-/home/robber/Work/jarvis/OpenJarvis/.env}"
 VISION_DIR="${OPENJARVIS_VISION_DIR:-/home/robber/Work/jarvis/vision}"
 ARTIFACT_DIR="${OPENJARVIS_LOCAL_TTS_ARTIFACT_DIR:-$HOME/.cache/openjarvis/vieneu-3.2.3-onnx}"
-MCP_CONFIG="${OPENJARVIS_CONFIG:-configs/openjarvis/examples/browser-agent-playwright-mcp.toml}"
-MODEL="${OPENJARVIS_MODEL:-deepseek-v4-pro}"
-THREADS="${OPENJARVIS_VIENEU_THREADS:-4}"
+# The kiosk config is the default because it is what this stack is run for:
+# it gives the Agent the http_request + display_* tools the /kiosk route
+# drives. The browser-agent config is still one env var away.
+MCP_CONFIG="${OPENJARVIS_CONFIG:-configs/openjarvis/examples/ordering-kiosk-mcp.toml}"
+MODEL="${OPENJARVIS_MODEL:-gpt-5.6-luna}"
+# VieNeu ONNX thread pools.  More threads buy no audible speed here: measured
+# on this box (i7-11800H, otherwise idle) across four utterance lengths,
+# 1 thread renders at RTF 0.34 on 2.99 cores while 4 threads render at RTF
+# 0.33 on 5.93 cores.  Both finish ~3x faster than playback, so the extra
+# ~2.9 cores buy a difference nobody can hear -- and on a kiosk those cores
+# are contended by vision and the display browser.
+#
+# This is a per-machine tuning value, not a universal one: tts_engine.py
+# records a box where more threads did help.  Re-measure on new hardware and
+# override with OPENJARVIS_VIENEU_THREADS rather than editing this default.
+THREADS="${OPENJARVIS_VIENEU_THREADS:-1}"
 
 LOG_DIR="${OPENJARVIS_LOG_DIR:-/tmp/openjarvis-stack}"
 BACKEND_LOG="$LOG_DIR/backend.log"
@@ -50,18 +63,47 @@ port_pid() { lsof -ti:"$1" -sTCP:LISTEN 2>/dev/null || true; }
 # SIGTERM (never -9): the backend needs to reap its Playwright MCP child,
 # otherwise orphaned `npx @playwright/mcp` processes pile up across restarts.
 stop_stack() {
-    local pid
+    local pid doomed=() remaining deadline
     for port in 8000 5173; do
         pid="$(port_pid "$port")"
-        [ -n "$pid" ] && { echo "  stopping :$port ($(echo $pid | tr '\n' ' '))"; kill $pid 2>/dev/null || true; }
+        if [ -n "$pid" ]; then
+            echo "  stopping :$port ($(echo $pid | tr '\n' ' '))"
+            kill $pid 2>/dev/null || true
+            # Track the PIDs, not the ports.  A backend that has released its
+            # listener but not yet exited still holds ~700 MB, and the old
+            # port-based sweep could not see it -- so it survived the restart
+            # and ran alongside its replacement.
+            doomed+=($pid)
+        fi
     done
     if [ "$WITH_VISION" = 1 ]; then
         pkill -f "python3 main.py" 2>/dev/null || true
+        doomed+=($(pgrep -f "python3 main.py" 2>/dev/null || true))
     fi
-    sleep 3
+
+    # Wait for a clean exit rather than a fixed sleep: SIGTERM has to give the
+    # backend time to reap its Playwright MCP child.
+    deadline=$((SECONDS + 15))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        remaining=""
+        for pid in "${doomed[@]:-}"; do
+            [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && remaining="$remaining $pid"
+        done
+        [ -z "$remaining" ] && break
+        sleep 0.5
+    done
+
     # Anything the backend failed to reap.
     pkill -9 -f "@playwright/mcp" 2>/dev/null || true
     pkill -9 -f "playwright-mcp" 2>/dev/null || true
+
+    # Whatever ignored SIGTERM, by PID and by port.
+    for pid in "${doomed[@]:-}"; do
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            echo "  force-killing $pid (ignored SIGTERM)"
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    done
     for port in 8000 5173; do
         pid="$(port_pid "$port")"
         [ -n "$pid" ] && kill -9 $pid 2>/dev/null || true

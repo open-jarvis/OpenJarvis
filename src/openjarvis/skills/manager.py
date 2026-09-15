@@ -143,7 +143,10 @@ class SkillManager:
     # ------------------------------------------------------------------
 
     def get_skill_tools(
-        self, *, tool_executor: Optional[ToolExecutor] = None
+        self,
+        *,
+        tool_executor: Optional[ToolExecutor] = None,
+        active: str = "*",
     ) -> List[BaseTool]:
         """Wrap each registered skill as a :class:`SkillTool` (a :class:`BaseTool`).
 
@@ -161,7 +164,16 @@ class SkillManager:
         executor = tool_executor or self._tool_executor
         tools: List[BaseTool] = []
 
+        if active != "*":
+            missing = set(active.split(",")) - self._skills.keys()
+            if missing:
+                raise ValueError(f"Active skills not found: {sorted(missing)}")
+
         for manifest in self._skills.values():
+            if active != "*" and manifest.name not in active.split(","):
+                continue
+            if manifest.disable_model_invocation:
+                continue
             real_executor = executor or _NullToolExecutor()
             skill_exec = SkillExecutor(real_executor, bus=self._bus)
 

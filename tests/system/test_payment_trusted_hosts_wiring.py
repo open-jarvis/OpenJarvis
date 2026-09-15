@@ -10,7 +10,11 @@ from __future__ import annotations
 import pytest
 
 from openjarvis.system.builder import SystemBuilder
-from openjarvis.tools.display import DisplayMenuTool, DisplayPaymentQrTool
+from openjarvis.tools.display import (
+    DisplayCartTool,
+    DisplayMenuTool,
+    DisplayPaymentQrTool,
+)
 
 
 def test_parse_trusted_origins_blank_is_empty():
@@ -58,3 +62,68 @@ def test_inject_payment_trusted_origins_skips_a_non_payment_display_tool():
     )
 
     assert not hasattr(tool, "_payment_trusted_origins")
+
+
+def test_inject_draft_cart_settler_connects_payment_to_the_cart_owner():
+    cart = DisplayCartTool()
+    payment = DisplayPaymentQrTool()
+
+    SystemBuilder._inject_draft_cart_settler([cart, payment])
+
+    assert payment._cart_settler == cart.settle_current
+
+
+def test_checkout_guard_blocks_raw_writes_before_network_dispatch():
+    from openjarvis.tools.http_request import HttpRequestTool
+
+    cart = DisplayCartTool()
+    http = HttpRequestTool()
+    SystemBuilder._inject_checkout_guard([cart, http])
+    result = http.execute(
+        url="https://merchant.example/orders", method="POST", body="{}"
+    )
+    assert not result.success
+    assert "checkout_confirmation_required" in result.content
+
+
+def test_model_filter_keeps_internal_primitives_registered():
+    from openjarvis.tools._stubs import ToolExecutor
+    from openjarvis.tools.http_request import HttpRequestTool
+
+    http, cart = HttpRequestTool(), DisplayCartTool()
+    internal = ToolExecutor([http, cart])
+    visible = SystemBuilder._model_visible_tools([http, cart], "http_request")
+    assert [t.spec.name for t in visible] == ["display_cart"]
+    assert internal.get_tool("http_request") is http
+
+
+def test_configured_checkout_rejects_a_different_contract():
+    from openjarvis.core.conversation import agent_turn_scope, conversation_scope
+    from openjarvis.core.events import EventBus
+    from openjarvis.skills.executor import SkillExecutor
+    from openjarvis.skills.tool_adapter import SkillTool
+    from openjarvis.skills.types import SkillManifest
+    from openjarvis.tools._stubs import ToolExecutor
+
+    cart = DisplayCartTool()
+    cart._bus = EventBus()
+    manifest = SkillManifest(name="active", checkout=True)
+    skill = SkillTool(manifest, SkillExecutor(ToolExecutor([cart])))
+    SystemBuilder._inject_checkout_guard([cart, skill])
+    with conversation_scope("contract"):
+        cart.execute(
+            action="add",
+            item={
+                "variant_id": "coffee",
+                "name": "Coffee",
+                "quantity": 1,
+                "unit_price": 100,
+            },
+        )
+        with agent_turn_scope() as nonce:
+            with pytest.raises(ValueError, match="contract"):
+                cart.begin_checkout(nonce, 1, b"different")
+            assert (
+                cart.begin_checkout(nonce, 1, manifest.manifest_bytes())["total"] == 100
+            )
+            cart.end_checkout()

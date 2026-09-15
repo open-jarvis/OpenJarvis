@@ -167,7 +167,10 @@ def _setup_kiosk(app: FastAPI, bus, channel_bridge) -> None:
     # The kiosk only watches vision and gates the microphone; everything
     # spoken goes through the Pipecat voice pipeline, so it needs no TTS of
     # its own.
-    deps = KioskDependencies(bus=bus)
+    deps = KioskDependencies(
+        bus=bus,
+        presentation=app.state.presentation_session_manager,
+    )
 
     # Launch vision client
     client = VisionClient(vision_url)

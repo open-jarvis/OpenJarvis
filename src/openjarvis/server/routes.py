@@ -142,10 +142,20 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
             if query_text:
                 messages = _to_messages(request_body.messages)
                 messages = _ensure_identity_prompt(messages, config)
+                skill_exists = next(
+                    (
+                        tool.has_skill
+                        for tool in getattr(agent, "_tools", ())
+                        if tool.spec.name == "skill_manage"
+                        and callable(getattr(tool, "has_skill", None))
+                    ),
+                    None,
+                )
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
                     max_context_tokens=config.memory.context_max_tokens,
+                    skill_exists=skill_exists,
                 )
                 enriched = inject_context(
                     query_text,
@@ -1199,6 +1209,14 @@ async def reload_cloud_engine(request: Request):
         request.app.state.engine_name = "multi"
 
     return {"status": "ok", "message": "Cloud engine reloaded"}
+
+
+@router.get("/v1/cloud/key-status")
+async def cloud_key_status():
+    """Report configured cloud providers without returning any secret."""
+    from openjarvis.server.cloud_router import get_cloud_key_status
+
+    return get_cloud_key_status()
 
 
 @router.get("/v1/savings")

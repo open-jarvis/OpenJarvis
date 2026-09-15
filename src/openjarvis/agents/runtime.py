@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -13,6 +14,7 @@ from openjarvis.agents._stubs import (
     AgentResult,
     AgentRunCompleted,
     AgentStreamEvent,
+    AgentToolGate,
     AgentWorkerLease,
     BaseAgent,
 )
@@ -56,10 +58,12 @@ class AgentExecutionBinding:
         *,
         persistence_key: str | None = None,
     ) -> AsyncIterator[AgentStreamEvent]:
-        async for event in self._runtime._run_stream(
+        stream = self._runtime._run_stream(
             self, input, context, persistence_key=persistence_key
-        ):
-            yield event
+        )
+        async with aclosing(stream):
+            async for event in stream:
+                yield event
 
     async def run(
         self,
@@ -99,6 +103,8 @@ class NativeAgentRuntime:
         self._agent = agent
         self._trace_collector = TraceCollector(agent, store=trace_store, bus=bus)
         self._lock = asyncio.Lock()
+        self._tool_gate = AgentToolGate()
+        self._retained_leases: set[AgentWorkerLease] = set()
         self._staged_persistence: dict[str, AgentPersistenceStaging] = {}
         self._data_source_configuration = data_source_configuration or (
             DataSourceConfigurationSnapshot(False, "", 0, 0.0, 0)
@@ -143,26 +149,54 @@ class NativeAgentRuntime:
         *,
         persistence_key: str | None = None,
     ) -> AsyncIterator[AgentStreamEvent]:
-        await self._lock.acquire()
-        worker_lease = AgentWorkerLease()
+        worker_lease = AgentWorkerLease(self._tool_gate)
         staging = AgentPersistenceStaging()
         worker_token = _RUN_WORKER_LEASE.set(worker_lease)
         staging_token = _RUN_PERSISTENCE.set(staging)
         drained = False
+        acquired = False
+
+        async def admit():
+            nonlocal acquired
+            await self._lock.acquire()
+            acquired = True
+            # Uncooperative sync requests remain alive, so limit abandonment
+            # rather than allowing repeated VAD to exhaust the thread pool.
+            if len(self._retained_leases) >= 4:
+                raise RuntimeError("agent_worker_capacity_exhausted")
+
+        def release():
+            nonlocal acquired
+            if acquired:
+                acquired = False
+                self._lock.release()
+
         try:
-            async for event in self._trace_collector.run_stream(
+            stream = self._trace_collector.run_stream(
                 input,
                 context,
                 model=binding.model,
-            ):
-                yield event
+                wait_for_admission=admit,
+            )
+            async with aclosing(stream):
+                async for event in stream:
+                    yield event
             drained = True
         finally:
             # Arrange the release before anything that can raise: an abandoned
             # stream is finalized by asyncio in its own Task, where resetting a
             # token raises, and a lost release strands the lock forever. Waiters
             # only wake once this handler yields, so the rest still runs first.
-            worker_lease.when_settled(self._lock.release)
+            if not drained:
+                worker_lease._signal_cancelled()
+            self._retained_leases.add(worker_lease)
+            worker_lease.when_settled(
+                lambda: self._retained_leases.discard(worker_lease)
+            )
+            if type(self._agent).__dict__.get("supports_run_preemption", False):
+                release()
+            else:
+                worker_lease.when_settled(release)
             if not drained:
                 # The caller never saw the answer through, so nothing derived
                 # from it may reach a durable store.

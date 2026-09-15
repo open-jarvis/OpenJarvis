@@ -12,6 +12,7 @@ interface VoiceUiCopy {
   voiceStatus: Record<LocalVoiceStatus, string>;
   kioskState: Record<KioskState, string>;
   panelStatus: Record<VoiceStatus, string>;
+  toolActivity: { menu: string; checkout: string; cart: string; other: string };
 }
 
 export const VOICE_UI_TEXT: Record<UiLanguage, VoiceUiCopy> = {
@@ -29,6 +30,12 @@ export const VOICE_UI_TEXT: Record<UiLanguage, VoiceUiCopy> = {
       tool: 'Tool',
       error: 'Đã xảy ra lỗi giọng nói',
       ended: 'Đã kết thúc',
+    },
+    toolActivity: {
+      menu: 'Đang tìm trong menu',
+      checkout: 'Đang tạo đơn',
+      cart: 'Đang cập nhật giỏ hàng',
+      other: 'Đang thực hiện',
     },
     kioskState: {
       idle: 'Jarvis đang chờ khách',
@@ -59,6 +66,12 @@ export const VOICE_UI_TEXT: Record<UiLanguage, VoiceUiCopy> = {
       error: 'Voice error',
       ended: 'Voice ended',
     },
+    toolActivity: {
+      menu: 'Searching the menu',
+      checkout: 'Creating the order',
+      cart: 'Updating the cart',
+      other: 'Working',
+    },
     kioskState: {
       idle: 'Jarvis is idle waiting for a guest',
       approaching: 'Jarvis is detecting someone',
@@ -82,7 +95,16 @@ export function voiceStatusLabel(
 ): string {
   const label = VOICE_UI_TEXT[language].voiceStatus[status];
   if (!shouldShimmerVoiceStatus(status)) return label;
-  return status === 'tool' && detail ? `${detail}...` : `${label}...`;
+  return status === 'tool' ? `${toolActivityLabel(language, detail)}...` : `${label}...`;
+}
+
+function toolActivityLabel(language: UiLanguage, toolName: string | null): string {
+  const copy = VOICE_UI_TEXT[language].toolActivity;
+  // Website recipes are named <website>-menu and <website>-checkout.
+  if (toolName?.endsWith('-menu')) return copy.menu;
+  if (toolName?.endsWith('-checkout')) return copy.checkout;
+  if (toolName === 'display_cart') return copy.cart;
+  return copy.other;
 }
 
 export function shouldShimmerVoiceStatus(status: LocalVoiceStatus): boolean {

@@ -1,15 +1,16 @@
 export type KioskVoiceCommand = 'start' | 'end' | 'unavailable' | 'noop';
+export type KioskVoiceOwner = 'manual' | 'policy';
 
 export function kioskVoiceCommand({
   micEnabled,
   voiceEnabled,
-  started,
+  owner,
 }: {
   micEnabled: boolean;
   voiceEnabled: boolean;
-  started: boolean;
+  owner: KioskVoiceOwner | null;
 }): KioskVoiceCommand {
-  if (!micEnabled) return started ? 'end' : 'noop';
+  if (!micEnabled) return owner === 'policy' ? 'end' : 'noop';
   if (!voiceEnabled) return 'unavailable';
-  return started ? 'noop' : 'start';
+  return owner === null ? 'start' : 'noop';
 }

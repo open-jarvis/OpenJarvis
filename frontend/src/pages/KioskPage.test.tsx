@@ -210,6 +210,20 @@ describe('KioskPage', () => {
     expect(markup).not.toContain('Bắt đầu trò chuyện');
   });
 
+  it('hides the consent prompt while a voice session is active', () => {
+    mockUiLanguage = 'vi';
+    mockVoiceState.status = 'connecting';
+
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <KioskPage />
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain('Sẵn sàng trò chuyện?');
+    expect(markup).not.toContain('Bắt đầu trò chuyện');
+  });
+
   it('renders 4-edge border glow and center ambient glow layers', () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>
