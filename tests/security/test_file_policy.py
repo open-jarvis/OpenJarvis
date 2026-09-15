@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from openjarvis.security.file_policy import filter_sensitive_paths, is_sensitive_file
 
 
@@ -68,6 +70,29 @@ class TestIsSensitiveFile:
     def test_path_object(self) -> None:
         assert is_sensitive_file(Path("server.pem")) is True
         assert is_sensitive_file(Path("main.py")) is False
+
+    @pytest.mark.parametrize(
+        "sensitive_name", [".env", "credentials.json", "server.pem"]
+    )
+    def test_sensitive_symlink_alias(self, tmp_path: Path, sensitive_name: str) -> None:
+        sensitive = tmp_path / sensitive_name
+        sensitive.write_text("SENSITIVE-SENTINEL", encoding="utf-8")
+        alias = tmp_path / "notes.txt"
+        try:
+            alias.symlink_to(sensitive)
+        except OSError:
+            pytest.skip("filesystem does not permit creating symlinks")
+
+        assert is_sensitive_file(alias) is True
+
+    def test_sensitive_symlink_alias_to_missing_target(self, tmp_path: Path) -> None:
+        alias = tmp_path / "notes.txt"
+        try:
+            alias.symlink_to(tmp_path / ".env")
+        except OSError:
+            pytest.skip("filesystem does not permit creating symlinks")
+
+        assert is_sensitive_file(alias) is True
 
 
 class TestFilterSensitivePaths:
