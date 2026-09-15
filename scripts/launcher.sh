@@ -19,6 +19,27 @@
 
 set -Eeuo pipefail
 
+# ---------- Standard Linux CLI Logging Helpers ----------
+# Format: [YYYY-MM-DD HH:MM:SS] [LEVEL] Message
+_log_msg() {
+    local level="$1"
+    local color="$2"
+    local fd="$3"
+    shift 3
+    local ts
+    ts="$(date '+%Y-%m-%d %H:%M:%S')"
+    if [ -t "$fd" ]; then
+        printf '[%s] %b[%s]%b %s\n' "$ts" "$color" "$level" "\033[0m" "$*" >&"$fd"
+    else
+        printf '[%s] [%s] %s\n' "$ts" "$level" "$*" >&"$fd"
+    fi
+}
+
+log_info()    { _log_msg "INFO"    "\033[36m" 1 "$@"; }   # Cyan
+log_warn()    { _log_msg "WARN"    "\033[33m" 1 "$@"; }   # Yellow
+log_error()   { _log_msg "ERROR"   "\033[31m" 2 "$@"; }   # Red
+log_success() { _log_msg "SUCCESS" "\033[32m" 1 "$@"; }   # Green
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${OPENJARVIS_ENV_FILE:-/home/robber/Work/jarvis/OpenJarvis/.env}"
 VISION_DIR="${OPENJARVIS_VISION_DIR:-/home/robber/Work/jarvis/vision}"
@@ -51,7 +72,7 @@ for arg in "$@"; do
     case "$arg" in
         start|stop|status) ACTION="$arg" ;;
         --no-vision) WITH_VISION=0 ;;
-        *) echo "unknown argument: $arg" >&2; exit 2 ;;
+        *) log_error "Unknown argument: $arg"; exit 2 ;;
     esac
 done
 
@@ -63,22 +84,30 @@ port_pid() { lsof -ti:"$1" -sTCP:LISTEN 2>/dev/null || true; }
 # SIGTERM (never -9): the backend needs to reap its Playwright MCP child,
 # otherwise orphaned `npx @playwright/mcp` processes pile up across restarts.
 stop_stack() {
+    log_info "Stopping OpenJarvis stack services..."
     local pid doomed=() remaining deadline
     for port in 8000 5173; do
         pid="$(port_pid "$port")"
         if [ -n "$pid" ]; then
-            echo "  stopping :$port ($(echo $pid | tr '\n' ' '))"
-            kill $pid 2>/dev/null || true
+            log_info "Sending SIGTERM to listener on :$port (PID $pid)..."
+            kill "$pid" 2>/dev/null || true
             # Track the PIDs, not the ports.  A backend that has released its
             # listener but not yet exited still holds ~700 MB, and the old
             # port-based sweep could not see it -- so it survived the restart
             # and ran alongside its replacement.
-            doomed+=($pid)
+            doomed+=("$pid")
         fi
     done
     if [ "$WITH_VISION" = 1 ]; then
-        pkill -f "python3 main.py" 2>/dev/null || true
-        doomed+=($(pgrep -f "python3 main.py" 2>/dev/null || true))
+        local v_pids
+        v_pids="$(pgrep -f "python3 main.py" 2>/dev/null || true)"
+        if [ -n "$v_pids" ]; then
+            log_info "Sending SIGTERM to Vision processes (PID $(echo "$v_pids" | tr '\n' ' '))..."
+            pkill -f "python3 main.py" 2>/dev/null || true
+            for vp in $v_pids; do
+                doomed+=("$vp")
+            done
+        fi
     fi
 
     # Wait for a clean exit rather than a fixed sleep: SIGTERM has to give the
@@ -94,63 +123,102 @@ stop_stack() {
     done
 
     # Anything the backend failed to reap.
-    pkill -9 -f "@playwright/mcp" 2>/dev/null || true
-    pkill -9 -f "playwright-mcp" 2>/dev/null || true
+    local mcp_pids
+    mcp_pids="$(pgrep -f '@playwright/mcp|playwright-mcp' 2>/dev/null || true)"
+    if [ -n "$mcp_pids" ]; then
+        log_info "Reaping orphaned Playwright MCP processes..."
+        pkill -9 -f "@playwright/mcp" 2>/dev/null || true
+        pkill -9 -f "playwright-mcp" 2>/dev/null || true
+    fi
 
     # Whatever ignored SIGTERM, by PID and by port.
     for pid in "${doomed[@]:-}"; do
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            echo "  force-killing $pid (ignored SIGTERM)"
+            log_warn "Force-killing PID $pid (ignored SIGTERM)..."
             kill -9 "$pid" 2>/dev/null || true
         fi
     done
     for port in 8000 5173; do
         pid="$(port_pid "$port")"
-        [ -n "$pid" ] && kill -9 $pid 2>/dev/null || true
+        if [ -n "$pid" ]; then
+            log_warn "Force-killing listener on :$port (PID $pid)..."
+            kill -9 "$pid" 2>/dev/null || true
+        fi
     done
+    log_success "All stack services stopped."
     return 0
 }
 
-report_line() {  # name, pids (may be empty or multi-line)
-    local pids
-    pids="$(echo "${2:-}" | tr '\n' ' ' | sed 's/  */ /g;s/ *$//')"
-    if [ -n "$pids" ]; then
-        printf '  %-10s running (%s)\n' "$1" "$pids"
+status_stack() {
+    log_info "Checking OpenJarvis stack status..."
+    local b_pid f_pid v_pids mcp_count
+    b_pid="$(port_pid 8000)"
+    f_pid="$(port_pid 5173)"
+    v_pids="$(pgrep -f 'python3 main.py' 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g;s/ *$//' || true)"
+    mcp_count="$(pgrep -f '@playwright/mcp' 2>/dev/null | wc -l)"
+
+    if [ -n "$b_pid" ]; then
+        if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
+            log_success "Backend:  running (PID $b_pid, port 8000 healthy)"
+        else
+            log_warn "Backend:  running (PID $b_pid, port 8000 open, health check failing)"
+        fi
     else
-        printf '  %-10s stopped\n' "$1"
+        log_warn "Backend:  stopped (port 8000 inactive)"
+    fi
+
+    if [ -n "$f_pid" ]; then
+        if curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1; then
+            log_success "Frontend: running (PID $f_pid, port 5173 ready)"
+        else
+            log_warn "Frontend: running (PID $f_pid, port 5173 open, not responding to HTTP)"
+        fi
+    else
+        log_warn "Frontend: stopped (port 5173 inactive)"
+    fi
+
+    if [ -n "$v_pids" ]; then
+        log_success "Vision:   running (PID $v_pids)"
+    else
+        if [ "$WITH_VISION" = 1 ]; then
+            log_warn "Vision:   stopped"
+        else
+            log_info "Vision:   disabled (--no-vision)"
+        fi
+    fi
+
+    if [ "$mcp_count" -gt 0 ]; then
+        log_info "MCP:      $mcp_count active Playwright process(es)"
+    else
+        log_info "MCP:      0 active Playwright process(es)"
     fi
 }
 
-status_stack() {
-    report_line backend  "$(port_pid 8000)"
-    report_line frontend "$(port_pid 5173)"
-    report_line vision   "$(pgrep -f 'python3 main.py' || true)"
-    printf '  %-10s %s process(es)\n' "mcp" "$(pgrep -f '@playwright/mcp' | wc -l)"
-}
-
 case "$ACTION" in
-    stop)   echo "Stopping stack..."; stop_stack; echo "Stopped."; exit 0 ;;
-    status) echo "Stack status:"; status_stack; exit 0 ;;
+    stop)   stop_stack; exit 0 ;;
+    status) status_stack; exit 0 ;;
 esac
 
 # ---------- preflight: fail loudly now, not silently at runtime ----------
-[ -x "$ROOT_DIR/.venv/bin/jarvis" ] || { echo "missing $ROOT_DIR/.venv/bin/jarvis" >&2; exit 1; }
-[ -f "$ENV_FILE" ]                  || { echo "missing env file: $ENV_FILE" >&2; exit 1; }
-[ -d "$ARTIFACT_DIR" ]              || { echo "missing VieNeu artifact: $ARTIFACT_DIR" >&2; exit 1; }
+log_info "Running preflight checks..."
+[ -x "$ROOT_DIR/.venv/bin/jarvis" ] || { log_error "Missing executable: $ROOT_DIR/.venv/bin/jarvis"; exit 1; }
+[ -f "$ENV_FILE" ]                  || { log_error "Missing env file: $ENV_FILE"; exit 1; }
+[ -d "$ARTIFACT_DIR" ]              || { log_error "Missing VieNeu artifact: $ARTIFACT_DIR"; exit 1; }
 case "$MCP_CONFIG" in
     /*) MCP_CONFIG_PATH="$MCP_CONFIG" ;;
     *)  MCP_CONFIG_PATH="$ROOT_DIR/$MCP_CONFIG" ;;
 esac
-[ -f "$MCP_CONFIG_PATH" ]           || { echo "missing config: $MCP_CONFIG" >&2; exit 1; }
+[ -f "$MCP_CONFIG_PATH" ]           || { log_error "Missing config: $MCP_CONFIG"; exit 1; }
 
 set -a
 . "$ENV_FILE"
 set +a
-[ -n "${GEMINI_API_KEY:-}" ]   || { echo "GEMINI_API_KEY missing (voice STT needs it)" >&2; exit 1; }
-[ -n "${DEEPSEEK_API_KEY:-}" ] || { echo "DEEPSEEK_API_KEY missing" >&2; exit 1; }
+[ -n "${GEMINI_API_KEY:-}" ]   || { log_error "GEMINI_API_KEY missing in $ENV_FILE (voice STT needs it)"; exit 1; }
+[ -n "${DEEPSEEK_API_KEY:-}" ] || { log_error "DEEPSEEK_API_KEY missing in $ENV_FILE"; exit 1; }
 
+log_success "Preflight checks passed."
 mkdir -p "$LOG_DIR"
-echo "Restarting OpenJarvis stack (model=$MODEL, vision=$WITH_VISION)"
+log_info "Restarting OpenJarvis stack (model=$MODEL, vision=$WITH_VISION, threads=$THREADS)..."
 stop_stack
 
 # ---------- Vision (GPU) ----------
@@ -164,7 +232,7 @@ if [ "$WITH_VISION" = 1 ] && [ -d "$VISION_DIR" ]; then
     # which then blocks in wait() and the launcher never returns.
     (cd "$VISION_DIR" && setsid env LD_LIBRARY_PATH="$VISION_LD:${LD_LIBRARY_PATH:-}" \
         python3 main.py >"$VISION_LOG" 2>&1 </dev/null &)
-    echo "  vision   -> $VISION_LOG"
+    log_info "Vision service started -> $VISION_LOG"
 fi
 
 # ---------- Backend ----------
@@ -178,59 +246,99 @@ fi
     OPENJARVIS_CONFIG="$MCP_CONFIG" \
     .venv/bin/jarvis serve --host 127.0.0.1 --port 8000 --engine cloud --model "$MODEL" \
     >"$BACKEND_LOG" 2>&1 </dev/null &)
-echo "  backend  -> $BACKEND_LOG"
+log_info "Backend service started on :8000 -> $BACKEND_LOG"
 
 # ---------- Frontend ----------
 (cd "$ROOT_DIR/frontend" && setsid npm run dev -- \
     --host 127.0.0.1 --port 5173 --strictPort \
     >"$FRONTEND_LOG" 2>&1 </dev/null &)
-echo "  frontend -> $FRONTEND_LOG"
+log_info "Frontend service started on :5173 -> $FRONTEND_LOG"
 
-# ---------- wait ----------
-for _ in $(seq 1 90); do
-    curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1 \
-        && curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1 && break
+# ---------- Healthcheck ----------
+log_info "Waiting for stack services to become healthy (timeout 90s)..."
+backend_up=0
+frontend_up=0
+for elapsed in $(seq 1 90); do
+    if [ "$backend_up" -eq 0 ] && curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
+        backend_up=1
+        log_success "Backend is healthy (http://127.0.0.1:8000/health responded in ${elapsed}s)"
+    fi
+    if [ "$frontend_up" -eq 0 ] && curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1; then
+        frontend_up=1
+        log_success "Frontend is ready (http://127.0.0.1:5173/ responded in ${elapsed}s)"
+    fi
+    if [ "$backend_up" -eq 1 ] && [ "$frontend_up" -eq 1 ]; then
+        break
+    fi
+
+    # Early exit check: fail fast if backend crashed on startup
+    if [ "$backend_up" -eq 0 ] && [ "$elapsed" -ge 4 ] && [ -z "$(port_pid 8000)" ]; then
+        if grep -qiE 'Traceback \(most recent call last\)|Error:|Exception:' "$BACKEND_LOG" 2>/dev/null; then
+            log_error "Backend process exited with an error. Recent log output:"
+            tail -n 12 "$BACKEND_LOG" >&2 || true
+            exit 1
+        fi
+    fi
     sleep 1
 done
-if ! curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
-    echo "Backend did not come up. See $BACKEND_LOG" >&2; exit 1
+
+if [ "$backend_up" -eq 0 ]; then
+    log_error "Backend did not come up within 90s. See $BACKEND_LOG"
+    exit 1
 fi
-if ! curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1; then
-    echo "Frontend did not come up. See $FRONTEND_LOG" >&2; exit 1
+if [ "$frontend_up" -eq 0 ]; then
+    log_error "Frontend did not come up within 90s. See $FRONTEND_LOG"
+    exit 1
 fi
 
-# ---------- verify the things that broke before ----------
-echo
-echo "Verification:"
-tools=$(grep -o 'Agent tools:.*' "$BACKEND_LOG" | tr ',' '\n' | grep -c 'browser_' || true)
+# ---------- Verification ----------
+log_info "Verifying stack components and tool integrations..."
+tools=$(grep -o 'Agent tools:.*' "$BACKEND_LOG" 2>/dev/null | tr ',' '\n' | grep -c 'browser_' || true)
 expected_tools=$("$ROOT_DIR/.venv/bin/python" -c '
 import sys, tomllib
 with open(sys.argv[1], "rb") as stream:
     value = tomllib.load(stream).get("tools", {}).get("enabled", "")
 names = value if isinstance(value, list) else value.split(",")
 print(sum(str(name).strip().startswith("browser_") for name in names))
-' "$MCP_CONFIG_PATH")
-printf '  agent browser tools  %s %s\n' "$tools" "$([ "$tools" -eq "$expected_tools" ] && echo OK || echo "FAIL (expected $expected_tools)")"
+' "$MCP_CONFIG_PATH" 2>/dev/null || echo 0)
 
-mcp=$(pgrep -f '@playwright/mcp' | wc -l)
-printf '  playwright mcp  %s %s\n' "$mcp" "$([ "$mcp" -eq 1 ] && echo OK || echo 'unexpected count')"
+if [ "$tools" -eq "$expected_tools" ] && [ "$expected_tools" -gt 0 ]; then
+    log_success "Agent browser tools: $tools/$expected_tools verified"
+else
+    log_warn "Agent browser tools: found $tools (expected $expected_tools)"
+fi
+
+mcp=$(pgrep -f '@playwright/mcp' 2>/dev/null | wc -l)
+if [ "$mcp" -eq 1 ]; then
+    log_success "Playwright MCP daemon: active (1 process running)"
+elif [ "$mcp" -gt 1 ]; then
+    log_warn "Playwright MCP daemon: $mcp processes running (expected 1)"
+else
+    log_warn "Playwright MCP daemon: not running (expected 1 process)"
+fi
 
 mem=$(curl -fsS http://127.0.0.1:8000/v1/memory/config 2>/dev/null || echo '')
 case "$mem" in
-    *'"available":true'*) echo '  memory backend  OK' ;;
-    *) echo '  memory backend  FAIL — build it: uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml --release' ;;
+    *'"available":true'*)
+        log_success "Memory backend: available and operational"
+        ;;
+    *)
+        log_warn "Memory backend: unavailable — build with: uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml --release"
+        ;;
 esac
 
 if [ "$WITH_VISION" = 1 ]; then
-    sleep 5
+    sleep 3
     if grep -qiE 'Failed to create CUDAExecutionProvider|libcublasLt' "$VISION_LOG" 2>/dev/null; then
-        echo '  vision GPU      FAIL — running on CPU, check nvidia-* wheels'
+        log_warn "Vision GPU: running on CPU fallback (check nvidia-* wheels)"
+    elif grep -qiE 'CUDAExecutionProvider|Running on GPU|Device: cuda' "$VISION_LOG" 2>/dev/null || [ -n "$(pgrep -f 'python3 main.py' 2>/dev/null || true)" ]; then
+        log_success "Vision GPU: service running"
     else
-        echo '  vision GPU      OK'
+        log_warn "Vision GPU: not responding or check $VISION_LOG"
     fi
 fi
 
-echo
-echo "  Frontend  http://127.0.0.1:5173"
-echo "  Kiosk     http://127.0.0.1:5173/kiosk"
-echo "  Stop with: scripts/launcher.sh stop"
+log_success "OpenJarvis stack launched successfully!"
+log_info "  - Web Chat:  http://127.0.0.1:5173"
+log_info "  - Kiosk UI:  http://127.0.0.1:5173/kiosk"
+log_info "  - Stop with: scripts/launcher.sh stop"
