@@ -33,7 +33,7 @@ def _default_path() -> Path:
 
 
 TOOL_CREDENTIALS: dict[str, list[str]] = {
-    "web_search": ["TAVILY_API_KEY", "YOUDOTCOM_API_KEY"],
+    "web_search": ["TAVILY_API_KEY", "YOUDOTCOM_API_KEY", "SERPLY_API_KEY"],
     "get_weather": ["OPENWEATHERMAP_API_KEY"],
     "image_generate": ["OPENAI_API_KEY"],
     "slack": ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"],
@@ -71,9 +71,10 @@ TOOL_CREDENTIALS: dict[str, list[str]] = {
 # by ``jarvis doctor``, and by anything else reading credential status — which
 # leaves no way to describe a tool that also works without one. ``web_search``
 # is the first such tool: the You.com keyless tier serves it with no key at all,
-# and both listed keys only raise limits or result quality.
+# and every listed key only raises limits, changes the engine, or improves
+# result quality.
 OPTIONAL_TOOL_CREDENTIALS: dict[str, frozenset[str]] = {
-    "web_search": frozenset({"TAVILY_API_KEY", "YOUDOTCOM_API_KEY"}),
+    "web_search": frozenset({"TAVILY_API_KEY", "YOUDOTCOM_API_KEY", "SERPLY_API_KEY"}),
 }
 
 

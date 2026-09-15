@@ -69,6 +69,7 @@ API_KEY_ENV_VARS = {
     ),
     "TAVILY_API_KEY": ("Tavily web search", {"tavily", "web_search"}),
     "YOUDOTCOM_API_KEY": ("You.com web search", {"youcom", "web_search"}),
+    "SERPLY_API_KEY": ("Serply web search", {"serply", "web_search"}),
 }
 
 CHANNEL_SECRET_FIELDS: tuple[tuple[str, str, str], ...] = (
@@ -1085,15 +1086,27 @@ def _web_search_destination() -> str:
     source of truth; ``test_data_boundary_audit`` asserts the two agree.
     """
     engine = (os.environ.get("OPENJARVIS_WEB_SEARCH_ENGINE") or "auto").strip().lower()
-    if engine not in {"auto", "youcom", "tavily", "duckduckgo"}:
+    if engine not in {"auto", "youcom", "tavily", "duckduckgo", "serply"}:
         engine = "auto"
     if engine == "auto":
-        engine = "tavily" if os.environ.get("TAVILY_API_KEY") else "youcom"
+        if os.environ.get("TAVILY_API_KEY"):
+            engine = "tavily"
+        elif os.environ.get("YOUDOTCOM_API_KEY"):
+            engine = "youcom"
+        elif os.environ.get("SERPLY_API_KEY"):
+            engine = "serply"
+        else:
+            engine = "youcom"
 
     if engine == "tavily":
         return "Tavily web search API"
     if engine == "duckduckgo":
         return "DuckDuckGo (HTML scrape)"
+    if engine == "serply":
+        location = os.environ.get("SERPLY_PROXY_LOCATION")
+        if location:
+            return f"Serply web search API (Google SERP, region {location})"
+        return "Serply web search API (Google SERP)"
     tier = "keyed" if os.environ.get("YOUDOTCOM_API_KEY") else "keyless free tier"
     return f"You.com web search API ({tier})"
 

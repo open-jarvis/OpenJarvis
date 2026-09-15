@@ -1120,7 +1120,9 @@ OpenJarvis respects the following environment variables:
 | `MINIMAX_API_KEY` | API key for MiniMax cloud inference. Required for the `cloud` engine with MiniMax models (MiniMax-M3, MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed). |
 | `TAVILY_API_KEY` | API key for the Tavily web search engine. Optional — when set, `auto` engine selection prefers Tavily. |
 | `YOUDOTCOM_API_KEY` | API key for the You.com web search engine. Optional — raises the keyless free-tier limits and enables You.com Contents extraction for URL queries. |
-| `OPENJARVIS_WEB_SEARCH_ENGINE` | Web search engine for the `web_search` tool: `auto` (default), `youcom`, `tavily`, or `duckduckgo`. |
+| `SERPLY_API_KEY` | API key for the Serply web search engine, which proxies Google. Optional. When set and no other search key is, `auto` engine selection prefers Serply over the keyless tier. Keys: [serply.io](https://serply.io). |
+| `SERPLY_PROXY_LOCATION` | Two-letter country code asking Serply for that country's Google result set, for example `DE`. Optional. Unset means the API answers from its own default region. See [serply.io/docs](https://serply.io/docs). |
+| `OPENJARVIS_WEB_SEARCH_ENGINE` | Web search engine for the `web_search` tool: `auto` (default), `youcom`, `tavily`, `serply`, or `duckduckgo`. |
 
 ## Next Steps
 
