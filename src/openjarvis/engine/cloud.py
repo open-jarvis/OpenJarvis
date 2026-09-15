@@ -1,6 +1,6 @@
 """Cloud inference engine.
 
-OpenAI, Anthropic, Google, MiniMax, and DeepSeek API backends.
+OpenAI, Anthropic, Google, MiniMax, DeepSeek, and Atlas Cloud API backends.
 """
 
 from __future__ import annotations
@@ -55,6 +55,19 @@ PRICING: Dict[str, tuple[float, float]] = {
     "MiniMax-M2.5-highspeed": (0.60, 2.40),
     "deepseek-v4-flash": (0.27, 1.10),
     "deepseek-v4-pro": (0.55, 2.19),
+    # Atlas Cloud — an aggregator, so keys carry the "atlascloud/" routing
+    # prefix (same convention as OpenRouter below). Rates are USD per 1M
+    # tokens, read from the gateway's own catalog: GET
+    # https://api.atlascloud.ai/v1/models returns pricing.prompt /
+    # pricing.completion in USD *per token*; multiply by 1e6.
+    "atlascloud/openai/gpt-4.1-mini": (0.40, 1.60),
+    "atlascloud/openai/gpt-5.4-mini": (0.75, 4.50),
+    "atlascloud/deepseek-ai/deepseek-v3.2": (0.26, 0.38),
+    "atlascloud/Qwen/Qwen3-235B-A22B-Instruct-2507": (0.20, 0.88),
+    "atlascloud/qwen/qwen3.5-35b-a3b": (0.225, 1.80),
+    "atlascloud/zai-org/GLM-4.6": (0.60, 2.20),
+    "atlascloud/moonshotai/kimi-k2.5": (0.49, 2.50),
+    "atlascloud/minimaxai/minimax-m2.5": (0.295, 1.20),
 }
 
 _MINIMAX_M3_LONG_CONTEXT_THRESHOLD = 512_000
@@ -111,6 +124,23 @@ _OPENROUTER_POPULAR = [
     "openrouter/qwen/qwen3-235b-a22b",
 ]
 
+# Atlas Cloud models — prefixed with "atlascloud/" so they can be identified.
+# Atlas Cloud is an OpenAI-compatible aggregator whose own model IDs are
+# already "vendor/model", so the prefix is what keeps
+# "atlascloud/anthropic/claude-*" from being routed to the Anthropic SDK.
+# The gateway serves many more than these — GET /v1/models lists what is
+# currently routable, and any ID from there works as "atlascloud/<id>".
+_ATLASCLOUD_POPULAR = [
+    "atlascloud/openai/gpt-4.1-mini",
+    "atlascloud/openai/gpt-5.4-mini",
+    "atlascloud/deepseek-ai/deepseek-v3.2",
+    "atlascloud/Qwen/Qwen3-235B-A22B-Instruct-2507",
+    "atlascloud/qwen/qwen3.5-35b-a3b",
+    "atlascloud/zai-org/GLM-4.6",
+    "atlascloud/moonshotai/kimi-k2.5",
+    "atlascloud/minimaxai/minimax-m2.5",
+]
+
 # Codex models — prefixed with "codex/" for ChatGPT Plus/Pro subscribers.
 # Uses the Responses API at chatgpt.com, not the standard OpenAI API.
 _CODEX_MODELS = [
@@ -134,16 +164,30 @@ def _is_openrouter_model(model: str) -> bool:
     return model.startswith("openrouter/")
 
 
+def _is_atlascloud_model(model: str) -> bool:
+    return model.startswith("atlascloud/")
+
+
 def _is_codex_model(model: str) -> bool:
     return model.startswith("codex/")
 
 
 def _is_anthropic_model(model: str) -> bool:
-    return "claude" in model.lower() and not _is_openrouter_model(model)
+    # Aggregator-prefixed IDs are excluded: "atlascloud/anthropic/claude-*"
+    # contains "claude" but must go to the aggregator, not the Anthropic SDK.
+    return (
+        "claude" in model.lower()
+        and not _is_openrouter_model(model)
+        and not _is_atlascloud_model(model)
+    )
 
 
 def _is_google_model(model: str) -> bool:
-    return "gemini" in model.lower() and not _is_openrouter_model(model)
+    return (
+        "gemini" in model.lower()
+        and not _is_openrouter_model(model)
+        and not _is_atlascloud_model(model)
+    )
 
 
 # Positive prefix predicate for genuine OpenAI models. Kept in sync with
@@ -322,7 +366,8 @@ def _convert_tools_to_google(
 
 @EngineRegistry.register("cloud")
 class CloudEngine(InferenceEngine):
-    """Cloud inference via OpenAI, Anthropic, Google, MiniMax, and DeepSeek SDKs."""
+    """Cloud inference via OpenAI, Anthropic, Google, MiniMax, DeepSeek, and
+    Atlas Cloud SDKs."""
 
     engine_id = "cloud"
     is_cloud = True
@@ -332,6 +377,7 @@ class CloudEngine(InferenceEngine):
         self._anthropic_client: Any = None
         self._google_client: Any = None
         self._openrouter_client: Any = None
+        self._atlascloud_client: Any = None
         self._minimax_client: Any = None
         self._deepseek_client: Any = None
         self._codex_client: Any = None
@@ -372,6 +418,17 @@ class CloudEngine(InferenceEngine):
                 self._openrouter_client = openai.OpenAI(
                     base_url="https://openrouter.ai/api/v1",
                     api_key=openrouter_key,
+                )
+            except ImportError:
+                pass
+        atlascloud_key = os.environ.get("ATLASCLOUD_API_KEY")
+        if atlascloud_key:
+            try:
+                import openai
+
+                self._atlascloud_client = openai.OpenAI(
+                    base_url="https://api.atlascloud.ai/v1",
+                    api_key=atlascloud_key,
                 )
             except ImportError:
                 pass
@@ -997,6 +1054,73 @@ class CloudEngine(InferenceEngine):
             ]
         return result
 
+    def _generate_atlascloud(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        if self._atlascloud_client is None:
+            raise EngineConnectionError(
+                "Atlas Cloud client not available — set ATLASCLOUD_API_KEY"
+            )
+        # Strip the "atlascloud/" prefix to get the gateway's own model ID.
+        actual_model = model.removeprefix("atlascloud/")
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        # Atlas Cloud is OpenAI-compatible: response_format, tools and
+        # tool_choice all pass straight through.
+        response_format = kwargs.pop("response_format", None)
+        if response_format is not None:
+            create_kwargs["response_format"] = response_format
+        tools = kwargs.pop("tools", None)
+        if tools:
+            create_kwargs["tools"] = tools
+        tool_choice = kwargs.pop("tool_choice", None)
+        if tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
+        t0 = time.monotonic()
+        resp = self._atlascloud_client.chat.completions.create(**create_kwargs)
+        elapsed = time.monotonic() - t0
+        choice = resp.choices[0]
+        usage = resp.usage
+        prompt_tokens = usage.prompt_tokens if usage else 0
+        completion_tokens = usage.completion_tokens if usage else 0
+        result: Dict[str, Any] = {
+            "content": choice.message.content or "",
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (usage.total_tokens if usage else 0),
+            },
+            "model": resp.model,
+            "finish_reason": choice.finish_reason or "stop",
+            # Cost is keyed on the prefixed ID so PRICING stays unambiguous
+            # between "atlascloud/minimaxai/minimax-m2.5" and MiniMax direct.
+            "cost_usd": estimate_cost(model, prompt_tokens, completion_tokens),
+            "ttft": elapsed,
+        }
+        if getattr(choice.message, "tool_calls", None):
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in choice.message.tool_calls
+            ]
+        return result
+
     def _generate_minimax(
         self,
         messages: Sequence[Message],
@@ -1119,6 +1243,8 @@ class CloudEngine(InferenceEngine):
             return self._generate_codex(messages, **kw)
         if _is_openrouter_model(model):
             return self._generate_openrouter(messages, **kw)
+        if _is_atlascloud_model(model):
+            return self._generate_atlascloud(messages, **kw)
         if _is_minimax_model(model):
             return self._generate_minimax(messages, **kw)
         if _is_deepseek_model(model):
@@ -1149,6 +1275,9 @@ class CloudEngine(InferenceEngine):
                 yield token
         elif _is_openrouter_model(model):
             async for token in self._stream_openrouter(messages, **kw):
+                yield token
+        elif _is_atlascloud_model(model):
+            async for token in self._stream_atlascloud(messages, **kw):
                 yield token
         elif _is_minimax_model(model):
             async for token in self._stream_minimax(messages, **kw):
@@ -1502,6 +1631,38 @@ class CloudEngine(InferenceEngine):
             if delta and delta.content:
                 yield delta.content
 
+    async def _stream_atlascloud(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        if self._atlascloud_client is None:
+            raise EngineConnectionError("Atlas Cloud client not available")
+        actual_model = model.removeprefix("atlascloud/")
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        # Forward tools / tool_choice (Atlas Cloud is OpenAI-compatible).
+        tools = kwargs.pop("tools", None)
+        if tools:
+            create_kwargs["tools"] = tools
+        tool_choice = kwargs.pop("tool_choice", None)
+        if tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
+        resp = self._atlascloud_client.chat.completions.create(**create_kwargs)
+        for chunk in resp:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+
     async def _stream_minimax(
         self,
         messages: Sequence[Message],
@@ -1565,7 +1726,7 @@ class CloudEngine(InferenceEngine):
     ) -> AsyncIterator[StreamChunk]:
         """Yield StreamChunks from an OpenAI-compatible streaming response.
 
-        Works for OpenAI, OpenRouter, MiniMax, and Codex.
+        Works for OpenAI, OpenRouter, Atlas Cloud, MiniMax, DeepSeek, and Codex.
         """
         if _is_codex_model(model):
             # Codex uses Responses API — fall back to base stream_full wrapper
@@ -1585,6 +1746,18 @@ class CloudEngine(InferenceEngine):
             actual_model = model.removeprefix("openrouter/")
             create_kwargs: Dict[str, Any] = {
                 "model": actual_model,
+                "messages": messages_to_dicts(messages),
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+                **kwargs,
+            }
+        elif _is_atlascloud_model(model):
+            client = self._atlascloud_client
+            if client is None:
+                raise EngineConnectionError("Atlas Cloud client not available")
+            create_kwargs = {
+                "model": model.removeprefix("atlascloud/"),
                 "messages": messages_to_dicts(messages),
                 "max_tokens": max_tokens,
                 "temperature": temperature,
@@ -1781,6 +1954,8 @@ class CloudEngine(InferenceEngine):
             models.extend(_GOOGLE_MODELS)
         if self._openrouter_client is not None:
             models.extend(_OPENROUTER_POPULAR)
+        if self._atlascloud_client is not None:
+            models.extend(_ATLASCLOUD_POPULAR)
         if self._minimax_client is not None:
             models.extend(_MINIMAX_MODELS)
         if self._deepseek_client is not None:
@@ -1806,6 +1981,8 @@ class CloudEngine(InferenceEngine):
             return self._codex_client
         if _is_openrouter_model(model):
             return self._openrouter_client
+        if _is_atlascloud_model(model):
+            return self._atlascloud_client
         if _is_minimax_model(model):
             return self._minimax_client
         if _is_deepseek_model(model):
@@ -1837,6 +2014,7 @@ class CloudEngine(InferenceEngine):
             or self._anthropic_client is not None
             or self._google_client is not None
             or self._openrouter_client is not None
+            or self._atlascloud_client is not None
             or self._minimax_client is not None
             or self._deepseek_client is not None
             or self._codex_client is not None
@@ -1857,10 +2035,20 @@ class CloudEngine(InferenceEngine):
             if hasattr(self._openrouter_client, "close"):
                 self._openrouter_client.close()
             self._openrouter_client = None
+        if self._atlascloud_client is not None:
+            if hasattr(self._atlascloud_client, "close"):
+                self._atlascloud_client.close()
+            self._atlascloud_client = None
         if self._minimax_client is not None:
             if hasattr(self._minimax_client, "close"):
                 self._minimax_client.close()
             self._minimax_client = None
+        # The DeepSeek client was never released here, so its httpx pool
+        # outlived close() (every other provider client is dropped).
+        if self._deepseek_client is not None:
+            if hasattr(self._deepseek_client, "close"):
+                self._deepseek_client.close()
+            self._deepseek_client = None
         if self._codex_client is not None:
             self._codex_client = None
 

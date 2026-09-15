@@ -953,6 +953,134 @@ BUILTIN_MODELS: List[ModelSpec] = [
         },
     ),
     # -----------------------------------------------------------------------
+    # Cloud models — Atlas Cloud (OpenAI-compatible aggregator)
+    #
+    # IDs carry the "atlascloud/" routing prefix the cloud engine dispatches
+    # on. Context lengths and prices are the gateway's own, read from
+    # GET https://api.atlascloud.ai/v1/models (context_length, and
+    # pricing.prompt / pricing.completion in USD per token).
+    # -----------------------------------------------------------------------
+    ModelSpec(
+        model_id="atlascloud/openai/gpt-4.1-mini",
+        name="GPT-4.1 Mini (Atlas Cloud)",
+        parameter_count_b=0.0,
+        context_length=1_047_576,
+        supported_engines=("cloud",),
+        provider="atlascloud",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 0.4,
+            "pricing_output": 1.6,
+            "url": "https://www.atlascloud.ai/models",
+        },
+    ),
+    ModelSpec(
+        model_id="atlascloud/openai/gpt-5.4-mini",
+        name="GPT-5.4 Mini (Atlas Cloud)",
+        parameter_count_b=0.0,
+        context_length=400_000,
+        supported_engines=("cloud",),
+        provider="atlascloud",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 0.75,
+            "pricing_output": 4.5,
+            "url": "https://www.atlascloud.ai/models",
+        },
+    ),
+    ModelSpec(
+        model_id="atlascloud/deepseek-ai/deepseek-v3.2",
+        name="DeepSeek V3.2 (Atlas Cloud)",
+        parameter_count_b=0.0,
+        context_length=163_840,
+        supported_engines=("cloud",),
+        provider="atlascloud",
+        requires_api_key=True,
+        metadata={
+            "architecture": "moe",
+            "pricing_input": 0.26,
+            "pricing_output": 0.38,
+            "url": "https://www.atlascloud.ai/models",
+        },
+    ),
+    ModelSpec(
+        model_id="atlascloud/Qwen/Qwen3-235B-A22B-Instruct-2507",
+        name="Qwen3 235B A22B Instruct (Atlas Cloud)",
+        parameter_count_b=0.0,
+        context_length=131_072,
+        supported_engines=("cloud",),
+        provider="atlascloud",
+        requires_api_key=True,
+        metadata={
+            "architecture": "moe",
+            "pricing_input": 0.2,
+            "pricing_output": 0.88,
+            "url": "https://www.atlascloud.ai/models",
+        },
+    ),
+    ModelSpec(
+        model_id="atlascloud/qwen/qwen3.5-35b-a3b",
+        name="Qwen3.5 35B A3B (Atlas Cloud)",
+        parameter_count_b=0.0,
+        context_length=262_144,
+        supported_engines=("cloud",),
+        provider="atlascloud",
+        requires_api_key=True,
+        metadata={
+            "architecture": "moe",
+            "pricing_input": 0.225,
+            "pricing_output": 1.8,
+            "url": "https://www.atlascloud.ai/models",
+        },
+    ),
+    ModelSpec(
+        model_id="atlascloud/zai-org/GLM-4.6",
+        name="GLM-4.6 (Atlas Cloud)",
+        parameter_count_b=0.0,
+        context_length=202_752,
+        supported_engines=("cloud",),
+        provider="atlascloud",
+        requires_api_key=True,
+        metadata={
+            "architecture": "moe",
+            "pricing_input": 0.6,
+            "pricing_output": 2.2,
+            "url": "https://www.atlascloud.ai/models",
+        },
+    ),
+    ModelSpec(
+        model_id="atlascloud/moonshotai/kimi-k2.5",
+        name="Kimi K2.5 (Atlas Cloud)",
+        parameter_count_b=0.0,
+        context_length=262_144,
+        supported_engines=("cloud",),
+        provider="atlascloud",
+        requires_api_key=True,
+        metadata={
+            "architecture": "moe",
+            "pricing_input": 0.49,
+            "pricing_output": 2.5,
+            "url": "https://www.atlascloud.ai/models",
+        },
+    ),
+    ModelSpec(
+        model_id="atlascloud/minimaxai/minimax-m2.5",
+        name="MiniMax M2.5 (Atlas Cloud)",
+        parameter_count_b=0.0,
+        context_length=196_608,
+        supported_engines=("cloud",),
+        provider="atlascloud",
+        requires_api_key=True,
+        metadata={
+            "architecture": "moe",
+            "pricing_input": 0.295,
+            "pricing_output": 1.2,
+            "url": "https://www.atlascloud.ai/models",
+        },
+    ),
+    # -----------------------------------------------------------------------
     # Cloud models — Google
     # -----------------------------------------------------------------------
     ModelSpec(
