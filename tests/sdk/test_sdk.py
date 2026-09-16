@@ -380,6 +380,48 @@ class TestJarvisStreaming:
 
 
 class TestJarvisLifecycle:
+    @pytest.mark.parametrize("security_enabled", [False, True])
+    def test_close_initialized_engine(self, security_enabled: bool) -> None:
+        from openjarvis.security.guardrails import GuardrailsEngine
+
+        cfg = JarvisConfig()
+        cfg.security.enabled = security_enabled
+        engine = _make_engine()
+        with patch("openjarvis.sdk.get_engine", return_value=("mock", engine)):
+            j = Jarvis(config=cfg)
+            try:
+                assert j.list_models() == ["test-model"]
+                assert (
+                    isinstance(j._engine._inner, GuardrailsEngine) == security_enabled
+                )
+                j.close()
+                j.close()
+                engine.close.assert_called_once()
+                assert j._engine is None
+            finally:
+                j.close()
+
+    def test_context_manager_closes_initialized_engine(self) -> None:
+        engine = _make_engine()
+        with patch("openjarvis.sdk.get_engine", return_value=("mock", engine)):
+            with Jarvis(config=JarvisConfig()) as j:
+                j.list_models()
+            engine.close.assert_called_once()
+
+    def test_engine_close_failure_clears_reference(self) -> None:
+        engine = _make_engine()
+        engine.close.side_effect = RuntimeError("cleanup failed")
+        with patch("openjarvis.sdk.get_engine", return_value=("mock", engine)):
+            j = Jarvis(config=JarvisConfig())
+            try:
+                j.list_models()
+                j.close()
+                assert j._engine is None
+                j.close()
+                engine.close.assert_called_once()
+            finally:
+                j.close()
+
     def test_close_releases_resources(self):
         j = Jarvis(config=JarvisConfig())
         j.close()

@@ -314,5 +314,9 @@ class GuardrailsEngine(InferenceEngine):
         """Delegate to wrapped engine."""
         return self._engine.health()
 
+    def close(self) -> None:
+        """Release resources held by the wrapped engine."""
+        self._engine.close()
+
 
 __all__ = ["GuardrailsEngine", "SecurityBlockError"]

@@ -659,7 +659,13 @@ class Jarvis:
             except Exception as exc:
                 logger.debug("Error closing audit logger: %s", exc)
             self._audit_logger = None
-        self._engine = None
+        if self._engine is not None:
+            try:
+                self._engine.close()
+            except Exception as exc:
+                logger.debug("Error closing engine: %s", exc)
+            finally:
+                self._engine = None
 
     def __enter__(self) -> Jarvis:
         return self
