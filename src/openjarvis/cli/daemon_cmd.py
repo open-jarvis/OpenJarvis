@@ -230,11 +230,6 @@ def start(
         stderr=log_fh,
         **spawn_kwargs,
     )
-    try:
-        _write_pid(proc.pid, bind_host, bind_port, ready=False)
-    except RuntimeError as exc:
-        terminate_process(proc.pid, grace_seconds=10.0)
-        raise click.ClickException(str(exc)) from exc
 
     console.print(
         f"[green]OpenJarvis server starting[/green] (PID {proc.pid})\n"
