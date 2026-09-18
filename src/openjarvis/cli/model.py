@@ -173,6 +173,9 @@ def ollama_pull(host: str, model_name: str, console: Console) -> bool:
                     data = json.loads(line)
                 except Exception:
                     continue
+                if "error" in data:
+                    console.print(f"Ollama error: {data['error']}", markup=False)
+                    return False
                 status = data.get("status", "")
                 if "total" in data and "completed" in data:
                     total = data["total"]
