@@ -7,15 +7,24 @@ from typing import Any, Optional
 from rich.markup import escape
 
 VOICE_EXIT = object()
-_TTS_BACKEND_ORDER = ("kokoro", "openai_tts", "cartesia")
-# Voice IDs are backend-specific and NOT portable. ``speech.voice_id`` applies
-# only to ``speech.tts_backend``; if synthesis falls back to another backend we
-# use that backend's own default rather than passing an unrecognized ID through.
-_BACKEND_DEFAULT_VOICE = {
-    "kokoro": "bm_george",  # British male
-    "openai_tts": "onyx",  # deepest OpenAI preset
-    "cartesia": "",  # no safe static default; let Cartesia choose
+
+# Backend selection is shared with the API server and lives in
+# openjarvis.speech._tts_discovery. Importing that at module level would pull
+# the whole speech stack -- numpy included -- into every `jarvis` invocation,
+# which tests/cli/test_cli.py guards against, so these aliases resolve lazily.
+_LAZY_TTS_NAMES = {
+    "_TTS_BACKEND_ORDER": "TTS_BACKEND_ORDER",
+    "_BACKEND_DEFAULT_VOICE": "BACKEND_DEFAULT_VOICE",
 }
+
+
+def __getattr__(name: str) -> Any:
+    target = _LAZY_TTS_NAMES.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from openjarvis.speech import _tts_discovery
+
+    return getattr(_tts_discovery, target)
 
 
 def _terminal_safe_text(value: object) -> str:
@@ -54,40 +63,20 @@ class VoiceSession:
         if self._tts_backend is not None:
             return self._tts_backend
 
-        # Import triggers built-in backend registration only when voice output
-        # is actually requested.
-        import openjarvis.speech  # noqa: F401
-        from openjarvis.core.registry import TTSRegistry
+        from openjarvis.speech._tts_discovery import get_tts_backend
 
         preferred, _, _ = self.get_voice_preferences()
-        backend_order = dict.fromkeys((preferred, *_TTS_BACKEND_ORDER))
-        for key in backend_order:
-            if key in self._tts_attempted:
-                continue
-            self._tts_attempted.add(key)
-            if not TTSRegistry.contains(key):
-                continue
-            try:
-                candidate = TTSRegistry.get(key)()
-                if candidate.health():
-                    self._tts_backend = candidate
-                    return candidate
-            except Exception:
-                continue
-        return None
+        self._tts_backend = get_tts_backend(preferred, attempted=self._tts_attempted)
+        return self._tts_backend
 
     def get_voice_preferences(self) -> tuple[str, str, float]:
         """Resolve configured (tts_backend, voice_id, speed), cached per session."""
         if self._voice_prefs is None:
             from openjarvis.core.config import load_config
+            from openjarvis.speech._tts_discovery import voice_preferences
 
             config = self._config if self._config is not None else load_config()
-            speech = getattr(config, "speech", None)
-            self._voice_prefs = (
-                getattr(speech, "tts_backend", "kokoro") or "kokoro",
-                getattr(speech, "voice_id", "") or "",
-                float(getattr(speech, "voice_speed", 1.0)),
-            )
+            self._voice_prefs = voice_preferences(config)
         return self._voice_prefs
 
     def voice_for_backend(self, backend: Any, console: Any = None) -> tuple[str, float]:
@@ -103,7 +92,9 @@ class VoiceSession:
         if active == want_backend:
             return voice_id, speed
 
-        substitute = _BACKEND_DEFAULT_VOICE.get(active, "")
+        from openjarvis.speech._tts_discovery import default_voice_for
+
+        substitute = default_voice_for(active)
         if console is not None and active not in self._voice_warned:
             self._voice_warned.add(active)
             console.print(
