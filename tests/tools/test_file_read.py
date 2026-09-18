@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from openjarvis.tools.file_read import FileReadTool
 
 
@@ -84,6 +86,20 @@ class TestFileReadTool:
         f.write_text('{"token": "abc"}', encoding="utf-8")
         tool = FileReadTool()
         result = tool.execute(path=str(f))
+        assert result.success is False
+        assert "sensitive" in result.content.lower()
+
+    def test_blocks_symlink_alias_to_sensitive_file(self, tmp_path):
+        sensitive = tmp_path / ".env"
+        sensitive.write_text("SECRET=foo", encoding="utf-8")
+        alias = tmp_path / "notes.txt"
+        try:
+            alias.symlink_to(sensitive)
+        except OSError:
+            pytest.skip("filesystem does not permit creating symlinks")
+
+        result = FileReadTool().execute(path=str(alias))
+
         assert result.success is False
         assert "sensitive" in result.content.lower()
 
