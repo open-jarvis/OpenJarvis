@@ -4,7 +4,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from openjarvis import _rust_bridge
 from openjarvis.cli import _bg_state
+
+
+def test_get_status_rust_importable_without_marker(
+    tmp_openjarvis_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Editable installs have no installer marker but the ext imports fine."""
+    monkeypatch.setattr(_rust_bridge, "RUST_AVAILABLE", True)
+    s = _bg_state.get_status()
+    assert s.rust_extension == "ready"
+
+
+def test_get_status_rust_importable_supersedes_failed_marker(
+    tmp_openjarvis_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale extension-failed marker must not mask a working extension."""
+    monkeypatch.setattr(_rust_bridge, "RUST_AVAILABLE", True)
+    (tmp_openjarvis_home / ".state" / "extension-failed").write_text("old error")
+    s = _bg_state.get_status()
+    assert s.rust_extension == "ready"
+    assert s.rust_error == ""
 
 
 def test_get_status_empty(tmp_openjarvis_home: Path) -> None:

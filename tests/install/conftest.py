@@ -27,4 +27,8 @@ def tmp_openjarvis_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     # Patch doctor_cmd's module-level bindings.
     monkeypatch.setattr("openjarvis.cli.doctor_cmd.DEFAULT_CONFIG_PATH", config_path)
     monkeypatch.setenv("HOME", str(tmp_path))
+    # These tests drive state purely via marker files; pin the runtime Rust
+    # import check off so a built extension in the dev venv can't flip
+    # "pending"/"failed" to "ready" behind their backs.
+    monkeypatch.setattr("openjarvis._rust_bridge.RUST_AVAILABLE", False)
     return home
