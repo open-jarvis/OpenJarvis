@@ -72,17 +72,27 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _requires_auth(path: str) -> bool:
-        """Protect API routes and operational metrics; leave the UI/health open.
+        """Protect API routes, metrics and API docs; leave the UI/health open.
 
         ``/metrics`` exposes request/token counters that should not be readable
         by unauthenticated clients, so it is gated alongside ``/v1`` and
         ``/api``. ``/health`` stays open for liveness probes.
+
+        The OpenAPI schema and its viewers (``/openapi.json``, ``/docs``,
+        ``/redoc``) are gated too: on an exposed deployment they hand an
+        unauthenticated client a complete map of every route, parameter and
+        payload shape — useful reconnaissance for probing the authenticated
+        endpoints. This only applies when an API key is configured at all, so
+        keyless local use is unchanged.
         """
         return (
             path.startswith("/v1/")
             or path.startswith("/api/")
             or path == "/metrics"
             or path.startswith("/metrics/")
+            or path in ("/openapi.json", "/docs", "/redoc")
+            or path.startswith("/docs/")
+            or path.startswith("/redoc/")
         )
 
 
