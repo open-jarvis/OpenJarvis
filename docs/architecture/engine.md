@@ -125,7 +125,7 @@ All providers produce the same output format consumed by agents:
 
 ### Ollama
 
-The Ollama backend communicates via Ollama's native HTTP API at `/api/chat` and `/api/tags`. It is the default engine on Apple Silicon and consumer NVIDIA GPUs.
+The Ollama backend communicates via Ollama's native HTTP API at `/api/chat` and `/api/tags`. It is the recommended engine for consumer NVIDIA GPUs.
 
 - **Default host:** `http://localhost:11434`
 - **Health check:** `GET /api/tags`
@@ -286,7 +286,7 @@ graph TD
     A["detect_hardware()"] --> B{"GPU detected?"}
     B -->|No| C["llamacpp"]
     B -->|Yes| D{"GPU vendor?"}
-    D -->|Apple| E["ollama"]
+    D -->|Apple| E["mlx"]
     D -->|NVIDIA| F{"Datacenter card?<br/>(A100, H100, H200,<br/>L40, A10, A30)"}
     F -->|Yes| G["vllm"]
     F -->|No| H["ollama"]

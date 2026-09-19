@@ -128,10 +128,11 @@ The `recommend_engine()` function maps hardware to engines:
 | Hardware | Recommended Engine |
 |----------|-------------------|
 | No GPU | `llamacpp` (CPU-optimized) |
-| Apple Silicon | `ollama` (Metal acceleration) |
+| Apple Silicon | `mlx` (native MLX inference) |
 | NVIDIA datacenter (A100, H100, etc.) | `vllm` (high throughput) |
 | NVIDIA consumer | `ollama` (easy setup) |
-| AMD GPU | `vllm` (ROCm support) |
+| AMD datacenter (MI300, MI325, MI350, MI355) | `vllm` (high throughput) |
+| AMD consumer | `lemonade` (AMD GPU/NPU support) |
 
 This recommendation is written to `config.toml` during `jarvis init` and used as the default engine:
 
