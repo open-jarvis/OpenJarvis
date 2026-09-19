@@ -41,7 +41,7 @@ sequenceDiagram
         AGT->>CTX: inject_context(query, messages, backend)
         CTX-->>AGT: messages with context prepended
 
-        loop Tool-calling loop (max_turns)
+        loop Inference (single turn for SimpleAgent; tool loop for tool-using agents)
             AGT->>ENG: generate(messages, model, tools)
             ENG-->>AGT: {content, tool_calls, usage}
             opt Tool calls present
@@ -72,27 +72,39 @@ sequenceDiagram
 
 OpenJarvis supports two query processing paths, selected by the `--agent` CLI flag or the `agent` parameter in the SDK.
 
-### Direct Mode (Default)
+The CLI and SDK have different defaults:
+
+- **CLI:** When `--agent` is omitted for a text query, `agent.default_agent` from configuration is used. Its default is `simple`. An empty configured default selects direct mode. Image and screen queries use direct mode automatically when `--agent` is omitted.
+- **SDK:** Omitting `agent` (or passing `agent=None`) uses direct mode. The SDK does not fall back to `agent.default_agent`.
+
+### Direct Mode
 
 In direct mode, the query goes straight to the inference engine with optional memory context. This is the simplest path -- one inference call, no tool loop.
 
 ```bash
 # CLI
-jarvis ask "What is the capital of France?"
+jarvis ask --agent "" "What is the capital of France?"
+```
 
-# SDK
+```python
+# SDK (direct mode is the default)
 j = Jarvis()
 response = j.ask("What is the capital of France?")
 ```
 
+Direct mode bypasses the agent's system prompt and persona handling. In the CLI, set `default_agent = ""` in the `[agent]` section of `~/.openjarvis/config.toml` to make this the default for text queries.
+
 ### Agent Mode
 
-In agent mode, the query is handled by a named agent that can perform multiple inference rounds and invoke tools. The `OrchestratorAgent` is the most common choice, enabling a multi-turn tool-calling loop.
+In agent mode, the query is handled by a named agent that can perform multiple inference rounds and invoke tools. The `OrchestratorAgent` is the most common choice, enabling a multi-turn tool-calling loop.The CLI's default `SimpleAgent` makes a single inference call without a tool loop, while applying the configured system prompt and persona files (`SOUL.md`, `MEMORY.md`, and `USER.md`
 
 ```bash
 # CLI
+jarvis ask "Hello"  # Uses SimpleAgent with the default configuration
 jarvis ask --agent orchestrator --tools calculator,think "What is 2^10 + 3^5?"
+```
 
+```python
 # SDK
 response = j.ask("What is 2^10 + 3^5?", agent="orchestrator", tools=["calculator"])
 ```
