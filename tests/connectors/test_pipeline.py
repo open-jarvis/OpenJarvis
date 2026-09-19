@@ -521,3 +521,44 @@ def test_reingest_unchanged_document_skips_embedding(
     assert n == 0
     assert second.calls == 0
     assert store.count() == 1
+
+
+def test_reingest_backfills_embeddings_when_embedder_appears(
+    store: KnowledgeStore,
+) -> None:
+    """Rows ingested without an embedder are re-embedded once one is available."""
+    doc = _make_doc(doc_id="doc:backfill", content="Indexed before nomic was pulled.")
+    IngestionPipeline(store).ingest([doc])
+    row = store._conn.execute(
+        "SELECT embedding, embedding_model_version FROM knowledge_chunks"
+    ).fetchone()
+    assert row[0] is None and row[1] == ""
+
+    embedder = _StubEmbedder()
+    n = IngestionPipeline(store, embedder=embedder).ingest([doc])  # type: ignore[arg-type]
+
+    assert n == 1
+    assert embedder.calls == 1
+    assert store.count() == 1
+    row = store._conn.execute(
+        "SELECT embedding, embedding_model_version FROM knowledge_chunks"
+    ).fetchone()
+    assert row[0] is not None
+    assert row[1] == "stub:test-embedder"
+
+
+def test_reingest_without_embedder_keeps_existing_vectors(
+    store: KnowledgeStore,
+) -> None:
+    """A sync while the embedder is down must not strip vectors already stored."""
+    doc = _make_doc(doc_id="doc:keep-vec", content="Embedded on the first pass.")
+    IngestionPipeline(store, embedder=_StubEmbedder()).ingest([doc])  # type: ignore[arg-type]
+
+    n = IngestionPipeline(store).ingest([doc])
+
+    assert n == 0
+    row = store._conn.execute(
+        "SELECT embedding, embedding_model_version FROM knowledge_chunks"
+    ).fetchone()
+    assert row[0] is not None
+    assert row[1] == "stub:test-embedder"

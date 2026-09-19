@@ -12,6 +12,24 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _no_embedder():
+    """Keep sync threads off the network for the whole module.
+
+    Sync runs probe for an embedder before ingesting. Several tests here
+    kick off a background sync and return immediately, so a function-scoped
+    patch would be undone while that thread is still running and it would
+    fall through to a real daemon lookup -- slow enough on some hosts to
+    leave the connector "syncing" into the next test.
+    """
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            "openjarvis.connectors.embeddings.OllamaEmbedder.is_available",
+            lambda self: False,
+        )
+        yield
+
+
 @pytest.fixture
 def app():
     try:

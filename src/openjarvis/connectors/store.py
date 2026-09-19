@@ -462,6 +462,21 @@ class KnowledgeStore(MemoryBackend):
         ).fetchall()
         return {row[0]: row[1] or "" for row in rows}
 
+    def embedding_versions(self, doc_id: str, source_id: str) -> set[str]:
+        """Return the distinct ``embedding_model_version`` values on a document's body.
+
+        Rows that were ingested without an embedder carry ``""``. The
+        ingestion pipeline uses this to notice that an embedder has since
+        become available (or changed model) and re-embed an otherwise
+        unchanged document.
+        """
+        rows = self._conn.execute(
+            "SELECT DISTINCT embedding_model_version FROM knowledge_chunks "
+            "WHERE doc_id = ? AND source_id = ?",
+            (doc_id, source_id),
+        ).fetchall()
+        return {row[0] or "" for row in rows}
+
     def delete(self, doc_id: str) -> bool:
         """Delete all chunks with the given *doc_id*. Returns True if any existed."""
         cur = self._conn.execute(

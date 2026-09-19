@@ -13,6 +13,7 @@ so ingestion never fails because a sidecar service is down.
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, List, Optional
 
 import requests
@@ -39,7 +40,9 @@ class OllamaEmbedder:
     model:
         Ollama model tag (e.g. ``nomic-embed-text``, ``mxbai-embed-large``).
     host:
-        Base URL for the Ollama HTTP API. Defaults to ``http://localhost:11434``.
+        Base URL for the Ollama HTTP API. When ``None`` (default) the
+        ``OLLAMA_HOST`` environment variable is used, then
+        ``http://localhost:11434`` -- the same precedence as ``OllamaEngine``.
     timeout:
         Per-request timeout in seconds.
     """
@@ -48,10 +51,12 @@ class OllamaEmbedder:
         self,
         *,
         model: str = DEFAULT_EMBED_MODEL,
-        host: str = DEFAULT_OLLAMA_HOST,
+        host: Optional[str] = None,
         timeout: float = 30.0,
     ) -> None:
         self._model = model
+        if host is None:
+            host = os.environ.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST
         self._host = host.rstrip("/")
         self._timeout = timeout
         self._dim: Optional[int] = None
@@ -139,6 +144,19 @@ class OllamaEmbedder:
         return [self.embed(t) for t in texts]
 
 
+def default_embedder() -> Optional[OllamaEmbedder]:
+    """Return an ``OllamaEmbedder`` if the daemon and default model are up.
+
+    Ingestion call sites use this so chunks get embedded whenever an embedder
+    is actually reachable, and fall back to lexical-only rows (``None``)
+    otherwise. Query-side hybrid search does the same probe, so the two ends
+    stay in step: if this returns ``None`` at ingest, ``_vector_recall`` finds
+    no rows to score either way.
+    """
+    embedder = OllamaEmbedder()
+    return embedder if embedder.is_available() else None
+
+
 # ---------------------------------------------------------------------------
 # Deserialisation helper (used by verification + future retrieval code)
 # ---------------------------------------------------------------------------
@@ -162,6 +180,7 @@ def decode_embedding(blob: Optional[bytes], *, dtype=None) -> Optional[np.ndarra
 __all__ = [
     "OllamaEmbedder",
     "decode_embedding",
+    "default_embedder",
     "DEFAULT_EMBED_MODEL",
     "DEFAULT_OLLAMA_HOST",
 ]

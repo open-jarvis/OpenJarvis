@@ -206,10 +206,23 @@ class IngestionPipeline:
             # behind. Compared before the chunks are embedded so an unchanged
             # vault costs no embedder calls on re-sync. Only body chunks are
             # compared: attachments never change without their parent.
+            #
+            # An unchanged document is still rewritten when an embedder is
+            # configured and its stored rows carry a different
+            # ``embedding_model_version`` -- including "" for rows ingested
+            # before any embedder was available -- so pulling an embedding
+            # model after the first sync backfills vectors instead of leaving
+            # hybrid search with nothing to score. With no embedder configured
+            # (daemon down, model not pulled) existing vectors are left alone.
             new_hashes = {c.index: _content_hash(c.content) for c in chunks}
             existing_hashes = self._store.chunk_hashes(doc.doc_id, source_id)
             if existing_hashes:
-                if existing_hashes == new_hashes:
+                stale_vectors = (
+                    self._embedder is not None
+                    and self._store.embedding_versions(doc.doc_id, source_id)
+                    != {self._embedder.model_version}
+                )
+                if existing_hashes == new_hashes and not stale_vectors:
                     self._seen_doc_ids.add(doc.doc_id)
                     continue
                 self._store.delete(doc.doc_id)
