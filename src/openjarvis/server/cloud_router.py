@@ -27,6 +27,10 @@ _OPENAI_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "chatgpt-")
 _ANTHROPIC_PREFIXES = ("claude-",)
 _GOOGLE_PREFIXES = ("gemini-",)
 _MINIMAX_PREFIXES = ("MiniMax-",)
+# Atlas Cloud IDs are already "vendor/model", so they must be recognised by
+# their routing prefix before the generic '"/" means OpenRouter' fallback
+# below — otherwise "atlascloud/openai/gpt-4.1-mini" is sent to OpenRouter.
+_ATLASCLOUD_PREFIX = "atlascloud/"
 
 # HuggingFace orgs that host local-only quantised models — never route to cloud.
 _LOCAL_HF_ORGS = (
@@ -55,6 +59,7 @@ def _load_keys() -> dict[str, str]:
         "GOOGLE_API_KEY",
         "OPENROUTER_API_KEY",
         "MINIMAX_API_KEY",
+        "ATLASCLOUD_API_KEY",
     ):
         val = os.environ.get(name)
         if val:
@@ -72,6 +77,8 @@ def get_provider(model: str) -> str | None:
         return "google"
     if any(model.startswith(p) for p in _MINIMAX_PREFIXES):
         return "minimax"
+    if model.startswith(_ATLASCLOUD_PREFIX):
+        return "atlascloud"
     if any(model.startswith(org) for org in _LOCAL_HF_ORGS):
         return None  # local model, never route to cloud
     if "/" in model:  # openrouter format: "meta-llama/llama-3-8b"
@@ -388,6 +395,23 @@ async def stream_cloud(
             max_tokens,
             base_url="https://openrouter.ai/api/v1",
             api_key_name="OPENROUTER_API_KEY",
+        ):
+            yield token
+
+    elif provider == "atlascloud":
+        keys = _load_keys()
+        api_key = keys.get("ATLASCLOUD_API_KEY", "")
+        if not api_key:
+            raise ValueError(
+                "ATLASCLOUD_API_KEY not set — add it in the Cloud Models tab"
+            )
+        async for token in _stream_openai(
+            model.removeprefix(_ATLASCLOUD_PREFIX),
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://api.atlascloud.ai/v1",
+            api_key_name="ATLASCLOUD_API_KEY",
         ):
             yield token
 
