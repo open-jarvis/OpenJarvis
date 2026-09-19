@@ -446,6 +446,22 @@ class KnowledgeStore(MemoryBackend):
         )
         return results
 
+    def chunk_hashes(self, doc_id: str, source_id: str) -> Dict[int, str]:
+        """Return ``{chunk_index: content_hash}`` for one document's body chunks.
+
+        Scoped by *source_id* as well as *doc_id* because attachment chunks
+        share the parent ``doc_id`` under a synthetic ``source_id`` and
+        restart ``chunk_index`` at 0. Empty when nothing is stored. The
+        ingestion pipeline compares this against a freshly chunked document
+        to decide whether a re-sync needs to rewrite it.
+        """
+        rows = self._conn.execute(
+            "SELECT chunk_index, content_hash FROM knowledge_chunks "
+            "WHERE doc_id = ? AND source_id = ?",
+            (doc_id, source_id),
+        ).fetchall()
+        return {row[0]: row[1] or "" for row in rows}
+
     def delete(self, doc_id: str) -> bool:
         """Delete all chunks with the given *doc_id*. Returns True if any existed."""
         cur = self._conn.execute(
