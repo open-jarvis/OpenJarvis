@@ -86,7 +86,8 @@ def test_weather_tool_picker_recognizes_connector_credential(tmp_path, monkeypat
 def test_tool_credentials_browser_lifecycle(tmp_path, monkeypatch):
     """The browser API can save, report, and remove a Tavily key.
 
-    ``web_search`` declares a You.com key alongside it, so status reports both.
+    ``web_search`` declares You.com and Serply keys alongside it, so status
+    reports all three.
     """
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -96,6 +97,7 @@ def test_tool_credentials_browser_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "openjarvis-home"))
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+    monkeypatch.delenv("SERPLY_API_KEY", raising=False)
     app = FastAPI()
     tools_router = create_agent_manager_router(MagicMock())[3]
     app.include_router(tools_router)
@@ -110,6 +112,7 @@ def test_tool_credentials_browser_lifecycle(tmp_path, monkeypatch):
     assert client.get("/v1/tools/web_search/credentials/status").json() == {
         "TAVILY_API_KEY": True,
         "YOUDOTCOM_API_KEY": False,
+        "SERPLY_API_KEY": False,
     }
 
     deleted = client.delete(
@@ -120,6 +123,7 @@ def test_tool_credentials_browser_lifecycle(tmp_path, monkeypatch):
     assert client.get("/v1/tools/web_search/credentials/status").json() == {
         "TAVILY_API_KEY": False,
         "YOUDOTCOM_API_KEY": False,
+        "SERPLY_API_KEY": False,
     }
 
 
