@@ -13,84 +13,40 @@ from openjarvis.agents._stubs import (
 
 logger = logging.getLogger(__name__)
 
-# Import agent modules to trigger @AgentRegistry.register() decorators
-try:
-    import openjarvis.agents.simple  # noqa: F401
-except ImportError:
-    pass
+# Import agent modules to trigger @AgentRegistry.register() decorators.
+# Optional deps may make some unavailable; failures are recorded (not
+# silently discarded) so jarvis doctor can report exactly what and why.
+import importlib as _importlib
 
-try:
-    import openjarvis.agents.orchestrator  # noqa: F401
-except ImportError:
-    pass
+IMPORT_FAILURES: dict[str, str] = {}
 
-try:
-    import openjarvis.agents.native_react  # noqa: F401
-except ImportError:
-    pass
+_AGENT_MODULES = (
+    "openjarvis.agents.simple",
+    "openjarvis.agents.orchestrator",
+    "openjarvis.agents.native_react",
+    "openjarvis.agents.native_openhands",
+    "openjarvis.agents.react",  # backward-compat shim
+    "openjarvis.agents.openhands",
+    "openjarvis.agents.rlm",
+    "openjarvis.agents.claude_code",
+    "openjarvis.agents.opencode",
+    "openjarvis.agents.operative",
+    "openjarvis.agents.monitor",
+    "openjarvis.agents.monitor_operative",
+    "openjarvis.agents.deep_research",
+    "openjarvis.agents.morning_digest",
+    # Hybrid local+cloud paradigm agents (Minions, Conductor, Archon,
+    # Advisors, SkillOrchestra, ToolOrchestra) each register under their
+    # own name via @AgentRegistry.register().
+    "openjarvis.agents.hybrid",
+)
 
-try:
-    import openjarvis.agents.native_openhands  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.agents.react  # noqa: F401 -- backward-compat shim
-except ImportError:
-    pass
-
-try:
-    import openjarvis.agents.openhands  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.agents.rlm  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.agents.claude_code  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.agents.opencode  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.agents.operative  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.agents.monitor  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.agents.monitor_operative  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.agents.deep_research  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.agents.morning_digest  # noqa: F401
-except ImportError:
-    pass
-
-# Hybrid local+cloud paradigm agents (Minions, Conductor, Archon, Advisors,
-# SkillOrchestra, ToolOrchestra). Each module registers under its own name
-# via @AgentRegistry.register(). Optional deps may make some unavailable.
-try:
-    import openjarvis.agents.hybrid  # noqa: F401
-except ImportError:
-    pass
+for _modname in _AGENT_MODULES:
+    try:
+        _importlib.import_module(_modname)
+    except ImportError as _exc:
+        IMPORT_FAILURES[_modname] = str(_exc)
+        logger.debug("Agent module %s unavailable: %s", _modname, _exc)
 
 # Registry alias: "react" -> NativeReActAgent (for backward compat)
 try:
