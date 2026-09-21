@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import TOKEN_COUNTING_VERSION, Message, TelemetryRecord
 from openjarvis.engine._stubs import InferenceEngine, StreamChunk
+from openjarvis.telemetry.energy_monitor import BASIS_GPU
 from openjarvis.telemetry.gpu_monitor import GpuSample
 
 # ---------------------------------------------------------------------------
@@ -147,6 +148,9 @@ class InstrumentedEngine(InferenceEngine):
         cpu_energy_joules = 0.0
         gpu_energy_joules = 0.0
         dram_energy_joules = 0.0
+        ane_energy_joules = 0.0
+        soc_energy_joules = 0.0
+        energy_basis = ""
 
         if energy_sample is not None:
             # New multi-vendor EnergyMonitor path
@@ -160,6 +164,9 @@ class InstrumentedEngine(InferenceEngine):
             cpu_energy_joules = energy_sample.cpu_energy_joules
             gpu_energy_joules = energy_sample.gpu_energy_joules
             dram_energy_joules = energy_sample.dram_energy_joules
+            ane_energy_joules = energy_sample.ane_energy_joules
+            soc_energy_joules = energy_sample.soc_energy_joules
+            energy_basis = energy_sample.basis
         elif gpu_sample is not None:
             # Legacy GpuMonitor path
             energy_joules = gpu_sample.energy_joules
@@ -169,6 +176,10 @@ class InstrumentedEngine(InferenceEngine):
             gpu_temperature_c = gpu_sample.mean_temperature_c
             energy_method = "polling"
             energy_vendor = "nvidia"
+            # The legacy monitor reads one GPU rail and nothing else.
+            gpu_energy_joules = gpu_sample.energy_joules
+            soc_energy_joules = gpu_sample.energy_joules
+            energy_basis = BASIS_GPU
 
         if ttft > 0:
             prefill_latency = ttft
@@ -234,6 +245,9 @@ class InstrumentedEngine(InferenceEngine):
             cpu_energy_joules=cpu_energy_joules,
             gpu_energy_joules=gpu_energy_joules,
             dram_energy_joules=dram_energy_joules,
+            ane_energy_joules=ane_energy_joules,
+            soc_energy_joules=soc_energy_joules,
+            energy_basis=energy_basis,
             tokens_per_joule=tokens_per_joule,
             # Stamp every new record with the current methodology version
             # so the leaderboard aggregator can drop legacy rows (those
@@ -295,6 +309,9 @@ class InstrumentedEngine(InferenceEngine):
             "cpu_energy_joules": cpu_energy_joules,
             "gpu_energy_joules": gpu_energy_joules,
             "dram_energy_joules": dram_energy_joules,
+            "ane_energy_joules": ane_energy_joules,
+            "soc_energy_joules": soc_energy_joules,
+            "energy_basis": energy_basis,
         }
 
         return result
@@ -383,6 +400,9 @@ class InstrumentedEngine(InferenceEngine):
         cpu_energy_joules = 0.0
         gpu_energy_joules = 0.0
         dram_energy_joules = 0.0
+        ane_energy_joules = 0.0
+        soc_energy_joules = 0.0
+        energy_basis = ""
 
         if energy_sample is not None:
             energy_joules = energy_sample.energy_joules
@@ -395,6 +415,9 @@ class InstrumentedEngine(InferenceEngine):
             cpu_energy_joules = energy_sample.cpu_energy_joules
             gpu_energy_joules = energy_sample.gpu_energy_joules
             dram_energy_joules = energy_sample.dram_energy_joules
+            ane_energy_joules = energy_sample.ane_energy_joules
+            soc_energy_joules = energy_sample.soc_energy_joules
+            energy_basis = energy_sample.basis
         elif gpu_sample is not None:
             energy_joules = gpu_sample.energy_joules
             power_watts = gpu_sample.mean_power_watts
@@ -403,6 +426,10 @@ class InstrumentedEngine(InferenceEngine):
             gpu_temperature_c = gpu_sample.mean_temperature_c
             energy_method = "polling"
             energy_vendor = "nvidia"
+            # The legacy monitor reads one GPU rail and nothing else.
+            gpu_energy_joules = gpu_sample.energy_joules
+            soc_energy_joules = gpu_sample.energy_joules
+            energy_basis = BASIS_GPU
 
         prefill_latency = ttft if ttft > 0 else 0.0
 
@@ -461,6 +488,9 @@ class InstrumentedEngine(InferenceEngine):
             cpu_energy_joules=cpu_energy_joules,
             gpu_energy_joules=gpu_energy_joules,
             dram_energy_joules=dram_energy_joules,
+            ane_energy_joules=ane_energy_joules,
+            soc_energy_joules=soc_energy_joules,
+            energy_basis=energy_basis,
             tokens_per_joule=tokens_per_joule,
             # Stamp the methodology version on streaming records too.
             token_counting_version=TOKEN_COUNTING_VERSION,

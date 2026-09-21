@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import sys
+import threading
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -130,6 +134,247 @@ class TestStatus:
         ch = DiscordChannel()
         ch.connect()
         assert ch.status() == ChannelStatus.ERROR
+
+
+class TestDisconnectStopsRealListener:
+    """Regression for #784: disconnect() must actually interrupt the
+    running `client.start()` call (nothing previously observed
+    `_stop_event`), and must not report DISCONNECTED unless the listener
+    thread actually terminated -- otherwise a subsequent connect() spawns
+    a second gateway connection, duplicating message handling."""
+
+    def test_disconnect_publishes_stop_via_call_soon_threadsafe(self):
+        """The gateway thread owns close(); disconnect only signals its loop."""
+        ch = DiscordChannel(bot_token="my-bot-token")
+        ch._status = ChannelStatus.CONNECTED
+
+        mock_loop = MagicMock()
+        async_stop_event = MagicMock()
+        ch._loop = mock_loop
+        ch._async_stop_event = async_stop_event
+
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = False
+        ch._listener_thread = mock_thread
+
+        ch.disconnect()
+
+        mock_loop.call_soon_threadsafe.assert_called_once_with(async_stop_event.set)
+        mock_thread.join.assert_called_once()
+        assert ch._listener_thread is None
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
+    def test_disconnect_does_not_report_disconnected_if_thread_still_alive(self):
+        """If the listener thread is still running after the join timeout,
+        disconnect() must not lie about the channel being DISCONNECTED --
+        doing so would let a later connect() spawn a duplicate gateway
+        connection."""
+        ch = DiscordChannel(bot_token="my-bot-token")
+        ch._status = ChannelStatus.CONNECTED
+
+        ch._client = MagicMock()
+        ch._loop = MagicMock()
+
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = True  # join() timed out
+        ch._listener_thread = mock_thread
+
+        with patch("asyncio.run_coroutine_threadsafe", return_value=MagicMock()):
+            ch.disconnect()
+
+        assert ch.status() != ChannelStatus.DISCONNECTED
+        assert ch._listener_thread is mock_thread
+
+    def test_disconnect_without_client_or_loop_still_works(self):
+        """Send-only mode (discord.py not installed, or connect() never
+        actually started a listener): _client/_loop are None, so
+        disconnect() must fall back to the old join-only behavior
+        instead of raising."""
+        ch = DiscordChannel(bot_token="my-bot-token")
+        ch._status = ChannelStatus.CONNECTED
+
+        ch.disconnect()
+
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
+    def test_connect_guards_against_duplicate_listener(self):
+        """connect() must not spawn a second gateway thread while one is
+        already running."""
+        ch = DiscordChannel(bot_token="my-bot-token")
+
+        existing_thread = MagicMock()
+        existing_thread.is_alive.return_value = True
+        ch._listener_thread = existing_thread
+        ch._status = ChannelStatus.CONNECTED
+
+        with patch("threading.Thread") as mock_thread_cls:
+            ch.connect()
+
+        mock_thread_cls.assert_not_called()
+        assert ch._listener_thread is existing_thread
+
+    def test_disconnect_before_client_publication_prevents_gateway_start(self):
+        """A disconnect during client construction must not be lost."""
+        constructing = threading.Event()
+        release_client = threading.Event()
+        started: list[str] = []
+        closed: list[bool] = []
+        loops: list[asyncio.AbstractEventLoop] = []
+        new_event_loop = asyncio.new_event_loop
+
+        def make_event_loop():
+            loop = new_event_loop()
+            loops.append(loop)
+            return loop
+
+        class FakeClient:
+            def __init__(self, *, intents):
+                self.user = object()
+                self._closed = False
+                constructing.set()
+                assert release_client.wait(timeout=2)
+
+            def event(self, handler):
+                return handler
+
+            async def start(self, token):
+                started.append(token)
+
+            async def close(self):
+                self._closed = True
+                closed.append(True)
+
+            def is_closed(self):
+                return self._closed
+
+        intents = SimpleNamespace(message_content=False)
+        discord = SimpleNamespace(
+            Intents=SimpleNamespace(default=lambda: intents),
+            Client=FakeClient,
+        )
+        ch = DiscordChannel(bot_token="my-bot-token")
+
+        with (
+            patch.dict(sys.modules, {"discord": discord}),
+            patch(
+                "openjarvis.channels.discord_channel.asyncio.new_event_loop",
+                side_effect=make_event_loop,
+            ),
+        ):
+            ch.connect()
+            assert constructing.wait(timeout=2)
+
+            disconnect_thread = threading.Thread(target=ch.disconnect)
+            disconnect_thread.start()
+            assert ch._stop_event.wait(timeout=2)
+            release_client.set()
+            disconnect_thread.join(timeout=2)
+
+        assert not disconnect_thread.is_alive()
+        assert started == []
+        assert closed == [True]
+        assert len(loops) == 1
+        assert loops[0].is_closed()
+        assert ch._listener_thread is None
+        assert ch._client is None
+        assert ch._loop is None
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
+    @pytest.mark.parametrize("blocked_stage", ["login", "connect"])
+    def test_disconnect_during_every_async_startup_boundary(self, blocked_stage):
+        """Login and gateway startup are both cancellable by disconnect."""
+        entered = threading.Event()
+        calls: list[str] = []
+        loops: list[asyncio.AbstractEventLoop] = []
+        new_event_loop = asyncio.new_event_loop
+
+        async def run_stage(name: str) -> None:
+            calls.append(f"{name}:enter")
+            if name == blocked_stage:
+                entered.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    calls.append(f"{name}:cancelled")
+            calls.append(f"{name}:exit")
+
+        class FakeClient:
+            def __init__(self, *, intents):
+                self.user = object()
+                self._closed = False
+
+            def event(self, handler):
+                return handler
+
+            async def login(self, token):
+                assert token == "my-bot-token"
+                await run_stage("login")
+
+            async def connect(self, *, reconnect):
+                assert reconnect is True
+                await run_stage("connect")
+
+            async def close(self):
+                self._closed = True
+                calls.append("client:close")
+
+            def is_closed(self):
+                return self._closed
+
+        intents = SimpleNamespace(message_content=False)
+        discord = SimpleNamespace(
+            Intents=SimpleNamespace(default=lambda: intents),
+            Client=FakeClient,
+        )
+
+        def make_event_loop():
+            loop = new_event_loop()
+            loops.append(loop)
+            return loop
+
+        ch = DiscordChannel(bot_token="my-bot-token")
+        with (
+            patch.dict(sys.modules, {"discord": discord}),
+            patch(
+                "openjarvis.channels.discord_channel.asyncio.new_event_loop",
+                side_effect=make_event_loop,
+            ),
+        ):
+            ch.connect()
+            assert entered.wait(timeout=2), calls
+            ch.disconnect()
+
+        assert f"{blocked_stage}:cancelled" in calls
+        if blocked_stage == "login":
+            assert "connect:enter" not in calls
+        assert calls.count("client:close") == 1
+        assert len(loops) == 1
+        assert loops[0].is_closed()
+        assert ch._listener_thread is None
+        assert ch._client is None
+        assert ch._async_stop_event is None
+        assert ch._loop is None
+        assert ch.status() == ChannelStatus.DISCONNECTED
+
+    def test_disconnect_is_serialized_with_connect_lifecycle(self):
+        """A disconnect cannot slip through while connect owns lifecycle state."""
+        ch = DiscordChannel(bot_token="my-bot-token")
+        attempted = threading.Event()
+
+        def disconnect() -> None:
+            attempted.set()
+            ch.disconnect()
+
+        with ch._lifecycle_lock:
+            worker = threading.Thread(target=disconnect)
+            worker.start()
+            assert attempted.wait(timeout=2)
+            assert not ch._stop_event.wait(timeout=0.05)
+
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert ch._stop_event.is_set()
+        assert ch.status() == ChannelStatus.DISCONNECTED
 
 
 class TestWireChannelEndToEnd:

@@ -7,7 +7,7 @@ export interface SetupStep {
 export interface ConnectorMeta {
   connector_id: string;
   display_name: string;
-  auth_type: 'oauth' | 'local' | 'bridge' | 'filesystem';
+  auth_type: 'oauth' | 'local' | 'bridge' | 'filesystem' | 'token';
   category: 'communication' | 'documents' | 'pim' | 'other';
   icon: string;
   color: string;
@@ -18,22 +18,33 @@ export interface ConnectorMeta {
   inputFields?: Array<{
     name: string;
     placeholder: string;
-    type?: 'text' | 'password';
+    type?: 'text' | 'password' | 'number' | 'select';
+    required?: boolean;
+    defaultValue?: string;
+    options?: Array<{ value: string; label: string }>;
   }>;
+}
+
+export interface OAuthSetupInfo {
+  provider: string;
+  setup_url: string;
+  setup_hint: string;
+  has_credentials: boolean;
 }
 
 export interface ConnectorInfo {
   connector_id: string;
   display_name: string;
-  auth_type: "oauth" | "local" | "bridge" | "filesystem";
+  auth_type: "oauth" | "local" | "bridge" | "filesystem" | "token";
   connected: boolean;
   auth_url?: string;
   mcp_tools?: string[];
   chunks?: number;
+  oauth_setup?: OAuthSetupInfo | null;
 }
 
 export interface SyncStatus {
-  state: "idle" | "syncing" | "paused" | "error";
+  state: "idle" | "syncing" | "stopping" | "paused" | "error";
   items_synced: number;
   items_total: number;
   /** Items processed in the current (or most recent) run only. `null`
@@ -53,6 +64,11 @@ export interface ConnectRequest {
   code?: string;
   email?: string;
   password?: string;
+  /** Non-secret connector configuration such as a weather location or RSS feeds. */
+  config?: Record<string, unknown>;
+  host?: string;
+  port?: number;
+  security?: 'tls' | 'starttls';
 }
 
 /** Response from POST /v1/connectors/{id}/connect.
@@ -118,6 +134,52 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
     inputFields: [
       { name: 'email', placeholder: 'you@gmail.com', type: 'text' },
       { name: 'password', placeholder: 'App password (xxxx xxxx xxxx xxxx)', type: 'password' },
+    ],
+  },
+  {
+    connector_id: 'imap',
+    display_name: 'Email (IMAP)',
+    auth_type: 'oauth',
+    category: 'communication',
+    icon: 'Mail',
+    color: 'text-amber-400',
+    description: 'Any IMAP mailbox',
+    unitLabel: 'emails',
+    steps: [
+      {
+        label: 'Generate an app password with your email provider (IMAP must be enabled), then enter your email address and app password. Known providers are detected automatically; use the optional server settings for other providers.',
+      },
+    ],
+    troubleshooting: [
+      'Most providers require an app password rather than your normal password.',
+      'Use TLS for implicit TLS (usually port 993), or STARTTLS (usually port 143).',
+      'For security, private, loopback, link-local, and otherwise non-public server addresses are rejected.',
+    ],
+    inputFields: [
+      { name: 'email', placeholder: 'you@example.com', type: 'text' },
+      { name: 'password', placeholder: 'App password', type: 'password' },
+      {
+        name: 'host',
+        placeholder: 'IMAP host (optional; auto-detected)',
+        type: 'text',
+        required: false,
+      },
+      {
+        name: 'port',
+        placeholder: 'Port (optional; 993 or 143)',
+        type: 'number',
+        required: false,
+      },
+      {
+        name: 'security',
+        placeholder: 'Connection security',
+        type: 'select',
+        defaultValue: 'tls',
+        options: [
+          { value: 'tls', label: 'TLS (usually port 993)' },
+          { value: 'starttls', label: 'STARTTLS (usually port 143)' },
+        ],
+      },
     ],
   },
   {

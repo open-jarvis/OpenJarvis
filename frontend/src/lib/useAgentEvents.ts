@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { getBase } from './api';
+import { getApiKey, getBase } from './api';
 
 export interface AgentEvent {
   type: string;
@@ -7,19 +7,43 @@ export interface AgentEvent {
   data: Record<string, unknown>;
 }
 
-function buildWsUrl(agentId?: string): string {
+const WS_AUTH_PROTOCOL = 'openjarvis.auth.v1';
+const WS_KEY_PROTOCOL_PREFIX = 'openjarvis.key.b64url.';
+
+function utf8ToBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+export function buildWsUrl(agentId?: string): string {
   const base = getBase();
-  let origin: string;
-  if (base) {
-    origin = base.replace(/^http/, 'ws');
-  } else {
-    const loc = window.location;
-    origin = `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.host}`;
-  }
-  const path = '/v1/agents/events';
-  return agentId
-    ? `${origin}${path}?agent_id=${encodeURIComponent(agentId)}`
-    : `${origin}${path}`;
+  const url = new URL('/v1/agents/events', base || window.location.origin);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+
+  if (agentId) url.searchParams.set('agent_id', agentId);
+
+  return url.toString();
+}
+
+/**
+ * WebSocket auth protocols carrying the API key, if configured. The key is
+ * UTF-8/base64url encoded so every value satisfies browser subprotocol syntax.
+ * This keeps the key out of the request URL and request-line access logs; the
+ * encoding is transport-safe, not encryption.
+ */
+export function buildWsProtocols(): string[] | undefined {
+  const apiKey = getApiKey();
+  return apiKey
+    ? [
+        WS_AUTH_PROTOCOL,
+        `${WS_KEY_PROTOCOL_PREFIX}${utf8ToBase64Url(apiKey)}`,
+      ]
+    : undefined;
 }
 
 /**
@@ -46,7 +70,7 @@ export function useAgentEvents(
     const connect = () => {
       if (closed) return;
       try {
-        ws = new WebSocket(buildWsUrl(agentId));
+        ws = new WebSocket(buildWsUrl(agentId), buildWsProtocols());
       } catch {
         schedule();
         return;

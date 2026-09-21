@@ -33,6 +33,10 @@ class DatasetProvider(ABC):
     def size(self) -> int:
         """Return the number of loaded records."""
 
+    def __len__(self) -> int:
+        """Return the number of loaded records."""
+        return self.size()
+
     def create_task_env(
         self,
         record: EvalRecord,

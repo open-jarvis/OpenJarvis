@@ -36,6 +36,19 @@ class EvalResult:
     ttft: float = 0.0
     energy_joules: float = 0.0
     power_watts: float = 0.0
+    # Per-rail breakdown. Without these a reader cannot tell which hardware
+    # actually did the work -- and on Apple Silicon that is the whole point:
+    # an ANE-resident model draws almost nothing on the GPU rail.
+    cpu_energy_joules: float = 0.0
+    gpu_energy_joules: float = 0.0
+    dram_energy_joules: float = 0.0
+    ane_energy_joules: float = 0.0
+    soc_energy_joules: float = 0.0
+    # Which rail set energy_joules was taken from ("soc" / "gpu"), and how it
+    # was obtained. Without energy_method a modelled estimate is
+    # indistinguishable from a hardware measurement at read time.
+    energy_basis: str = ""
+    energy_method: str = ""
     gpu_utilization_pct: float = 0.0
     throughput_tok_per_sec: float = 0.0
     mfu_pct: float = 0.0

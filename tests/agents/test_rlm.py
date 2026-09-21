@@ -179,6 +179,34 @@ class TestRLMDirectAnswer:
         assert result.turns == 1
         assert result.tool_results == []
 
+    def test_default_deny_blocks_agent_before_generated_code(self):
+        from openjarvis.security.capabilities import CapabilityPolicy
+
+        class _RecordingLimiter:
+            def __init__(self):
+                self.keys = []
+
+            def check(self, key):
+                self.keys.append(key)
+                return True, 0.0
+
+        engine = _make_engine_with_code("sentinel = 42")
+        limiter = _RecordingLimiter()
+        agent = RLMAgent(
+            engine,
+            "test-model",
+            capability_policy=CapabilityPolicy(default_deny=True),
+            rate_limiter=limiter,
+            agent_id="restricted-rlm",
+        )
+
+        result = agent.run("execute generated code")
+
+        assert result.metadata["security_denied"] is True
+        assert "code:execute" in result.content
+        engine.generate.assert_not_called()
+        assert limiter.keys == ["restricted-rlm:agent_run"]
+
 
 class TestRLMFinalTermination:
     def test_final_terminates(self):

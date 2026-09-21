@@ -225,6 +225,20 @@ def _mk(content: str, source: str) -> MdChunk:
     return MdChunk(content=f"Header\n\n{content}", source=source, breadcrumb="Header")
 
 
+class _FakeEmbedder:
+    def embed(self, texts):
+        import numpy as np
+
+        vectors = []
+        for text in texts:
+            text = text.lower().strip()
+            seed = sum(ord(ch) for ch in text) % 3
+            vec = [0.0, 0.0, 0.0]
+            vec[seed] = 1.0
+            vectors.append(vec)
+        return np.asarray(vectors, dtype=float)
+
+
 class TestDedupeChunks:
     def test_no_dedupe_when_under_threshold_files(self):
         """Two identical chunks across two files should NOT be deduped (need 3+)."""
@@ -369,6 +383,99 @@ class TestDedupeChunks:
         assert report.output_count + report.removed_count == report.input_count
 
 
+def test_dense_backend_delete_is_soft_and_live_count_accurate():
+    backend = DenseMemory(embedder=_FakeEmbedder())
+    doc_a = backend.store("alpha")
+    doc_b = backend.store("beta")
+
+    assert backend.count() == 2
+    assert backend.delete(doc_a) is True
+    assert backend.count() == 1
+    assert backend.delete(doc_a) is False
+
+    hits = backend.retrieve("beta", top_k=5)
+    assert hits
+    assert hits[0].metadata["doc_id"] == doc_b
+
+
+def test_dense_delete_compacts_at_named_tombstone_threshold():
+    backend = DenseMemory(embedder=_FakeEmbedder())
+    doc_ids = backend.store_many([f"doc-{i}" for i in range(8)])
+
+    assert backend.delete(doc_ids[0]) is True
+    assert backend._matrix.shape[0] == 8
+    assert backend.delete(doc_ids[1]) is True
+
+    assert backend.count() == 6
+    assert backend._matrix.shape[0] == 6
+    assert backend._active == [True] * 6
+    assert set(backend._id_to_index) == set(doc_ids[2:])
+
+
+def test_dense_delete_all_resets_every_internal_collection():
+    backend = DenseMemory(embedder=_FakeEmbedder())
+    doc_ids = backend.store_many(["alpha", "beta", "gamma"])
+
+    assert all(backend.delete(doc_id) for doc_id in doc_ids)
+
+    assert backend.count() == 0
+    assert backend._matrix is None
+    assert backend._contents == []
+    assert backend._sources == []
+    assert backend._metadatas == []
+    assert backend._doc_ids == []
+    assert backend._active == []
+    assert backend._id_to_index == {}
+    assert backend.retrieve("alpha") == []
+
+
+def test_dense_retrieve_masks_tombstones_without_copying_matrix_rows():
+    import numpy as np
+
+    class _NoRowIndexMatrix:
+        def __init__(self, matrix):
+            self._matrix = matrix
+            self.shape = matrix.shape
+
+        def __matmul__(self, other):
+            return self._matrix @ other
+
+        def __getitem__(self, key):
+            raise AssertionError("retrieve must not advanced-index the matrix")
+
+    backend = DenseMemory(embedder=_FakeEmbedder())
+    doc_ids = backend.store_many([f"doc-{i}" for i in range(8)])
+    deleted_id = doc_ids[0]
+    assert backend.delete(deleted_id)
+    backend._matrix = _NoRowIndexMatrix(np.asarray(backend._matrix))
+
+    hits = backend.retrieve("doc-0", top_k=20)
+
+    assert len(hits) == 7
+    assert deleted_id not in {hit.metadata["doc_id"] for hit in hits}
+
+
+def test_dense_concurrent_delete_and_retrieve_preserve_consistent_state():
+    from concurrent.futures import ThreadPoolExecutor
+
+    backend = DenseMemory(embedder=_FakeEmbedder())
+    doc_ids = backend.store_many([f"doc-{i}" for i in range(64)])
+    to_delete = doc_ids[:32]
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        delete_futures = [pool.submit(backend.delete, doc_id) for doc_id in to_delete]
+        read_futures = [
+            pool.submit(backend.retrieve, "doc-63", top_k=64) for _ in range(32)
+        ]
+
+    assert all(future.result() is True for future in delete_futures)
+    assert all(isinstance(future.result(), list) for future in read_futures)
+    assert backend.count() == 32
+    assert {
+        hit.metadata["doc_id"] for hit in backend.retrieve("doc-63", top_k=64)
+    } == set(doc_ids[32:])
+
+
 # ---------------------------------------------------------------------------
 # Retrieval quality tests (require Ollama + nomic-embed-text)
 # ---------------------------------------------------------------------------
@@ -441,9 +548,10 @@ def test_paraphrase_matches_semantically(indexed_backend):
     assert results, "expected at least one hit"
     # Top-3 should all be from the topical docs (engines.md or hardware.md)
     topical = {r.source for r in results[:3]}
-    assert topical <= {"engines.md", "hardware.md"}, (
-        f"off-topic sources in top-3: {topical}"
-    )
+    assert topical <= {
+        "engines.md",
+        "hardware.md",
+    }, f"off-topic sources in top-3: {topical}"
     top_lc = results[0].content.lower()
     assert "llama.cpp" in top_lc or "cpu" in top_lc
 

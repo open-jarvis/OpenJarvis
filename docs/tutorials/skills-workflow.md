@@ -16,8 +16,8 @@ OpenJarvis can import skills from the [Hermes Agent](https://github.com/NousRese
 
 ```bash
 # Install individual skills
+jarvis skill install hermes:llm-wiki
 jarvis skill install hermes:arxiv
-jarvis skill install hermes:github-pr-workflow
 
 # Or bulk install an entire category
 jarvis skill sync hermes --category research
@@ -35,10 +35,10 @@ You should see a table with each skill's name, description, version, and tags.
 
 ## Step 2: Inspect an Installed Skill
 
-Let's look at what the `arxiv` skill contains:
+Let's look at what the `llm-wiki` skill contains:
 
 ```bash
-jarvis skill info arxiv
+jarvis skill info llm-wiki
 ```
 
 This shows the skill's metadata — author, description, tags, capabilities, whether it has structured steps or markdown instructions, and its invocation flags.
@@ -46,40 +46,40 @@ This shows the skill's metadata — author, description, tags, capabilities, whe
 You can also inspect the raw SKILL.md:
 
 ```bash
-cat ~/.openjarvis/skills/hermes/arxiv/SKILL.md | head -40
+cat ~/.openjarvis/skills/hermes/llm-wiki/SKILL.md | head -40
 ```
 
 The `.source` file records provenance:
 
 ```bash
-cat ~/.openjarvis/skills/hermes/arxiv/.source
+cat ~/.openjarvis/skills/hermes/llm-wiki/.source
 ```
 
-This shows the source (`hermes:arxiv`), the git commit it was imported from, which tool names were translated (e.g., `Edit→file_edit`), and the install timestamp.
+This shows the source (`hermes:llm-wiki`), the git commit it was imported from, which tool names were translated (e.g., `Edit→file_edit`), and the install timestamp.
 
 ## Step 3: Use Skills with an Agent
 
 Now let's ask the agent a question that should trigger skill usage:
 
 ```bash
-jarvis ask "Use the code-explainer skill to explain this Python code: for i in range(5): print(i*2)" \
+jarvis ask --agent orchestrator "Use the llm-wiki skill to explain how model entries should be organized" \
   --engine ollama --model qwen3.5:9b
 ```
 
 The agent will:
-1. See the skill catalog in its system prompt
-2. Decide to invoke `skill_code-explainer`
+1. See the skill catalog and `skill_llm-wiki` tool definition
+2. Decide to invoke `skill_llm-wiki`
 3. Receive the markdown instructions from the skill
-4. Follow the 5-step pattern to explain the code
+4. Follow those instructions in its answer
 
-Try a pipeline skill too:
+Try the other installed skill too:
 
 ```bash
-jarvis ask "Use the math-solver skill to compute 17 * 23" \
+jarvis ask --agent orchestrator "Use the arxiv skill to outline how you would research transformer efficiency" \
   --engine ollama --model qwen3.5:9b
 ```
 
-This time the agent invokes `skill_math-solver`, which executes a deterministic pipeline (calling the `calculator` tool internally) and returns the computed result directly.
+The `simple` agent intentionally cannot call tools. Use `orchestrator` or another tool-capable agent whenever you want a skill to be invoked.
 
 ## Step 4: Create Your Own Skill
 
@@ -124,7 +124,7 @@ jarvis skill list
 You should see `my-reviewer` in the table. Try it:
 
 ```bash
-jarvis ask "Use the my-reviewer skill to review this function: def login(user, pwd): return db.query(f'SELECT * FROM users WHERE name={user} AND pass={pwd}')" \
+jarvis ask --agent orchestrator "Use the my-reviewer skill to review this function: def login(user, pwd): return db.query(f'SELECT * FROM users WHERE name={user} AND pass={pwd}')" \
   --engine ollama --model qwen3.5:9b
 ```
 
@@ -135,15 +135,19 @@ The agent should follow the security-first approach and flag the SQL injection v
 For the learning loop to work, we need traces. Run several queries that use skills:
 
 ```bash
+# Tracing is disabled in the generated config until you opt in
+jarvis config set traces.enabled true
+
 # Generate a few traces
-jarvis ask "Use math-solver to compute 100 / 7"
-jarvis ask "Use code-explainer to explain: lambda x: x**2"
-jarvis ask "Use my-reviewer to review: def add(a,b): return a+b"
-jarvis ask "Use math-solver to compute 2**10"
-jarvis ask "Use code-explainer to explain: [x for x in range(10) if x % 2 == 0]"
+jarvis ask --agent orchestrator "Use llm-wiki to describe a model entry"
+jarvis ask --agent orchestrator "Use my-reviewer to review: def add(a,b): return a+b"
+jarvis ask --agent orchestrator "Use llm-wiki to describe an evaluation entry"
+jarvis ask --agent orchestrator "Use my-reviewer to review: lambda x: x**2"
+jarvis ask --agent orchestrator "Use llm-wiki to describe a dataset entry"
+jarvis ask --agent orchestrator "Use my-reviewer to review: def square(x): return x*x"
 ```
 
-Each query produces a trace in `~/.openjarvis/traces.db` with skill metadata tags (`skill`, `skill_source`, `skill_kind`).
+Each query produces one trace in `~/.openjarvis/traces.db`. An invoked skill's tool-call step includes the `skill`, `skill_source`, and `skill_kind` metadata tags.
 
 ## Step 6: Discover Patterns from Traces
 
@@ -151,13 +155,15 @@ Mine the trace store for recurring tool sequences:
 
 ```bash
 # Preview without writing
-jarvis skill discover --dry-run --min-frequency 2
+jarvis skill discover --dry-run --min-frequency 2 --min-outcome 0
 
 # Write discovered patterns as skill manifests
-jarvis skill discover --min-frequency 2
+jarvis skill discover --min-frequency 2 --min-outcome 0
 ```
 
 Discovered skills land in `~/.openjarvis/skills/discovered/` and automatically appear in `jarvis skill list` on the next session.
+
+Discovery requires recurring sequences of at least two tool calls. `--min-outcome 0` includes new traces that have not yet been scored.
 
 ## Step 7: Optimize Skills with DSPy
 
@@ -165,7 +171,7 @@ Once you have enough traces (at least 3-5 per skill), run the optimizer:
 
 ```bash
 # Preview what would be optimized
-jarvis optimize skills --dry-run
+jarvis optimize skills --dry-run --min-traces 3
 
 # Run DSPy optimization
 jarvis optimize skills --policy dspy --min-traces 3
@@ -176,8 +182,8 @@ This produces overlay files at `~/.openjarvis/learning/skills/<skill-name>/optim
 Inspect what was produced:
 
 ```bash
-jarvis skill show-overlay math-solver
-jarvis skill show-overlay code-explainer
+jarvis skill show-overlay llm-wiki
+jarvis skill show-overlay my-reviewer
 ```
 
 The next time you run a query, the agent sees the optimized descriptions and few-shot examples in its system prompt.
@@ -220,9 +226,9 @@ Now skills are automatically synced from Hermes on session start, and the optimi
 | Concept | What you did |
 |---------|-------------|
 | **Installing skills** | `jarvis skill install hermes:arxiv` — imported from public sources |
-| **Using skills** | `jarvis ask "Use the code-explainer skill..."` — agent invokes skills as tools |
+| **Using skills** | `jarvis ask --agent orchestrator "Use the llm-wiki skill..."` — a tool-capable agent invokes skills |
 | **Creating skills** | Wrote a `SKILL.md` with YAML frontmatter and markdown instructions |
-| **Generating traces** | Ran skill-using queries to populate the trace store |
+| **Generating traces** | Enabled tracing and ran skill-using queries to populate the trace store |
 | **Discovering patterns** | `jarvis skill discover` — mined traces for recurring tool sequences |
 | **Optimizing skills** | `jarvis optimize skills --policy dspy` — improved descriptions + few-shot examples |
 | **Benchmarking** | `jarvis bench skills` — measured the impact across 4 conditions |

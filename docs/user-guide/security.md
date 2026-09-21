@@ -2,6 +2,20 @@
 
 OpenJarvis includes a security layer that scans prompts and model outputs for secrets, personally identifiable information (PII), and sensitive file paths. The system is designed to be composable: scanners run as a pipeline, and the `GuardrailsEngine` wrapper drops in front of any inference backend without changing how the rest of your code works.
 
+## Three layers of security review
+
+OpenJarvis separates host posture, application data boundaries, and runtime prompt guardrails:
+
+| Layer | Command / component | What it checks |
+| --- | --- | --- |
+| Host scan | `jarvis scan` | Disk encryption, cloud-sync agents, exposed engine ports, remote-access tools |
+| Data-boundary scan | `jarvis scan --data-boundaries` | Configured inference, memory, traces, channels, tools, and local stores |
+| Runtime guardrails | `GuardrailsEngine` / BoundaryGuard | Secrets, PII, and file-policy violations in live prompts and outputs |
+
+Use the host scan before storing sensitive data on the machine. Use the data-boundary scan to verify whether your `config.toml` is local-only, cloud-capable, or mixed. Use BoundaryGuard during inference when you need live redaction or blocking.
+
+See [Data Boundary Scan](data-boundary-scan.md) for the application config diagnostic and [BoundaryGuard](#guardrailsengine) below for runtime scanning.
+
 ---
 
 ## Overview
@@ -43,6 +57,67 @@ The security module has four independently usable components:
     [:octicons-arrow-right-24: Jump to File Policy](#file-policy)
 
 </div>
+
+---
+
+## Capability policies and runtime identities
+
+Capability checks restrict tool dispatch and direct agent operations. Built-in
+requirements cannot be weakened by omitting them from a tool's metadata. Remote
+MCP tools require `tool:invoke`, and third-party tools can declare additional
+requirements. Capability grants do not bypass a tool's confirmation requirement.
+
+The `shared` and `server` security profiles enable capabilities with
+`default_deny = true`. Without a policy file, their baseline grants new agents
+`file:read`, `network:fetch`, `memory:read`, and `memory:write`. Code execution,
+file writes, channel sends, scheduling, and administrative operations require
+additional grants. The personal/default profile keeps capability checks opt-in.
+
+To choose the exact grants, configure a policy file:
+
+```toml
+[security]
+profile = "shared"
+
+[security.capabilities]
+policy_path = "/absolute/path/capabilities.json"
+```
+
+Individual fields override the profile: specifying only `policy_path` preserves
+its enabled, default-deny behavior. An explicit `enabled = false` disables the
+capability check, and an explicit `default_deny = false` allows capabilities not
+otherwise denied. When capabilities are enabled, policy initialization failure
+stops startup in every profile. Shared/server profiles also stop if rate-limit
+initialization fails. Missing or malformed policy files are errors; the native
+Rust capability backend remains required.
+
+An explicit policy file receives **no automatic baseline grants**. For example,
+this policy permits reads through MCP and denies other capabilities:
+
+```json
+{
+  "agents": [
+    {"agent_id": "mcp", "grants": [{"capability": "file:read"}]}
+  ]
+}
+```
+
+`{"agents": []}` denies all capability-bearing operations when
+`default_deny = true`. The reviewed `calculator` and `think` tools require no
+capability. A `_default` entry supplies grants for identities without their own
+entry; a specific identity's policy takes precedence over `_default`.
+
+| Execution path | Policy identity |
+| --- | --- |
+| Managed-agent tick or stream | The managed agent's ID |
+| CLI, SDK, or selected server agent | The selected runtime agent name/ID |
+| Server agent-management API | `server:api` |
+| Standalone MCP executor | `mcp`, unless explicitly overridden |
+| Learning environment | `learning`, unless explicitly overridden |
+| Scheduler without a selected agent | `scheduler` |
+
+Rate-limit keys include both identity and tool name. The audit log records tool
+completion, capability denials, and rate-limit denials with that identity.
 
 ---
 
@@ -446,8 +521,15 @@ guarded = GuardrailsEngine(
 
 ---
 
+## Data boundary scan
+
+See [Data Boundary Scan](data-boundary-scan.md) for the application config diagnostic (`jarvis scan --data-boundaries`).
+
+---
+
 ## See Also
 
+- [Data Boundary Scan](data-boundary-scan.md) — application config and local-store diagnostic (`jarvis scan --data-boundaries`)
 - [Architecture: Security](../architecture/security.md) — pipeline design, event flow, and file policy integration
 - [API Reference: Security](../api-reference/openjarvis/security/index.md) — full class and function signatures
 - [Tools](tools.md) — how `FileReadTool` uses file policy

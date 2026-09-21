@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import type { ToolCallInfo } from '../../types';
+import { serializeToolCallArguments } from '../../lib/tool-call';
 
 interface Props {
   toolCall: ToolCallInfo;
@@ -35,7 +36,10 @@ export function ToolCallCard({ toolCall }: Props) {
   const [expanded, setExpanded] = useState(false);
   const config = statusConfig[toolCall.status];
   const StatusIcon = config.icon;
-  const preview = previewArgs(toolCall.arguments);
+  // Persisted conversations may contain the pre-fix object payload despite
+  // the TypeScript contract, so normalize again at the final render boundary.
+  const argumentsText = serializeToolCallArguments(toolCall.arguments);
+  const preview = previewArgs(argumentsText);
 
   return (
     <div
@@ -95,7 +99,7 @@ export function ToolCallCard({ toolCall }: Props) {
           className="px-2.5 pb-2 pt-0.5"
           style={{ borderTop: '1px solid var(--color-border-subtle, var(--color-border))' }}
         >
-          {toolCall.arguments && (
+          {argumentsText && (
             <div className="mt-1.5">
               <div
                 style={{
@@ -120,7 +124,7 @@ export function ToolCallCard({ toolCall }: Props) {
                   wordBreak: 'break-all',
                 }}
               >
-                {formatJson(toolCall.arguments)}
+                {formatJson(argumentsText)}
               </pre>
             </div>
           )}

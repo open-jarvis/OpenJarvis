@@ -169,6 +169,14 @@ class TestGuardrailsEngineInputScanning:
 
 
 class TestGuardrailsEngineDelegation:
+    def test_delegates_close(self) -> None:
+        mock = _make_mock_engine()
+        ge = GuardrailsEngine(mock)
+
+        ge.close()
+
+        mock.close.assert_called_once()
+
     def test_delegates_list_models(self) -> None:
         """list_models() delegates to wrapped engine."""
         mock = _make_mock_engine()

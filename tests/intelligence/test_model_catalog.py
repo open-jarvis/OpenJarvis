@@ -8,6 +8,7 @@ from openjarvis.intelligence.model_catalog import (
     BUILTIN_MODELS,
     merge_discovered_models,
     register_builtin_models,
+    resolve_model_id_for_engine,
 )
 
 
@@ -47,3 +48,16 @@ class TestMergeDiscoveredModels:
         original = ModelRegistry.get("qwen3:8b")
         merge_discovered_models("ollama", ["qwen3:8b"])
         assert ModelRegistry.get("qwen3:8b").name == original.name
+
+
+class TestResolveModelIdForEngine:
+    def test_resolves_mlx_repo(self) -> None:
+        assert resolve_model_id_for_engine("qwen3.5:4b", "mlx") == (
+            "mlx-community/Qwen3.5-4B-OptiQ-4bit"
+        )
+
+    def test_unknown_model_is_unchanged(self) -> None:
+        assert resolve_model_id_for_engine("custom/model", "mlx") == "custom/model"
+
+    def test_non_mlx_engine_is_unchanged(self) -> None:
+        assert resolve_model_id_for_engine("qwen3.5:4b", "ollama") == "qwen3.5:4b"

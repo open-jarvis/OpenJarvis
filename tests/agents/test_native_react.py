@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -172,6 +173,117 @@ class TestNativeReActParsing:
         result = parse(text)
         assert result["final_answer"] == "42"
 
+    @pytest.mark.parametrize("fence", [None, "json", "JSON", ""])
+    @pytest.mark.parametrize("title_case", [False, True])
+    @pytest.mark.parametrize("encoded_input", [False, True])
+    def test_parse_complete_json_action(self, fence, title_case, encoded_input):
+        arguments = {"command": "printf '{café}\\n'", "timeout": 10, "options": [1, 2]}
+        payload = {
+            "thought": "Final Answer: this is quoted reasoning, not the final answer",
+            "action": "shell_exec",
+            "action_input": json.dumps(arguments) if encoded_input else arguments,
+        }
+        if title_case:
+            payload = {
+                key.replace("_", " ").title(): value for key, value in payload.items()
+            }
+        text = json.dumps(payload)
+        if fence is not None:
+            text = f"```{fence}\n{text}\n```"
+        parsed = self._parser()(f" \n{text}\n ")
+        assert parsed["action"] == "shell_exec"
+        assert json.loads(parsed["action_input"]) == arguments
+        assert parsed["final_answer"] == ""
+        assert parsed["thought"] == payload.get("thought", payload.get("Thought"))
+
+    def test_parse_json_final_answer_ignores_quoted_action_markers(self):
+        parsed = self._parser()(
+            json.dumps(
+                {
+                    "Thought": "Action: calculator\nAction Input: {}",
+                    "Action": None,
+                    "Final Answer": "The result is 42.",
+                }
+            )
+        )
+        assert parsed["action"] == ""
+        assert parsed["final_answer"] == "The result is 42."
+
+    def test_json_action_without_input_uses_empty_object(self):
+        parsed = self._parser()('{"action":"think"}')
+        assert parsed["action"] == "think"
+        assert json.loads(parsed["action_input"]) == {}
+
+
+_MALFORMED_JSON_RESPONSES = [
+    '{"action":"calculator","action_input":{"expression":"2+2"}',
+    '{"thought":"broken\nAction: calculator\nAction Input: {}',
+    '```json\n{"action":"calculator"}',
+    '```\n{"thought":"broken\nAction: calculator\nAction Input: {}',
+    '```\n{"action":"calculator"}\n```\ntrailing prose',
+    '{"action":"calculator"}\n{"final_answer":"4"}',
+    '{"action":"calculator"} trailing prose',
+    '{"action":"calculator","Action":"think"}',
+    '{"action":"think","action":"calculator"}',
+    '{"action":"calculator","final_answer":"4"}',
+    '{"action":123,"action_input":{}}',
+    '{"action":" ","action_input":{}}',
+    '{"thought":"I should run a tool"}',
+    '{"action_input":{"expression":"2+2"}}',
+    '{"action":"calculator","action_input":["2+2"]}',
+    '{"action":"calculator","action_input":true}',
+    '{"action":"calculator","action_input":null}',
+    '{"action":"calculator","action_input":"not JSON"}',
+    '{"action":"calculator","action_input":"[]"}',
+    '{"action":"calculator","action_input":{"expression":"1","expression":"2"}}',
+    '{"action":"calculator","action_input":{"value":NaN}}',
+    '{"action":"calculator","unrelated":NaN}',
+    '[{"action":"calculator","action_input":{}}]',
+    '{"final_answer":{"nested":"not a string"}}',
+]
+
+
+@pytest.mark.parametrize("content", _MALFORMED_JSON_RESPONSES)
+def test_malformed_json_reports_error_without_executing_tools(content):
+    engine = MagicMock(engine_id="mock")
+    engine.generate.return_value = _engine_response(content)
+    tool = _CalculatorStub()
+    tool.execute = MagicMock(wraps=tool.execute)
+    agent = NativeReActAgent(engine, "test-model", tools=[tool])
+
+    parsed = agent._parse_response(content)
+    assert not parsed["action"]
+    assert parsed["parse_error"]
+    result = agent.run("Calculate something")
+
+    assert result.content.startswith("Could not parse the model's ReAct response.")
+    assert result.metadata["response_parse_error"]
+    assert result.turns == 1
+    assert result.tool_results == []
+    assert result.metadata["total_tokens"] == 15
+    tool.execute.assert_not_called()
+    engine.generate.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '{"answer":42,"example":{"action":"calculator","action_input":{}}}',
+        'Example JSON: {"action":"calculator","action_input":{}}',
+        '"{\\"action\\":\\"calculator\\"}"',
+        "[Documentation](https://example.test/) has more details.",
+    ],
+)
+def test_json_examples_and_ordinary_json_answers_do_not_execute_tools(content):
+    engine = MagicMock(engine_id="mock")
+    engine.generate.return_value = _engine_response(content)
+    tool = _CalculatorStub()
+    tool.execute = MagicMock(wraps=tool.execute)
+    result = NativeReActAgent(engine, "test-model", tools=[tool]).run("Explain JSON")
+    assert result.content == content
+    assert result.tool_results == []
+    tool.execute.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Agent execution tests
@@ -179,6 +291,78 @@ class TestNativeReActParsing:
 
 
 class TestNativeReActAgent:
+    def test_json_action_observation_and_final_answer(self):
+        engine = MagicMock(engine_id="mock")
+        engine.generate.side_effect = [
+            _engine_response(
+                json.dumps(
+                    {
+                        "thought": "Calculate using a tool.",
+                        "action": "calculator",
+                        "action_input": {"expression": "2+2"},
+                    }
+                )
+            ),
+            _engine_response('```json\n{"Final Answer":"4"}\n```'),
+        ]
+        tool = _CalculatorStub()
+        tool.execute = MagicMock(wraps=tool.execute)
+        bus = EventBus(record_history=True)
+        agent = NativeReActAgent(engine, "test-model", tools=[tool], bus=bus)
+        result = agent.run("What is 2+2?")
+
+        assert result.content == "4"
+        assert result.turns == 2
+        assert result.metadata["total_tokens"] == 30
+        tool.execute.assert_called_once_with(expression="2+2")
+        assert result.tool_results[0].content == "4"
+        assert result.tool_results[0].success is True
+        messages = engine.generate.call_args_list[1].args[0]
+        assert messages[-1].role == Role.USER
+        assert messages[-1].content == "Observation: 4"
+        event_types = [event.event_type for event in bus.history]
+        assert EventType.TOOL_CALL_START in event_types
+        assert EventType.TOOL_CALL_END in event_types
+
+    def test_json_action_uses_existing_confirmation_gate(self):
+        class ProtectedCalculator(_CalculatorStub):
+            @property
+            def spec(self):
+                spec = super().spec
+                spec.requires_confirmation = True
+                return spec
+
+        engine = MagicMock(engine_id="mock")
+        engine.generate.side_effect = [
+            _engine_response(
+                '{"action":"calculator","action_input":{"expression":"2+2"}}'
+            ),
+            _engine_response('{"final_answer":"Permission required."}'),
+        ]
+        tool = ProtectedCalculator()
+        tool.execute = MagicMock(wraps=tool.execute)
+        result = NativeReActAgent(engine, "test-model", tools=[tool]).run("Calculate")
+        assert result.content == "Permission required."
+        assert len(result.tool_results) == 1
+        assert result.tool_results[0].success is False
+        assert "confirmation" in result.tool_results[0].content
+        tool.execute.assert_not_called()
+
+    def test_parse_error_preserves_previous_tool_results(self):
+        engine = MagicMock(engine_id="mock")
+        engine.generate.side_effect = [
+            _engine_response(
+                '{"action":"calculator","action_input":{"expression":"2+2"}}'
+            ),
+            _engine_response('{"final_answer":'),
+        ]
+        agent = NativeReActAgent(engine, "test-model", tools=[_CalculatorStub()])
+        result = agent.run("Calculate")
+        assert result.turns == 2
+        assert result.tool_results[0].content == "4"
+        assert result.metadata["response_parse_error"]
+        assert result.metadata["total_tokens"] == 30
+
     def test_simple_no_tool_response(self):
         """Engine returns Final Answer on first call."""
         engine = MagicMock()

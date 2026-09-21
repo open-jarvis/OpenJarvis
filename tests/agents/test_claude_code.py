@@ -13,6 +13,7 @@ from openjarvis.agents._stubs import AgentResult
 from openjarvis.agents.claude_code import (
     _OUTPUT_END,
     _OUTPUT_START,
+    _RUNNER_SRC,
     ClaudeCodeAgent,
 )
 from openjarvis.core.events import EventBus, EventType
@@ -40,7 +41,7 @@ def _mock_proc(
     returncode: int = 0,
 ) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(
-        args=["node", "dist/index.js"],
+        args=["node", "index.mjs"],
         returncode=returncode,
         stdout=stdout,
         stderr=stderr,
@@ -83,44 +84,98 @@ class TestEnsureRunner:
             with pytest.raises(RuntimeError, match="Node.js"):
                 agent._ensure_runner()
 
-    def test_creates_runner_dir(self, tmp_path):
+    def test_bundled_runner_is_runnable(self):
+        package = json.loads((_RUNNER_SRC / "package.json").read_text())
+
+        assert package["main"] == "index.mjs"
+        assert (_RUNNER_SRC / package["main"]).is_file()
+        assert package["dependencies"]["@anthropic-ai/claude-agent-sdk"] == "0.3.237"
+        assert "@anthropic-ai/claude-code" not in package["dependencies"]
+
+    def test_creates_runner_dir(self, tmp_path, monkeypatch):
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(engine, "test-model")
 
+        # _ensure_runner() resolves its destination via get_config_dir(),
+        # which checks $OPENJARVIS_HOME before ever falling back to
+        # Path.home() -- so that's the env var to control here, not a
+        # Path.home() patch (which get_config_dir() never even calls once
+        # OPENJARVIS_HOME is set, e.g. by conftest.py's session-wide
+        # isolation fixture).
         home_dir = tmp_path / "home"
         home_dir.mkdir()
+        monkeypatch.setenv("OPENJARVIS_HOME", str(home_dir))
+
+        def which(executable):
+            return f"/usr/bin/{executable}"
 
         with (
-            patch("shutil.which", return_value="/usr/bin/node"),
-            patch("pathlib.Path.home", return_value=home_dir),
+            patch("shutil.which", side_effect=which),
             patch("subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_proc()
-            dest = home_dir / ".openjarvis" / "claude_code_runner"
+            dest = home_dir / "claude_code_runner"
             result = agent._ensure_runner()
             assert result == dest
-            mock_run.assert_called_once()
-            call_args = mock_run.call_args
-            assert "npm" in call_args[0][0][0]
+            assert (dest / "index.mjs").is_file()
+            assert (dest / "package.json").is_file()
+            assert mock_run.call_args.args[0] == [
+                "/usr/bin/npm",
+                "install",
+                "--omit=dev",
+                "--include=optional",
+            ]
 
-    def test_skips_npm_install_when_node_modules_exists(self, tmp_path):
+    def test_skips_npm_install_when_sdk_version_matches(self, tmp_path, monkeypatch):
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(engine, "test-model")
 
         home_dir = tmp_path / "home"
-        dest = home_dir / ".openjarvis" / "claude_code_runner"
-        dest.mkdir(parents=True)
-        (dest / "node_modules").mkdir()
+        dest = home_dir / "claude_code_runner"
+        installed = (
+            dest
+            / "node_modules"
+            / "@anthropic-ai"
+            / "claude-agent-sdk"
+            / "package.json"
+        )
+        installed.parent.mkdir(parents=True)
+        installed.write_text('{"version":"0.3.237"}')
+        monkeypatch.setenv("OPENJARVIS_HOME", str(home_dir))
 
         with (
-            patch("shutil.which", return_value="/usr/bin/node"),
-            patch("pathlib.Path.home", return_value=home_dir),
+            patch("shutil.which", side_effect=lambda name: f"/usr/bin/{name}"),
             patch("subprocess.run") as mock_run,
         ):
             agent._ensure_runner()
             mock_run.assert_not_called()
+
+    def test_reinstalls_legacy_cache(self, tmp_path, monkeypatch):
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        agent = ClaudeCodeAgent(engine, "test-model")
+        home_dir = tmp_path / "home"
+        old_package = (
+            home_dir
+            / "claude_code_runner"
+            / "node_modules"
+            / "@anthropic-ai"
+            / "claude-code"
+            / "package.json"
+        )
+        old_package.parent.mkdir(parents=True)
+        old_package.write_text('{"version":"0.2.126"}')
+        monkeypatch.setenv("OPENJARVIS_HOME", str(home_dir))
+
+        with (
+            patch("shutil.which", side_effect=lambda name: f"/usr/bin/{name}"),
+            patch("subprocess.run") as mock_run,
+        ):
+            agent._ensure_runner()
+
+        assert mock_run.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +211,7 @@ class TestClaudeCodeRun:
                 "_ensure_runner",
                 return_value="/fake/runner",
             ),
-            patch("subprocess.run", return_value=proc),
+            patch("subprocess.run", return_value=proc) as mock_run,
         ):
             result = agent.run("Say hello")
 
@@ -165,6 +220,7 @@ class TestClaudeCodeRun:
         assert result.turns == 1
         assert result.tool_results == []
         assert result.metadata["message_count"] == 3
+        assert mock_run.call_args.args[0] == ["node", "index.mjs"]
 
     def test_run_with_tool_results(self):
         agent = self._make_agent()

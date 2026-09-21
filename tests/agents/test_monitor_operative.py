@@ -63,3 +63,16 @@ class TestMonitorOperativeAgent:
         result = agent.run("What is the answer?")
         assert result.content == "The answer is 42."
         assert result.turns >= 1
+
+    def test_blank_result_does_not_replace_persisted_state(self) -> None:
+        memory = MagicMock()
+        agent = MonitorOperativeAgent(
+            _make_engine(),
+            "test-model",
+            operator_id="watcher",
+            memory_backend=memory,
+        )
+
+        agent._auto_persist_state(" \n\t")
+
+        memory.store.assert_not_called()

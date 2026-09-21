@@ -279,7 +279,20 @@ class AdvisorsAgent(LocalCloudAgent):
         ``"tavily"``. Returns ``(text, p_tok, c_tok, n_searches, turns,
         search_cost_usd)``.
         """
-        if str(self._cfg.get("search_backend", "provider")).lower() == "tavily":
+        search_backend = str(self._cfg.get("search_backend", "provider")).lower()
+        operation = (
+            "advisors_tavily"
+            if search_backend == "tavily"
+            else "advisors_provider_search"
+        )
+        authorization = self._authorize_direct_operation(
+            ["network:fetch"],
+            operation=operation,
+        )
+        if not authorization.success:
+            return authorization.content, 0, 0, 0, 1, 0.0
+
+        if search_backend == "tavily":
             res = tavily_search_context(
                 query or user,
                 max_results=int(self._cfg.get("tavily_max_results", 5)),

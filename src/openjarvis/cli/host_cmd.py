@@ -72,6 +72,15 @@ _BACKENDS = {
         "default_port": 52415,
         "binary": "exo",
     },
+    "apple_fm": {
+        "display": "Apple Foundation Models (shim)",
+        "package": "apple-fm-sdk",
+        "import_check": "apple_fm_sdk",
+        "pip_spec": "apple-fm-sdk>=0.2.1",
+        "uv_extra": "afm",
+        "platform": "darwin",
+        "default_port": 8079,
+    },
     "uzu": {
         "display": "Uzu",
         "package": "uzu",
@@ -279,6 +288,22 @@ def _build_serve_command(backend: str, model: str, port: int) -> list[str]:
 
     if backend == "uzu":
         return ["uzu", "serve", "--port", str(port)]
+
+    if backend == "apple_fm":
+        # There is one on-device model, so `model` is a label and is not
+        # passed through -- the shim serves whatever the Foundation Models
+        # dynamic profile selects. For in-process use prefer the `afm`
+        # engine, which needs no server at all.
+        return [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "openjarvis.engine.apple_fm_shim:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ]
 
     raise ValueError(f"Unknown backend: {backend}")
 

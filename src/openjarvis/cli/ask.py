@@ -34,6 +34,24 @@ from openjarvis.telemetry.store import TelemetryStore
 
 logger = logging.getLogger(__name__)
 
+# Engines that run inference on this machine. Used by the image privacy guard
+# below: a screenshot is sensitive and OpenJarvis is local-first, so sending
+# one to a non-local engine warrants a warning first. Module-level so it can be
+# asserted against directly -- an engine missing from here produces a false
+# "your image is leaving this machine" warning.
+LOCAL_ENGINES = {
+    "afm",
+    "apple_fm",
+    "exo",
+    "gemma_cpp",
+    "llamacpp",
+    "nexa",
+    "ollama",
+    "sglang",
+    "uzu",
+    "vllm",
+}
+
 
 def _run_research(
     *,
@@ -248,6 +266,17 @@ def _get_memory_backend(config):
         return None
 
 
+def _get_memory_facts(config):
+    """Load facts captured by the automatic memory service."""
+    try:
+        from openjarvis.memory import load_configured_facts
+
+        return load_configured_facts(config)
+    except Exception as exc:
+        logger.debug("Automatic memory facts unavailable (optional): %s", exc)
+        return []
+
+
 _MEMORY_TOOLS = frozenset(
     {"retrieval", "memory_store", "memory_search", "memory_index", "memory_retrieve"}
 )
@@ -326,6 +355,7 @@ def _run_agent(
     temperature: float,
     max_tokens: int,
     capability_policy=None,
+    rate_limiter=None,
     memory_files_config=None,
 ):
     """Instantiate and run an agent, returning the AgentResult."""
@@ -340,6 +370,7 @@ def _run_agent(
         )
 
     agent_cls = AgentRegistry.get(agent_name)
+    accepts_tools = getattr(agent_cls, "accepts_tools", False)
 
     # Build tools — local registry tools + MCP server tools from config
     # (#461 — MCP tools were silently dropped because ask.py only used
@@ -371,25 +402,83 @@ def _run_agent(
                 tools.append(t)
                 existing.add(t.spec.name)
 
+    skill_manager = None
+    skill_catalog_xml = None
+    skill_few_shot_examples: list[str] = []
+    skill_tools_added = False
+    if accepts_tools and config.skills.enabled:
+        try:
+            from pathlib import Path
+
+            from openjarvis.skills.manager import SkillManager
+            from openjarvis.tools._stubs import ToolExecutor
+
+            pipeline_executor = ToolExecutor(
+                tools,
+                bus,
+                capability_policy=capability_policy,
+                agent_id=getattr(agent_cls, "agent_id", agent_name),
+                interactive=True,
+                confirm_callback=lambda prompt: True,
+            )
+            skill_manager = SkillManager(
+                bus,
+                capability_policy=capability_policy,
+            )
+            skill_paths = [Path(config.skills.skills_dir).expanduser()]
+            workspace_skills = Path("./skills")
+            if workspace_skills.exists():
+                skill_paths.insert(0, workspace_skills)
+            skill_manager.discover(paths=skill_paths)
+            skill_manager.set_tool_executor(pipeline_executor)
+
+            existing = {tool.spec.name for tool in tools}
+            for skill_tool in skill_manager.get_skill_tools(
+                tool_executor=pipeline_executor,
+            ):
+                if skill_tool.spec.name not in existing:
+                    tools.append(skill_tool)
+                    existing.add(skill_tool.spec.name)
+                    skill_tools_added = True
+
+            if skill_tools_added:
+                skill_catalog_xml = skill_manager.get_catalog_xml()
+                skill_few_shot_examples = skill_manager.get_few_shot_examples()
+        except Exception as exc:
+            logger.warning("Failed to initialize skills: %s", exc)
+
     # Build agent with appropriate kwargs
     agent_kwargs = {
         "bus": bus,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
-    if getattr(agent_cls, "accepts_tools", False):
+    if accepts_tools:
         agent_kwargs["tools"] = tools
         agent_kwargs["max_turns"] = config.agent.max_turns
         agent_kwargs["interactive"] = True
         agent_kwargs["confirm_callback"] = lambda prompt: True
-    if capability_policy is not None:
-        agent_kwargs["capability_policy"] = capability_policy
+        agent_kwargs["agent_id"] = agent_name
+        if capability_policy is not None:
+            agent_kwargs["capability_policy"] = capability_policy
+        if rate_limiter is not None:
+            agent_kwargs["rate_limiter"] = rate_limiter
+
+    from openjarvis.security.runtime import agent_security_kwargs
+
+    agent_kwargs.update(
+        agent_security_kwargs(
+            agent_cls,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id=agent_name,
+        )
+    )
 
     # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md persona
     # files actually reach the model. Only passed to agents whose __init__
-    # accepts a `prompt_builder` kwarg (BaseAgent does; agents that override
-    # __init__ without forwarding it, e.g. OrchestratorAgent, opt out
-    # automatically and keep their existing system-prompt machinery).
+    # explicitly accepts a `prompt_builder` kwarg. Agents with specialized
+    # prompt machinery opt in by naming and forwarding the parameter.
     import inspect as _inspect
 
     if "prompt_builder" in _inspect.signature(agent_cls.__init__).parameters:
@@ -399,15 +488,28 @@ def _run_agent(
             agent_template=config.agent.default_system_prompt or "",
             memory_files_config=memory_files_config or config.memory_files,
             system_prompt_config=config.system_prompt,
+            skill_catalog_xml=skill_catalog_xml,
+            skill_few_shot_examples=skill_few_shot_examples,
         )
 
     agent = agent_cls(engine, model_name, **agent_kwargs)
+    from openjarvis.security.runtime import wire_agent_security
+
+    wire_agent_security(
+        agent,
+        bus=bus,
+        capability_policy=capability_policy,
+        rate_limiter=rate_limiter,
+        agent_id=agent_name,
+    )
     # Hold MCP transports alive for the agent's lifetime — without this
     # reference they'd be garbage-collected when this function returns
     # and the underlying HTTP connections would close mid-execution (#461
     # adversarial review caught this).
     if mcp_clients:
         agent._mcp_clients = mcp_clients
+    if skill_manager is not None:
+        agent._skill_manager = skill_manager
     ctx = AgentContext()
 
     # Inject memory context into conversation if available
@@ -416,7 +518,8 @@ def _run_agent(
             from openjarvis.tools.storage.context import ContextConfig, inject_context
 
             backend = _get_memory_backend(config)
-            if backend is not None:
+            facts = _get_memory_facts(config)
+            if backend is not None or facts:
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -427,13 +530,34 @@ def _run_agent(
                     [],
                     backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
                 for msg in context_messages:
                     ctx.conversation.add(msg)
         except Exception as exc:
             logger.warning("Failed to inject memory context for agent: %s", exc)
 
-    return agent.run(query_text, context=ctx)
+    trace_store = None
+    if config.traces.enabled:
+        try:
+            from openjarvis.traces.store import TraceStore
+
+            trace_store = TraceStore(config.traces.db_path)
+        except Exception as exc:
+            logger.warning("Failed to initialize TraceStore: %s", exc)
+
+    try:
+        if trace_store is not None:
+            from openjarvis.traces.collector import TraceCollector
+
+            return TraceCollector(agent, store=trace_store, bus=bus).run(
+                query_text,
+                context=ctx,
+            )
+        return agent.run(query_text, context=ctx)
+    finally:
+        if trace_store is not None:
+            trace_store.close()
 
 
 def _print_profile(
@@ -821,6 +945,7 @@ def ask(
 
             energy_monitor = create_energy_monitor(
                 prefer_vendor=config.telemetry.energy_vendor or None,
+                allow_estimates=config.telemetry.allow_energy_estimates,
             )
         except Exception as exc:
             logger.debug("Failed to create energy monitor: %s", exc)
@@ -880,6 +1005,7 @@ def ask(
                 temperature,
                 max_tokens,
                 capability_policy=sec.capability_policy,
+                rate_limiter=getattr(sec, "rate_limiter", None),
                 memory_files_config=effective_mf,
             )
         except EngineContextLengthError as exc:
@@ -931,21 +1057,7 @@ def ask(
         return
 
     # Direct-to-engine mode (no agent)
-    # Privacy guard: a screenshot/image is sensitive, and OpenJarvis is
-    # local-first. If the active engine isn't local, warn before the image
-    # leaves the machine rather than silently uploading it to a third party.
-    _LOCAL_ENGINES = {
-        "ollama",
-        "llamacpp",
-        "vllm",
-        "sglang",
-        "exo",
-        "nexa",
-        "uzu",
-        "apple_fm",
-        "gemma_cpp",
-    }
-    if image_b64 and engine_name not in _LOCAL_ENGINES:
+    if image_b64 and engine_name not in LOCAL_ENGINES:
         console.print(
             f"[yellow]Privacy warning:[/yellow] sending {len(image_b64)} "
             f"image(s) to a non-local engine ('{engine_name}'). The image will "
@@ -963,7 +1075,8 @@ def ask(
             )
 
             backend = _get_memory_backend(config)
-            if backend is not None:
+            facts = _get_memory_facts(config)
+            if backend is not None or facts:
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
@@ -974,6 +1087,7 @@ def ask(
                     messages,
                     backend,
                     config=ctx_cfg,
+                    facts=facts,
                 )
         except Exception as exc:
             logger.debug("Failed to inject memory context: %s", exc)

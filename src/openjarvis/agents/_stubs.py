@@ -18,6 +18,8 @@ from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Conversation, Message, Role, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
 
+_ALLOWED_ENGINE_OPTION_KEYS = frozenset({"num_ctx", "num_gpu"})
+
 
 @dataclass(slots=True)
 class AgentContext:
@@ -57,6 +59,12 @@ class BaseAgent(ABC):
 
     agent_id: str
     accepts_tools: bool = False
+    # Plain conversational agents may opt into the managed runtime's generic
+    # function-calling loop.  Specialized agents keep their own execution
+    # class even when process-wide MCP tools are available.
+    supports_managed_tool_fallback: bool = False
+    required_capabilities: tuple[str, ...] = ()
+    uses_direct_operations: bool = False
 
     def __init__(
         self,
@@ -67,11 +75,19 @@ class BaseAgent(ABC):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         prompt_builder: Optional[Any] = None,
+        engine_options: Optional[Dict[str, Any]] = None,
+        capability_policy: Optional[Any] = None,
+        rate_limiter: Optional[Any] = None,
+        agent_id: Optional[str] = None,
     ) -> None:
         self._engine = engine
         self._model = model
         self._bus = bus
         self._prompt_builder = prompt_builder
+        self._engine_options: Dict[str, Any] = dict(engine_options or {})
+        self._capability_policy = capability_policy
+        self._rate_limiter = rate_limiter
+        self._runtime_agent_id = agent_id or getattr(self, "agent_id", "")
 
         # Three-tier resolution: explicit arg > config > class default > hardcoded
         if temperature is not None and max_tokens is not None:
@@ -105,6 +121,47 @@ class BaseAgent(ABC):
     # ------------------------------------------------------------------
     # Concrete helpers
     # ------------------------------------------------------------------
+
+    def _execution_denied_result(
+        self,
+        required_capabilities: Optional[List[str]] = None,
+        *,
+        operation: str = "agent_run",
+    ) -> Optional[AgentResult]:
+        """Return a denial result when a direct agent operation is forbidden."""
+        required = list(
+            required_capabilities
+            if required_capabilities is not None
+            else self.required_capabilities
+        )
+        if not required:
+            return None
+        result = self._authorize_direct_operation(required, operation=operation)
+        if result.success:
+            return None
+        return AgentResult(
+            content=result.content,
+            tool_results=[result],
+            metadata={"error": True, "security_denied": True},
+        )
+
+    def _authorize_direct_operation(
+        self,
+        required_capabilities: List[str],
+        *,
+        operation: str,
+    ) -> ToolResult:
+        """Authorize a non-BaseTool operation using this runtime identity."""
+        from openjarvis.security.runtime import authorize_secured_operation
+
+        return authorize_secured_operation(
+            operation,
+            required_capabilities,
+            bus=self._bus,
+            capability_policy=self._capability_policy,
+            rate_limiter=self._rate_limiter,
+            agent_id=self._runtime_agent_id,
+        )
 
     def _emit_turn_start(self, input: str) -> None:
         """Publish ``AGENT_TURN_START`` if an event bus is available."""
@@ -151,6 +208,9 @@ class BaseAgent(ABC):
         conversation messages, and finally the user input.
         """
         messages: list[Message] = []
+        context_messages = (
+            list(context.conversation.messages) if context is not None else []
+        )
         # Check if the context already supplies a system message
         _context_has_system = (
             context
@@ -171,10 +231,34 @@ class BaseAgent(ABC):
                 effective_system_prompt = cfg.agent.default_system_prompt or None
             except Exception:
                 effective_system_prompt = None
-        if effective_system_prompt:
-            messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
-        if context and context.conversation.messages:
-            messages.extend(context.conversation.messages)
+        # Fold ALL in-context system messages (both auto-captured memory
+        # context and caller-supplied system messages) into one leading system
+        # message. Do this even when there is no independently-built prompt:
+        # Qwen-family chat templates reject a system message after the first
+        # slot or more than one system message. Empty system messages must be
+        # removed too, otherwise they can leave a second system entry behind.
+        identity_already_applied = any(
+            message.role == Role.SYSTEM
+            and message.metadata.get("openjarvis_identity_prompt")
+            for message in context_messages
+        )
+        system_parts = []
+        if effective_system_prompt and not identity_already_applied:
+            system_parts.append(effective_system_prompt)
+        system_parts.extend(
+            message.text
+            for message in context_messages
+            if message.role == Role.SYSTEM and message.text
+        )
+        context_messages = [
+            message for message in context_messages if message.role != Role.SYSTEM
+        ]
+        if system_parts:
+            messages.append(
+                Message(role=Role.SYSTEM, content="\n\n".join(system_parts))
+            )
+        if context_messages:
+            messages.extend(context_messages)
         messages.append(Message(role=Role.USER, content=input))
         return messages
 
@@ -192,12 +276,23 @@ class BaseAgent(ABC):
                 {"model": self._model, "engine": engine_id},
             )
 
+        # Stored engine options originate in CLI/runtime configuration and are
+        # intentionally allowlisted. Per-call kwargs originate in the agent
+        # implementation itself (for example ``tools`` or ``response_format``)
+        # and must reach the engine adapter unchanged. Filtering the merged
+        # mapping silently stripped function-calling tools from every agent.
+        gen_kwargs = {
+            key: value
+            for key, value in self._engine_options.items()
+            if key in _ALLOWED_ENGINE_OPTION_KEYS
+        }
+        gen_kwargs.update(extra_kwargs)
         result = self._engine.generate(
             messages,
             model=self._model,
             temperature=self._temperature,
             max_tokens=self._max_tokens,
-            **extra_kwargs,
+            **gen_kwargs,
         )
 
         if self._bus and not getattr(self._engine, "_publishes_events", False):
@@ -321,6 +416,7 @@ class ToolUsingAgent(BaseAgent):
         loop_guard_config: Optional[Any] = None,
         capability_policy: Optional[Any] = None,
         agent_id: Optional[str] = None,
+        rate_limiter: Optional[Any] = None,
         interactive: bool = False,
         confirm_callback: Optional[Any] = None,
         skill_few_shot_examples: Optional[List[str]] = None,
@@ -333,6 +429,9 @@ class ToolUsingAgent(BaseAgent):
             temperature=temperature,
             max_tokens=max_tokens,
             prompt_builder=prompt_builder,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id=agent_id,
         )
         from openjarvis.tools._stubs import ToolExecutor
 
@@ -348,6 +447,7 @@ class ToolUsingAgent(BaseAgent):
             agent_id=_aid,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            rate_limiter=rate_limiter,
         )
         # Resolve max_turns: explicit arg > config > class default > 10
         if max_turns is not None:
@@ -372,6 +472,39 @@ class ToolUsingAgent(BaseAgent):
                 self._loop_guard = LoopGuard(loop_guard_config, bus=bus)
         except ImportError:
             pass
+
+    def _emit_turn_start(self, input: str) -> None:
+        # A ToolUsingAgent instance may serve many unrelated requests. Start
+        # each run with fresh taint seeded only from the new user input;
+        # _build_messages below replaces this with full conversation history
+        # for agents that receive an AgentContext.
+        executor = getattr(self, "_executor", None)
+        if executor is not None:
+            executor.begin_session([input])
+        super()._emit_turn_start(input)
+
+    def _build_messages(
+        self,
+        input: str,
+        context: Optional[AgentContext] = None,
+        *,
+        system_prompt: Optional[str] = None,
+    ) -> list[Message]:
+        messages = super()._build_messages(
+            input,
+            context,
+            system_prompt=system_prompt,
+        )
+        self._begin_tool_session_from_messages(messages)
+        return messages
+
+    def _begin_tool_session_from_messages(self, messages: List[Message]) -> None:
+        """Seed executor taint from the complete conversation for this run."""
+        executor = getattr(self, "_executor", None)
+        if executor is not None:
+            executor.begin_session(
+                [message.text for message in messages if message.text]
+            )
 
 
 __all__ = ["AgentContext", "AgentResult", "BaseAgent", "ToolUsingAgent"]

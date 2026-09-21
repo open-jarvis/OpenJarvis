@@ -15,7 +15,7 @@ def _write_config(tmp_path: Path, split_value: str | None) -> Path:
 name = "split-parse-test"
 
 [run]
-output_dir = "{tmp_path / "out"}"
+output_dir = "{(tmp_path / "out").as_posix()}"
 seed = 42
 
 [[models]]

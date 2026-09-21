@@ -22,6 +22,9 @@ export function ConversationList({ searchQuery }: Props) {
   const navigate = useNavigate();
   const conversations = useAppStore((s) => s.conversations);
   const activeId = useAppStore((s) => s.activeId);
+  const streamingConversationId = useAppStore((s) =>
+    s.streamState.isStreaming ? s.streamState.conversationId : null,
+  );
   const selectConversation = useAppStore((s) => s.selectConversation);
   const deleteConversation = useAppStore((s) => s.deleteConversation);
 
@@ -43,6 +46,7 @@ export function ConversationList({ searchQuery }: Props) {
     <div className="flex flex-col gap-0.5 py-1">
       {filtered.map((conv) => {
         const isActive = conv.id === activeId;
+        const isStreaming = conv.id === streamingConversationId;
         return (
           <div
             key={conv.id}
@@ -82,11 +86,18 @@ export function ConversationList({ searchQuery }: Props) {
                 e.stopPropagation();
                 deleteConversation(conv.id);
               }}
-              className="p-1.5 mr-1 rounded opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+              disabled={isStreaming}
+              className="p-1.5 mr-1 rounded opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer disabled:cursor-not-allowed disabled:opacity-30"
               style={{ color: 'var(--color-text-tertiary)' }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-error)')}
+              onMouseEnter={(e) => {
+                if (!isStreaming) e.currentTarget.style.color = 'var(--color-error)';
+              }}
               onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}
-              title="Delete conversation"
+              title={
+                isStreaming
+                  ? 'Stop generating before deleting this conversation'
+                  : 'Delete conversation'
+              }
             >
               <Trash2 size={14} />
             </button>

@@ -17,7 +17,7 @@ ollama pull qwen3.5:4b
 git clone https://github.com/open-jarvis/OpenJarvis.git
 cd OpenJarvis
 uv sync
-jarvis init --preset chat-simple
+jarvis init --preset chat-simple --force
 ```
 
 ### 3. Ask a question

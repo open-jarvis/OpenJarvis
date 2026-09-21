@@ -95,6 +95,29 @@ class SQLiteMemory(MemoryBackend):
         )
         return doc_id
 
+    def replace_source(
+        self,
+        source: str,
+        documents: List[tuple[str, Optional[Dict[str, Any]]]],
+    ) -> List[str]:
+        """Atomically replace all documents associated with *source*."""
+        payload = [
+            (content, json.dumps(metadata) if metadata else None)
+            for content, metadata in documents
+        ]
+        doc_ids = self._rust_impl.replace_source(source, payload)
+        bus = get_event_bus()
+        for doc_id in doc_ids:
+            bus.publish(
+                EventType.MEMORY_STORE,
+                {
+                    "backend": self.backend_id,
+                    "doc_id": doc_id,
+                    "source": source,
+                },
+            )
+        return doc_ids
+
     def retrieve(
         self,
         query: str,

@@ -55,6 +55,23 @@ class TestTraceStore:
         assert store.count() == 0
         store.close()
 
+    def test_expands_user_in_db_path(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ) -> None:
+        home = tmp_path / "home"
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(cwd)
+
+        store = TraceStore("~/.openjarvis/traces.db")
+        store.close()
+
+        assert (home / ".openjarvis" / "traces.db").exists()
+        assert not (cwd / "~").exists()
+
     def test_save_and_get(self, tmp_path: Path) -> None:
         store = TraceStore(tmp_path / "test.db")
         trace = _make_trace()
@@ -82,6 +99,25 @@ class TestTraceStore:
         store.save(_make_trace(query="q2"))
         store.save(_make_trace(query="q3"))
         assert store.count() == 3
+        store.close()
+
+    def test_concurrent_saves_are_serialized(self, tmp_path: Path) -> None:
+        """Concurrent trace writes must not be lost on the shared connection."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        store = TraceStore(tmp_path / "test.db")
+        traces = []
+        for i in range(64):
+            trace = _make_trace(query=f"q{i}")
+            trace.trace_id = f"trace-{i}"
+            traces.append(trace)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = [pool.submit(store.save, trace) for trace in traces]
+            for future in futures:
+                future.result()
+
+        assert store.count() == len(traces)
         store.close()
 
     def test_list_traces_no_filter(self, tmp_path: Path) -> None:

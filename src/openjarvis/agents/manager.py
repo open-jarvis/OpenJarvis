@@ -9,8 +9,10 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 import time
 import uuid
+from functools import wraps
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -95,6 +97,17 @@ CREATE TABLE IF NOT EXISTS agent_learning_log (
 _SUMMARY_MAX = 16000
 
 
+def _db_locked(func):
+    """Serialize access to the connection shared by manager worker threads."""
+
+    @wraps(func)
+    def wrapped(self, *args, **kwargs):
+        with self._db_lock:
+            return func(self, *args, **kwargs)
+
+    return wrapped
+
+
 class AgentManager:
     """Persistent agent lifecycle manager with SQLite backing."""
 
@@ -107,6 +120,7 @@ class AgentManager:
 
     def __init__(self, db_path: str, *, clear_stale_running: bool = False) -> None:
         self._db_path = str(db_path)
+        self._db_lock = threading.RLock()
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -149,6 +163,7 @@ class AgentManager:
         if clear_stale_running:
             self._clear_stale_running_state()
 
+    @_db_locked
     def _clear_stale_running_state(self) -> None:
         """Reset any agent stuck in ``status='running'`` on startup.
 
@@ -175,11 +190,13 @@ class AgentManager:
                 cur.rowcount,
             )
 
+    @_db_locked
     def close(self) -> None:
         self._conn.close()
 
     # ── Agent CRUD ────────────────────────────────────────────────
 
+    @_db_locked
     def create_agent(
         self,
         name: str,
@@ -188,16 +205,7 @@ class AgentManager:
     ) -> Dict[str, Any]:
         agent_id = uuid.uuid4().hex[:12]
         now = time.time()
-        # Pin the model the executor will actually use into the agent's config
-        # so the UI reflects what runs. Without this, config has no "model" and
-        # the executor silently falls back to _AGENT_TICK_DEFAULT_MODEL while
-        # the Overview shows a stale/default value. Lazy import avoids any
-        # import-order coupling with the executor module.
-        from openjarvis.agents.executor import _AGENT_TICK_DEFAULT_MODEL
-
         config = dict(config or {})
-        if not config.get("model"):
-            config["model"] = _AGENT_TICK_DEFAULT_MODEL
         config_json = json.dumps(config)
         self._conn.execute(
             "INSERT INTO managed_agents"
@@ -209,6 +217,7 @@ class AgentManager:
         self._conn.commit()
         return self.get_agent(agent_id)  # type: ignore[return-value]
 
+    @_db_locked
     def list_agents(self, include_archived: bool = False) -> List[Dict[str, Any]]:
         query = "SELECT * FROM managed_agents"
         if not include_archived:
@@ -217,12 +226,14 @@ class AgentManager:
         rows = self._conn.execute(query).fetchall()
         return [self._row_to_agent(r) for r in rows]
 
+    @_db_locked
     def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
         row = self._conn.execute(
             "SELECT * FROM managed_agents WHERE id = ?", (agent_id,)
         ).fetchone()
         return self._row_to_agent(row) if row else None
 
+    @_db_locked
     def update_agent(self, agent_id: str, **kwargs: Any) -> Dict[str, Any]:
         sets: List[str] = []
         vals: List[Any] = []
@@ -270,15 +281,19 @@ class AgentManager:
         self._conn.commit()
         return self.get_agent(agent_id)  # type: ignore[return-value]
 
+    @_db_locked
     def delete_agent(self, agent_id: str) -> None:
         self._set_status(agent_id, "archived")
 
+    @_db_locked
     def pause_agent(self, agent_id: str) -> None:
         self._set_status(agent_id, "paused")
 
+    @_db_locked
     def resume_agent(self, agent_id: str) -> None:
         self._set_status(agent_id, "idle")
 
+    @_db_locked
     def _set_status(self, agent_id: str, status: str) -> None:
         self._conn.execute(
             "UPDATE managed_agents SET status = ?, updated_at = ? WHERE id = ?",
@@ -288,6 +303,7 @@ class AgentManager:
 
     # ── Tick concurrency guard ────────────────────────────────────
 
+    @_db_locked
     def start_tick(self, agent_id: str) -> None:
         """Mark agent as running. Raises ValueError if already running.
 
@@ -295,23 +311,60 @@ class AgentManager:
         without any update is treated as a zombie left by a dead worker and
         overtaken rather than refused — otherwise a crash with no server
         around to sweep it would wedge the agent forever.
-        """
-        agent = self.get_agent(agent_id)
-        if agent and agent["status"] == "running":
-            age = time.time() - (agent.get("updated_at") or 0)
-            if age < self._STALE_TICK_SECONDS:
-                raise ValueError(f"Agent {agent_id} is already executing a tick")
-            logger.warning(
-                "Agent %s: overtaking stale tick lock (running, idle for %.0fs)",
-                agent_id,
-                age,
-            )
-        self._set_status(agent_id, "running")
 
+        The state transition is a single conditional SQLite update.  The
+        read-before-write approach is racy when two workers start together:
+        both can observe ``idle`` and then mark the row ``running``.  The
+        conditional update lets SQLite choose exactly one winner, including
+        when workers use separate connections or processes.
+        """
+        while True:
+            now = time.time()
+            stale_before = now - self._STALE_TICK_SECONDS
+            agent = self.get_agent(agent_id)
+            if agent is None:
+                return
+
+            was_stale = (
+                agent["status"] == "running"
+                and (agent.get("updated_at") or 0) <= stale_before
+            )
+            cursor = self._conn.execute(
+                "UPDATE managed_agents SET status = 'running', "
+                "updated_at = ? WHERE id = ? AND "
+                "(status != 'running' OR updated_at <= ?)",
+                (now, agent_id, stale_before),
+            )
+            self._conn.commit()
+            if cursor.rowcount:
+                if was_stale:
+                    age = time.time() - (agent.get("updated_at") or 0)
+                    logger.warning(
+                        "Agent %s: overtaking stale tick lock "
+                        "(running, idle for %.0fs)",
+                        agent_id,
+                        age,
+                    )
+                return
+
+            # Another connection acquired the lock after our read.  If that
+            # lock is still fresh, this caller loses; if it ended between the
+            # failed update and this read, retry so the caller never proceeds
+            # without owning the tick lock.
+            current = self.get_agent(agent_id)
+            if current is None:
+                return
+            if current["status"] == "running":
+                age = time.time() - (current.get("updated_at") or 0)
+                if age < self._STALE_TICK_SECONDS:
+                    raise ValueError(f"Agent {agent_id} is already executing a tick")
+
+    @_db_locked
     def end_tick(self, agent_id: str) -> None:
         self._conn.execute(
             "UPDATE managed_agents SET status = 'idle', "
-            "current_activity = '', updated_at = ? WHERE id = ?",
+            "current_activity = '', updated_at = ? "
+            "WHERE id = ? AND status = 'running'",
             (time.time(), agent_id),
         )
         self._conn.commit()
@@ -320,6 +373,7 @@ class AgentManager:
 
     _CHECKPOINT_RETENTION = 5
 
+    @_db_locked
     def save_checkpoint(
         self,
         agent_id: str,
@@ -357,6 +411,7 @@ class AgentManager:
             "created_at": now,
         }
 
+    @_db_locked
     def list_checkpoints(self, agent_id: str) -> list:
         rows = self._conn.execute(
             "SELECT * FROM agent_checkpoints"
@@ -365,6 +420,7 @@ class AgentManager:
         ).fetchall()
         return [self._row_to_checkpoint(r) for r in rows]
 
+    @_db_locked
     def get_latest_checkpoint(self, agent_id: str) -> Optional[Dict[str, Any]]:
         row = self._conn.execute(
             "SELECT * FROM agent_checkpoints"
@@ -373,6 +429,7 @@ class AgentManager:
         ).fetchone()
         return self._row_to_checkpoint(row) if row else None
 
+    @_db_locked
     def recover_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
         checkpoint = self.get_latest_checkpoint(agent_id)
         # Always reset to idle — clearing the error state is the primary purpose
@@ -392,6 +449,7 @@ class AgentManager:
 
     # ── Summary memory ────────────────────────────────────────────
 
+    @_db_locked
     def update_summary_memory(self, agent_id: str, summary: str) -> None:
         truncated = summary[:_SUMMARY_MAX]
         self._conn.execute(
@@ -402,6 +460,7 @@ class AgentManager:
 
     # ── Task CRUD ─────────────────────────────────────────────────
 
+    @_db_locked
     def create_task(
         self, agent_id: str, description: str, status: str = "pending"
     ) -> Dict[str, Any]:
@@ -415,6 +474,7 @@ class AgentManager:
         self._conn.commit()
         return self._get_task(task_id)  # type: ignore[return-value]
 
+    @_db_locked
     def list_tasks(
         self, agent_id: str, status: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -427,6 +487,7 @@ class AgentManager:
         rows = self._conn.execute(query, params).fetchall()
         return [self._row_to_task(r) for r in rows]
 
+    @_db_locked
     def update_task(self, task_id: str, **kwargs: Any) -> Dict[str, Any]:
         sets: List[str] = []
         vals: List[Any] = []
@@ -449,10 +510,12 @@ class AgentManager:
         self._conn.commit()
         return self._get_task(task_id)  # type: ignore[return-value]
 
+    @_db_locked
     def delete_task(self, task_id: str) -> None:
         self._conn.execute("DELETE FROM agent_tasks WHERE id = ?", (task_id,))
         self._conn.commit()
 
+    @_db_locked
     def _get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         row = self._conn.execute(
             "SELECT * FROM agent_tasks WHERE id = ?", (task_id,)
@@ -461,6 +524,7 @@ class AgentManager:
 
     # ── Channel bindings ──────────────────────────────────────────
 
+    @_db_locked
     def bind_channel(
         self,
         agent_id: str,
@@ -480,22 +544,26 @@ class AgentManager:
         self._conn.commit()
         return self._get_binding(binding_id)  # type: ignore[return-value]
 
+    @_db_locked
     def list_channel_bindings(self, agent_id: str) -> List[Dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT * FROM channel_bindings WHERE agent_id = ?", (agent_id,)
         ).fetchall()
         return [self._row_to_binding(r) for r in rows]
 
+    @_db_locked
     def unbind_channel(self, binding_id: str) -> None:
         self._conn.execute("DELETE FROM channel_bindings WHERE id = ?", (binding_id,))
         self._conn.commit()
 
+    @_db_locked
     def _get_binding(self, binding_id: str) -> Optional[Dict[str, Any]]:
         row = self._conn.execute(
             "SELECT * FROM channel_bindings WHERE id = ?", (binding_id,)
         ).fetchone()
         return self._row_to_binding(row) if row else None
 
+    @_db_locked
     def find_binding_for_channel(
         self, channel_type: str, channel_id: str
     ) -> Optional[Dict[str, Any]]:
@@ -577,6 +645,7 @@ class AgentManager:
 
     # ── Message queue ─────────────────────────────────────────────
 
+    @_db_locked
     def send_message(self, agent_id: str, content: str, mode: str = "queued") -> dict:
         msg_id = uuid4().hex[:16]
         now = time.time()
@@ -597,6 +666,7 @@ class AgentManager:
             "created_at": now,
         }
 
+    @_db_locked
     def store_agent_response(
         self,
         agent_id: str,
@@ -632,6 +702,7 @@ class AgentManager:
             "tool_calls": tool_calls or None,
         }
 
+    @_db_locked
     def list_messages(self, agent_id: str, limit: int = 50) -> list[dict]:
         rows = self._conn.execute(
             "SELECT * FROM agent_messages"
@@ -640,6 +711,7 @@ class AgentManager:
         ).fetchall()
         return [self._row_to_message(r) for r in rows]
 
+    @_db_locked
     def get_pending_messages(self, agent_id: str) -> list[dict]:
         rows = self._conn.execute(
             "SELECT * FROM agent_messages"
@@ -649,6 +721,7 @@ class AgentManager:
         ).fetchall()
         return [self._row_to_message(r) for r in rows]
 
+    @_db_locked
     def mark_message_delivered(self, message_id: str) -> None:
         self._conn.execute(
             "UPDATE agent_messages SET status = 'delivered' WHERE id = ?",
@@ -656,6 +729,7 @@ class AgentManager:
         )
         self._conn.commit()
 
+    @_db_locked
     def add_agent_response(self, agent_id: str, content: str) -> dict:
         msg_id = uuid4().hex[:16]
         now = time.time()
@@ -701,6 +775,7 @@ class AgentManager:
 
     # ── Learning log ──────────────────────────────────────────
 
+    @_db_locked
     def add_learning_log(
         self,
         agent_id: str,
@@ -726,6 +801,7 @@ class AgentManager:
             "created_at": now,
         }
 
+    @_db_locked
     def list_learning_log(self, agent_id: str, limit: int = 50) -> list[dict]:
         rows = self._conn.execute(
             "SELECT * FROM agent_learning_log"

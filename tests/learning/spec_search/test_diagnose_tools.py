@@ -280,3 +280,51 @@ class TestListPersonalBenchmark:
         parsed = json.loads(result)
         assert len(parsed) == 1
         assert parsed[0]["task_id"] == "task-001"
+
+
+class TestRunSelfOnTask:
+    """Tests for the run_self_on_task diagnostic tool."""
+
+    def test_passes_message_objects_to_generate(self, tmp_path: Path) -> None:
+        from openjarvis.core.types import Message, Role
+        from openjarvis.learning.spec_search.diagnose.tools import (
+            build_diagnostic_tools,
+        )
+
+        captured_messages: list[Message] = []
+
+        def _mock_generate(*, messages: list[Message], **_: Any) -> dict[str, Any]:
+            captured_messages.extend(messages)
+            return {
+                "content": "ok",
+                "cost_usd": 0.0,
+                "usage": {"total_tokens": 1},
+            }
+
+        teacher_engine = MagicMock()
+        teacher_engine.generate.side_effect = _mock_generate
+
+        tools = build_diagnostic_tools(
+            trace_store=_make_stub_trace_store(),
+            config=_make_stub_config(tmp_path),
+            benchmark_samples=_make_stub_benchmark_samples(),
+            student_runner=MagicMock(),
+            teacher_engine=teacher_engine,
+            teacher_model="claude-opus-4-6",
+            judge=MagicMock(),
+            session_id="session-001",
+        )
+        run_self_on_task = next(t for t in tools if t.name == "run_self_on_task")
+        result = run_self_on_task.fn(task_id="task-001")
+
+        teacher_engine.generate.assert_called_once()
+        assert captured_messages
+        assert isinstance(captured_messages[0], Message)
+        assert captured_messages[0].role == Role.USER
+
+        parsed = json.loads(result)
+        assert parsed["task_id"] == "task-001"
+        assert parsed["output"] == "ok"
+        assert parsed["cost_usd"] == 0.0
+        assert parsed["tokens_used"] == 1
+        assert "error" not in parsed

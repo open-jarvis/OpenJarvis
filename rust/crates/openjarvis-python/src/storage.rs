@@ -33,6 +33,33 @@ impl PySQLiteMemory {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     }
 
+    fn replace_source(
+        &self,
+        source: &str,
+        documents: Vec<(String, Option<String>)>,
+    ) -> PyResult<Vec<String>> {
+        let parsed_documents = documents
+            .into_iter()
+            .map(|(content, metadata)| {
+                let metadata = metadata
+                    .map(|value| serde_json::from_str(&value))
+                    .transpose()
+                    .map_err(|e| {
+                        PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string())
+                    })?;
+                Ok((content, metadata))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let document_refs = parsed_documents
+            .iter()
+            .map(|(content, metadata)| (content.as_str(), metadata.as_ref()))
+            .collect::<Vec<_>>();
+
+        self.inner
+            .replace_source(source, &document_refs)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    }
+
     #[pyo3(signature = (query, top_k=5))]
     fn retrieve(&self, query: &str, top_k: usize) -> PyResult<String> {
         let results = self

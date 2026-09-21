@@ -88,12 +88,46 @@ class TestHeuristicRouter:
         router = HeuristicRouter(
             available_models=["small", "large", "coder"],
         )
-        ctx = RoutingContext(
-            query="solve x",
-            query_length=7,
-            has_math=True,
-        )
+        ctx = build_routing_context("solve the integral of x^2 dx")
+        assert ctx.has_math is True
+        assert ctx.complexity_score > 0.20
         assert router.select_model(ctx) == "large"
+
+    def test_unknown_local_model_does_not_beat_known_local_model(self) -> None:
+        _register_models()
+        ModelRegistry.register_value(
+            "unknown-local",
+            ModelSpec(
+                model_id="unknown-local",
+                name="Unknown local model",
+                parameter_count_b=0.0,
+                context_length=4096,
+                supported_engines=("ollama",),
+            ),
+        )
+        router = HeuristicRouter(available_models=["small", "unknown-local"])
+        ctx = RoutingContext(
+            query="solve this carefully",
+            query_length=20,
+            has_math=True,
+            complexity_score=0.4,
+        )
+
+        assert router.select_model(ctx) == "small"
+
+    def test_low_complexity_math_prefers_small(self) -> None:
+        """Regression test: a trivial math query ("calculate 2+2") must not
+        escalate to the largest model just because it contains a math
+        keyword — the low-complexity rule takes priority over the math rule.
+        """
+        _register_models()
+        router = HeuristicRouter(
+            available_models=["small", "large", "coder"],
+        )
+        ctx = build_routing_context("calculate 2+2")
+        assert ctx.has_math is True
+        assert ctx.complexity_score == 0.20
+        assert router.select_model(ctx) == "small"
 
     def test_high_complexity_prefers_large(self) -> None:
         _register_models()

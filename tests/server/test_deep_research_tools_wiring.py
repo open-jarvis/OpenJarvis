@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,6 +17,94 @@ except ImportError:
     HAS_FASTAPI = False
 
 from openjarvis.connectors.store import KnowledgeStore
+from openjarvis.core.events import EventBus
+from openjarvis.core.registry import ToolRegistry
+from openjarvis.core.types import Role, ToolResult
+from openjarvis.security.capabilities import CapabilityPolicy
+from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+
+class _ConfiguredResearchProbe(BaseTool):
+    """Configured native tool used to exercise the Deep Research SSE path."""
+
+    tool_id = "configured_research_probe_682"
+    calls = 0
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Configured Deep Research probe",
+            parameters={
+                "type": "object",
+                "properties": {"value": {"type": "string"}},
+                "required": ["value"],
+            },
+            required_capabilities=["system:admin"],
+        )
+
+    def execute(self, **params) -> ToolResult:
+        type(self).calls += 1
+        return ToolResult(
+            tool_name=self.tool_id,
+            content=f"configured:{params['value']}",
+        )
+
+
+class _MCPResearchProbe(BaseTool):
+    """MCP-shaped adapter that must be merged into the same toolkit."""
+
+    tool_id = "mcp_research_probe_682"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(name=self.tool_id, description="MCP Deep Research probe")
+
+    def execute(self, **params) -> ToolResult:
+        return ToolResult(tool_name=self.tool_id, content="mcp")
+
+
+class _ScriptedDeepResearchEngine:
+    """Call the configured probe once, then return a final answer."""
+
+    def __init__(self) -> None:
+        self.turns = 0
+        self.advertised_names: list[str] = []
+        self.observed_tool_result = ""
+
+    def generate(self, messages, *, model, **kwargs):
+        self.turns += 1
+        self.advertised_names = [
+            spec["function"]["name"] for spec in kwargs.get("tools", [])
+        ]
+        if self.turns == 1:
+            return {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call-configured-research-probe",
+                        "type": "function",
+                        "function": {
+                            "name": _ConfiguredResearchProbe.tool_id,
+                            "arguments": json.dumps({"value": "sentinel"}),
+                        },
+                    }
+                ],
+                "usage": {},
+            }
+
+        tool_messages = [message for message in messages if message.role is Role.TOOL]
+        self.observed_tool_result = tool_messages[-1].content
+        return {"content": "complete", "tool_calls": [], "usage": {}}
+
+
+class _RecordingRateLimiter:
+    def __init__(self) -> None:
+        self.keys: list[str] = []
+
+    def check(self, key: str):
+        self.keys.append(key)
+        return True, 0.0
 
 
 @pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
@@ -53,3 +143,208 @@ def test_deep_research_tools_returns_empty_when_no_db() -> None:
     )
 
     assert tools == []
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "with_knowledge_db,deny_probe",
+    [(False, False), (True, False), (False, True)],
+    ids=["without-knowledge-db", "with-knowledge-db", "policy-denied"],
+)
+async def test_server_deep_research_merges_and_executes_all_tool_sources(
+    tmp_path: Path,
+    with_knowledge_db: bool,
+    deny_probe: bool,
+    monkeypatch,
+) -> None:
+    """Configured and MCP tools reach Deep Research with or without its DB."""
+
+    from openjarvis.server import agent_manager_routes as routes
+
+    start_worker = MagicMock(wraps=routes._start_managed_worker)
+    monkeypatch.setattr(routes, "_start_managed_worker", start_worker)
+
+    db_path = tmp_path / "knowledge.db"
+    if with_knowledge_db:
+        store = KnowledgeStore(str(db_path))
+        store.store("test content", source="test", doc_type="note")
+        store.close()
+
+    if not ToolRegistry.contains(_ConfiguredResearchProbe.tool_id):
+        ToolRegistry.register_value(
+            _ConfiguredResearchProbe.tool_id,
+            _ConfiguredResearchProbe,
+        )
+    _ConfiguredResearchProbe.calls = 0
+
+    mcp_tool = _MCPResearchProbe()
+    runtime_agent_id = "agent-deep-research-682"
+    policy = None
+    if deny_probe:
+        policy = CapabilityPolicy(default_deny=True)
+        policy.deny(runtime_agent_id, "system:admin")
+    rate_limiter = _RecordingRateLimiter()
+    app_state = SimpleNamespace(
+        config=SimpleNamespace(memory_files=None, system_prompt=None),
+        bus=EventBus(record_history=True),
+        capability_policy=policy,
+        rate_limiter=rate_limiter,
+        memory_backend=None,
+        channel_backend=None,
+        channel_bridge=None,
+        knowledge_db_path=str(db_path),
+        _mcp_clients=[object()],
+        _mcp_tools_cache=(
+            [mcp_tool.to_openai_function()],
+            {mcp_tool.spec.name: mcp_tool},
+        ),
+    )
+    manager = MagicMock()
+    manager.list_messages.return_value = []
+    engine = _ScriptedDeepResearchEngine()
+    on_complete = MagicMock()
+
+    response = await routes._stream_managed_agent(
+        manager=manager,
+        agent_record={
+            "id": runtime_agent_id,
+            "name": "Deep Research Agent",
+            "agent_type": "deep_research",
+            "config": {
+                "model": "test-model",
+                "max_turns": 3,
+                "tools": [_ConfiguredResearchProbe.tool_id],
+            },
+        },
+        user_content="Use the configured research probe",
+        message_id="message-deep-research-682",
+        engine=engine,
+        bus=None,
+        app_state=app_state,
+        on_complete=on_complete,
+    )
+
+    body_parts: list[str] = []
+    async for part in response.body_iterator:
+        body_parts.append(part.decode() if isinstance(part, bytes) else part)
+    assert response.background is not None
+    await response.background()
+    on_complete.assert_called_once_with()
+
+    expected_names = {
+        _ConfiguredResearchProbe.tool_id,
+        _MCPResearchProbe.tool_id,
+    }
+    knowledge_names = {
+        "knowledge_search",
+        "knowledge_sql",
+        "scan_chunks",
+        "think",
+    }
+    if with_knowledge_db:
+        expected_names.update(knowledge_names)
+
+    assert set(engine.advertised_names) == expected_names
+    assert len(engine.advertised_names) == len(expected_names)
+    assert not with_knowledge_db or knowledge_names.issubset(engine.advertised_names)
+    assert with_knowledge_db or knowledge_names.isdisjoint(engine.advertised_names)
+    assert engine.turns == 2
+    assert _ConfiguredResearchProbe.calls == (0 if deny_probe else 1)
+    if deny_probe:
+        assert "system:admin" in engine.observed_tool_result
+        assert "denied" in engine.observed_tool_result
+    else:
+        assert engine.observed_tool_result == "configured:sentinel"
+    assert rate_limiter.keys == [
+        f"{runtime_agent_id}:{_ConfiguredResearchProbe.tool_id}"
+    ]
+    assert "data: [DONE]" in "".join(body_parts)
+    start_worker.assert_called_once()
+    assert start_worker.call_args.kwargs["name"].startswith(
+        "managed-agent-deep-research-"
+    )
+    assert app_state._managed_workers == set()
+
+    manager.store_agent_response.assert_called_once()
+    stored = manager.store_agent_response.call_args
+    assert stored.args[:2] == (runtime_agent_id, "complete")
+    persisted_calls = stored.kwargs["tool_calls"]
+    assert persisted_calls[0]["tool"] == _ConfiguredResearchProbe.tool_id
+    if deny_probe:
+        assert "system:admin" in persisted_calls[0]["result"]
+        assert persisted_calls[0]["success"] is False
+    else:
+        assert persisted_calls[0]["result"] == "configured:sentinel"
+        assert persisted_calls[0]["success"] is True
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
+@pytest.mark.asyncio
+async def test_disconnected_research_stream_keeps_tick_until_worker_finishes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A closed SSE response must not admit another still-running research tick."""
+    import asyncio
+    import threading
+
+    from openjarvis.agents._stubs import AgentResult
+    from openjarvis.agents.manager import AgentManager
+    from openjarvis.server import agent_manager_routes as routes
+
+    started = threading.Event()
+    release = threading.Event()
+    completed = threading.Event()
+    toolkit = SimpleNamespace(
+        instances=[_MCPResearchProbe()], mcp_clients=[], close=MagicMock()
+    )
+
+    class BlockedResearchAgent:
+        def __init__(self, **kwargs):
+            self._executor = SimpleNamespace(execute=MagicMock())
+
+        def run(self, query):
+            started.set()
+            assert release.wait(5)
+            return AgentResult(content="finished")
+
+    monkeypatch.setattr(routes, "resolve_agent_tools", lambda *args, **kwargs: toolkit)
+    monkeypatch.setattr(
+        "openjarvis.agents.deep_research.DeepResearchAgent",
+        BlockedResearchAgent,
+    )
+    manager = AgentManager(str(tmp_path / "agents.db"))
+    agent = manager.create_agent(name="blocked", agent_type="deep_research")
+    manager.start_tick(agent["id"])
+    message = manager.send_message(agent["id"], "research")
+
+    def finish_tick():
+        manager.end_tick(agent["id"])
+        completed.set()
+
+    response = await routes._stream_managed_agent(
+        manager=manager,
+        agent_record=agent,
+        user_content="research",
+        message_id=message["id"],
+        engine=MagicMock(),
+        bus=None,
+        app_state=SimpleNamespace(config=None),
+        on_complete=finish_tick,
+    )
+    consumer = asyncio.create_task(anext(response.body_iterator))
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        consumer.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await consumer
+        await response.background()
+        assert not completed.is_set()
+        with pytest.raises(ValueError, match="already executing"):
+            manager.start_tick(agent["id"])
+    finally:
+        release.set()
+        assert await asyncio.to_thread(completed.wait, 5)
+        assert manager.get_agent(agent["id"])["status"] == "idle"
+        manager.close()

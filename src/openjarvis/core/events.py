@@ -7,11 +7,14 @@ react without direct coupling.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional  # noqa: I001
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Event taxonomy
@@ -47,6 +50,7 @@ class EventType(str, Enum):
     LOOP_GUARD_TRIGGERED = "loop_guard_triggered"
     CAPABILITY_DENIED = "capability_denied"
     TAINT_VIOLATION = "taint_violation"
+    RATE_LIMITED = "rate_limited"
     # Phase 15 — Workflow, Skills, Sessions
     WORKFLOW_START = "workflow_start"
     WORKFLOW_NODE_START = "workflow_node_start"
@@ -147,7 +151,16 @@ class EventBus:
             listeners = list(self._subscribers.get(event_type, []))
 
         for callback in listeners:
-            callback(event)
+            try:
+                callback(event)
+            except Exception:
+                # Subscribers are observers: one broken observer must neither
+                # interrupt the publisher nor starve later subscribers.
+                logger.exception(
+                    "Event subscriber %r failed while handling %s",
+                    callback,
+                    event_type.value,
+                )
 
         return event
 

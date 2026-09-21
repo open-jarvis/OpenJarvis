@@ -44,6 +44,12 @@ CREATE TABLE IF NOT EXISTS telemetry (
     cpu_energy_joules    REAL NOT NULL DEFAULT 0.0,
     gpu_energy_joules    REAL NOT NULL DEFAULT 0.0,
     dram_energy_joules   REAL NOT NULL DEFAULT 0.0,
+    ane_energy_joules    REAL NOT NULL DEFAULT 0.0,
+    soc_energy_joules    REAL NOT NULL DEFAULT 0.0,
+    -- Rail set the derived per-token/per-watt columns were computed from:
+    -- 'soc' on Apple Silicon, 'gpu' elsewhere. '' on rows written before the
+    -- column existed, which are GPU-basis by construction.
+    energy_basis    TEXT    NOT NULL DEFAULT '',
     tokens_per_joule     REAL NOT NULL DEFAULT 0.0,
     energy_per_output_token_joules REAL NOT NULL DEFAULT 0.0,
     throughput_per_watt  REAL NOT NULL DEFAULT 0.0,
@@ -92,6 +98,7 @@ INSERT INTO telemetry (
     throughput_tok_per_sec, prefill_latency_seconds, decode_latency_seconds,
     energy_method, energy_vendor, batch_id, is_warmup,
     cpu_energy_joules, gpu_energy_joules, dram_energy_joules,
+    ane_energy_joules, soc_energy_joules, energy_basis,
     tokens_per_joule,
     energy_per_output_token_joules, throughput_per_watt,
     prefill_energy_joules, decode_energy_joules,
@@ -104,7 +111,8 @@ INSERT INTO telemetry (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+    ?, ?, ?, ?
 )
 """
 
@@ -129,6 +137,9 @@ _MIGRATE_COLUMNS = [
     ("cpu_energy_joules", "REAL NOT NULL DEFAULT 0.0"),
     ("gpu_energy_joules", "REAL NOT NULL DEFAULT 0.0"),
     ("dram_energy_joules", "REAL NOT NULL DEFAULT 0.0"),
+    ("ane_energy_joules", "REAL NOT NULL DEFAULT 0.0"),
+    ("soc_energy_joules", "REAL NOT NULL DEFAULT 0.0"),
+    ("energy_basis", "TEXT NOT NULL DEFAULT ''"),
     ("tokens_per_joule", "REAL NOT NULL DEFAULT 0.0"),
     ("energy_per_output_token_joules", "REAL NOT NULL DEFAULT 0.0"),
     ("throughput_per_watt", "REAL NOT NULL DEFAULT 0.0"),
@@ -196,6 +207,7 @@ class TelemetryStore:
         self._telemetry_batch: list[tuple[Any, ...]] = []
         self._mining_batch: list[tuple[Any, ...]] = []
         self._closed = False
+        self._event_bus: EventBus | None = None
 
         # Background flusher: without it, a partial batch written just before
         # traffic stops would stay invisible to other connections until the
@@ -262,6 +274,9 @@ class TelemetryStore:
             rec.cpu_energy_joules,
             rec.gpu_energy_joules,
             rec.dram_energy_joules,
+            rec.ane_energy_joules,
+            rec.soc_energy_joules,
+            rec.energy_basis,
             rec.tokens_per_joule,
             rec.energy_per_output_token_joules,
             rec.throughput_per_watt,
@@ -279,6 +294,8 @@ class TelemetryStore:
             json.dumps(rec.metadata),
         )
         with self._lock:
+            if self._closed:
+                raise RuntimeError("TelemetryStore is closed")
             self._telemetry_batch.append(row)
             self._maybe_flush_unlocked()
 
@@ -302,6 +319,8 @@ class TelemetryStore:
             stats.fees_owed,
         )
         with self._lock:
+            if self._closed:
+                raise RuntimeError("TelemetryStore is closed")
             self._mining_batch.append(row)
             self._maybe_flush_unlocked()
 
@@ -355,7 +374,15 @@ class TelemetryStore:
 
     def subscribe_to_bus(self, bus: EventBus) -> None:
         """Subscribe to ``TELEMETRY_RECORD`` events on *bus*."""
-        bus.subscribe(EventType.TELEMETRY_RECORD, self._on_event)
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("TelemetryStore is closed")
+            if self._event_bus is bus:
+                return
+            if self._event_bus is not None:
+                self._event_bus.unsubscribe(EventType.TELEMETRY_RECORD, self._on_event)
+            bus.subscribe(EventType.TELEMETRY_RECORD, self._on_event)
+            self._event_bus = bus
 
     def _on_event(self, event: Event) -> None:
         rec = event.data.get("record")
@@ -374,6 +401,12 @@ class TelemetryStore:
         with self._lock:
             if self._closed:
                 return
+            if self._event_bus is not None:
+                self._event_bus.unsubscribe(
+                    EventType.TELEMETRY_RECORD,
+                    self._on_event,
+                )
+                self._event_bus = None
             self._flush_unlocked()
             self._conn.close()
             self._closed = True

@@ -243,10 +243,12 @@ class MemoryIndexTool(BaseTool):
                     },
                     "chunk_size": {
                         "type": "integer",
+                        "minimum": 1,
                         "description": "Chunk size in characters (default 512).",
                     },
                     "chunk_overlap": {
                         "type": "integer",
+                        "minimum": 0,
                         "description": "Overlap between chunks (default 64).",
                     },
                 },
@@ -281,9 +283,11 @@ class MemoryIndexTool(BaseTool):
             from openjarvis.tools.storage.chunking import ChunkConfig
             from openjarvis.tools.storage.ingest import ingest_path
 
+            chunk_size = params.get("chunk_size", 512)
+            chunk_overlap = params.get("chunk_overlap", 64)
             chunk_cfg = ChunkConfig(
-                chunk_size=int(params.get("chunk_size", 512)),
-                chunk_overlap=int(params.get("chunk_overlap", 64)),
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
             )
             chunks = ingest_path(Path(path), config=chunk_cfg)
             stored = 0

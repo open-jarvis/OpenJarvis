@@ -7,6 +7,7 @@ from typing import List
 
 import click
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from openjarvis.core.config import load_config
@@ -47,8 +48,8 @@ def _get_skill_paths() -> List[Path]:
     return paths
 
 
-def _get_manager() -> SkillManager:
-    mgr = SkillManager(bus=EventBus())
+def _get_manager(bus: EventBus | None = None) -> SkillManager:
+    mgr = SkillManager(bus=bus if bus is not None else EventBus())
     mgr.discover(paths=_get_skill_paths())
     return mgr
 
@@ -112,31 +113,92 @@ def info(skill_name: str):
     )
 
 
+def _skill_tool_names(mgr: SkillManager, skill_name: str) -> list[str]:
+    """Collect only the tools needed by this pipeline and its nested skills."""
+    names: list[str] = []
+    visited: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in visited:
+            return
+        visited.add(name)
+        try:
+            manifest = mgr.resolve(name)
+        except KeyError:
+            raise click.ClickException(f"Skill '{name}' not found.") from None
+        if not manifest.steps:
+            raise click.ClickException(
+                f"Skill '{name}' has no executable steps. Instruction-only skills "
+                "can be used by an agent, but cannot be run as a tool pipeline."
+            )
+        for step in manifest.steps:
+            if step.skill_name:
+                visit(step.skill_name)
+            elif step.tool_name and step.tool_name not in names:
+                names.append(step.tool_name)
+
+    visit(skill_name)
+    return names
+
+
 @skill.command("run")
 @click.argument("skill_name")
 @click.option("--arg", "-a", multiple=True, help="Arguments as key=value pairs.")
 def run(skill_name: str, arg: tuple):
-    """Execute a skill directly."""
+    """Execute a stepped skill using configured security and tool permissions."""
+    import openjarvis.tools  # noqa: F401
+    from openjarvis.cli._tool_names import resolve_tool_names
+    from openjarvis.cli.ask import _build_tools
+    from openjarvis.core.registry import ToolRegistry
+    from openjarvis.security import setup_security
+    from openjarvis.tools._stubs import ToolExecutor
+
     console = Console()
-    mgr = _get_manager()
+    bus = EventBus()
+    mgr = _get_manager(bus)
+    names = _skill_tool_names(mgr, skill_name)
+    cfg = load_config()
+    enabled = resolve_tool_names(None, cfg.tools.enabled)
+    unavailable = [
+        name
+        for name in names
+        if not ToolRegistry.contains(name) or (enabled and name not in enabled)
+    ]
+    if unavailable:
+        raise click.ClickException(
+            "Skill requires unavailable or disabled tools: " + ", ".join(unavailable)
+        )
     context = {}
     for a in arg:
         if "=" in a:
             k, v = a.split("=", 1)
             context[k.strip()] = v.strip()
+    sec = setup_security(cfg, None, bus)
     try:
+        tools = _build_tools(names, cfg, None, "")
+        mgr.set_tool_executor(
+            ToolExecutor(
+                tools,
+                bus,
+                capability_policy=sec.capability_policy,
+                rate_limiter=sec.rate_limiter,
+                agent_id="skill:cli",
+                interactive=True,
+                confirm_callback=lambda prompt: click.confirm(prompt, default=False),
+            )
+        )
         result = mgr.execute(skill_name, context)
-    except KeyError:
-        console.print(f"[red]Skill '{skill_name}' not found.[/red]")
-        raise SystemExit(1)
+    finally:
+        if sec.audit_logger is not None:
+            sec.audit_logger.close()
     if result.success:
         console.print("[green]Success[/green]")
-        if result.step_results:
-            console.print(result.step_results[-1].content)
     else:
         console.print("[red]Failed[/red]")
-        if result.step_results:
-            console.print(result.step_results[-1].content)
+    if result.step_results:
+        console.print(result.step_results[-1].content, markup=False)
+    if not result.success:
+        raise SystemExit(1)
 
 
 def _parse_source_query(query: str) -> tuple[str, str]:
@@ -183,6 +245,13 @@ def _get_resolver(source: str, url: str = ""):
     raise click.BadParameter(f"Unknown source: {source!r}")
 
 
+def _sync_resolver(resolver, console: Console) -> None:
+    resolver.sync()
+    warning = getattr(resolver, "refresh_warning", "")
+    if warning:
+        console.print(warning, style="yellow", markup=False)
+
+
 @skill.command("install")
 @click.argument("query")
 @click.option(
@@ -218,7 +287,7 @@ def install(query: str, with_scripts: bool, force: bool, url: str, yes_dangerous
 
     resolver = _get_resolver(source, url=url)
     try:
-        resolver.sync()
+        _sync_resolver(resolver, console)
     except Exception as exc:
         console.print(f"[red]Failed to sync source {source}: {exc}[/red]")
         raise SystemExit(1)
@@ -324,7 +393,7 @@ def sync(
     if not source_configs:
         console.print(
             "[yellow]No sources to sync. "
-            "Add sources to [skills.sources] in config.toml "
+            f"Add sources to {escape('[skills.sources]')} in config.toml "
             "or pass a source name.[/yellow]"
         )
         return
@@ -340,7 +409,7 @@ def sync(
         console.print(f"[cyan]Syncing {src['source']}...[/cyan]")
         try:
             resolver = _get_resolver(src["source"], url=src["url"])
-            resolver.sync()
+            _sync_resolver(resolver, console)
         except Exception as exc:
             console.print(f"[red]Failed to sync {src['source']}: {exc}[/red]")
             continue
@@ -397,7 +466,7 @@ def sources():
     if not cfg.skills.sources:
         console.print(
             "[dim]No skill sources configured. "
-            "Add entries to [skills.sources] in config.toml.[/dim]"
+            f"Add entries to {escape('[skills.sources]')} in config.toml.[/dim]"
         )
         return
 
@@ -477,7 +546,7 @@ def search(query: str, source: str):
     if not cfg.skills.sources:
         console.print(
             "[yellow]No skill sources configured. "
-            "Add entries to [skills.sources] in config.toml.[/yellow]"
+            f"Add entries to {escape('[skills.sources]')} in config.toml.[/yellow]"
         )
         raise SystemExit(1)
 
@@ -493,7 +562,7 @@ def search(query: str, source: str):
     for src_cfg in sources_to_search:
         try:
             resolver = _get_resolver(src_cfg.source, url=src_cfg.url)
-            resolver.sync()
+            _sync_resolver(resolver, console)
         except Exception as exc:
             console.print(f"[yellow]Skipped {src_cfg.source}: {exc}[/yellow]")
             continue
@@ -548,8 +617,9 @@ def update():
         console.print(f"[cyan]Updating {src.source}...[/cyan]")
         try:
             resolver = _get_resolver(src.source, url=src.url)
-            resolver.sync()
-            console.print("  [green]OK[/green]")
+            _sync_resolver(resolver, console)
+            if not getattr(resolver, "refresh_warning", ""):
+                console.print("  [green]OK[/green]")
         except Exception as exc:
             console.print(f"  [red]Failed: {exc}[/red]")
 

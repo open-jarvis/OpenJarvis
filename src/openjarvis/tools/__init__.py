@@ -38,6 +38,11 @@ except ImportError:
     pass
 
 try:
+    import openjarvis.tools.weather  # noqa: F401
+except ImportError:
+    pass
+
+try:
     import openjarvis.tools.code_interpreter  # noqa: F401
 except ImportError:
     pass
@@ -139,6 +144,21 @@ except ImportError:
 
 try:
     import openjarvis.tools.digest_collect  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.scan_chunks  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.knowledge_sql  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.apple_calendar  # noqa: F401
 except ImportError:
     pass
 

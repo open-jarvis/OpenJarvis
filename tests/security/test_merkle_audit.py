@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 
 from openjarvis.security.audit import AuditLogger
@@ -93,6 +94,51 @@ class TestMerkleAudit:
         logger.log(_make_event())
         assert logger.count() == 2
         logger.close()
+
+    def test_concurrent_loggers_preserve_chain(self, tmp_path):
+        """Concurrent writers must link each event to the committed predecessor."""
+        db_path = tmp_path / "audit.db"
+        first_tail_read = threading.Event()
+        release_first_tail_read = threading.Event()
+
+        class ControlledAuditLogger(AuditLogger):
+            def tail_hash(self):
+                if not first_tail_read.is_set():
+                    first_tail_read.set()
+                    assert release_first_tail_read.wait(timeout=5)
+                return super().tail_hash()
+
+        loggers = [
+            ControlledAuditLogger(db_path=db_path),
+            ControlledAuditLogger(db_path=db_path),
+        ]
+        errors = []
+
+        def write(logger, content):
+            try:
+                logger.log(_make_event(content=content))
+            except Exception as exc:  # noqa: BLE001 - capture race symptoms
+                errors.append(exc)
+
+        first = threading.Thread(target=write, args=(loggers[0], "first"))
+        second = threading.Thread(target=write, args=(loggers[1], "second"))
+        first.start()
+        assert first_tail_read.wait(timeout=5)
+        second.start()
+        release_first_tail_read.set()
+        first.join(timeout=5)
+        second.join(timeout=5)
+
+        assert errors == []
+        assert not first.is_alive()
+        assert not second.is_alive()
+        for logger in loggers:
+            logger.close()
+
+        verifier = AuditLogger(db_path=db_path)
+        assert verifier.count() == 2
+        assert verifier.verify_chain() == (True, None)
+        verifier.close()
 
     def test_query_returns_events(self, tmp_path):
         db_path = tmp_path / "audit.db"

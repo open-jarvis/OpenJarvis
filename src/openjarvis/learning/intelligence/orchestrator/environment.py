@@ -9,8 +9,9 @@ both training and evaluation.
 from __future__ import annotations
 
 import time
-from typing import List, Tuple
+from typing import Any, List, Optional, Tuple
 
+from openjarvis.core.events import EventBus
 from openjarvis.core.types import ToolCall
 from openjarvis.learning.intelligence.orchestrator.types import (
     EpisodeState,
@@ -18,6 +19,8 @@ from openjarvis.learning.intelligence.orchestrator.types import (
     OrchestratorObservation,
 )
 from openjarvis.tools._stubs import BaseTool, ToolExecutor
+
+_LEARNING_AGENT_ID = "learning"
 
 
 class OrchestratorEnvironment:
@@ -35,9 +38,23 @@ class OrchestratorEnvironment:
         self,
         tools: List[BaseTool],
         max_turns: int = 10,
+        *,
+        bus: Optional[EventBus] = None,
+        capability_policy: Optional[Any] = None,
+        rate_limiter: Optional[Any] = None,
+        agent_id: str = _LEARNING_AGENT_ID,
     ) -> None:
         self._tools = tools
-        self._executor = ToolExecutor(tools)
+        # Training/evaluation must not become an enforcement bypass.  A stable
+        # non-empty identity also makes capability, rate-limit and audit events
+        # attributable instead of pooling them under the anonymous key.
+        self._executor = ToolExecutor(
+            tools,
+            bus,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id=agent_id or _LEARNING_AGENT_ID,
+        )
         self._max_turns = max_turns
 
     def reset(self, task: str) -> EpisodeState:

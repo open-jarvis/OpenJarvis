@@ -213,6 +213,7 @@ class TestStreamingResilience:
         engine = _make_engine()
         agent = MagicMock()
         agent.agent_id = "simple"
+        agent._tools = []
         agent.run.return_value = AgentResult(
             content="agent response",
             turns=1,
@@ -264,6 +265,28 @@ class TestModelsEndpointExtended:
         assert "qwen3.5:4b" in ids
         assert "qwen3.5:9b" in ids
         assert "qwen3:0.6b" in ids
+
+    def test_models_list_filters_embedding_only_models(self):
+        engine = _make_engine(
+            models=["nomic-embed-text", "all-minilm:latest", "qwen3.5:4b"],
+        )
+        client = TestClient(create_app(engine, "qwen3.5:4b"))
+
+        resp = client.get("/v1/models")
+
+        assert resp.status_code == 200
+        assert [m["id"] for m in resp.json()["data"]] == ["qwen3.5:4b"]
+
+    def test_models_list_returns_empty_when_only_embedders_are_installed(self):
+        engine = _make_engine(
+            models=["nomic-embed-text", "hf.co/BAAI/bge-m3:latest"],
+        )
+        client = TestClient(create_app(engine, "nomic-embed-text"))
+
+        resp = client.get("/v1/models")
+
+        assert resp.status_code == 200
+        assert resp.json()["data"] == []
 
     def test_models_empty_engine(self):
         """When engine.list_models() returns empty, endpoint still succeeds."""

@@ -13,6 +13,7 @@ class SimpleAgent(BaseAgent):
     """Single-turn agent: query -> model -> response.  No tool calling."""
 
     agent_id = "simple"
+    supports_managed_tool_fallback = True
 
     def run(
         self,

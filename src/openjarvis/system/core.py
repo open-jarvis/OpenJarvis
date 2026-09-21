@@ -86,6 +86,10 @@ class JarvisSystem:
     skill_manager: Optional[SkillManager] = None
     _learning_orchestrator: Optional[LearningOrchestrator] = None
     _mcp_clients: List[MCPClient] = field(default_factory=list)
+    # Keep newly added fields after every pre-existing positional field so
+    # older positional JarvisSystem(...) calls retain their original meaning.
+    mcp_tools: List[BaseTool] = field(default_factory=list)
+    rate_limiter: Optional[Any] = None
 
     @property
     def security(self) -> SecurityContext:
@@ -93,6 +97,7 @@ class JarvisSystem:
             capability_policy=self.capability_policy,
             audit_logger=self.audit_logger,
             boundary_guard=self.boundary_guard,
+            rate_limiter=self.rate_limiter,
         )
 
     @property

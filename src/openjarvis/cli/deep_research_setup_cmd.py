@@ -279,7 +279,10 @@ def _launch_chat(store: KnowledgeStore, console: Console) -> None:
     """Start an interactive Deep Research chat session."""
     from openjarvis.agents.deep_research import DeepResearchAgent
     from openjarvis.connectors.retriever import TwoStageRetriever
+    from openjarvis.core.config import load_config
+    from openjarvis.core.events import EventBus
     from openjarvis.engine.ollama import OllamaEngine
+    from openjarvis.security import setup_security
     from openjarvis.tools.knowledge_search import KnowledgeSearchTool
     from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
     from openjarvis.tools.scan_chunks import ScanChunksTool
@@ -288,7 +291,10 @@ def _launch_chat(store: KnowledgeStore, console: Console) -> None:
     console.print("\n[bold]Setting up Deep Research agent...[/bold]")
 
     # Engine
-    engine = OllamaEngine()
+    config = load_config()
+    bus = EventBus(record_history=False)
+    security = setup_security(config, OllamaEngine(), bus)
+    engine = security.engine
     if not engine.health():
         console.print(
             "[red]Ollama is not running.[/red] Start it with: [bold]ollama serve[/bold]"
@@ -321,6 +327,10 @@ def _launch_chat(store: KnowledgeStore, console: Console) -> None:
         model=_OLLAMA_MODEL,
         tools=tools,
         interactive=True,
+        bus=bus,
+        capability_policy=security.capability_policy,
+        rate_limiter=security.rate_limiter,
+        agent_id="cli:deep-research",
     )
 
     console.print(

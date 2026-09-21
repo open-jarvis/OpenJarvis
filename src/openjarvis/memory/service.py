@@ -22,9 +22,18 @@ from typing import Any, List, Optional
 
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.memory.extractor import FactExtractor
-from openjarvis.memory.store import Fact, FactStore, create_fact_store
+from openjarvis.memory.store import (
+    TRUST_AUTO,
+    TRUST_UNTRUSTED,
+    Fact,
+    FactStore,
+    create_fact_store,
+)
 
 logger = logging.getLogger(__name__)
+
+# Only these severities suppress a whole exchange; see _blocks_exchange().
+_BLOCKING_THREAT_LEVELS = frozenset({"high", "critical"})
 
 # Sentinel pushed onto the queue to wake the worker for shutdown.
 _STOP = object()
@@ -39,11 +48,13 @@ class MemoryService:
         extractor: FactExtractor,
         *,
         event_bus: EventBus | None = None,
+        scanner: Any = None,
         max_queue: int = 256,
     ) -> None:
         self._store = store
         self._extractor = extractor
         self._event_bus = event_bus
+        self._scanner = scanner
         self._subscribed = False
         self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=max(1, max_queue))
         self._thread: Optional[threading.Thread] = None
@@ -155,13 +166,81 @@ class MemoryService:
             if not self._running.is_set() and self._queue.empty():
                 break
 
+    def _scan(self, text: str) -> Optional[Any]:
+        """Run the injection scanner, or return ``None`` when it is absent or
+        errors. Scanning fails *open*: an outage must not silently switch off
+        memory capture."""
+        if self._scanner is None:
+            return None
+        try:
+            return self._scanner.scan(text)
+        except BaseException as exc:  # noqa: BLE001 — scanning is best-effort
+            # PyO3 deliberately exposes a Rust panic as ``PanicException``, a
+            # direct BaseException subclass. Keep the memory worker alive if a
+            # native scanner ever panics, while preserving Python's control-
+            # flow exceptions instead of swallowing shutdown/interrupts.
+            rust_panic = (
+                exc.__class__.__module__ == "pyo3_runtime"
+                and exc.__class__.__name__ == "PanicException"
+            )
+            if not isinstance(exc, Exception) and not rust_panic:
+                raise
+            logger.debug("Injection scan failed; proceeding (fail-open)", exc_info=True)
+            return None
+
+    @staticmethod
+    def _flagged(result: Any) -> bool:
+        """True if *result* carries any finding at all."""
+        return result is not None and not getattr(result, "is_clean", True)
+
+    @classmethod
+    def _blocks_exchange(cls, result: Any) -> bool:
+        """True only for a *severe* finding.
+
+        Dropping an exchange is destructive and unrecoverable, so it is
+        reserved for HIGH/CRITICAL hits. Lower-severity patterns (a pasted
+        shell one-liner, a role-delimiter fence quoted in a code discussion)
+        are ordinary developer traffic; those exchanges are still extracted,
+        and anything suspicious is caught per-fact by the quarantine tier.
+        """
+        if not cls._flagged(result):
+            return False
+        level = getattr(result, "threat_level", "")
+        name = str(getattr(level, "value", level) or "").strip().lower()
+        return name in _BLOCKING_THREAT_LEVELS
+
     def _process(self, job: Any) -> None:
         user_text, assistant_text = job
+        # Scan BEFORE extraction so an overt injection attempt never reaches the
+        # extraction model or the store at all.
+        if self._blocks_exchange(self._scan(f"{user_text}\n{assistant_text}")):
+            # info, not debug: a silently-dropped exchange must be distinguishable
+            # from "nothing to extract" in the logs.
+            logger.info("Memory extraction skipped: injection detected in exchange")
+            return
         facts = self._extractor.extract(user_text, assistant_text)
-        if facts:
-            stored = self._store.add_many(facts, source="auto")
-            if stored:
-                logger.debug("Memory service stored %d new fact(s)", stored)
+        if not facts:
+            return
+        # Provenance is per fact, not per exchange: a fact whose own text trips
+        # the scanner is quarantined (stored for audit, filtered out of every
+        # model-facing path), while clean facts stay recallable — otherwise
+        # tagging everything "untrusted" would make automatic memory write-only.
+        clean: List[str] = []
+        quarantined: List[str] = []
+        for fact in facts:
+            target = quarantined if self._flagged(self._scan(fact)) else clean
+            target.append(fact)
+        stored = self._store.add_many_with_trust(clean, source="auto", trust=TRUST_AUTO)
+        if quarantined:
+            stored += self._store.add_many_with_trust(
+                quarantined, source="auto", trust=TRUST_UNTRUSTED
+            )
+            logger.info(
+                "Memory: quarantined %d extracted fact(s) as untrusted",
+                len(quarantined),
+            )
+        if stored:
+            logger.debug("Memory service stored %d new fact(s)", stored)
 
     # -- store passthroughs -------------------------------------------------
 
@@ -210,7 +289,23 @@ def build_memory_service(
         max_facts=getattr(mem, "max_facts", 1000),
     )
     extractor = FactExtractor(engine, model)
-    return MemoryService(store, extractor, event_bus=event_bus)
+    return MemoryService(
+        store, extractor, event_bus=event_bus, scanner=_build_scanner()
+    )
+
+
+def _build_scanner() -> Any:
+    """Construct an injection scanner, or ``None`` if unavailable. Never raises —
+    memory must work even if the security module can't load."""
+    try:
+        from openjarvis.security.injection_scanner import InjectionScanner
+
+        return InjectionScanner()
+    except Exception:  # noqa: BLE001 — scanner is an optional defence layer
+        logger.debug(
+            "Injection scanner unavailable; memory capture unguarded", exc_info=True
+        )
+        return None
 
 
 def publish_completed_exchange(

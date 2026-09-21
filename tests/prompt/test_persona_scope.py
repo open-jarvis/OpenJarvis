@@ -1,10 +1,9 @@
 """Tests for #380 per-invocation persona scope (_resolve_persona)."""
 
-from pathlib import Path
-
 import pytest
 
 from openjarvis.core.config import MemoryFilesConfig
+from openjarvis.core.paths import get_config_dir
 from openjarvis.prompt.builder import SystemPromptBuilder
 
 
@@ -21,7 +20,7 @@ def test_none_persona_disables_all_files():
 
 def test_named_persona_resolves_to_personas_dir():
     out = SystemPromptBuilder._resolve_persona(MemoryFilesConfig(persona_name="coder"))
-    base = str(Path.home() / ".openjarvis" / "personas" / "coder")
+    base = str(get_config_dir() / "personas" / "coder")
     assert out.soul_path == f"{base}/SOUL.md"
     assert out.memory_path == f"{base}/MEMORY.md"
     assert out.user_path == f"{base}/USER.md"

@@ -406,13 +406,43 @@ enabled = true
 
 ---
 
+### `[tools.weather]` — Native Weather Tool
+
+Controls defaults for the `get_weather` native tool. The requested location,
+unit system, and language remain overridable on every tool call.
+
+```toml
+[tools]
+enabled = "get_weather"
+
+[tools.weather]
+provider = "openweathermap"
+default_location = ""
+units = "metric"
+lang = "en"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `provider` | string | `"openweathermap"` | Weather provider; currently only OpenWeatherMap is supported. |
+| `default_location` | string | `""` | Optional fallback when a tool call omits its location. |
+| `units` | string | `"metric"` | Default unit system: `metric` or `imperial`. |
+| `lang` | string | `"en"` | Default OpenWeatherMap response language. |
+
+Keep the API key out of `config.toml`. Set `OPENWEATHERMAP_API_KEY`, save it
+through the tool credentials API/UI, or connect the Weather connector. The
+native tool reuses the connector's stored credential when no tool credential or
+environment variable is present.
+
+---
+
 ### `[server]` — API Server
 
 Controls the OpenAI-compatible API server started by `jarvis serve`.
 
 ```toml
 [server]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 8000
 agent = "orchestrator"
 model = ""
@@ -421,7 +451,7 @@ workers = 1
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `host` | string | `"0.0.0.0"` | Bind address for the server. Use `"127.0.0.1"` to restrict to localhost. |
+| `host` | string | `"127.0.0.1"` | Bind address for the server. Configure API authentication before using `"0.0.0.0"` for LAN access. |
 | `port` | int | `8000` | Port number for the server. |
 | `agent` | string | `"orchestrator"` | Agent to use for chat completion requests. |
 | `model` | string | `""` | Default model for the server. When empty, uses `intelligence.default_model` or the first available model. |
@@ -1087,8 +1117,10 @@ OpenJarvis respects the following environment variables:
 | `OPENAI_API_KEY` | API key for OpenAI cloud inference. Required for the `cloud` engine with OpenAI models. |
 | `ANTHROPIC_API_KEY` | API key for Anthropic cloud inference. Required for the `cloud` engine with Claude models. |
 | `GOOGLE_API_KEY` | API key for Google Gemini inference. Required for the `google` engine. |
-| `MINIMAX_API_KEY` | API key for MiniMax cloud inference. Required for the `cloud` engine with MiniMax models (MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed). |
-| `TAVILY_API_KEY` | API key for the Tavily web search tool. Required for the `web_search` tool. |
+| `MINIMAX_API_KEY` | API key for MiniMax cloud inference. Required for the `cloud` engine with MiniMax models (MiniMax-M3, MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed). |
+| `TAVILY_API_KEY` | API key for the Tavily web search engine. Optional — when set, `auto` engine selection prefers Tavily. |
+| `YOUDOTCOM_API_KEY` | API key for the You.com web search engine. Optional — raises the keyless free-tier limits and enables You.com Contents extraction for URL queries. |
+| `OPENJARVIS_WEB_SEARCH_ENGINE` | Web search engine for the `web_search` tool: `auto` (default), `youcom`, `tavily`, or `duckduckgo`. |
 
 ## Next Steps
 

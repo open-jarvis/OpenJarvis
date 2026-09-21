@@ -648,6 +648,23 @@ class TestOperativeAgent:
         state = memory.retrieve("operator:persist_test:state")
         assert "Tick complete." in state
 
+    def test_blank_result_preserves_previous_state(self):
+        from openjarvis.agents.operative import OperativeAgent
+
+        memory = FakeMemoryBackend()
+        state_key = "operator:persist_test:state"
+        memory.store(state_key, "waiting for a reply")
+        agent = OperativeAgent(
+            FakeEngine(),
+            "test-model",
+            operator_id="persist_test",
+            memory_backend=memory,
+        )
+
+        agent._auto_persist_state(" \n\t")
+
+        assert memory.retrieve(state_key) == "waiting for a reply"
+
     def test_max_turns_exceeded(self):
         from openjarvis.agents.operative import OperativeAgent
 

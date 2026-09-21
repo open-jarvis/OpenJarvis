@@ -185,6 +185,18 @@ class TelemetryRecord:
     cpu_energy_joules: float = 0.0
     gpu_energy_joules: float = 0.0
     dram_energy_joules: float = 0.0
+    # Apple Neural Engine. Populated on Apple Silicon only, and the reason the
+    # rail exists here at all: Apple Foundation Models runs predominantly on
+    # the ANE, so a record carrying only CPU/GPU/DRAM would make it look
+    # nearly free.
+    ane_energy_joules: float = 0.0
+    # Every rail this record's monitor measured, summed. On Apple Silicon each
+    # rail above is a partial view of one package, so the derived per-token
+    # and per-watt figures come from this rather than from GPU alone.
+    soc_energy_joules: float = 0.0
+    # Which rail set the derived figures were computed from: "soc" on Apple
+    # Silicon, "gpu" elsewhere. Empty on records written before this existed.
+    energy_basis: str = ""
     tokens_per_joule: float = 0.0
     # Version tag for the token-counting methodology used when this record
     # was produced. `None` (= legacy) means the record predates per-record

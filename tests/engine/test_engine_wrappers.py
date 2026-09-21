@@ -120,6 +120,9 @@ async def test_multi_routes_stream_full_by_model():
     engine_b.list_models = lambda: ["model-b"]
 
     multi = MultiEngine([("a", engine_a), ("b", engine_b)])
+    assert multi.engine_key_for("model-a") == "a"
+    assert multi.engine_key_for("model-b") == "b"
+    assert multi.engine_key_for("missing") is None
 
     # Route to engine A
     result_a = []

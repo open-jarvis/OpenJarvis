@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 
 import click
@@ -24,6 +25,40 @@ from openjarvis.intelligence import (
 )
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_TOOLS = frozenset({"think", "calculator", "web_search"})
+
+
+def _resolve_server_cors_origins(configured: object) -> list[str]:
+    """Resolve server CORS origins with environment taking precedence."""
+    raw = os.environ.get("OPENJARVIS_CORS_ORIGINS", "").strip()
+    if raw:
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    if isinstance(configured, list):
+        return [origin for origin in configured if isinstance(origin, str)]
+    return []
+
+
+def _resolve_allowed_tools(config: object) -> tuple[set[str], bool]:
+    """Return configured tool names and whether the selection was explicit.
+
+    ``tools.enabled`` is the canonical setting used by ``SystemBuilder`` and
+    the interactive CLI.  ``agent.tools`` remains as a backward-compatible
+    fallback, followed by the server's default tool set when neither is set.
+    """
+    configured = config.tools.enabled or config.agent.tools
+    if not configured:
+        return set(_DEFAULT_TOOLS), False
+
+    if isinstance(configured, list):
+        allowed = {
+            tool.strip()
+            for tool in configured
+            if isinstance(tool, str) and tool.strip()
+        }
+    else:
+        allowed = {tool.strip() for tool in configured.split(",") if tool.strip()}
+    return allowed, True
 
 
 def _unique_model_ids(model_ids: list[str]) -> list[str]:
@@ -96,7 +131,7 @@ def _resolve_server_model(
     "--agent",
     "agent_name",
     default=None,
-    help="Agent for non-streaming requests (simple, orchestrator, react, openhands).",
+    help="Agent for chat requests (simple, orchestrator, react, openhands).",
 )
 @click.pass_context
 def serve(
@@ -132,7 +167,7 @@ def serve(
 
     # Resolve host/port from CLI args or config
     bind_host = host or config.server.host
-    bind_port = port or config.server.port
+    bind_port = port if port is not None else config.server.port
 
     # Set up engine
     register_builtin_models()
@@ -178,8 +213,6 @@ def serve(
     # If cloud API keys are set, prepare a cloud engine. We build the
     # MultiEngine after local discovery so healthy local fallbacks such as
     # Ollama stay visible even when the configured preferred engine is MLX.
-    import os
-
     cloud_engine = None
     _has_cloud = (
         os.environ.get("OPENAI_API_KEY")
@@ -279,6 +312,15 @@ def serve(
     # (which would re-discover the engine, re-resolve tools, re-open the channel,
     # etc.). See the scheduler block near the bottom of this function (#263).
     resolved_tools: list = []
+    managed_mcp_tools: list = []
+    mcp_clients: list = []
+    try:
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        managed_mcp_tools, mcp_clients = load_mcp_tools_from_config(config.tools.mcp)
+    except Exception as exc:
+        logger.warning("Managed-agent MCP tools failed to load: %s", exc)
+
     if agent_key:
         try:
             import openjarvis.agents  # noqa: F401
@@ -287,35 +329,19 @@ def serve(
             if AgentRegistry.contains(agent_key):
                 agent_cls = AgentRegistry.get(agent_key)
                 agent_kwargs = {"bus": bus}
-                if sec.capability_policy is not None:
-                    agent_kwargs["capability_policy"] = sec.capability_policy
-
-                # MCP transports persisted on the agent at the bottom of
-                # this block — initialise here so the reference is valid
-                # even when accepts_tools is False (#461).
-                mcp_clients: list = []
 
                 # Load tools for agents that support them
                 if getattr(agent_cls, "accepts_tools", False):
+                    agent_kwargs["agent_id"] = agent_key
+                    if sec.capability_policy is not None:
+                        agent_kwargs["capability_policy"] = sec.capability_policy
+                    if sec.rate_limiter is not None:
+                        agent_kwargs["rate_limiter"] = sec.rate_limiter
                     import openjarvis.tools  # noqa: F401  # trigger registration
                     from openjarvis.core.registry import ToolRegistry
                     from openjarvis.tools._stubs import BaseTool
 
-                    _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
-                    configured = config.agent.tools
-                    if configured:
-                        if isinstance(configured, list):
-                            allowed = {
-                                t.strip()
-                                for t in configured
-                                if isinstance(t, str) and t.strip()
-                            }
-                        else:
-                            allowed = {
-                                t.strip() for t in configured.split(",") if t.strip()
-                            }
-                    else:
-                        allowed = _DEFAULT_TOOLS
+                    allowed, tools_configured = _resolve_allowed_tools(config)
 
                     tools = []
                     for name in ToolRegistry.keys():
@@ -331,12 +357,13 @@ def serve(
 
                     # MCP server tools from config.tools.mcp.servers
                     # (#461 — these were silently dropped).
-                    from openjarvis.mcp.loader import load_mcp_tools_from_config
-
-                    mcp_tools, mcp_clients = load_mcp_tools_from_config(
-                        config.tools.mcp,
-                        allowed_names=allowed if configured else None,
-                    )
+                    mcp_tools = managed_mcp_tools
+                    if tools_configured:
+                        mcp_tools = [
+                            tool
+                            for tool in managed_mcp_tools
+                            if tool.spec.name in allowed
+                        ]
                     if mcp_tools:
                         existing = {t.spec.name for t in tools}
                         for t in mcp_tools:
@@ -352,7 +379,48 @@ def serve(
                 if getattr(agent_cls, "accepts_tools", False):
                     agent_kwargs["max_turns"] = config.agent.max_turns
 
+                from openjarvis.security.runtime import agent_security_kwargs
+
+                agent_kwargs.update(
+                    agent_security_kwargs(
+                        agent_cls,
+                        capability_policy=sec.capability_policy,
+                        rate_limiter=sec.rate_limiter,
+                        agent_id=agent_key,
+                    )
+                )
+
+                # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md
+                # reach the model on the SERVE path too. ``ask.py`` has done
+                # this since the persona system landed; ``serve.py`` never did,
+                # so an agent served over HTTP silently answered as a generic
+                # assistant while the same agent via the CLI kept its persona.
+                # Guarded so agents with specialized prompt machinery must opt
+                # in by explicitly naming and forwarding the kwarg.
+                import inspect as _inspect
+
+                if (
+                    "prompt_builder"
+                    in _inspect.signature(agent_cls.__init__).parameters
+                ):
+                    from openjarvis.prompt.builder import SystemPromptBuilder
+
+                    agent_kwargs["prompt_builder"] = SystemPromptBuilder(
+                        agent_template=config.agent.default_system_prompt or "",
+                        memory_files_config=config.memory_files,
+                        system_prompt_config=config.system_prompt,
+                    )
+
                 agent = agent_cls(engine, model_name, **agent_kwargs)
+                from openjarvis.security.runtime import wire_agent_security
+
+                wire_agent_security(
+                    agent,
+                    bus=bus,
+                    capability_policy=sec.capability_policy,
+                    rate_limiter=sec.rate_limiter,
+                    agent_id=agent_key,
+                )
                 # Pin MCP transports to the agent's lifetime so HTTP
                 # connections don't close mid-request (#461).
                 if mcp_clients:
@@ -389,10 +457,6 @@ def serve(
         channel_agent = config.channel.default_agent or agent_key or "simple"
 
         _channel_tools: list = []
-        # MCP transports persisted at function scope (= server-process
-        # lifetime); see the comment near the channel-MCP-load block
-        # below. Initialise here so it's always bound. #461.
-        _channel_mcp_clients: list = []
         if channel_agent:
             try:
                 import openjarvis.agents
@@ -405,23 +469,7 @@ def serve(
                         from openjarvis.core.registry import ToolRegistry
                         from openjarvis.tools._stubs import BaseTool
 
-                        _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
-                        configured = config.agent.tools
-                        if configured:
-                            if isinstance(configured, list):
-                                _allowed = {
-                                    t.strip()
-                                    for t in configured
-                                    if isinstance(t, str) and t.strip()
-                                }
-                            else:
-                                _allowed = {
-                                    t.strip()
-                                    for t in configured.split(",")
-                                    if t.strip()
-                                }
-                        else:
-                            _allowed = _DEFAULT_TOOLS
+                        _allowed, _tools_configured = _resolve_allowed_tools(config)
 
                         for _tname in ToolRegistry.keys():
                             if _tname not in _allowed:
@@ -432,29 +480,23 @@ def serve(
                             elif isinstance(_tcls, BaseTool):
                                 _channel_tools.append(_tcls)
 
-                        # MCP tools for the channel agent too (#461).
-                        from openjarvis.mcp.loader import (
-                            load_mcp_tools_from_config,
-                        )
-
-                        _ch_mcp_tools, _ch_mcp_clients = load_mcp_tools_from_config(
-                            config.tools.mcp,
-                            allowed_names=_allowed if configured else None,
-                        )
+                        # Reuse the process-owned MCP pool so channels do not
+                        # open a second transport to every configured server.
+                        _ch_mcp_tools = managed_mcp_tools
+                        if _tools_configured:
+                            _ch_mcp_tools = [
+                                tool
+                                for tool in managed_mcp_tools
+                                if tool.spec.name in _allowed
+                            ]
                         if _ch_mcp_tools:
                             _existing = {t.spec.name for t in _channel_tools}
                             for t in _ch_mcp_tools:
                                 if t.spec.name not in _existing:
                                     _channel_tools.append(t)
                                     _existing.add(t.spec.name)
-                        # Hold a reference at module / function scope —
-                        # the channel agent is constructed inside
-                        # JarvisSystem below; we extend its lifetime by
-                        # keeping the list bound here.
-                        _channel_mcp_clients = _ch_mcp_clients
             except Exception as exc:
                 logger.warning("Channel tools failed to load: %s", exc)
-                _channel_mcp_clients = []
 
         _wire_system = JarvisSystem(
             config=config,
@@ -464,6 +506,11 @@ def serve(
             model=model_name,
             agent_name=channel_agent,
             tools=_channel_tools,
+            mcp_tools=managed_mcp_tools,
+            _mcp_clients=mcp_clients,
+            capability_policy=sec.capability_policy,
+            audit_logger=sec.audit_logger,
+            rate_limiter=sec.rate_limiter,
         )
         _wire_system.wire_channel(channel_bridge)
 
@@ -481,23 +528,24 @@ def serve(
     # Create app
     from openjarvis.server.app import create_app
 
-    # Set up memory backend for context injection. Built before the scheduler
-    # block so the executor's JarvisSystem can reference it (#263).
+    # Set up the memory backend for storage tools, API routes, and optional
+    # prompt-context injection. ``context_from_memory`` controls only the last
+    # of those, so disabling it must not leave explicit memory_* tools with a
+    # null backend. Built before the scheduler so AgentExecutor can reuse it.
     memory_backend = None
-    if config.agent.context_from_memory:
-        try:
-            import openjarvis.tools.storage  # noqa: F401
-            from openjarvis.core.registry import MemoryRegistry
+    try:
+        import openjarvis.tools.storage  # noqa: F401
+        from openjarvis.core.registry import MemoryRegistry
 
-            mem_key = config.memory.default_backend
-            if MemoryRegistry.contains(mem_key):
-                memory_backend = MemoryRegistry.create(
-                    mem_key,
-                    db_path=config.memory.db_path,
-                )
-                console.print("  Memory:    [cyan]active[/cyan]")
-        except Exception as exc:
-            logger.debug("Memory backend init failed: %s", exc)
+        mem_key = config.memory.default_backend
+        if MemoryRegistry.contains(mem_key):
+            memory_backend = MemoryRegistry.create(
+                mem_key,
+                db_path=config.memory.db_path,
+            )
+            console.print("  Memory:    [cyan]active[/cyan]")
+    except Exception as exc:
+        logger.debug("Memory backend init failed: %s", exc)
 
     # Automatic long-term memory service (background fact extraction).
     memory_service = None
@@ -580,7 +628,15 @@ def serve(
                     logger.debug("Scheduler session store init failed: %s", exc)
 
             _sched_tool_executor = (
-                ToolExecutor(resolved_tools, bus) if resolved_tools else None
+                ToolExecutor(
+                    resolved_tools,
+                    bus,
+                    capability_policy=sec.capability_policy,
+                    agent_id=agent_key or "scheduler",
+                    rate_limiter=sec.rate_limiter,
+                )
+                if resolved_tools
+                else None
             )
 
             system = JarvisSystem(
@@ -592,14 +648,18 @@ def serve(
                 agent=agent,
                 agent_name=agent_key or "",
                 tools=resolved_tools,
+                mcp_tools=managed_mcp_tools,
                 tool_executor=_sched_tool_executor,
                 memory_backend=memory_backend,
                 telemetry_store=telem_store,
                 trace_store=_trace_store,
                 session_store=_sched_session_store,
                 capability_policy=sec.capability_policy,
+                audit_logger=sec.audit_logger,
+                rate_limiter=sec.rate_limiter,
                 agent_manager=agent_manager,
                 agent_executor=executor,
+                _mcp_clients=mcp_clients,
             )
             executor.set_system(system)
 
@@ -681,6 +741,7 @@ def serve(
         except Exception as exc:
             logger.debug("ChannelBridge init skipped: %s", exc)
 
+    cors_origins = _resolve_server_cors_origins(config.server.cors_origins)
     app = create_app(
         engine,
         model_name,
@@ -691,13 +752,19 @@ def serve(
         channel_bridge=channel_bridge,
         config=config,
         memory_backend=memory_backend,
+        own_memory_backend=memory_backend is not None,
         memory_service=memory_service,
         speech_backend=speech_backend,
         agent_manager=agent_manager,
         agent_scheduler=agent_scheduler,
+        mcp_tools=managed_mcp_tools,
+        mcp_clients=mcp_clients,
+        capability_policy=sec.capability_policy,
+        rate_limiter=sec.rate_limiter,
+        audit_logger=sec.audit_logger,
         api_key=api_key,
         webhook_config=webhook_config,
-        cors_origins=config.server.cors_origins,
+        cors_origins=cors_origins,
     )
 
     console.print(
@@ -716,13 +783,13 @@ def serve(
     except ValueError:
         _is_loop = bind_host in ("localhost", "")
 
-    if not _is_loop and "*" in config.server.cors_origins:
+    if not _is_loop and "*" in cors_origins:
         console.print(
             "[yellow bold]WARNING:[/yellow bold] Wildcard CORS with credentials "
             "enabled on non-loopback interface. This allows any website to make "
             "authenticated requests to your instance."
         )
 
-    import uvicorn
+    from openjarvis.server.daemon import run_server
 
-    uvicorn.run(app, host=bind_host, port=bind_port, log_level="info")
+    run_server(app, host=bind_host, port=bind_port, log_level="info")

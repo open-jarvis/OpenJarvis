@@ -23,8 +23,17 @@ class TurnTrace:
     # Energy and cost fields
     gpu_energy_joules: Optional[float] = None
     cpu_energy_joules: Optional[float] = None
+    # Apple Neural Engine, populated on Apple Silicon only. Without it an
+    # ANE-resident model (Apple Foundation Models runs mostly on the ANE)
+    # records almost no energy for the work it actually did.
+    ane_energy_joules: Optional[float] = None
+    # Every rail measured, summed -- the figure per-token energy should be
+    # derived from on a unified-memory SoC.
+    soc_energy_joules: Optional[float] = None
     gpu_power_avg_watts: Optional[float] = None
     cpu_power_avg_watts: Optional[float] = None
+    ane_power_avg_watts: Optional[float] = None
+    soc_power_avg_watts: Optional[float] = None
     cost_usd: Optional[float] = None
     # Per-action energy breakdown (lm_inference vs tool_call granularity)
     action_energy_breakdown: Optional[List[Dict[str, Any]]] = None
@@ -43,8 +52,12 @@ class TurnTrace:
             "error": self.error,
             "gpu_energy_joules": self.gpu_energy_joules,
             "cpu_energy_joules": self.cpu_energy_joules,
+            "ane_energy_joules": self.ane_energy_joules,
+            "soc_energy_joules": self.soc_energy_joules,
             "gpu_power_avg_watts": self.gpu_power_avg_watts,
             "cpu_power_avg_watts": self.cpu_power_avg_watts,
+            "ane_power_avg_watts": self.ane_power_avg_watts,
+            "soc_power_avg_watts": self.soc_power_avg_watts,
             "cost_usd": self.cost_usd,
             "action_energy_breakdown": self.action_energy_breakdown,
             "tool_calls": [dict(tc) for tc in self.tool_calls],
@@ -63,6 +76,10 @@ class TurnTrace:
             error=d.get("error"),
             gpu_energy_joules=d.get("gpu_energy_joules"),
             cpu_energy_joules=d.get("cpu_energy_joules"),
+            ane_energy_joules=d.get("ane_energy_joules"),
+            soc_energy_joules=d.get("soc_energy_joules"),
+            ane_power_avg_watts=d.get("ane_power_avg_watts"),
+            soc_power_avg_watts=d.get("soc_power_avg_watts"),
             gpu_power_avg_watts=d.get("gpu_power_avg_watts"),
             cpu_power_avg_watts=d.get("cpu_power_avg_watts"),
             cost_usd=d.get("cost_usd"),
@@ -86,8 +103,16 @@ class QueryTrace:
     # Query-level energy fields (populated even when turns are empty)
     query_gpu_energy_joules: Optional[float] = None
     query_cpu_energy_joules: Optional[float] = None
+    query_ane_energy_joules: Optional[float] = None
+    query_soc_energy_joules: Optional[float] = None
     query_gpu_power_avg_watts: Optional[float] = None
     query_cpu_power_avg_watts: Optional[float] = None
+    query_ane_power_avg_watts: Optional[float] = None
+    query_soc_power_avg_watts: Optional[float] = None
+    # Rail set the energy figures above should be read from: "soc" on Apple
+    # Silicon, "gpu" elsewhere. Energy and power must be taken from the same
+    # basis -- SoC joules over GPU watts is a meaningless ratio.
+    energy_basis: Optional[str] = None
     is_resolved: Optional[bool] = None
     query_mbu_avg_pct: Optional[float] = None
     query_mbu_max_pct: Optional[float] = None
@@ -136,6 +161,36 @@ class QueryTrace:
         if values:
             return sum(values)
         return self.query_cpu_energy_joules
+
+    @property
+    def total_ane_energy_joules(self) -> Optional[float]:
+        values = [
+            t.ane_energy_joules for t in self.turns if t.ane_energy_joules is not None
+        ]
+        if values:
+            return sum(values)
+        return self.query_ane_energy_joules
+
+    @property
+    def total_soc_energy_joules(self) -> Optional[float]:
+        values = [
+            t.soc_energy_joules for t in self.turns if t.soc_energy_joules is not None
+        ]
+        if values:
+            return sum(values)
+        return self.query_soc_energy_joules
+
+    @property
+    def total_basis_energy_joules(self) -> Optional[float]:
+        """Energy on whichever rail set this trace was measured against.
+
+        Use this rather than ``total_gpu_energy_joules`` for per-token or
+        per-watt figures: on Apple Silicon the GPU rail alone misses the CPU
+        and ANE work that actually ran.
+        """
+        if self.energy_basis == "soc":
+            return self.total_soc_energy_joules
+        return self.total_gpu_energy_joules
 
     @property
     def total_cost_usd(self) -> Optional[float]:
@@ -198,8 +253,13 @@ class QueryTrace:
             "timed_out": self.timed_out,
             "query_gpu_energy_joules": self.query_gpu_energy_joules,
             "query_cpu_energy_joules": self.query_cpu_energy_joules,
+            "query_ane_energy_joules": self.query_ane_energy_joules,
+            "query_soc_energy_joules": self.query_soc_energy_joules,
             "query_gpu_power_avg_watts": self.query_gpu_power_avg_watts,
             "query_cpu_power_avg_watts": self.query_cpu_power_avg_watts,
+            "query_ane_power_avg_watts": self.query_ane_power_avg_watts,
+            "query_soc_power_avg_watts": self.query_soc_power_avg_watts,
+            "energy_basis": self.energy_basis,
             "is_resolved": self.is_resolved,
             "query_mbu_avg_pct": self.query_mbu_avg_pct,
             "query_mbu_max_pct": self.query_mbu_max_pct,
@@ -220,8 +280,13 @@ class QueryTrace:
             timed_out=d.get("timed_out", False),
             query_gpu_energy_joules=d.get("query_gpu_energy_joules"),
             query_cpu_energy_joules=d.get("query_cpu_energy_joules"),
+            query_ane_energy_joules=d.get("query_ane_energy_joules"),
+            query_soc_energy_joules=d.get("query_soc_energy_joules"),
             query_gpu_power_avg_watts=d.get("query_gpu_power_avg_watts"),
             query_cpu_power_avg_watts=d.get("query_cpu_power_avg_watts"),
+            query_ane_power_avg_watts=d.get("query_ane_power_avg_watts"),
+            query_soc_power_avg_watts=d.get("query_soc_power_avg_watts"),
+            energy_basis=d.get("energy_basis"),
             is_resolved=d.get("is_resolved"),
             query_mbu_avg_pct=d.get("query_mbu_avg_pct"),
             query_mbu_max_pct=d.get("query_mbu_max_pct"),

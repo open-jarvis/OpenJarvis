@@ -542,7 +542,8 @@ class TestTruncation:
 
 class TestUrlExpansion:
     def test_no_url_returns_false(self):
-        text, expanded = NativeOpenHandsAgent._expand_urls("What is 2+2?")
+        agent = NativeOpenHandsAgent(MagicMock(), "test-model")
+        text, expanded = agent._expand_urls("What is 2+2?")
         assert text == "What is 2+2?"
         assert expanded is False
 
@@ -555,9 +556,8 @@ class TestUrlExpansion:
         mock_resp.raise_for_status = MagicMock()
         monkeypatch.setattr(httpx, "get", MagicMock(return_value=mock_resp))
 
-        text, expanded = NativeOpenHandsAgent._expand_urls(
-            "Summarize: https://example.com/article"
-        )
+        agent = NativeOpenHandsAgent(MagicMock(), "test-model")
+        text, expanded = agent._expand_urls("Summarize: https://example.com/article")
         assert expanded is True
         assert "Page content" in text
         assert "Content from" in text
@@ -570,10 +570,54 @@ class TestUrlExpansion:
             "get",
             MagicMock(side_effect=Exception("Connection error")),
         )
-        text, expanded = NativeOpenHandsAgent._expand_urls(
-            "Read https://example.com/broken"
-        )
+        agent = NativeOpenHandsAgent(MagicMock(), "test-model")
+        text, expanded = agent._expand_urls("Read https://example.com/broken")
         assert expanded is False
+
+    def test_url_prefetch_uses_network_policy_rate_and_runtime_identity(
+        self, monkeypatch
+    ):
+        import httpx
+
+        from openjarvis.core.events import EventBus, EventType
+        from openjarvis.security.capabilities import CapabilityPolicy
+
+        class _RecordingLimiter:
+            def __init__(self):
+                self.keys = []
+
+            def check(self, key):
+                self.keys.append(key)
+                return True, 0.0
+
+        fetch = MagicMock()
+        monkeypatch.setattr(httpx, "get", fetch)
+        policy = CapabilityPolicy(default_deny=True)
+        policy.grant("_default", "network:fetch")
+        policy.deny("restricted-native", "network:fetch")
+        limiter = _RecordingLimiter()
+        bus = EventBus(record_history=True)
+        agent = NativeOpenHandsAgent(
+            MagicMock(),
+            "test-model",
+            bus=bus,
+            capability_policy=policy,
+            rate_limiter=limiter,
+            agent_id="restricted-native",
+        )
+
+        text, expanded = agent._expand_urls("Read https://example.com/private")
+
+        assert text == "Read https://example.com/private"
+        assert expanded is False
+        fetch.assert_not_called()
+        assert limiter.keys == ["restricted-native:web_search"]
+        assert any(
+            event.event_type == EventType.CAPABILITY_DENIED
+            and event.data["agent_id"] == "restricted-native"
+            and event.data["capability"] == "network:fetch"
+            for event in bus.history
+        )
 
     def test_url_expanded_uses_direct_path(self, monkeypatch):
         """When URL is expanded, agent bypasses tool loop."""

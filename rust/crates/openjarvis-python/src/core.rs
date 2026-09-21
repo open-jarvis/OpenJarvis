@@ -3,7 +3,7 @@
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
-#[pyclass(name = "Message")]
+#[pyclass(name = "Message", from_py_object)]
 #[derive(Clone)]
 pub struct PyMessage {
     #[pyo3(get, set)]
@@ -52,7 +52,7 @@ impl PyMessage {
     }
 }
 
-#[pyclass(name = "ToolResult")]
+#[pyclass(name = "ToolResult", from_py_object)]
 #[derive(Clone)]
 pub struct PyToolResult {
     #[pyo3(get)]
@@ -75,7 +75,7 @@ impl PyToolResult {
     }
 }
 
-#[pyclass(name = "ToolCall")]
+#[pyclass(name = "ToolCall", from_py_object)]
 #[derive(Clone)]
 pub struct PyToolCall {
     #[pyo3(get, set)]
@@ -145,7 +145,7 @@ impl PyEventBus {
     }
 }
 
-#[pyclass(name = "ModelSpec")]
+#[pyclass(name = "ModelSpec", from_py_object)]
 #[derive(Clone)]
 pub struct PyModelSpec {
     #[pyo3(get, set)]
@@ -164,7 +164,7 @@ impl PyModelSpec {
     }
 }
 
-#[pyclass(name = "RoutingContext")]
+#[pyclass(name = "RoutingContext", from_py_object)]
 #[derive(Clone)]
 pub struct PyRoutingContext {
     #[pyo3(get, set)]
@@ -195,7 +195,7 @@ impl PyAgentContext {
     }
 }
 
-#[pyclass(name = "AgentResult")]
+#[pyclass(name = "AgentResult", from_py_object)]
 #[derive(Clone)]
 pub struct PyAgentResult {
     #[pyo3(get)]

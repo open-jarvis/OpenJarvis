@@ -11,6 +11,7 @@ import pytest
 from openjarvis.agents._stubs import AgentResult
 from openjarvis.agents.errors import FatalError, RetryableError
 from openjarvis.core.events import EventBus, EventType
+from openjarvis.core.types import ToolResult
 
 
 @pytest.fixture
@@ -140,6 +141,18 @@ class TestExecutorBasic:
         assert manager.get_agent(agent["id"])["status"] == "running"
 
 
+def test_empty_turn_with_tool_result_is_not_retried() -> None:
+    from openjarvis.agents.executor import _should_retry_empty_result
+
+    result = AgentResult(
+        content="  ",
+        tool_results=[ToolResult(tool_name="channel_send", content="sent")],
+    )
+
+    assert _should_retry_empty_result(result) is False
+    assert _should_retry_empty_result(AgentResult(content="")) is True
+
+
 def test_finalize_tick_reads_agent_result_metadata(tmp_path):
     """_finalize_tick() accumulates cost/tokens from AgentResult.metadata."""
     from openjarvis.agents.executor import AgentExecutor
@@ -163,3 +176,65 @@ def test_finalize_tick_reads_agent_result_metadata(tmp_path):
     assert updated["total_cost"] == 0.05
     assert updated["stall_retries"] == 0
     mgr.close()
+
+
+def test_tick_model_prefers_system_default_before_legacy_fallback() -> None:
+    from openjarvis.agents.executor import _resolve_tick_model
+
+    system = MagicMock(model="qwen3:8b")
+
+    assert _resolve_tick_model({}, system) == "qwen3:8b"
+    assert _resolve_tick_model({"model": "agent-model"}, system) == "agent-model"
+
+
+def test_managed_router_receives_every_actual_engine_model() -> None:
+    from openjarvis.agents.executor import _available_tick_models
+    from openjarvis.learning.routing.router import (
+        HeuristicRouter,
+        build_routing_context,
+    )
+
+    engine = MagicMock()
+    engine.list_models.return_value = [
+        "qwen3:8b",
+        "tiny:1b",
+        "code-coder:32b",
+        "qwen3:8b",
+        "",
+    ]
+
+    available = _available_tick_models(engine, "qwen3:8b")
+    selected = HeuristicRouter(available_models=available).select_model(
+        build_routing_context("Write a Python function with tests")
+    )
+
+    assert available == ["qwen3:8b", "tiny:1b", "code-coder:32b"]
+    assert selected == "code-coder:32b"
+    engine.list_models.assert_called_once_with()
+
+
+def test_managed_router_excludes_unavailable_fallback_model() -> None:
+    from openjarvis.agents.executor import _available_tick_models
+
+    engine = MagicMock()
+    engine.list_models.return_value = ["tiny:1b", "large:32b"]
+
+    assert _available_tick_models(engine, "missing:legacy") == [
+        "tiny:1b",
+        "large:32b",
+    ]
+
+
+def test_managed_router_retains_resolved_model_when_discovery_fails() -> None:
+    from openjarvis.agents.executor import _available_tick_models
+
+    engine = MagicMock()
+    engine.list_models.side_effect = RuntimeError("offline")
+
+    assert _available_tick_models(engine, "remote:model") == ["remote:model"]
+
+
+def test_new_agent_without_model_keeps_system_default_unpinned(manager) -> None:
+    agent = manager.create_agent("inherits-system-model", config={})
+
+    assert "model" not in agent["config"]

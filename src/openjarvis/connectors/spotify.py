@@ -54,7 +54,11 @@ class SpotifyConnector(BaseConnector):
         return self._load_tokens()["access_token"]
 
     def is_connected(self) -> bool:
-        return self._token_path.exists()
+        try:
+            access_token = self._load_tokens().get("access_token")
+        except (OSError, json.JSONDecodeError):
+            return False
+        return isinstance(access_token, str) and bool(access_token.strip())
 
     def disconnect(self) -> None:
         if self._token_path.exists():
@@ -92,6 +96,7 @@ class SpotifyConnector(BaseConnector):
             _exchange_token,
             get_client_credentials,
             get_provider_for_connector,
+            require_access_token,
             save_tokens,
         )
 
@@ -102,8 +107,9 @@ class SpotifyConnector(BaseConnector):
         client_id, client_secret = creds
         redirect_uri = f"http://{provider.callback_host}:{provider.callback_port}{provider.callback_path}"
         tokens = _exchange_token(provider, code, client_id, client_secret, redirect_uri)
+        access_token = require_access_token(tokens)
         payload = {
-            "access_token": tokens.get("access_token", ""),
+            "access_token": access_token,
             "refresh_token": tokens.get("refresh_token", ""),
             "client_id": client_id,
             "client_secret": client_secret,

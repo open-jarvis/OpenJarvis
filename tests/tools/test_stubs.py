@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import ToolCall, ToolResult
+from openjarvis.security.capabilities import DEFAULT_TOOL_CAPABILITIES
 from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+from openjarvis.tools.code_interpreter import CodeInterpreterTool
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -48,6 +54,53 @@ class _ErrorTool(BaseTool):
 
     def execute(self, **params) -> ToolResult:
         raise RuntimeError("boom")
+
+
+class _ScalarBoundaryGuard:
+    """Test guard that rewrites outbound arguments to a JSON scalar."""
+
+    def check_outbound(self, tool_call: ToolCall) -> ToolCall:
+        return ToolCall(
+            id=tool_call.id,
+            name=tool_call.name,
+            arguments=json.dumps("redacted"),
+        )
+
+
+class _NamedTool(BaseTool):
+    """Tool with caller-controlled metadata for capability-policy tests."""
+
+    def __init__(self, name: str, required_capabilities=None) -> None:
+        self.tool_id = name
+        self._required_capabilities = required_capabilities or []
+        self.calls = 0
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Capability test tool.",
+            required_capabilities=self._required_capabilities,
+        )
+
+    def execute(self, **params) -> ToolResult:
+        self.calls += 1
+        return ToolResult(tool_name=self.tool_id, content="executed")
+
+
+class _RecordingPolicy:
+    def __init__(self, allowed=()) -> None:
+        self.allowed = set(allowed)
+        self.checks = []
+
+    def check(self, agent_id, capability, resource="") -> bool:
+        self.checks.append((agent_id, capability, resource))
+        return capability in self.allowed
+
+
+class _FalseyDenyAllPolicy(_RecordingPolicy):
+    def __bool__(self) -> bool:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +165,82 @@ class TestBaseTool:
 
 
 class TestToolExecutor:
+    def test_default_deny_blocks_code_interpreter_without_declared_capability(self):
+        policy = _RecordingPolicy()
+        tool = CodeInterpreterTool()
+        assert tool.spec.required_capabilities == []
+        executor = ToolExecutor([tool], capability_policy=policy, agent_id="deny-all")
+
+        result = executor.execute(
+            ToolCall(
+                id="1",
+                name="code_interpreter",
+                arguments='{"code":"print(6 * 7)"}',
+            )
+        )
+
+        assert result.success is False
+        assert "Capability 'code:execute' denied" in result.content
+        assert policy.checks == [("deny-all", "code:execute", "code_interpreter")]
+
+    @pytest.mark.parametrize(
+        ("tool_name", "canonical_capabilities"),
+        list(DEFAULT_TOOL_CAPABILITIES.items()),
+    )
+    def test_every_canonical_tool_capability_is_enforced(
+        self, tool_name, canonical_capabilities
+    ):
+        tool = _NamedTool(tool_name)
+        policy = _RecordingPolicy()
+        executor = ToolExecutor([tool], capability_policy=policy, agent_id="deny-all")
+
+        result = executor.execute(ToolCall(id="1", name=tool_name, arguments="{}"))
+
+        if not canonical_capabilities:
+            # A reviewed-safe canonical name is safe only for its in-tree
+            # implementation. This foreign-provenance test double must not
+            # be able to impersonate calculator/think and bypass policy.
+            assert result.success is False
+            assert tool.calls == 0
+            assert policy.checks == [
+                ("deny-all", "system:admin", tool_name),
+            ]
+            return
+
+        expected = canonical_capabilities[0].value
+        assert result.success is False
+        assert tool.calls == 0
+        assert policy.checks == [("deny-all", expected, tool_name)]
+
+    def test_declared_capability_cannot_replace_canonical_security_floor(self):
+        tool = _NamedTool("code_interpreter", ["file:read"])
+        policy = _RecordingPolicy(allowed={"file:read"})
+        executor = ToolExecutor([tool], capability_policy=policy, agent_id="limited")
+
+        result = executor.execute(
+            ToolCall(id="1", name="code_interpreter", arguments="{}")
+        )
+
+        assert result.success is False
+        assert tool.calls == 0
+        assert policy.checks == [
+            ("limited", "file:read", "code_interpreter"),
+            ("limited", "code:execute", "code_interpreter"),
+        ]
+
+    def test_falsey_policy_object_cannot_bypass_enforcement(self):
+        tool = _NamedTool("code_interpreter")
+        policy = _FalseyDenyAllPolicy()
+        executor = ToolExecutor([tool], capability_policy=policy, agent_id="deny-all")
+
+        result = executor.execute(
+            ToolCall(id="1", name="code_interpreter", arguments="{}")
+        )
+
+        assert result.success is False
+        assert tool.calls == 0
+        assert policy.checks == [("deny-all", "code:execute", "code_interpreter")]
+
     def test_execute_success(self):
         executor = ToolExecutor([_EchoTool()])
         call = ToolCall(id="1", name="echo", arguments='{"text":"hi"}')
@@ -133,6 +262,38 @@ class TestToolExecutor:
         result = executor.execute(call)
         assert result.success is False
         assert "Invalid arguments JSON" in result.content
+
+    @pytest.mark.parametrize(
+        ("arguments", "decoded_type"),
+        [
+            ("42", "int"),
+            ("true", "bool"),
+            ("null", "NoneType"),
+            ("[]", "list"),
+            ('"text"', "str"),
+        ],
+    )
+    def test_execute_rejects_non_object_json(self, arguments, decoded_type):
+        executor = ToolExecutor([_EchoTool()])
+        call = ToolCall(id="1", name="echo", arguments=arguments)
+
+        result = executor.execute(call)
+
+        assert result.success is False
+        assert result.content == (
+            f"Invalid arguments: expected a JSON object, got {decoded_type}."
+        )
+
+    def test_execute_revalidates_boundary_guard_arguments(self):
+        tool = _EchoTool()
+        tool.is_local = False
+        executor = ToolExecutor([tool], boundary_guard=_ScalarBoundaryGuard())
+        call = ToolCall(id="1", name="echo", arguments='{"text":"safe"}')
+
+        result = executor.execute(call)
+
+        assert result.success is False
+        assert result.content == ("Invalid arguments: expected a JSON object, got str.")
 
     def test_execute_empty_arguments(self):
         executor = ToolExecutor([_EchoTool()])

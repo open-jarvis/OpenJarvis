@@ -55,6 +55,7 @@ class DockerCodeInterpreterTool(BaseTool):
             },
             category="code",
             timeout_seconds=60.0,
+            metadata={"structured_allow_object_text": True},
         )
 
     def execute(self, **params: Any) -> ToolResult:

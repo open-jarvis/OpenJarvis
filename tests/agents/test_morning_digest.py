@@ -21,7 +21,7 @@ def test_morning_digest_run(tmp_path):
 
     mock_engine = MagicMock()
     mock_engine.generate.return_value = {
-        "content": "Good morning sir. You have 3 emails and 2 meetings today.",
+        "content": "Good morning sir. AtlasDB 1.0 was released.",
         "finish_reason": "stop",
         "usage": {},
     }
@@ -29,7 +29,7 @@ def test_morning_digest_run(tmp_path):
     # Mock collect result
     mock_collect_result = ToolResult(
         tool_name="digest_collect",
-        content='=== MESSAGES ===\n[gmail] From: alice@co.com — "Budget" (1h ago)\n',
+        content="=== WORLD ===\n[hackernews] AtlasDB 1.0 Released — 241 points\n",
         success=True,
         metadata={"total_items": 2},
     )
@@ -46,7 +46,9 @@ def test_morning_digest_run(tmp_path):
         mock_engine,
         "test-model",
         tools=[],
-        persona="neutral",
+        persona="jarvis",
+        sections=["world"],
+        section_sources={"world": ["hackernews", "news_rss"]},
         digest_store_path=str(tmp_path / "digest.db"),
     )
 
@@ -61,6 +63,16 @@ def test_morning_digest_run(tmp_path):
     assert "Good morning" in result.content
     assert result.turns == 1
     assert len(result.tool_results) == 2
+    assert set(result.metadata["sources_used"]) == {"hackernews", "news_rss"}
+    prompt = "\n".join(
+        message.text for message in mock_engine.generate.call_args.args[0]
+    ).casefold()
+    assert "world —" in prompt
+    for forbidden in (
+        "messages —|calendar —|health —|rebuttal|dinner at|group chat|"
+        "slack|next meeting|readiness|hrv|weather"
+    ).split("|"):
+        assert forbidden not in prompt
 
 
 def test_load_persona():

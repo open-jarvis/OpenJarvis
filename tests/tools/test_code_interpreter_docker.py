@@ -25,6 +25,7 @@ class TestDockerCodeInterpreterTool:
         assert spec.name == "code_interpreter_docker"
         assert "code" in spec.parameters["properties"]
         assert spec.category == "code"
+        assert spec.metadata["structured_allow_object_text"] is True
 
     def test_empty_code(self):
         from openjarvis.tools.code_interpreter_docker import (

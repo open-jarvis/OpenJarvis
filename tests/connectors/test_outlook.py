@@ -31,30 +31,40 @@ def test_outlook_auth_url() -> None:
 def test_outlook_handle_callback(tmp_path: Path) -> None:
     creds_path = str(tmp_path / "outlook.json")
     conn = OutlookConnector(credentials_path=creds_path)
-    conn.handle_callback("user@outlook.com:mypassword123")
+    mock_imap = MagicMock()
+    mock_imap.login.return_value = ("OK", [])
+    mock_imap.select.return_value = ("OK", [])
+    mock_imap.response.return_value = ("UIDVALIDITY", [b"777"])
+    with patch.object(conn, "_make_imap_client", return_value=mock_imap):
+        conn.handle_callback("user@outlook.com:mypassword123")
     tokens = load_tokens(creds_path)
     assert tokens is not None
     assert tokens["email"] == "user@outlook.com"
     assert tokens["password"] == "mypassword123"
+    assert tokens["validated"] is True
 
 
 def test_outlook_is_connected(tmp_path: Path) -> None:
     creds_path = str(tmp_path / "outlook.json")
     conn = OutlookConnector(credentials_path=creds_path)
     assert conn.is_connected() is False
-    conn.handle_callback("user@outlook.com:pass")
+    mock_imap = MagicMock()
+    mock_imap.login.return_value = ("OK", [])
+    mock_imap.select.return_value = ("OK", [])
+    mock_imap.response.return_value = ("UIDVALIDITY", [b"777"])
+    with patch.object(conn, "_make_imap_client", return_value=mock_imap):
+        conn.handle_callback("user@outlook.com:pass")
     assert conn.is_connected() is True
 
 
 def test_outlook_sync_source_is_outlook(tmp_path: Path) -> None:
     creds_path = str(tmp_path / "outlook.json")
     conn = OutlookConnector(credentials_path=creds_path)
-    conn.handle_callback("user@outlook.com:pass")
 
     mock_imap = MagicMock()
     mock_imap.login.return_value = ("OK", [])
     mock_imap.select.return_value = ("OK", [])
-    mock_imap.search.return_value = ("OK", [b"1"])
+    mock_imap.response.return_value = ("UIDVALIDITY", [b"777"])
 
     raw_email = (
         b"From: sender@test.com\r\n"
@@ -65,15 +75,19 @@ def test_outlook_sync_source_is_outlook(tmp_path: Path) -> None:
         b"\r\n"
         b"Hello from Outlook test"
     )
-    mock_imap.fetch.return_value = ("OK", [(b"1", raw_email)])
+    mock_imap.uid.side_effect = [
+        ("OK", [b"1"]),
+        ("OK", [(b"1", raw_email)]),
+    ]
     mock_imap.logout.return_value = ("OK", [])
 
-    with patch("openjarvis.connectors.gmail_imap.imaplib") as mock_imaplib:
-        mock_imaplib.IMAP4_SSL.return_value = mock_imap
-        mock_imaplib.IMAP4 = type(mock_imap)
+    with patch.object(conn, "_make_imap_client", return_value=mock_imap):
+        conn.handle_callback("user@outlook.com:pass")
         docs = list(conn.sync())
 
     assert len(docs) == 1
     assert docs[0].source == "outlook"
     assert docs[0].doc_id.startswith("outlook:")
     assert docs[0].title == "Test Email"
+    assert mock_imap.uid.call_args_list[0].args == ("SEARCH", None, "ALL")
+    assert mock_imap.uid.call_args_list[1].args == ("FETCH", b"1", "(RFC822)")

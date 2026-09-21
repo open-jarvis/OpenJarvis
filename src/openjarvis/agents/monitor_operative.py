@@ -127,6 +127,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
         memory_backend: Optional[Any] = None,
         interactive: bool = False,
         confirm_callback=None,
+        prompt_builder: Optional[Any] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -139,7 +140,8 @@ class MonitorOperativeAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
-            prompt_builder=kwargs.get("prompt_builder"),
+            prompt_builder=prompt_builder,
+            **kwargs,
         )
         # Validate strategies
         if memory_extraction not in VALID_MEMORY_EXTRACTION:
@@ -236,6 +238,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
             if ex.get("input") and ex.get("output"):
                 messages.insert(-1, Message(role=Role.USER, content=ex["input"]))
                 messages.insert(-1, Message(role=Role.ASSISTANT, content=ex["output"]))
+        self._begin_tool_session_from_messages(messages)
 
         # 5. Run function-calling tool loop
         openai_tools = self._executor.get_openai_tools() if self._tools else []
@@ -739,9 +742,11 @@ class MonitorOperativeAgent(ToolUsingAgent):
         """Auto-persist a state summary if agent didn't store explicitly."""
         if not self._memory_backend or not self._operator_id:
             return
+        if not content or not content.strip():
+            return
         state_key = f"monitor_operative:{self._operator_id}:state"
         try:
-            summary = content[:1000] if content else ""
+            summary = content[:1000]
             self._memory_backend.store(state_key, summary)
         except Exception:
             logger.debug(

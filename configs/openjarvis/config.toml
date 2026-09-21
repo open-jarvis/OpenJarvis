@@ -65,7 +65,15 @@ host = "http://localhost:18181"
 host = "http://localhost:8080"
 
 [engine.apple_fm]
-host = "http://localhost:8079"
+host = "http://localhost:8079"                # OpenAI-compatible shim
+
+# In-process Apple Foundation Models (macOS 26+, Apple Intelligence enabled).
+# Install with: uv pip install -e '.[afm]'
+[engine.afm]
+# instructions = ""                           # applied to every session
+# use_case = "general"                        # or "content_tagging"
+# guardrails = "default"                      # or "permissive_content_transformations"
+sampling = "greedy"                           # or "random" (the SDK default)
 
 # ═══════════════════════════════════════════════════════════════
 # PILLAR 5: Learning — Improvement Methodologies

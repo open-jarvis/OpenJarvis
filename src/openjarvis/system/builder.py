@@ -48,6 +48,7 @@ class SystemBuilder:
         self._sessions: Optional[bool] = None
         self._speech: Optional[bool] = None
         self._mcp_clients: List = []
+        self._mcp_tools: List[BaseTool] = []
 
     def engine(self, key: str) -> SystemBuilder:
         self._engine_key = key
@@ -113,6 +114,33 @@ class SystemBuilder:
 
     def build(self) -> JarvisSystem:
         """Construct a fully wired JarvisSystem."""
+        # Discovery state belongs to one build only.  Once a system is
+        # returned, that system owns the clients and adapters captured below;
+        # retaining them here would make a reused builder hand closed clients
+        # from an earlier system to the next one.
+        self._clear_mcp_discovery_state(close_clients=True)
+        try:
+            system = self._build()
+        except BaseException:
+            # No system took ownership, so release any clients opened before
+            # the build failed.
+            self._clear_mcp_discovery_state(close_clients=True)
+            raise
+        self._clear_mcp_discovery_state(close_clients=False)
+        return system
+
+    def _clear_mcp_discovery_state(self, *, close_clients: bool) -> None:
+        if close_clients:
+            for client in getattr(self, "_mcp_clients", []):
+                try:
+                    client.close()
+                except Exception:
+                    logger.debug("Error closing unowned MCP client", exc_info=True)
+        self._mcp_clients = []
+        self._mcp_tools = []
+
+    def _build(self) -> JarvisSystem:
+        """Build one system using fresh, build-local MCP discovery state."""
         config = self._config
         bus = self._bus or get_event_bus()
 
@@ -137,6 +165,7 @@ class SystemBuilder:
                 energy_monitor = create_energy_monitor(
                     poll_interval_ms=config.telemetry.gpu_poll_interval_ms,
                     prefer_vendor=config.telemetry.energy_vendor or None,
+                    allow_estimates=config.telemetry.allow_energy_estimates,
                 )
             except ImportError:
                 pass
@@ -156,6 +185,7 @@ class SystemBuilder:
 
         sec = setup_security(config, engine, bus)
         engine = sec.engine
+        agent_name = self._agent_name or config.agent.default_agent
 
         if telemetry_enabled:
             from openjarvis.telemetry.instrumented_engine import (
@@ -181,8 +211,21 @@ class SystemBuilder:
             model,
             memory_backend,
             channel_backend,
+            bus=bus,
+            capability_policy=sec.capability_policy,
+            rate_limiter=sec.rate_limiter,
         )
-        tool_executor = ToolExecutor(tool_list, bus) if tool_list else None
+        tool_executor = (
+            ToolExecutor(
+                tool_list,
+                bus,
+                capability_policy=sec.capability_policy,
+                agent_id=agent_name,
+                rate_limiter=sec.rate_limiter,
+            )
+            if tool_list
+            else None
+        )
 
         skill_manager = None
         skill_few_shot_examples: List[str] = []
@@ -207,12 +250,17 @@ class SystemBuilder:
                 )
                 tool_list.extend(skill_tools)
                 if tool_list:
-                    tool_executor = ToolExecutor(tool_list, bus)
+                    tool_executor = ToolExecutor(
+                        tool_list,
+                        bus,
+                        capability_policy=sec.capability_policy,
+                        agent_id=agent_name,
+                        rate_limiter=sec.rate_limiter,
+                    )
                 skill_few_shot_examples = skill_manager.get_few_shot_examples()
             except Exception as exc:
                 logger.warning("Failed to initialize skills: %s", exc)
 
-        agent_name = self._agent_name or config.agent.default_agent
         container_runner = self._setup_sandbox(config)
         scheduler_store, task_scheduler = self._setup_scheduler(config, bus)
         workflow_engine = self._setup_workflow(config, bus)
@@ -291,6 +339,7 @@ class SystemBuilder:
             model=model,
             agent_name=agent_name,
             tools=tool_list,
+            mcp_tools=list(self._mcp_tools),
             tool_executor=tool_executor,
             memory_backend=memory_backend,
             channel_backend=channel_backend,
@@ -304,6 +353,7 @@ class SystemBuilder:
             session_store=session_store,
             capability_policy=capability_policy,
             audit_logger=sec.audit_logger,
+            rate_limiter=sec.rate_limiter,
             agent_manager=agent_manager,
             agent_scheduler=agent_scheduler,
             agent_executor=agent_executor,
@@ -412,12 +462,26 @@ class SystemBuilder:
             return None
 
     def _resolve_tools(
-        self, config, engine, model, memory_backend, channel_backend=None
+        self,
+        config,
+        engine,
+        model,
+        memory_backend,
+        channel_backend=None,
+        *,
+        bus=None,
+        capability_policy=None,
+        rate_limiter=None,
     ):
         """Resolve tool instances via MCPServer (primary) + external MCP servers."""
         from openjarvis.mcp.server import MCPServer
 
-        internal_server = MCPServer()
+        internal_server = MCPServer(
+            bus=bus,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id="system:mcp",
+        )
         for tool in internal_server.get_tools():
             self._inject_tool_deps(tool, engine, model, memory_backend, channel_backend)
 
@@ -440,28 +504,29 @@ class SystemBuilder:
         else:
             tools = []
 
-        if config.tools.mcp.servers:
+        if config.tools.mcp.enabled and config.tools.mcp.servers:
             try:
-                import json
+                from openjarvis.core.config import resolve_mcp_servers
 
-                server_list = json.loads(config.tools.mcp.servers)
-                if isinstance(server_list, list):
-                    for server_cfg in server_list:
-                        try:
-                            external_tools = self._discover_external_mcp(server_cfg)
-                            if tool_names:
-                                external_tools = [
-                                    t
-                                    for t in external_tools
-                                    if t.spec.name in tool_names
-                                ]
-                            tools.extend(external_tools)
-                        except Exception as exc:
-                            logger.warning(
-                                "Failed to discover external MCP tools: %s",
-                                exc,
-                            )
-            except (json.JSONDecodeError, TypeError) as exc:
+                server_list = resolve_mcp_servers(
+                    config.tools.mcp.servers,
+                    config._config_dir,
+                )
+                for server_cfg in server_list:
+                    try:
+                        external_tools = self._discover_external_mcp(server_cfg)
+                        self._mcp_tools.extend(external_tools)
+                        if tool_names:
+                            external_tools = [
+                                t for t in external_tools if t.spec.name in tool_names
+                            ]
+                        tools.extend(external_tools)
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to discover external MCP tools: %s",
+                            exc,
+                        )
+            except (OSError, UnicodeError, ValueError, TypeError) as exc:
                 logger.warning("Failed to parse MCP server config: %s", exc)
 
         return tools
@@ -645,7 +710,26 @@ class SystemBuilder:
             return []
 
         client = MCPClient(transport)
-        client.initialize()
+        try:
+            client.initialize()
+        except Exception:
+            # Not yet in self._mcp_clients, so nothing else will ever
+            # close it (and the underlying subprocess/connection pool) if
+            # we don't do it here (#753).
+            try:
+                client.close()
+            except Exception as cleanup_exc:
+                # Do not let a cleanup failure mask the original handshake
+                # error; callers need the initialize() failure to diagnose
+                # the server while operators still need the cleanup signal.
+                logger.warning(
+                    "Failed to close MCP client for '%s' after "
+                    "initialization failed: %s",
+                    name,
+                    cleanup_exc,
+                    exc_info=True,
+                )
+            raise
 
         self._mcp_clients.append(client)
 

@@ -1552,6 +1552,7 @@ class MiniSWEAgent(LocalCloudAgent):
     """
 
     agent_id = "mini_swe_agent"
+    required_capabilities = ("code:execute", "file:read", "file:write")
 
     def _run_paradigm(
         self,

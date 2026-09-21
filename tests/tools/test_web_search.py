@@ -37,14 +37,42 @@ class TestWebSearchTool:
         assert "No query" in result.content
 
     def test_execute_no_api_key(self, monkeypatch):
-        """When no API key, falls back to DuckDuckGo."""
-        tool = WebSearchTool(api_key=None)
+        """With no API key at all, queries go to the You.com keyless tier.
+
+        This is the behavior change in #923: the zero-config path used to be
+        the DuckDuckGo HTML scrape, which is unranked and rate limited.
+        """
+        import httpx
+
+        captured = {}
+
+        def _get(url, **kwargs):
+            captured["url"] = url
+            resp = MagicMock()
+            resp.json.return_value = {
+                "results": {
+                    "web": [
+                        {
+                            "url": "https://example.com",
+                            "title": "T",
+                            "snippets": ["S"],
+                        }
+                    ]
+                }
+            }
+            resp.raise_for_status = MagicMock()
+            return resp
+
         with patch.dict("os.environ", {}, clear=True):
-            tool._api_key = None
+            monkeypatch.setattr(httpx, "get", _get)
             monkeypatch.delitem(sys.modules, "tavily", raising=False)
+            tool = WebSearchTool(api_key=None)
+            tool._api_key = None
             result = tool.execute(query="test query")
+
         assert result.success is True
-        assert result.metadata["engine"] == "duckduckgo"
+        assert result.metadata["engine"] == "youcom"
+        assert captured["url"] == "https://api.you.com/v1/agents/search"
 
     def test_execute_mocked_tavily(self, monkeypatch):
         mock_client = MagicMock()
@@ -503,3 +531,361 @@ class TestExecuteWithUrl:
         result = tool.execute(query="https://example.com/broken")
         assert result.success is False
         assert "Failed to fetch URL" in result.content
+
+
+# ---------------------------------------------------------------------------
+# Engine selection and the You.com engine (#923)
+# ---------------------------------------------------------------------------
+
+
+class TestEngineSelection:
+    def test_auto_prefers_tavily_when_its_key_is_set(self, monkeypatch):
+        """Existing installs are unchanged: a Tavily key still means Tavily."""
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        assert WebSearchTool()._resolve_engine() == "tavily"
+
+    def test_auto_uses_youcom_without_any_key(self, monkeypatch):
+        """The zero-config path is API-backed rather than the DDG scrape."""
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        assert WebSearchTool()._resolve_engine() == "youcom"
+
+    def test_explicit_engine_overrides_key_presence(self, monkeypatch):
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
+        assert WebSearchTool(engine="youcom")._resolve_engine() == "youcom"
+        assert WebSearchTool(engine="duckduckgo")._resolve_engine() == "duckduckgo"
+
+    def test_engine_read_from_environment(self, monkeypatch):
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
+        monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", "youcom")
+        assert WebSearchTool()._resolve_engine() == "youcom"
+
+    def test_unknown_engine_falls_back_to_auto(self, monkeypatch, caplog):
+        """A typo in the env must not break tool loading."""
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", "yuo.com")
+        with caplog.at_level("WARNING"):
+            tool = WebSearchTool()
+        assert tool._resolve_engine() == "youcom"
+        assert "Unknown web search engine" in caplog.text
+
+    def test_spec_reports_engine_and_optional_keys(self, monkeypatch):
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        spec = WebSearchTool().spec
+        assert spec.metadata["engine"] == "youcom"
+        assert "YOUDOTCOM_API_KEY" in spec.metadata["optional_api_keys"]
+        # Backwards compatible for readers of the old single-key field.
+        assert spec.metadata["requires_api_key"] == "TAVILY_API_KEY"
+
+
+class TestYouComSearch:
+    """The You.com engine, exercised against mocked HTTP."""
+
+    PAYLOAD = {
+        "results": {
+            "web": [
+                {
+                    "url": "https://example.com/a",
+                    "title": "Result A",
+                    "description": "Desc A",
+                    "snippets": ["Snippet A1", "Snippet A2"],
+                },
+                {
+                    "url": "https://example.com/b",
+                    "title": "Result B",
+                    "description": "Desc B only",
+                },
+            ],
+            "news": [
+                {
+                    "url": "https://example.com/n",
+                    "title": "News N",
+                    "snippets": ["Snippet N"],
+                }
+            ],
+        },
+        "metadata": {"query": "test"},
+    }
+
+    def _mock_get(self, monkeypatch, payload=None, status=200):
+        import httpx
+
+        calls = {}
+
+        def _get(url, **kwargs):
+            calls["url"] = url
+            calls["params"] = kwargs.get("params")
+            calls["headers"] = kwargs.get("headers")
+            resp = MagicMock()
+            resp.status_code = status
+            resp.json.return_value = payload if payload is not None else self.PAYLOAD
+            if status >= 400:
+                resp.text = "error body"
+                resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+                    f"HTTP {status}", request=MagicMock(), response=resp
+                )
+            else:
+                resp.raise_for_status = MagicMock()
+            return resp
+
+        monkeypatch.setattr(httpx, "get", _get)
+        return calls
+
+    def test_keyless_endpoint_and_no_key_header(self, monkeypatch):
+        """A stale key must never reach the keyless path — it 401s there."""
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        calls = self._mock_get(monkeypatch)
+
+        result = WebSearchTool(engine="youcom").execute(query="test query")
+
+        assert result.success is True
+        assert calls["url"] == "https://api.you.com/v1/agents/search"
+        assert "X-API-Key" not in calls["headers"]
+        assert result.metadata["youcom_tier"] == "keyless"
+
+    def test_keyed_endpoint_when_key_is_set(self, monkeypatch):
+        monkeypatch.setenv("YOUDOTCOM_API_KEY", "ydc-key")
+        calls = self._mock_get(monkeypatch)
+
+        result = WebSearchTool(engine="youcom").execute(query="test query")
+
+        assert calls["url"] == "https://api.you.com/v1/search"
+        assert calls["headers"]["X-API-Key"] == "ydc-key"
+        assert result.metadata["youcom_tier"] == "keyed"
+
+    def test_sends_attribution_user_agent(self, monkeypatch):
+        """Keyless traffic carries no key, so the User-Agent is the only
+        signal identifying OpenJarvis to You.com."""
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        calls = self._mock_get(monkeypatch)
+
+        WebSearchTool(engine="youcom").execute(query="test query")
+
+        assert (
+            "youdotcom-integration/open-jarvis-openjarvis"
+            in (calls["headers"]["User-Agent"])
+        )
+
+    def test_result_format_matches_tavily(self, monkeypatch):
+        """Same labeled Source/Summary shape agents already parse (#390)."""
+        self._mock_get(monkeypatch)
+
+        result = WebSearchTool(engine="youcom").execute(query="test query")
+
+        assert "### Result A" in result.content
+        assert "Source: https://example.com/a" in result.content
+        assert "Summary: Snippet A1\nSnippet A2" in result.content
+        # description is the fallback when a result carries no snippets
+        assert "Summary: Desc B only" in result.content
+        # news results are included after web results
+        assert "### News N" in result.content
+        assert result.metadata["num_results"] == 3
+
+    def test_max_results_passed_as_count(self, monkeypatch):
+        calls = self._mock_get(monkeypatch)
+        WebSearchTool(engine="youcom", max_results=3).execute(query="q", max_results=7)
+        assert calls["params"] == {"query": "q", "count": 7}
+
+    def test_empty_results(self, monkeypatch):
+        self._mock_get(monkeypatch, payload={"results": {}})
+        result = WebSearchTool(engine="youcom").execute(query="q")
+        assert result.success is True
+        assert result.content == "No results found."
+
+    def test_keyless_limit_falls_back_with_upgrade_hint(self, monkeypatch):
+        """402/429 on the keyless tier means 'get a key', and the reason has
+        to reach the caller instead of vanishing into a debug log."""
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        self._mock_get(monkeypatch, status=402)
+
+        mock_ddgs = MagicMock()
+        mock_ddgs.text.return_value = [
+            {"title": "DDG", "href": "https://example.com", "body": "b"}
+        ]
+        mock_module = MagicMock()
+        mock_module.DDGS.return_value = mock_ddgs
+        monkeypatch.setitem(sys.modules, "ddgs", mock_module)
+
+        result = WebSearchTool(engine="youcom").execute(query="q")
+
+        assert result.success is True
+        assert result.metadata["engine"] == "duckduckgo"
+        assert result.metadata["fallback_from"] == "youcom"
+        assert result.metadata["degraded"] is True
+        assert "YOUDOTCOM_API_KEY" in result.metadata["fallback_reason"]
+
+    def test_keyed_http_error_reports_status_not_upgrade_hint(self, monkeypatch):
+        """With a key set, a failure is not a free-tier limit."""
+        monkeypatch.setenv("YOUDOTCOM_API_KEY", "ydc-key")
+        self._mock_get(monkeypatch, status=500)
+
+        mock_ddgs = MagicMock()
+        mock_ddgs.text.return_value = []
+        mock_module = MagicMock()
+        mock_module.DDGS.return_value = mock_ddgs
+        monkeypatch.setitem(sys.modules, "ddgs", mock_module)
+
+        result = WebSearchTool(engine="youcom").execute(query="q")
+
+        assert "HTTP 500" in result.metadata["fallback_reason"]
+        assert "YOUDOTCOM_API_KEY" not in result.metadata["fallback_reason"]
+
+
+class TestFallbackVisibility:
+    def test_fallback_is_logged_at_warning(self, monkeypatch, caplog):
+        """Regression for the silent-degradation half of #923: a typo'd key
+        used to look identical to a working install with quieter results."""
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        import httpx
+
+        def _boom(*args, **kwargs):
+            raise httpx.ConnectError("no route to host")
+
+        monkeypatch.setattr(httpx, "get", _boom)
+
+        mock_ddgs = MagicMock()
+        mock_ddgs.text.return_value = []
+        mock_module = MagicMock()
+        mock_module.DDGS.return_value = mock_ddgs
+        monkeypatch.setitem(sys.modules, "ddgs", mock_module)
+
+        with caplog.at_level("WARNING"):
+            result = WebSearchTool(engine="youcom").execute(query="q")
+
+        assert "falling back to DuckDuckGo" in caplog.text
+        assert result.metadata["degraded"] is True
+
+    def test_duckduckgo_engine_is_not_marked_degraded(self, monkeypatch):
+        """Choosing DDG deliberately is not a degradation."""
+        mock_ddgs = MagicMock()
+        mock_ddgs.text.return_value = [
+            {"title": "DDG", "href": "https://example.com", "body": "b"}
+        ]
+        mock_module = MagicMock()
+        mock_module.DDGS.return_value = mock_ddgs
+        monkeypatch.setitem(sys.modules, "ddgs", mock_module)
+
+        result = WebSearchTool(engine="duckduckgo").execute(query="q")
+
+        assert result.metadata["engine"] == "duckduckgo"
+        assert "degraded" not in result.metadata
+
+    def test_missing_ddgs_reports_only_ddgs(self, monkeypatch):
+        """The old message named tavily-python even when Tavily was not in
+        play; the remaining hard requirement is ddgs."""
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        import httpx
+
+        monkeypatch.setattr(
+            httpx, "get", MagicMock(side_effect=httpx.ConnectError("down"))
+        )
+        monkeypatch.delitem(sys.modules, "ddgs", raising=False)
+        import builtins
+
+        original_import = builtins.__import__
+
+        def _mock_import(name, *args, **kwargs):
+            if name == "ddgs":
+                raise ImportError("No module named 'ddgs'")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _mock_import)
+
+        result = WebSearchTool(engine="youcom").execute(query="q")
+
+        assert result.success is False
+        assert "ddgs" in result.content
+
+
+class TestYouComContentsExtraction:
+    def _mock_ssrf(self, monkeypatch):
+        import openjarvis.tools.web_search as _ws
+
+        monkeypatch.setattr(_ws, "check_ssrf", lambda url: None)
+
+    def test_contents_used_for_url_queries_when_keyed(self, monkeypatch):
+        """The URL branch upgrades from the regex HTML strip to extracted
+        markdown when a key is available."""
+        self._mock_ssrf(monkeypatch)
+        monkeypatch.setenv("YOUDOTCOM_API_KEY", "ydc-key")
+        import httpx
+
+        resp = MagicMock()
+        resp.json.return_value = [
+            {"url": "https://example.com/a", "markdown": "# Heading\n\nBody text."}
+        ]
+        resp.raise_for_status = MagicMock()
+        post = MagicMock(return_value=resp)
+        monkeypatch.setattr(httpx, "post", post)
+
+        result = WebSearchTool(engine="youcom").execute(query="https://example.com/a")
+
+        assert result.success is True
+        assert result.content == "# Heading\n\nBody text."
+        assert result.metadata["extractor"] == "youcom_contents"
+        assert post.call_args.kwargs["json"]["formats"] == ["markdown"]
+
+    def test_keyless_url_query_uses_local_fetch(self, monkeypatch):
+        """Contents needs a key, so keyless installs keep the local fetch."""
+        self._mock_ssrf(monkeypatch)
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        import httpx
+
+        resp = MagicMock()
+        resp.text = "<html><body>Local text</body></html>"
+        resp.headers = {"content-type": "text/html"}
+        resp.raise_for_status = MagicMock()
+        monkeypatch.setattr(httpx, "get", MagicMock(return_value=resp))
+        monkeypatch.setattr(
+            httpx, "post", MagicMock(side_effect=AssertionError("must not be called"))
+        )
+
+        result = WebSearchTool(engine="youcom").execute(query="https://example.com/a")
+
+        assert "Local text" in result.content
+        assert result.metadata["extractor"] == "local"
+
+    def test_contents_failure_falls_back_to_local_fetch(self, monkeypatch):
+        self._mock_ssrf(monkeypatch)
+        monkeypatch.setenv("YOUDOTCOM_API_KEY", "ydc-key")
+        import httpx
+
+        monkeypatch.setattr(
+            httpx, "post", MagicMock(side_effect=httpx.ConnectError("down"))
+        )
+        resp = MagicMock()
+        resp.text = "<html><body>Local text</body></html>"
+        resp.headers = {"content-type": "text/html"}
+        resp.raise_for_status = MagicMock()
+        monkeypatch.setattr(httpx, "get", MagicMock(return_value=resp))
+
+        result = WebSearchTool(engine="youcom").execute(query="https://example.com/a")
+
+        assert result.success is True
+        assert "Local text" in result.content
+        assert result.metadata["extractor"] == "local"
+
+    def test_url_branch_ssrf_blocked_before_contents_call(self, monkeypatch):
+        """The Contents upgrade must not become an SSRF bypass."""
+        monkeypatch.setenv("YOUDOTCOM_API_KEY", "ydc-key")
+        import openjarvis.tools.web_search as _ws
+
+        monkeypatch.setattr(_ws, "check_ssrf", lambda url: "private IP blocked")
+        import httpx
+
+        monkeypatch.setattr(
+            httpx, "post", MagicMock(side_effect=AssertionError("must not be called"))
+        )
+
+        result = WebSearchTool(engine="youcom").execute(
+            query="http://169.254.169.254/metadata"
+        )
+
+        assert result.success is False
+        assert "private IP blocked" in result.content

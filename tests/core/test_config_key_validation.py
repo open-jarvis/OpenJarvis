@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import get_args, get_origin
+
 import pytest
 
 from openjarvis.core.config import validate_config_key
@@ -52,3 +54,19 @@ class TestValidateConfigKey:
         """Hardware is auto-detected, not user-settable."""
         with pytest.raises(ValueError, match="Unknown config key"):
             validate_config_key("hardware.cpu_count")
+
+    def test_nested_dataclass_section_is_not_settable(self):
+        with pytest.raises(ValueError, match="names a section") as exc_info:
+            validate_config_key("engine.ollama")
+
+        assert "engine.ollama.host" in str(exc_info.value)
+
+    def test_list_of_dataclasses_is_not_settable(self):
+        with pytest.raises(ValueError, match="names a section"):
+            validate_config_key("skills.sources")
+
+    def test_plain_list_leaf_remains_settable(self):
+        field_type = validate_config_key("digest.sections")
+
+        assert get_origin(field_type) is list
+        assert get_args(field_type) == (str,)

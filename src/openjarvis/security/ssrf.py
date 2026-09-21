@@ -117,6 +117,20 @@ def _check_ssrf_python(url: str) -> Optional[str]:
             return f"URL resolves to private IP: {hostname}"
         return None
 
+    # Catch IPv4 "in disguise": decimal (2130706433), hex (0x7f000001),
+    # octal, and short-dotted (127.1) forms are rejected by
+    # ``ipaddress.ip_address`` above but ARE accepted by the C resolver the
+    # HTTP client ultimately uses, so they'd otherwise slip past the DNS
+    # branch and reach loopback/metadata. ``inet_aton`` mirrors that resolver.
+    disguised = _disguised_ipv4(hostname)
+    if disguised is not None:
+        disguised_str = str(disguised)
+        if disguised_str in _BLOCKED_HOSTS:
+            return f"Blocked host: {disguised_str} (cloud metadata endpoint)"
+        if is_private_ip(disguised_str):
+            return f"URL resolves to private IP: {disguised_str}"
+        return None
+
     # DNS resolution check
     try:
         resolved = socket.getaddrinfo(
@@ -125,14 +139,49 @@ def _check_ssrf_python(url: str) -> Optional[str]:
             socket.AF_UNSPEC,
             socket.SOCK_STREAM,
         )
-        for family, stype, proto, canonname, sockaddr in resolved:
-            ip = sockaddr[0]
-            if is_private_ip(ip):
-                return f"URL resolves to private IP: {ip}"
     except socket.gaierror:
-        pass  # DNS resolution failed — allow (will fail at request time)
+        # Fail CLOSED: an unresolvable name must not be waved through. On an
+        # exposed server, a permissive fallback is an SSRF hole; a legitimate
+        # transient DNS failure is better surfaced as a block than as a
+        # silent bypass. Override with OPENJARVIS_SSRF_FAIL_OPEN=1 only for
+        # trusted, non-exposed local use.
+        import os as _os
+
+        if _os.environ.get("OPENJARVIS_SSRF_FAIL_OPEN", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        ):
+            return None
+        return f"Could not resolve host (blocked, fail-closed): {hostname}"
+
+    for family, stype, proto, canonname, sockaddr in resolved:
+        ip = sockaddr[0]
+        if is_private_ip(ip):
+            return f"URL resolves to private IP: {ip}"
 
     return None  # Safe
+
+
+def _disguised_ipv4(host: str) -> ipaddress.IPv4Address | None:
+    """Return the canonical IPv4 for a non-standard textual form, else None.
+
+    Uses ``socket.inet_aton``, which — like glibc's resolver — accepts decimal
+    (``2130706433``), hex (``0x7f000001``), octal, and short-dotted (``127.1``)
+    encodings of an IPv4 address. Plain dotted-quad and non-IP hostnames return
+    None (dotted-quad is already handled by ``ipaddress.ip_address``).
+    """
+    try:
+        packed = socket.inet_aton(host)
+    except OSError:
+        return None
+    # inet_aton also accepts canonical dotted-quad; that path is already
+    # covered by the ip_address() literal check, so only report when the
+    # input text differs from the canonical form (i.e. it was "disguised").
+    addr = ipaddress.IPv4Address(packed)
+    if str(addr) == host:
+        return None
+    return addr
 
 
 __all__ = ["check_ssrf", "is_private_ip"]

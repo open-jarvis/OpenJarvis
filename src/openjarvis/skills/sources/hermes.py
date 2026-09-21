@@ -36,18 +36,7 @@ class HermesResolver(SourceResolver):
         return self._cache_root
 
     def sync(self) -> None:
-        """Clone or pull the Hermes repo into the cache directory."""
-        if self._cache_root.exists() and (self._cache_root / ".git").exists():
-            subprocess.run(
-                ["git", "-C", str(self._cache_root), "pull", "--ff-only"],
-                check=True,
-            )
-        else:
-            self._cache_root.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
-                ["git", "clone", HERMES_REPO_URL, str(self._cache_root)],
-                check=True,
-            )
+        self._sync_git_cache(HERMES_REPO_URL)
 
     def list_skills(self) -> List[ResolvedSkill]:
         """Walk skills/<category>/<skill>/SKILL.md."""

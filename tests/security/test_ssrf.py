@@ -136,10 +136,27 @@ class TestCheckSsrf:
         assert result is not None
         assert "Invalid URL" in result or "No hostname" in result
 
-    def test_dns_failure_allowed(self):
-        """DNS resolution failure should not block — request will fail at HTTP time."""
+    def test_dns_failure_fails_closed(self):
+        """DNS resolution failure must fail CLOSED (block), not silently allow.
+
+        A permissive fallback here is an SSRF hole on an exposed server: a name
+        the validator cannot resolve may still be resolvable by the HTTP
+        client's own resolver (or via rebinding), so we block by default.
+        """
         import socket
 
+        with patch(
+            "openjarvis.security.ssrf.socket.getaddrinfo",
+            side_effect=socket.gaierror("Name resolution failed"),
+        ):
+            result = _check_ssrf_python("https://nonexistent.example.com")
+        assert result is not None
+
+    def test_dns_failure_allowed_with_fail_open_env(self, monkeypatch):
+        """Opt-in escape hatch for trusted, non-exposed local use only."""
+        import socket
+
+        monkeypatch.setenv("OPENJARVIS_SSRF_FAIL_OPEN", "1")
         with patch(
             "openjarvis.security.ssrf.socket.getaddrinfo",
             side_effect=socket.gaierror("Name resolution failed"),

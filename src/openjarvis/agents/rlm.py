@@ -22,7 +22,12 @@ from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
-from openjarvis.tools._stubs import BaseTool, build_tool_descriptions
+from openjarvis.tools._stubs import (
+    BaseTool,
+    ToolExecutor,
+    ToolSpec,
+    build_tool_descriptions,
+)
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -91,6 +96,40 @@ RLM_SYSTEM_PROMPT = (
 # ---------------------------------------------------------------------------
 
 
+class _RLMReplTool(BaseTool):
+    """Expose one RLM REPL instance through the canonical security executor."""
+
+    tool_id = "rlm_repl"
+
+    def __init__(self, repl: RLMRepl) -> None:
+        self._repl = repl
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Execute generated Python in the RLM sandbox.",
+            parameters={
+                "type": "object",
+                "properties": {"code": {"type": "string"}},
+                "required": ["code"],
+            },
+            required_capabilities=["code:execute"],
+            timeout_seconds=60.0,
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        output = self._repl.execute(str(params.get("code", "")))
+        return ToolResult(
+            tool_name=self.tool_id,
+            content=output or "(no output)",
+            success=(
+                not output.startswith("Error:")
+                and not output.startswith("SyntaxError:")
+            ),
+        )
+
+
 @AgentRegistry.register("rlm")
 class RLMAgent(ToolUsingAgent):
     """Recursive Language Model agent using a persistent REPL.
@@ -106,6 +145,7 @@ class RLMAgent(ToolUsingAgent):
     _default_temperature = 0.7
     _default_max_tokens = 2048
     _default_max_turns = 10
+    required_capabilities = ("code:execute",)
 
     def __init__(
         self,
@@ -124,6 +164,9 @@ class RLMAgent(ToolUsingAgent):
         system_prompt: Optional[str] = None,
         interactive: bool = False,
         confirm_callback=None,
+        capability_policy: Optional[Any] = None,
+        agent_id: Optional[str] = None,
+        rate_limiter: Optional[Any] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -135,7 +178,14 @@ class RLMAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            capability_policy=capability_policy,
+            agent_id=agent_id,
+            rate_limiter=rate_limiter,
         )
+        self._runtime_bus = bus
+        self._runtime_capability_policy = capability_policy
+        self._runtime_rate_limiter = rate_limiter
+        self._runtime_agent_id = agent_id or self.agent_id
         # Override executor: RLM only creates one if tools are provided
         if not self._tools:
             self._executor = None  # type: ignore[assignment]
@@ -155,6 +205,9 @@ class RLMAgent(ToolUsingAgent):
         context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
+        denied = self._execution_denied_result()
+        if denied is not None:
+            return denied
         self._emit_turn_start(input)
 
         # Build system prompt with tool section
@@ -189,6 +242,13 @@ class RLMAgent(ToolUsingAgent):
             tool_call_fn=self._execute_tool_from_repl if self._executor else None,
             tool_arg_names=self._tool_arg_names(),
             max_output_chars=self._max_output_chars,
+        )
+        repl_executor = ToolExecutor(
+            [_RLMReplTool(repl)],
+            bus=self._runtime_bus,
+            capability_policy=self._runtime_capability_policy,
+            rate_limiter=self._runtime_rate_limiter,
+            agent_id=self._runtime_agent_id,
         )
 
         # Resolve context and inject into REPL
@@ -246,22 +306,21 @@ class RLMAgent(ToolUsingAgent):
                 )
 
             # Execute code in REPL
-            output = repl.execute(code)
+            repl_result = repl_executor.execute(
+                ToolCall(
+                    id=f"rlm-repl-{turns}",
+                    name="rlm_repl",
+                    arguments=json.dumps({"code": code}),
+                )
+            )
+            output = repl_result.content
 
             if self._repl_tool_results:
                 all_tool_results.extend(self._repl_tool_results)
                 self._repl_tool_results = []
 
-            # Record as tool result
-            tool_result = ToolResult(
-                tool_name="rlm_repl",
-                content=output or "(no output)",
-                success=(
-                    not output.startswith("Error:")
-                    and not output.startswith("SyntaxError:")
-                ),
-            )
-            all_tool_results.append(tool_result)
+            # Record the capability/rate/audit-gated REPL result.
+            all_tool_results.append(repl_result)
 
             # Check for termination
             if repl.is_terminated:

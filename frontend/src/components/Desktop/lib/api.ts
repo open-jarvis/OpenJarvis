@@ -5,11 +5,16 @@
 // Types
 // ---------------------------------------------------------------------------
 
+export interface ManagedAgentConfig extends Record<string, unknown> {
+  schedule_type?: string;
+  schedule_value?: string | number;
+}
+
 export interface ManagedAgent {
   id: string;
   name: string;
   agent_type: string;
-  config: Record<string, unknown>;
+  config: ManagedAgentConfig;
   status: 'idle' | 'running' | 'paused' | 'error' | 'archived' | 'needs_attention' | 'budget_exceeded' | 'stalled';
   summary_memory: string;
   created_at: number;
@@ -18,8 +23,6 @@ export interface ManagedAgent {
   total_cost?: number;
   total_tokens?: number;
   last_run_at?: number | null;
-  schedule_type?: string;
-  schedule_value?: string;
   budget?: number;
   learning_enabled?: boolean;
 }

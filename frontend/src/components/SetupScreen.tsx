@@ -4,9 +4,12 @@ import {
   getSetupStatus,
   fetchModels,
   fetchRecommendedModel,
+  resetInferenceSource,
   type SetupStatus,
 } from '../lib/api';
 import { useAppStore } from '../lib/store';
+import { isEmbedOnlyModel } from '../lib/model-capabilities';
+import { InferenceRecoveryButton, InferenceSourceSetup } from './InferenceSourceSetup';
 
 const STEPS = [
   { key: 'ollama_ready', label: 'Inference Engine', icon: Cpu, detail: 'Starting Ollama...' },
@@ -76,10 +79,15 @@ function StepRow({
 
 export function SetupScreen({ onReady }: { onReady: () => void }) {
   const [status, setStatus] = useState<SetupStatus | null>(null);
+  const [statusChecked, setStatusChecked] = useState(false);
+  const [setupInitiated, setSetupInitiated] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryError, setRecoveryError] = useState('');
   const handedOffRef = useRef(false);
   const poll = useCallback(async () => {
     const s = await getSetupStatus();
     if (s) setStatus(s);
+    setStatusChecked(true);
     if (s?.phase === 'ready' && !handedOffRef.current) {
       handedOffRef.current = true;
       // Pre-select a model BEFORE handing off so the chat is usable on
@@ -91,12 +99,14 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
           fetchRecommendedModel().catch(() => ({ model: '', reason: '' })),
         ]);
         const store = useAppStore.getState();
+        const hadSelection = !!store.selectedModel;
         store.setModels(models);
         store.setModelsLoading(false);
-        const recommended = rec.model && models.some((m) => m.id === rec.model)
+        const chatModels = models.filter((m) => !isEmbedOnlyModel(m.id));
+        const recommended = rec.model && chatModels.some((m) => m.id === rec.model)
           ? rec.model
-          : models[0]?.id || '';
-        if (recommended && !store.selectedModel) {
+          : chatModels[0]?.id || '';
+        if (recommended && !hadSelection) {
           store.setSelectedModel(recommended);
         }
       } catch {
@@ -107,11 +117,38 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
     }
   }, [onReady]);
 
+  const changeInferenceSource = useCallback(async () => {
+    setRecovering(true);
+    setRecoveryError('');
+    try {
+      await resetInferenceSource();
+      handedOffRef.current = false;
+      setSetupInitiated(false);
+      setStatus(null);
+      await poll();
+    } catch (error) {
+      setRecoveryError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRecovering(false);
+    }
+  }, [poll]);
+
   useEffect(() => {
     poll();
     const interval = setInterval(poll, 800);
     return () => clearInterval(interval);
   }, [poll]);
+
+  if (statusChecked && status?.requires_source && !setupInitiated) {
+    return (
+      <InferenceSourceSetup
+        onStarted={() => {
+          setSetupInitiated(true);
+          void poll();
+        }}
+      />
+    );
+  }
 
   const activeStep: StepKey | null =
     status && !status.ollama_ready
@@ -140,7 +177,11 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
             OpenJarvis
           </h1>
           <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-            Setting up your local AI...
+            {!statusChecked
+              ? 'Checking your saved setup...'
+              : status?.source === 'custom'
+                ? 'Connecting to your AI server...'
+                : 'Setting up your local AI...'}
           </p>
         </div>
 
@@ -182,6 +223,23 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
             <XCircle size={16} className="shrink-0 mt-0.5" />
             <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{status.error}</span>
           </div>
+        )}
+
+        {recoveryError && (
+          <div
+            role="alert"
+            className="mt-3 px-4 py-3 rounded-xl text-sm"
+            style={{ color: 'var(--color-error)' }}
+          >
+            {recoveryError}
+          </div>
+        )}
+
+        {statusChecked && status && !status.requires_source && status.phase !== 'ready' && (
+          <InferenceRecoveryButton
+            recovering={recovering}
+            onChange={() => void changeInferenceSource()}
+          />
         )}
 
         {/* Progress bar */}

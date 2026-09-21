@@ -138,6 +138,69 @@ class TestCLI:
         content = config_path.read_text()
         assert "[engine]" in content
 
+    def test_init_preset_uses_utf8_for_config_copy(self, tmp_path: Path) -> None:
+        """Preset installation reads and writes shipped TOML as UTF-8."""
+        config_dir = tmp_path / ".openjarvis"
+        config_path = config_dir / "config.toml"
+        original_read_text = Path.read_text
+        original_write_text = Path.write_text
+
+        def read_text(path: Path, *args: object, **kwargs: object) -> str:
+            if path.name == "chat-simple.toml":
+                assert kwargs.get("encoding") == "utf-8"
+            return original_read_text(path, *args, **kwargs)
+
+        def write_text(path: Path, data: str, *args: object, **kwargs: object) -> int:
+            if path == config_path:
+                assert kwargs.get("encoding") == "utf-8"
+            return original_write_text(path, data, *args, **kwargs)
+
+        with (
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_DIR", config_dir),
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
+            mock.patch.object(Path, "read_text", autospec=True, side_effect=read_text),
+            mock.patch.object(
+                Path, "write_text", autospec=True, side_effect=write_text
+            ),
+        ):
+            result = CliRunner().invoke(cli, ["init", "--preset", "chat-simple"])
+
+        assert result.exit_code == 0
+        assert "lightweight conversational AI" in config_path.read_text(
+            encoding="utf-8"
+        )
+
+    def test_preset_switch_requires_explicit_force(self, tmp_path: Path) -> None:
+        config_dir = tmp_path / ".openjarvis"
+        config_dir.mkdir()
+        config_path = config_dir / "config.toml"
+        original = '# customized\n[engine]\ndefault = "ollama"\n'
+        config_path.write_text(original, encoding="utf-8")
+
+        with (
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_DIR", config_dir),
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
+        ):
+            rejected = CliRunner().invoke(
+                cli,
+                ["init", "--preset", "chat-simple"],
+            )
+            assert config_path.read_text(encoding="utf-8") == original
+            confirmed = CliRunner().invoke(
+                cli,
+                ["init", "--preset", "chat-simple", "--force"],
+            )
+
+        assert rejected.exit_code != 0
+        assert "jarvis init --preset chat-simple --force" in " ".join(
+            rejected.output.split()
+        )
+        assert confirmed.exit_code == 0
+        assert config_path.read_text(encoding="utf-8") != original
+        assert "lightweight conversational AI" in config_path.read_text(
+            encoding="utf-8"
+        )
+
 
 class TestStartupResilience:
     """Importing the CLI must not force heavy/native deps (#404, #309).

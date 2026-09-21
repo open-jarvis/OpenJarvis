@@ -22,6 +22,7 @@ from openjarvis.engine._http_async import (
     AsyncHTTPEngineMixin,
 )
 from openjarvis.engine._stubs import StreamChunk
+from openjarvis.intelligence.model_catalog import resolve_model_id_for_engine
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,9 @@ class _OpenAICompatibleEngine(AsyncHTTPEngineMixin, InferenceEngine):
 
     # -- InferenceEngine interface ------------------------------------------
 
+    def _resolve_model_id(self, model: str) -> str:
+        return resolve_model_id_for_engine(model, self.engine_id)
+
     def generate(
         self,
         messages: Sequence[Message],
@@ -85,7 +89,7 @@ class _OpenAICompatibleEngine(AsyncHTTPEngineMixin, InferenceEngine):
         **kwargs: Any,
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
-            "model": model,
+            "model": self._resolve_model_id(model),
             "messages": messages_to_dicts(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -177,7 +181,7 @@ class _OpenAICompatibleEngine(AsyncHTTPEngineMixin, InferenceEngine):
         **kwargs: Any,
     ) -> AsyncIterator[str]:
         payload: Dict[str, Any] = {
-            "model": model,
+            "model": self._resolve_model_id(model),
             "messages": messages_to_dicts(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -241,7 +245,7 @@ class _OpenAICompatibleEngine(AsyncHTTPEngineMixin, InferenceEngine):
         """Yield StreamChunks with content, tool_calls, and finish_reason."""
         msg_dicts = messages_to_dicts(messages)
         payload: Dict[str, Any] = {
-            "model": model,
+            "model": self._resolve_model_id(model),
             "messages": msg_dicts,
             "temperature": temperature,
             "max_tokens": max_tokens,

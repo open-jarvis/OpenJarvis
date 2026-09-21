@@ -42,7 +42,7 @@ jobs:
        contains(github.event.comment.body, '@claude') &&
        github.actor != 'claude[bot]')
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

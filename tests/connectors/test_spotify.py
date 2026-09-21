@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -70,3 +71,23 @@ def test_sync_yields_tracks(connector):
     assert docs[0].doc_type == "recently_played"
     assert "Queen" in docs[0].title
     assert docs[0].metadata["track_name"] == "Bohemian Rhapsody"
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        '{"client_id": "id", "client_secret": "secret"}',
+        '{"access_token": ""}',
+        "not-json",
+    ],
+)
+def test_client_registration_file_is_not_connected(
+    tmp_path: Path,
+    contents: str,
+) -> None:
+    from openjarvis.connectors.spotify import SpotifyConnector
+
+    token_path = tmp_path / "spotify.json"
+    token_path.write_text(contents, encoding="utf-8")
+
+    assert SpotifyConnector(token_path=str(token_path)).is_connected() is False

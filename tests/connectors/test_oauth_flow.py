@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 def test_exchange_google_token_calls_endpoint() -> None:
     from openjarvis.connectors.oauth import exchange_google_token
@@ -28,6 +30,27 @@ def test_exchange_google_token_calls_endpoint() -> None:
     assert tokens["access_token"] == "ya29.test"
     assert tokens["refresh_token"] == "1//test"
     mock_post.assert_called_once()
+
+
+def test_generic_exchange_rejects_response_without_access_token() -> None:
+    from openjarvis.connectors.oauth import OAUTH_PROVIDERS, _exchange_token
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"refresh_token": "refresh-only"}
+
+    with (
+        patch("httpx.post", return_value=mock_resp),
+        pytest.raises(RuntimeError, match="access_token"),
+    ):
+        _exchange_token(
+            OAUTH_PROVIDERS["spotify"],
+            "authorization-code",
+            "client-id",
+            "client-secret",
+            "http://127.0.0.1:8888/callback",
+        )
+
+    mock_resp.raise_for_status.assert_called_once()
 
 
 def test_gdrive_handle_callback_persists_creds_no_background_flow(

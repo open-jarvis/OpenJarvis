@@ -202,6 +202,58 @@ def test_delete_by_doc_id(ks: KnowledgeStore) -> None:
     assert ks.delete("nonexistent:doc") is False
 
 
+def test_delete_by_source(ks: KnowledgeStore) -> None:
+    """delete_by_source() removes only chunks from the given source.
+
+    Regression: reconnecting a filesystem connector (e.g. Obsidian) to a
+    different underlying vault left the OLD vault's chunks in the store
+    forever. If the new vault happened to contain a file at the same
+    relative path (e.g. both vaults have a "Welcome.md"), the resulting
+    doc_id collided with the old, orphaned chunk -- and the ingestion
+    pipeline's duplicate-doc_id dedup silently discarded the new content,
+    leaving permanently stale data indexed with no error surfaced.
+    Disconnecting a connector must purge its previously-ingested content
+    so a later reconnect (to the same or a different source) starts clean.
+    """
+    _store(
+        ks,
+        content="Old vault welcome note content",
+        source="obsidian",
+        doc_id="obsidian:Welcome.md",
+    )
+    _store(
+        ks,
+        content="Unrelated note from another connector",
+        source="notion",
+        doc_id="notion:Some Page",
+    )
+
+    deleted = ks.delete_by_source("obsidian")
+    assert deleted == 1
+
+    after = ks.retrieve("welcome", top_k=10)
+    for r in after:
+        assert r.metadata.get("source") != "obsidian"
+
+    # The other source's content must be untouched.
+    remaining = ks.retrieve("unrelated note connector", top_k=10)
+    assert any(r.metadata.get("source") == "notion" for r in remaining)
+
+    # No matching source is a no-op, not an error.
+    assert ks.delete_by_source("nonexistent_source") == 0
+
+
+def test_delete_by_sources_removes_all_owned_sources_atomically(
+    ks: KnowledgeStore,
+) -> None:
+    _store(ks, content="first owned source", source="owned_a")
+    _store(ks, content="second owned source", source="owned_b")
+    _store(ks, content="unrelated source", source="other")
+
+    assert ks.delete_by_sources(("owned_a", "owned_b")) == 2
+    assert ks.distinct_sources() == ["other"]
+
+
 def test_clear(ks: KnowledgeStore) -> None:
     """clear() removes all stored documents."""
     _store(ks, content="Document one about research")

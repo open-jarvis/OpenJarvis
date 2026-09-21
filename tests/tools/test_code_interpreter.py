@@ -59,7 +59,9 @@ class TestCodeInterpreterTool:
         result = tool.execute(code="import os; os.system('ls')")
         assert result.success is False
         assert "Blocked" in result.content
-        assert "os.system" in result.content
+        # AST validation blocks the dangerous *import* structurally, so the
+        # message names the module rather than echoing an "os.system" substring.
+        assert "os" in result.content
 
     def test_dangerous_subprocess_blocked(self):
         tool = CodeInterpreterTool()
@@ -78,6 +80,24 @@ class TestCodeInterpreterTool:
         result = tool.execute(code="f = open('/etc/passwd')")
         assert result.success is False
         assert "Blocked" in result.content
+
+    def test_reexported_process_module_blocked(self):
+        tool = CodeInterpreterTool()
+        result = tool.execute(code="import platform; platform.os.system('true')")
+        assert result.success is False
+        assert "Blocked" in result.content
+
+    def test_alternate_file_api_blocked(self, tmp_path):
+        marker = tmp_path / "marker.txt"
+        marker.write_text("keep me")
+        tool = CodeInterpreterTool()
+
+        result = tool.execute(
+            code=f"import io; io.open({str(marker)!r}, 'w').write('changed')"
+        )
+
+        assert result.success is False
+        assert marker.read_text() == "keep me"
 
     def test_no_code_provided(self):
         tool = CodeInterpreterTool()
@@ -126,6 +146,10 @@ class TestCodeInterpreterTool:
     def test_tool_id(self):
         tool = CodeInterpreterTool()
         assert tool.tool_id == "code_interpreter"
+
+    def test_structured_object_text_opt_in(self):
+        tool = CodeInterpreterTool()
+        assert tool.spec.metadata["structured_allow_object_text"] is True
 
     def test_registry_registration(self):
         ToolRegistry.register_value("code_interpreter", CodeInterpreterTool)

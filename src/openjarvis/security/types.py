@@ -35,6 +35,7 @@ class SecurityEventType(str, Enum):
     PII_DETECTED = "pii_detected"
     SENSITIVE_FILE_BLOCKED = "sensitive_file_blocked"
     TOOL_BLOCKED = "tool_blocked"
+    TOOL_EXECUTED = "tool_executed"
 
 
 # ---------------------------------------------------------------------------

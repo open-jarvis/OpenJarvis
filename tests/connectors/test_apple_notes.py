@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
@@ -24,7 +25,8 @@ from openjarvis.core.registry import ConnectorRegistry
 def _create_fake_notes_db(db_path: Path) -> None:
     """Populate a SQLite file with the Apple Notes schema and sample rows."""
     conn = sqlite3.connect(str(db_path))
-    conn.executescript("""
+    conn.executescript(
+        """
         CREATE TABLE ZICCLOUDSYNCINGOBJECT (
             Z_PK INTEGER PRIMARY KEY,
             ZTITLE TEXT,
@@ -38,7 +40,8 @@ def _create_fake_notes_db(db_path: Path) -> None:
             ZDATA BLOB,
             ZNOTE INTEGER
         );
-    """)
+    """
+    )
 
     # Note 1 — Shopping List
     html1 = "<html><body><h1>Shopping List</h1><p>Milk, eggs, bread</p></body></html>"
@@ -208,3 +211,61 @@ def test_registry() -> None:
     assert ConnectorRegistry.contains("apple_notes")
     cls = ConnectorRegistry.get("apple_notes")
     assert cls.connector_id == "apple_notes"
+
+
+# ---------------------------------------------------------------------------
+# Test 10 — modern modification timestamp drives incremental sync
+# ---------------------------------------------------------------------------
+
+
+def test_incremental_sync_uses_modern_note_modification_date(tmp_path: Path) -> None:
+    """Modern Notes rows use ZMODIFICATIONDATE1 for incremental sync."""
+    db_path = tmp_path / "ModernNoteStore.sqlite"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(
+        """
+        CREATE TABLE ZICCLOUDSYNCINGOBJECT (
+            Z_PK INTEGER PRIMARY KEY,
+            ZTITLE TEXT,
+            ZTITLE1 TEXT,
+            ZMODIFICATIONDATE REAL,
+            ZMODIFICATIONDATE1 REAL,
+            ZIDENTIFIER TEXT
+        );
+        CREATE TABLE ZICNOTEDATA (
+            Z_PK INTEGER PRIMARY KEY,
+            ZDATA BLOB,
+            ZNOTE INTEGER
+        );
+    """
+    )
+    compressed = gzip.compress(b"<p>New movie list</p>")
+    conn.execute(
+        "INSERT INTO ZICCLOUDSYNCINGOBJECT VALUES "
+        "(1, NULL, 'Movies', NULL, 800000000.0, 'note-modern')"
+    )
+    conn.execute("INSERT INTO ZICNOTEDATA VALUES (1, ?, 1)", (compressed,))
+    conn.commit()
+    conn.close()
+
+    from openjarvis.connectors.apple_notes import AppleNotesConnector  # noqa: PLC0415
+
+    connector = AppleNotesConnector(db_path=str(db_path))
+    docs = list(connector.sync(since=datetime(2026, 1, 1, tzinfo=timezone.utc)))
+
+    assert [doc.doc_id for doc in docs] == ["apple_notes:note-modern"]
+
+
+# ---------------------------------------------------------------------------
+# Test 11 — legacy modification timestamp remains supported
+# ---------------------------------------------------------------------------
+
+
+def test_incremental_sync_falls_back_to_legacy_modification_date(connector) -> None:
+    """Older Notes rows continue to use ZMODIFICATIONDATE."""
+    docs = list(connector.sync(since=datetime(2023, 1, 1, tzinfo=timezone.utc)))
+
+    assert {doc.doc_id for doc in docs} == {
+        "apple_notes:note-001",
+        "apple_notes:note-002",
+    }

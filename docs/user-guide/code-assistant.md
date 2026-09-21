@@ -10,7 +10,7 @@ An orchestrator agent with code execution, file I/O, and shell access. It can wr
 git clone https://github.com/open-jarvis/OpenJarvis.git
 cd OpenJarvis
 uv sync --extra dev
-jarvis init --preset code-assistant
+jarvis init --preset code-assistant --force
 ```
 
 This writes a pre-configured `~/.openjarvis/config.toml` for the code assistant.

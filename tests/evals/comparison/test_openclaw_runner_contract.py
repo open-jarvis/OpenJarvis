@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -35,9 +36,17 @@ def test_openclaw_runner_parses_real_agent_json_shape(tmp_path: Path) -> None:
         / "src/openjarvis/evals/backends/external/_runners/openclaw_runner.mjs"
     )
     out_json = tmp_path / "out.json"
+    # subprocess.run's `env` REPLACES the environment rather than merging
+    # it, so passing just these two keys wiped everything Node needs to
+    # even start on Windows (TEMP/TMP/SystemRoot/PATH) -- os.tmpdir()
+    # falls back to the literal string 'undefined' when those are unset,
+    # and mkdtemp then fails with ENOENT (#785). Inherit the parent
+    # environment and layer the test-specific overrides on top.
     env = {
+        **os.environ,
         "OPENCLAW_PATH": str(tmp_path),
         "HOME": str(tmp_path / "home"),
+        "USERPROFILE": str(tmp_path / "home"),
     }
     result = subprocess.run(
         [

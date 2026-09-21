@@ -7,7 +7,7 @@ import time
 from typing import Any, List
 
 from openjarvis.bench._stats import compute_stats
-from openjarvis.bench._stubs import BaseBenchmark, BenchmarkResult
+from openjarvis.bench._stubs import BaseBenchmark, BenchmarkResult, engine_info
 from openjarvis.core.registry import BenchmarkRegistry
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._stubs import InferenceEngine
@@ -76,10 +76,9 @@ class ThroughputBenchmark(BaseBenchmark):
         metrics["total_time_seconds"] = total_time
 
         metadata: dict[str, Any] = {}
-        if engine.engine_id == "apple_fm":
-            metadata["token_estimation"] = (
-                "~4 chars/token (Apple FM SDK does not expose counts)"
-            )
+        info = engine_info(engine)
+        if info:
+            metadata["engine_info"] = info
 
         return BenchmarkResult(
             benchmark_name=self.name,

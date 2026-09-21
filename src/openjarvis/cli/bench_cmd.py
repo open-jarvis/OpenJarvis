@@ -260,6 +260,7 @@ def run(
 
             energy_monitor = create_energy_monitor(
                 prefer_vendor=config.telemetry.energy_vendor or None,
+                allow_estimates=config.telemetry.allow_energy_estimates,
             )
         except Exception as exc:
             logger.debug("Energy monitor init skipped: %s", exc)
@@ -298,6 +299,7 @@ def run(
 
                 energy_monitor = create_energy_monitor(
                     prefer_vendor=config.telemetry.energy_vendor or None,
+                    allow_estimates=config.telemetry.allow_energy_estimates,
                 )
                 if energy_monitor is not None:
                     console.print("[green]Energy monitor installed.[/green]")

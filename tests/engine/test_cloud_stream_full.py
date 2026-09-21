@@ -3,6 +3,8 @@ and _prepare_anthropic_messages."""
 
 from __future__ import annotations
 
+import sys
+from types import ModuleType, SimpleNamespace
 from typing import Any, List
 from unittest.mock import MagicMock
 
@@ -61,6 +63,36 @@ def _openai_tool_call_delta(
     tc.function.name = name
     tc.function.arguments = arguments
     return tc
+
+
+class _GoogleConfig:
+    def __init__(self, **kwargs: Any) -> None:
+        self.__dict__.update(kwargs)
+
+
+def _google_stream_chunk(
+    *parts: Any,
+    text: str | None = None,
+    usage_metadata: Any = None,
+) -> Any:
+    candidates = []
+    if parts:
+        candidates = [SimpleNamespace(content=SimpleNamespace(parts=list(parts)))]
+    return SimpleNamespace(
+        text=text,
+        candidates=candidates,
+        usage_metadata=usage_metadata,
+    )
+
+
+def _google_types_modules() -> dict[str, ModuleType]:
+    types = ModuleType("google.genai.types")
+    types.GenerateContentConfig = _GoogleConfig
+    genai = ModuleType("google.genai")
+    genai.types = types
+    google = ModuleType("google")
+    google.genai = genai
+    return {"google": google, "google.genai": genai, "google.genai.types": types}
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +443,316 @@ def test_prepare_anthropic_messages_tool_calls():
     assert blocks[1]["id"] == "call_1"
     assert blocks[1]["name"] == "get_weather"
     assert blocks[1]["input"] == {"city": "Berlin"}
+
+
+# ---------------------------------------------------------------------------
+# _stream_full_google tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stream_full_google_text_only(monkeypatch: pytest.MonkeyPatch):
+    """Google text chunks retain their content and finish normally."""
+    client = MagicMock()
+    client.models.generate_content_stream.return_value = iter(
+        [_google_stream_chunk(text="Hello"), _google_stream_chunk(text=" world")]
+    )
+    engine = _make_cloud_engine(google_client=client)
+    engine._thought_sigs = {}
+    messages = [Message(role=Role.USER, content="hi")]
+    modules = _google_types_modules()
+
+    with monkeypatch.context() as patch:
+        for name, module in modules.items():
+            patch.setitem(sys.modules, name, module)
+        result = [
+            chunk
+            async for chunk in engine.stream_full(messages, model="gemini-2.5-flash")
+        ]
+
+    assert [chunk.content for chunk in result[:-1]] == ["Hello", " world"]
+    assert result[-1].finish_reason == "stop"
+
+
+@pytest.mark.asyncio
+async def test_stream_full_google_preserves_tool_calls(monkeypatch: pytest.MonkeyPatch):
+    """Google function_call parts become OpenAI-compatible tool call chunks."""
+    function_call = SimpleNamespace(name="get_weather", args={"city": "Berlin"})
+    part = SimpleNamespace(
+        function_call=function_call, text=None, thought_signature=b"sig"
+    )
+    client = MagicMock()
+    client.models.generate_content_stream.return_value = iter(
+        [_google_stream_chunk(part)]
+    )
+    engine = _make_cloud_engine(google_client=client)
+    engine._thought_sigs = {}
+    messages = [Message(role=Role.USER, content="weather")]
+    modules = _google_types_modules()
+
+    with monkeypatch.context() as patch:
+        for name, module in modules.items():
+            patch.setitem(sys.modules, name, module)
+        result = [
+            chunk
+            async for chunk in engine.stream_full(
+                messages,
+                model="gemini-2.5-flash",
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "description": "Get weather",
+                            "parameters": {"type": "object", "properties": {}},
+                        },
+                    }
+                ],
+            )
+        ]
+
+    tool_call = result[0].tool_calls[0]
+    assert tool_call["index"] == 0
+    assert tool_call["id"].startswith("google_")
+    assert tool_call["type"] == "function"
+    assert tool_call["function"] == {
+        "name": "get_weather",
+        "arguments": '{"city": "Berlin"}',
+    }
+    assert tool_call["thought_signature"] == b"sig"
+    assert engine._thought_sigs[tool_call["id"]] == b"sig"
+    assert result[-1].finish_reason == "tool_calls"
+    config = client.models.generate_content_stream.call_args.kwargs["config"]
+    assert config.tools == [
+        {
+            "function_declarations": [
+                {
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+            ]
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stream_full_google_preserves_mixed_and_multiple_calls(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Google streams retain mixed text and multiple tool calls."""
+    weather = SimpleNamespace(name="get_weather", args={"city": "Berlin"})
+    calendar = SimpleNamespace(name="get_calendar", args={"day": "Monday"})
+    text_part = SimpleNamespace(text="I'll check.", function_call=None)
+    weather_part = SimpleNamespace(
+        function_call=weather, text=None, thought_signature=None
+    )
+    calendar_part = SimpleNamespace(
+        function_call=calendar, text=None, thought_signature=None
+    )
+    client = MagicMock()
+    client.models.generate_content_stream.return_value = iter(
+        [
+            _google_stream_chunk(text_part, weather_part),
+            _google_stream_chunk(calendar_part),
+        ]
+    )
+    engine = _make_cloud_engine(google_client=client)
+    engine._thought_sigs = {}
+    modules = _google_types_modules()
+
+    with monkeypatch.context() as patch:
+        for name, module in modules.items():
+            patch.setitem(sys.modules, name, module)
+        result = [
+            chunk
+            async for chunk in engine.stream_full(
+                [Message(role=Role.USER, content="plan")], model="gemini-2.5-flash"
+            )
+        ]
+
+    assert result[0].content == "I'll check."
+    weather_call = result[1].tool_calls[0]
+    calendar_call = result[2].tool_calls[0]
+    assert weather_call["index"] == 0
+    assert weather_call["function"] == {
+        "name": "get_weather",
+        "arguments": '{"city": "Berlin"}',
+    }
+    assert calendar_call["index"] == 1
+    assert calendar_call["function"] == {
+        "name": "get_calendar",
+        "arguments": '{"day": "Monday"}',
+    }
+    assert weather_call["id"] != calendar_call["id"]
+    assert result[-1].finish_reason == "tool_calls"
+
+
+@pytest.mark.asyncio
+async def test_stream_full_google_keeps_parallel_same_name_calls_distinct(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Parallel invocations of one function receive unique indexes and IDs."""
+    paris = SimpleNamespace(name="get_weather", args={"city": "Paris"})
+    london = SimpleNamespace(name="get_weather", args={"city": "London"})
+    parts = [
+        SimpleNamespace(function_call=paris, text=None, thought_signature=b"sig"),
+        SimpleNamespace(function_call=london, text=None, thought_signature=None),
+    ]
+    client = MagicMock()
+    client.models.generate_content_stream.return_value = iter(
+        [_google_stream_chunk(*parts)]
+    )
+    engine = _make_cloud_engine(google_client=client)
+    engine._thought_sigs = {}
+
+    with monkeypatch.context() as patch:
+        for name, module in _google_types_modules().items():
+            patch.setitem(sys.modules, name, module)
+        result = [
+            chunk
+            async for chunk in engine.stream_full(
+                [Message(role=Role.USER, content="Weather in Paris and London")],
+                model="gemini-3-flash-preview",
+            )
+        ]
+
+    calls = result[0].tool_calls
+    assert [call["index"] for call in calls] == [0, 1]
+    assert calls[0]["id"] != calls[1]["id"]
+    assert [call["function"]["arguments"] for call in calls] == [
+        '{"city": "Paris"}',
+        '{"city": "London"}',
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stream_full_google_ids_are_unique_across_requests(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Shared engines keep signatures isolated between conversations."""
+    first_part = SimpleNamespace(
+        function_call=SimpleNamespace(name="get_weather", args={"city": "Paris"}),
+        text=None,
+        thought_signature=b"paris-sig",
+    )
+    second_part = SimpleNamespace(
+        function_call=SimpleNamespace(name="get_weather", args={"city": "London"}),
+        text=None,
+        thought_signature=b"london-sig",
+    )
+    client = MagicMock()
+    client.models.generate_content_stream.side_effect = [
+        iter([_google_stream_chunk(first_part)]),
+        iter([_google_stream_chunk(second_part)]),
+    ]
+    engine = _make_cloud_engine(google_client=client)
+    engine._thought_sigs = {}
+
+    with monkeypatch.context() as patch:
+        for name, module in _google_types_modules().items():
+            patch.setitem(sys.modules, name, module)
+        first = [
+            chunk
+            async for chunk in engine.stream_full(
+                [Message(role=Role.USER, content="Weather in Paris")],
+                model="gemini-3-flash-preview",
+            )
+        ]
+        second = [
+            chunk
+            async for chunk in engine.stream_full(
+                [Message(role=Role.USER, content="Weather in London")],
+                model="gemini-3-flash-preview",
+            )
+        ]
+
+    first_id = first[0].tool_calls[0]["id"]
+    second_id = second[0].tool_calls[0]["id"]
+    assert first_id != second_id
+    assert engine._thought_sigs[first_id] == b"paris-sig"
+    assert engine._thought_sigs[second_id] == b"london-sig"
+
+
+@pytest.mark.asyncio
+async def test_stream_full_google_emits_final_usage(monkeypatch: pytest.MonkeyPatch):
+    """Google's final usage metadata is normalized onto the terminal chunk."""
+    usage = SimpleNamespace(prompt_token_count=12, candidates_token_count=5)
+    client = MagicMock()
+    client.models.generate_content_stream.return_value = iter(
+        [
+            _google_stream_chunk(text="Hello"),
+            _google_stream_chunk(usage_metadata=usage),
+        ]
+    )
+    engine = _make_cloud_engine(google_client=client)
+    engine._thought_sigs = {}
+
+    with monkeypatch.context() as patch:
+        for name, module in _google_types_modules().items():
+            patch.setitem(sys.modules, name, module)
+        result = [
+            chunk
+            async for chunk in engine.stream_full(
+                [Message(role=Role.USER, content="hi")],
+                model="gemini-2.5-flash",
+            )
+        ]
+
+    assert result[-1].finish_reason == "stop"
+    assert result[-1].usage == {
+        "prompt_tokens": 12,
+        "completion_tokens": 5,
+        "total_tokens": 17,
+    }
+
+
+@pytest.mark.asyncio
+async def test_stream_full_google_replays_signature_on_part(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A saved Gemini signature is replayed beside, not inside, function_call."""
+    client = MagicMock()
+    client.models.generate_content_stream.return_value = iter([])
+    engine = _make_cloud_engine(google_client=client)
+    engine._thought_sigs = {"google_get_weather_0": b"sig"}
+    messages = [
+        Message(role=Role.USER, content="weather"),
+        Message(
+            role=Role.ASSISTANT,
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="google_get_weather_0",
+                    name="get_weather",
+                    arguments='{"city": "Berlin"}',
+                )
+            ],
+        ),
+        Message(role=Role.TOOL, name="get_weather", content='{"temp": 20}'),
+    ]
+
+    with monkeypatch.context() as patch:
+        for name, module in _google_types_modules().items():
+            patch.setitem(sys.modules, name, module)
+        result = [
+            chunk
+            async for chunk in engine.stream_full(
+                messages, model="gemini-3-flash-preview"
+            )
+        ]
+
+    contents = client.models.generate_content_stream.call_args.kwargs["contents"]
+    assert contents[1]["parts"] == [
+        {
+            "function_call": {
+                "name": "get_weather",
+                "args": {"city": "Berlin"},
+            },
+            "thought_signature": b"sig",
+        }
+    ]
+    assert result[-1].finish_reason == "stop"
 
 
 # ---------------------------------------------------------------------------

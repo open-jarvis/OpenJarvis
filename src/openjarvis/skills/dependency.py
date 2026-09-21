@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import TYPE_CHECKING, Dict, List, Set
+from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 if TYPE_CHECKING:
     from openjarvis.skills.types import SkillManifest
@@ -11,6 +11,13 @@ if TYPE_CHECKING:
 
 class DependencyCycleError(Exception):
     """Raised when a cycle is detected in the skill dependency graph."""
+
+    def __init__(self, message: str, skills: Optional[Set[str]] = None) -> None:
+        super().__init__(message)
+        # The skills involved in (or downstream of) the cycle, so callers
+        # can prune exactly those rather than parsing the message string
+        # or discarding the whole graph (#781).
+        self.skills: Set[str] = skills if skills is not None else set()
 
 
 class DepthExceededError(Exception):
@@ -101,9 +108,10 @@ def validate_dependencies(
                 queue.append(dependent)
 
     if len(order) != len(graph):
+        cyclic = set(graph) - set(order)
         raise DependencyCycleError(
-            "Cycle detected in skill dependency graph. "
-            f"Skills involved: {set(graph) - set(order)}"
+            f"Cycle detected in skill dependency graph. Skills involved: {cyclic}",
+            skills=cyclic,
         )
 
     # --- Depth enforcement via DFS ---

@@ -94,13 +94,22 @@ def _repopulate_registries() -> None:
                     pass
 
 
-def _run_serve(tmp_path, monkeypatch, *, build_spy, set_system_spy):
+def _run_serve(
+    tmp_path,
+    monkeypatch,
+    *,
+    build_spy,
+    set_system_spy,
+    security_primitives=None,
+    channel_backend=None,
+):
     """Invoke ``jarvis serve`` with all heavy/blocking pieces stubbed out.
 
     Returns the CliRunner result. The server is never actually started
-    (``uvicorn.run`` is a no-op) and no real engine is contacted.
+    (``run_server`` is a no-op) and no real engine is contacted.
     """
     from openjarvis.core.config import JarvisConfig
+    from openjarvis.core.registry import MemoryRegistry
 
     _repopulate_registries()
 
@@ -112,9 +121,14 @@ def _run_serve(tmp_path, monkeypatch, *, build_spy, set_system_spy):
     config.sessions.enabled = True
     config.sessions.db_path = str(tmp_path / "sessions.db")
     config.memory.db_path = str(tmp_path / "memory.db")
+    # Disabling prompt-context injection must not disable the backend needed
+    # by explicitly configured memory tools in managed-agent ticks.
+    config.agent.context_from_memory = False
     config.telemetry.enabled = False
     config.traces.enabled = False
-    config.channel.enabled = False
+    config.channel.enabled = channel_backend is not None
+    if channel_backend is not None:
+        config.channel.default_channel = "test-channel"
     config.skills.enabled = False
     config.server.host = "127.0.0.1"
     config.server.port = 8123
@@ -122,18 +136,34 @@ def _run_serve(tmp_path, monkeypatch, *, build_spy, set_system_spy):
     config.intelligence.default_model = "test-model"
 
     engine = _fake_engine()
+    # Keep this wiring test independent of the optional native memory runtime.
+    # The assertion is that serve resolves and passes a backend even when
+    # prompt-context injection is disabled, not that SQLite itself works.
+    memory_backend = MagicMock(name="memory_backend")
+    monkeypatch.setattr(MemoryRegistry, "contains", MagicMock(return_value=True))
+    monkeypatch.setattr(
+        MemoryRegistry,
+        "create",
+        MagicMock(return_value=memory_backend),
+    )
 
     monkeypatch.setattr(serve_mod, "load_config", lambda *a, **k: config)
     monkeypatch.setattr(serve_mod, "get_engine", lambda *a, **k: ("mock", engine))
     monkeypatch.setattr(serve_mod, "discover_engines", lambda *a, **k: {})
     monkeypatch.setattr(serve_mod, "discover_models", lambda *a, **k: {})
+    if channel_backend is not None:
+        monkeypatch.setattr(
+            "openjarvis.system.builder.SystemBuilder._resolve_channel",
+            lambda *args, **kwargs: channel_backend,
+        )
 
     # setup_security returns its own context; pass the engine straight through
     # so we don't need real guardrails wired up.
     sec = MagicMock()
     sec.engine = engine
-    sec.capability_policy = None
-    sec.audit_logger = None
+    if security_primitives is None:
+        security_primitives = (None, None, None)
+    sec.capability_policy, sec.rate_limiter, sec.audit_logger = security_primitives
     monkeypatch.setattr("openjarvis.security.setup_security", lambda *a, **k: sec)
 
     with (
@@ -145,7 +175,7 @@ def _run_serve(tmp_path, monkeypatch, *, build_spy, set_system_spy):
             "openjarvis.agents.executor.AgentExecutor.set_system",
             set_system_spy,
         ),
-        patch("uvicorn.run", lambda *a, **k: None),
+        patch("openjarvis.server.daemon.run_server", lambda *a, **k: None),
     ):
         return CliRunner().invoke(cli, ["serve"], catch_exceptions=False)
 
@@ -174,6 +204,29 @@ def test_serve_does_not_call_systembuilder_build(tmp_path, monkeypatch):
     inject_spy.assert_called_once_with()
 
 
+def test_serve_passes_environment_cors_origins(tmp_path, monkeypatch):
+    """The normal CLI path must not mask the environment override."""
+    monkeypatch.setenv(
+        "OPENJARVIS_CORS_ORIGINS",
+        "https://frontend.example,https://admin.example",
+    )
+    create_app = MagicMock(return_value=MagicMock())
+
+    with patch("openjarvis.server.app.create_app", create_app):
+        result = _run_serve(
+            tmp_path,
+            monkeypatch,
+            build_spy=MagicMock(),
+            set_system_spy=MagicMock(),
+        )
+
+    assert result.exit_code == 0, result.output
+    assert create_app.call_args.kwargs["cors_origins"] == [
+        "https://frontend.example",
+        "https://admin.example",
+    ]
+
+
 def test_executor_receives_required_system_attrs(tmp_path, monkeypatch):
     """The executor still gets a system exposing the attributes it reads.
 
@@ -188,11 +241,15 @@ def test_executor_receives_required_system_attrs(tmp_path, monkeypatch):
         # Preserve real behaviour so the executor is usable afterwards.
         self._system = system
 
+    policy = object()
+    limiter = object()
+    audit = object()
     result = _run_serve(
         tmp_path,
         monkeypatch,
         build_spy=build_spy,
         set_system_spy=_capture_set_system,
+        security_primitives=(policy, limiter, audit),
     )
 
     assert result.exit_code == 0, result.output
@@ -211,3 +268,40 @@ def test_executor_receives_required_system_attrs(tmp_path, monkeypatch):
     assert system.engine is not None
     assert system.model == "test-model"
     assert system.config is not None
+    assert system.capability_policy is policy
+    assert system.rate_limiter is limiter
+    assert system.audit_logger is audit
+    assert system.tool_executor._capability_policy is policy
+    assert system.tool_executor._rate_limiter is limiter
+    assert system.tool_executor._agent_id == system.config.server.agent
+
+
+def test_channel_system_receives_remote_security_primitives(tmp_path, monkeypatch):
+    from openjarvis.system import JarvisSystem
+
+    captured = {}
+
+    def _capture_wire(self, channel):
+        captured["system"] = self
+
+    monkeypatch.setattr(JarvisSystem, "wire_channel", _capture_wire)
+    policy = object()
+    limiter = object()
+    audit = object()
+    channel = MagicMock(channel_id="test-channel")
+
+    result = _run_serve(
+        tmp_path,
+        monkeypatch,
+        build_spy=MagicMock(),
+        set_system_spy=MagicMock(),
+        security_primitives=(policy, limiter, audit),
+        channel_backend=channel,
+    )
+
+    assert result.exit_code == 0, result.output
+    system = captured.get("system")
+    assert system is not None
+    assert system.capability_policy is policy
+    assert system.rate_limiter is limiter
+    assert system.audit_logger is audit

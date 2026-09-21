@@ -216,6 +216,14 @@ def create_webhook_router(
                                 "",
                             ),
                             tools=tools,
+                            bus=getattr(request.app.state, "bus", None),
+                            capability_policy=getattr(
+                                request.app.state, "capability_policy", None
+                            ),
+                            rate_limiter=getattr(
+                                request.app.state, "rate_limiter", None
+                            ),
+                            agent_id="server:webhook:twilio",
                             max_turns=5,
                         )
                         result = agent.run(body)

@@ -9,8 +9,9 @@ System Settings → Privacy & Security → Full Disk Access.
 
 Timestamp notes
 ---------------
-The Notes database stores modification timestamps as seconds since the Apple
-epoch of 2001-01-01 00:00:00 UTC.  Conversion formula::
+Modern Notes schemas store note modification timestamps in
+``ZMODIFICATIONDATE1``; older schemas use ``ZMODIFICATIONDATE``. Both are
+seconds since the Apple epoch of 2001-01-01 00:00:00 UTC. Conversion formula::
 
     dt = datetime(2001, 1, 1, tzinfo=utc) + timedelta(seconds=ZMODIFICATIONDATE)
 
@@ -171,25 +172,46 @@ class AppleNotesConnector(BaseConnector):
             return
 
         try:
-            try:
-                rows = conn.execute(
-                    "SELECT n.ZIDENTIFIER, "
-                    "  COALESCE(n.ZTITLE1, n.ZTITLE, '') AS title, "
-                    "  n.ZMODIFICATIONDATE, d.ZDATA "
-                    "FROM ZICCLOUDSYNCINGOBJECT n "
-                    "JOIN ZICNOTEDATA d ON d.ZNOTE = n.Z_PK "
-                    "ORDER BY n.ZMODIFICATIONDATE ASC"
+            object_columns = {
+                row[1]
+                for row in conn.execute(
+                    "PRAGMA table_info(ZICCLOUDSYNCINGOBJECT)"
                 ).fetchall()
-            except sqlite3.OperationalError:
-                # Older macOS schemas may lack ZTITLE1
-                rows = conn.execute(
-                    "SELECT n.ZIDENTIFIER, "
-                    "  COALESCE(n.ZTITLE, '') AS title, "
-                    "  n.ZMODIFICATIONDATE, d.ZDATA "
-                    "FROM ZICCLOUDSYNCINGOBJECT n "
-                    "JOIN ZICNOTEDATA d ON d.ZNOTE = n.Z_PK "
-                    "ORDER BY n.ZMODIFICATIONDATE ASC"
-                ).fetchall()
+            }
+
+            title_columns = [
+                f"n.{column}"
+                for column in ("ZTITLE1", "ZTITLE")
+                if column in object_columns
+            ]
+            title_expr = (
+                f"COALESCE({', '.join(title_columns)}, '')" if title_columns else "''"
+            )
+
+            # Modern Apple Notes stores a note's modification timestamp in
+            # ZMODIFICATIONDATE1. ZMODIFICATIONDATE is still present in some
+            # schemas, but applies to other cloud-sync object types and can be
+            # NULL for notes. Treating that NULL as zero makes incremental
+            # syncs incorrectly discard newly-created notes as 2001-era data.
+            modification_columns = [
+                f"n.{column}"
+                for column in ("ZMODIFICATIONDATE1", "ZMODIFICATIONDATE")
+                if column in object_columns
+            ]
+            modification_expr = (
+                f"COALESCE({', '.join(modification_columns)}, 0)"
+                if modification_columns
+                else "0"
+            )
+
+            rows = conn.execute(
+                "SELECT n.ZIDENTIFIER, "
+                f"  {title_expr} AS title, "
+                f"  {modification_expr} AS modification_date, d.ZDATA "
+                "FROM ZICCLOUDSYNCINGOBJECT n "
+                "JOIN ZICNOTEDATA d ON d.ZNOTE = n.Z_PK "
+                "ORDER BY modification_date ASC"
+            ).fetchall()
 
             self._items_total = len(rows)
             synced = 0

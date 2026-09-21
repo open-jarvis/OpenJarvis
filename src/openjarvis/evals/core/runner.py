@@ -322,6 +322,13 @@ class EvalRunner:
                 ttft=full.get("ttft", 0.0) or 0.0,
                 energy_joules=energy_j,
                 power_watts=power_w,
+                cpu_energy_joules=full.get("cpu_energy_joules", 0.0) or 0.0,
+                gpu_energy_joules=full.get("gpu_energy_joules", 0.0) or 0.0,
+                dram_energy_joules=full.get("dram_energy_joules", 0.0) or 0.0,
+                ane_energy_joules=full.get("ane_energy_joules", 0.0) or 0.0,
+                soc_energy_joules=full.get("soc_energy_joules", 0.0) or 0.0,
+                energy_basis=full.get("energy_basis", "") or "",
+                energy_method=full.get("energy_method", "") or "",
                 gpu_utilization_pct=full.get("gpu_utilization_pct", 0.0) or 0.0,
                 throughput_tok_per_sec=full.get("throughput_tok_per_sec", 0.0) or 0.0,
                 trace_data=full.get("trace_data"),
@@ -483,6 +490,13 @@ class EvalRunner:
                 ttft=full.get("ttft", 0.0) or 0.0,
                 energy_joules=energy_j,
                 power_watts=power_w,
+                cpu_energy_joules=full.get("cpu_energy_joules", 0.0) or 0.0,
+                gpu_energy_joules=full.get("gpu_energy_joules", 0.0) or 0.0,
+                dram_energy_joules=full.get("dram_energy_joules", 0.0) or 0.0,
+                ane_energy_joules=full.get("ane_energy_joules", 0.0) or 0.0,
+                soc_energy_joules=full.get("soc_energy_joules", 0.0) or 0.0,
+                energy_basis=full.get("energy_basis", "") or "",
+                energy_method=full.get("energy_method", "") or "",
                 gpu_utilization_pct=full.get("gpu_utilization_pct", 0.0) or 0.0,
                 throughput_tok_per_sec=throughput,
                 mfu_pct=mfu,
@@ -861,6 +875,13 @@ class EvalRunner:
             "ttft": result.ttft,
             "energy_joules": result.energy_joules,
             "power_watts": result.power_watts,
+            "cpu_energy_joules": result.cpu_energy_joules,
+            "gpu_energy_joules": result.gpu_energy_joules,
+            "dram_energy_joules": result.dram_energy_joules,
+            "ane_energy_joules": result.ane_energy_joules,
+            "soc_energy_joules": result.soc_energy_joules,
+            "energy_basis": result.energy_basis,
+            "energy_method": result.energy_method,
             "gpu_utilization_pct": result.gpu_utilization_pct,
             "throughput_tok_per_sec": result.throughput_tok_per_sec,
             "mfu_pct": result.mfu_pct,
@@ -1004,6 +1025,28 @@ class EvalRunner:
         ]
 
         total_energy = sum(r.energy_joules for r in results)
+        # Per-rail totals, so a summary says which hardware did the work
+        # rather than only how much it cost in aggregate.
+        rail_totals = {
+            rail: round(
+                sum(getattr(r, f"{rail}_energy_joules", 0.0) for r in results), 6
+            )
+            for rail in ("cpu", "gpu", "dram", "ane", "soc")
+        }
+        rail_totals = {k: v for k, v in rail_totals.items() if v > 0}
+
+        # How the energy was obtained, and from which rail set. Both are
+        # per-record, but a run uses one monitor throughout; report the value
+        # when it is unambiguous and flag genuine mixtures rather than
+        # silently picking one.
+        def _consensus(attr: str) -> str:
+            seen = {getattr(r, attr, "") for r in results if getattr(r, attr, "")}
+            if not seen:
+                return ""
+            return seen.pop() if len(seen) == 1 else "mixed"
+
+        energy_method_value = _consensus("energy_method")
+        energy_basis_value = _consensus("energy_basis")
         total_estimated_flops = sum(r.estimated_flops for r in results)
         total_input_tokens = sum(r.prompt_tokens for r in results)
         total_output_tokens = sum(r.completion_tokens for r in results)
@@ -1015,6 +1058,9 @@ class EvalRunner:
             "total_energy_joules": round(total_energy, 6),
             "avg_power_watts": round(avg_power, 4),
             "total_estimated_flops": total_estimated_flops,
+            "energy_method": energy_method_value,
+            "energy_basis": energy_basis_value,
+            "energy_joules_by_rail": rail_totals or None,
             "ipj": (round(accuracy / total_energy, 6) if total_energy > 0 else None),
             "ipw": (round(accuracy / avg_power, 6) if avg_power > 0 else None),
         }
@@ -1057,6 +1103,7 @@ class EvalRunner:
             input_token_stats=_metric_stats([float(v) for v in input_tok_vals]),
             output_token_stats=_metric_stats([float(v) for v in output_tok_vals]),
             total_energy_joules=round(total_energy, 6),
+            energy_method=energy_method_value,
             total_estimated_flops=total_estimated_flops,
             flops_stats=_metric_stats(flops_vals),
             warmup_samples_excluded=cfg.warmup_samples,

@@ -58,6 +58,7 @@ class OperativeAgent(ToolUsingAgent):
         memory_backend: Optional[Any] = None,
         interactive: bool = False,
         confirm_callback=None,
+        prompt_builder: Optional[Any] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -70,7 +71,8 @@ class OperativeAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
-            prompt_builder=kwargs.get("prompt_builder"),
+            prompt_builder=prompt_builder,
+            **kwargs,
         )
         self._system_prompt = system_prompt or ""
         self._operator_id = operator_id
@@ -111,6 +113,7 @@ class OperativeAgent(ToolUsingAgent):
             system_prompt=system_prompt,
             session_messages=session_messages,
         )
+        self._begin_tool_session_from_messages(messages)
 
         # 5. Run function-calling tool loop
         openai_tools = self._executor.get_openai_tools() if self._tools else []
@@ -308,10 +311,12 @@ class OperativeAgent(ToolUsingAgent):
         """Auto-persist a state summary if the agent didn't store state explicitly."""
         if not self._memory_backend or not self._operator_id:
             return
+        if not content or not content.strip():
+            return
         state_key = f"operator:{self._operator_id}:state"
         try:
             # Store a summary of the agent's response as state
-            summary = content[:1000] if content else ""
+            summary = content[:1000]
             self._memory_backend.store(state_key, summary)
         except Exception:
             logger.debug(

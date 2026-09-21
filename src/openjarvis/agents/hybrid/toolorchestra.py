@@ -1143,6 +1143,78 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 f"got {mode!r}"
             )
 
+    @staticmethod
+    def _worker_required_capabilities(
+        worker: Dict[str, Any],
+        *,
+        swe_mode: bool = False,
+    ) -> List[str]:
+        """Return direct-operation capabilities for one concrete dispatch."""
+        worker_type = str(worker.get("type", worker.get("endpoint", "openai"))).lower()
+        if worker_type in _TOOLORCH_SEARCH_TYPES:
+            return ["network:fetch"]
+        if swe_mode:
+            return ["code:execute", "file:read", "file:write"]
+        if worker_type == "modal-python":
+            return ["code:execute"]
+        return []
+
+    def _call_worker_secured(
+        self,
+        worker: Dict[str, Any],
+        prompt: str,
+        cfg: Dict[str, Any],
+    ) -> Tuple[str, int, int, bool, float, int]:
+        """Gate the selected worker immediately before its direct action."""
+        required = self._worker_required_capabilities(worker)
+        if required:
+            authorization = self._authorize_direct_operation(
+                required,
+                operation="toolorchestra_worker",
+            )
+            if not authorization.success:
+                return authorization.content, 0, 0, False, 0.0, 0
+        return _call_worker(worker, prompt, cfg)
+
+    def _swe_call_worker_secured(
+        self,
+        worker: Dict[str, Any],
+        prompt: str,
+        cfg: Dict[str, Any],
+        task: Dict[str, Any],
+        workdir: Path,
+        turn: int,
+    ) -> Tuple[str, int, int, bool, float, int, int]:
+        """Gate a selected SWE/search worker immediately before dispatch."""
+        worker_type = str(worker.get("type", "openai")).lower()
+        required = self._worker_required_capabilities(
+            worker,
+            swe_mode=worker_type not in _TOOLORCH_SEARCH_TYPES,
+        )
+        if required:
+            authorization = self._authorize_direct_operation(
+                required,
+                operation="toolorchestra_swe_worker",
+            )
+            if not authorization.success:
+                return authorization.content, 0, 0, False, 0.0, 0, 0
+        return _swe_call_worker(worker, prompt, cfg, task, workdir, turn)
+
+    def _call_modal_python_secured(
+        self,
+        code: str,
+        *,
+        timeout_s: int,
+    ) -> Tuple[str, int]:
+        """Gate generated Python immediately before sandbox execution."""
+        authorization = self._authorize_direct_operation(
+            ["code:execute"],
+            operation="toolorchestra_modal_python",
+        )
+        if not authorization.success:
+            return authorization.content, -1
+        return _call_modal_python(code, timeout_s=timeout_s)
+
     def _run_paradigm(
         self,
         input: str,
@@ -1153,6 +1225,47 @@ class ToolOrchestraAgent(LocalCloudAgent):
         if mode == "rl":
             return self._run_rl(input, context, **kwargs)
         return self._run_prompted(input, context, **kwargs)
+
+    def _required_capabilities_for_run(
+        self,
+        context: Optional[AgentContext],
+    ) -> List[str]:
+        """Cover the concrete workers/actions exposed by this run.
+
+        ToolOrchestra's default pool contains a hosted-search worker even
+        when ``search_backend`` is not ``tavily``.  RL paper mode additionally
+        exposes Tavily and generated Python in Modal.  Deriving from those
+        actual action types keeps the gate aligned with dispatch behavior.
+        """
+        required = super()._required_capabilities_for_run(context)
+        mode = str(self._cfg.get("orchestrator_mode", "prompted")).lower()
+        if mode == "rl":
+            # Both the default expert mapping and the paper mapping expose a
+            # search action; paper mode also executes generated Python.
+            required.append("network:fetch")
+            if str(self._cfg.get("pool", "")).lower() == "paper":
+                required.append("code:execute")
+            return list(dict.fromkeys(required))
+
+        workers = self._cfg.get("workers")
+        if not workers:
+            workers = _resolve_worker_pool(
+                self._cfg,
+                self._local_model,
+                self._local_endpoint,
+                self._cloud_model,
+                self._cloud_endpoint,
+            )
+        worker_types = {
+            str(worker.get("type", worker.get("endpoint", "openai"))).lower()
+            for worker in workers
+            if isinstance(worker, dict)
+        }
+        if worker_types.intersection(_TOOLORCH_SEARCH_TYPES):
+            required.append("network:fetch")
+        if "modal-python" in worker_types:
+            required.append("code:execute")
+        return list(dict.fromkeys(required))
 
     # ------------------------------------------------------------------
     # Legacy prompted-orchestrator path.
@@ -1297,7 +1410,7 @@ class ToolOrchestraAgent(LocalCloudAgent):
                             extra_cost,
                             n_searches,
                             bash_turns,
-                        ) = _swe_call_worker(
+                        ) = self._swe_call_worker_secured(
                             worker,
                             str(w_input),
                             cfg,
@@ -1308,7 +1421,7 @@ class ToolOrchestraAgent(LocalCloudAgent):
                         tool_calls += bash_turns
                     else:
                         w_text, w_in, w_out, is_local, extra_cost, n_searches = (
-                            _call_worker(worker, str(w_input), cfg)
+                            self._call_worker_secured(worker, str(w_input), cfg)
                         )
                     if is_local:
                         tokens_local += w_in + w_out
@@ -1349,7 +1462,7 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 )
                 if swe_mode and shared_workdir is not None:
                     (ans, w_in, w_out, is_local, extra_cost, _, bash_turns) = (
-                        _swe_call_worker(
+                        self._swe_call_worker_secured(
                             worker,
                             question,
                             cfg,
@@ -1360,8 +1473,8 @@ class ToolOrchestraAgent(LocalCloudAgent):
                     )
                     tool_calls += bash_turns
                 else:
-                    ans, w_in, w_out, is_local, extra_cost, _ = _call_worker(
-                        worker, question, cfg
+                    ans, w_in, w_out, is_local, extra_cost, _ = (
+                        self._call_worker_secured(worker, question, cfg)
                     )
                 if is_local:
                     tokens_local += w_in + w_out
@@ -1695,7 +1808,7 @@ class ToolOrchestraAgent(LocalCloudAgent):
                         extra_cost,
                         n_searches,
                         bash_turns,
-                    ) = _swe_call_worker(
+                    ) = self._swe_call_worker_secured(
                         worker,
                         w_input,
                         cfg,
@@ -1705,7 +1818,7 @@ class ToolOrchestraAgent(LocalCloudAgent):
                     )
                 else:
                     w_text, w_in, w_out, is_local, extra_cost, n_searches = (
-                        _call_worker(worker, w_input, cfg)
+                        self._call_worker_secured(worker, w_input, cfg)
                     )
                 if is_local:
                     tokens_local += w_in + w_out
@@ -1728,9 +1841,11 @@ class ToolOrchestraAgent(LocalCloudAgent):
                     code = _extract_first_python_block(w_text)
                     if code:
                         timeout_s = int(cfg.get("modal_python_timeout_s", 60))
-                        modal_exec_output, modal_exec_rc = _call_modal_python(
-                            code,
-                            timeout_s=timeout_s,
+                        modal_exec_output, modal_exec_rc = (
+                            self._call_modal_python_secured(
+                                code,
+                                timeout_s=timeout_s,
+                            )
                         )
                         tool_calls += 1
                         w_text = (
@@ -1786,7 +1901,7 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 fb_bash_turns = 0
                 if swe_mode and shared_workdir is not None:
                     (ans, w_in, w_out, is_local, extra_cost, _, fb_bash_turns) = (
-                        _swe_call_worker(
+                        self._swe_call_worker_secured(
                             worker,
                             question,
                             cfg,
@@ -1797,8 +1912,8 @@ class ToolOrchestraAgent(LocalCloudAgent):
                     )
                     tool_calls += fb_bash_turns
                 else:
-                    ans, w_in, w_out, is_local, extra_cost, _ = _call_worker(
-                        worker, question, cfg
+                    ans, w_in, w_out, is_local, extra_cost, _ = (
+                        self._call_worker_secured(worker, question, cfg)
                     )
                 if is_local:
                     tokens_local += w_in + w_out

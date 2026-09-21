@@ -1,7 +1,8 @@
 """ClaudeCodeAgent -- wraps the Claude Agent SDK via Node.js subprocess bridge.
 
-Spawns a Node.js runner process that calls the ``@anthropic-ai/claude-code``
-SDK, communicating via JSON over stdin/stdout with sentinel-delimited output.
+Spawns a Node.js runner process that calls the
+``@anthropic-ai/claude-agent-sdk`` package, communicating via JSON over
+stdin/stdout with sentinel-delimited output.
 
 The engine parameter is accepted for interface conformance with BaseAgent but
 is not used -- inference is handled entirely by the Claude Agent SDK.
@@ -44,8 +45,8 @@ if not _RUNNER_SRC.exists():
 class ClaudeCodeAgent(BaseAgent):
     """Agent that wraps the Claude Agent SDK via a Node.js subprocess.
 
-    Spawns a Node.js process running ``dist/index.js`` which imports
-    ``@anthropic-ai/claude-code`` and streams agentic responses.  Results
+    Spawns a Node.js process running ``index.mjs`` which imports
+    ``@anthropic-ai/claude-agent-sdk`` and streams agentic responses.  Results
     are communicated back via sentinel-delimited JSON on stdout.
 
     The ``engine`` parameter is accepted for BaseAgent interface conformance
@@ -54,6 +55,7 @@ class ClaudeCodeAgent(BaseAgent):
 
     agent_id = "claude_code"
     accepts_tools = False
+    required_capabilities = ("code:execute", "file:read", "file:write")
     _default_temperature = 0.7
     _default_max_tokens = 1024
 
@@ -71,6 +73,9 @@ class ClaudeCodeAgent(BaseAgent):
         allowed_tools: Optional[List[str]] = None,
         system_prompt: str = "",
         timeout: int = 300,
+        capability_policy: Optional[Any] = None,
+        rate_limiter: Optional[Any] = None,
+        agent_id: Optional[str] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -78,6 +83,9 @@ class ClaudeCodeAgent(BaseAgent):
             bus=bus,
             temperature=temperature,
             max_tokens=max_tokens,
+            capability_policy=capability_policy,
+            rate_limiter=rate_limiter,
+            agent_id=agent_id,
         )
         self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self._workspace = workspace or os.getcwd()
@@ -85,6 +93,7 @@ class ClaudeCodeAgent(BaseAgent):
         self._allowed_tools = allowed_tools
         self._system_prompt = system_prompt
         self._timeout = timeout
+        self._node_executable = "node"
 
     # ------------------------------------------------------------------
     # Runner management
@@ -92,38 +101,53 @@ class ClaudeCodeAgent(BaseAgent):
 
     def _ensure_runner(self) -> Path:
         """Copy the bundled runner to ``~/.openjarvis/claude_code_runner/``
-        and run ``npm install`` if ``node_modules`` is missing.
+        and install the Agent SDK when it is missing or outdated.
 
         Returns the path to the runner directory.
 
-        Raises :class:`RuntimeError` if Node.js is not available.
+        Raises :class:`RuntimeError` if Node.js or npm is not available.
         """
-        if shutil.which("node") is None:
+        node_path = shutil.which("node")
+        if node_path is None:
             raise RuntimeError(
                 "ClaudeCodeAgent requires Node.js (>=22). "
                 "Install it from https://nodejs.org/ or via your package manager."
             )
+        npm_path = shutil.which("npm")
+        if npm_path is None:
+            raise RuntimeError(
+                "ClaudeCodeAgent requires npm. Install Node.js (>=22) with npm."
+            )
+        self._node_executable = node_path
 
         dest = get_config_dir() / "claude_code_runner"
         dest.mkdir(parents=True, exist_ok=True)
 
-        # Copy runner files if missing or outdated
-        for sub in ("package.json", "dist"):
-            src = _RUNNER_SRC / sub
-            dst = dest / sub
-            if src.is_file():
-                shutil.copy2(src, dst)
-            elif src.is_dir():
-                if dst.exists():
-                    shutil.rmtree(dst)
-                shutil.copytree(src, dst)
+        for name in ("package.json", "index.mjs"):
+            shutil.copy2(_RUNNER_SRC / name, dest / name)
 
-        # Install npm dependencies if node_modules missing
-        node_modules = dest / "node_modules"
-        if not node_modules.exists():
+        package = json.loads((dest / "package.json").read_text(encoding="utf-8"))
+        expected_sdk = package["dependencies"]["@anthropic-ai/claude-agent-sdk"]
+        installed_package = (
+            dest
+            / "node_modules"
+            / "@anthropic-ai"
+            / "claude-agent-sdk"
+            / "package.json"
+        )
+        try:
+            installed_sdk = json.loads(
+                installed_package.read_text(encoding="utf-8")
+            ).get("version")
+        except (OSError, json.JSONDecodeError):
+            installed_sdk = None
+
+        # Existing caches contain the old CLI-only package, so validate the
+        # installed SDK instead of trusting that node_modules merely exists.
+        if installed_sdk != expected_sdk:
             logger.info("Installing claude_code_runner dependencies...")
             subprocess.run(
-                ["npm", "install", "--production"],
+                [npm_path, "install", "--omit=dev", "--include=optional"],
                 cwd=str(dest),
                 check=True,
                 capture_output=True,
@@ -144,9 +168,12 @@ class ClaudeCodeAgent(BaseAgent):
     ) -> AgentResult:
         """Execute a query via the Claude Agent SDK subprocess.
 
-        Spawns ``node dist/index.js``, writes a JSON request to stdin, and
+        Spawns ``node index.mjs``, writes a JSON request to stdin, and
         reads sentinel-delimited JSON output from stdout.
         """
+        denied = self._execution_denied_result()
+        if denied is not None:
+            return denied
         self._emit_turn_start(input)
 
         runner_dir = self._ensure_runner()
@@ -163,7 +190,7 @@ class ClaudeCodeAgent(BaseAgent):
 
         try:
             proc = subprocess.run(
-                ["node", "dist/index.js"],
+                [self._node_executable, "index.mjs"],
                 cwd=str(runner_dir),
                 input=json.dumps(request),
                 capture_output=True,

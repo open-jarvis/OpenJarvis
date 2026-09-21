@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from click.testing import CliRunner
@@ -62,7 +64,7 @@ class TestDigestScheduleCLI:
         assert result.exit_code == 0
         assert "0 7 * * *" in result.output
         assert "abc123" in result.output
-        mock_create.assert_called_once_with("0 7 * * *")
+        mock_create.assert_called_once_with("0 7 * * *", "America/Los_Angeles")
 
         # Verify config was written
         content = config_path.read_text()
@@ -93,6 +95,28 @@ class TestDigestScheduleCLI:
         assert result.exit_code == 0
         assert "disabled" in result.output.lower()
         mock_save.assert_called_once_with(enabled=False, cron="0 6 * * *")
+
+    def test_scheduler_task_persists_digest_timezone(self, tmp_path):
+        from openjarvis.cli import digest_cmd
+        from openjarvis.scheduler.store import SchedulerStore
+
+        config_path = tmp_path / "config.toml"
+        with patch("openjarvis.cli.digest_cmd.DEFAULT_CONFIG_PATH", config_path):
+            task_id = digest_cmd._create_scheduler_task(
+                "0 6 * * *",
+                "America/Los_Angeles",
+            )
+
+        assert task_id is not None
+        store = SchedulerStore(tmp_path / "scheduler.db")
+        task = store.get_task(task_id)
+        store.close()
+
+        assert task is not None
+        assert task["metadata"] == {"timezone": "America/Los_Angeles"}
+        next_run = datetime.fromisoformat(task["next_run"])
+        local_next_run = next_run.astimezone(ZoneInfo("America/Los_Angeles"))
+        assert (local_next_run.hour, local_next_run.minute) == (6, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +163,7 @@ class TestDigestScheduleEndpoints:
         mock_cfg = MagicMock()
         mock_cfg.digest.enabled = False
         mock_cfg.digest.schedule = "0 6 * * *"
+        mock_cfg.digest.timezone = "America/Los_Angeles"
 
         with (
             patch(
@@ -161,7 +186,10 @@ class TestDigestScheduleEndpoints:
         assert data["enabled"] is True
         assert data["cron"] == "30 7 * * 1-5"
         mock_save.assert_called_once_with(enabled=True, cron="30 7 * * 1-5")
-        mock_create.assert_called_once_with("30 7 * * 1-5")
+        mock_create.assert_called_once_with(
+            "30 7 * * 1-5",
+            "America/Los_Angeles",
+        )
 
     def test_schedule_endpoint_disable(self, client):
         """POST /api/digest/schedule with enabled=false cancels tasks."""

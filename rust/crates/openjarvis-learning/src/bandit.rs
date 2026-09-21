@@ -60,7 +60,7 @@ impl BanditRouterPolicy {
 
     fn thompson_sample(&self) -> String {
         let stats = self.stats.lock();
-        let mut rng = thread_rng();
+        let mut rng = rand::rng();
         let mut best_model = self.models[0].clone();
         let mut best_sample = f64::NEG_INFINITY;
 
@@ -128,18 +128,18 @@ fn gamma_sample(rng: &mut ThreadRng, shape: f64) -> f64 {
         return 0.0;
     }
     if shape < 1.0 {
-        let u: f64 = rng.gen();
+        let u: f64 = rng.random();
         return gamma_sample(rng, shape + 1.0) * u.powf(1.0 / shape);
     }
     let d = shape - 1.0 / 3.0;
     let c = 1.0 / (9.0 * d).sqrt();
     loop {
-        let x: f64 = rng.gen::<f64>() * 2.0 - 1.0;
+        let x: f64 = rng.random::<f64>() * 2.0 - 1.0;
         let v = (1.0 + c * x).powi(3);
         if v <= 0.0 {
             continue;
         }
-        let u: f64 = rng.gen();
+        let u: f64 = rng.random();
         if u < 1.0 - 0.0331 * x.powi(4) {
             return d * v;
         }

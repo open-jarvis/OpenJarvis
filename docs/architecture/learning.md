@@ -120,6 +120,9 @@ The `HeuristicRouter` is the default routing policy. It is defined in `learning/
 !!! note "Priority 5 overrides all others"
     The urgency check (rule 5) is evaluated **first** in the code — if urgency exceeds 0.8, the router immediately returns the smallest model regardless of query content.
 
+!!! note "Models without public parameter counts"
+    Cloud catalog entries use `parameter_count_b = 0.0` because providers do not publish those figures. When a largest-model rule fires, an explicitly cloud-backed model is treated as a separate high-capability tier so it can beat a known local model; an unknown non-cloud model is not assumed to be large.
+
 ### Usage
 
 ```python

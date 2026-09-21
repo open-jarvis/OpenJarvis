@@ -274,10 +274,18 @@ class WorkflowEngine:
                 success=True,
                 output="true",
             )
-        # Simple expression evaluation — check if key exists and is truthy
-        # Supports: "node_id.success", "node_id.output contains 'text'"
+        # Simple expression evaluation — check if key exists and is truthy.
+        # A bare eval() (even with empty __builtins__) is escapable via
+        # attribute/subclass walks and allows unbounded-CPU expressions like
+        # (9**9)**9. Use the shared allowlist AST interpreter instead: it has
+        # no attribute access, no dunder names, and no reachable callables
+        # beyond a fixed set of safe builtins, so escape vectors are
+        # unreachable by construction. Anything it cannot evaluate raises and
+        # is treated as a false condition (unchanged fail-safe behavior).
+        from openjarvis.tools.templates.loader import safe_eval_expr
+
         try:
-            result = str(eval(expr, {"__builtins__": {}}, {"outputs": outputs}))  # noqa: S307
+            result = str(safe_eval_expr(expr, {"outputs": outputs}))
         except Exception:
             result = "false"
         return WorkflowStepResult(

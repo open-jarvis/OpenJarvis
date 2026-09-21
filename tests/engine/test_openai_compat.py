@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -17,7 +19,7 @@ from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._base import EngineConnectionError
 from openjarvis.engine._openai_compat import EngineContextLengthError
-from openjarvis.engine.openai_compat_engines import VLLMEngine
+from openjarvis.engine.openai_compat_engines import MLXEngine, VLLMEngine
 
 # respx-backed tests exercise the SYNC client paths (generate/list_models/health)
 # and skip cleanly when respx is absent; the async stream/timeout/disconnect tests
@@ -40,6 +42,68 @@ def _sse_transport(sse_lines: list[str]) -> httpx.MockTransport:
 def engine() -> VLLMEngine:
     EngineRegistry.register_value("vllm", VLLMEngine)
     return VLLMEngine(host="http://testhost:8000")
+
+
+class TestEngineModelIdResolution:
+    def test_generate_resolves_mlx_model_id(self) -> None:
+        seen: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.update(json.loads(request.content))
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "ok"}}]},
+            )
+
+        engine = MLXEngine(host="http://testhost:8080")
+        engine._client.close()
+        engine._client = httpx.Client(
+            base_url="http://testhost:8080", transport=httpx.MockTransport(handler)
+        )
+        try:
+            engine.generate([Message(role=Role.USER, content="hi")], model="qwen3.5:4b")
+        finally:
+            engine.close()
+        assert seen["model"] == "mlx-community/Qwen3.5-4B-OptiQ-4bit"
+
+    @pytest.mark.asyncio
+    async def test_stream_resolves_mlx_model_id(self) -> None:
+        seen: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.update(json.loads(request.content))
+            return httpx.Response(200, text="data: [DONE]\n")
+
+        engine = MLXEngine(host="http://testhost:8080")
+        engine._async_transport = httpx.MockTransport(handler)
+        async for _ in engine.stream(
+            [Message(role=Role.USER, content="hi")], model="qwen3.5:4b"
+        ):
+            pass
+        engine.close()
+        assert seen["model"] == "mlx-community/Qwen3.5-4B-OptiQ-4bit"
+
+    @pytest.mark.asyncio
+    async def test_stream_full_resolves_mlx_model_id(self) -> None:
+        seen: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.update(json.loads(request.content))
+            return httpx.Response(200, text="data: [DONE]\n")
+
+        engine = MLXEngine(host="http://testhost:8080")
+        engine._async_transport = httpx.MockTransport(handler)
+        async for _ in engine.stream_full(
+            [Message(role=Role.USER, content="hi")], model="qwen3.5:4b"
+        ):
+            pass
+        engine.close()
+        assert seen["model"] == "mlx-community/Qwen3.5-4B-OptiQ-4bit"
+
+    def test_other_openai_compatible_engine_is_unchanged(self) -> None:
+        engine = VLLMEngine(host="http://testhost:8000")
+        assert engine._resolve_model_id("qwen3.5:4b") == "qwen3.5:4b"
+        engine.close()
 
 
 @requires_respx

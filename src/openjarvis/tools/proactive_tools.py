@@ -173,6 +173,15 @@ class QueueActionTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         store = self._store or get_store()
+        if params["action_type"] == "sms_draft_reply":
+            fields, error = _validated_sms_draft_fields(params.get("payload", {}))
+            if fields is None:
+                return ToolResult(
+                    tool_name=self.spec.name,
+                    success=False,
+                    content=error,
+                    metadata={"status": "rejected"},
+                )
         action = store.queue_action(
             action_type=params["action_type"],
             description=params["description"],
@@ -378,7 +387,8 @@ class ExecutePendingActionsTool(BaseTool):
         results: List[Dict[str, Any]] = []
         for action in actions:
             success, message = self._run_action(action)
-            store.update_status(action.id, STATUS_EXECUTED)
+            if success:
+                store.update_status(action.id, STATUS_EXECUTED)
             results.append(
                 {
                     "id": action.id,
@@ -389,11 +399,16 @@ class ExecutePendingActionsTool(BaseTool):
                 }
             )
 
+        failed = sum(not entry["success"] for entry in results)
         return ToolResult(
             tool_name=self.spec.name,
-            success=True,
+            success=failed == 0,
             content=json.dumps(results, indent=2),
-            metadata={"executed": len(results)},
+            metadata={
+                "attempted": len(results),
+                "executed": len(results) - failed,
+                "failed": failed,
+            },
         )
 
     def _run_action(self, action: PendingAction) -> Tuple[bool, str]:
@@ -415,8 +430,7 @@ class ExecutePendingActionsTool(BaseTool):
             if atype == "sms_send":
                 return _exec_sms_send(payload)
             if atype == "sms_draft_reply":
-                # Draft only — surface in next digest, don't send
-                return True, f"Draft saved: {payload.get('draft', '')[:80]}"
+                return _exec_sms_draft_reply(payload)
             if atype == "calendar_decline":
                 return _exec_calendar_decline(payload)
             if atype == "calendar_accept":
@@ -429,6 +443,29 @@ class ExecutePendingActionsTool(BaseTool):
 # ---------------------------------------------------------------------------
 # Built-in action executors (thin wrappers around connector/channel APIs)
 # ---------------------------------------------------------------------------
+
+
+def _validated_sms_draft_fields(
+    payload: Dict[str, Any],
+) -> Tuple[Optional[Tuple[str, str]], str]:
+    """Return normalized SMS draft fields or an actionable validation error."""
+    raw_contact = payload.get("contact")
+    raw_body = payload.get("body")
+    if not isinstance(raw_contact, str) or not raw_contact.strip():
+        return None, "Missing contact in payload"
+    if not isinstance(raw_body, str) or not raw_body.strip():
+        return None, "Missing body in payload"
+    return (raw_contact.strip(), raw_body.strip()), ""
+
+
+def _exec_sms_draft_reply(payload: Dict[str, Any]) -> Tuple[bool, str]:
+    """Validate and surface a draft without sending it."""
+
+    fields, error = _validated_sms_draft_fields(payload)
+    if fields is None:
+        return False, error
+    contact, body = fields
+    return True, f"Draft for {contact}: {body[:80]}"
 
 
 def _exec_email_delete(payload: Dict[str, Any]) -> Tuple[bool, str]:

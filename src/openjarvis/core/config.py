@@ -448,6 +448,26 @@ class GemmaCppEngineConfig:
 
 
 @dataclass(slots=True)
+class AfmEngineConfig:
+    """Per-engine config for in-process Apple Foundation Models.
+
+    No ``host``: this engine runs the SDK in-process rather than talking to a
+    server. (The separate ``apple_fm`` engine does have a host — it speaks to
+    the FastAPI shim.)
+    """
+
+    # Standing instructions applied to every session, on top of any system
+    # message in the request.
+    instructions: str = ""
+    # "general" or "content_tagging".
+    use_case: str = "general"
+    # "default" or "permissive_content_transformations".
+    guardrails: str = "default"
+    # "greedy" (reproducible, the default here) or "random" (the SDK default).
+    sampling: str = "greedy"
+
+
+@dataclass(slots=True)
 class LemonadeEngineConfig:
     """Per-engine config for Lemonade."""
 
@@ -469,6 +489,7 @@ class EngineConfig:
     nexa: NexaEngineConfig = field(default_factory=NexaEngineConfig)
     uzu: UzuEngineConfig = field(default_factory=UzuEngineConfig)
     apple_fm: AppleFmEngineConfig = field(default_factory=AppleFmEngineConfig)
+    afm: AfmEngineConfig = field(default_factory=AfmEngineConfig)
     gemma_cpp: GemmaCppEngineConfig = field(default_factory=GemmaCppEngineConfig)
     lemonade: LemonadeEngineConfig = field(default_factory=LemonadeEngineConfig)
 
@@ -587,6 +608,11 @@ class IntelligenceConfig:
     """The model — identity, paths, quantization, and generation defaults."""
 
     default_model: str = ""
+    # Optional per-CLI preset (used when ``-m`` omitted or ``-m smart``).
+    model_chat: str = ""
+    model_short: str = ""
+    model_long: str = ""
+    model_code: str = ""
     fallback_model: str = ""
     model_path: str = ""  # Local weights (HF repo, GGUF file, etc.)
     checkpoint_path: str = ""  # Checkpoint/adapter path
@@ -966,6 +992,112 @@ class MCPConfig:
     servers: str = ""  # JSON list of MCP server configs
 
 
+_MAX_EXTERNAL_JSON_BYTES = 4 * 1024 * 1024
+
+
+def resolve_json_or_file(raw: str, config_dir: Path) -> Any:
+    """Resolve a config value that is either inline JSON or a path to a JSON file.
+
+    Parameters
+    ----------
+    raw:
+        Either a JSON string (starts with '[' or '{') or a file path
+        to a .json file containing the data.
+    config_dir:
+        Directory of config.toml, used to resolve relative file paths.
+
+    Returns
+    -------
+    Parsed JSON value (dict, list, etc.), or ``None`` if *raw* is empty.
+
+    Raises
+    ------
+    ValueError: If a relative path escapes the config directory.
+    FileNotFoundError: If the referenced file does not exist.
+    json.JSONDecodeError: If the JSON content is malformed.
+    """
+    import json
+
+    if not isinstance(raw, str):
+        raise TypeError("JSON config value must be a string")
+
+    stripped = raw.strip()
+    if not stripped:
+        return None
+
+    # Inline JSON
+    if stripped.startswith("[") or stripped.startswith("{"):
+        return json.loads(stripped)
+
+    # File path reference
+    file_path = Path(stripped).expanduser()
+    was_relative = not file_path.is_absolute()
+    if was_relative:
+        file_path = config_dir / file_path
+
+    resolved = file_path.resolve()
+
+    # Security check: relative paths must not escape the config directory
+    if was_relative:
+        config_resolved = config_dir.expanduser().resolve()
+        try:
+            resolved.relative_to(config_resolved)
+        except ValueError as exc:
+            raise ValueError(
+                f"Path '{stripped}' resolves to '{resolved}' which is outside "
+                f"the config directory '{config_resolved}'"
+            ) from exc
+
+    if not resolved.exists():
+        raise FileNotFoundError(
+            f"MCP config file not found: {resolved} (from '{stripped}')"
+        )
+    if not resolved.is_file():
+        raise ValueError(f"JSON config path is not a regular file: {resolved}")
+    if resolved.stat().st_size > _MAX_EXTERNAL_JSON_BYTES:
+        raise ValueError(
+            f"JSON config file exceeds {_MAX_EXTERNAL_JSON_BYTES} bytes: {resolved}"
+        )
+
+    content = resolved.read_text(encoding="utf-8")
+    return json.loads(content)
+
+
+def resolve_mcp_servers(raw: str, config_dir: Path) -> list[dict[str, Any]]:
+    """Resolve MCP server configuration from inline JSON or an external file.
+
+    Wraps :func:`resolve_json_or_file` with MCP-specific validation:
+    a single server object ``{...}`` is automatically wrapped in a list,
+    and the result must be a ``list``.
+    """
+    import json
+
+    result = resolve_json_or_file(raw, config_dir)
+    if result is None:
+        return []
+    if isinstance(result, dict):
+        result = [result]
+    if not isinstance(result, list):
+        raise ValueError(
+            "MCP servers config must be a JSON array or object, "
+            f"got {type(result).__name__}"
+        )
+
+    servers: list[dict[str, Any]] = []
+    for index, server in enumerate(result):
+        if isinstance(server, str):
+            try:
+                server = json.loads(server)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"MCP server entry {index} is not a valid JSON object"
+                ) from exc
+        if not isinstance(server, dict):
+            raise ValueError(f"MCP server entry {index} must be a JSON object")
+        servers.append(server)
+    return servers
+
+
 @dataclass(slots=True)
 class BrowserConfig:
     """Browser automation settings (Playwright)."""
@@ -977,12 +1109,23 @@ class BrowserConfig:
 
 
 @dataclass(slots=True)
+class WeatherToolConfig:
+    """Native weather tool settings (credentials stay outside config.toml)."""
+
+    provider: str = "openweathermap"
+    default_location: str = ""
+    units: str = "metric"
+    lang: str = "en"
+
+
+@dataclass(slots=True)
 class ToolsConfig:
     """Tools primitive settings — wraps storage and MCP configuration."""
 
     storage: StorageConfig = field(default_factory=StorageConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
     browser: BrowserConfig = field(default_factory=BrowserConfig)
+    weather: WeatherToolConfig = field(default_factory=WeatherToolConfig)
     enabled: str = ""  # comma-separated default tools
 
 
@@ -1054,6 +1197,12 @@ class TelemetryConfig:
     gpu_metrics: bool = False
     gpu_poll_interval_ms: int = 50
     energy_vendor: str = ""  # auto-detect or force "nvidia"/"amd"/"apple"/"cpu_rapl"
+    # Permit a modelled energy estimate when no hardware counters are
+    # readable. Off by default: an estimate written to the telemetry DB is
+    # indistinguishable from a measurement at query time except via
+    # `energy_method`, and on Apple Silicon the estimate is a function of
+    # wall-clock alone, so it cannot tell an idle window from a busy one.
+    allow_energy_estimates: bool = False
     warmup_samples: int = 0
     steady_state_window: int = 5
     steady_state_threshold: float = 0.05
@@ -1275,6 +1424,7 @@ class CapabilitiesConfig:
 
     enabled: bool = False
     policy_path: str = ""
+    default_deny: bool = False
 
 
 @dataclass(slots=True)
@@ -1328,6 +1478,7 @@ _SECURITY_PROFILES: Dict[str, Dict[str, Dict[str, Any]]] = {
             "rate_limit_enabled": True,
             "local_engine_bypass": False,
             "local_tool_bypass": False,
+            "capabilities": {"enabled": True, "default_deny": True},
         },
         "server": {
             "host": "127.0.0.1",
@@ -1341,6 +1492,7 @@ _SECURITY_PROFILES: Dict[str, Dict[str, Dict[str, Any]]] = {
             "rate_limit_burst": 5,
             "local_engine_bypass": False,
             "local_tool_bypass": False,
+            "capabilities": {"enabled": True, "default_deny": True},
         },
         "server": {
             "host": "0.0.0.0",
@@ -1374,6 +1526,18 @@ def apply_security_profile(
     pdef = _SECURITY_PROFILES[profile]
 
     for key, value in pdef.get("security", {}).items():
+        if key == "capabilities" and isinstance(value, dict):
+            # Preserve explicitly selected fields while inheriting the
+            # profile's remaining defaults. A policy_path alone must not
+            # silently disable the profile's capability gate.
+            if "capabilities" in _overrides:
+                continue
+            for cap_key, cap_value in value.items():
+                if f"capabilities.{cap_key}" not in _overrides and hasattr(
+                    security_cfg.capabilities, cap_key
+                ):
+                    setattr(security_cfg.capabilities, cap_key, cap_value)
+            continue
         if key not in _overrides and hasattr(security_cfg, key):
             setattr(security_cfg, key, value)
 
@@ -1456,6 +1620,14 @@ class SpeechConfig:
     language: str = ""  # Empty = auto-detect
     device: str = "auto"  # "auto", "cpu", "cuda"
     compute_type: str = "float16"  # "float16", "int8", "float32"
+    # Text-to-speech. ``voice_id`` is interpreted by ``tts_backend`` only --
+    # voice IDs are not portable between backends, so if voice output falls
+    # back to a different backend that backend's own default voice is used.
+    # Kokoro IDs: bm_george / bm_lewis (British male), bf_emma / bf_isabella
+    # (British female), af_* / am_* (American).
+    tts_backend: str = "kokoro"  # "kokoro", "openai_tts", "cartesia"
+    voice_id: str = "bm_george"
+    voice_speed: float = 1.0
 
 
 @dataclass(slots=True)
@@ -1623,6 +1795,15 @@ class JarvisConfig:
     mining: Optional["MiningConfig"] = None
 
     @property
+    def _config_dir(self) -> Path:
+        """Directory containing the loaded config, or the env-aware default."""
+        return self.__dict__.get("_config_source_dir", get_config_dir())
+
+    @_config_dir.setter
+    def _config_dir(self, value: Path) -> None:
+        self.__dict__["_config_source_dir"] = Path(value)
+
+    @property
     def memory(self) -> StorageConfig:
         """Backward-compatible accessor — canonical location is tools.storage."""
         return self.tools.storage
@@ -1659,6 +1840,11 @@ def validate_config_key(dotted_key: str) -> type:
     """
     from dataclasses import fields as dc_fields
 
+    def contains_dataclass(annotation: Any) -> bool:
+        if is_dataclass(annotation):
+            return True
+        return any(contains_dataclass(arg) for arg in get_args(annotation))
+
     parts = dotted_key.split(".")
     if len(parts) < 2:
         raise ValueError(
@@ -1693,7 +1879,18 @@ def validate_config_key(dotted_key: str) -> type:
             fld_type = eval(fld_type, vars(_cfg_mod))  # noqa: S307
 
         if i == len(parts) - 1:
-            # Leaf — return the primitive type
+            if contains_dataclass(fld_type):
+                suggestions = ""
+                if is_dataclass(fld_type):
+                    child_keys = [
+                        f"{dotted_key}.{child.name}" for child in dc_fields(fld_type)
+                    ]
+                    suggestions = f"; set one of: {', '.join(child_keys)}"
+                raise ValueError(
+                    f"Config key {dotted_key!r} names a section, not a settable value"
+                    f"{suggestions}"
+                )
+            # Leaf — return the primitive/container type
             return fld_type
         else:
             # Must be a nested dataclass
@@ -1867,11 +2064,12 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
     cfg.engine.default = recommend_engine(hw)
 
     if path is not None:
-        config_path = Path(path)
+        config_path = Path(path).expanduser().resolve()
     elif os.environ.get("OPENJARVIS_CONFIG"):
         config_path = Path(os.environ["OPENJARVIS_CONFIG"]).expanduser().resolve()
     else:
         config_path = get_config_path()
+    cfg._config_dir = config_path.parent
     if config_path.exists():
         with open(config_path, "rb") as fh:
             data = tomllib.load(fh)
@@ -1927,7 +2125,13 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
                 setattr(cfg, key, data[key])
 
         # Expand security profile (user TOML overrides take precedence)
-        _user_security_keys = set(data.get("security", {}).keys())
+        _security_data = data.get("security", {})
+        _user_security_keys = set(_security_data)
+        if isinstance(_security_data.get("capabilities"), dict):
+            _user_security_keys.discard("capabilities")
+            _user_security_keys.update(
+                f"capabilities.{key}" for key in _security_data["capabilities"]
+            )
         apply_security_profile(cfg.security, cfg.server, overrides=_user_security_keys)
 
         # Mining: dedicated parser for tagged-union submit_target
@@ -2087,8 +2291,18 @@ enabled = true
 # viewport_width = 1280
 # viewport_height = 720
 
+# Weather API credentials belong in credentials.toml or the environment, not here.
+# [tools.weather]
+# provider = "openweathermap"
+# default_location = ""
+# units = "metric"             # metric or imperial
+# lang = "en"                  # OpenWeatherMap language code
+
 [server]
-host = "0.0.0.0"
+# Loopback is safe for local use and works without API authentication.
+host = "127.0.0.1"
+# To serve other machines, configure an API key before using:
+# host = "0.0.0.0"
 port = 8000
 agent = "orchestrator"
 
@@ -2272,6 +2486,7 @@ __all__ = [
     "VLLMEngineConfig",
     "WebChatChannelConfig",
     "WebhookChannelConfig",
+    "WeatherToolConfig",
     "WhatsAppBaileysChannelConfig",
     "WhatsAppChannelConfig",
     "WorkflowConfig",

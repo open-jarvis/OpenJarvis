@@ -7,6 +7,7 @@ Covers the single-root consolidation: ``$OPENJARVIS_HOME`` >
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -174,3 +175,23 @@ class TestLegacyConstantsHonorEnv:
             credentials._default_path()
             == (tmp_path / "oj" / "credentials.toml").resolve()
         )
+
+    def test_constant_never_resolves_to_the_real_developer_home(self) -> None:
+        """Regression for #787: DEFAULT_CONFIG_DIR is resolved once, at the
+        first import of openjarvis.core.config anywhere in the test
+        session -- which happens via tests/conftest.py, before any test
+        body runs. If conftest.py doesn't set OPENJARVIS_HOME before that
+        import, this constant (and the ~45 modules that reference it)
+        permanently binds to the developer's real ~/.openjarvis for the
+        rest of the run, so tests touching e.g. AgentConfigEvolver or
+        LearningOrchestrator read/write real files there.
+
+        No monkeypatching here on purpose: this checks the *actual*
+        session-wide value tests/conftest.py's import-time setup already
+        produced, not a value manufactured by this test.
+        """
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR
+
+        real_home = (Path.home() / ".openjarvis").resolve()
+        assert DEFAULT_CONFIG_DIR != real_home
+        assert "OPENJARVIS_CONFIG" not in os.environ

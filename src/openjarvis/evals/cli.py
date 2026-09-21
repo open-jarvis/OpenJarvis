@@ -935,10 +935,14 @@ def _run_agentic(
     # Build TelemetrySession (optional — only if energy monitoring available)
     telemetry_session = None
     try:
+        from openjarvis.core.config import load_config
         from openjarvis.telemetry.energy_monitor import create_energy_monitor
         from openjarvis.telemetry.session import TelemetrySession
 
-        monitor = create_energy_monitor()
+        # The eval config carries only a telemetry on/off flag, so the
+        # estimate opt-in has to come from the user's JarvisConfig.
+        allow_estimates = load_config().telemetry.allow_energy_estimates
+        monitor = create_energy_monitor(allow_estimates=allow_estimates)
         if monitor is not None:
             telemetry_session = TelemetrySession(
                 monitor=monitor,

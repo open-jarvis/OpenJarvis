@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 
 from openjarvis.core.events import (
@@ -31,6 +32,38 @@ class TestEventBus:
         bus.publish(EventType.TOOL_CALL_START)
         assert len(a) == 1
         assert len(b) == 1
+
+    def test_failing_subscriber_does_not_starve_later_subscribers(self, caplog) -> None:
+        bus = EventBus()
+        received: list[Event] = []
+
+        def fail(_event: Event) -> None:
+            raise ValueError("boom")
+
+        bus.subscribe(EventType.INFERENCE_END, fail)
+        bus.subscribe(EventType.INFERENCE_END, received.append)
+
+        with caplog.at_level(logging.ERROR, logger="openjarvis.core.events"):
+            event = bus.publish(EventType.INFERENCE_END, {"model": "test"})
+
+        assert received == [event]
+        assert "boom" in caplog.text
+        assert "inference_end" in caplog.text
+
+    def test_publish_does_not_swallow_process_control_exceptions(self) -> None:
+        bus = EventBus()
+
+        def interrupt(_event: Event) -> None:
+            raise KeyboardInterrupt
+
+        bus.subscribe(EventType.INFERENCE_END, interrupt)
+
+        try:
+            bus.publish(EventType.INFERENCE_END)
+        except KeyboardInterrupt:
+            pass
+        else:  # pragma: no cover - regression assertion
+            raise AssertionError("KeyboardInterrupt should propagate")
 
     def test_unsubscribe(self) -> None:
         bus = EventBus()

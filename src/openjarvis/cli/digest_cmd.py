@@ -81,12 +81,13 @@ def _save_digest_schedule(enabled: bool, cron: str) -> None:
     config_path.write_text("\n".join(new_lines))
 
 
-def _create_scheduler_task(cron: str) -> Optional[str]:
+def _create_scheduler_task(cron: str, timezone_name: str = "") -> Optional[str]:
     """Create a digest task in the TaskScheduler. Returns task ID or None."""
     try:
         from openjarvis.scheduler.scheduler import TaskScheduler
         from openjarvis.scheduler.store import SchedulerStore
 
+        timezone_name = timezone_name or load_config().digest.timezone
         db_path = DEFAULT_CONFIG_PATH.parent / "scheduler.db"
         store = SchedulerStore(db_path)
         scheduler = TaskScheduler(store)
@@ -101,6 +102,7 @@ def _create_scheduler_task(cron: str) -> Optional[str]:
             schedule_type="cron",
             schedule_value=cron,
             agent="morning_digest",
+            metadata={"timezone": timezone_name},
         )
         store.close()
         return task.id
@@ -279,7 +281,7 @@ def _handle_schedule(console: Console, schedule: str) -> None:
 
     # Set a new cron schedule
     _save_digest_schedule(enabled=True, cron=schedule)
-    task_id = _create_scheduler_task(schedule)
+    task_id = _create_scheduler_task(schedule, digest_cfg.timezone)
     console.print(f"[green]Digest schedule set:[/green] {schedule}")
     if task_id:
         console.print(f"  Scheduler task created: {task_id}")

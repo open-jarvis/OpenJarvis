@@ -15,7 +15,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 from openjarvis.core.events import EventType, get_event_bus
 from openjarvis.core.registry import MemoryRegistry
@@ -453,6 +453,37 @@ class KnowledgeStore(MemoryBackend):
         )
         self._conn.commit()
         return cur.rowcount > 0
+
+    def delete_by_source(self, source: str) -> int:
+        """Delete all chunks with the given *source*. Returns the count removed.
+
+        Must be called when a connector is disconnected so a later
+        reconnect -- to the same or a different underlying data source --
+        starts clean. Without this, orphaned chunks from the old source
+        remain indexed forever, and if the new source produces a doc_id
+        that happens to collide with one of them (e.g. two vaults each
+        containing a file at the same relative path), the ingestion
+        pipeline's duplicate-doc_id dedup silently discards the new
+        content in favor of the stale orphan.
+        """
+        return self.delete_by_sources((source,))
+
+    def delete_by_sources(self, sources: Iterable[str]) -> int:
+        """Atomically delete chunks belonging to any of *sources*."""
+        unique_sources = tuple(dict.fromkeys(sources))
+        if not unique_sources:
+            return 0
+        placeholders = ", ".join("?" for _ in unique_sources)
+        try:
+            cur = self._conn.execute(
+                f"DELETE FROM knowledge_chunks WHERE source IN ({placeholders})",
+                unique_sources,
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return cur.rowcount
 
     def clear(self) -> None:
         """Remove all stored chunks."""

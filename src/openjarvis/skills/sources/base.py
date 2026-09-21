@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +36,7 @@ class SourceResolver(ABC):
     """
 
     name: str = ""
+    refresh_warning: str = ""
 
     @abstractmethod
     def cache_dir(self) -> Path:
@@ -46,6 +49,30 @@ class SourceResolver(ABC):
     @abstractmethod
     def list_skills(self) -> List[ResolvedSkill]:
         """Walk the cache directory and return all discoverable skills."""
+
+    def _sync_git_cache(self, repo_url: str) -> None:
+        """Refresh a usable cache best-effort; an initial clone must succeed."""
+        cache = self.cache_dir()
+        self.refresh_warning = ""
+        if (cache / ".git").exists():
+            try:
+                subprocess.run(
+                    ["git", "-C", str(cache), "pull", "--ff-only"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except subprocess.CalledProcessError:
+                if not self.list_skills():
+                    raise
+                self.refresh_warning = (
+                    f"Could not refresh {self.name}; using the existing skill "
+                    "cache, which may be stale."
+                )
+                logging.getLogger(__name__).warning(self.refresh_warning)
+        else:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "clone", repo_url, str(cache)], check=True)
 
     def resolve(self, query: str) -> List[ResolvedSkill]:
         """Filter list_skills() by name (substring match).

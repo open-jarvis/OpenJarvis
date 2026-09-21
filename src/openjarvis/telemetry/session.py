@@ -25,8 +25,12 @@ class TelemetrySample:
     timestamp_ns: int
     gpu_power_w: float = 0.0
     cpu_power_w: float = 0.0
+    ane_power_w: float = 0.0
+    soc_power_w: float = 0.0
     gpu_energy_j: float = 0.0
     cpu_energy_j: float = 0.0
+    ane_energy_j: float = 0.0
+    soc_energy_j: float = 0.0
     gpu_util_pct: float = 0.0
     gpu_temp_c: float = 0.0
     gpu_mem_gb: float = 0.0
@@ -99,12 +103,20 @@ class TelemetrySession:
             try:
                 if self._monitor is not None:
                     es = self._monitor.snapshot()
+                    # `cpu_power_w` was previously hardcoded to 0.0, so every
+                    # eval trace reported zero CPU power regardless of vendor.
+                    # Monitors that attribute power per rail now fill it in;
+                    # those that don't still report 0.0.
                     sample = TelemetrySample(
                         timestamp_ns=time.time_ns(),
-                        gpu_power_w=es.mean_power_watts,
-                        cpu_power_w=0.0,
+                        gpu_power_w=es.gpu_power_watts or es.mean_power_watts,
+                        cpu_power_w=es.cpu_power_watts,
+                        ane_power_w=es.ane_power_watts,
+                        soc_power_w=es.soc_power_watts or es.mean_power_watts,
                         gpu_energy_j=es.gpu_energy_joules,
                         cpu_energy_j=es.cpu_energy_joules,
+                        ane_energy_j=es.ane_energy_joules,
+                        soc_energy_j=es.soc_energy_joules or es.energy_joules,
                         gpu_util_pct=es.mean_utilization_pct,
                         gpu_temp_c=es.mean_temperature_c,
                         gpu_mem_gb=es.mean_memory_used_gb,

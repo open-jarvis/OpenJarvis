@@ -16,7 +16,9 @@ from openjarvis.cli.doctor_cmd import (
     _check_nodejs,
     _check_python_version,
     _check_speech_backend,
+    _run_all_checks,
 )
+from openjarvis.core.registry import EngineRegistry
 
 
 class TestDoctorHelp:
@@ -140,6 +142,53 @@ class TestCheckEngineProbing:
         assert ollama_result.status == "ok"
         assert vllm_result.status == "warn"
 
+    def test_full_doctor_health_checks_each_engine_once(self) -> None:
+        """All engine/model checks share one health snapshot (#766)."""
+        config = MagicMock()
+        config.intelligence.default_model = "model-a"
+        config.intelligence.preferred_engine = "alpha"
+        config.engine.default = "alpha"
+
+        alpha = MagicMock()
+        alpha.health.return_value = True
+        alpha.list_models.return_value = ["model-a"]
+        beta = MagicMock()
+        beta.health.return_value = False
+
+        def make_engine(key, _config):
+            return {"alpha": alpha, "beta": beta}[key]
+
+        ok = CheckResult("other", "ok", "ok")
+        with (
+            patch("openjarvis.cli.doctor_cmd._ensure_engines_imported"),
+            patch("openjarvis.cli.doctor_cmd._get_config", return_value=config),
+            patch("openjarvis.cli.doctor_cmd.load_config", return_value=config),
+            patch(
+                "openjarvis.core.registry.EngineRegistry.keys",
+                return_value=["beta", "alpha"],
+            ),
+            patch(
+                "openjarvis.engine._discovery._make_engine",
+                side_effect=make_engine,
+            ) as make,
+            patch("openjarvis.cli.doctor_cmd._check_python_version", return_value=ok),
+            patch("openjarvis.cli.doctor_cmd._check_config_exists", return_value=ok),
+            patch("openjarvis.cli.doctor_cmd._check_config_parses", return_value=ok),
+            patch("openjarvis.cli.doctor_cmd._check_optional_deps", return_value=[]),
+            patch("openjarvis.cli.doctor_cmd._check_speech_backend", return_value=ok),
+            patch("openjarvis.cli.doctor_cmd._check_nodejs", return_value=ok),
+            patch("openjarvis.cli.doctor_cmd._check_security_profile", return_value=ok),
+        ):
+            results = _run_all_checks()
+
+        assert make.call_count == 2
+        alpha.health.assert_called_once_with()
+        beta.health.assert_called_once_with()
+        assert any(
+            result.name == "Default model" and result.status == "ok"
+            for result in results
+        )
+
 
 class TestCheckDefaultModel:
     def test_empty_default_model_is_not_a_warning(self) -> None:
@@ -150,6 +199,30 @@ class TestCheckDefaultModel:
             result = _check_default_model()
         assert result.status == "ok"
         assert "auto" in result.message.lower()
+
+    def test_mlx_catalog_model_is_checked_by_repo_id(self) -> None:
+        mock_config = MagicMock()
+        mock_config.intelligence.default_model = "qwen3.5:4b"
+        mock_config.intelligence.preferred_engine = "mlx"
+        mock_config.engine.default = "mlx"
+        mock_engine = MagicMock()
+        mock_engine.health.return_value = True
+        mock_engine.list_models.return_value = ["mlx-community/Qwen3.5-4B-OptiQ-4bit"]
+
+        with (
+            patch("openjarvis.cli.doctor_cmd.load_config", return_value=mock_config),
+            patch("openjarvis.cli.doctor_cmd._ensure_engines_imported"),
+            patch.object(EngineRegistry, "keys", return_value=["mlx"]),
+            patch(
+                "openjarvis.engine._discovery._make_engine",
+                return_value=mock_engine,
+            ),
+        ):
+            result = _check_default_model()
+
+        assert result.status == "ok"
+        assert "qwen3.5:4b" in result.message
+        assert "mlx" in result.message
 
 
 class TestCheckSpeechBackend:

@@ -48,8 +48,14 @@ class TaintSet:
 # be passed to that tool.
 SINK_POLICY: Dict[str, Set[TaintLabel]] = {
     "web_search": {TaintLabel.PII, TaintLabel.SECRET},
+    # http_request is the primary outbound-exfiltration sink (is_local=False):
+    # tainted data must never be POSTed/GET-appended to an arbitrary URL.
+    "http_request": {TaintLabel.PII, TaintLabel.SECRET},
     "channel_send": {TaintLabel.SECRET},
+    "channel_tools": {TaintLabel.SECRET},
     "code_interpreter": {TaintLabel.SECRET},
+    # File writes can stage data for later exfiltration; block secrets.
+    "file_write": {TaintLabel.SECRET},
 }
 
 # Patterns for auto-detecting taint in text

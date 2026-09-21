@@ -64,12 +64,22 @@ except ImportError:
     pass
 
 try:
+    import openjarvis.connectors.apple_calendar  # noqa: F401
+except ImportError:
+    pass
+
+try:
     import openjarvis.connectors.slack_connector  # noqa: F401
 except ImportError:
     pass
 
 try:
     import openjarvis.connectors.outlook  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.imap  # noqa: F401
 except ImportError:
     pass
 

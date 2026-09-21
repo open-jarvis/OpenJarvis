@@ -17,6 +17,14 @@ from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall
 
+_SECTION_PROMPTS = {
+    "messages": "MESSAGES — Prioritize provided messages or tasks needing action.",
+    "calendar": "CALENDAR — Cover only provided upcoming events.",
+    "health": "HEALTH — Describe only supported trends; omit raw measurements.",
+    "world": "WORLD — Summarize only provided world items.",
+    "music": "MUSIC — Summarize only provided listening information.",
+}
+
 
 def _load_persona(persona_name: str) -> str:
     """Load a persona prompt file by name."""
@@ -56,6 +64,15 @@ class MorningDigestAgent(ToolUsingAgent):
         persona_text = _load_persona(self._persona)
         now = datetime.now()
         honorific = getattr(self, "_honorific", "sir")
+        sections = dict.fromkeys(
+            str(section).strip().casefold()
+            for section in self._sections
+            if str(section).strip()
+        )
+        section_block = "\n".join(
+            f"- {_SECTION_PROMPTS.get(section, section.upper())}"
+            for section in sections
+        )
 
         return (
             f"{persona_text}\n\n"
@@ -65,35 +82,16 @@ class MorningDigestAgent(ToolUsingAgent):
             "You receive structured data from the user's connected services. "
             "The data has ALREADY been collected — it appears in the user "
             "message. You do NOT fetch anything yourself.\n\n"
-            "Produce a 2-4 minute spoken briefing in DECREASING order of "
-            "importance:\n\n"
-            "1. GREETING + PRIORITIES — Open with the honorific and "
-            "immediately state what needs attention: overdue tasks, today's "
-            "deadlines, events requiring preparation. Connect related items "
-            "('Your rebuttals are overdue and you have a dinner at 6, so "
-            "I'd tackle those first').\n\n"
-            "2. SCHEDULE — Today's upcoming events with time context: 'You "
-            "have 3 hours before your next meeting.' Skip past events.\n\n"
-            "3. MESSAGES — Triage across ALL channels (email, texts, Slack):\n"
-            "  - First: messages from real people needing a REPLY or DECISION\n"
-            "  - Second: messages containing deadlines or action items\n"
-            "  - Last: brief acknowledgment of casual threads ('Your group "
-            "chat has been lively but nothing requiring a response')\n"
-            "  - SKIP automated emails, newsletters, and marketing entirely\n"
-            "  - Quote relevant message text when it helps\n\n"
-            "4. HEALTH — Interpret trends, not raw numbers. 'Your sleep has "
-            "improved three nights running and your readiness is strong' — "
-            "not 'HRV 53, HR 56.' If multiple days of data, compare.\n\n"
-            "5. WORLD — Weather forecast, top news (AI/tech, business, "
-            "general). Skip if no data.\n\n"
-            "6. CLOSING — One forward-looking sentence with the honorific.\n\n"
+            "Produce a concise spoken briefing in decreasing order of importance. "
+            "Cover only the configured sections below and only when the collected "
+            "data supports them. Silently omit absent data and sources.\n\n"
+            f"CONFIGURED SECTIONS:\n{section_block or '- None'}\n\n"
+            "Open briefly with the honorific and end after the last supported item. "
+            "Do not add conversational offers or personal asides.\n\n"
             "ABSOLUTE RULES (violations are unacceptable):\n"
             "- ONLY facts from the data. Zero hallucination.\n"
             "- NEVER mention disconnected or unavailable sources.\n"
-            "- NEVER state raw health numbers. Say 'your sleep was solid' "
-            "NOT 'heart rate 56 bpm' or 'HRV 53' or '6000 steps' or "
-            "'readiness 82'. Interpret, never enumerate.\n"
-            "- NEVER describe actions you are taking.\n"
+            "- NEVER invent personal context or claim, offer, or suggest actions.\n"
             "- Acknowledge every source that returned data, even briefly.\n"
             "- No markdown, emojis, bullets, or headers.\n"
             "- STRICT LIMIT: 200 words. Be concise."
@@ -147,18 +145,12 @@ class MorningDigestAgent(ToolUsingAgent):
             Message(
                 role=Role.USER,
                 content=(
-                    f"Here is the collected data from my sources:\n\n"
-                    f"{collected_data}\n\n"
-                    f"Synthesize my morning briefing. Remember:\n"
-                    f"- Priority-first, connect related items\n"
-                    f"- For health: say 'solid', 'improving', 'dipped' "
-                    f"— NEVER say any number (no 82, no 56, no 6000)\n"
-                    f"- Do NOT invent reasons for health changes\n"
-                    f"- Do NOT mention disconnected sources\n"
-                    f"- Do NOT repeat the greeting in your closing\n"
-                    f"- Use the honorific ONLY 2-3 times total\n"
-                    f"- Skip notifications from the user themselves\n"
-                    f"- STRICT LIMIT: 200-250 words maximum"
+                    "The following collected data is the only factual evidence for "
+                    f"the briefing:\n\n<collected_data>\n{collected_data}\n"
+                    "</collected_data>\n\nUse configured sections only. Omit missing "
+                    "data and sources. Do not add personal context or activities. "
+                    "Use the honorific no more than three times and keep the "
+                    "briefing under 200 words."
                 ),
             ),
         ]

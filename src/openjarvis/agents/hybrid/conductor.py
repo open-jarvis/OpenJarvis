@@ -769,6 +769,42 @@ class ConductorAgent(LocalCloudAgent):
                 self._cloud_model,
             )
 
+    def _call_worker_secured(
+        self,
+        worker: Dict[str, Any],
+        prompt: str,
+        cfg: Dict[str, Any],
+        *,
+        web_search_tool: Optional[Dict[str, Any]] = None,
+        web_search_max_uses: int = 8,
+    ) -> Tuple[str, int, int, bool, int, float]:
+        """Gate the selected worker immediately before external search."""
+        if web_search_tool is not None:
+            search_backend = str(cfg.get("search_backend", "provider")).lower()
+            worker_endpoint = str(worker.get("endpoint") or "openai").lower()
+            search_dispatches = search_backend == "tavily" or (
+                worker_endpoint in _SEARCH_CAPABLE_WORKER_ENDPOINTS
+            )
+            if search_dispatches:
+                operation = (
+                    "conductor_tavily"
+                    if search_backend == "tavily"
+                    else "conductor_provider_search"
+                )
+                authorization = self._authorize_direct_operation(
+                    ["network:fetch"],
+                    operation=operation,
+                )
+                if not authorization.success:
+                    return authorization.content, 0, 0, False, 0, 0.0
+        return _call_worker(
+            worker,
+            prompt,
+            cfg,
+            web_search_tool=web_search_tool,
+            web_search_max_uses=web_search_max_uses,
+        )
+
     def _run_paradigm(
         self,
         input: str,
@@ -995,7 +1031,7 @@ class ConductorAgent(LocalCloudAgent):
                     tool_calls += bash_turns
                 else:
                     (text, w_in, w_out, is_local, n_searches, extra_cost) = (
-                        _call_worker(
+                        self._call_worker_secured(
                             worker,
                             prompt,
                             cfg,

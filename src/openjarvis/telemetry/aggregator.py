@@ -33,6 +33,11 @@ class ModelStats:
     avg_throughput_per_watt: float = 0.0
     total_prefill_energy_joules: float = 0.0
     total_decode_energy_joules: float = 0.0
+    # Per-rail totals. `total_ane_energy_joules` is what makes an ANE-resident
+    # backend (Apple Foundation Models) legible here at all -- on the GPU rail
+    # alone it looks like it did no work.
+    total_ane_energy_joules: float = 0.0
+    total_soc_energy_joules: float = 0.0
     avg_mean_itl_ms: float = 0.0
     avg_median_itl_ms: float = 0.0
     avg_p95_itl_ms: float = 0.0
@@ -57,6 +62,11 @@ class EngineStats:
     avg_throughput_per_watt: float = 0.0
     total_prefill_energy_joules: float = 0.0
     total_decode_energy_joules: float = 0.0
+    # Per-rail totals. `total_ane_energy_joules` is what makes an ANE-resident
+    # backend (Apple Foundation Models) legible here at all -- on the GPU rail
+    # alone it looks like it did no work.
+    total_ane_energy_joules: float = 0.0
+    total_soc_energy_joules: float = 0.0
     avg_mean_itl_ms: float = 0.0
     avg_median_itl_ms: float = 0.0
     avg_p95_itl_ms: float = 0.0
@@ -77,6 +87,11 @@ class AggregatedStats:
     avg_throughput_per_watt: float = 0.0
     total_prefill_energy_joules: float = 0.0
     total_decode_energy_joules: float = 0.0
+    # Per-rail totals. `total_ane_energy_joules` is what makes an ANE-resident
+    # backend (Apple Foundation Models) legible here at all -- on the GPU rail
+    # alone it looks like it did no work.
+    total_ane_energy_joules: float = 0.0
+    total_soc_energy_joules: float = 0.0
     avg_mean_itl_ms: float = 0.0
     avg_median_itl_ms: float = 0.0
     avg_p95_itl_ms: float = 0.0
@@ -155,6 +170,7 @@ class TelemetryAggregator:
         has_derived = self._safe_col("energy_per_output_token_joules")
         has_phase = self._safe_col("prefill_energy_joules")
         has_itl = self._safe_col("mean_itl_ms")
+        has_rails = self._safe_col("ane_energy_joules")
 
         if has_pte:
             extra_cols += ", SUM(prompt_tokens_evaluated) AS prompt_tokens_evaluated"
@@ -176,6 +192,11 @@ class TelemetryAggregator:
                 ", AVG(mean_itl_ms) AS avg_mean_itl_ms"
                 ", AVG(median_itl_ms) AS avg_median_itl_ms"
                 ", AVG(p95_itl_ms) AS avg_p95_itl_ms"
+            )
+        if has_rails:
+            extra_cols += (
+                ", SUM(ane_energy_joules) AS total_ane_energy_joules"
+                ", SUM(soc_energy_joules) AS total_soc_energy_joules"
             )
 
         sql = (
@@ -228,6 +249,9 @@ class TelemetryAggregator:
                 ms.avg_mean_itl_ms = r["avg_mean_itl_ms"] or 0.0
                 ms.avg_median_itl_ms = r["avg_median_itl_ms"] or 0.0
                 ms.avg_p95_itl_ms = r["avg_p95_itl_ms"] or 0.0
+            if has_rails:
+                ms.total_ane_energy_joules = r["total_ane_energy_joules"] or 0.0
+                ms.total_soc_energy_joules = r["total_soc_energy_joules"] or 0.0
             result.append(ms)
         return result
 
@@ -247,6 +271,7 @@ class TelemetryAggregator:
         has_derived = self._safe_col("energy_per_output_token_joules")
         has_phase = self._safe_col("prefill_energy_joules")
         has_itl = self._safe_col("mean_itl_ms")
+        has_rails = self._safe_col("ane_energy_joules")
 
         if has_tpj:
             extra_cols += ", AVG(tokens_per_joule) AS avg_tokens_per_joule"
@@ -266,6 +291,11 @@ class TelemetryAggregator:
                 ", AVG(mean_itl_ms) AS avg_mean_itl_ms"
                 ", AVG(median_itl_ms) AS avg_median_itl_ms"
                 ", AVG(p95_itl_ms) AS avg_p95_itl_ms"
+            )
+        if has_rails:
+            extra_cols += (
+                ", SUM(ane_energy_joules) AS total_ane_energy_joules"
+                ", SUM(soc_energy_joules) AS total_soc_energy_joules"
             )
 
         sql = (
@@ -312,6 +342,9 @@ class TelemetryAggregator:
                 es.avg_mean_itl_ms = r["avg_mean_itl_ms"] or 0.0
                 es.avg_median_itl_ms = r["avg_median_itl_ms"] or 0.0
                 es.avg_p95_itl_ms = r["avg_p95_itl_ms"] or 0.0
+            if has_rails:
+                es.total_ane_energy_joules = r["total_ane_energy_joules"] or 0.0
+                es.total_soc_energy_joules = r["total_soc_energy_joules"] or 0.0
             result.append(es)
         return result
 
@@ -364,6 +397,8 @@ class TelemetryAggregator:
             total_decode_energy_joules=sum(
                 m.total_decode_energy_joules for m in model_stats
             ),
+            total_ane_energy_joules=sum(m.total_ane_energy_joules for m in model_stats),
+            total_soc_energy_joules=sum(m.total_soc_energy_joules for m in model_stats),
             avg_mean_itl_ms=_weighted_avg("avg_mean_itl_ms"),
             avg_median_itl_ms=_weighted_avg("avg_median_itl_ms"),
             avg_p95_itl_ms=_weighted_avg("avg_p95_itl_ms"),

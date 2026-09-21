@@ -31,6 +31,16 @@ uv sync --extra dev --extra eval-wandb     # Weights & Biases run tracking
 uv sync --extra dev --extra eval-sheets    # Google Sheets results export
 ```
 
+TauBench additionally requires Python 3.12 or newer and the upstream `tau2`
+package. Install the pinned revision explicitly before running that benchmark:
+
+```bash
+uv pip install "tau2 @ git+https://github.com/sierra-research/tau2-bench.git@fc0055dc4e0a316c3f83133267fbd6faaa770992"
+```
+
+OpenJarvis does not install third-party packages automatically when an
+evaluation is imported or run.
+
 !!! note "Python version requirement"
     Python 3.10 requires the `tomli` package for TOML config parsing. `openjarvis` declares it as a conditional dependency, so it is installed automatically.
 

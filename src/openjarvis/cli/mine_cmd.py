@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import signal
 import time
 import urllib.error
 import urllib.parse
@@ -17,6 +16,7 @@ import click
 
 from openjarvis.core.config import HardwareInfo, detect_hardware, load_config
 from openjarvis.core.registry import MinerRegistry
+from openjarvis.core.utils import process_alive, terminate_process
 from openjarvis.mining._constants import (
     DEFAULT_GATEWAY_METRICS_PORT,
     DEFAULT_GATEWAY_RPC_PORT,
@@ -201,26 +201,11 @@ def _local_artifact_payload_and_paths(path: Path) -> tuple[dict[str, Any], set[s
 
 
 def _pid_alive(pid: int | None) -> bool:
-    if not pid:
-        return False
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+    return process_alive(pid)
 
 
 def _terminate_pid(pid: int | None, *, grace_seconds: float = 3.0) -> None:
-    if not pid or not _pid_alive(pid):
-        return
-    os.kill(pid, signal.SIGTERM)
-    deadline = time.monotonic() + grace_seconds
-    while time.monotonic() < deadline:
-        if not _pid_alive(pid):
-            return
-        time.sleep(0.05)
-    if _pid_alive(pid):
-        os.kill(pid, signal.SIGKILL)
+    terminate_process(pid, grace_seconds=grace_seconds)
 
 
 def _row(name: str, ok: bool, info: str) -> None:
