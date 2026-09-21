@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import fields
+from typing import Any, Sequence
 from unittest.mock import MagicMock
 
 import pytest
 
 from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import Message, Role
+from openjarvis.core.types import Message, Role, ToolCall
+from openjarvis.engine._stubs import StreamChunk
 from openjarvis.security.guardrails import GuardrailsEngine, SecurityBlockError
+from openjarvis.security.scanner import SecretScanner
 from openjarvis.security.types import RedactionMode
 
 
@@ -223,6 +228,206 @@ class TestGuardrailsEngineCleanPassthrough:
 async def _async_token_iter(tokens):
     for t in tokens:
         yield t
+
+
+_SECRET = "my key sk-abc123def456ghi789jkl012"
+_METHODS = ["generate", "stream", "stream_full"]
+
+
+async def _invoke(
+    guarded: GuardrailsEngine,
+    method: str,
+    messages: Sequence[Message],
+    **kwargs: Any,
+) -> Any:
+    if method == "generate":
+        return guarded.generate(messages, **kwargs)
+    return [item async for item in getattr(guarded, method)(messages, **kwargs)]
+
+
+def _recording_engine() -> MagicMock:
+    engine = _make_mock_engine("OK")
+    engine.stream.side_effect = lambda *a, **kw: _async_token_iter(["OK"])
+    engine.stream_full.side_effect = lambda *a, **kw: _async_token_iter(
+        [StreamChunk(content="OK"), StreamChunk(finish_reason="stop")]
+    )
+    return engine
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", _METHODS)
+class TestGuardrailsInputPolicy:
+    async def test_block_before_backend(self, method: str) -> None:
+        bus = EventBus(record_history=True)
+        backend = _recording_engine()
+        guarded = GuardrailsEngine(
+            backend, mode=RedactionMode.BLOCK, scan_output=False, bus=bus
+        )
+        messages = [Message(Role.USER, "hello"), Message(Role.TOOL, _SECRET)]
+        if method == "generate":
+            with pytest.raises(SecurityBlockError, match="blocked input"):
+                guarded.generate(messages, model="test")
+        else:
+            iterator = getattr(guarded, method)(messages, model="test")
+            assert not bus.history
+            getattr(backend, method).assert_not_called()
+            with pytest.raises(SecurityBlockError, match="blocked input"):
+                await iterator.__anext__()
+        getattr(backend, method).assert_not_called()
+        assert len(bus.history) == 1
+        event = bus.history[0]
+        assert event.event_type == EventType.SECURITY_BLOCK
+        assert event.data["direction"] == "input"
+        assert event.data["mode"] == "block"
+        assert event.data["findings"][0]["pattern"] == "openai_key"
+
+    @pytest.mark.parametrize("mode", [RedactionMode.WARN, RedactionMode.REDACT])
+    async def test_findings_preserve_messages_and_arguments(
+        self, method: str, mode: RedactionMode
+    ) -> None:
+        bus = EventBus(record_history=True)
+        backend = _recording_engine()
+        guarded = GuardrailsEngine(backend, mode=mode, scan_output=False, bus=bus)
+        messages = tuple(
+            Message(
+                role=role,
+                content=_SECRET,
+                name="speaker",
+                tool_calls=[ToolCall("call-1", "lookup", "{}")],
+                tool_call_id="call-1",
+                metadata={"nested": ["value"]},
+                images=["aGVsbG8="],
+            )
+            for role in Role
+        )
+        original = deepcopy(messages)
+        call = getattr(backend, method)
+        original_effect = call.side_effect
+
+        def receive(*args: Any, **kwargs: Any) -> Any:
+            # All input events must already exist when the backend is called.
+            assert len(bus.history) == len(messages)
+            if original_effect:
+                return original_effect(*args, **kwargs)
+            return call.return_value
+
+        call.side_effect = receive
+        kwargs = dict(model="test", temperature=0.2, max_tokens=17, stop=["END"])
+        await _invoke(guarded, method, messages, **kwargs)
+        assert call.call_count == 1
+        assert call.call_args.kwargs == kwargs
+        sent = call.call_args.args[0]
+        assert len(sent) == len(messages)
+        assert messages == original
+        for before, after in zip(messages, sent):
+            assert after is not before
+            assert after.content == (
+                _SECRET
+                if mode == RedactionMode.WARN
+                else "my key [REDACTED:openai_key]"
+            )
+            for field in fields(Message):
+                if field.name != "content":
+                    assert getattr(after, field.name) is getattr(before, field.name)
+        for event in bus.history:
+            assert event.event_type == EventType.SECURITY_ALERT
+            assert event.data["direction"] == "input"
+            assert event.data["mode"] == mode.value
+            assert event.data["findings"] == [
+                {
+                    "pattern": "openai_key",
+                    "threat": "critical",
+                    "description": "OpenAI API key",
+                }
+            ]
+
+    @pytest.mark.parametrize("mode", list(RedactionMode))
+    async def test_disabled_input_scan(self, method: str, mode: RedactionMode) -> None:
+        backend = _recording_engine()
+        scanner = MagicMock()
+        bus = EventBus(record_history=True)
+        guarded = GuardrailsEngine(
+            backend,
+            scanners=[scanner],
+            mode=mode,
+            scan_input=False,
+            scan_output=False,
+            bus=bus,
+        )
+        messages = (Message(Role.USER, _SECRET),)
+        await _invoke(guarded, method, messages, model="test")
+        assert getattr(backend, method).call_args.args[0] is messages
+        scanner.scan.assert_not_called()
+        scanner.redact.assert_not_called()
+        assert not bus.history
+
+    @pytest.mark.parametrize("mode", list(RedactionMode))
+    @pytest.mark.parametrize("case", ["empty", "clean", "no_scanners"])
+    async def test_no_findings(
+        self, method: str, mode: RedactionMode, case: str
+    ) -> None:
+        backend = _recording_engine()
+        bus = EventBus(record_history=True)
+        scanner = MagicMock(wraps=SecretScanner())
+        messages = (
+            ()
+            if case == "empty"
+            else (
+                Message(Role.USER, _SECRET if case == "no_scanners" else "hello"),
+                Message(Role.ASSISTANT, None),
+                Message(Role.TOOL, ""),
+            )
+        )
+        guarded = GuardrailsEngine(
+            backend,
+            scanners=[] if case == "no_scanners" else [scanner],
+            mode=mode,
+            scan_output=False,
+            bus=bus,
+        )
+        await _invoke(guarded, method, messages, model="test")
+        sent = getattr(backend, method).call_args.args[0]
+        assert list(sent) == list(messages)
+        assert all(a is b for a, b in zip(sent, messages))
+        if case == "clean":
+            scanner.scan.assert_called_once_with("hello")
+        else:
+            scanner.scan.assert_not_called()
+        assert not bus.history
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["stream", "stream_full"])
+@pytest.mark.parametrize("mode", list(RedactionMode))
+async def test_stream_output_remains_post_hoc(method: str, mode: RedactionMode) -> None:
+    bus = EventBus(record_history=True)
+    backend = _recording_engine()
+    expected = ["my key ", "sk-abc123def456ghi789jkl012"]
+    if method == "stream_full":
+        expected = [
+            StreamChunk(content=expected[0]),
+            StreamChunk(content=expected[1], tool_calls=[{"index": 0}]),
+            StreamChunk(
+                finish_reason="stop",
+                usage={"total_tokens": 3},
+                content_blocks=[{"type": "text", "text": "done"}],
+                tool_results=[{"id": "call-1"}],
+            ),
+        ]
+    getattr(backend, method).side_effect = lambda *a, **kw: _async_token_iter(expected)
+    guarded = GuardrailsEngine(backend, mode=mode, bus=bus)
+    iterator = getattr(guarded, method)([Message(Role.USER, "hello")], model="test")
+    for item in expected:
+        assert await iterator.__anext__() is item
+        assert not bus.history
+    with pytest.raises(StopAsyncIteration):
+        await iterator.__anext__()
+    assert len(bus.history) == 1
+    event = bus.history[0]
+    assert event.event_type == EventType.SECURITY_ALERT
+    assert event.data["direction"] == "output"
+    assert event.data["mode"] == f"{method}_post_hoc"
+    assert event.data["findings"][0]["pattern"] == "openai_key"
 
 
 @pytest.mark.asyncio

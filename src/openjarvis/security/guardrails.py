@@ -162,18 +162,8 @@ class GuardrailsEngine(InferenceEngine):
             f"{len(result.findings)} finding(s) detected"
         )
 
-    # -- InferenceEngine interface -------------------------------------------
-
-    def generate(
-        self,
-        messages: Sequence[Message],
-        *,
-        model: str,
-        temperature: float = 0.7,
-        max_tokens: int = 1024,
-        **kwargs: Any,
-    ) -> Dict[str, Any]:
-        """Scan input, call wrapped engine, scan output."""
+    def _prepare_messages(self, messages: Sequence[Message]) -> Sequence[Message]:
+        """Apply input policy without mutating the caller's messages."""
         # Scan input messages
         if self._scan_input:
             processed = list(messages)
@@ -194,7 +184,23 @@ class GuardrailsEngine(InferenceEngine):
                             metadata=msg.metadata,
                             images=msg.images,
                         )
-            messages = processed
+            return processed
+
+        return messages
+
+    # -- InferenceEngine interface -------------------------------------------
+
+    def generate(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """Scan input, call wrapped engine, scan output."""
+        messages = self._prepare_messages(messages)
 
         # Call wrapped engine
         response = self._engine.generate(
@@ -226,7 +232,8 @@ class GuardrailsEngine(InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        """Yield tokens in real-time, scan accumulated output post-hoc."""
+        """Scan input before yielding tokens; scan output post-hoc for alerts."""
+        messages = self._prepare_messages(messages)
         accumulated = []
         async for token in self._engine.stream(
             messages,
@@ -270,7 +277,8 @@ class GuardrailsEngine(InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> AsyncIterator["StreamChunk"]:
-        """Delegate to wrapped engine, scan accumulated output post-hoc."""
+        """Scan input before yielding chunks; scan output post-hoc for alerts."""
+        messages = self._prepare_messages(messages)
         accumulated: list[str] = []
         async for chunk in self._engine.stream_full(
             messages,
