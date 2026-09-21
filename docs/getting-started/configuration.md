@@ -728,6 +728,12 @@ graph TD
 
 ### Apple Silicon Mac
 
+Start an MLX server with the same model ID used in the configuration:
+
+```bash
+jarvis host mlx-community/Qwen2.5-7B-4bit --backend mlx --port 8080
+```
+
 ```toml
 # ~/.openjarvis/config.toml
 # Apple Silicon MacBook Pro (M3 Max, 128 GB unified memory)
@@ -739,8 +745,8 @@ default = "mlx"
 host = "http://localhost:8080"
 
 [intelligence]
-default_model = "qwen3:8b"
-fallback_model = "llama3.2:3b"
+default_model = "mlx-community/Qwen2.5-7B-4bit"
+fallback_model = ""
 temperature = 0.7
 max_tokens = 1024
 
