@@ -97,6 +97,7 @@ class InstrumentedEngine(InferenceEngine):
         gpu_sample: Optional[GpuSample] = None
         energy_sample: Optional[Any] = None
         t0 = time.time()
+        _perf_t0 = time.perf_counter()
 
         # Prefer EnergyMonitor over legacy GpuMonitor
         if self._energy_monitor is not None:
@@ -126,7 +127,7 @@ class InstrumentedEngine(InferenceEngine):
                 **kwargs,
             )
 
-        latency = time.time() - t0
+        latency = time.perf_counter() - _perf_t0
 
         usage = result.get("usage", {})
         completion_tokens = usage.get("completion_tokens", 0)
@@ -317,6 +318,7 @@ class InstrumentedEngine(InferenceEngine):
         )
 
         t0 = time.time()
+        _perf_t0 = time.perf_counter()
         token_timestamps: list[float] = []
         token_count = 0
 
@@ -359,7 +361,7 @@ class InstrumentedEngine(InferenceEngine):
                 token_count += 1
                 yield token
 
-        latency = time.time() - t0
+        latency = time.perf_counter() - _perf_t0
         ttft = token_timestamps[0] - t0 if token_timestamps else 0.0
         throughput = token_count / latency if latency > 0 else 0.0
 

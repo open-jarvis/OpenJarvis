@@ -17,6 +17,7 @@ def store():
     with tempfile.TemporaryDirectory() as tmpdir:
         s = TraceStore(Path(tmpdir) / "traces.db")
         yield s
+        s.close()
 
 
 def _make_trace(trace_id: str, query: str, result: str, agent: str = "test") -> Trace:

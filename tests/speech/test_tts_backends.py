@@ -71,8 +71,19 @@ def test_kokoro_registered():
     assert TTSRegistry.contains("kokoro")
 
 
-def test_kokoro_health_false_without_package():
+def test_kokoro_health_false_without_package(monkeypatch):
+    import builtins
+
     from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "kokoro":
+            raise ImportError("No module named 'kokoro'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
 
     backend = KokoroTTSBackend()
     # Without kokoro installed, health returns False
