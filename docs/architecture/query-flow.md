@@ -96,7 +96,7 @@ Direct mode bypasses the agent's system prompt and persona handling. In the CLI,
 
 ### Agent Mode
 
-In agent mode, the query is handled by a named agent that can perform multiple inference rounds and invoke tools. The `OrchestratorAgent` is the most common choice, enabling a multi-turn tool-calling loop.The CLI's default `SimpleAgent` makes a single inference call without a tool loop, while applying the configured system prompt and persona files (`SOUL.md`, `MEMORY.md`, and `USER.md`
+In agent mode, the query is handled by a named agent. The CLI's default `SimpleAgent` makes a single inference call without a tool loop, while applying the configured system prompt and persona files (`SOUL.md`, `MEMORY.md`, and `USER.md`). Agents such as `OrchestratorAgent` can perform multiple inference rounds and invoke tools.
 
 ```bash
 # CLI
