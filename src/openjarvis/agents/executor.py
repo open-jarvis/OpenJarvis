@@ -277,6 +277,7 @@ class AgentExecutor:
             self._bus.subscribe(EventType.TOOL_CALL_END, _on_tool_end)
 
         tick_start = time.time()
+        _tick_perf_start = time.perf_counter()
         result = None
         error_info = None
 
@@ -292,7 +293,7 @@ class AgentExecutor:
                 self._bus.unsubscribe(EventType.TOOL_CALL_START, _on_tool_start)
                 self._bus.unsubscribe(EventType.TOOL_CALL_END, _on_tool_end)
 
-            tick_duration = time.time() - tick_start
+            tick_duration = time.perf_counter() - _tick_perf_start
             self._finalize_tick(agent_id, result, error_info, tick_duration)
 
             if self._trace_store:
