@@ -15,3 +15,10 @@ for _mod in ("cartesia_tts", "kokoro_tts", "openai_tts"):
         importlib.import_module(f".{_mod}", __name__)
     except ImportError:
         pass
+
+# Optional wake-word backends -- each registers itself via WakeWordRegistry.register()
+for _mod in ("wakeword",):
+    try:
+        importlib.import_module(f".{_mod}", __name__)
+    except ImportError:
+        pass

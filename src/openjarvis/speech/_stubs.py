@@ -52,4 +52,36 @@ class SpeechBackend(ABC):
         """Return list of supported audio formats."""
 
 
-__all__ = ["Segment", "SpeechBackend", "TranscriptionResult"]
+class WakeWordBackend(ABC):
+    """Abstract base class for always-on wake-word detectors.
+
+    Distinct from ``SpeechBackend``: this listens continuously on the
+    microphone for a trigger phrase (e.g. "hey jarvis") rather than
+    transcribing a fixed clip of already-recorded audio.
+    """
+
+    backend_id: str = ""
+
+    @abstractmethod
+    def listen(self) -> bool:
+        """Block until the wake word is detected once, then return True.
+
+        Returns False only if listening was cleanly cancelled (e.g. via
+        ``stop()`` from another thread) rather than a wake-word hit.
+        """
+
+    @abstractmethod
+    def stop(self) -> None:
+        """Signal a blocked ``listen()`` call to return early."""
+
+    @abstractmethod
+    def health(self) -> bool:
+        """Check if the backend (model + microphone) is ready."""
+
+
+__all__ = [
+    "Segment",
+    "SpeechBackend",
+    "TranscriptionResult",
+    "WakeWordBackend",
+]
