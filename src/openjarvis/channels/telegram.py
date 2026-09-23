@@ -383,7 +383,7 @@ class TelegramChannel(BaseChannel):
             with self._runtime_lock:
                 self._app = app
 
-            def _handle_msg(update, context):
+            async def _handle_msg(update, context):
                 msg = update.message
                 if msg is None:
                     return
