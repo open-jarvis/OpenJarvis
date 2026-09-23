@@ -10,6 +10,7 @@ Pure Python ``sqlite3`` (no Rust extension required).
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 import uuid
@@ -352,7 +353,7 @@ class KnowledgeStore(MemoryBackend):
 
         Parameters
         ----------
-        query:    Full-text search query.
+        query:    Plain-text search query (FTS5 punctuation is handled internally).
         top_k:    Maximum number of results.
         source:   Restrict to chunks from this source (e.g. "gmail").
         doc_type: Restrict to chunks of this type (e.g. "email").
@@ -360,8 +361,13 @@ class KnowledgeStore(MemoryBackend):
         since:    Exclude chunks whose timestamp is earlier than this value.
         until:    Exclude chunks whose timestamp is later than this value.
         """
-        if not query.strip():
+        # Callers pass ordinary text, not FTS5 expressions. Punctuation such
+        # as apostrophes, hyphens and question marks is otherwise parsed as
+        # query syntax and can turn a matching search into an empty result.
+        terms = re.findall(r"\w+", query)
+        if not terms:
             return []
+        fts_query = " OR ".join(f'"{term}"' for term in terms)
 
         since_str = _to_iso(since) if since is not None else None
         until_str = _to_iso(until) if until is not None else None
@@ -408,7 +414,7 @@ class KnowledgeStore(MemoryBackend):
         """
 
         try:
-            rows = self._conn.execute(sql, [query] + params + [top_k]).fetchall()
+            rows = self._conn.execute(sql, [fts_query] + params + [top_k]).fetchall()
         except sqlite3.OperationalError:
             # Malformed FTS query — return empty rather than crash
             return []
