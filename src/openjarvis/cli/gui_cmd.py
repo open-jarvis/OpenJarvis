@@ -37,6 +37,23 @@ def _wait_for_port(host: str, port: int, timeout: float = 20.0) -> bool:
     return False
 
 
+def _ensure_frontend_dependencies(frontend: Path, npm: str) -> None:
+    """Install frontend dependencies when this checkout has not been bootstrapped."""
+    vite = frontend / "node_modules" / ".bin" / ("vite.cmd" if sys.platform == "win32" else "vite")
+    if vite.exists():
+        return
+    click.echo("Installing graphical frontend dependencies...", err=True)
+    result = subprocess.run(
+        [npm, "install", "--no-audit", "--no-fund"],
+        cwd=frontend,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise click.ClickException(
+            "Could not install frontend dependencies. Run `npm install` in the frontend directory."
+        )
+
+
 @click.command()
 @click.option("--frontend-port", default=5173, show_default=True, type=int)
 @click.option("--api-port", default=8000, show_default=True, type=int)
@@ -60,10 +77,17 @@ def gui(frontend_port: int, api_port: int, no_server: bool, no_browser: bool) ->
         raise click.ClickException(
             "Node.js/npm is required for graphical mode. Install Node.js 22 or newer."
         )
+    _ensure_frontend_dependencies(frontend, npm)
 
     if not no_server:
+        uv = shutil.which("uv")
+        if uv is None:
+            raise click.ClickException(
+                "uv is required to start the API with desktop dependencies. "
+                "Install uv or use --no-server with an already-running API."
+            )
         server = subprocess.run(
-            [sys.executable, "-m", "openjarvis.cli", "start", "--port", str(api_port)],
+            [uv, "run", "--extra", "desktop", "jarvis", "start", "--port", str(api_port)],
             check=False,
         )
         if server.returncode != 0:
@@ -89,4 +113,3 @@ def gui(frontend_port: int, api_port: int, no_server: bool, no_browser: bool) ->
     except KeyboardInterrupt:
         process.terminate()
         process.wait()
-
