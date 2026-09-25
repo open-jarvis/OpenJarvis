@@ -106,6 +106,8 @@ interface Settings {
   temperature: number;
   maxTokens: number;
   speechEnabled: boolean;
+  voiceOutputEnabled: boolean;
+  voiceAutoplay: boolean;
 }
 
 function loadSettings(): Settings {
@@ -119,6 +121,8 @@ function loadSettings(): Settings {
     temperature: 0.7,
     maxTokens: 4096,
     speechEnabled: false,
+    voiceOutputEnabled: false,
+    voiceAutoplay: false,
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
