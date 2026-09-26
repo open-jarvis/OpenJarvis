@@ -176,6 +176,31 @@ class TelegramChannel(BaseChannel):
             # chat id via ``conversation_id``.
             chat_id = channel or conversation_id
             reply_to = conversation_id if (channel and conversation_id) else ""
+            # Agents sometimes pass the channel *type* name ("telegram") or a
+            # guessed identifier instead of a real chat id. If the target isn't
+            # numeric and we have a single configured chat id, fall back to it
+            # so notifications still land in the user's chat (#local).
+            if not str(chat_id).strip().lstrip("-").isdigit() and self._allowed_chat_ids:
+                _ids = [
+                    cid.strip()
+                    for cid in self._allowed_chat_ids.split(",")
+                    if cid.strip()
+                ]
+                if len(_ids) == 1:
+                    logger.debug(
+                        "Falling back to configured chat id %s (target %r)",
+                        _ids[0],
+                        chat_id,
+                    )
+                    chat_id = _ids[0]
+                    reply_to = ""
+                else:
+                    logger.warning(
+                        "Non-numeric Telegram target %r and multiple allowed "
+                        "chat ids configured; refusing to guess",
+                        chat_id,
+                    )
+                    return False
             chunks = textwrap.wrap(
                 content,
                 width=_TELEGRAM_MAX_LEN,

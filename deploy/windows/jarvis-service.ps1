@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Register / unregister the OpenJarvis Windows scheduled task.
 
