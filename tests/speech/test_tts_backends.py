@@ -73,7 +73,9 @@ def test_kokoro_registered():
     assert TTSRegistry.contains("kokoro")
 
 
-def test_kokoro_health_false_without_package():
+def test_kokoro_health_false_without_package(monkeypatch):
+    import builtins
+
     from openjarvis.speech.kokoro_tts import KokoroTTSBackend
 
     # The assertion only holds when kokoro is genuinely absent. With the
@@ -85,7 +87,6 @@ def test_kokoro_health_false_without_package():
         pass
     else:
         pytest.skip("kokoro installed (openjarvis[voice]); health() is True")
-
     backend = KokoroTTSBackend()
     # Without kokoro installed, health returns False
     assert backend.health() is False

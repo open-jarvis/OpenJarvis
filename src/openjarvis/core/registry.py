@@ -146,6 +146,10 @@ class SpeechRegistry(RegistryBase[Any]):
     """Registry for speech backend implementations."""
 
 
+class WakeWordRegistry(RegistryBase[Any]):
+    """Registry for wake-word detection backend implementations."""
+
+
 class CompressionRegistry(RegistryBase[Any]):
     """Registry for context compression strategies."""
 
@@ -186,4 +190,5 @@ __all__ = [
     "SpeechRegistry",
     "TTSRegistry",
     "ToolRegistry",
+    "WakeWordRegistry",
 ]

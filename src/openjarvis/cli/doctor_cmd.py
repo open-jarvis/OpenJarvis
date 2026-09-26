@@ -358,6 +358,55 @@ def _check_nodejs() -> CheckResult:
         return CheckResult("Node.js", "warn", f"Error checking version: {exc}")
 
 
+def _check_agents() -> List[CheckResult]:
+    """Report registered agents, any that failed to import, and whether
+    the configured default agent is actually available."""
+    results: List[CheckResult] = []
+
+    import openjarvis.agents as agents_pkg
+    from openjarvis.core.registry import AgentRegistry
+
+    registered = sorted(AgentRegistry.keys())
+    if registered:
+        preview = ", ".join(registered[:6])
+        suffix = f" (+{len(registered) - 6} more)" if len(registered) > 6 else ""
+        results.append(
+            CheckResult(
+                "Agents registered", "ok", f"{len(registered)} available: {preview}{suffix}"
+            )
+        )
+    else:
+        results.append(CheckResult("Agents registered", "fail", "No agents registered"))
+
+    failures = getattr(agents_pkg, "IMPORT_FAILURES", {})
+    for modname, reason in sorted(failures.items()):
+        results.append(
+            CheckResult(f"Agent module: {modname}", "warn", "Not available", details=reason)
+        )
+
+    config = _get_config()
+    default_agent = getattr(getattr(config, "agent", None), "default_agent", None)
+    if not default_agent:
+        results.append(CheckResult("Default agent", "warn", "Not configured"))
+    elif AgentRegistry.contains(default_agent):
+        results.append(CheckResult("Default agent", "ok", f"'{default_agent}' is registered"))
+    else:
+        results.append(
+            CheckResult(
+                "Default agent",
+                "fail",
+                f"'{default_agent}' is NOT registered",
+                details=(
+                    "system.ask() will return 'Unknown agent' errors. Check the "
+                    "'Agent module' warnings above, or verify config.agent.default_agent "
+                    "matches a registered key."
+                ),
+            )
+        )
+
+    return results
+
+
 # -- Main command -------------------------------------------------------------
 
 _STATUS_ICONS = {
@@ -373,6 +422,7 @@ def _run_all_checks() -> List[CheckResult]:
     checks.append(_check_python_version())
     checks.append(_check_config_exists())
     checks.append(_check_config_parses())
+    checks.extend(_check_agents())
     engine_probes = _probe_engines()
     checks.extend(_check_engines(engine_probes))
     checks.extend(_check_models(engine_probes))

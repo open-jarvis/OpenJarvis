@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from openjarvis.core.config import JarvisConfig
-    from openjarvis.speech._stubs import SpeechBackend
+    from openjarvis.speech._stubs import SpeechBackend, WakeWordBackend
 
 # Priority order: local first, then cloud
 DISCOVERY_ORDER = [
@@ -84,3 +84,35 @@ def get_speech_backend(config: "JarvisConfig") -> Optional["SpeechBackend"]:
             continue
 
     return None
+
+
+def get_wakeword_backend(
+    config: "JarvisConfig",
+    *,
+    model_override: Optional[str] = None,
+) -> Optional["WakeWordBackend"]:
+    """Resolve the configured wake-word backend, or None if unavailable.
+
+    Unlike ``get_speech_backend``, there is currently one backend
+    (openWakeWord); this still goes through the registry rather than
+    importing it directly so a future alternative backend slots in the
+    same way STT/TTS backends do.
+    """
+    # Trigger registration of built-in backends
+    import openjarvis.speech  # noqa: F401
+    from openjarvis.core.registry import WakeWordRegistry
+
+    key = "openwakeword"
+    if not WakeWordRegistry.contains(key):
+        return None
+
+    try:
+        backend_cls = WakeWordRegistry.get(key)
+        backend = backend_cls(
+            model=model_override or config.speech.wakeword_model,
+            threshold=config.speech.wakeword_threshold,
+            mic_device=config.speech.wakeword_mic_device,
+        )
+        return backend if backend.health() else None
+    except Exception:
+        return None

@@ -7,6 +7,13 @@ from unittest.mock import patch
 
 import pytest
 
+import sys
+
+pytestmark = pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="fake RAPL sysfs uses colons in directory names, invalid on Windows",
+)
+
 from openjarvis.telemetry.energy_rapl import (
     RaplEnergyMonitor,
     _discover_domains,

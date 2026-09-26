@@ -51,10 +51,10 @@ class ThroughputBenchmark(BaseBenchmark):
         errors = 0
 
         for _ in range(num_samples):
-            t0 = time.time()
+            t0 = time.perf_counter()
             try:
                 result = engine.generate(messages, model=model)
-                elapsed = time.time() - t0
+                elapsed = time.perf_counter() - t0
                 usage = result.get("usage", {})
                 tokens = usage.get("completion_tokens", 0)
 

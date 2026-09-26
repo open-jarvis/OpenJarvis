@@ -1628,6 +1628,13 @@ class SpeechConfig:
     tts_backend: str = "kokoro"  # "kokoro", "openai_tts", "cartesia"
     voice_id: str = "bm_george"
     voice_speed: float = 1.0
+    # Wake-word detection (jarvis listen). openWakeWord ships several
+    # pretrained phrase models; "hey_jarvis" is the one matching this
+    # assistant's name. Threshold is openWakeWord's own prediction score
+    # (0-1); higher = fewer false wakes but more missed ones.
+    wakeword_model: str = "hey_jarvis"
+    wakeword_threshold: float = 0.5
+    wakeword_mic_device: Optional[int] = None  # None = system default input
 
 
 @dataclass(slots=True)
