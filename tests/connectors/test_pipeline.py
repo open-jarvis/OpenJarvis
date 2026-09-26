@@ -455,3 +455,69 @@ def test_pipeline_skips_embedding_when_no_embedder(
     assert len(rows) == 1
     assert rows[0][0] is None
     assert rows[0][1] == ""
+
+
+# ---------------------------------------------------------------------------
+# Re-sync change detection: edited documents are rewritten, unchanged skipped
+# ---------------------------------------------------------------------------
+
+
+def test_reingest_edited_document_replaces_stale_chunks(
+    store: KnowledgeStore,
+) -> None:
+    """An edited file re-synced under the same doc_id must replace its chunks.
+
+    Regression: previously the pipeline preloaded every stored doc_id and
+    skipped them unconditionally, so a vault note edited after the first
+    ingest kept its stale text forever.
+    """
+    doc_id = "obsidian:notes/setup.md"
+    IngestionPipeline(store).ingest(
+        [_make_doc(doc_id=doc_id, content="Use jarvis connect obsidian --path.")]
+    )
+    assert store.count() == 1
+
+    n = IngestionPipeline(store).ingest(
+        [_make_doc(doc_id=doc_id, content="Use jarvis deep-research-setup instead.")]
+    )
+
+    assert n == 1
+    assert store.count() == 1
+    row = store._conn.execute("SELECT content FROM knowledge_chunks").fetchone()
+    assert "deep-research-setup" in row[0]
+    assert "connect obsidian" not in row[0]
+
+
+def test_reingest_shrunk_document_drops_trailing_chunks(
+    store: KnowledgeStore,
+) -> None:
+    """A document that now produces fewer chunks leaves no orphans behind."""
+    doc_id = "obsidian:notes/long.md"
+    long_body = "\n\n".join(f"Paragraph {i}. " + ("word " * 200) for i in range(6))
+    IngestionPipeline(store, max_tokens=128).ingest(
+        [_make_doc(doc_id=doc_id, content=long_body)]
+    )
+    assert store.count() > 1
+
+    IngestionPipeline(store, max_tokens=128).ingest(
+        [_make_doc(doc_id=doc_id, content="Now it is one short paragraph.")]
+    )
+
+    assert store.count() == 1
+
+
+def test_reingest_unchanged_document_skips_embedding(
+    store: KnowledgeStore,
+) -> None:
+    """Unchanged documents cost no embedder calls on re-sync."""
+    doc = _make_doc(doc_id="doc:unchanged", content="Stable content, never edited.")
+    first = _StubEmbedder()
+    IngestionPipeline(store, embedder=first).ingest([doc])  # type: ignore[arg-type]
+    assert first.calls == 1
+
+    second = _StubEmbedder()
+    n = IngestionPipeline(store, embedder=second).ingest([doc])  # type: ignore[arg-type]
+
+    assert n == 0
+    assert second.calls == 0
+    assert store.count() == 1

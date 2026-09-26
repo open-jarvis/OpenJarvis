@@ -94,19 +94,15 @@ class IngestionPipeline:
         self._chunker = SemanticChunker(max_tokens=max_tokens)
         self._attachment_store = attachment_store
         self._embedder = embedder
+        # Within-instance dedup only. Documents already in the store are
+        # not preloaded here: they are re-chunked and compared hash-for-hash
+        # against the stored rows in ``ingest()`` so an edited file gets
+        # rewritten instead of silently kept stale.
         self._seen_doc_ids: set[str] = set()
-        self._load_existing_doc_ids()
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _load_existing_doc_ids(self) -> None:
-        """Populate ``_seen_doc_ids`` from rows already in the store."""
-        rows = self._store._conn.execute(
-            "SELECT DISTINCT doc_id FROM knowledge_chunks"
-        ).fetchall()
-        self._seen_doc_ids = {r[0] for r in rows}
 
     def _embed_chunk(self, content: str) -> tuple[Optional[bytes], str]:
         """Return ``(embedding_bytes, model_version)`` for a chunk.
@@ -202,6 +198,21 @@ class IngestionPipeline:
                 doc_type=doc.doc_type,
                 metadata=parent_meta,
             )
+
+            # Change detection against what is already stored. Unchanged
+            # documents are skipped outright; changed ones are deleted
+            # wholesale (body and attachment chunks) and rewritten so a
+            # document that shrank does not leave orphaned trailing chunks
+            # behind. Compared before the chunks are embedded so an unchanged
+            # vault costs no embedder calls on re-sync. Only body chunks are
+            # compared: attachments never change without their parent.
+            new_hashes = {c.index: _content_hash(c.content) for c in chunks}
+            existing_hashes = self._store.chunk_hashes(doc.doc_id, source_id)
+            if existing_hashes:
+                if existing_hashes == new_hashes:
+                    self._seen_doc_ids.add(doc.doc_id)
+                    continue
+                self._store.delete(doc.doc_id)
 
             for chunk in chunks:
                 embedding_bytes, embedding_version = self._embed_chunk(chunk.content)
