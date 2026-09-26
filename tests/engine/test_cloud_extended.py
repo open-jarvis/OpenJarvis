@@ -20,14 +20,13 @@ from openjarvis.engine.cloud import (
     _is_google_model,
     estimate_cost,
 )
+from tests.engine.conftest import CLOUD_KEY_ENV_VARS
 
 
 def _make_cloud_engine(monkeypatch: pytest.MonkeyPatch) -> CloudEngine:
     """Create a CloudEngine with all API keys cleared."""
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    for var in CLOUD_KEY_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
     if not EngineRegistry.contains("cloud"):
         EngineRegistry.register_value("cloud", CloudEngine)
     return CloudEngine()

@@ -18,6 +18,7 @@ from openjarvis.engine.cloud import (
     _is_openrouter_model,
     estimate_cost,
 )
+from tests.engine.conftest import CLOUD_KEY_ENV_VARS
 
 
 class TestEstimateCost:
@@ -35,11 +36,21 @@ class TestEstimateCost:
 
 class TestCloudEngineHealth:
     def test_health_no_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        for var in CLOUD_KEY_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
         EngineRegistry.register_value("cloud", CloudEngine)
         engine = CloudEngine()
         assert engine.health() is False
+
+    @pytest.mark.parametrize("key_var", CLOUD_KEY_ENV_VARS)
+    def test_health_no_keys_isolation_per_key(
+        self, monkeypatch: pytest.MonkeyPatch, key_var: str
+    ) -> None:
+        """When all cloud keys are cleared, health is False (fixes #972)."""
+        for var in CLOUD_KEY_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+        EngineRegistry.register_value("cloud", CloudEngine)
+        assert CloudEngine().health() is False
 
     def test_health_with_openai_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -53,8 +64,8 @@ class TestCloudEngineHealth:
 
 class TestCloudEngineListModels:
     def test_list_models_no_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        for var in CLOUD_KEY_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
         EngineRegistry.register_value("cloud", CloudEngine)
         engine = CloudEngine()
         assert engine.list_models() == []
