@@ -15,7 +15,7 @@ from rich.table import Table
 from openjarvis.cli._banner import print_banner
 from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.cli.hints import hint_no_engine
-from openjarvis.core.config import load_config
+from openjarvis.core.config import JarvisConfig, load_config
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
 from openjarvis.engine import (
@@ -53,6 +53,23 @@ LOCAL_ENGINES = {
 }
 
 
+def _resolve_research_model(model_name: str | None, config: JarvisConfig | None) -> str:
+    """Pick the planner model for ``jarvis ask --research``.
+
+    Mirrors the server's ``_resolve_planner_config`` order: explicit ``-m``,
+    then ``[deep_research].model``, then the config default model, and only
+    then the legacy ``gemma4:31b`` fallback. Before this the CLI jumped
+    straight to the legacy fallback, which 404s on any install that never
+    pulled gemma4.
+    """
+    from openjarvis.agents.research_loop import DEFAULT_PLANNER_MODEL
+
+    candidates = [model_name]
+    if config is not None:
+        candidates += [config.deep_research.model, config.intelligence.default_model]
+    return next((m for m in candidates if m), DEFAULT_PLANNER_MODEL)
+
+
 def _run_research(
     *,
     query_text: str,
@@ -61,6 +78,7 @@ def _run_research(
     knowledge_db: str | None,
     output_json: bool,
     console: Console,
+    config: JarvisConfig | None = None,
 ) -> None:
     """Run the hybrid-search research loop and print the result to the console.
 
@@ -72,7 +90,7 @@ def _run_research(
     from rich.markdown import Markdown
     from rich.theme import Theme
 
-    from openjarvis.agents.research_loop import DEFAULT_PLANNER_MODEL, ResearchAgent
+    from openjarvis.agents.research_loop import ResearchAgent
     from openjarvis.connectors.embeddings import OllamaEmbedder
     from openjarvis.connectors.hybrid_search import HybridSearch
     from openjarvis.connectors.store import KnowledgeStore
@@ -113,7 +131,7 @@ def _run_research(
         )
         embedder = None
 
-    planner_model = model_name or DEFAULT_PLANNER_MODEL
+    planner_model = _resolve_research_model(model_name, config)
     logger.debug("research: planner_model=%s", planner_model)
 
     # ---- Output styling --------------------------------------------------
@@ -927,6 +945,7 @@ def ask(
             knowledge_db=knowledge_db,
             output_json=output_json,
             console=console,
+            config=config,
         )
         return
 
