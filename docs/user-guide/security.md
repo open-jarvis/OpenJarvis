@@ -232,10 +232,12 @@ guarded = GuardrailsEngine(
 
 ### Streaming
 
-For streaming calls, `GuardrailsEngine.stream()` yields tokens in real time and then performs a post-hoc scan on the accumulated output for logging. Because tokens are already delivered to the caller before scanning completes, BLOCK mode only applies to the input side during streaming.
+For streaming calls, `GuardrailsEngine.stream()` and `GuardrailsEngine.stream_full()` scan input messages before calling the wrapped engine when `scan_input=True` (the default). WARN publishes an alert and forwards the original content, REDACT forwards sanitized content, and BLOCK raises `SecurityBlockError` before the wrapped engine is called. Input scanning begins when the returned async iterator is first advanced.
+
+Both methods yield output in real time and, when `scan_output=True`, scan the accumulated output after the stream ends to publish alerts. Tokens and structured chunks are delivered unchanged in every mode.
 
 !!! warning "Streaming and BLOCK mode"
-    `SecurityBlockError` can only be raised before the stream starts (for input scanning). Output blocking during streaming is not possible — use REDACT mode if you need to sanitize model outputs in streaming scenarios.
+    BLOCK and REDACT enforce policy on input during streaming; neither can block or sanitize output that has already been delivered. Use `generate()` with REDACT if you need guardrails to sanitize model output before returning it.
 
 ---
 
