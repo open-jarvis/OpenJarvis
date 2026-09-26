@@ -71,6 +71,9 @@ def _ensure_connectors_registered() -> None:
                 and not mod_name.endswith("retriever")
                 and not mod_name.endswith("sync_engine")
                 and not mod_name.endswith("oauth")
+                # Registers nothing; reloading it would only swap out the
+                # OllamaEmbedder class under anyone holding (or patching) it.
+                and not mod_name.endswith("embeddings")
             ):
                 try:
                     importlib.reload(sys.modules[mod_name])
@@ -358,13 +361,16 @@ def create_connectors_router():
 
         def _run_sync() -> None:
             try:
+                from openjarvis.connectors.embeddings import default_embedder
                 from openjarvis.connectors.pipeline import IngestionPipeline
                 from openjarvis.connectors.store import KnowledgeStore
                 from openjarvis.connectors.sync_engine import SyncEngine
 
                 with KnowledgeStore() as store:
                     with SyncEngine(
-                        pipeline=IngestionPipeline(store=store),
+                        pipeline=IngestionPipeline(
+                            store=store, embedder=default_embedder()
+                        ),
                     ) as engine:
                         engine.sync(instance, cancel_event=cancel_event)
                 final_state = "cancelled" if cancel_event.is_set() else "complete"
