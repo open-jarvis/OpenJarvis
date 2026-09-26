@@ -234,6 +234,98 @@ See the [Python SDK guide](../user-guide/python-sdk.md) for the full API referen
 
 ---
 
+## Hardware
+
+OpenJarvis has no special hardware requirements of its own — the CLI, server, and
+SDK run anywhere the software [Requirements](#requirements) below are met. What
+your hardware determines is which **local model** you can run comfortably, and you
+do not have to work that out yourself: `jarvis init` detects your CPU, RAM, and GPU,
+then writes a config with a matching inference engine and default model.
+
+```bash
+jarvis init          # detect hardware, write a matching config
+```
+
+### Recommended configurations
+
+| System RAM (no GPU) | GPU VRAM | Default model | Download |
+|---------------------|----------|---------------|----------|
+| 5–14 GB | Up to 8 GB | `qwen3.5:2b` | ~1.1 GB |
+| 15–24 GB | 9–17 GB | `qwen3.5:4b` | ~2.2 GB |
+| 25–44 GB | 18–35 GB | `qwen3.5:9b` | ~5.0 GB |
+| 45 GB or more | 36 GB or more | `qwen3.5:27b` | ~14.9 GB |
+
+The two memory columns are alternatives, not requirements to satisfy together: when
+a GPU reporting VRAM is detected the model is sized against VRAM, otherwise against
+system RAM.
+
+### How the model is chosen
+
+`jarvis init` first computes usable memory:
+
+| Detected | Usable memory |
+|----------|---------------|
+| GPU reporting VRAM | `VRAM × GPU count × 0.9` |
+| No GPU, or VRAM unavailable | `(total RAM − 4 GB) × 0.8` |
+
+That figure then selects the first tier it fits:
+
+| Usable memory | Model |
+|---------------|-------|
+| Up to 8 GB | `qwen3.5:2b` |
+| Up to 16 GB | `qwen3.5:4b` |
+| Up to 32 GB | `qwen3.5:9b` |
+| More than 32 GB | `qwen3.5:27b` |
+
+All four are Qwen3.5 MoE models, which activate only a fraction of their parameters
+per token — a 27B model activates 3B — so quality per gigabyte is better than a
+dense model of the same size.
+
+### Inference engine
+
+The detected GPU vendor selects the engine:
+
+| Detected GPU | Engine |
+|--------------|--------|
+| None | `llamacpp` |
+| Apple Silicon | `mlx` |
+| NVIDIA consumer (GeForce, RTX) | `ollama` |
+| NVIDIA datacenter (A100, H100, H200, L40, A10, A30) | `vllm` |
+| AMD consumer (Radeon) | `lemonade` |
+| AMD datacenter (MI300, MI325, MI350, MI355) | `vllm` |
+
+See [Setting Up an Inference Backend](#setting-up-an-inference-backend) for
+installing the engine `jarvis init` picks.
+
+### Minimum
+
+There is no enforced CPU minimum — any x86-64 or ARM64 processor supported by your
+Python build will run OpenJarvis, and core count affects CPU-only inference speed
+rather than whether a model loads.
+
+Memory is the real floor. With 4 GB of RAM or less and no GPU, usable memory
+computes to zero and no local model is recommended.
+
+!!! tip "Low-memory and headless machines"
+    You do not need a local model at all. Point OpenJarvis at a hosted API with the
+    [cloud quick-path](install.md#cloud-quick-path) and the hardware tiers above
+    stop applying.
+
+### Storage
+
+Model weights dominate disk usage — between ~1.1 GB and ~14.9 GB for the defaults
+above. Budget additional space for the Python environment and whichever inference
+engine you install.
+
+!!! note "Overriding the detected defaults"
+    These are defaults, not limits. The generated config records what was detected
+    in a comment at the top of the file, and `default_model` under `[intelligence]`
+    in `~/.openjarvis/config.toml` can be set to anything larger or smaller — see
+    the [Configuration guide](configuration.md). Re-run `jarvis init --force` to
+    re-detect and overwrite an existing config.
+
+---
+
 ## Requirements
 
 | Requirement | Version | Install | Notes |
