@@ -188,7 +188,7 @@ def _is_unsupported_temperature_error(exc: Exception) -> bool:
     """True if an OpenAI 400 says the model rejects a non-default temperature.
 
     Some models (e.g. gpt-5) only accept the default temperature and return
-    ``code: unsupported_value`` for ``param: temperature`` (see #426). We
+    ``code: unsupported_value`` for ``param: temperature`` (see #426, #1019). We
     can't enumerate every such model up front, so detect the error and retry
     without temperature — mirroring the tools-400 retry in the local engines.
     """
@@ -200,6 +200,8 @@ def _is_unsupported_temperature_error(exc: Exception) -> bool:
         or "unsupported value" in message
         or "only the default" in message
         or "does not support" in message
+        or "unsupported parameter" in message
+        or "is not supported" in message
     )
 
 

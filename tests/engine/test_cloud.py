@@ -231,6 +231,73 @@ class TestOpenAIUnsupportedTemperatureRetry:
         assert "temperature" in calls[0]
         assert "temperature" not in calls[1]
 
+    def test_retries_without_temperature_on_unsupported_parameter_message(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression for #1019: OpenAI-compatible endpoint returns
+        'Unsupported parameter: 'temperature' is not supported with this model.'
+        """
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        calls: list[dict] = []
+        err = Exception(
+            "Error code: 400 - {'error': {'message': 'litellm.BadRequestError: "
+            'OpenAIException - {\\n "error": {\\n "message": "Unsupported '
+            "parameter: \\'temperature\\' is not supported with this model.\",\\n "
+            '"type": "invalid_request_error",\\n "param": "temperature",\\n '
+            '"code": null\\n}\\n}. Received Model Group=gpt-5.6-luna\', '
+            "'type': None, 'param': None, 'code': '400'}}"
+        )
+
+        def create(**kwargs):
+            calls.append(kwargs)
+            if "temperature" in kwargs:
+                raise err
+            return self._fake_resp()
+
+        fake_client = mock.MagicMock()
+        fake_client.chat.completions.create.side_effect = create
+
+        EngineRegistry.register_value("cloud", CloudEngine)
+        engine = CloudEngine()
+        engine._openai_client = fake_client
+
+        result = engine.generate(
+            [Message(role=Role.USER, content="Hi")],
+            model="gpt-5.6-luna",
+            temperature=0.7,
+        )
+        assert result["content"] == "ok"
+        assert len(calls) == 2
+        assert "temperature" in calls[0]
+        assert "temperature" not in calls[1]
+
+    def test_is_unsupported_temperature_error_variations(self) -> None:
+        from openjarvis.engine.cloud import _is_unsupported_temperature_error
+
+        # Standard OpenAI 400 (#426)
+        assert _is_unsupported_temperature_error(
+            Exception("Unsupported value: 'temperature' does not support 0.7")
+        )
+        assert _is_unsupported_temperature_error(
+            Exception("param: temperature, code: unsupported_value")
+        )
+        assert _is_unsupported_temperature_error(
+            Exception("Only the default (1) value is supported for temperature")
+        )
+        # OpenAI-compatible / LiteLLM proxy (#1019)
+        assert _is_unsupported_temperature_error(
+            Exception(
+                "Unsupported parameter: 'temperature' is not supported with this model."
+            )
+        )
+        # Not temperature related
+        assert not _is_unsupported_temperature_error(
+            Exception("Unsupported parameter: 'max_tokens' is not supported")
+        )
+        assert not _is_unsupported_temperature_error(Exception("Rate limit exceeded"))
+
     def test_unrelated_400_is_not_retried(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
