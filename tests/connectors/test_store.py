@@ -64,6 +64,28 @@ def test_store_and_retrieve_basic(ks: KnowledgeStore) -> None:
     assert results[0].score > 0.0
 
 
+@pytest.mark.parametrize(
+    "query",
+    ["Alice's birthday", "When is Alice's birthday?", "Alice-birthday"],
+)
+def test_retrieve_accepts_plain_text_punctuation(
+    ks: KnowledgeStore, query: str
+) -> None:
+    """Natural queries should find matching content without FTS5 syntax rules."""
+    _store(ks, content="Alice's birthday is May 2", source="notes")
+
+    results = ks.retrieve(query)
+
+    assert any("birthday is May 2" in result.content for result in results)
+
+
+def test_retrieve_accepts_symbol_heavy_terms(ks: KnowledgeStore) -> None:
+    _store(ks, content="The C++ migration guide", source="notes")
+
+    assert ks.retrieve("C++")
+    assert ks.retrieve("++") == []
+
+
 def test_retrieve_filter_by_source(ks: KnowledgeStore) -> None:
     """retrieve() with source= returns only chunks from that source."""
     _store(ks, content="Email about project alpha", source="gmail", doc_type="email")
