@@ -315,6 +315,178 @@ class InstrumentedEngine(InferenceEngine):
 
         return result
 
+    def _publish_stream_telemetry(
+        self,
+        *,
+        model: str,
+        t0: float,
+        token_timestamps: list[float],
+        fallback_token_count: int,
+        energy_sample: Optional[Any],
+        gpu_sample: Optional[GpuSample],
+        usage: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Publish telemetry after a streaming call completes successfully."""
+        latency = time.time() - t0
+        usage_data = usage or {}
+
+        if usage is None:
+            prompt_tokens = 0
+            prompt_tokens_evaluated = 0
+            completion_tokens = fallback_token_count
+            # Preserve stream()'s existing record shape when provider usage is
+            # unavailable. Rich streams with usage populate the exact total.
+            total_tokens = 0
+        else:
+            prompt_tokens = usage_data.get("prompt_tokens", 0) or 0
+            prompt_tokens_evaluated = (
+                usage_data.get("prompt_tokens_evaluated") or prompt_tokens
+            )
+            reported_completion = usage_data.get("completion_tokens")
+            completion_tokens = (
+                fallback_token_count
+                if reported_completion is None
+                else reported_completion
+            )
+            reported_total = usage_data.get("total_tokens")
+            total_tokens = (
+                prompt_tokens + completion_tokens
+                if reported_total is None
+                else reported_total
+            )
+
+        ttft = token_timestamps[0] - t0 if token_timestamps else 0.0
+        throughput = completion_tokens / latency if latency > 0 else 0.0
+
+        itl_values_ms = [
+            (token_timestamps[i] - token_timestamps[i - 1]) * 1000
+            for i in range(1, len(token_timestamps))
+        ]
+        itl_stats = _compute_itl_stats(itl_values_ms)
+
+        energy_joules = 0.0
+        power_watts = 0.0
+        gpu_utilization_pct = 0.0
+        gpu_memory_used_gb = 0.0
+        gpu_temperature_c = 0.0
+        energy_method = ""
+        energy_vendor = ""
+        cpu_energy_joules = 0.0
+        gpu_energy_joules = 0.0
+        dram_energy_joules = 0.0
+        ane_energy_joules = 0.0
+        soc_energy_joules = 0.0
+        energy_basis = ""
+
+        if energy_sample is not None:
+            energy_joules = energy_sample.energy_joules
+            power_watts = energy_sample.mean_power_watts
+            gpu_utilization_pct = energy_sample.mean_utilization_pct
+            gpu_memory_used_gb = energy_sample.peak_memory_used_gb
+            gpu_temperature_c = energy_sample.mean_temperature_c
+            energy_method = energy_sample.energy_method
+            energy_vendor = energy_sample.vendor
+            cpu_energy_joules = energy_sample.cpu_energy_joules
+            gpu_energy_joules = energy_sample.gpu_energy_joules
+            dram_energy_joules = energy_sample.dram_energy_joules
+            ane_energy_joules = energy_sample.ane_energy_joules
+            soc_energy_joules = energy_sample.soc_energy_joules
+            energy_basis = energy_sample.basis
+        elif gpu_sample is not None:
+            energy_joules = gpu_sample.energy_joules
+            power_watts = gpu_sample.mean_power_watts
+            gpu_utilization_pct = gpu_sample.mean_utilization_pct
+            gpu_memory_used_gb = gpu_sample.peak_memory_used_gb
+            gpu_temperature_c = gpu_sample.mean_temperature_c
+            energy_method = "polling"
+            energy_vendor = "nvidia"
+            gpu_energy_joules = gpu_sample.energy_joules
+            soc_energy_joules = gpu_sample.energy_joules
+            energy_basis = BASIS_GPU
+
+        prefill_latency = ttft if ttft > 0 else 0.0
+        energy_per_output_token = (
+            energy_joules / completion_tokens if completion_tokens > 0 else 0.0
+        )
+        throughput_per_watt = throughput / power_watts if power_watts > 0 else 0.0
+
+        decode_latency = latency - prefill_latency if prefill_latency > 0 else 0.0
+        prefill_energy = 0.0
+        decode_energy = 0.0
+        if energy_joules > 0 and prefill_latency > 0 and latency > 0:
+            prefill_frac = prefill_latency / latency
+            prefill_energy = energy_joules * prefill_frac
+            decode_energy = energy_joules * (1.0 - prefill_frac)
+
+        tokens_per_joule = (
+            completion_tokens / energy_joules
+            if energy_joules > 0 and completion_tokens > 0
+            else 0.0
+        )
+
+        engine_id = getattr(self._inner, "engine_id", "unknown")
+        record = TelemetryRecord(
+            timestamp=t0,
+            model_id=model,
+            prompt_tokens=prompt_tokens,
+            prompt_tokens_evaluated=prompt_tokens_evaluated,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            latency_seconds=latency,
+            ttft=ttft,
+            throughput_tok_per_sec=throughput,
+            energy_per_output_token_joules=energy_per_output_token,
+            throughput_per_watt=throughput_per_watt,
+            energy_joules=energy_joules,
+            power_watts=power_watts,
+            gpu_utilization_pct=gpu_utilization_pct,
+            gpu_memory_used_gb=gpu_memory_used_gb,
+            gpu_temperature_c=gpu_temperature_c,
+            prefill_latency_seconds=prefill_latency,
+            decode_latency_seconds=decode_latency,
+            prefill_energy_joules=prefill_energy,
+            decode_energy_joules=decode_energy,
+            mean_itl_ms=itl_stats["mean"],
+            median_itl_ms=itl_stats["median"],
+            p90_itl_ms=itl_stats["p90"],
+            p95_itl_ms=itl_stats["p95"],
+            p99_itl_ms=itl_stats["p99"],
+            std_itl_ms=itl_stats["std"],
+            is_streaming=True,
+            engine=engine_id,
+            energy_method=energy_method,
+            energy_vendor=energy_vendor,
+            cpu_energy_joules=cpu_energy_joules,
+            gpu_energy_joules=gpu_energy_joules,
+            dram_energy_joules=dram_energy_joules,
+            ane_energy_joules=ane_energy_joules,
+            soc_energy_joules=soc_energy_joules,
+            energy_basis=energy_basis,
+            tokens_per_joule=tokens_per_joule,
+            token_counting_version=TOKEN_COUNTING_VERSION,
+        )
+
+        event_data = {
+            "model": model,
+            "latency": latency,
+            "ttft": ttft,
+            "throughput_tok_per_sec": throughput,
+            "completion_tokens": completion_tokens,
+            "is_streaming": True,
+            "mean_itl_ms": itl_stats["mean"],
+            "median_itl_ms": itl_stats["median"],
+            "p95_itl_ms": itl_stats["p95"],
+            "energy_joules": energy_joules,
+            "power_watts": power_watts,
+            "energy_method": energy_method,
+            "energy_vendor": energy_vendor,
+        }
+        if usage is not None:
+            event_data["usage"] = usage_data
+
+        self._bus.publish(EventType.INFERENCE_END, event_data)
+        self._bus.publish(EventType.TELEMETRY_RECORD, {"record": record})
+
     async def stream(
         self,
         messages: Sequence[Message],
@@ -376,142 +548,14 @@ class InstrumentedEngine(InferenceEngine):
                 token_count += 1
                 yield token
 
-        latency = time.time() - t0
-        ttft = token_timestamps[0] - t0 if token_timestamps else 0.0
-        throughput = token_count / latency if latency > 0 else 0.0
-
-        # Compute ITL from consecutive timestamps
-        itl_values_ms = [
-            (token_timestamps[i] - token_timestamps[i - 1]) * 1000
-            for i in range(1, len(token_timestamps))
-        ]
-        itl_stats = _compute_itl_stats(itl_values_ms)
-
-        # Energy / GPU metrics from sample
-        energy_joules = 0.0
-        power_watts = 0.0
-        gpu_utilization_pct = 0.0
-        gpu_memory_used_gb = 0.0
-        gpu_temperature_c = 0.0
-        energy_method = ""
-        energy_vendor = ""
-        cpu_energy_joules = 0.0
-        gpu_energy_joules = 0.0
-        dram_energy_joules = 0.0
-        ane_energy_joules = 0.0
-        soc_energy_joules = 0.0
-        energy_basis = ""
-
-        if energy_sample is not None:
-            energy_joules = energy_sample.energy_joules
-            power_watts = energy_sample.mean_power_watts
-            gpu_utilization_pct = energy_sample.mean_utilization_pct
-            gpu_memory_used_gb = energy_sample.peak_memory_used_gb
-            gpu_temperature_c = energy_sample.mean_temperature_c
-            energy_method = energy_sample.energy_method
-            energy_vendor = energy_sample.vendor
-            cpu_energy_joules = energy_sample.cpu_energy_joules
-            gpu_energy_joules = energy_sample.gpu_energy_joules
-            dram_energy_joules = energy_sample.dram_energy_joules
-            ane_energy_joules = energy_sample.ane_energy_joules
-            soc_energy_joules = energy_sample.soc_energy_joules
-            energy_basis = energy_sample.basis
-        elif gpu_sample is not None:
-            energy_joules = gpu_sample.energy_joules
-            power_watts = gpu_sample.mean_power_watts
-            gpu_utilization_pct = gpu_sample.mean_utilization_pct
-            gpu_memory_used_gb = gpu_sample.peak_memory_used_gb
-            gpu_temperature_c = gpu_sample.mean_temperature_c
-            energy_method = "polling"
-            energy_vendor = "nvidia"
-            # The legacy monitor reads one GPU rail and nothing else.
-            gpu_energy_joules = gpu_sample.energy_joules
-            soc_energy_joules = gpu_sample.energy_joules
-            energy_basis = BASIS_GPU
-
-        prefill_latency = ttft if ttft > 0 else 0.0
-
-        # Derived metrics
-        energy_per_output_token = (
-            energy_joules / token_count if token_count > 0 else 0.0
+        self._publish_stream_telemetry(
+            model=model,
+            t0=t0,
+            token_timestamps=token_timestamps,
+            fallback_token_count=token_count,
+            energy_sample=energy_sample,
+            gpu_sample=gpu_sample,
         )
-        throughput_per_watt = throughput / power_watts if power_watts > 0 else 0.0
-
-        # Phase energy split
-        decode_latency = latency - prefill_latency if prefill_latency > 0 else 0.0
-        prefill_energy = 0.0
-        decode_energy = 0.0
-        if energy_joules > 0 and prefill_latency > 0 and latency > 0:
-            prefill_frac = prefill_latency / latency
-            prefill_energy = energy_joules * prefill_frac
-            decode_energy = energy_joules * (1.0 - prefill_frac)
-
-        # Per-inference efficiency
-        tokens_per_joule = (
-            token_count / energy_joules
-            if energy_joules > 0 and token_count > 0
-            else 0.0
-        )
-
-        engine_id = getattr(self._inner, "engine_id", "unknown")
-
-        record = TelemetryRecord(
-            timestamp=t0,
-            model_id=model,
-            completion_tokens=token_count,
-            latency_seconds=latency,
-            ttft=ttft,
-            throughput_tok_per_sec=throughput,
-            energy_per_output_token_joules=energy_per_output_token,
-            throughput_per_watt=throughput_per_watt,
-            energy_joules=energy_joules,
-            power_watts=power_watts,
-            gpu_utilization_pct=gpu_utilization_pct,
-            gpu_memory_used_gb=gpu_memory_used_gb,
-            gpu_temperature_c=gpu_temperature_c,
-            prefill_latency_seconds=prefill_latency,
-            decode_latency_seconds=decode_latency,
-            prefill_energy_joules=prefill_energy,
-            decode_energy_joules=decode_energy,
-            mean_itl_ms=itl_stats["mean"],
-            median_itl_ms=itl_stats["median"],
-            p90_itl_ms=itl_stats["p90"],
-            p95_itl_ms=itl_stats["p95"],
-            p99_itl_ms=itl_stats["p99"],
-            std_itl_ms=itl_stats["std"],
-            is_streaming=True,
-            engine=engine_id,
-            energy_method=energy_method,
-            energy_vendor=energy_vendor,
-            cpu_energy_joules=cpu_energy_joules,
-            gpu_energy_joules=gpu_energy_joules,
-            dram_energy_joules=dram_energy_joules,
-            ane_energy_joules=ane_energy_joules,
-            soc_energy_joules=soc_energy_joules,
-            energy_basis=energy_basis,
-            tokens_per_joule=tokens_per_joule,
-            # Stamp the methodology version on streaming records too.
-            token_counting_version=TOKEN_COUNTING_VERSION,
-        )
-
-        event_data = {
-            "model": model,
-            "latency": latency,
-            "ttft": ttft,
-            "throughput_tok_per_sec": throughput,
-            "completion_tokens": token_count,
-            "is_streaming": True,
-            "mean_itl_ms": itl_stats["mean"],
-            "median_itl_ms": itl_stats["median"],
-            "p95_itl_ms": itl_stats["p95"],
-            "energy_joules": energy_joules,
-            "power_watts": power_watts,
-            "energy_method": energy_method,
-            "energy_vendor": energy_vendor,
-        }
-
-        self._bus.publish(EventType.INFERENCE_END, event_data)
-        self._bus.publish(EventType.TELEMETRY_RECORD, {"record": record})
 
     async def stream_full(
         self,
@@ -522,15 +566,80 @@ class InstrumentedEngine(InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> AsyncIterator["StreamChunk"]:
-        """Delegate to inner engine's stream_full for tool-call support."""
-        async for chunk in self._inner.stream_full(
-            messages,
+        """Stream rich chunks with timing, usage, and energy telemetry.
+
+        Telemetry is published only after the inner stream completes
+        successfully.
+        """
+        self._bus.publish(
+            EventType.INFERENCE_START,
+            {
+                "model": model,
+                "message_count": len(messages),
+            },
+        )
+
+        t0 = time.time()
+        token_timestamps: list[float] = []
+        content_chunk_count = 0
+        usage: Optional[Dict[str, Any]] = None
+        energy_sample: Optional[Any] = None
+        gpu_sample: Optional[GpuSample] = None
+
+        if self._energy_monitor is not None:
+            with self._energy_monitor.sample() as energy_sample:
+                async for chunk in self._inner.stream_full(
+                    messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs,
+                ):
+                    if chunk.content:
+                        token_timestamps.append(time.time())
+                        content_chunk_count += 1
+                    if chunk.usage is not None:
+                        usage = chunk.usage
+                    yield chunk
+        elif self._gpu_monitor is not None:
+            with self._gpu_monitor.sample() as gpu_sample:
+                async for chunk in self._inner.stream_full(
+                    messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs,
+                ):
+                    if chunk.content:
+                        token_timestamps.append(time.time())
+                        content_chunk_count += 1
+                    if chunk.usage is not None:
+                        usage = chunk.usage
+                    yield chunk
+        else:
+            async for chunk in self._inner.stream_full(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs,
+            ):
+                if chunk.content:
+                    token_timestamps.append(time.time())
+                    content_chunk_count += 1
+                if chunk.usage is not None:
+                    usage = chunk.usage
+                yield chunk
+
+        self._publish_stream_telemetry(
             model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs,
-        ):
-            yield chunk
+            t0=t0,
+            token_timestamps=token_timestamps,
+            fallback_token_count=content_chunk_count,
+            energy_sample=energy_sample,
+            gpu_sample=gpu_sample,
+            usage=usage,
+        )
 
     def list_models(self) -> List[str]:
         return self._inner.list_models()

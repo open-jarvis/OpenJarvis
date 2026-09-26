@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import MagicMock
 
 import pytest
 
 from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import Message, Role
+from openjarvis.core.types import TOKEN_COUNTING_VERSION, Message, Role
+from openjarvis.engine._stubs import StreamChunk
 from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
 
 
@@ -129,6 +131,243 @@ class TestInstrumentedEngine:
     def test_engine_id_attribute(self, mock_engine, bus):
         ie = InstrumentedEngine(mock_engine, bus)
         assert ie.engine_id == "instrumented"
+
+    @pytest.mark.asyncio
+    async def test_stream_full_records_terminal_usage_and_preserves_chunks(self, bus):
+        expected = [
+            StreamChunk(content="Hello"),
+            StreamChunk(tool_calls=[{"index": 0, "function": {"name": "lookup"}}]),
+            StreamChunk(
+                finish_reason="tool_calls",
+                usage={
+                    "prompt_tokens": 7,
+                    "prompt_tokens_evaluated": 5,
+                    "completion_tokens": 3,
+                    "total_tokens": 10,
+                },
+            ),
+        ]
+
+        class StreamFullEngine:
+            engine_id = "stream-full"
+
+            async def stream_full(self, messages, *, model, **kwargs):
+                for chunk in expected:
+                    yield chunk
+
+        engine = InstrumentedEngine(StreamFullEngine(), bus)
+        messages = [Message(role=Role.USER, content="Hi")]
+
+        actual = [
+            chunk async for chunk in engine.stream_full(messages, model="test-model")
+        ]
+
+        assert actual == expected
+        assert all(
+            actual_chunk is expected_chunk
+            for actual_chunk, expected_chunk in zip(actual, expected)
+        )
+        assert [event.event_type for event in bus.history] == [
+            EventType.INFERENCE_START,
+            EventType.INFERENCE_END,
+            EventType.TELEMETRY_RECORD,
+        ]
+        record = bus.history[-1].data["record"]
+        assert record.engine == "stream-full"
+        assert record.is_streaming is True
+        assert record.prompt_tokens == 7
+        assert record.prompt_tokens_evaluated == 5
+        assert record.completion_tokens == 3
+        assert record.total_tokens == 10
+        assert record.token_counting_version == TOKEN_COUNTING_VERSION
+        end_event = bus.history[-2]
+        assert end_event.data["usage"]["completion_tokens"] == 3
+
+    @pytest.mark.asyncio
+    async def test_stream_full_without_usage_counts_only_content_chunks(self, bus):
+        chunks = [
+            StreamChunk(content="first"),
+            StreamChunk(content=""),
+            StreamChunk(tool_calls=[{"index": 0}]),
+            StreamChunk(content="second"),
+            StreamChunk(finish_reason="stop"),
+        ]
+
+        class StreamFullEngine:
+            engine_id = "stream-full"
+
+            async def stream_full(self, messages, *, model, **kwargs):
+                for chunk in chunks:
+                    yield chunk
+
+        engine = InstrumentedEngine(StreamFullEngine(), bus)
+        messages = [Message(role=Role.USER, content="Hi")]
+
+        actual = [
+            chunk async for chunk in engine.stream_full(messages, model="test-model")
+        ]
+
+        assert actual == chunks
+        assert [event.event_type for event in bus.history] == [
+            EventType.INFERENCE_START,
+            EventType.INFERENCE_END,
+            EventType.TELEMETRY_RECORD,
+        ]
+        record = next(
+            event.data["record"]
+            for event in bus.history
+            if event.event_type == EventType.TELEMETRY_RECORD
+        )
+        assert record.completion_tokens == 2
+        assert record.prompt_tokens == 0
+        assert record.total_tokens == 0
+        assert record.is_streaming is True
+        end_event = next(
+            event
+            for event in bus.history
+            if event.event_type == EventType.INFERENCE_END
+        )
+        assert "usage" not in end_event.data
+
+    @pytest.mark.asyncio
+    async def test_stream_full_prefers_later_usage_over_earlier(self, bus):
+        chunks = [
+            StreamChunk(
+                content="Hello",
+                usage={
+                    "prompt_tokens": 1,
+                    "completion_tokens": 99,
+                    "total_tokens": 100,
+                },
+            ),
+            StreamChunk(
+                finish_reason="stop",
+                usage={
+                    "prompt_tokens": 7,
+                    "completion_tokens": 3,
+                    "total_tokens": 10,
+                },
+            ),
+        ]
+
+        class StreamFullEngine:
+            engine_id = "stream-full"
+
+            async def stream_full(self, messages, *, model, **kwargs):
+                for chunk in chunks:
+                    yield chunk
+
+        engine = InstrumentedEngine(StreamFullEngine(), bus)
+        messages = [Message(role=Role.USER, content="Hi")]
+
+        actual = [
+            chunk async for chunk in engine.stream_full(messages, model="test-model")
+        ]
+
+        assert actual == chunks
+        record = next(
+            event.data["record"]
+            for event in bus.history
+            if event.event_type == EventType.TELEMETRY_RECORD
+        )
+        assert record.prompt_tokens == 7
+        assert record.completion_tokens == 3
+        assert record.total_tokens == 10
+
+    @pytest.mark.asyncio
+    async def test_stream_shared_finalizer_preserves_no_usage_shape(self, bus):
+        class StreamEngine:
+            engine_id = "stream"
+
+            async def stream(self, messages, *, model, **kwargs):
+                for token in ["Hello", "", " world"]:
+                    yield token
+
+        engine = InstrumentedEngine(StreamEngine(), bus)
+        messages = [Message(role=Role.USER, content="Hi")]
+
+        tokens = [token async for token in engine.stream(messages, model="test-model")]
+
+        assert tokens == ["Hello", "", " world"]
+        assert [event.event_type for event in bus.history] == [
+            EventType.INFERENCE_START,
+            EventType.INFERENCE_END,
+            EventType.TELEMETRY_RECORD,
+        ]
+        record = bus.history[-1].data["record"]
+        assert record.completion_tokens == 3
+        assert record.prompt_tokens == 0
+        assert record.total_tokens == 0
+        assert record.is_streaming is True
+        assert "usage" not in bus.history[-2].data
+
+    @pytest.mark.asyncio
+    async def test_stream_full_tool_only_records_energy(self, bus):
+        class EnergySample:
+            energy_joules = 4.0
+            mean_power_watts = 8.0
+            mean_utilization_pct = 25.0
+            peak_memory_used_gb = 1.0
+            mean_temperature_c = 40.0
+            energy_method = "test"
+            vendor = "test"
+            cpu_energy_joules = 1.0
+            gpu_energy_joules = 3.0
+            dram_energy_joules = 0.0
+            ane_energy_joules = 0.0
+            soc_energy_joules = 4.0
+            basis = "soc"
+
+        class EnergyMonitor:
+            active = False
+
+            @contextmanager
+            def sample(self):
+                self.active = True
+                try:
+                    yield EnergySample()
+                finally:
+                    self.active = False
+
+        monitor = EnergyMonitor()
+
+        class StreamFullEngine:
+            engine_id = "stream-full"
+
+            async def stream_full(self, messages, *, model, **kwargs):
+                assert monitor.active is True
+                yield StreamChunk(tool_calls=[{"index": 0}])
+                assert monitor.active is True
+                yield StreamChunk(
+                    finish_reason="tool_calls",
+                    usage={
+                        "prompt_tokens": 4,
+                        "completion_tokens": 0,
+                        "total_tokens": 4,
+                    },
+                )
+
+        engine = InstrumentedEngine(
+            StreamFullEngine(),
+            bus,
+            energy_monitor=monitor,
+        )
+        messages = [Message(role=Role.USER, content="Use a tool")]
+
+        chunks = [
+            chunk async for chunk in engine.stream_full(messages, model="test-model")
+        ]
+
+        assert len(chunks) == 2
+        assert monitor.active is False
+        record = next(
+            event.data["record"]
+            for event in bus.history
+            if event.event_type == EventType.TELEMETRY_RECORD
+        )
+        assert record.prompt_tokens == 4
+        assert record.completion_tokens == 0
+        assert record.energy_joules == 4.0
 
 
 class TestTokensPerJoule:
