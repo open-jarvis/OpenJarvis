@@ -302,7 +302,13 @@ export async function checkHealth(): Promise<boolean> {
       return false;
     }
   };
+  // In browser mode Vite serves the SPA on a different port than the API.
+  // Probe the configured API base first; the relative fallback supports
+  // production deployments where both are served from one origin.
+  const base = getBase().replace(/\/+$/, '');
+  if (base && await probe(`${base}/health`)) return true;
   if (await probe('/health')) return true;
+  if (base && await probe(`${base}/v1/connectors`)) return true;
   return probe('/v1/connectors');
 }
 

@@ -56,8 +56,14 @@ Platform-specific notes (WSL2 setup, native-Windows scheduled-task service, desk
 
 ```bash
 jarvis                          # start chatting (default: chat-simple)
+jarvis gui                      # start the graphical browser interface
 jarvis init --preset <name> --force  # replace config with a starter preset
 ```
+
+`jarvis gui` starts the local API server and frontend, then opens the graphical
+chat interface in your default browser. It requires Node.js 22+ and is
+available from a source checkout; packaged desktop installers are available
+from the [latest release](https://github.com/open-jarvis/OpenJarvis/releases).
 
 > Prefix `jarvis ...` with `uv run`, or `source .venv/bin/activate` first.
 
