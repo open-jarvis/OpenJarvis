@@ -49,7 +49,14 @@ def get_status(home: Optional[Path] = None) -> BgStatus:
     status = BgStatus()
 
     # Rust extension: ready supersedes failed; failed supersedes pending.
-    if (state_dir / "extension-built").exists():
+    # The ``extension-built`` marker is only written by the installer scripts,
+    # so editable/dev installs (``uv sync`` + ``maturin develop``) never get
+    # one. Fall back to the runtime import check so those installs don't show
+    # "building" forever (and a stale ``extension-failed`` doesn't lie once the
+    # extension has actually been built).
+    from openjarvis import _rust_bridge
+
+    if (state_dir / "extension-built").exists() or _rust_bridge.RUST_AVAILABLE:
         status.rust_extension = "ready"
     elif (state_dir / "extension-failed").exists():
         contents = _safe_read(state_dir / "extension-failed")
