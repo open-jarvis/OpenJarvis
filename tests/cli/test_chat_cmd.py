@@ -199,6 +199,32 @@ class TestVoiceInput:
         discover.assert_called_once()
         assert backend.transcribe.call_count == 2
 
+    @pytest.mark.parametrize(("language", "expected"), [("pt", "pt"), ("", None)])
+    def test_configured_speech_language_is_passed_to_stt(
+        self, language: str, expected: str | None
+    ) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(text="olá")
+        config = JarvisConfig()
+        config.speech.language = language
+        session = VoiceSession(config)
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+        ):
+            assert record_voice(MagicMock(), session) == "olá"
+
+        backend.transcribe.assert_called_once_with(
+            b"wav", format="wav", language=expected
+        )
+
     def test_voice_transcript_cannot_inject_rich_hyperlink(self) -> None:
         backend = MagicMock()
         backend.transcribe.return_value = SimpleNamespace(
