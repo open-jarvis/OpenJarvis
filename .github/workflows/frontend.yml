@@ -36,6 +36,8 @@ jobs:
         run: npm install --global npm@11.19.0
 
       - run: npm ci
+      - name: Audit dependencies
+        run: npm audit
       - run: npm test
       - run: npx tsc --noEmit
       - run: npm run build
