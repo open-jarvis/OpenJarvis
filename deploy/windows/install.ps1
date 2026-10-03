@@ -16,6 +16,8 @@
       4. Install uv (https://astral.sh/uv) if absent.
       5. Clone the OpenJarvis repository to $env:LOCALAPPDATA\OpenJarvis
          (override with $env:OPENJARVIS_HOME).
+      5b. Install the MSVC build tools if absent - the mandatory
+         openjarvis-rust extension is compiled from source in step 6.
       6. Run `uv sync --extra desktop --group desktop-native` so the FastAPI
          server, speech backend, and native extension are importable.
       7. Optionally register the scheduled-task service (see
@@ -148,11 +150,26 @@ Write-Ok "Windows build $build"
 # ---------------------------------------------------------------------------
 
 function Get-PythonCommand {
-    # Prefer `python3` (matches our cross-platform helper convention),
-    # fall back to `python` (the Windows store / python.org default).
-    foreach ($name in @('python3', 'python')) {
+    # Prefer `python` (the Windows store / python.org default), then
+    # `python3` (our cross-platform helper convention). `python3` must NOT
+    # be probed first on Windows: %LOCALAPPDATA%\Microsoft\WindowsApps ships
+    # 0-byte App Execution Alias stubs for both names, and a python.org
+    # per-user install only ever creates `python.exe`. So on a machine with
+    # a perfectly good Python, `Get-Command python3` still resolves to the
+    # stub, which prints "Python was not found; run without arguments to
+    # install from the Microsoft Store" to stderr and exits non-zero -
+    # aborting the installer at the version check below (#1059).
+    foreach ($name in @('python', 'python3')) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
+        if (-not $cmd) { continue }
+        # A 0-byte reparse point is the Store alias, not an interpreter.
+        # Skip it rather than handing back a path that cannot execute.
+        $item = Get-Item -LiteralPath $cmd.Source -ErrorAction SilentlyContinue
+        if ($item -and $item.Length -eq 0) {
+            Write-Warn2 "  Ignoring Microsoft Store alias stub at $($cmd.Source)"
+            continue
+        }
+        return $cmd.Source
     }
     return $null
 }
@@ -285,6 +302,60 @@ if (Test-Path (Join-Path $srcDir '.git')) {
     }
     if ($LASTEXITCODE -ne 0) { Write-Fail "git clone failed" }
     Write-Ok "Cloned to $srcDir"
+}
+
+# ---------------------------------------------------------------------------
+# 5b. MSVC build tools - required by the mandatory Rust extension
+# ---------------------------------------------------------------------------
+
+# `--group desktop-native` builds openjarvis-rust from source via maturin
+# (pyproject.toml pins it to a local path; it is not published to PyPI), and
+# src/openjarvis/_rust_bridge.py raises a hard ImportError when the module is
+# missing - there is no pure-Python fallback. maturin will bootstrap a Rust
+# toolchain into a temp dir if cargo is absent, which is why this failure is
+# so confusing: cargo appears to run fine and then every build script dies at
+# `error: linker 'link.exe' not found`. The x86_64-pc-windows-msvc target
+# needs the MSVC linker, which no earlier step installs (#1060).
+function Test-MsvcLinker {
+    if (Get-Command link.exe -ErrorAction SilentlyContinue) { return $true }
+    # link.exe is only on PATH inside a Developer Command Prompt, so probe
+    # the install root via vswhere (shipped with any VS 2017+ installer).
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere)) { return $false }
+    $found = & $vswhere -latest -products * `
+        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+        -property installationPath 2>$null
+    return [bool]$found
+}
+
+Write-Info "Checking MSVC build tools (needed to compile the native extension)..."
+if (Test-MsvcLinker) {
+    Write-Ok "MSVC build tools present"
+} else {
+    # Detect and instruct only. Installing the Build Tools is a multi-GB
+    # download behind a UAC prompt, which is not something an installer
+    # should start on the user's behalf without asking.
+    Write-Fail @"
+MSVC build tools not found.
+
+The next step compiles the mandatory openjarvis-rust extension, which
+needs the MSVC linker (link.exe). Without it every cargo build script
+fails with "error: linker ``link.exe`` not found".
+
+Install via winget - expect a multi-GB download and a UAC prompt:
+
+    winget install --id Microsoft.VisualStudio.2022.BuildTools ``
+        --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+
+--override is load-bearing: the default Build Tools install ships no
+workload at all, so VCTools has to be requested explicitly.
+
+Alternatively download "Build Tools for Visual Studio" from
+https://visualstudio.microsoft.com/downloads/ and select the
+"Desktop development with C++" workload.
+
+Then re-run this installer.
+"@
 }
 
 # ---------------------------------------------------------------------------
