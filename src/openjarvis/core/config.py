@@ -1449,6 +1449,8 @@ class SecurityConfig:
     local_engine_bypass: bool = False
     local_tool_bypass: bool = False
     profile: str = ""
+    # Directories file_read/file_write may touch; empty means unrestricted.
+    allowed_dirs: List[str] = field(default_factory=list)
     vault_key_path: str = field(
         default_factory=lambda: str(get_config_dir() / ".vault_key")
     )
