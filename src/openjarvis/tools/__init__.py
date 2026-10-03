@@ -162,4 +162,20 @@ try:
 except ImportError:
     pass
 
+try:
+    import openjarvis.tools.knowledge_search  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.browser  # noqa: F401
+    import openjarvis.tools.browser_axtree  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.proactive_tools  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]
