@@ -27,7 +27,9 @@ CLEANUP_PIDS=()
 cleanup() {
   echo ""
   info "Shutting down..."
-  for pid in "${CLEANUP_PIDS[@]}"; do
+  # The "${arr[@]+...}" guard is needed: bash 3.2 (macOS system bash) expands
+  # an empty array to an unbound-variable error under `set -u`.
+  for pid in ${CLEANUP_PIDS[@]+"${CLEANUP_PIDS[@]}"}; do
     kill "$pid" 2>/dev/null || true
   done
   wait 2>/dev/null || true
@@ -77,6 +79,19 @@ else
   ok "uv installed"
 fi
 
+# ── 2b. Check / install Rust ────────────────────────────────────────
+# The Rust extension (step 7b) is mandatory: memory/storage backends fail
+# without the compiled openjarvis_rust module.
+info "Checking Rust toolchain..."
+if command -v rustc &>/dev/null && command -v cargo &>/dev/null; then
+  ok "Rust $(rustc --version | sed 's/^rustc //')"
+else
+  warn "rustc/cargo not found — installing via rustup..."
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+  export PATH="$HOME/.cargo/bin:$PATH"
+  ok "Rust $(rustc --version | sed 's/^rustc //')"
+fi
+
 # ── 3. Check Node.js ────────────────────────────────────────────────
 info "Checking Node.js..."
 if command -v node &>/dev/null; then
@@ -89,6 +104,21 @@ if command -v node &>/dev/null; then
   fi
 else
   fail "Node.js not found. Install from https://nodejs.org"
+fi
+
+# The frontend pins npm in its engines field with engine-strict, so bundled
+# npm versions below the pin hard-fail `npm install` (node 24.x bundles 11.12).
+info "Checking npm..."
+NPM_VERSION=$(npm --version 2>/dev/null || echo 0)
+NPM_MAJOR=$(echo "$NPM_VERSION" | cut -d. -f1)
+NPM_MINOR=$(echo "$NPM_VERSION" | cut -d. -f2)
+NPM_PATCH=$(echo "$NPM_VERSION" | cut -d. -f3)
+if [ "$NPM_MAJOR" -eq 11 ] && [ "$NPM_MINOR" -ge 19 ]; then
+  ok "npm $NPM_VERSION"
+else
+  warn "npm $NPM_VERSION is below the frontend's >=11.19.0 <12 pin — upgrading..."
+  npm install -g npm@11.19.0 || fail "Could not upgrade npm. Install npm 11.19+ manually: https://nodejs.org"
+  ok "npm $(npm --version)"
 fi
 
 # ── 4. Check / install Ollama ────────────────────────────────────────
