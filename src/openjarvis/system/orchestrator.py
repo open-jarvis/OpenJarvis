@@ -209,6 +209,24 @@ class QueryOrchestrator:
             existing = agent_kwargs.get("tools", [])
             agent_kwargs["tools"] = digest_tools + list(existing)
 
+        # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md reach the
+        # model on channel turns too, like cli/serve.py and sdk.py. Skipped when
+        # the caller passed its own system_prompt, which the builder would
+        # replace; agents whose __init__ lacks the kwarg opt out.
+        import inspect
+
+        if (
+            system_prompt is None
+            and "prompt_builder" in inspect.signature(agent_cls.__init__).parameters
+        ):
+            from openjarvis.prompt.builder import SystemPromptBuilder
+
+            agent_kwargs["prompt_builder"] = SystemPromptBuilder(
+                agent_template=s.config.agent.default_system_prompt or "",
+                memory_files_config=s.config.memory_files,
+                system_prompt_config=s.config.system_prompt,
+            )
+
         try:
             ag = agent_cls(s.engine, s.model, **agent_kwargs)
         except TypeError:
