@@ -726,9 +726,9 @@ class TestOpenRouterToolForwarding:
         assert sent["tool_choice"] == "auto"
 
         # tool_calls from the response are parsed back into the result
-        assert result["tool_calls"][0]["id"] == "call_1"
-        assert result["tool_calls"][0]["function"]["name"] == "get_weather"
-        assert result["tool_calls"][0]["function"]["arguments"] == '{"city": "NYC"}'
+        assert result["tool_calls"] == [
+            {"id": "call_1", "name": "get_weather", "arguments": '{"city": "NYC"}'}
+        ]
 
 
 class TestCloudEngineCanServe:

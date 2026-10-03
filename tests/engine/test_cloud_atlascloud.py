@@ -336,8 +336,8 @@ class TestAtlasCloudGenerate:
         assert result["tool_calls"] == [
             {
                 "id": "call_1",
-                "type": "function",
-                "function": {"name": "search", "arguments": '{"q":"x"}'},
+                "name": "search",
+                "arguments": '{"q":"x"}',
             }
         ]
 
