@@ -17,6 +17,7 @@ from openjarvis.cli._voice_chat import (
     VOICE_EXIT,
     VoiceSession,
     listen_for_wake_word,
+    load_wake_chime,
     read_voice_input,
     speak,
 )
@@ -314,6 +315,7 @@ def chat(
     # Keep voice state outside the core chat path so picker/runtime changes can
     # be layered independently. Loaded speech models live for this session.
     voice_session = VoiceSession(config) if voice_mode else None
+    wake_chime = load_wake_chime(config.speech, console) if wake_word else None
 
     # Print banner
     if wake_word:
@@ -397,7 +399,9 @@ def chat(
         if voice_mode:
             assert voice_session is not None
             if wake_word:
-                result = listen_for_wake_word(console, voice_session, wake_word)
+                result = listen_for_wake_word(
+                    console, voice_session, wake_word, wake_chime
+                )
             else:
                 result = read_voice_input(console, voice_session)
             if result is VOICE_EXIT:

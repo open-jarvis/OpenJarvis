@@ -89,3 +89,20 @@ def test_require_speech_keeps_audio_when_speech_was_heard(monkeypatch) -> None:
     )
 
     assert audio.startswith(b"RIFF")
+
+
+def test_chirp_is_short_quiet_mono_wav() -> None:
+    import io
+    import wave
+
+    from openjarvis.speech.voice_io import chirp_wav
+
+    with wave.open(io.BytesIO(chirp_wav()), "rb") as wf:
+        assert wf.getnchannels() == 1
+        assert wf.getsampwidth() == 2
+        seconds = wf.getnframes() / wf.getframerate()
+        frames = wf.readframes(wf.getnframes())
+
+    assert 0.1 < seconds < 0.3
+    peak = max(abs(s) for s in struct.unpack(f"{len(frames) // 2}h", frames))
+    assert 0 < peak <= int(0.3 * 32767)

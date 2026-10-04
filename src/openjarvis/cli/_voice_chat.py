@@ -145,13 +145,54 @@ def match_wake_word(text: str, wake_word: str) -> Optional[str]:
     return command
 
 
+def load_wake_chime(speech: Any, console: Any) -> Optional[bytes]:
+    """Return the acknowledgement sound for the wake word, or ``None`` if off.
+
+    ``speech.wake_chime_sound`` names a WAV file to play; otherwise a short
+    synthesized chirp is used. An unreadable file falls back to the chirp.
+    """
+    if not getattr(speech, "wake_chime", True):
+        return None
+    sound_path = (getattr(speech, "wake_chime_sound", "") or "").strip()
+    if sound_path:
+        from pathlib import Path
+
+        try:
+            return Path(sound_path).expanduser().read_bytes()
+        except OSError as exc:
+            console.print(
+                f"[dim yellow]Wake chime file unreadable "
+                f"({_terminal_safe_text(exc)}); using the built-in chirp."
+                f"[/dim yellow]"
+            )
+    from openjarvis.speech.voice_io import chirp_wav
+
+    return chirp_wav()
+
+
+def _play_chime(chime: Optional[bytes]) -> None:
+    """Play the wake chime; a missing audio device must not stop listening."""
+    if not chime:
+        return
+    from openjarvis.speech.voice_io import play_wav
+
+    try:
+        play_wav(chime)
+    except Exception:
+        pass
+
+
 def listen_for_wake_word(
-    console: Any, session: VoiceSession, wake_word: str
+    console: Any,
+    session: VoiceSession,
+    wake_word: str,
+    chime: Optional[bytes] = None,
 ) -> Optional[str] | object:
     """Listen continuously and return the command spoken after ``wake_word``.
 
     Utterances that do not start with the wake word are ignored. Saying the
     wake word alone prompts for the command as a follow-up utterance.
+    ``chime`` (WAV bytes) is played whenever the wake word is heard.
     """
     from openjarvis.speech.voice_io import record_until_silence
 
@@ -185,6 +226,7 @@ def listen_for_wake_word(
         command = match_wake_word(text, wake_word)
         if command is None:
             continue
+        _play_chime(chime)
         if command:
             console.print(f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}")
             return command

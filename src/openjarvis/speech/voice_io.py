@@ -128,4 +128,26 @@ def play_wav(audio: bytes, sample_rate: int = 24000) -> None:
     sd.wait()
 
 
-__all__ = ["play_wav", "record_until_silence"]
+def chirp_wav(
+    tones: tuple[float, ...] = (1320.0, 1760.0),
+    tone_seconds: float = 0.07,
+    sample_rate: int = 24000,
+    volume: float = 0.3,
+) -> bytes:
+    """Synthesize a short rising acknowledgement chirp as 16-bit mono WAV."""
+    import math
+    import struct
+
+    n = int(tone_seconds * sample_rate)
+    fade = max(1, n // 8)  # soft edges avoid audible clicks
+    samples: list[int] = []
+    for freq in tones:
+        for i in range(n):
+            env = min(1.0, i / fade, (n - 1 - i) / fade)
+            value = volume * env * math.sin(2 * math.pi * freq * i / sample_rate)
+            samples.append(int(value * 32767))
+    frames = [struct.pack(f"{len(samples)}h", *samples)]
+    return _frames_to_wav(frames, sample_rate)
+
+
+__all__ = ["chirp_wav", "play_wav", "record_until_silence"]

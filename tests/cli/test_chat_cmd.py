@@ -22,6 +22,7 @@ from openjarvis.cli._voice_chat import (
     VOICE_EXIT,
     VoiceSession,
     listen_for_wake_word,
+    load_wake_chime,
     match_wake_word,
     record_voice,
     speak,
@@ -223,6 +224,79 @@ class TestWakeWord:
             result = listen_for_wake_word(MagicMock(), session, "computer")
 
         assert result == "Set a timer for five minutes"
+
+    def test_chime_plays_only_when_wake_word_heard(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.side_effect = [
+            SimpleNamespace(text="talking to someone else"),
+            SimpleNamespace(text="Computer, status report"),
+        ]
+        session = VoiceSession(JarvisConfig())
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+            patch("openjarvis.speech.voice_io.play_wav") as play,
+        ):
+            result = listen_for_wake_word(
+                MagicMock(), session, "computer", chime=b"chime"
+            )
+
+        assert result == "status report"
+        play.assert_called_once_with(b"chime")
+
+    def test_chime_playback_failure_does_not_stop_listening(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(text="Computer, hello")
+        session = VoiceSession(JarvisConfig())
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+            patch(
+                "openjarvis.speech.voice_io.play_wav",
+                side_effect=RuntimeError("no audio device"),
+            ),
+        ):
+            result = listen_for_wake_word(
+                MagicMock(), session, "computer", chime=b"chime"
+            )
+
+        assert result == "hello"
+
+    def test_load_wake_chime_options(self, tmp_path) -> None:
+        speech = JarvisConfig().speech
+        assert load_wake_chime(speech, MagicMock()).startswith(b"RIFF")
+
+        custom = tmp_path / "beep.wav"
+        custom.write_bytes(b"RIFFcustom")
+        speech.wake_chime_sound = str(custom)
+        assert load_wake_chime(speech, MagicMock()) == b"RIFFcustom"
+
+        speech.wake_chime = False
+        assert load_wake_chime(speech, MagicMock()) is None
+
+    def test_unreadable_chime_file_falls_back_to_chirp(self, tmp_path) -> None:
+        speech = JarvisConfig().speech
+        speech.wake_chime_sound = str(tmp_path / "missing.wav")
+        console = MagicMock()
+
+        chime = load_wake_chime(speech, console)
+
+        assert chime is not None and chime.startswith(b"RIFF")
+        assert "built-in chirp" in str(console.print.call_args)
 
     def test_listener_ctrl_c_exits(self) -> None:
         session = VoiceSession(JarvisConfig())
