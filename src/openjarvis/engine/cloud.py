@@ -1,6 +1,7 @@
 """Cloud inference engine.
 
-OpenAI, Anthropic, Google, MiniMax, DeepSeek, and Atlas Cloud API backends.
+OpenAI, Anthropic, Google, MiniMax, DeepSeek, Atlas Cloud, and Cheaper Inference
+API backends.
 """
 
 from __future__ import annotations
@@ -141,6 +142,18 @@ _ATLASCLOUD_POPULAR = [
     "atlascloud/minimaxai/minimax-m2.5",
 ]
 
+# Cheaper Inference models — prefixed with "cheaperinference/" so they can be
+# identified. Cheaper Inference is an OpenAI-compatible gateway with bare model
+# IDs, so the prefix keeps "cheaperinference/claude-*" away from the Anthropic
+# SDK. GET /v1/models lists every routable ID; any of them works as
+# "cheaperinference/<id>".
+_CHEAPERINFERENCE_POPULAR = [
+    "cheaperinference/gpt-5.4-mini",
+    "cheaperinference/gpt-5.4",
+    "cheaperinference/claude-sonnet-5",
+    "cheaperinference/gemini-3.1-pro",
+]
+
 # Codex models — prefixed with "codex/" for ChatGPT Plus/Pro subscribers.
 # Uses the Responses API at chatgpt.com, not the standard OpenAI API.
 _CODEX_MODELS = [
@@ -168,6 +181,10 @@ def _is_atlascloud_model(model: str) -> bool:
     return model.startswith("atlascloud/")
 
 
+def _is_cheaperinference_model(model: str) -> bool:
+    return model.startswith("cheaperinference/")
+
+
 def _is_codex_model(model: str) -> bool:
     return model.startswith("codex/")
 
@@ -179,6 +196,7 @@ def _is_anthropic_model(model: str) -> bool:
         "claude" in model.lower()
         and not _is_openrouter_model(model)
         and not _is_atlascloud_model(model)
+        and not _is_cheaperinference_model(model)
     )
 
 
@@ -187,6 +205,7 @@ def _is_google_model(model: str) -> bool:
         "gemini" in model.lower()
         and not _is_openrouter_model(model)
         and not _is_atlascloud_model(model)
+        and not _is_cheaperinference_model(model)
     )
 
 
@@ -402,8 +421,8 @@ def _convert_tools_to_google(
 
 @EngineRegistry.register("cloud")
 class CloudEngine(InferenceEngine):
-    """Cloud inference via OpenAI, Anthropic, Google, MiniMax, DeepSeek, and
-    Atlas Cloud SDKs."""
+    """Cloud inference via OpenAI, Anthropic, Google, MiniMax, DeepSeek,
+    Atlas Cloud, and Cheaper Inference SDKs."""
 
     engine_id = "cloud"
     is_cloud = True
@@ -414,6 +433,7 @@ class CloudEngine(InferenceEngine):
         self._google_client: Any = None
         self._openrouter_client: Any = None
         self._atlascloud_client: Any = None
+        self._cheaperinference_client: Any = None
         self._minimax_client: Any = None
         self._deepseek_client: Any = None
         self._codex_client: Any = None
@@ -465,6 +485,17 @@ class CloudEngine(InferenceEngine):
                 self._atlascloud_client = openai.OpenAI(
                     base_url="https://api.atlascloud.ai/v1",
                     api_key=atlascloud_key,
+                )
+            except ImportError:
+                pass
+        cheaperinference_key = os.environ.get("CHEAPER_INFERENCE_API_KEY")
+        if cheaperinference_key:
+            try:
+                import openai
+
+                self._cheaperinference_client = openai.OpenAI(
+                    base_url="https://api.cheaperinference.com/v1",
+                    api_key=cheaperinference_key,
                 )
             except ImportError:
                 pass
@@ -1153,6 +1184,75 @@ class CloudEngine(InferenceEngine):
             ]
         return result
 
+    def _generate_cheaperinference(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        if self._cheaperinference_client is None:
+            raise EngineConnectionError(
+                "Cheaper Inference client not available — set CHEAPER_INFERENCE_API_KEY"
+            )
+        # Strip the "cheaperinference/" prefix to get the gateway's model ID.
+        actual_model = model.removeprefix("cheaperinference/")
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        # Cheaper Inference is OpenAI-compatible: response_format, tools and
+        # tool_choice all pass straight through.
+        response_format = kwargs.pop("response_format", None)
+        if response_format is not None:
+            create_kwargs["response_format"] = response_format
+        tools = kwargs.pop("tools", None)
+        if tools:
+            create_kwargs["tools"] = tools
+        tool_choice = kwargs.pop("tool_choice", None)
+        if tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
+        t0 = time.monotonic()
+        resp = _chat_completion_with_temperature_retry(
+            self._cheaperinference_client, create_kwargs
+        )
+        elapsed = time.monotonic() - t0
+        choice = _first_choice_or_raise(
+            resp, provider="Cheaper Inference", model=actual_model
+        )
+        usage = resp.usage
+        prompt_tokens = usage.prompt_tokens if usage else 0
+        completion_tokens = usage.completion_tokens if usage else 0
+        result: Dict[str, Any] = {
+            "content": choice.message.content or "",
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (usage.total_tokens if usage else 0),
+            },
+            "model": resp.model,
+            "finish_reason": choice.finish_reason or "stop",
+            "cost_usd": estimate_cost(model, prompt_tokens, completion_tokens),
+            "ttft": elapsed,
+        }
+        if getattr(choice.message, "tool_calls", None):
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in choice.message.tool_calls
+            ]
+        return result
+
     def _generate_minimax(
         self,
         messages: Sequence[Message],
@@ -1281,6 +1381,8 @@ class CloudEngine(InferenceEngine):
             return self._generate_openrouter(messages, **kw)
         if _is_atlascloud_model(model):
             return self._generate_atlascloud(messages, **kw)
+        if _is_cheaperinference_model(model):
+            return self._generate_cheaperinference(messages, **kw)
         if _is_minimax_model(model):
             return self._generate_minimax(messages, **kw)
         if _is_deepseek_model(model):
@@ -1314,6 +1416,9 @@ class CloudEngine(InferenceEngine):
                 yield token
         elif _is_atlascloud_model(model):
             async for token in self._stream_atlascloud(messages, **kw):
+                yield token
+        elif _is_cheaperinference_model(model):
+            async for token in self._stream_cheaperinference(messages, **kw):
                 yield token
         elif _is_minimax_model(model):
             async for token in self._stream_minimax(messages, **kw):
@@ -1705,6 +1810,40 @@ class CloudEngine(InferenceEngine):
             if delta and delta.content:
                 yield delta.content
 
+    async def _stream_cheaperinference(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        if self._cheaperinference_client is None:
+            raise EngineConnectionError("Cheaper Inference client not available")
+        actual_model = model.removeprefix("cheaperinference/")
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        # Forward tools / tool_choice (Cheaper Inference is OpenAI-compatible).
+        tools = kwargs.pop("tools", None)
+        if tools:
+            create_kwargs["tools"] = tools
+        tool_choice = kwargs.pop("tool_choice", None)
+        if tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
+        resp = _chat_completion_with_temperature_retry(
+            self._cheaperinference_client, create_kwargs
+        )
+        for chunk in resp:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+
     async def _stream_minimax(
         self,
         messages: Sequence[Message],
@@ -1772,7 +1911,8 @@ class CloudEngine(InferenceEngine):
     ) -> AsyncIterator[StreamChunk]:
         """Yield StreamChunks from an OpenAI-compatible streaming response.
 
-        Works for OpenAI, OpenRouter, Atlas Cloud, MiniMax, DeepSeek, and Codex.
+        Works for OpenAI, OpenRouter, Atlas Cloud, Cheaper Inference, MiniMax,
+        DeepSeek, and Codex.
         """
         if _is_codex_model(model):
             # Codex uses Responses API — fall back to base stream_full wrapper
@@ -1804,6 +1944,18 @@ class CloudEngine(InferenceEngine):
                 raise EngineConnectionError("Atlas Cloud client not available")
             create_kwargs = {
                 "model": model.removeprefix("atlascloud/"),
+                "messages": messages_to_dicts(messages),
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+                **kwargs,
+            }
+        elif _is_cheaperinference_model(model):
+            client = self._cheaperinference_client
+            if client is None:
+                raise EngineConnectionError("Cheaper Inference client not available")
+            create_kwargs = {
+                "model": model.removeprefix("cheaperinference/"),
                 "messages": messages_to_dicts(messages),
                 "max_tokens": max_tokens,
                 "temperature": temperature,
@@ -2002,6 +2154,8 @@ class CloudEngine(InferenceEngine):
             models.extend(_OPENROUTER_POPULAR)
         if self._atlascloud_client is not None:
             models.extend(_ATLASCLOUD_POPULAR)
+        if self._cheaperinference_client is not None:
+            models.extend(_CHEAPERINFERENCE_POPULAR)
         if self._minimax_client is not None:
             models.extend(_MINIMAX_MODELS)
         if self._deepseek_client is not None:
@@ -2029,6 +2183,8 @@ class CloudEngine(InferenceEngine):
             return self._openrouter_client
         if _is_atlascloud_model(model):
             return self._atlascloud_client
+        if _is_cheaperinference_model(model):
+            return self._cheaperinference_client
         if _is_minimax_model(model):
             return self._minimax_client
         if _is_deepseek_model(model):
@@ -2061,6 +2217,7 @@ class CloudEngine(InferenceEngine):
             or self._google_client is not None
             or self._openrouter_client is not None
             or self._atlascloud_client is not None
+            or self._cheaperinference_client is not None
             or self._minimax_client is not None
             or self._deepseek_client is not None
             or self._codex_client is not None
@@ -2085,6 +2242,10 @@ class CloudEngine(InferenceEngine):
             if hasattr(self._atlascloud_client, "close"):
                 self._atlascloud_client.close()
             self._atlascloud_client = None
+        if self._cheaperinference_client is not None:
+            if hasattr(self._cheaperinference_client, "close"):
+                self._cheaperinference_client.close()
+            self._cheaperinference_client = None
         if self._minimax_client is not None:
             if hasattr(self._minimax_client, "close"):
                 self._minimax_client.close()
