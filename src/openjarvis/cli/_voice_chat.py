@@ -138,7 +138,11 @@ def match_wake_word(text: str, wake_word: str) -> Optional[str]:
     match = re.match(pattern, text, flags=re.IGNORECASE)
     if match is None:
         return None
-    return text[match.end() :].lstrip(" \t,.!?;:-").strip()
+    command = text[match.end() :].lstrip(" \t,.!?;:-").strip()
+    # "Computer. Computer." is a repeated call, not a command.
+    while (repeat := re.match(pattern, command, flags=re.IGNORECASE)) is not None:
+        command = command[repeat.end() :].lstrip(" \t,.!?;:-").strip()
+    return command
 
 
 def listen_for_wake_word(
