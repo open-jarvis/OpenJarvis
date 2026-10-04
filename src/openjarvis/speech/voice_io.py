@@ -32,10 +32,13 @@ def record_until_silence(
     silence_seconds: float = _SILENCE_SECONDS,
     startup_silence_seconds: float = _STARTUP_SILENCE_SECONDS,
     max_seconds: float = _MAX_RECORD_SECONDS,
+    require_speech: bool = False,
 ) -> bytes:
     """Record from the default microphone until silence is detected.
 
-    Returns raw WAV bytes (16-bit mono).
+    Returns raw WAV bytes (16-bit mono). With ``require_speech``, returns
+    ``b""`` when speech never began, so always-on listeners can skip
+    transcribing silence.
     Raises RuntimeError if sounddevice is not installed.
     """
     try:
@@ -77,6 +80,8 @@ def record_until_silence(
                 if silence_count >= silence_chunks:
                     break
 
+    if require_speech and not has_speech:
+        return b""
     return _frames_to_wav(frames, sample_rate)
 
 

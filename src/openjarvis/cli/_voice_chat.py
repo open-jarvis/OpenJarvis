@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from rich.markup import escape
@@ -117,6 +118,75 @@ def read_voice_input(console: Any, session: VoiceSession) -> Optional[str] | obj
         return VOICE_EXIT
     typed = typed.strip()
     return typed if typed else record_voice(console, session)
+
+
+def match_wake_word(text: str, wake_word: str) -> Optional[str]:
+    """Return what follows a leading wake word, or ``None`` if it is absent.
+
+    Matching ignores case and punctuation, and tolerates a leading "hey",
+    "ok" or "okay", so "Computer, lights" and "Hey computer... lights" both
+    yield "lights". An utterance that is only the wake word yields "".
+    """
+    words = re.findall(r"[\w']+", wake_word)
+    if not words:
+        return None
+    pattern = (
+        r"^\W*(?:(?:hey|ok|okay)\W+)?"
+        + r"\W+".join(re.escape(w) for w in words)
+        + r"\b"
+    )
+    match = re.match(pattern, text, flags=re.IGNORECASE)
+    if match is None:
+        return None
+    return text[match.end() :].lstrip(" \t,.!?;:-").strip()
+
+
+def listen_for_wake_word(
+    console: Any, session: VoiceSession, wake_word: str
+) -> Optional[str] | object:
+    """Listen continuously and return the command spoken after ``wake_word``.
+
+    Utterances that do not start with the wake word are ignored. Saying the
+    wake word alone prompts for the command as a follow-up utterance.
+    """
+    from openjarvis.speech.voice_io import record_until_silence
+
+    backend = session.get_stt_backend()
+    if backend is None:
+        # record_voice reports the missing backend and returns VOICE_EXIT.
+        return record_voice(console, session)
+
+    console.print(
+        f"[dim cyan]Standing by — say "
+        f'"{_terminal_safe_text(wake_word)}" to give a command '
+        f"(Ctrl+C to quit).[/dim cyan]"
+    )
+    while True:
+        try:
+            audio_bytes = record_until_silence(require_speech=True)
+        except KeyboardInterrupt:
+            return VOICE_EXIT
+        except Exception as exc:
+            console.print(f"[red]Mic error: {_terminal_safe_text(exc)}[/red]")
+            return VOICE_EXIT
+        if not audio_bytes:
+            continue
+
+        try:
+            text = backend.transcribe(audio_bytes, format="wav").text.strip()
+        except Exception as exc:
+            console.print(f"[red]Transcription error: {_terminal_safe_text(exc)}[/red]")
+            continue
+
+        command = match_wake_word(text, wake_word)
+        if command is None:
+            continue
+        if command:
+            console.print(f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}")
+            return command
+        result = record_voice(console, session)
+        if result is not None:
+            return result
 
 
 def record_voice(

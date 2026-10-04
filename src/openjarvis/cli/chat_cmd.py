@@ -13,7 +13,13 @@ from rich.markup import escape
 
 from openjarvis.cli._runtime_panel import runtime_cli_options
 from openjarvis.cli._tool_names import resolve_tool_names
-from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, read_voice_input, speak
+from openjarvis.cli._voice_chat import (
+    VOICE_EXIT,
+    VoiceSession,
+    listen_for_wake_word,
+    read_voice_input,
+    speak,
+)
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
@@ -78,6 +84,16 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
     default=False,
     help="Enable voice I/O: mic input with silence detection + TTS response playback.",
 )
+@click.option(
+    "--wake-word",
+    "wake_word",
+    default=None,
+    help=(
+        "Hands-free voice mode: listen continuously and answer only what is "
+        "said after this word, e.g. --wake-word computer. Implies --voice. "
+        "Defaults to [speech] wake_word when --voice is set."
+    ),
+)
 @runtime_cli_options
 def chat(
     engine_key: str | None,
@@ -88,6 +104,7 @@ def chat(
     system_prompt: str | None,
     persona_name: str | None,
     voice_mode: bool,
+    wake_word: str | None,
     num_ctx: int | None,
     num_gpu: int | None,
     skip_runtime_panel: bool,
@@ -108,11 +125,18 @@ def chat(
       /history      — show conversation history
 
     Pass --voice to use microphone input (silence-detection) and hear responses
-    read back via text-to-speech (kokoro local or OpenAI TTS).
+    read back via text-to-speech (kokoro local or OpenAI TTS). Add
+    --wake-word computer to listen hands-free and respond only to commands
+    that start with "computer".
     """
     console = Console(stderr=True)
 
     config = load_config()
+    if wake_word is None and voice_mode:
+        wake_word = config.speech.wake_word
+    wake_word = (wake_word or "").strip()
+    if wake_word:
+        voice_mode = True
     bus = EventBus(record_history=False)
 
     import dataclasses as _dc
@@ -292,12 +316,19 @@ def chat(
     voice_session = VoiceSession(config) if voice_mode else None
 
     # Print banner
-    voice_hint = (
-        "  [magenta]Voice mode ON[/magenta] — type normally, or press Enter "
-        "to speak; silence stops recording.\n"
-        if voice_mode
-        else ""
-    )
+    if wake_word:
+        voice_hint = (
+            f"  [magenta]Voice mode ON[/magenta] — hands-free; start each "
+            f"command with [cyan]{_safe_rich_label(wake_word)}[/cyan]. "
+            "Ctrl+C to quit.\n"
+        )
+    elif voice_mode:
+        voice_hint = (
+            "  [magenta]Voice mode ON[/magenta] — type normally, or press Enter "
+            "to speak; silence stops recording.\n"
+        )
+    else:
+        voice_hint = ""
     console.print(
         f"[green bold]OpenJarvis Chat[/green bold]\n"
         f"  Engine: [cyan]{_safe_rich_label(engine_name)}[/cyan]  "
@@ -365,7 +396,10 @@ def chat(
 
         if voice_mode:
             assert voice_session is not None
-            result = read_voice_input(console, voice_session)
+            if wake_word:
+                result = listen_for_wake_word(console, voice_session, wake_word)
+            else:
+                result = read_voice_input(console, voice_session)
             if result is VOICE_EXIT:
                 console.print("\n[dim]Goodbye![/dim]")
                 break

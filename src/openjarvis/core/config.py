@@ -1627,6 +1627,9 @@ class SpeechConfig:
     tts_backend: str = "kokoro"  # "kokoro", "openai_tts", "cartesia"
     voice_id: str = "bm_george"
     voice_speed: float = 1.0
+    # Voice chat only answers utterances that start with this phrase
+    # (e.g. "computer"). Empty = press Enter to speak.
+    wake_word: str = ""
 
 
 @dataclass(slots=True)
