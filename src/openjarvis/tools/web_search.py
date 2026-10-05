@@ -8,6 +8,9 @@ API-backed engine over the DuckDuckGo HTML scrape:
 * ``TAVILY_API_KEY`` set → Tavily (unchanged for existing installs)
 * ``YOUDOTCOM_API_KEY`` set → You.com, keyed
 * ``SERPLY_API_KEY`` set → Serply, a Google SERP proxy
+* ``FIRECRAWL_API_KEY`` set, or ``FIRECRAWL_API_URL`` pointing at a
+  self-hosted instance → Firecrawl, which also returns URL lookups (including
+  PDFs) as markdown
 * none of them → You.com, keyless free tier (no signup, rate limited per IP)
 
 The keyless tier is what makes a fresh install API-backed with zero config.
@@ -43,8 +46,29 @@ SERPLY_API_KEY_ENV = "SERPLY_API_KEY"
 # set. Unset means the API answers from its own default region.
 SERPLY_LOCATION_ENV = "SERPLY_PROXY_LOCATION"
 
+FIRECRAWL_API_KEY_ENV = "FIRECRAWL_API_KEY"
+# Base URL of the Firecrawl API. Point it at a self-hosted Firecrawl to run
+# page fetches on an instance you operate; that instance still sends search
+# queries to its own configured search backend.
+FIRECRAWL_API_URL_ENV = "FIRECRAWL_API_URL"
+FIRECRAWL_DEFAULT_API_URL = "https://api.firecrawl.dev"
+FIRECRAWL_ORIGIN = "openjarvis"
+# PDFs are billed per page, and only the first max_chars of the markdown are
+# kept, so parsing stops after a few pages.
+FIRECRAWL_PDF_MAX_PAGES = 3
+# Server-side scrape timeout, below the client timeout so a slow page fails on
+# Firecrawl's side first instead of being abandoned mid-scrape.
+FIRECRAWL_SCRAPE_TIMEOUT_MS = 45000
+# Search descriptions can run to several thousand characters of page text, so
+# each one is cut to a snippet that a small local model can take five of.
+FIRECRAWL_SNIPPET_CHARS = 500
+FIRECRAWL_KEYS_URL = (
+    "https://www.firecrawl.dev/app/api-keys"
+    "?utm_source=openjarvis&utm_medium=integration"
+)
+
 ENGINE_ENV = "OPENJARVIS_WEB_SEARCH_ENGINE"
-ENGINES = ("auto", "youcom", "tavily", "duckduckgo", "serply")
+ENGINES = ("auto", "youcom", "tavily", "duckduckgo", "serply", "firecrawl")
 
 # Identifies OpenJarvis to You.com. The keyless tier carries no API key, so the
 # User-Agent is the only attribution signal; sent to You.com hosts only.
@@ -89,6 +113,8 @@ class WebSearchTool(BaseTool):
         youcom_api_key: str | None = None,
         serply_api_key: str | None = None,
         serply_location: str | None = None,
+        firecrawl_api_key: str | None = None,
+        firecrawl_api_url: str | None = None,
     ):
         """Configure the search engine.
 
@@ -102,6 +128,19 @@ class WebSearchTool(BaseTool):
         self._youcom_api_key = youcom_api_key or os.environ.get(YOUCOM_API_KEY_ENV)
         self._serply_api_key = serply_api_key or os.environ.get(SERPLY_API_KEY_ENV)
         self._serply_location = serply_location or os.environ.get(SERPLY_LOCATION_ENV)
+        self._firecrawl_api_key = firecrawl_api_key or os.environ.get(
+            FIRECRAWL_API_KEY_ENV
+        )
+        self._firecrawl_api_url = (
+            firecrawl_api_url
+            or os.environ.get(FIRECRAWL_API_URL_ENV)
+            or FIRECRAWL_DEFAULT_API_URL
+        ).rstrip("/")
+        # Self-hosted instances usually run without auth, so a custom URL
+        # enables the engine even when no key is set.
+        self._firecrawl_self_hosted = (
+            self._firecrawl_api_url != FIRECRAWL_DEFAULT_API_URL
+        )
         self._max_results = max_results
 
         requested = (engine or os.environ.get(ENGINE_ENV) or "auto").strip().lower()
@@ -119,9 +158,10 @@ class WebSearchTool(BaseTool):
 
         Keyed engines come first, in the order they were added, so every
         install that already had a key resolves exactly as it did before:
-        Tavily, then keyed You.com, then Serply. The keyless You.com tier is
-        last and remains the zero-config API-backed path, which means a Serply
-        key only ever wins over having no key at all.
+        Tavily, then keyed You.com, then Serply, then Firecrawl. The keyless
+        You.com tier is last and remains the zero-config API-backed path, which
+        means a Serply or Firecrawl key only ever wins over having no key at
+        all.
         """
         if self._engine != "auto":
             return self._engine
@@ -131,6 +171,8 @@ class WebSearchTool(BaseTool):
             return "youcom"
         if self._serply_api_key:
             return "serply"
+        if self._firecrawl_api_key or self._firecrawl_self_hosted:
+            return "firecrawl"
         return "youcom"
 
     @property
@@ -164,6 +206,7 @@ class WebSearchTool(BaseTool):
                     "TAVILY_API_KEY",
                     YOUCOM_API_KEY_ENV,
                     SERPLY_API_KEY_ENV,
+                    FIRECRAWL_API_KEY_ENV,
                 ],
                 "engine": engine,
                 "engines": list(ENGINES),
@@ -435,6 +478,139 @@ class WebSearchTool(BaseTool):
             metadata=metadata,
         )
 
+    def _firecrawl_headers(self) -> dict[str, str]:
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        if self._firecrawl_api_key:
+            headers["Authorization"] = f"Bearer {self._firecrawl_api_key}"
+        return headers
+
+    @staticmethod
+    def _format_firecrawl_results(payload: dict[str, Any]) -> tuple[str, int]:
+        """Render a Firecrawl search payload in the shared result format.
+
+        Only snippets are returned, each description cut to
+        :data:`FIRECRAWL_SNIPPET_CHARS`. Search can also scrape every result
+        page, but full pages per result would crowd out a small local model's
+        context, so URL lookups are the place to read a page in full.
+        """
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            data = {}
+        parts: list[str] = []
+        count = 0
+        for item in data.get("web") or []:
+            title = item.get("title") or "Untitled"
+            url = item.get("url", "")
+            content = item.get("description") or ""
+            if len(content) > FIRECRAWL_SNIPPET_CHARS:
+                content = content[:FIRECRAWL_SNIPPET_CHARS].rstrip() + "…"
+            parts.append(f"### {title}\nSource: {url}\nSummary: {content}")
+            count += 1
+        return "\n\n---\n\n".join(parts), count
+
+    def _firecrawl_search(self, query: str, max_results: int) -> ToolResult:
+        """Search via Firecrawl, or the instance at ``FIRECRAWL_API_URL``."""
+        import httpx
+
+        if not self._firecrawl_api_key and not self._firecrawl_self_hosted:
+            raise _WebSearchEngineError(f"{FIRECRAWL_API_KEY_ENV} is not set")
+        try:
+            response = httpx.post(
+                f"{self._firecrawl_api_url}/v2/search",
+                json={
+                    "query": query,
+                    "limit": max_results,
+                    "origin": FIRECRAWL_ORIGIN,
+                },
+                headers=self._firecrawl_headers(),
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status == 401:
+                raise _WebSearchEngineError(
+                    f"Firecrawl rejected the credential in {FIRECRAWL_API_KEY_ENV}"
+                ) from exc
+            if status == 402:
+                raise _WebSearchEngineError(
+                    "Firecrawl credits are exhausted for this key. Check the "
+                    f"plan or create a new key at {FIRECRAWL_KEYS_URL}"
+                ) from exc
+            if status == 429:
+                raise _WebSearchEngineError(
+                    "Firecrawl rate limit reached (HTTP 429)"
+                ) from exc
+            raise _WebSearchEngineError(
+                f"Firecrawl search failed with HTTP {status}"
+            ) from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            raise _WebSearchEngineError(f"Firecrawl search failed: {exc}") from exc
+
+        formatted, count = self._format_firecrawl_results(payload)
+        metadata: dict[str, Any] = {"num_results": count, "engine": "firecrawl"}
+        if isinstance(payload, dict) and "creditsUsed" in payload:
+            metadata["credits"] = payload["creditsUsed"]
+        return ToolResult(
+            tool_name="web_search",
+            content=formatted or "No results found.",
+            success=True,
+            metadata=metadata,
+        )
+
+    def _firecrawl_extract(self, url: str, max_chars: int = 6000) -> str | None:
+        """Return Firecrawl-scraped markdown for ``url``, or ``None``.
+
+        Firecrawl renders JavaScript and parses PDFs, which the regex HTML
+        strip in :meth:`_fetch_url` cannot. Output is truncated at the same
+        ``max_chars`` as the local path so a long PDF cannot flood the
+        context, and PDF parsing stops after :data:`FIRECRAWL_PDF_MAX_PAGES`
+        pages since PDFs are billed per page. Any failure returns ``None`` and
+        the caller falls back to the local fetch.
+        """
+        if not self._firecrawl_api_key and not self._firecrawl_self_hosted:
+            return None
+
+        import httpx
+
+        try:
+            response = httpx.post(
+                f"{self._firecrawl_api_url}/v2/scrape",
+                json={
+                    "url": url,
+                    "formats": ["markdown"],
+                    "onlyMainContent": True,
+                    "parsers": [{"type": "pdf", "maxPages": FIRECRAWL_PDF_MAX_PAGES}],
+                    "timeout": FIRECRAWL_SCRAPE_TIMEOUT_MS,
+                    "origin": FIRECRAWL_ORIGIN,
+                },
+                headers=self._firecrawl_headers(),
+                timeout=60.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            reason = type(exc).__name__
+            if isinstance(exc, httpx.HTTPStatusError):
+                reason = f"HTTP {exc.response.status_code}"
+            logger.warning(
+                "Firecrawl scrape failed for %s (%s); falling back to local "
+                "HTML extraction",
+                url,
+                reason,
+            )
+            return None
+
+        data = payload.get("data") if isinstance(payload, dict) else None
+        markdown = data.get("markdown") if isinstance(data, dict) else None
+        if not markdown:
+            return None
+        text = str(markdown)
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n\n[Content truncated]"
+        return text
+
     def _duckduckgo_search(self, query: str, max_results: int) -> str:
         """Search using DuckDuckGo as fallback."""
         from ddgs import DDGS
@@ -463,6 +639,26 @@ class WebSearchTool(BaseTool):
         # If the query contains a URL, fetch it directly instead of searching
         url = self._extract_url(query) if not self._is_url(query) else query.strip()
         if url:
+            if self._resolve_engine() == "firecrawl":
+                ssrf_error = check_ssrf(self._normalize_url(url))
+                if ssrf_error:
+                    return ToolResult(
+                        tool_name="web_search",
+                        content=f"Failed to fetch URL: {ssrf_error}",
+                        success=False,
+                    )
+                extracted = self._firecrawl_extract(url)
+                if extracted:
+                    return ToolResult(
+                        tool_name="web_search",
+                        content=extracted,
+                        success=True,
+                        metadata={
+                            "url": url,
+                            "mode": "fetch",
+                            "extractor": "firecrawl_scrape",
+                        },
+                    )
             if self._resolve_engine() == "youcom":
                 ssrf_error = check_ssrf(self._normalize_url(url))
                 if ssrf_error:
@@ -509,6 +705,8 @@ class WebSearchTool(BaseTool):
                 return self._youcom_search(query, max_results)
             if engine == "serply":
                 return self._serply_search(query, max_results)
+            if engine == "firecrawl":
+                return self._firecrawl_search(query, max_results)
             return self._tavily_search(query, max_results)
         except _WebSearchEngineError as exc:
             reason = str(exc)

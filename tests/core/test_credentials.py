@@ -187,6 +187,7 @@ class TestOptionalCredentials:
         assert is_credential_optional("web_search", "TAVILY_API_KEY") is True
         assert is_credential_optional("web_search", "YOUDOTCOM_API_KEY") is True
         assert is_credential_optional("web_search", "SERPLY_API_KEY") is True
+        assert is_credential_optional("web_search", "FIRECRAWL_API_KEY") is True
 
     def test_other_tool_keys_stay_required(self):
         from openjarvis.core.credentials import is_credential_optional
@@ -225,4 +226,16 @@ class TestOptionalCredentials:
         save_credential("web_search", "SERPLY_API_KEY", "srp-key", path=path)
         assert load_credentials(path=path)["web_search"]["SERPLY_API_KEY"] == (
             "srp-key"
+        )
+
+    def test_firecrawl_key_can_be_persisted(self, tmp_path, monkeypatch):
+        """Same guard for the Firecrawl key: declared, so the Settings UI can
+        store it, and still not required for web_search to run."""
+        from openjarvis.core.credentials import load_credentials, save_credential
+
+        path = tmp_path / "credentials.toml"
+        monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
+        save_credential("web_search", "FIRECRAWL_API_KEY", "fc-test", path=path)
+        assert load_credentials(path=path)["web_search"]["FIRECRAWL_API_KEY"] == (
+            "fc-test"
         )
