@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
+import pytest
+
 from openjarvis.learning.routing.complexity import (
     ComplexityQueryAnalyzer,
     ComplexityResult,
@@ -46,6 +51,51 @@ class TestScoreComplexity:
     def test_multi_step_signal(self) -> None:
         result = score_complexity("First do X, then do Y, then do Z")
         assert result.signals["has_multi_step"] is True
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [
+            ("First " + "context " * 500 + "next", True),
+            ("then\nmore context\nTHEN", True),
+            ("next, first", False),
+            ("then only once", False),
+            ("firsthand knowledge comes next", False),
+        ],
+    )
+    def test_multi_step_preserves_order_and_word_boundaries(self, query, expected):
+        assert score_complexity(query).signals["has_multi_step"] is expected
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [
+            ("Write " + "context " * 500 + "a story", True),
+            ("generate a SCRIPT", True),
+            ("story, then write", False),
+            ("write\nan essay", False),
+            ("write\ran essay", True),
+            ("generate\ncode", False),
+        ],
+    )
+    def test_creative_preserves_order_and_line_boundaries(self, query, expected):
+        assert score_complexity(query).signals["has_creative"] is expected
+
+    @pytest.mark.parametrize("word", ["first", "write"])
+    def test_repeated_opening_word_does_not_block_scoring(self, word):
+        code = (
+            "import sys\n"
+            "from openjarvis.learning.routing.complexity import score_complexity\n"
+            "result = score_complexity(sys.stdin.read())\n"
+            "assert not result.signals['has_multi_step']\n"
+            "assert not result.signals['has_creative']\n"
+        )
+        subprocess.run(
+            [sys.executable, "-c", code],
+            input=f"{word} " * 40_000,
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
 
     def test_reasoning_and_multi_step_combined(self) -> None:
         result = score_complexity(
