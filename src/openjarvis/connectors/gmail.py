@@ -10,7 +10,9 @@ from __future__ import annotations
 import base64
 import email.utils
 import logging
+import random
 import re
+import time
 from datetime import datetime
 from html.parser import HTMLParser
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -54,6 +56,48 @@ _DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "gmail.json"
 GmailAuthError = GoogleAuthError
 
 
+def _is_rate_limited(response: httpx.Response) -> bool:
+    """Distinguish Google's transient quotas from permission and daily limits."""
+    if response.status_code == 429:
+        return True
+    if response.status_code != 403:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    error = payload.get("error") if isinstance(payload, dict) else None
+    details = error.get("errors", []) if isinstance(error, dict) else []
+    return isinstance(details, list) and any(
+        isinstance(item, dict)
+        and item.get("reason") in {"rateLimitExceeded", "userRateLimitExceeded"}
+        for item in details
+    )
+
+
+def _gmail_get(url: str, token: str, params: Dict[str, str]) -> httpx.Response:
+    """Retry idempotent Gmail reads with a bounded exponential quota backoff."""
+    for attempt in range(6):
+        response = httpx.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            params=params,
+            timeout=30.0,
+        )
+        if not _is_rate_limited(response):
+            return response
+        if attempt == 5:
+            raise httpx.HTTPStatusError(
+                f"Gmail rate limited after 6 attempts (HTTP {response.status_code})",
+                request=response.request,
+                response=response,
+            )
+        delay = min(60.0, 2.0 ** (attempt + 1) + random.random())
+        logger.info("Gmail rate limited; retrying in %.1fs", delay)
+        time.sleep(delay)
+    raise AssertionError("unreachable retry loop")
+
+
 # ---------------------------------------------------------------------------
 # Module-level API functions (easy to patch in tests)
 # ---------------------------------------------------------------------------
@@ -88,12 +132,7 @@ def _gmail_api_list_messages(
     if query:
         params["q"] = query
 
-    resp = httpx.get(
-        f"{_GMAIL_API_BASE}/messages",
-        headers={"Authorization": f"Bearer {token}"},
-        params=params,
-        timeout=30.0,
-    )
+    resp = _gmail_get(f"{_GMAIL_API_BASE}/messages", token, params)
     resp.raise_for_status()
     return resp.json()
 
@@ -145,12 +184,7 @@ def _gmail_api_get_message(token: str, msg_id: str) -> Dict[str, Any]:
     dict
         Raw API response for the message resource.
     """
-    resp = httpx.get(
-        f"{_GMAIL_API_BASE}/messages/{msg_id}",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"format": "full"},
-        timeout=30.0,
-    )
+    resp = _gmail_get(f"{_GMAIL_API_BASE}/messages/{msg_id}", token, {"format": "full"})
     resp.raise_for_status()
     return resp.json()
 
