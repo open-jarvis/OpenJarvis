@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterator
 
 import click
@@ -30,6 +31,29 @@ _LAUNCH_TOKEN_ENV = "OPENJARVIS_DAEMON_LAUNCH_TOKEN"
 def _pid_alive(pid: int) -> bool:
     """Return whether *pid* identifies a running process without signaling it."""
     return process_alive(pid)
+
+
+def _registered_pid_alive(pid: int) -> bool:
+    """Reject a reused Linux PID whose process started after registration."""
+    if not _pid_alive(pid):
+        return False
+    if sys.platform != "linux":
+        return True
+    try:
+        # The comm field may contain spaces and parentheses; fields after its
+        # final ')' begin with field 3. Field 22 is start time in clock ticks.
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        start_ticks = int(stat.rsplit(")", 1)[1].split()[19])
+        boot_line = next(
+            line
+            for line in Path("/proc/stat").read_text().splitlines()
+            if line.startswith("btime ")
+        )
+        started_at = int(boot_line.split()[1]) + start_ticks / os.sysconf("SC_CLK_TCK")
+        return started_at <= _PID_FILE.stat().st_mtime
+    except (OSError, ValueError, IndexError, StopIteration):
+        # Preserve liveness-only behavior where process metadata is unavailable.
+        return True
 
 
 @contextmanager
@@ -82,7 +106,7 @@ def _read_pid_unlocked() -> int | None:
     if pid is None:
         _PID_FILE.unlink(missing_ok=True)
         return None
-    if not _pid_alive(pid):
+    if not _registered_pid_alive(pid):
         _clear_state_unlocked(pid)
         return None
     return pid
@@ -131,7 +155,7 @@ def _write_pid_unlocked(
         # The server may have bound before its launcher recorded pending state.
         # Keep the actual PID and bound address in either ordering.
         return
-    if existing is not None and existing != pid and _pid_alive(existing):
+    if existing is not None and existing != pid and _registered_pid_alive(existing):
         if not (ready and same_launch and current.get("ready") is False):
             raise RuntimeError(f"Another server is already registered (PID {existing})")
     secure_write_text(_PID_FILE, str(pid))
