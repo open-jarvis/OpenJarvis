@@ -2114,6 +2114,7 @@ const MANAGED_CLOUD_KEY_NAMES: &[&str] = &[
     "GOOGLE_API_KEY",
     "OPENROUTER_API_KEY",
     "ATLASCLOUD_API_KEY",
+    "OPPER_API_KEY",
     "MINIMAX_API_KEY",
     "TAVILY_API_KEY",
 ];
@@ -3466,6 +3467,11 @@ mod tests {
     #[test]
     fn atlas_cloud_key_is_loaded_with_managed_desktop_keys() {
         assert!(managed_cloud_key_names().contains(&"ATLASCLOUD_API_KEY".to_string()));
+    }
+
+    #[test]
+    fn opper_key_is_loaded_with_managed_desktop_keys() {
+        assert!(managed_cloud_key_names().contains(&"OPPER_API_KEY".to_string()));
     }
 
     #[derive(Default)]

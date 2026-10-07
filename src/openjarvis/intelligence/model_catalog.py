@@ -1076,6 +1076,89 @@ BUILTIN_MODELS: List[ModelSpec] = [
         },
     ),
     # -----------------------------------------------------------------------
+    # Cloud models: Opper (OpenAI-compatible gateway)
+    #
+    # IDs carry the "opper/" routing prefix the cloud engine dispatches on.
+    # Context lengths and list prices are the gateway's own, read from
+    # GET https://api.opper.ai/v3/models (context_window, and
+    # pricing.input / pricing.output in USD per 1M tokens).
+    # -----------------------------------------------------------------------
+    ModelSpec(
+        model_id="opper/claude-sonnet-4-6",
+        name="Claude Sonnet 4.6 (Opper)",
+        parameter_count_b=0.0,
+        context_length=1_000_000,
+        supported_engines=("cloud",),
+        provider="opper",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 3.0,
+            "pricing_output": 15.0,
+            "url": "https://opper.ai/models",
+        },
+    ),
+    ModelSpec(
+        model_id="opper/claude-opus-5",
+        name="Claude Opus 5 (Opper)",
+        parameter_count_b=0.0,
+        context_length=1_000_000,
+        supported_engines=("cloud",),
+        provider="opper",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 5.0,
+            "pricing_output": 25.0,
+            "url": "https://opper.ai/models",
+        },
+    ),
+    ModelSpec(
+        model_id="opper/gpt-5.5",
+        name="GPT-5.5 (Opper)",
+        parameter_count_b=0.0,
+        context_length=1_050_000,
+        supported_engines=("cloud",),
+        provider="opper",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 5.0,
+            "pricing_output": 30.0,
+            "url": "https://opper.ai/models",
+        },
+    ),
+    ModelSpec(
+        model_id="opper/gpt-5.4-mini",
+        name="GPT-5.4 Mini (Opper)",
+        parameter_count_b=0.0,
+        context_length=400_000,
+        supported_engines=("cloud",),
+        provider="opper",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 0.75,
+            "pricing_output": 4.5,
+            "url": "https://opper.ai/models",
+        },
+    ),
+    ModelSpec(
+        model_id="opper/gemini-3.8-flash",
+        name="Gemini 3.8 Flash (Opper)",
+        parameter_count_b=0.0,
+        context_length=1_048_576,
+        supported_engines=("cloud",),
+        provider="opper",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 0.75,
+            "pricing_output": 3.75,
+            "url": "https://opper.ai/models",
+        },
+    ),
+    # -----------------------------------------------------------------------
     # Cloud models — Google
     # -----------------------------------------------------------------------
     ModelSpec(

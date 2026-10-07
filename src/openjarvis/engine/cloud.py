@@ -1,6 +1,7 @@
 """Cloud inference engine.
 
-OpenAI, Anthropic, Google, MiniMax, DeepSeek, and Atlas Cloud API backends.
+OpenAI, Anthropic, Google, MiniMax, DeepSeek, Atlas Cloud, and Opper API
+backends.
 """
 
 from __future__ import annotations
@@ -68,6 +69,16 @@ PRICING: Dict[str, tuple[float, float]] = {
     "atlascloud/zai-org/GLM-4.6": (0.60, 2.20),
     "atlascloud/moonshotai/kimi-k2.5": (0.49, 2.50),
     "atlascloud/minimaxai/minimax-m2.5": (0.295, 1.20),
+    # Opper is an EU-hosted gateway, so keys carry the "opper/" routing prefix
+    # (same convention as the aggregator entries above). Opper passes provider
+    # rates through without markup; these are the list rates in
+    # GET https://api.opper.ai/v3/models (pricing.input / pricing.output,
+    # USD per 1M tokens). Region-pinned routes can cost more.
+    "opper/claude-sonnet-4-6": (3.00, 15.00),
+    "opper/claude-opus-5": (5.00, 25.00),
+    "opper/gpt-5.5": (5.00, 30.00),
+    "opper/gpt-5.4-mini": (0.75, 4.50),
+    "opper/gemini-3.8-flash": (0.75, 3.75),
 }
 
 _MINIMAX_M3_LONG_CONTEXT_THRESHOLD = 512_000
@@ -141,6 +152,20 @@ _ATLASCLOUD_POPULAR = [
     "atlascloud/minimaxai/minimax-m2.5",
 ]
 
+# Opper models, prefixed with "opper/" so they can be identified. Opper is
+# an OpenAI-compatible gateway whose own model IDs are bare pool names
+# ("claude-sonnet-4-6"), so the prefix is what keeps "opper/claude-*" and
+# "opper/gemini-*" from being routed to the Anthropic and Google SDKs. Any ID
+# from GET https://api.opper.ai/v3/models works as "opper/<id>", including
+# provider-pinned routes such as "opper/anthropic/claude-sonnet-4-6".
+_OPPER_POPULAR = [
+    "opper/claude-sonnet-4-6",
+    "opper/claude-opus-5",
+    "opper/gpt-5.5",
+    "opper/gpt-5.4-mini",
+    "opper/gemini-3.8-flash",
+]
+
 # Codex models — prefixed with "codex/" for ChatGPT Plus/Pro subscribers.
 # Uses the Responses API at chatgpt.com, not the standard OpenAI API.
 _CODEX_MODELS = [
@@ -168,6 +193,10 @@ def _is_atlascloud_model(model: str) -> bool:
     return model.startswith("atlascloud/")
 
 
+def _is_opper_model(model: str) -> bool:
+    return model.startswith("opper/")
+
+
 def _is_codex_model(model: str) -> bool:
     return model.startswith("codex/")
 
@@ -179,6 +208,7 @@ def _is_anthropic_model(model: str) -> bool:
         "claude" in model.lower()
         and not _is_openrouter_model(model)
         and not _is_atlascloud_model(model)
+        and not _is_opper_model(model)
     )
 
 
@@ -187,6 +217,7 @@ def _is_google_model(model: str) -> bool:
         "gemini" in model.lower()
         and not _is_openrouter_model(model)
         and not _is_atlascloud_model(model)
+        and not _is_opper_model(model)
     )
 
 
@@ -402,8 +433,8 @@ def _convert_tools_to_google(
 
 @EngineRegistry.register("cloud")
 class CloudEngine(InferenceEngine):
-    """Cloud inference via OpenAI, Anthropic, Google, MiniMax, DeepSeek, and
-    Atlas Cloud SDKs."""
+    """Cloud inference via OpenAI, Anthropic, Google, MiniMax, DeepSeek,
+    Atlas Cloud, and Opper SDKs."""
 
     engine_id = "cloud"
     is_cloud = True
@@ -414,6 +445,7 @@ class CloudEngine(InferenceEngine):
         self._google_client: Any = None
         self._openrouter_client: Any = None
         self._atlascloud_client: Any = None
+        self._opper_client: Any = None
         self._minimax_client: Any = None
         self._deepseek_client: Any = None
         self._codex_client: Any = None
@@ -465,6 +497,17 @@ class CloudEngine(InferenceEngine):
                 self._atlascloud_client = openai.OpenAI(
                     base_url="https://api.atlascloud.ai/v1",
                     api_key=atlascloud_key,
+                )
+            except ImportError:
+                pass
+        opper_key = os.environ.get("OPPER_API_KEY")
+        if opper_key:
+            try:
+                import openai
+
+                self._opper_client = openai.OpenAI(
+                    base_url="https://api.opper.ai/v3/compat",
+                    api_key=opper_key,
                 )
             except ImportError:
                 pass
@@ -1153,6 +1196,75 @@ class CloudEngine(InferenceEngine):
             ]
         return result
 
+    def _generate_opper(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        if self._opper_client is None:
+            raise EngineConnectionError(
+                "Opper client not available — set OPPER_API_KEY"
+            )
+        # Strip the "opper/" prefix to get the gateway's own model ID.
+        actual_model = model.removeprefix("opper/")
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        # Opper is OpenAI-compatible: response_format, tools and tool_choice
+        # all pass straight through.
+        response_format = kwargs.pop("response_format", None)
+        if response_format is not None:
+            create_kwargs["response_format"] = response_format
+        tools = kwargs.pop("tools", None)
+        if tools:
+            create_kwargs["tools"] = tools
+        tool_choice = kwargs.pop("tool_choice", None)
+        if tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
+        t0 = time.monotonic()
+        resp = _chat_completion_with_temperature_retry(
+            self._opper_client, create_kwargs
+        )
+        elapsed = time.monotonic() - t0
+        choice = _first_choice_or_raise(resp, provider="Opper", model=actual_model)
+        usage = resp.usage
+        prompt_tokens = usage.prompt_tokens if usage else 0
+        completion_tokens = usage.completion_tokens if usage else 0
+        result: Dict[str, Any] = {
+            "content": choice.message.content or "",
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (usage.total_tokens if usage else 0),
+            },
+            "model": resp.model,
+            "finish_reason": choice.finish_reason or "stop",
+            # Cost is keyed on the prefixed ID so PRICING stays unambiguous
+            # between "opper/claude-sonnet-4-6" and Anthropic direct.
+            "cost_usd": estimate_cost(model, prompt_tokens, completion_tokens),
+            "ttft": elapsed,
+        }
+        if getattr(choice.message, "tool_calls", None):
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in choice.message.tool_calls
+            ]
+        return result
+
     def _generate_minimax(
         self,
         messages: Sequence[Message],
@@ -1281,6 +1393,8 @@ class CloudEngine(InferenceEngine):
             return self._generate_openrouter(messages, **kw)
         if _is_atlascloud_model(model):
             return self._generate_atlascloud(messages, **kw)
+        if _is_opper_model(model):
+            return self._generate_opper(messages, **kw)
         if _is_minimax_model(model):
             return self._generate_minimax(messages, **kw)
         if _is_deepseek_model(model):
@@ -1314,6 +1428,9 @@ class CloudEngine(InferenceEngine):
                 yield token
         elif _is_atlascloud_model(model):
             async for token in self._stream_atlascloud(messages, **kw):
+                yield token
+        elif _is_opper_model(model):
+            async for token in self._stream_opper(messages, **kw):
                 yield token
         elif _is_minimax_model(model):
             async for token in self._stream_minimax(messages, **kw):
@@ -1705,6 +1822,40 @@ class CloudEngine(InferenceEngine):
             if delta and delta.content:
                 yield delta.content
 
+    async def _stream_opper(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        if self._opper_client is None:
+            raise EngineConnectionError("Opper client not available")
+        actual_model = model.removeprefix("opper/")
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        # Forward tools / tool_choice (Opper is OpenAI-compatible).
+        tools = kwargs.pop("tools", None)
+        if tools:
+            create_kwargs["tools"] = tools
+        tool_choice = kwargs.pop("tool_choice", None)
+        if tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
+        resp = _chat_completion_with_temperature_retry(
+            self._opper_client, create_kwargs
+        )
+        for chunk in resp:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+
     async def _stream_minimax(
         self,
         messages: Sequence[Message],
@@ -1772,7 +1923,8 @@ class CloudEngine(InferenceEngine):
     ) -> AsyncIterator[StreamChunk]:
         """Yield StreamChunks from an OpenAI-compatible streaming response.
 
-        Works for OpenAI, OpenRouter, Atlas Cloud, MiniMax, DeepSeek, and Codex.
+        Works for OpenAI, OpenRouter, Atlas Cloud, Opper, MiniMax, DeepSeek, and
+        Codex.
         """
         if _is_codex_model(model):
             # Codex uses Responses API — fall back to base stream_full wrapper
@@ -1804,6 +1956,18 @@ class CloudEngine(InferenceEngine):
                 raise EngineConnectionError("Atlas Cloud client not available")
             create_kwargs = {
                 "model": model.removeprefix("atlascloud/"),
+                "messages": messages_to_dicts(messages),
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+                **kwargs,
+            }
+        elif _is_opper_model(model):
+            client = self._opper_client
+            if client is None:
+                raise EngineConnectionError("Opper client not available")
+            create_kwargs = {
+                "model": model.removeprefix("opper/"),
                 "messages": messages_to_dicts(messages),
                 "max_tokens": max_tokens,
                 "temperature": temperature,
@@ -2002,6 +2166,8 @@ class CloudEngine(InferenceEngine):
             models.extend(_OPENROUTER_POPULAR)
         if self._atlascloud_client is not None:
             models.extend(_ATLASCLOUD_POPULAR)
+        if self._opper_client is not None:
+            models.extend(_OPPER_POPULAR)
         if self._minimax_client is not None:
             models.extend(_MINIMAX_MODELS)
         if self._deepseek_client is not None:
@@ -2029,6 +2195,8 @@ class CloudEngine(InferenceEngine):
             return self._openrouter_client
         if _is_atlascloud_model(model):
             return self._atlascloud_client
+        if _is_opper_model(model):
+            return self._opper_client
         if _is_minimax_model(model):
             return self._minimax_client
         if _is_deepseek_model(model):
@@ -2061,6 +2229,7 @@ class CloudEngine(InferenceEngine):
             or self._google_client is not None
             or self._openrouter_client is not None
             or self._atlascloud_client is not None
+            or self._opper_client is not None
             or self._minimax_client is not None
             or self._deepseek_client is not None
             or self._codex_client is not None
@@ -2085,6 +2254,10 @@ class CloudEngine(InferenceEngine):
             if hasattr(self._atlascloud_client, "close"):
                 self._atlascloud_client.close()
             self._atlascloud_client = None
+        if self._opper_client is not None:
+            if hasattr(self._opper_client, "close"):
+                self._opper_client.close()
+            self._opper_client = None
         if self._minimax_client is not None:
             if hasattr(self._minimax_client, "close"):
                 self._minimax_client.close()

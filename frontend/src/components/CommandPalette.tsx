@@ -80,6 +80,15 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
       { id: 'atlascloud/Qwen/Qwen3-235B-A22B-Instruct-2507', desc: 'Qwen3 235B via Atlas Cloud' },
     ],
   },
+  {
+    name: 'Opper',
+    envKey: 'OPPER_API_KEY',
+    models: [
+      { id: 'opper/claude-sonnet-4-6', desc: 'Claude Sonnet 4.6 via Opper' },
+      { id: 'opper/gpt-5.5', desc: 'GPT-5.5 via Opper' },
+      { id: 'opper/gemini-3.8-flash', desc: 'Gemini 3.8 Flash via Opper' },
+    ],
+  },
 ];
 
 type Tab = 'installed' | 'catalogue' | 'cloud';

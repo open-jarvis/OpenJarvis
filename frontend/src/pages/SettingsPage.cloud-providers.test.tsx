@@ -14,4 +14,17 @@ describe('desktop cloud provider settings', () => {
     expect(atlasKeyInput).not.toContain('disabled');
     vi.unstubAllGlobals();
   });
+
+  it('offers Opper key storage alongside its provider status', async () => {
+    vi.stubGlobal('localStorage', { getItem: () => null });
+    vi.stubGlobal('window', { __TAURI_INTERNALS__: {} });
+    const { SettingsPage } = await import('./SettingsPage');
+    const html = renderToStaticMarkup(<SettingsPage />);
+
+    expect(html).toContain('Opper');
+    const opperKeyInput = html.match(/<input[^>]*placeholder="Opper API key"[^>]*>/)?.[0];
+    expect(opperKeyInput).toBeDefined();
+    expect(opperKeyInput).not.toContain('disabled');
+    vi.unstubAllGlobals();
+  });
 });

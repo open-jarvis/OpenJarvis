@@ -31,6 +31,10 @@ _MINIMAX_PREFIXES = ("MiniMax-",)
 # their routing prefix before the generic '"/" means OpenRouter' fallback
 # below — otherwise "atlascloud/openai/gpt-4.1-mini" is sent to OpenRouter.
 _ATLASCLOUD_PREFIX = "atlascloud/"
+# Opper IDs are bare pool names ("claude-sonnet-4-6") or provider-pinned
+# routes ("anthropic/claude-sonnet-4-6"), so they also need their routing
+# prefix matched before the OpenRouter fallback.
+_OPPER_PREFIX = "opper/"
 
 # HuggingFace orgs that host local-only quantised models — never route to cloud.
 _LOCAL_HF_ORGS = (
@@ -60,6 +64,7 @@ def _load_keys() -> dict[str, str]:
         "OPENROUTER_API_KEY",
         "MINIMAX_API_KEY",
         "ATLASCLOUD_API_KEY",
+        "OPPER_API_KEY",
     ):
         val = os.environ.get(name)
         if val:
@@ -79,6 +84,8 @@ def get_provider(model: str) -> str | None:
         return "minimax"
     if model.startswith(_ATLASCLOUD_PREFIX):
         return "atlascloud"
+    if model.startswith(_OPPER_PREFIX):
+        return "opper"
     if any(model.startswith(org) for org in _LOCAL_HF_ORGS):
         return None  # local model, never route to cloud
     if "/" in model:  # openrouter format: "meta-llama/llama-3-8b"
@@ -412,6 +419,21 @@ async def stream_cloud(
             max_tokens,
             base_url="https://api.atlascloud.ai/v1",
             api_key_name="ATLASCLOUD_API_KEY",
+        ):
+            yield token
+
+    elif provider == "opper":
+        keys = _load_keys()
+        api_key = keys.get("OPPER_API_KEY", "")
+        if not api_key:
+            raise ValueError("OPPER_API_KEY not set — add it in the Cloud Models tab")
+        async for token in _stream_openai(
+            model.removeprefix(_OPPER_PREFIX),
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://api.opper.ai/v3/compat",
+            api_key_name="OPPER_API_KEY",
         ):
             yield token
 

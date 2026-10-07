@@ -136,6 +136,7 @@ class TestCloudEngineEmptyChoices:
             ("gpt-4o", "_openai_client", "OpenAI"),
             ("openrouter/test-model", "_openrouter_client", "OpenRouter"),
             ("atlascloud/openai/gpt-4.1-mini", "_atlascloud_client", "Atlas Cloud"),
+            ("opper/claude-sonnet-4-6", "_opper_client", "Opper"),
             ("MiniMax-M3", "_minimax_client", "MiniMax"),
             ("deepseek-v4-flash", "_deepseek_client", "DeepSeek"),
         ],
