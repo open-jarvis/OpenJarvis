@@ -52,5 +52,5 @@ tokio-stream = "0.1"
 ed25519-dalek = { version = "3", features = ["rand_core"] }
 fnmatch-regex = "0.2"
 url = "2"
-rig-core = "0.31"
+rig-core = "0.43"
 schemars = "1"
