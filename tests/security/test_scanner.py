@@ -151,6 +151,23 @@ class TestPIIScanner:
         assert "[REDACTED:us_ssn]" in redacted
         assert "123-45-6789" not in redacted
 
+    def test_pii_scanner_public_ipv4_redacted(self) -> None:
+        scanner = PIIScanner()
+        assert not scanner.scan("server at 8.8.8.8 is up").clean
+        assert scanner.redact("ping 8.8.8.8") == "ping [REDACTED:ipv4_address]"
+
+    def test_pii_scanner_ipv4_ignores_long_dotted_numbers(self) -> None:
+        scanner = PIIScanner()
+        # 20! written with European thousands separators is not an IP address.
+        text = "20! = 2.432.902.008.176.640.000"
+        assert scanner.scan(text).clean
+        assert scanner.redact(text) == text
+
+    def test_pii_scanner_ipv4_rejects_out_of_range_octets(self) -> None:
+        scanner = PIIScanner()
+        assert scanner.scan("version 999.1.1.1").clean
+        assert scanner.scan("build 1.2.3.4.5").clean
+
 
 # ---------------------------------------------------------------------------
 # ScanResult property tests
