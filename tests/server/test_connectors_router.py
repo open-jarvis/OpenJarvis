@@ -731,3 +731,49 @@ def test_connect_news_rss_requires_and_persists_feeds(app, tmp_path: Path) -> No
         ]
     finally:
         _instances.pop("news_rss", None)
+
+
+def test_gmail_quota_exhaustion_is_reported_as_rate_limited(app, monkeypatch):
+    import time
+
+    import httpx
+
+    from openjarvis.connectors._stubs import SyncStatus
+    from openjarvis.connectors.sync_engine import SyncEngine
+    from openjarvis.server.connectors_router import _instances
+
+    class QuotaConnector:
+        connector_id = "gmail"
+        display_name = "Gmail"
+        auth_type = "oauth"
+
+        def is_connected(self):
+            return True
+
+        def sync_status(self):
+            return SyncStatus()
+
+    request = httpx.Request(
+        "GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+    )
+    response = httpx.Response(403, request=request)
+
+    def fail_sync(*args, **kwargs):
+        raise httpx.HTTPStatusError(
+            "Gmail rate limited after 6 attempts (HTTP 403)",
+            request=request,
+            response=response,
+        )
+
+    monkeypatch.setattr(SyncEngine, "sync", fail_sync)
+    _instances["gmail"] = QuotaConnector()
+    try:
+        assert app.post("/v1/connectors/gmail/sync").status_code == 200
+        for _ in range(100):
+            state = app.get("/v1/connectors/gmail/sync").json()
+            if state.get("state") == "error":
+                break
+            time.sleep(0.01)
+        assert state["error"] == "Rate limited — wait a minute and try again."
+    finally:
+        _instances.pop("gmail", None)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -70,3 +70,21 @@ def test_sync_yields_tasks(connector):
     assert docs[0].title == "Review PR #42"
     assert docs[0].metadata["status"] == "needsAction"
     assert docs[1].metadata["status"] == "completed"
+
+
+@pytest.mark.parametrize(
+    "since",
+    [
+        datetime(2026, 10, 5, 1, 54, 24, 261272),
+        datetime(2026, 10, 5, 1, 54, 24, 261272, tzinfo=timezone.utc),
+        datetime(2026, 10, 5, 4, 54, 24, 261272, tzinfo=timezone(timedelta(hours=3))),
+    ],
+)
+def test_sync_updated_min_is_valid_rfc3339_utc(connector, since):
+    with patch(
+        "openjarvis.connectors.google_tasks._tasks_api_get",
+        side_effect=[_TASK_LISTS_RESPONSE, {"items": []}],
+    ) as get:
+        list(connector.sync(since=since))
+
+    assert get.call_args.kwargs["params"]["updatedMin"] == "2026-10-05T01:54:24.261272Z"

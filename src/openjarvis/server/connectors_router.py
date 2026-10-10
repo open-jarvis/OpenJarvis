@@ -311,10 +311,10 @@ def create_connectors_router():
         """Map common backend exceptions to a short user-facing message."""
         if "401" in raw or "Unauthorized" in raw:
             return "Authentication failed — credentials may have expired."
+        if "429" in raw or "Too Many Requests" in raw or "rate limited" in raw.lower():
+            return "Rate limited — wait a minute and try again."
         if "403" in raw or "Forbidden" in raw:
             return "Permission denied — check API scopes."
-        if "429" in raw or "Too Many Requests" in raw:
-            return "Rate limited — wait a minute and try again."
         if "timeout" in raw.lower():
             return "Connection timed out."
         return raw
