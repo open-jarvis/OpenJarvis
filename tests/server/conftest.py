@@ -32,3 +32,23 @@ def _isolate_traces_db(tmp_path, monkeypatch):
 
     monkeypatch.setattr(_config, "load_config", _patched_load_config)
     return db_path
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _isolate_connector_dbs(tmp_path_factory):
+    """Point the knowledge store and sync-state DBs at a per-module temp dir.
+
+    ``connectors_router`` opens ``KnowledgeStore()`` and ``SyncEngine`` with no
+    path, so they default to the real ``~/.openjarvis``. Without this, a sync
+    test ingests its fixture note there and a disconnect test purges the
+    developer's real indexed vault. Module scope, not function scope:
+    ``POST /sync`` starts a background thread that can outlive the test, and a
+    function-scoped patch would be undone while it is still writing.
+    """
+    home = tmp_path_factory.mktemp("openjarvis-home")
+    with pytest.MonkeyPatch.context() as mp:
+        # store.py imports it lazily from core.config; sync_engine.py binds it
+        # at import.
+        mp.setattr("openjarvis.core.config.DEFAULT_CONFIG_DIR", home)
+        mp.setattr("openjarvis.connectors.sync_engine.DEFAULT_CONFIG_DIR", home)
+        yield
