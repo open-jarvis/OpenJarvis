@@ -1627,6 +1627,13 @@ class SpeechConfig:
     tts_backend: str = "kokoro"  # "kokoro", "openai_tts", "cartesia"
     voice_id: str = "bm_george"
     voice_speed: float = 1.0
+    # Voice chat only answers utterances that start with this phrase
+    # (e.g. "computer"). Empty = press Enter to speak.
+    wake_word: str = ""
+    # Play a short chirp when the wake word is heard. ``wake_chime_sound``
+    # points at a WAV file to play instead of the built-in chirp.
+    wake_chime: bool = True
+    wake_chime_sound: str = ""
 
 
 @dataclass(slots=True)

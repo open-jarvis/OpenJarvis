@@ -59,3 +59,50 @@ def test_post_speech_uses_normal_silence_window(monkeypatch) -> None:
     )
 
     assert stream.reads == 3
+
+
+def test_require_speech_returns_empty_when_nobody_spoke(monkeypatch) -> None:
+    silence = bytes(1024 * 2)
+    _install_audio(monkeypatch, _FakeStream([silence] * 30))
+
+    audio = record_until_silence(
+        sample_rate=1024,
+        startup_silence_seconds=2,
+        max_seconds=30,
+        require_speech=True,
+    )
+
+    assert audio == b""
+
+
+def test_require_speech_keeps_audio_when_speech_was_heard(monkeypatch) -> None:
+    speech = struct.pack("1024h", *([1000] * 1024))
+    silence = bytes(1024 * 2)
+    _install_audio(monkeypatch, _FakeStream([speech, silence, silence, silence]))
+
+    audio = record_until_silence(
+        sample_rate=1024,
+        silence_seconds=2,
+        startup_silence_seconds=1,
+        max_seconds=30,
+        require_speech=True,
+    )
+
+    assert audio.startswith(b"RIFF")
+
+
+def test_chirp_is_short_quiet_mono_wav() -> None:
+    import io
+    import wave
+
+    from openjarvis.speech.voice_io import chirp_wav
+
+    with wave.open(io.BytesIO(chirp_wav()), "rb") as wf:
+        assert wf.getnchannels() == 1
+        assert wf.getsampwidth() == 2
+        seconds = wf.getnframes() / wf.getframerate()
+        frames = wf.readframes(wf.getnframes())
+
+    assert 0.1 < seconds < 0.3
+    peak = max(abs(s) for s in struct.unpack(f"{len(frames) // 2}h", frames))
+    assert 0 < peak <= int(0.3 * 32767)

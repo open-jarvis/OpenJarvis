@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from rich.markup import escape
@@ -117,6 +118,121 @@ def read_voice_input(console: Any, session: VoiceSession) -> Optional[str] | obj
         return VOICE_EXIT
     typed = typed.strip()
     return typed if typed else record_voice(console, session)
+
+
+def match_wake_word(text: str, wake_word: str) -> Optional[str]:
+    """Return what follows a leading wake word, or ``None`` if it is absent.
+
+    Matching ignores case and punctuation, and tolerates a leading "hey",
+    "ok" or "okay", so "Computer, lights" and "Hey computer... lights" both
+    yield "lights". An utterance that is only the wake word yields "".
+    """
+    words = re.findall(r"[\w']+", wake_word)
+    if not words:
+        return None
+    pattern = (
+        r"^\W*(?:(?:hey|ok|okay)\W+)?"
+        + r"\W+".join(re.escape(w) for w in words)
+        + r"\b"
+    )
+    match = re.match(pattern, text, flags=re.IGNORECASE)
+    if match is None:
+        return None
+    command = text[match.end() :].lstrip(" \t,.!?;:-").strip()
+    # "Computer. Computer." is a repeated call, not a command.
+    while (repeat := re.match(pattern, command, flags=re.IGNORECASE)) is not None:
+        command = command[repeat.end() :].lstrip(" \t,.!?;:-").strip()
+    return command
+
+
+def load_wake_chime(speech: Any, console: Any) -> Optional[bytes]:
+    """Return the acknowledgement sound for the wake word, or ``None`` if off.
+
+    ``speech.wake_chime_sound`` names a WAV file to play; otherwise a short
+    synthesized chirp is used. An unreadable file falls back to the chirp.
+    """
+    if not getattr(speech, "wake_chime", True):
+        return None
+    sound_path = (getattr(speech, "wake_chime_sound", "") or "").strip()
+    if sound_path:
+        from pathlib import Path
+
+        try:
+            return Path(sound_path).expanduser().read_bytes()
+        except OSError as exc:
+            console.print(
+                f"[dim yellow]Wake chime file unreadable "
+                f"({_terminal_safe_text(exc)}); using the built-in chirp."
+                f"[/dim yellow]"
+            )
+    from openjarvis.speech.voice_io import chirp_wav
+
+    return chirp_wav()
+
+
+def _play_chime(chime: Optional[bytes]) -> None:
+    """Play the wake chime; a missing audio device must not stop listening."""
+    if not chime:
+        return
+    from openjarvis.speech.voice_io import play_wav
+
+    try:
+        play_wav(chime)
+    except Exception:
+        pass
+
+
+def listen_for_wake_word(
+    console: Any,
+    session: VoiceSession,
+    wake_word: str,
+    chime: Optional[bytes] = None,
+) -> Optional[str] | object:
+    """Listen continuously and return the command spoken after ``wake_word``.
+
+    Utterances that do not start with the wake word are ignored. Saying the
+    wake word alone prompts for the command as a follow-up utterance.
+    ``chime`` (WAV bytes) is played whenever the wake word is heard.
+    """
+    from openjarvis.speech.voice_io import record_until_silence
+
+    backend = session.get_stt_backend()
+    if backend is None:
+        # record_voice reports the missing backend and returns VOICE_EXIT.
+        return record_voice(console, session)
+
+    console.print(
+        f"[dim cyan]Standing by — say "
+        f'"{_terminal_safe_text(wake_word)}" to give a command '
+        f"(Ctrl+C to quit).[/dim cyan]"
+    )
+    while True:
+        try:
+            audio_bytes = record_until_silence(require_speech=True)
+        except KeyboardInterrupt:
+            return VOICE_EXIT
+        except Exception as exc:
+            console.print(f"[red]Mic error: {_terminal_safe_text(exc)}[/red]")
+            return VOICE_EXIT
+        if not audio_bytes:
+            continue
+
+        try:
+            text = backend.transcribe(audio_bytes, format="wav").text.strip()
+        except Exception as exc:
+            console.print(f"[red]Transcription error: {_terminal_safe_text(exc)}[/red]")
+            continue
+
+        command = match_wake_word(text, wake_word)
+        if command is None:
+            continue
+        _play_chime(chime)
+        if command:
+            console.print(f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}")
+            return command
+        result = record_voice(console, session)
+        if result is not None:
+            return result
 
 
 def record_voice(

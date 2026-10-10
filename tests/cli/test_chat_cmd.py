@@ -18,7 +18,15 @@ from openjarvis.agents._stubs import (
     BaseAgent,
     ToolUsingAgent,
 )
-from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, record_voice, speak
+from openjarvis.cli._voice_chat import (
+    VOICE_EXIT,
+    VoiceSession,
+    listen_for_wake_word,
+    load_wake_chime,
+    match_wake_word,
+    record_voice,
+    speak,
+)
 from openjarvis.cli.chat_cmd import _read_input, chat
 from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import Event, EventBus, EventType
@@ -141,6 +149,236 @@ class TestChatCommand:
         assert result.exit_code == 0
         assert result.exception is None
         assert "Goodbye!" in result.output
+
+
+class TestWakeWord:
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("Computer, what time is it?", "what time is it?"),
+            ("computer what time is it", "what time is it"),
+            ("Hey computer... lights on.", "lights on."),
+            ("OK, Computer: status report", "status report"),
+            ("Computer.", ""),
+            ("computer", ""),
+            ("Computer. Computer.", ""),
+            ("Computer, computer, lights on", "lights on"),
+            ("Computer, what is a computer?", "what is a computer?"),
+            ("Tell the computer to stop", None),
+            ("Computers are great", None),
+            ("", None),
+        ],
+    )
+    def test_match_wake_word(self, text: str, expected: str | None) -> None:
+        assert match_wake_word(text, "computer") == expected
+
+    def test_match_multi_word_wake_word(self) -> None:
+        assert match_wake_word("Hey Jarvis, play music", "hey jarvis") == "play music"
+        assert match_wake_word("Jarvis, play music", "hey jarvis") is None
+
+    def test_blank_wake_word_never_matches(self) -> None:
+        assert match_wake_word("anything", "  ") is None
+
+    def test_listener_skips_silence_and_other_speech(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.side_effect = [
+            SimpleNamespace(text="just talking to someone"),
+            SimpleNamespace(text="Computer, status report."),
+        ]
+        session = VoiceSession(JarvisConfig())
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                side_effect=[b"", b"wav1", b"wav2"],
+            ) as record,
+        ):
+            result = listen_for_wake_word(MagicMock(), session, "computer")
+
+        assert result == "status report."
+        assert backend.transcribe.call_count == 2
+        assert all(c.kwargs == {"require_speech": True} for c in record.call_args_list)
+
+    def test_wake_word_alone_waits_for_the_command(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.side_effect = [
+            SimpleNamespace(text="Computer."),
+            SimpleNamespace(text="Set a timer for five minutes"),
+        ]
+        session = VoiceSession(JarvisConfig())
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+        ):
+            result = listen_for_wake_word(MagicMock(), session, "computer")
+
+        assert result == "Set a timer for five minutes"
+
+    def test_chime_plays_only_when_wake_word_heard(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.side_effect = [
+            SimpleNamespace(text="talking to someone else"),
+            SimpleNamespace(text="Computer, status report"),
+        ]
+        session = VoiceSession(JarvisConfig())
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+            patch("openjarvis.speech.voice_io.play_wav") as play,
+        ):
+            result = listen_for_wake_word(
+                MagicMock(), session, "computer", chime=b"chime"
+            )
+
+        assert result == "status report"
+        play.assert_called_once_with(b"chime")
+
+    def test_chime_playback_failure_does_not_stop_listening(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(text="Computer, hello")
+        session = VoiceSession(JarvisConfig())
+
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+            patch(
+                "openjarvis.speech.voice_io.play_wav",
+                side_effect=RuntimeError("no audio device"),
+            ),
+        ):
+            result = listen_for_wake_word(
+                MagicMock(), session, "computer", chime=b"chime"
+            )
+
+        assert result == "hello"
+
+    def test_load_wake_chime_options(self, tmp_path) -> None:
+        speech = JarvisConfig().speech
+        assert load_wake_chime(speech, MagicMock()).startswith(b"RIFF")
+
+        custom = tmp_path / "beep.wav"
+        custom.write_bytes(b"RIFFcustom")
+        speech.wake_chime_sound = str(custom)
+        assert load_wake_chime(speech, MagicMock()) == b"RIFFcustom"
+
+        speech.wake_chime = False
+        assert load_wake_chime(speech, MagicMock()) is None
+
+    def test_unreadable_chime_file_falls_back_to_chirp(self, tmp_path) -> None:
+        speech = JarvisConfig().speech
+        speech.wake_chime_sound = str(tmp_path / "missing.wav")
+        console = MagicMock()
+
+        chime = load_wake_chime(speech, console)
+
+        assert chime is not None and chime.startswith(b"RIFF")
+        assert "built-in chirp" in str(console.print.call_args)
+
+    def test_listener_ctrl_c_exits(self) -> None:
+        session = VoiceSession(JarvisConfig())
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                side_effect=KeyboardInterrupt,
+            ),
+        ):
+            assert listen_for_wake_word(MagicMock(), session, "computer") is VOICE_EXIT
+
+    def test_listener_without_stt_backend_exits(self) -> None:
+        with (
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=None,
+            ),
+            patch("openjarvis.speech.voice_io.record_until_silence") as record,
+        ):
+            result = listen_for_wake_word(
+                MagicMock(), VoiceSession(JarvisConfig()), "computer"
+            )
+
+        assert result is VOICE_EXIT
+        record.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("args", "config_wake_word"),
+        [
+            (["--wake-word", "computer"], ""),
+            (["--voice"], "computer"),
+        ],
+    )
+    def test_chat_uses_wake_word_listener(
+        self, args: list[str], config_wake_word: str
+    ) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        config.speech.wake_word = config_wake_word
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.cli.chat_cmd.listen_for_wake_word",
+                return_value=VOICE_EXIT,
+            ) as listen,
+            patch("openjarvis.cli.chat_cmd.read_voice_input") as read_voice,
+        ):
+            result = CliRunner().invoke(chat, [*args, "--model", "test-model"])
+
+        assert result.exit_code == 0, result.output
+        assert "hands-free" in result.output
+        assert listen.call_args.args[2] == "computer"
+        read_voice.assert_not_called()
+
+    def test_config_wake_word_ignored_without_voice(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        config.speech.wake_word = "computer"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch("openjarvis.cli.chat_cmd.listen_for_wake_word") as listen,
+        ):
+            result = CliRunner().invoke(
+                chat, ["--model", "test-model"], input="/quit\n"
+            )
+
+        assert result.exit_code == 0, result.output
+        listen.assert_not_called()
 
 
 class TestReadInput:
