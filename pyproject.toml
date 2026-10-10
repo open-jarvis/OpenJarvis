@@ -96,6 +96,9 @@ desktop = [
     "faster-whisper>=1.0",
     # 1.24.x declares Python 3.10 support but publishes no cp310 wheels (#917).
     "onnxruntime<1.24; python_version < '3.11'",
+    # 1.24+ dropped macOS x86_64 wheels (arm64-only from 1.24.0 on), leaving
+    # Intel Macs with no installable wheel; 1.23.2 is the last universal one.
+    "onnxruntime<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "numpy>=1.24",
     "sounddevice>=0.5",
     "soundfile>=0.12",
@@ -168,6 +171,8 @@ speech = [
     "faster-whisper>=1.0",
     # Keep the pip-visible speech extra installable on supported Python 3.10.
     "onnxruntime<1.24; python_version < '3.11'",
+    # Same Intel Mac floor as the desktop extra above.
+    "onnxruntime<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "numpy>=1.24",
     "sounddevice>=0.5",
     "soundfile>=0.12",
