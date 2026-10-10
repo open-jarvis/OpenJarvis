@@ -11,6 +11,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from openjarvis.cli import cli
@@ -134,6 +135,34 @@ class TestPidLiveness:
                 assert _read_pid() == proc.pid
 
             assert pid_file.exists()
+        finally:
+            proc.terminate()
+            proc.wait()
+
+    @pytest.mark.skipif(sys.platform != "linux", reason="Linux procfs start times")
+    def test_pid_reused_after_registration_does_not_block_or_get_signaled(
+        self, tmp_path
+    ):
+        from openjarvis.cli import daemon_cmd
+
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        pid_file = tmp_path / "server.pid"
+        state_file = tmp_path / "server.json"
+        try:
+            pid_file.write_text(str(proc.pid))
+            os.utime(pid_file, (time.time() - 120, time.time() - 120))
+            with (
+                patch.object(daemon_cmd, "_PID_FILE", pid_file),
+                patch.object(daemon_cmd, "_STATE_FILE", state_file),
+            ):
+                assert daemon_cmd._read_pid() is None
+                assert not pid_file.exists()
+                assert proc.poll() is None
+                pid_file.write_text(str(proc.pid))
+                os.utime(pid_file, (time.time() - 120, time.time() - 120))
+                daemon_cmd._write_pid(os.getpid(), "127.0.0.1", 8000)
+                assert daemon_cmd._read_pid() == os.getpid()
+                assert proc.poll() is None
         finally:
             proc.terminate()
             proc.wait()
