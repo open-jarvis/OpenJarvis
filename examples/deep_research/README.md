@@ -103,9 +103,9 @@ turns.
 
 ## Further Reading
 
-- [Architecture: Agents](../../CLAUDE.md) -- agent hierarchy (`BaseAgent`,
+- [Architecture: Agents](../../docs/architecture/agents.md) -- agent hierarchy (`BaseAgent`,
   `ToolUsingAgent`, `OrchestratorAgent`) and the `accepts_tools` mechanism.
-- [Architecture: Tools](../../CLAUDE.md) -- tool registry, MCP adapter, and
+- [Architecture: Tools](../../docs/user-guide/tools.md) -- tool registry, MCP adapter, and
   the `ToolExecutor` dispatch pipeline.
 - [Recipes](../../src/openjarvis/recipes/) -- composable TOML configs that
   wire all five pillars.
