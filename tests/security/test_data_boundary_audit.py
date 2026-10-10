@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import os
 
 import pytest
@@ -335,6 +336,23 @@ def test_web_search_tool_and_tavily_env_are_correlated(
     assert findings["web-search-tool-configured"].status == "warn"
     assert findings["env-credential-tavily_api_key"].status == "warn"
     assert "secret-value" not in str(report.to_dict(show_paths=True))
+
+
+def test_firecrawl_web_search_data_path_includes_url_lookups(tmp_path, monkeypatch):
+    """With Firecrawl, URL queries are scraped by the service rather than
+    fetched locally, so the finding has to say URLs leave the machine too."""
+    config = _low_noise_config()
+    config.tools.enabled = "web_search"
+    for key in ("TAVILY_API_KEY", "YOUDOTCOM_API_KEY", "SERPLY_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
+
+    report = build_data_boundary_report(config, tmp_path)
+
+    findings = {finding.id: finding for finding in report.findings}
+    path = findings["web-search-tool-configured"].potential_data_path
+    assert path == "user or agent search query and URL lookups -> Firecrawl search API"
 
 
 def test_mcp_servers_are_flagged_when_non_empty(tmp_path):
@@ -1354,6 +1372,8 @@ class TestWebSearchDestination:
             "YOUDOTCOM_API_KEY",
             "SERPLY_API_KEY",
             "SERPLY_PROXY_LOCATION",
+            "FIRECRAWL_API_KEY",
+            "FIRECRAWL_API_URL",
             "OPENJARVIS_WEB_SEARCH_ENGINE",
         ):
             monkeypatch.delenv(key, raising=False)
@@ -1403,6 +1423,33 @@ class TestWebSearchDestination:
         monkeypatch.setenv("SERPLY_PROXY_LOCATION", "DE")
         assert "region DE" in _web_search_destination()
 
+    def test_firecrawl_is_named(self, monkeypatch):
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
+        assert _web_search_destination() == "Firecrawl search API"
+
+    def test_firecrawl_self_hosted_names_only_the_host(self, monkeypatch):
+        """A self-hosted instance keeps queries off the hosted API, so the
+        audit says so, without echoing a URL that may carry credentials."""
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
+        monkeypatch.setenv("FIRECRAWL_API_URL", "https://user:pw@fc.internal:3002/")
+        destination = _web_search_destination()
+        assert destination.startswith("Firecrawl search API (self-hosted at ")
+        assert "fc.internal;" in destination
+        assert "pw" not in destination
+
+    def test_keyless_self_hosted_firecrawl_is_named(self, monkeypatch):
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("FIRECRAWL_API_URL", "http://localhost:3002")
+        assert "self-hosted at localhost" in _web_search_destination()
+
     def test_matches_the_tool_resolution(self, monkeypatch):
         """Guard against the audit's copy of the precedence rule drifting from
         WebSearchTool._resolve_engine, which is the source of truth."""
@@ -1414,23 +1461,34 @@ class TestWebSearchDestination:
             "tavily": "Tavily",
             "duckduckgo": "DuckDuckGo",
             "serply": "Serply",
+            "firecrawl": "Firecrawl",
         }
-        engines = (None, "auto", "youcom", "tavily", "duckduckgo", "serply")
-        for tavily in (None, "tvly-key"):
-            for youcom in (None, "ydc-key"):
-                for serply in (None, "srp-key"):
-                    for engine in engines:
-                        self._clear(monkeypatch)
-                        if tavily:
-                            monkeypatch.setenv("TAVILY_API_KEY", tavily)
-                        if youcom:
-                            monkeypatch.setenv("YOUDOTCOM_API_KEY", youcom)
-                        if serply:
-                            monkeypatch.setenv("SERPLY_API_KEY", serply)
-                        if engine:
-                            monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", engine)
-                        resolved = WebSearchTool()._resolve_engine()
-                        assert labels[resolved] in _web_search_destination(), (
-                            f"tavily={tavily} youcom={youcom} serply={serply} "
-                            f"engine={engine}"
-                        )
+        engines = (
+            None,
+            "auto",
+            "youcom",
+            "tavily",
+            "duckduckgo",
+            "serply",
+            "firecrawl",
+        )
+        keys = (
+            ("TAVILY_API_KEY", "tvly-key"),
+            ("YOUDOTCOM_API_KEY", "ydc-key"),
+            ("SERPLY_API_KEY", "srp-key"),
+            ("FIRECRAWL_API_KEY", "fc-test"),
+            ("FIRECRAWL_API_URL", "http://localhost:3002"),
+        )
+        for present in itertools.product((False, True), repeat=len(keys)):
+            for engine in engines:
+                self._clear(monkeypatch)
+                for (name, value), is_set in zip(keys, present):
+                    if is_set:
+                        monkeypatch.setenv(name, value)
+                if engine:
+                    monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", engine)
+                resolved = WebSearchTool()._resolve_engine()
+                set_vars = [name for (name, _), is_set in zip(keys, present) if is_set]
+                assert labels[resolved] in _web_search_destination(), (
+                    f"set={set_vars} engine={engine}"
+                )
