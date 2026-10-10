@@ -1591,7 +1591,12 @@ class SessionConfig:
 
 @dataclass(slots=True)
 class A2AConfig:
-    """Agent-to-Agent protocol settings."""
+    """Settings for A2A integrations and configuration diagnostics.
+
+    The built-in ``jarvis serve`` app does not mount A2A endpoints; ``enabled``
+    does not change that app's route surface. Library integrations using
+    ``A2AServer`` must configure their transport and authentication explicitly.
+    """
 
     enabled: bool = False
     # Bearer token required for inbound A2A requests. Empty = unauthenticated
