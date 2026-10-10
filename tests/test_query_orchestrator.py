@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+from unittest.mock import patch
 
 import pytest
 
+from openjarvis.agents._stubs import AgentResult
 from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import EventBus
+from openjarvis.core.types import Message, Role
 from openjarvis.system import QueryOrchestrator
 
 
@@ -143,3 +146,37 @@ class TestDetectAgentIntent:
         system = _FakeSystem()
         orchestrator = QueryOrchestrator(system)
         assert orchestrator._detect_agent_intent("what's the weather") is None
+
+
+class TestRunAgentPersonaWiring:
+    @staticmethod
+    def _run(system_prompt: Optional[str]) -> Dict[str, Any]:
+        seen: Dict[str, Any] = {}
+
+        class _Agent:
+            mode = "function_calling"
+
+            def __init__(self, engine, model, *, prompt_builder=None, **_):
+                seen["prompt_builder"] = prompt_builder
+
+            def run(self, *_, **__):
+                return AgentResult(content="hi", turns=1)
+
+        orch = QueryOrchestrator(_FakeSystem())
+        with patch("openjarvis.core.registry.AgentRegistry.get", return_value=_Agent):
+            orch._run_agent(
+                "hi",
+                [Message(role=Role.USER, content="hi")],
+                "orchestrator",
+                None,
+                0.7,
+                1024,
+                system_prompt=system_prompt,
+            )
+        return seen
+
+    def test_channel_turn_gets_the_persona_prompt_builder(self):
+        assert self._run(None)["prompt_builder"] is not None
+
+    def test_explicit_system_prompt_is_not_replaced(self):
+        assert self._run("custom prompt")["prompt_builder"] is None
