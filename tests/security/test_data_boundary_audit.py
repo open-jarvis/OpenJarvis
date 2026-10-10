@@ -17,6 +17,7 @@ from openjarvis.security.data_boundary_audit import (
     GENERIC_NETWORK_TOOLS,
     KNOWLEDGE_ENGINE_TOOLS,
     LOCAL_ACCESS_TOOLS,
+    MARKET_DATA_TOOLS,
     OUTBOUND_TOOL_SURFACES,
     RUNTIME_CREDENTIAL_ENV_KEYS,
     WEATHER_TOOLS,
@@ -35,6 +36,7 @@ EXPECTED_BROWSER_TOOLS = {
 
 EXPECTED_GENERIC_NETWORK_TOOLS = {"http_request"}
 EXPECTED_WEATHER_TOOLS = {"get_weather"}
+EXPECTED_MARKET_DATA_TOOLS = {"fx_macro_data"}
 EXPECTED_CHANNEL_OUTBOUND_TOOLS = {"channel_send"}
 EXPECTED_CLOUD_MEDIA_TOOLS = {
     "audio_transcribe",
@@ -91,6 +93,7 @@ CLASSIFIED_TOOLS = (
     | BROWSER_TOOLS
     | GENERIC_NETWORK_TOOLS
     | WEATHER_TOOLS
+    | MARKET_DATA_TOOLS
     | CHANNEL_OUTBOUND_TOOLS
     | CLOUD_MEDIA_TOOLS
     | KNOWLEDGE_ENGINE_TOOLS
@@ -754,6 +757,36 @@ def test_weather_tool_produces_outbound_warn(tmp_path, tool_name):
     assert tool_name in finding.evidence
     assert "location query" in finding.potential_data_path
     assert "OPENWEATHERMAP_API_KEY" not in str(payload)
+
+
+def test_market_data_tool_produces_outbound_warn(tmp_path):
+    assert EXPECTED_MARKET_DATA_TOOLS <= MARKET_DATA_TOOLS <= OUTBOUND_TOOL_SURFACES
+    config = _low_noise_config()
+    config.tools.enabled = "fx_macro_data"
+
+    report = build_data_boundary_report(config, tmp_path)
+    findings = {finding.id: finding for finding in report.findings}
+
+    finding = findings["market-data-tool-configured"]
+    assert finding.status == "warn"
+    assert "fx_macro_data" in finding.evidence
+    assert "FXMacroData" in finding.potential_data_path
+
+
+def test_fxmacrodata_api_key_presence_is_reported_without_value(tmp_path, monkeypatch):
+    config = _low_noise_config()
+    config.tools.enabled = "fx_macro_data"
+    secret = "fxmacrodata-key-that-must-not-leak"
+    monkeypatch.setenv("FXMACRODATA_API_KEY", secret)
+
+    report = build_data_boundary_report(config, tmp_path)
+    payload = report.to_dict(show_paths=True)
+    findings = {finding.id: finding for finding in report.findings}
+
+    finding = findings["env-credential-fxmacrodata_api_key"]
+    assert finding.status == "warn"
+    assert "FXMACRODATA_API_KEY is set" in finding.evidence
+    assert secret not in str(payload)
 
 
 def test_openweathermap_api_key_presence_is_reported_without_value(

@@ -26,6 +26,8 @@ EXPECTED_TOOLS = {
     "web_search",
     # weather.py
     "get_weather",
+    # fx_macro.py
+    "fx_macro_data",
     # code_interpreter.py
     "code_interpreter",
     # code_interpreter_docker.py

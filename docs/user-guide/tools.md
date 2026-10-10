@@ -189,6 +189,7 @@ All built-in tools are registered via `@ToolRegistry.register()` and are availab
 | **Code** | `repl` | Persistent Python REPL with state across calls |
 | **Search** | `web_search` | Web search returning result summaries |
 | **Weather** | `get_weather` | Dynamic current conditions and forecast via OpenWeatherMap |
+| **Finance** | `fx_macro_data` | Official macro releases, release calendars and FX rates via FXMacroData |
 | **File I/O** | `file_read` | Read file contents with safety validations |
 | **HTTP** | `http_request` | Make HTTP requests with SSRF protection |
 | **Memory** | `retrieval` | Search the memory backend for relevant context |
@@ -414,6 +415,43 @@ enabled = "get_weather"
 
 For example, an agent can call `get_weather` with `location="Vienna,AT"`,
 `language="de"`, and `include_forecast=true`.
+
+### FX and Macro Data
+
+**Registry key:** `fx_macro_data` | **Category:** `finance`
+
+Looks up official central-bank and statistics-office data through the
+[FXMacroData](https://fxmacrodata.com/documentation) REST API: an indicator's
+release history (CPI, policy rate, payrolls, GDP), the upcoming release
+calendar, the indicators published for a currency, and daily FX rates. Only the
+currency codes, indicator names and dates in the call leave the machine.
+
+It works without a key for USD releases from the last 90 days (published with a
+15-minute delay), the USD release calendar and every currency's indicator
+catalogue. Keyless results carry those limits in a `notices` list. Set
+`FXMACRODATA_API_KEY`, or save it through the tool credentials API/UI, for other
+currencies, full history, real-time releases and FX rates. The key is sent as an
+`X-API-Key` header, redirects are refused, and the key never appears in results
+or errors.
+
+```toml
+[tools]
+enabled = "fx_macro_data"
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | Yes | `indicator_history`, `release_calendar`, `indicator_catalogue`, or `fx_rates` |
+| `currency` | string | For all but `fx_rates` | Three-letter code such as `USD` |
+| `indicator` | string | For `indicator_history` | Slug such as `inflation` or `policy_rate`; optional filter for `release_calendar` |
+| `base`, `quote` | string | For `fx_rates` | Currency pair such as `EUR` and `USD` |
+| `start_date`, `end_date` | string | No | `YYYY-MM-DD` bounds for history and FX rates |
+| `limit` | integer | No | Rows to return, 1 to 100 (default: 20) |
+
+For calendar rows, `reference_period` is the period the figure describes, and
+`release_time_utc` is when it is published.
 
 ### CodeInterpreter
 

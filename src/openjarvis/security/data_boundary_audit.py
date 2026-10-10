@@ -58,6 +58,10 @@ API_KEY_ENV_VARS = {
         {"cartesia", "text_to_speech"},
     ),
     "DEEPSEEK_API_KEY": ("DeepSeek cloud inference", {"deepseek"}),
+    "FXMACRODATA_API_KEY": (
+        "FXMacroData macro and FX data lookup",
+        {"fx_macro_data", "fxmacrodata"},
+    ),
     "GEMINI_API_KEY": ("Google/Gemini cloud inference", {"google", "gemini"}),
     "GOOGLE_API_KEY": ("Google/Gemini cloud inference", {"google", "gemini"}),
     "MINIMAX_API_KEY": ("MiniMax cloud inference", {"minimax"}),
@@ -217,6 +221,7 @@ BROWSER_TOOLS = {
 }
 GENERIC_NETWORK_TOOLS = {"http_request"}
 WEATHER_TOOLS = {"get_weather"}
+MARKET_DATA_TOOLS = {"fx_macro_data"}
 CHANNEL_OUTBOUND_TOOLS = {"channel_send"}
 CLOUD_MEDIA_TOOLS = {"audio_transcribe", "image_generate", "text_to_speech"}
 CLOUD_TTS_BACKENDS = {"cartesia", "openai", "openai_tts"}
@@ -228,12 +233,15 @@ EXTERNAL_TOOL_SURFACES = (
     | BROWSER_TOOLS
     | GENERIC_NETWORK_TOOLS
     | WEATHER_TOOLS
+    | MARKET_DATA_TOOLS
     | CHANNEL_OUTBOUND_TOOLS
     | CLOUD_MEDIA_TOOLS
     | KNOWLEDGE_ENGINE_TOOLS
 )
 # Narrower cloud inference / media API key surfaces (not browser-only egress).
-CLOUD_API_SURFACES = CLOUD_MEDIA_TOOLS | WEB_SEARCH_TOOLS | WEATHER_TOOLS
+CLOUD_API_SURFACES = (
+    CLOUD_MEDIA_TOOLS | WEB_SEARCH_TOOLS | WEATHER_TOOLS | MARKET_DATA_TOOLS
+)
 OUTBOUND_TOOL_SURFACES = EXTERNAL_TOOL_SURFACES
 LOCAL_ACCESS_TOOLS = {
     "apply_patch",
@@ -1005,6 +1013,23 @@ def _audit_tool_surfaces(config: Any, builder: _FindingBuilder) -> None:
             recommendation=(
                 "Avoid sending sensitive or precise locations unless the external "
                 "weather lookup is intentional."
+            ),
+        )
+
+    if tools & MARKET_DATA_TOOLS:
+        builder.add(
+            finding_id="market-data-tool-configured",
+            status="warn",
+            title="External market data lookup tool is configured",
+            potential_data_path=(
+                "currency, indicator and date arguments -> FXMacroData API"
+            ),
+            evidence=(
+                f"configured tool(s) = {_format_tools(tools & MARKET_DATA_TOOLS)}"
+            ),
+            recommendation=(
+                "Only currency codes, indicator names and dates leave the machine; "
+                "keep the tool disabled if no external lookup is wanted."
             ),
         )
 
