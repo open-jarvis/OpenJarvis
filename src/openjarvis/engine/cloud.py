@@ -757,7 +757,8 @@ class CloudEngine(InferenceEngine):
         create_kwargs: Dict[str, Any] = {
             "model": model,
             "messages": chat_msgs,
-            "temperature": temperature,
+            # Anthropic SDK v1 moved legacy sampling parameters to extra_body.
+            "extra_body": {"temperature": temperature},
             "max_tokens": max_tokens,
         }
         if system_text:
@@ -1436,7 +1437,8 @@ class CloudEngine(InferenceEngine):
         create_kwargs: Dict[str, Any] = {
             "model": model,
             "messages": chat_msgs,
-            "temperature": temperature,
+            # Anthropic SDK v1 moved legacy sampling parameters to extra_body.
+            "extra_body": {"temperature": temperature},
             "max_tokens": max_tokens,
         }
         if system_text:
@@ -1895,7 +1897,8 @@ class CloudEngine(InferenceEngine):
         create_kwargs: Dict[str, Any] = {
             "model": model,
             "messages": chat_msgs,
-            "temperature": temperature,
+            # Anthropic SDK v1 moved legacy sampling parameters to extra_body.
+            "extra_body": {"temperature": temperature},
             "max_tokens": max_tokens,
         }
         if system_text:

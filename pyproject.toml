@@ -55,7 +55,8 @@ dev = [
     "pre-commit>=3.0",
 ]
 inference-mlx = ["mlx-lm>=0.31.1; sys_platform == 'darwin'"]
-inference-vllm = ["vllm>=0.16.0"]
+# Keep dependency refreshes from downgrading the validated inference stack.
+inference-vllm = ["vllm>=0.30.0"]
 inference-cloud = [
     "openai>=1.30",
     "anthropic>=0.30",
@@ -65,7 +66,7 @@ inference-google = [
 ]
 # Exact security pin covering the LiteLLM command-injection advisories.
 # Avoid 1.82.7/1.82.8, which were affected by the March supply-chain incident.
-inference-litellm = ["litellm==1.103.0"]
+inference-litellm = ["litellm==1.104.0"]
 inference-gemma = ["pygemma>=0.1.3"]
 tools-search = [
     "tavily-python>=0.3",
