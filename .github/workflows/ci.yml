@@ -64,7 +64,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --extra dev --extra framework-comparison --extra server
+        run: uv sync --extra dev --extra framework-comparison --extra server --extra inference-cloud
 
       - name: Build Rust extension
         run: uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
