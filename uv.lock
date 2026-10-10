@@ -5075,6 +5075,7 @@ dashboard = [
     { name = "textual" },
 ]
 desktop = [
+    { name = "av" },
     { name = "fastapi" },
     { name = "faster-whisper" },
     { name = "numpy" },
@@ -5202,6 +5203,7 @@ server = [
     { name = "uvicorn" },
 ]
 speech = [
+    { name = "av" },
     { name = "faster-whisper" },
     { name = "numpy" },
     { name = "onnxruntime", version = "1.23.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -5236,6 +5238,8 @@ requires-dist = [
     { name = "amdsmi", marker = "extra == 'energy-amd'", specifier = ">=6.1" },
     { name = "anthropic", marker = "extra == 'inference-cloud'", specifier = ">=0.30" },
     { name = "apple-fm-sdk", marker = "sys_platform == 'darwin' and extra == 'afm'", specifier = ">=0.2.1" },
+    { name = "av", marker = "extra == 'desktop'", specifier = ">=11,<19" },
+    { name = "av", marker = "extra == 'speech'", specifier = ">=11,<19" },
     { name = "click", specifier = ">=8" },
     { name = "colbert-ai", marker = "extra == 'memory-colbert'", specifier = ">=0.2" },
     { name = "croniter", specifier = ">=2.0" },
