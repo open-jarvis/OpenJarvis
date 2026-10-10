@@ -74,16 +74,16 @@ def test_kokoro_registered():
 
 
 def test_kokoro_health_false_without_package():
+    import importlib.util
+
     from openjarvis.speech.kokoro_tts import KokoroTTSBackend
 
     # The assertion only holds when kokoro is genuinely absent. With the
     # optional `voice` extra installed, health() legitimately returns True
-    # (and warming the pipeline would hit the HF Hub), so skip instead.
-    try:
-        import kokoro  # noqa: F401
-    except ImportError:
-        pass
-    else:
+    # (and loading the model would hit the HF Hub), so skip instead. Check
+    # for the package without importing it: an installed kokoro whose spaCy
+    # cannot load still counts as installed.
+    if importlib.util.find_spec("kokoro") is not None:
         pytest.skip("kokoro installed (openjarvis[voice]); health() is True")
 
     backend = KokoroTTSBackend()
@@ -399,6 +399,122 @@ def test_kokoro_reuses_model_and_honors_path_and_device(monkeypatch):
     assert model_inits == [{"model": "/models/kokoro.pth"}]
     assert model_devices == ["cpu"]
     assert pipeline_models[0][1] is pipeline_models[1][1]
+
+
+class _FakeKModel:
+    def to(self, _device):
+        return self
+
+    def eval(self):
+        return self
+
+
+def _serve_kokoro_importing_spacy(monkeypatch, kpipeline, *, missing_dep=None):
+    """Serve a fake ``kokoro`` that imports spaCy on load, like the real one
+    (``kokoro.pipeline`` -> ``misaki.en`` -> ``spacy``)."""
+    import importlib.abc
+    import importlib.util
+    import sys
+
+    class Finder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+        def find_spec(self, name, path=None, target=None):
+            if name != "kokoro":
+                return None
+            return importlib.util.spec_from_loader(name, self)
+
+        def create_module(self, spec):
+            return None
+
+        def exec_module(self, module):
+            import spacy  # noqa: F401
+
+            if missing_dep:
+                raise ModuleNotFoundError(
+                    f"No module named {missing_dep!r}", name=missing_dep
+                )
+            module.KModel = _FakeKModel
+            module.KPipeline = kpipeline
+
+    monkeypatch.setattr(sys, "meta_path", [Finder(), *sys.meta_path])
+    # setitem records the original entry so it is restored after the test;
+    # delitem then makes ``import kokoro`` go through the finder above.
+    monkeypatch.setitem(sys.modules, "kokoro", None)
+    monkeypatch.delitem(sys.modules, "kokoro")
+
+
+def test_kokoro_tolerates_unloadable_spacy_for_non_english_voices(monkeypatch):
+    """A spaCy that cannot load (e.g. DLLs blocked by Windows Smart App
+    Control) must not take down voices whose G2P never uses it."""
+    import sys
+
+    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    pipelines = []
+
+    class FakeKPipeline:
+        def __init__(self, lang_code, model):
+            pipelines.append(lang_code)
+
+    _serve_kokoro_importing_spacy(monkeypatch, FakeKPipeline)
+    monkeypatch.setitem(sys.modules, "spacy", None)  # import spacy -> ImportError
+
+    KokoroTTSBackend(device="cpu")._ensure_pipeline("p")
+
+    assert pipelines == ["p"]
+    assert not hasattr(sys.modules["spacy"], "load")  # a stub, not real spaCy
+
+
+def test_kokoro_unloadable_spacy_stub_is_removed_if_kokoro_still_fails(
+    monkeypatch,
+):
+    """When something besides spaCy breaks the import, the stub must not
+    linger in ``sys.modules`` and the backend stays unhealthy."""
+    import sys
+
+    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    _serve_kokoro_importing_spacy(monkeypatch, object, missing_dep="torch")
+    monkeypatch.setitem(sys.modules, "spacy", None)
+
+    assert KokoroTTSBackend(device="cpu").health() is False
+    assert sys.modules.get("spacy") is None
+
+
+def test_kokoro_missing_package_leaves_spacy_alone(monkeypatch):
+    """No kokoro at all is a plain 'not installed' -- spaCy is not touched."""
+    import sys
+
+    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    monkeypatch.setitem(sys.modules, "kokoro", None)
+    monkeypatch.setitem(sys.modules, "spacy", None)
+
+    assert KokoroTTSBackend().health() is False
+    assert sys.modules["spacy"] is None
+
+
+def test_kokoro_health_does_not_build_english_pipeline(monkeypatch):
+    """health() checks the shared model only: a broken English G2P (spaCy +
+    en_core_web_sm) must not mark every other language unhealthy."""
+    import sys
+    import types
+
+    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    pipelines = []
+
+    class FakeKPipeline:
+        def __init__(self, lang_code, model):
+            pipelines.append(lang_code)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "kokoro",
+        types.SimpleNamespace(KModel=_FakeKModel, KPipeline=FakeKPipeline),
+    )
+
+    assert KokoroTTSBackend(device="cpu").health() is True
+    assert pipelines == []
 
 
 # ---------------------------------------------------------------------------
