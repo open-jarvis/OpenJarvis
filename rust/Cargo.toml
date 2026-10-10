@@ -20,13 +20,9 @@ members = [
     "crates/openjarvis-scheduler",
 ]
 
-# Minimum supported Rust version. The workspace uses let-chains (via rig-core)
-# and `is_multiple_of` (openjarvis-skills), both stabilized in Rust 1.88 —
-# building on 1.86/1.87 fails with cryptic E0658 errors deep in dependencies
-# (see #252). Declared here and pinned in rust-toolchain.toml so users get a
-# clear "requires rustc 1.88" signal instead.
+# uuid 1.27 requires Rust 1.89; keep this aligned with rust-toolchain.toml.
 [workspace.package]
-rust-version = "1.88"
+rust-version = "1.89"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -52,5 +48,5 @@ tokio-stream = "0.1"
 ed25519-dalek = { version = "3", features = ["rand_core"] }
 fnmatch-regex = "0.2"
 url = "2"
-rig-core = "0.43"
+rig-core = "0.31"
 schemars = "1"
