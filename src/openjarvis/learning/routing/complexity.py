@@ -36,16 +36,28 @@ _REASONING_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 _MULTI_STEP_PATTERNS = re.compile(
-    r"\bthen\b.*\bthen\b|\bfirst\b.*\bnext\b|\bstep\s*\d"
+    r"\bstep\s*\d"
     r"|\b(?:and\s+also|additionally|furthermore)\b"
     r"|\b\d+\.\s",
     re.IGNORECASE | re.DOTALL,
 )
 _CREATIVE_PATTERNS = re.compile(
-    r"\bwrite\b.*\b(?:essay|story|article|report|poem)\b"
-    r"|\bgenerate\b.*\b(?:code|script|program)\b"
-    r"|\bcreate\b|\bdesign\b|\bdraft\b|\bcompose\b",
+    r"\bcreate\b|\bdesign\b|\bdraft\b|\bcompose\b",
     re.IGNORECASE,
+)
+_MULTI_STEP_PAIRS = (
+    (re.compile(r"\bthen\b", re.IGNORECASE), re.compile(r"\bthen\b", re.IGNORECASE)),
+    (re.compile(r"\bfirst\b", re.IGNORECASE), re.compile(r"\bnext\b", re.IGNORECASE)),
+)
+_CREATIVE_PAIRS = (
+    (
+        re.compile(r"\bwrite\b", re.IGNORECASE),
+        re.compile(r"\b(?:essay|story|article|report|poem)\b", re.IGNORECASE),
+    ),
+    (
+        re.compile(r"\bgenerate\b", re.IGNORECASE),
+        re.compile(r"\b(?:code|script|program)\b", re.IGNORECASE),
+    ),
 )
 
 # Models known to use internal chain-of-thought that consumes output tokens.
@@ -96,6 +108,12 @@ def _count_sub_tasks(query: str) -> int:
     return numbered + bulleted
 
 
+def _ordered_words(text: str, first: re.Pattern[str], second: re.Pattern[str]) -> bool:
+    """Check word order without rescanning the suffix for each opening word."""
+    opening = first.search(text)
+    return opening is not None and second.search(text, opening.end()) is not None
+
+
 def score_complexity(query: str) -> ComplexityResult:
     """Score a query's complexity from 0.0 (trivial) to 1.0 (very complex).
 
@@ -139,7 +157,9 @@ def score_complexity(query: str) -> ComplexityResult:
 
     # --- Reasoning signal (0–0.25) ---
     has_reasoning = bool(_REASONING_PATTERNS.search(query))
-    has_multi_step = bool(_MULTI_STEP_PATTERNS.search(query))
+    has_multi_step = bool(_MULTI_STEP_PATTERNS.search(query)) or any(
+        _ordered_words(query, first, second) for first, second in _MULTI_STEP_PAIRS
+    )
     reasoning_score = 0.0
     if has_reasoning:
         reasoning_score = 0.6
@@ -168,7 +188,11 @@ def score_complexity(query: str) -> ComplexityResult:
     score += 0.15 * multi_score
 
     # --- Creative / generative signal (0–0.15) ---
-    has_creative = bool(_CREATIVE_PATTERNS.search(query))
+    has_creative = bool(_CREATIVE_PATTERNS.search(query)) or any(
+        _ordered_words(line, first, second)
+        for line in query.split("\n")
+        for first, second in _CREATIVE_PAIRS
+    )
     creative_score = 0.7 if has_creative else 0.0
     signals["creative"] = creative_score
     signals["has_creative"] = has_creative
