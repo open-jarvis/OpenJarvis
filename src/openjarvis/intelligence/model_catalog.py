@@ -1076,6 +1076,64 @@ BUILTIN_MODELS: List[ModelSpec] = [
         },
     ),
     # -----------------------------------------------------------------------
+    # Cloud models — Cheaper Inference (OpenAI-compatible gateway)
+    #
+    # IDs carry the "cheaperinference/" routing prefix the cloud engine
+    # dispatches on. Context lengths come from GET /v1/models.
+    # -----------------------------------------------------------------------
+    ModelSpec(
+        model_id="cheaperinference/gpt-5.4-mini",
+        name="GPT-5.4 Mini (Cheaper Inference)",
+        parameter_count_b=0.0,
+        context_length=400_000,
+        supported_engines=("cloud",),
+        provider="cheaperinference",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "url": "https://cheaperinference.com/#models",
+        },
+    ),
+    ModelSpec(
+        model_id="cheaperinference/gpt-5.4",
+        name="GPT-5.4 (Cheaper Inference)",
+        parameter_count_b=0.0,
+        context_length=1_000_000,
+        supported_engines=("cloud",),
+        provider="cheaperinference",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "url": "https://cheaperinference.com/#models",
+        },
+    ),
+    ModelSpec(
+        model_id="cheaperinference/claude-sonnet-5",
+        name="Claude Sonnet 5 (Cheaper Inference)",
+        parameter_count_b=0.0,
+        context_length=1_000_000,
+        supported_engines=("cloud",),
+        provider="cheaperinference",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "url": "https://cheaperinference.com/#models",
+        },
+    ),
+    ModelSpec(
+        model_id="cheaperinference/gemini-3.1-pro",
+        name="Gemini 3.1 Pro (Cheaper Inference)",
+        parameter_count_b=0.0,
+        context_length=1_048_576,
+        supported_engines=("cloud",),
+        provider="cheaperinference",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "url": "https://cheaperinference.com/#models",
+        },
+    ),
+    # -----------------------------------------------------------------------
     # Cloud models — Google
     # -----------------------------------------------------------------------
     ModelSpec(
