@@ -141,7 +141,8 @@ class TestCodeInterpreterTool:
         tool = CodeInterpreterTool()
         result = tool.execute(code="x = 42")
         assert result.success is True
-        assert result.content == "(no output)"
+        assert result.content.startswith("(no output)")
+        assert "print()" in result.content
 
     def test_tool_id(self):
         tool = CodeInterpreterTool()
