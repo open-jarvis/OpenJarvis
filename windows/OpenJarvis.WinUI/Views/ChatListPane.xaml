@@ -1,0 +1,80 @@
+<UserControl
+    x:Class="OpenJarvis.WinUI.Views.ChatListPane"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models">
+    <Grid Margin="8,8,8,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Button
+            x:Name="NewChatButton"
+            Content="New chat"
+            HorizontalAlignment="Stretch"
+            MinHeight="40"
+            Click="NewChat_Click"
+            AccessKey="N"
+            AutomationProperties.Name="Start a new chat"
+            Margin="0,0,0,8" />
+
+        <AutoSuggestBox
+            x:Name="ConversationSearchBox"
+            Grid.Row="1"
+            PlaceholderText="Search chats"
+            QueryIcon="Find"
+            TextChanged="ConversationSearchBox_TextChanged"
+            Margin="0,0,0,8"
+            AutomationProperties.Name="Search chats" />
+
+        <ListView
+            x:Name="ConversationList"
+            Grid.Row="2"
+            ScrollViewer.VerticalScrollBarVisibility="Auto"
+            SelectionChanged="ConversationList_SelectionChanged"
+            ContainerContentChanging="ConversationList_ContainerContentChanging"
+            AutomationProperties.Name="Conversation history">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="models:Conversation">
+                    <Grid Padding="4,4,0,4" ColumnSpacing="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{x:Bind Title, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock
+                                Text="{x:Bind Model}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <Button
+                            Grid.Column="1"
+                            MinWidth="36"
+                            MinHeight="36"
+                            Padding="8"
+                            VerticalAlignment="Center"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            PointerPressed="DeleteChat_PointerPressed"
+                            Click="DeleteChat_Click"
+                            Tag="{x:Bind Id}"
+                            ToolTipService.ToolTip="Delete chat"
+                            AutomationProperties.Name="Delete chat">
+                            <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                        </Button>
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <Border
+            Grid.Row="3"
+            Height="1"
+            Margin="0,8,0,4"
+            Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+    </Grid>
+</UserControl>

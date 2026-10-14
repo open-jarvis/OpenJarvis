@@ -114,7 +114,8 @@ host = "http://localhost:30000"
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `default` | string | Auto-detected | Default engine backend. Registered keys include `ollama`, `vllm`, `sglang`, `llamacpp`, `mlx`, `lmstudio`, `exo`, `nexa`, `uzu`, `apple_fm`, `afm`, `lemonade`, `nim`, `cloud`, `litellm`, and `gemma_cpp`. Optional engines are available only when their dependencies are installed. |
+| `default` | string | Auto-detected | Default engine backend. Registered keys include `ollama`, `vllm`, `sglang`, `llamacpp`, `mlx`, `lmstudio`, `exo`, `nexa`, `uzu`, `apple_fm`, `afm`, `lemonade`, `foundry_local`, `nim`, `cloud`, `litellm`, and `gemma_cpp`. Optional engines are available only when their dependencies are installed. |
+| `allow_cloud` | bool | `false` | When false, prompts stay on local engines even if cloud API keys are present. Settings in the WinUI app must opt in before cloud inference is attached. |
 
 **`[engine.ollama]`:**
 
@@ -140,6 +141,12 @@ host = "http://localhost:30000"
 |-------|------|---------|-------------|
 | `host` | string | `http://localhost:8080` | Base URL for the llama.cpp HTTP server (`llama-server`). |
 | `binary_path` | string | `""` | Path to the llama.cpp binary, if not on `$PATH`. |
+
+**`[engine.foundry_local]`:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `host` | string | discovered (`http://localhost:5273` fallback) | OpenAI-compatible base URL. Port is assigned when Foundry Local starts; the WinUI supervisor writes the live endpoint here. |
 
 !!! tip "Engine fallback"
     If the configured default engine is unreachable, OpenJarvis automatically probes all registered engines and falls back to any healthy one.
@@ -679,6 +686,7 @@ The detection result is stored as a `HardwareInfo` dataclass:
 @dataclass
 class HardwareInfo:
     platform: str      # "linux", "darwin", "windows"
+    arch: str          # e.g., "ARM64"
     cpu_brand: str     # e.g., "AMD EPYC 7763"
     cpu_count: int     # e.g., 128
     ram_gb: float      # e.g., 512.0
@@ -705,7 +713,9 @@ graph TD
     B -->|No| C[llamacpp]
     B -->|Yes| D{GPU vendor?}
     D -->|Apple| E[mlx]
-    D -->|NVIDIA| F{Datacenter GPU?}
+    D -->|NVIDIA| W{Windows ARM?}
+    W -->|Yes| FL[foundry_local]
+    W -->|No| F{Datacenter GPU?}
     D -->|AMD| G{Datacenter GPU?}
     F -->|Yes: A100, H100, H200, L40, A10, A30| H[vllm]
     F -->|No: consumer GPU| I[ollama]
@@ -717,6 +727,7 @@ graph TD
 |----------|--------------------|--------|
 | No GPU | `llamacpp` | Efficient CPU inference with GGUF quantized models |
 | Apple Silicon | `mlx` | Native inference through the MLX framework |
+| Windows ARM + NVIDIA (RTX Spark / N1X) | `foundry_local` | Foundry Local + Windows ML |
 | NVIDIA consumer GPU (RTX 3090, 4090, etc.) | `ollama` | Simple setup, good performance for single-user |
 | NVIDIA datacenter GPU (A100, H100, H200, L40, A10, A30) | `vllm` | High-throughput batched serving, continuous batching |
 | AMD consumer GPU | `lemonade` | Optimized support for AMD GPUs and Ryzen AI NPUs |

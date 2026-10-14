@@ -36,6 +36,7 @@ pub enum Engine {
     Nexa(OpenAICompatEngine),
     Uzu(OpenAICompatEngine),
     AppleFm(OpenAICompatEngine),
+    FoundryLocal(OpenAICompatEngine),
 }
 
 macro_rules! delegate_engine {
@@ -54,6 +55,7 @@ macro_rules! delegate_engine {
             Engine::Nexa(e) => e.$method($($arg),*),
             Engine::Uzu(e) => e.$method($($arg),*),
             Engine::AppleFm(e) => e.$method($($arg),*),
+            Engine::FoundryLocal(e) => e.$method($($arg),*),
         }
     };
 }
@@ -97,6 +99,7 @@ impl InferenceEngine for Engine {
             Engine::Nexa(e) => e.stream(messages, model, temperature, max_tokens, extra).await,
             Engine::Uzu(e) => e.stream(messages, model, temperature, max_tokens, extra).await,
             Engine::AppleFm(e) => e.stream(messages, model, temperature, max_tokens, extra).await,
+            Engine::FoundryLocal(e) => e.stream(messages, model, temperature, max_tokens, extra).await,
         }
     }
 
@@ -134,6 +137,7 @@ impl Engine {
             Engine::Nexa(_) => "nexa",
             Engine::Uzu(_) => "uzu",
             Engine::AppleFm(_) => "apple_fm",
+            Engine::FoundryLocal(_) => "foundry_local",
         }
     }
 }
@@ -182,6 +186,15 @@ mod tests {
         let e = Engine::AppleFm(OpenAICompatEngine::apple_fm("http://localhost:8079"));
         assert_eq!(e.variant_key(), "apple_fm");
         assert_eq!(e.engine_id(), "apple_fm");
+    }
+
+    #[test]
+    fn test_engine_foundry_local_variant() {
+        let e = Engine::FoundryLocal(OpenAICompatEngine::foundry_local(
+            "http://localhost:5273",
+        ));
+        assert_eq!(e.variant_key(), "foundry_local");
+        assert_eq!(e.engine_id(), "foundry_local");
     }
 
     #[test]

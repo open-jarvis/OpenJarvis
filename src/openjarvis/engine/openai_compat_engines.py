@@ -16,6 +16,8 @@ _ENGINES = {
     "uzu": ("UzuEngine", "http://localhost:8000", ""),
     "apple_fm": ("AppleFmEngine", "http://localhost:8079", "/v1"),
     "lemonade": ("LemonadeEngine", "http://localhost:13305", "/v1"),
+    # foundry_local is registered in foundry_local.py so it can discover the
+    # dynamic Foundry port and fail closed on missing tool calling.
 }
 
 for _key, (_cls_name, _default_host, _api_prefix) in _ENGINES.items():

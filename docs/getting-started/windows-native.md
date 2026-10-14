@@ -1,5 +1,9 @@
 # Native Windows (advanced)
 
+For the unpackaged WinUI 3 ARM64 app (end users, Surface Laptop Ultra), see
+[WinUI 3 desktop (ARM64)](windows-winui.md). This page is the PowerShell
+backend installer only.
+
 Phase-1 of the native-Windows-support RFC (#298). Mirrors the Linux
 (systemd) and macOS (launchd) deployments — but for PowerShell, without
 WSL2 or Docker. Choose this over [WSL2](wsl2.md) only if you want to

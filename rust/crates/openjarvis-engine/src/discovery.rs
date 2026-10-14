@@ -41,6 +41,7 @@ pub fn discover_engines(config: &JarvisConfig) -> Vec<EngineInfo> {
         ("nexa", &config.engine.nexa.host),
         ("uzu", &config.engine.uzu.host),
         ("apple_fm", &config.engine.apple_fm.host),
+        ("foundry_local", &config.engine.foundry_local.host),
     ];
 
     for (name, host) in compat_engines {
@@ -101,6 +102,9 @@ pub fn get_engine_static(
         ))),
         "apple_fm" => Ok(Engine::AppleFm(OpenAICompatEngine::apple_fm(
             &config.engine.apple_fm.host,
+        ))),
+        "foundry_local" => Ok(Engine::FoundryLocal(OpenAICompatEngine::foundry_local(
+            &config.engine.foundry_local.host,
         ))),
         other => Err(OpenJarvisError::Engine(
             openjarvis_core::error::EngineError::ModelNotFound(format!(

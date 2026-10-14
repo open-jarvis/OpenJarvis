@@ -1,0 +1,16 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <Platform>ARM64</Platform>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <PublishDir Condition="'$(PublishDir)' == ''">..\OpenJarvis.WinUI\bin\publish\win-arm64</PublishDir>
+    <DefineConstants>PublishDir=$(PublishDir)</DefineConstants>
+    <!-- WinUI satellite .mui Language metadata trips ICE03; safe to suppress for this harvest. -->
+    <SuppressIces>ICE03</SuppressIces>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Package.wxs" />
+    <Compile Include="Files.wxs" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+  </ItemGroup>
+</Project>

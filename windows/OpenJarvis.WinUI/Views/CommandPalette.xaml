@@ -1,0 +1,62 @@
+<UserControl
+    x:Class="OpenJarvis.WinUI.Views.CommandPalette"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models">
+    <Grid Background="#80000000" Tapped="Scrim_Tapped">
+        <Border
+            Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            MaxWidth="560"
+            MaxHeight="480"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Margin="0,-160,0,0"
+            Tapped="Panel_Tapped">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBox
+                    x:Name="FilterBox"
+                    Grid.Row="0"
+                    PlaceholderText="Jump to a page, conversation, model, or agent…"
+                    BorderThickness="0,0,0,1"
+                    Padding="12,12"
+                    TextChanged="FilterBox_TextChanged"
+                    KeyDown="FilterBox_KeyDown"
+                    AutomationProperties.Name="Command palette filter" />
+                <ListView
+                    x:Name="ResultsList"
+                    Grid.Row="1"
+                    SelectionMode="Single"
+                    IsItemClickEnabled="True"
+                    ItemClick="ResultsList_ItemClick"
+                    AutomationProperties.Name="Command palette results">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:PaletteItem">
+                            <Grid ColumnSpacing="10" Padding="12,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon Grid.Column="0" FontSize="14" Glyph="{x:Bind Glyph}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="{x:Bind Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    Grid.Column="2"
+                                    Text="{x:Bind Subtitle}"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Opacity="0.6"
+                                    VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

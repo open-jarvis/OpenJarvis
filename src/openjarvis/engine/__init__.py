@@ -6,6 +6,7 @@ import importlib
 import logging
 
 # Import engine modules to trigger @EngineRegistry.register() decorators
+import openjarvis.engine.foundry_local  # noqa: F401
 import openjarvis.engine.nim  # noqa: F401
 import openjarvis.engine.ollama  # noqa: F401
 import openjarvis.engine.openai_compat_engines  # noqa: F401

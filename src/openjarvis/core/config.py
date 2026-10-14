@@ -86,10 +86,13 @@ class HardwareInfo:
     """Detected system hardware."""
 
     platform: str = ""
+    arch: str = ""
     cpu_brand: str = ""
     cpu_count: int = 0
     ram_gb: float = 0.0
     gpu: Optional[GpuInfo] = None
+    execution_provider: str = ""
+    execution_provider_fallback: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -192,12 +195,54 @@ def _detect_apple_gpu() -> Optional[GpuInfo]:
     return GpuInfo(vendor="apple", name="Apple Silicon", vram_gb=ram_gb, count=1)
 
 
+def _detect_windows_arm_nvidia() -> Optional[GpuInfo]:
+    """Detect NVIDIA SoCs on Windows ARM when nvidia-smi is missing.
+
+    Surface Laptop Ultra (NVIDIA RTX Spark N1X) reports unified CPU/GPU/NPU
+    memory. Treat the package as an NVIDIA GPU so engine recommendation can
+    select Foundry Local rather than CPU llama.cpp.
+    """
+    if platform.system() != "Windows":
+        return None
+    machine = (platform.machine() or "").upper().replace("-", "")
+    if machine not in ("ARM64", "AARCH64"):
+        return None
+    brand = _detect_cpu_brand().upper()
+    markers = ("NVIDIA", "RTX SPARK", "GRACE", "N1X", "BLACKWELL")
+    if not any(token in brand for token in markers):
+        return None
+    ram_gb = _total_ram_gb()
+    return GpuInfo(
+        vendor="nvidia",
+        name=_detect_cpu_brand() or "NVIDIA RTX Spark",
+        vram_gb=ram_gb,
+        count=1,
+    )
+
+
+def _detect_arch() -> str:
+    """Return the machine architecture (e.g. ``ARM64``, ``x86_64``)."""
+    return platform.machine() or ""
+
+
+def _is_windows_arm(hw: HardwareInfo) -> bool:
+    """True for Windows on ARM64 / AArch64 (Snapdragon, NVIDIA RTX Spark)."""
+    if hw.platform not in ("windows", "win32"):
+        return False
+    arch = (hw.arch or "").lower().replace("-", "")
+    return arch in ("arm64", "aarch64")
+
+
 def _detect_cpu_brand() -> str:
     """Best-effort CPU brand string."""
     if platform.system() == "Darwin":
         brand = _run_cmd(["sysctl", "-n", "machdep.cpu.brand_string"])
         if brand:
             return brand
+    if platform.system() == "Windows":
+        ident = os.environ.get("PROCESSOR_IDENTIFIER") or platform.processor()
+        if ident:
+            return ident
     cpuinfo = Path("/proc/cpuinfo")
     if cpuinfo.exists():
         try:
@@ -248,9 +293,15 @@ def _total_ram_gb() -> float:
 
 def detect_hardware() -> HardwareInfo:
     """Auto-detect hardware capabilities with graceful fallbacks."""
-    gpu = _detect_nvidia_gpu() or _detect_amd_gpu() or _detect_apple_gpu()
+    gpu = (
+        _detect_nvidia_gpu()
+        or _detect_amd_gpu()
+        or _detect_apple_gpu()
+        or _detect_windows_arm_nvidia()
+    )
     return HardwareInfo(
         platform=platform.system().lower(),
+        arch=_detect_arch(),
         cpu_brand=_detect_cpu_brand(),
         cpu_count=os.cpu_count() or 1,
         ram_gb=_total_ram_gb(),
@@ -271,6 +322,10 @@ def recommend_engine(hw: HardwareInfo) -> str:
     if gpu.vendor == "apple":
         return "mlx"
     if gpu.vendor == "nvidia":
+        # Windows ARM NVIDIA (RTX Spark / N1X, Copilot+ with NVIDIA NPU)
+        # uses Foundry Local + Windows ML, not Ollama or datacenter vLLM.
+        if _is_windows_arm(hw):
+            return "foundry_local"
         # Datacenter cards (A100, H100, L40, etc.) → vllm; consumer → ollama
         datacenter_keywords = ("A100", "H100", "H200", "L40", "A10", "A30")
         if any(kw in gpu.name for kw in datacenter_keywords):
@@ -306,6 +361,9 @@ _MODEL_TIERS = [
 ]
 _MODEL_TIER_FALLBACK = "qwen3.5:27b"
 _LEMONADE_DEFAULT_MODEL = "Qwen3.6-35B-A3B-GGUF"
+# Foundry catalog alias; the runtime resolves a device-specific variant
+# (CUDA / TensorRT RTX / WebGPU / CPU) that fits a 24 GB Surface config.
+_FOUNDRY_LOCAL_DEFAULT_MODEL = "Phi-4-mini-instruct"
 
 
 def recommend_model(hw: HardwareInfo, engine: str) -> str:
@@ -322,6 +380,8 @@ def recommend_model(hw: HardwareInfo, engine: str) -> str:
 
     if engine == "lemonade":
         return _LEMONADE_DEFAULT_MODEL
+    if engine == "foundry_local":
+        return _FOUNDRY_LOCAL_DEFAULT_MODEL
 
     # Build a lookup for quick engine-compatibility checks
     catalog = {spec.model_id: spec for spec in BUILTIN_MODELS}
@@ -473,6 +533,19 @@ class LemonadeEngineConfig:
     host: str = "http://localhost:13305"
 
 
+@dataclass(slots=True)
+class FoundryLocalEngineConfig:
+    """Per-engine config for Foundry Local (Windows ML).
+
+    ``host`` is the OpenAI-compatible base URL *without* a guaranteed port.
+    The WinUI supervisor and ``discover_foundry_host()`` write the live
+    endpoint here after ``foundry server status`` (or legacy
+    ``foundry service status``).
+    """
+
+    host: str = "http://localhost:5273"
+
+
 @dataclass
 class EngineConfig:
     """Inference engine settings with nested per-engine configs."""
@@ -491,6 +564,11 @@ class EngineConfig:
     afm: AfmEngineConfig = field(default_factory=AfmEngineConfig)
     gemma_cpp: GemmaCppEngineConfig = field(default_factory=GemmaCppEngineConfig)
     lemonade: LemonadeEngineConfig = field(default_factory=LemonadeEngineConfig)
+    foundry_local: FoundryLocalEngineConfig = field(
+        default_factory=FoundryLocalEngineConfig
+    )
+    # Cloud engines stay out of MultiEngine until the user opts in.
+    allow_cloud: bool = False
 
     # Backward-compat properties for old flat attribute names
     @property
@@ -600,6 +678,15 @@ class EngineConfig:
     @lemonade_host.setter
     def lemonade_host(self, value: str) -> None:
         self.lemonade.host = value
+
+    @property
+    def foundry_local_host(self) -> str:
+        """Deprecated: use ``engine.foundry_local.host``."""
+        return self.foundry_local.host
+
+    @foundry_local_host.setter
+    def foundry_local_host(self, value: str) -> None:
+        self.foundry_local.host = value
 
 
 @dataclass(slots=True)
@@ -2180,6 +2267,7 @@ def generate_minimal_toml(
 
 [engine]
 default = "{engine}"
+allow_cloud = false
 {engine_host_section}
 [intelligence]
 default_model = "{model}"
@@ -2215,6 +2303,8 @@ def generate_default_toml(
 
 [engine]
 default = "{engine}"
+# Cloud inference stays off until the user opts in from Settings.
+allow_cloud = false
 
 [engine.ollama]
 host = "http://localhost:11434"
@@ -2247,6 +2337,11 @@ host = "http://localhost:8080"
 
 # [engine.apple_fm]
 # host = "http://localhost:8079"
+
+# Foundry Local (Windows ML). Host is discovered at launch — do not assume
+# a fixed port. The supervisor writes the live endpoint here.
+# [engine.foundry_local]
+# host = "http://localhost:5273"
 
 [intelligence]
 default_model = "{model}"{model_comment}
@@ -2454,6 +2549,7 @@ __all__ = [
     "get_data_dir",
     "EmailChannelConfig",
     "EngineConfig",
+    "FoundryLocalEngineConfig",
     "FeishuChannelConfig",
     "GoogleChatChannelConfig",
     "GpuInfo",

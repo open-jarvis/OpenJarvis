@@ -41,6 +41,7 @@ enabled = true
 # ═══════════════════════════════════════════════════════════════
 [engine]
 default = "vllm"
+allow_cloud = false
 
 [engine.vllm]
 host = "http://localhost:8001"            # vLLM serving port
@@ -66,6 +67,10 @@ host = "http://localhost:8080"
 
 [engine.apple_fm]
 host = "http://localhost:8079"                # OpenAI-compatible shim
+
+# Foundry Local (Windows ML). Port is assigned at server start.
+# [engine.foundry_local]
+# host = "http://localhost:5273"
 
 # In-process Apple Foundation Models (macOS 26+, Apple Intelligence enabled).
 # Install with: uv pip install -e '.[afm]'

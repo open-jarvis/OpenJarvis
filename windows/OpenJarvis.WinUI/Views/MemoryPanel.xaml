@@ -1,0 +1,110 @@
+<UserControl
+    x:Class="OpenJarvis.WinUI.Views.MemoryPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models"
+    xmlns:converters="using:OpenJarvis.WinUI.Converters">
+    <UserControl.Resources>
+        <converters:StatusBrushConverter x:Key="StatusBrushConverter" />
+    </UserControl.Resources>
+    <StackPanel Spacing="20">
+        <StackPanel Spacing="8">
+            <TextBlock Text="Status" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <Border Style="{StaticResource CardBorderStyle}">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon x:Name="StatsIcon" Grid.Column="0" FontSize="16" VerticalAlignment="Top" Glyph="&#xE895;" />
+                    <TextBlock x:Name="StatsText" Grid.Column="1" Text="Checking…" TextWrapping="Wrap" />
+                </Grid>
+            </Border>
+        </StackPanel>
+
+        <StackPanel Spacing="8">
+            <TextBlock Text="Search memory" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            x:Name="SearchBox"
+                            PlaceholderText="Search stored memories"
+                            KeyDown="SearchBox_KeyDown"
+                            AutomationProperties.Name="Search memory" />
+                        <Button
+                            Grid.Column="1"
+                            Content="Search"
+                            Click="Search_Click"
+                            MinHeight="36"
+                            AccessKey="S"
+                            AutomationProperties.Name="Run memory search" />
+                    </Grid>
+                    <TextBlock x:Name="SearchEmptyText" Text="No matching memories found." Visibility="Collapsed" Opacity="0.7" />
+                    <ItemsControl x:Name="SearchResultsList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:MemorySearchResult">
+                                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,8" Padding="10">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="{x:Bind Content}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxLines="4" />
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock
+                                                Text="{x:Bind ScoreLabel}"
+                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                Foreground="{x:Bind ScoreBrushKey, Converter={StaticResource StatusBrushConverter}}" />
+                                            <TextBlock
+                                                Text="{x:Bind Source}"
+                                                Visibility="{x:Bind HasSource}"
+                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                Opacity="0.7" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <StackPanel Spacing="8">
+            <TextBlock Text="Index a folder" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="IndexPathBox" PlaceholderText="C:\Users\you\Documents\Notes" AutomationProperties.Name="Folder path to index" />
+                        <Button Grid.Column="1" Content="Browse" Click="Browse_Click" MinHeight="36" AutomationProperties.Name="Browse for folder" />
+                        <Button Grid.Column="2" Content="Index" Click="Index_Click" MinHeight="36" AutomationProperties.Name="Index folder" />
+                    </Grid>
+                    <TextBlock x:Name="IndexResultText" TextWrapping="Wrap" Opacity="0.8" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <StackPanel Spacing="8">
+            <TextBlock Text="Store text" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <TextBox
+                        x:Name="StoreTextBox"
+                        PlaceholderText="Paste text to remember"
+                        AcceptsReturn="True"
+                        TextWrapping="Wrap"
+                        MinHeight="80"
+                        AutomationProperties.Name="Text to store in memory" />
+                    <Button Content="Store" Click="Store_Click" MinHeight="36" HorizontalAlignment="Left" AutomationProperties.Name="Store text in memory" />
+                    <TextBlock x:Name="StoreResultText" TextWrapping="Wrap" Opacity="0.8" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

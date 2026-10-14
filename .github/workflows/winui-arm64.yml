@@ -1,0 +1,76 @@
+name: WinUI ARM64
+
+on:
+  push:
+    branches: [main, winUI-native]
+    paths:
+      - "windows/**"
+      - "src/openjarvis/engine/foundry_local.py"
+      - "src/openjarvis/engine/openai_compat_engines.py"
+      - ".github/workflows/winui-arm64.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "windows/**"
+      - "src/openjarvis/engine/**"
+      - ".github/workflows/winui-arm64.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: winui-arm64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  foundry-engine-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+      - name: Install test extras
+        run: uv sync --extra dev --extra server
+      - name: Foundry Local engine tests
+        run: uv run pytest tests/engine/test_foundry_local.py tests/core/test_config.py tests/core/test_recommend_model.py tests/server/test_routes.py -q --tb=short -k "foundry or recommend or InfoEndpoint or engine_config_defaults or TomlLoading"
+
+  publish:
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Setup Rust ARM64
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+      - name: Install WiX
+        run: dotnet tool install --global wix --version 5.0.2
+      - name: Publish WinUI + payload + installer
+        shell: pwsh
+        run: |
+          .\windows\scripts\publish-arm64.ps1 -Configuration Release -Version 1.0.0
+      - name: Upload publish output
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenJarvis-win-arm64
+          path: dist/OpenJarvis-win-arm64
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenJarvis-1.0.0-arm64-msi
+          path: dist/OpenJarvis-1.0.0-arm64.msi
+          if-no-files-found: warn
+      - name: Upload Burn bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenJarvis-1.0.0-arm64-bundle
+          path: dist/OpenJarvis-1.0.0-arm64.exe
+          if-no-files-found: warn

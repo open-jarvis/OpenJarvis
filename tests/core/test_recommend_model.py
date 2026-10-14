@@ -100,6 +100,21 @@ class TestRecommendModelGpu:
         result = recommend_model(hw, "lemonade")
         assert result == "Qwen3.6-35B-A3B-GGUF"
 
+    def test_foundry_local_picks_phi4_mini(self) -> None:
+        hw = HardwareInfo(
+            platform="windows",
+            arch="ARM64",
+            ram_gb=24.0,
+            gpu=GpuInfo(
+                vendor="nvidia",
+                name="NVIDIA RTX Spark N1X",
+                vram_gb=24.0,
+                count=1,
+            ),
+        )
+        result = recommend_model(hw, "foundry_local")
+        assert result == "Phi-4-mini-instruct"
+
 
 class TestRecommendModelEdgeCases:
     """Edge cases."""

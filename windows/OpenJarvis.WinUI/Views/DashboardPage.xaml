@@ -1,0 +1,141 @@
+<Page
+    x:Class="OpenJarvis.WinUI.Views.DashboardPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models">
+    <ScrollViewer Padding="24">
+        <StackPanel Spacing="20">
+            <TextBlock Text="Dashboard" Style="{StaticResource TitleTextBlockStyle}" />
+
+            <!-- Energy -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="Energy monitoring" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <ItemsControl x:Name="EnergyTiles">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <controls:WrapPanel
+                                xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+                                HorizontalSpacing="12"
+                                VerticalSpacing="12" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:StatTile">
+                            <Border Style="{StaticResource StatTileBorderStyle}">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{x:Bind Label}" Style="{StaticResource StatTileLabelStyle}" />
+                                    <TextBlock Text="{x:Bind Value}" Style="{StaticResource StatTileValueStyle}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <!-- Cost comparison -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="Cost comparison" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock
+                    Text="Local cost is electricity only. Cloud figures are reference pricing for comparable usage, not a live quote."
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    TextWrapping="Wrap"
+                    Opacity="0.8" />
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="This device (local)" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1" x:Name="LocalCostText" Text="$0.00" FontWeight="SemiBold" />
+                        </Grid>
+                        <ItemsControl x:Name="ProviderCostList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="models:SavingsProvider">
+                                    <Grid ColumnSpacing="12" Margin="0,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind Label}" Style="{StaticResource CaptionTextBlockStyle}" />
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            Text="{x:Bind CostLabel}"
+                                            Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- Traces -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="Recent agent runs" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Grid ColumnSpacing="16" MinHeight="320">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="280" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ListView
+                        x:Name="TraceList"
+                        SelectionChanged="TraceList_SelectionChanged"
+                        AutomationProperties.Name="Recent agent runs">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:TraceSummary">
+                                <StackPanel Margin="0,4" Spacing="2">
+                                    <TextBlock
+                                        Text="{x:Bind Query}"
+                                        TextTrimming="CharacterEllipsis"
+                                        FontWeight="SemiBold" />
+                                    <TextBlock
+                                        Text="{x:Bind DurationLabel}"
+                                        Style="{StaticResource CaptionTextBlockStyle}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <Border Grid.Column="1" Style="{StaticResource CardBorderStyle}">
+                        <ScrollViewer>
+                            <StackPanel x:Name="TraceDetailPanel" Spacing="8">
+                                <TextBlock
+                                    x:Name="TraceEmptyText"
+                                    Text="Select a run to see its steps."
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Opacity="0.7" />
+                                <ItemsControl x:Name="TraceStepList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="models:TraceStep">
+                                            <Grid ColumnSpacing="8" Margin="0,0,0,6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock
+                                                    Text="{x:Bind StepType}"
+                                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                                    FontWeight="SemiBold" />
+                                                <TextBlock
+                                                    Grid.Column="1"
+                                                    Text="{x:Bind OutputPreview}"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    Opacity="0.85" />
+                                                <TextBlock
+                                                    Grid.Column="2"
+                                                    Text="{x:Bind DurationLabel}"
+                                                    Style="{StaticResource CaptionTextBlockStyle}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

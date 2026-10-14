@@ -1,0 +1,139 @@
+<ContentDialog
+    x:Class="OpenJarvis.WinUI.Views.CreateAgentDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models"
+    Title="New agent"
+    PrimaryButtonText="Next"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    PrimaryButtonClick="ContentDialog_PrimaryButtonClick">
+    <ScrollViewer MaxHeight="520" MinWidth="440">
+        <StackPanel Spacing="16">
+
+            <!-- Step 0: template -->
+            <StackPanel x:Name="Step0" Spacing="12">
+                <TextBlock Text="Step 1 of 4 · Start from a template" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <ListView
+                    x:Name="TemplateList"
+                    SelectionMode="Single"
+                    MaxHeight="280"
+                    SelectionChanged="TemplateList_SelectionChanged"
+                    AutomationProperties.Name="Agent templates">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:AgentTemplate">
+                            <StackPanel Margin="0,4" Spacing="2">
+                                <TextBlock Text="{x:Bind Label}" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind Description}" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" Opacity="0.8" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <HyperlinkButton
+                    Content="Start from scratch instead"
+                    Click="StartFromScratch_Click"
+                    AccessKey="F"
+                    AutomationProperties.Name="Skip template selection and start from scratch" />
+            </StackPanel>
+
+            <!-- Step 1: name + instruction -->
+            <StackPanel x:Name="Step1" Spacing="12" Visibility="Collapsed">
+                <TextBlock Text="Step 2 of 4 · Name and instructions" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBox
+                    x:Name="NameBox"
+                    Header="Agent Name"
+                    PlaceholderText="e.g. AI Research Tracker"
+                    AutomationProperties.Name="Agent name" />
+                <TextBox
+                    x:Name="InstructionBox"
+                    Header="What should this agent do?"
+                    PlaceholderText="e.g. Monitor the latest research papers on reasoning and chain-of-thought in LLMs"
+                    AcceptsReturn="True"
+                    TextWrapping="Wrap"
+                    Height="120"
+                    AutomationProperties.Name="Agent instructions" />
+            </StackPanel>
+
+            <!-- Step 2: tools -->
+            <StackPanel x:Name="Step2" Spacing="12" Visibility="Collapsed">
+                <TextBlock Text="Step 3 of 4 · Tools" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <ItemsControl x:Name="ToolCategoryList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:ToolCatalogCategory">
+                            <StackPanel Margin="0,0,0,8" Spacing="4">
+                                <TextBlock Text="{x:Bind Category}" FontWeight="SemiBold" Style="{StaticResource CaptionTextBlockStyle}" />
+                                <ItemsControl ItemsSource="{x:Bind Items}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="models:ToolCatalogItem">
+                                            <CheckBox
+                                                Content="{x:Bind Name}"
+                                                IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
+                                                ToolTipService.ToolTip="{x:Bind Description}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <!-- Step 3: model/schedule/advanced -->
+            <StackPanel x:Name="Step3" Spacing="12" Visibility="Collapsed">
+                <TextBlock Text="Step 4 of 4 · Model and schedule" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <ComboBox
+                    x:Name="ModelBox"
+                    Header="Model"
+                    HorizontalAlignment="Stretch"
+                    SelectionChanged="ModelBox_SelectionChanged"
+                    AutomationProperties.Name="Model" />
+                <ComboBox
+                    x:Name="ScheduleBox"
+                    Header="Schedule"
+                    SelectionChanged="ScheduleBox_SelectionChanged"
+                    HorizontalAlignment="Stretch"
+                    AutomationProperties.Name="Schedule">
+                    <ComboBoxItem Content="Manual" Tag="manual" />
+                    <ComboBoxItem Content="Hourly" Tag="hourly" />
+                    <ComboBoxItem Content="Daily" Tag="daily" />
+                    <ComboBoxItem Content="Weekly" Tag="weekly" />
+                    <ComboBoxItem Content="Interval (seconds)" Tag="interval" />
+                    <ComboBoxItem Content="Cron expression" Tag="cron" />
+                </ComboBox>
+                <TextBox
+                    x:Name="ScheduleValueBox"
+                    Header="Schedule value"
+                    Visibility="Collapsed"
+                    PlaceholderText="e.g. 3600 or */15 * * * *"
+                    AutomationProperties.Name="Schedule value" />
+
+                <Expander Header="Advanced settings" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="12" Padding="4,8,4,4">
+                        <ComboBox x:Name="MemoryExtractionBox" Header="Memory extraction" HorizontalAlignment="Stretch" AutomationProperties.Name="Memory extraction">
+                            <ComboBoxItem Content="None" Tag="none" />
+                            <ComboBoxItem Content="Scratchpad" Tag="scratchpad" />
+                            <ComboBoxItem Content="Structured" Tag="structured" />
+                        </ComboBox>
+                        <ComboBox x:Name="ObservationCompressionBox" Header="Observation compression" HorizontalAlignment="Stretch" AutomationProperties.Name="Observation compression">
+                            <ComboBoxItem Content="None" Tag="none" />
+                            <ComboBoxItem Content="Summarize" Tag="summarize" />
+                            <ComboBoxItem Content="Truncate" Tag="truncate" />
+                        </ComboBox>
+                        <ComboBox x:Name="RetrievalStrategyBox" Header="Retrieval strategy" HorizontalAlignment="Stretch" AutomationProperties.Name="Retrieval strategy">
+                            <ComboBoxItem Content="None" Tag="none" />
+                            <ComboBoxItem Content="SQLite" Tag="sqlite" />
+                            <ComboBoxItem Content="Vector" Tag="vector" />
+                        </ComboBox>
+                        <ComboBox x:Name="TaskDecompositionBox" Header="Task decomposition" HorizontalAlignment="Stretch" AutomationProperties.Name="Task decomposition">
+                            <ComboBoxItem Content="Monolithic" Tag="monolithic" />
+                            <ComboBoxItem Content="Subtasks" Tag="subtasks" />
+                        </ComboBox>
+                        <NumberBox x:Name="MaxTurnsBox" Header="Max turns" Minimum="1" Maximum="100" Value="10" SpinButtonPlacementMode="Inline" AutomationProperties.Name="Max turns" />
+                        <NumberBox x:Name="TemperatureBox" Header="Temperature" Minimum="0" Maximum="2" SmallChange="0.1" Value="0.7" SpinButtonPlacementMode="Inline" AutomationProperties.Name="Temperature" />
+                        <NumberBox x:Name="BudgetBox" Header="Budget ($, optional)" Minimum="0" SpinButtonPlacementMode="Inline" PlaceholderText="No limit" AutomationProperties.Name="Budget in dollars, optional" />
+                    </StackPanel>
+                </Expander>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

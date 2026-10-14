@@ -1,0 +1,24 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <ComponentGroup Id="AppFiles" Directory="InstallFolder">
+      <Files Include="$(var.PublishDir)\**" />
+      <Component Id="StartMenuShortcutComponent" Guid="9a1b2c3d-4e5f-6789-abcd-ef0123456789">
+        <Shortcut
+            Id="StartMenuShortcut"
+            Directory="AppStartMenu"
+            Name="OpenJarvis"
+            Target="[InstallFolder]OpenJarvis.exe"
+            Icon="OpenJarvis.ico"
+            WorkingDirectory="InstallFolder" />
+        <RegistryValue
+            Root="HKCU"
+            Key="Software\OpenJarvis"
+            Name="Shortcut"
+            Type="integer"
+            Value="1"
+            KeyPath="yes" />
+        <RemoveFolder Id="RemoveStartMenu" Directory="AppStartMenu" On="uninstall" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

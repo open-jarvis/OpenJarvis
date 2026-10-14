@@ -131,6 +131,7 @@ The `recommend_engine()` function maps hardware to engines:
 | Apple Silicon | `mlx` (native MLX inference) |
 | NVIDIA datacenter (A100, H100, etc.) | `vllm` (high throughput) |
 | NVIDIA consumer | `ollama` (easy setup) |
+| Windows ARM + NVIDIA (RTX Spark / N1X) | `foundry_local` (Windows ML) |
 | AMD datacenter (MI300, MI325, MI350, MI355) | `vllm` (high throughput) |
 | AMD consumer | `lemonade` (AMD GPU/NPU support) |
 

@@ -1,0 +1,82 @@
+<UserControl
+    x:Class="OpenJarvis.WinUI.Views.SetupStepRow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Border
+            x:Name="ActiveBackground"
+            Style="{StaticResource CardBorderStyle}"
+            Visibility="Collapsed" />
+        <Border
+            x:Name="DoneBackground"
+            CornerRadius="{ThemeResource ControlCornerRadius}"
+            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+            Visibility="Collapsed" />
+        <Grid Padding="20,14" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Grid Width="40" Height="40">
+                <Border
+                    x:Name="IconIdleTile"
+                    CornerRadius="8"
+                    Background="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                <Border
+                    x:Name="IconDoneTile"
+                    CornerRadius="8"
+                    Background="{ThemeResource AccentFillColorDefaultBrush}"
+                    Visibility="Collapsed" />
+                <FontIcon
+                    x:Name="IdleGlyph"
+                    FontSize="18"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                <FontIcon
+                    x:Name="DoneGlyph"
+                    FontSize="18"
+                    Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                    Visibility="Collapsed" />
+            </Grid>
+
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                <TextBlock x:Name="LabelText" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <TextBlock
+                    x:Name="DetailText"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    TextTrimming="CharacterEllipsis"
+                    TextWrapping="NoWrap"
+                    Text="Waiting…" />
+            </StackPanel>
+
+            <Grid Grid.Column="2" Width="20" Height="20" VerticalAlignment="Center">
+                <Ellipse
+                    x:Name="PendingDot"
+                    Width="16"
+                    Height="16"
+                    Stroke="{ThemeResource ControlStrongStrokeColorDefaultBrush}"
+                    StrokeThickness="2" />
+                <ProgressRing
+                    x:Name="ActiveRing"
+                    Width="18"
+                    Height="18"
+                    IsActive="False"
+                    Visibility="Collapsed" />
+                <FontIcon
+                    x:Name="DoneMark"
+                    Glyph="&#xE73E;"
+                    FontSize="16"
+                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                    Visibility="Collapsed" />
+                <FontIcon
+                    x:Name="FailedMark"
+                    Glyph="&#xEA39;"
+                    FontSize="16"
+                    Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                    Visibility="Collapsed" />
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

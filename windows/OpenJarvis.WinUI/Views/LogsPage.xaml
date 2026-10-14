@@ -1,0 +1,59 @@
+<Page
+    x:Class="OpenJarvis.WinUI.Views.LogsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models">
+    <Grid Padding="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="Logs" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock
+                    x:Name="CountText"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    VerticalAlignment="Bottom"
+                    Opacity="0.7" />
+            </StackPanel>
+            <Button
+                Grid.Column="1"
+                Content="Copy all"
+                Click="CopyAll_Click"
+                Margin="0,0,8,0"
+                MinHeight="36"
+                AccessKey="C"
+                AutomationProperties.Name="Copy all logs" />
+            <Button
+                Grid.Column="2"
+                Content="Clear"
+                Click="Clear_Click"
+                MinHeight="36"
+                AutomationProperties.Name="Clear logs" />
+        </Grid>
+
+        <ListView
+            x:Name="LogList"
+            Grid.Row="1"
+            SelectionMode="None"
+            IsItemClickEnabled="False"
+            AutomationProperties.Name="Log entries">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="models:LogEntry">
+                    <TextBlock
+                        Text="{x:Bind DisplayLine}"
+                        FontFamily="Consolas"
+                        TextWrapping="Wrap"
+                        IsTextSelectionEnabled="True" />
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
+</Page>

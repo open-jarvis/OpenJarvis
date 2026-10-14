@@ -1,0 +1,106 @@
+<Page
+    x:Class="OpenJarvis.WinUI.Views.DataSourcesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models"
+    xmlns:views="using:OpenJarvis.WinUI.Views">
+    <Page.Resources>
+        <DataTemplate x:Key="ConnectorRowTemplate" x:DataType="models:ConnectorSummary">
+            <Expander Margin="0,0,0,8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{x:Bind DisplayName}">
+                <Expander.Header>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" />
+                            <TextBlock
+                                Text="{x:Bind AuthType}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Opacity="0.7" />
+                        </StackPanel>
+                        <FontIcon
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            FontSize="14"
+                            Glyph="&#xE73E;"
+                            Visibility="{x:Bind Connected}"
+                            Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                    </Grid>
+                </Expander.Header>
+                <StackPanel Spacing="8" Padding="4,8,4,4" Tag="{x:Bind}">
+                    <!-- Connected: sync status + actions -->
+                    <StackPanel Visibility="{x:Bind Connected}" Spacing="8">
+                        <TextBlock Text="{x:Bind SyncStatusLabel, Mode=OneWay}" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Sync now" Tag="{x:Bind}" Click="Sync_Click" MinHeight="36" AutomationProperties.Name="Sync connector now" />
+                            <Button Content="Disconnect" Tag="{x:Bind}" Click="Disconnect_Click" MinHeight="36" AutomationProperties.Name="Disconnect connector" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Not connected: auth-type-specific connect form -->
+                    <StackPanel Visibility="{x:Bind ShowLocalForm}" Spacing="8">
+                        <TextBlock Text="No credentials needed." Style="{StaticResource CaptionTextBlockStyle}" />
+                        <Button Content="Connect" Tag="{x:Bind}" Click="ConnectLocal_Click" MinHeight="36" AutomationProperties.Name="Connect data source" />
+                    </StackPanel>
+
+                    <StackPanel Visibility="{x:Bind ShowFilesystemForm}" Spacing="8">
+                        <TextBox
+                            x:Name="PathBox"
+                            Header="Folder path"
+                            PlaceholderText="C:\Users\you\Documents\Notes"
+                            AutomationProperties.Name="Folder path" />
+                        <Button Content="Connect" Tag="{x:Bind}" Click="ConnectFilesystem_Click" MinHeight="36" AutomationProperties.Name="Connect folder" />
+                    </StackPanel>
+
+                    <StackPanel Visibility="{x:Bind ShowTokenForm}" Spacing="8">
+                        <PasswordBox x:Name="TokenBox" Header="API token" AutomationProperties.Name="API token" />
+                        <Button Content="Connect" Tag="{x:Bind}" Click="ConnectToken_Click" MinHeight="36" AutomationProperties.Name="Connect with API token" />
+                    </StackPanel>
+
+                    <StackPanel Visibility="{x:Bind ShowOAuthForm}" Spacing="8">
+                        <TextBlock
+                            Text="Opens your browser to sign in, then checks back here automatically."
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            TextWrapping="Wrap" />
+                        <Button Content="Continue with provider" Tag="{x:Bind}" Click="ConnectOAuth_Click" MinHeight="36" AutomationProperties.Name="Sign in with provider" />
+                        <TextBlock x:Name="OAuthWaitingText" Text="" Style="{StaticResource CaptionTextBlockStyle}" Visibility="Collapsed" />
+                    </StackPanel>
+                </StackPanel>
+            </Expander>
+        </DataTemplate>
+    </Page.Resources>
+    <Grid Padding="24,24,24,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="Data sources" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,16" />
+
+        <TabView Grid.Row="1" IsAddTabButtonVisible="False">
+            <TabViewItem Header="Connectors" IsClosable="False">
+                <ScrollViewer Padding="0,16,0,24">
+                    <StackPanel Spacing="20" MaxWidth="900">
+                        <StackPanel Spacing="8">
+                            <TextBlock x:Name="ConnectedHeader" Text="Connected" Style="{StaticResource SubtitleTextBlockStyle}" />
+                            <ItemsControl x:Name="ConnectedList" ItemTemplate="{StaticResource ConnectorRowTemplate}" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="8">
+                            <TextBlock x:Name="AvailableHeader" Text="Available" Style="{StaticResource SubtitleTextBlockStyle}" />
+                            <ItemsControl x:Name="AvailableList" ItemTemplate="{StaticResource ConnectorRowTemplate}" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabViewItem>
+
+            <TabViewItem Header="Memory" IsClosable="False">
+                <ScrollViewer Padding="0,16,0,24">
+                    <views:MemoryPanel MaxWidth="900" />
+                </ScrollViewer>
+            </TabViewItem>
+        </TabView>
+    </Grid>
+</Page>

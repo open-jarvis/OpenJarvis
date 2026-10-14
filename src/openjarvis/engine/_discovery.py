@@ -25,6 +25,7 @@ _HOST_MAP: Dict[str, str | None] = {
     "uzu": "uzu_host",
     "apple_fm": "apple_fm_host",
     "lemonade": "lemonade_host",
+    "foundry_local": "foundry_local_host",
     "cloud": None,
     "litellm": None,
     "gemma_cpp": None,

@@ -8,6 +8,7 @@ import pytest
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._base import EngineConnectionError
+from openjarvis.engine.foundry_local import FoundryLocalEngine
 from openjarvis.engine.ollama import OllamaEngine
 from openjarvis.engine.openai_compat_engines import (
     AppleFmEngine,
@@ -33,6 +34,7 @@ _OPENAI_COMPAT_ENGINES = [
     ("uzu", "http://testhost:8000", UzuEngine),
     ("apple_fm", "http://testhost:8079", AppleFmEngine),
     ("lemonade", "http://testhost:13305", LemonadeEngine),
+    ("foundry_local", "http://testhost:5273", FoundryLocalEngine),
 ]
 
 

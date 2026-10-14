@@ -165,6 +165,12 @@ def serve(
 
     config = load_config()
 
+    selected_engine = engine_key or config.engine.default
+    if selected_engine == "foundry_local":
+        from openjarvis.engine.foundry_local import discover_foundry_host
+
+        config.engine.foundry_local.host = discover_foundry_host()
+
     # Resolve host/port from CLI args or config
     bind_host = host or config.server.host
     bind_port = port if port is not None else config.server.port
@@ -204,6 +210,49 @@ def serve(
 
     engine_name, engine = resolved
 
+    tool_calling_info: dict = {"supported": True, "reason": ""}
+    if engine_name == "foundry_local":
+        from openjarvis.engine.foundry_local import (
+            check_tool_calling,
+            infer_cpu_fallback_from_model,
+            probe_execution_provider,
+        )
+
+        ep = probe_execution_provider(config.engine.foundry_local.host)
+        config.hardware.execution_provider = str(ep.get("execution_provider") or "")
+        config.hardware.execution_provider_fallback = bool(ep.get("cpu_fallback"))
+        probe_model = (
+            model_name or config.server.model or config.intelligence.default_model or ""
+        )
+        if (
+            not config.hardware.execution_provider_fallback
+            and infer_cpu_fallback_from_model(probe_model)
+        ):
+            config.hardware.execution_provider_fallback = True
+            if (
+                not config.hardware.execution_provider
+                or config.hardware.execution_provider == "unknown"
+            ):
+                config.hardware.execution_provider = "CPUExecutionProvider"
+        if probe_model:
+            try:
+                tool_calling_info = check_tool_calling(engine, probe_model)
+            except Exception as exc:
+                logger.debug("Foundry tool-calling probe failed: %s", exc)
+                tool_calling_info = {
+                    "supported": False,
+                    "reason": f"Tool-calling probe failed: {exc}",
+                }
+        ep_label = config.hardware.execution_provider or "unknown"
+        if config.hardware.execution_provider_fallback:
+            console.print(f"  Foundry: [yellow]{ep_label} (CPU fallback)[/yellow]")
+        else:
+            console.print(f"  Foundry: [cyan]{ep_label}[/cyan]")
+        if not tool_calling_info.get("supported"):
+            console.print(
+                "  Tools:   [yellow]this model does not support tool calling[/yellow]"
+            )
+
     # Apply security guardrails
     from openjarvis.security import setup_security
 
@@ -222,6 +271,17 @@ def serve(
         or os.environ.get("OPENROUTER_API_KEY")
     )
     if _has_cloud and engine_name != "cloud":
+        if not getattr(config.engine, "allow_cloud", False):
+            console.print(
+                "  Cloud:  [yellow]API keys present but disabled[/yellow] "
+                "(enable cloud inference in Settings before prompts leave this device)"
+            )
+            _has_cloud = False
+    if (
+        _has_cloud
+        and engine_name != "cloud"
+        and getattr(config.engine, "allow_cloud", False)
+    ):
         try:
             from openjarvis.engine.cloud import CloudEngine
 
@@ -772,6 +832,9 @@ def serve(
         webhook_config=webhook_config,
         cors_origins=cors_origins,
     )
+    app.state.tool_calling = tool_calling_info
+    app.state.hardware = config.hardware
+    app.state.allow_cloud = bool(getattr(config.engine, "allow_cloud", False))
 
     console.print(
         f"[green]Starting OpenJarvis API server[/green]\n"

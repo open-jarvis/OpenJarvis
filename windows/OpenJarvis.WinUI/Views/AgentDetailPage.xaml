@@ -1,0 +1,196 @@
+<Page
+    x:Class="OpenJarvis.WinUI.Views.AgentDetailPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models"
+    xmlns:converters="using:OpenJarvis.WinUI.Converters"
+    xmlns:views="using:OpenJarvis.WinUI.Views">
+    <Page.Resources>
+        <converters:StatusBrushConverter x:Key="StatusBrushConverter" />
+        <converters:BoolToAlignmentConverter x:Key="BoolToAlignmentConverter" />
+    </Page.Resources>
+    <Grid Padding="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,16">
+            <Button Click="Back_Click" MinHeight="36" AutomationProperties.Name="Back to Agents">
+                <FontIcon Glyph="&#xE72B;" FontSize="14" />
+            </Button>
+            <TextBlock x:Name="AgentNameText" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <TabView Grid.Row="1" IsAddTabButtonVisible="False">
+            <TabViewItem Header="Overview" IsClosable="False">
+                <ScrollViewer Padding="0,16,0,0">
+                    <StackPanel Spacing="12" MaxWidth="600">
+                        <TextBlock x:Name="OverviewText" TextWrapping="Wrap" />
+                        <ProgressBar
+                            x:Name="BudgetBar"
+                            Maximum="1"
+                            HorizontalAlignment="Left"
+                            Width="300"
+                            Visibility="Collapsed" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button
+                                x:Name="RunButton"
+                                Content="Run"
+                                Click="Run_Click"
+                                MinHeight="36"
+                                AccessKey="R"
+                                AutomationProperties.Name="Run agent" />
+                            <Button
+                                x:Name="PauseButton"
+                                Content="Pause"
+                                Click="Pause_Click"
+                                MinHeight="36"
+                                AutomationProperties.Name="Pause agent" />
+                            <Button
+                                x:Name="ResumeButton"
+                                Content="Resume"
+                                Click="Resume_Click"
+                                MinHeight="36"
+                                AutomationProperties.Name="Resume agent" />
+                            <Button
+                                x:Name="RecoverButton"
+                                Content="Recover"
+                                Click="Recover_Click"
+                                MinHeight="36"
+                                AutomationProperties.Name="Recover agent" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabViewItem>
+
+            <TabViewItem Header="Interact" IsClosable="False">
+                <Grid Padding="0,16,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <ListView x:Name="InteractList" SelectionMode="None" AutomationProperties.Name="Agent conversation">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:AgentMessage">
+                                <StackPanel
+                                    Margin="0,0,0,12"
+                                    HorizontalAlignment="{x:Bind IsFromUser, Converter={StaticResource BoolToAlignmentConverter}}">
+                                    <Border
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        CornerRadius="8"
+                                        Padding="10,6"
+                                        MaxWidth="480">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="{x:Bind Content}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                            <TextBlock
+                                                Text="{x:Bind Status}"
+                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                Opacity="0.6" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <Grid Grid.Row="1" ColumnSpacing="8" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            x:Name="InteractBox"
+                            PlaceholderText="Message this agent"
+                            AcceptsReturn="False"
+                            AutomationProperties.Name="Message this agent" />
+                        <Button
+                            Grid.Column="1"
+                            Content="Send"
+                            Click="SendInteract_Click"
+                            MinHeight="40"
+                            MinWidth="80"
+                            AutomationProperties.Name="Send message to agent" />
+                    </Grid>
+                </Grid>
+            </TabViewItem>
+
+            <TabViewItem Header="Tasks" IsClosable="False">
+                <Grid Padding="0,16,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <ListView x:Name="TaskList" SelectionMode="None" AutomationProperties.Name="Agent tasks">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:AgentTask">
+                                <Grid ColumnSpacing="8" Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind Description}" TextWrapping="Wrap" />
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        Text="{x:Bind Status}"
+                                        Style="{StaticResource CaptionTextBlockStyle}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <Grid Grid.Row="1" ColumnSpacing="8" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            x:Name="NewTaskBox"
+                            PlaceholderText="Add a task"
+                            AutomationProperties.Name="New task description" />
+                        <Button
+                            Grid.Column="1"
+                            Content="Add"
+                            Click="AddTask_Click"
+                            MinHeight="40"
+                            MinWidth="80"
+                            AutomationProperties.Name="Add task" />
+                    </Grid>
+                </Grid>
+            </TabViewItem>
+
+            <TabViewItem Header="Memory" IsClosable="False">
+                <ScrollViewer Padding="0,16,0,0">
+                    <TextBlock x:Name="MemoryText" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                </ScrollViewer>
+            </TabViewItem>
+
+            <TabViewItem Header="Messaging" IsClosable="False">
+                <ScrollViewer Padding="0,16,0,24">
+                    <views:MessagingChannelsPanel x:Name="MessagingTab" MaxWidth="700" />
+                </ScrollViewer>
+            </TabViewItem>
+
+            <TabViewItem Header="Learning" IsClosable="False">
+                <Grid Padding="0,16,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <ListView x:Name="LearningList" SelectionMode="None" AutomationProperties.Name="Learning log">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:LearningLogEntry">
+                                <TextBlock Text="{x:Bind Summary}" TextWrapping="Wrap" Margin="0,4" />
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <Button
+                        Grid.Row="1"
+                        Content="Run learning"
+                        Click="RunLearning_Click"
+                        MinHeight="36"
+                        Margin="0,8,0,0"
+                        AutomationProperties.Name="Run learning cycle" />
+                </Grid>
+            </TabViewItem>
+        </TabView>
+    </Grid>
+</Page>

@@ -9,6 +9,21 @@ from openjarvis.core.types import ModelSpec, Quantization
 
 BUILTIN_MODELS: List[ModelSpec] = [
     # -----------------------------------------------------------------------
+    # Foundry Local / Windows ML
+    # -----------------------------------------------------------------------
+    ModelSpec(
+        model_id="Phi-4-mini-instruct",
+        name="Phi-4 mini instruct",
+        parameter_count_b=3.8,
+        context_length=128000,
+        supported_engines=("foundry_local",),
+        provider="microsoft",
+        metadata={
+            "architecture": "dense",
+            "foundry_alias": "Phi-4-mini-instruct",
+        },
+    ),
+    # -----------------------------------------------------------------------
     # Local models — Dense
     # -----------------------------------------------------------------------
     ModelSpec(

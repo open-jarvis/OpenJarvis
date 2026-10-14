@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk" InitialTargets="GenerateOpenJarvisIcon">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>OpenJarvis.WinUI</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>ARM64</Platforms>
+    <RuntimeIdentifiers>win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <WinUISDKReferences>true</WinUISDKReferences>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishSingleFile>false</PublishSingleFile>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>OpenJarvis</AssemblyName>
+    <OpenJarvisLogo>$(MSBuildThisFileDirectory)..\..\assets\OpenJarvis_Circular_Logo.png</OpenJarvisLogo>
+    <OpenJarvisIcon>$(MSBuildThisFileDirectory)obj\OpenJarvis.ico</OpenJarvisIcon>
+    <ApplicationIcon>$(OpenJarvisIcon)</ApplicationIcon>
+    <Product>OpenJarvis</Product>
+    <Company>OpenJarvis</Company>
+    <Version>1.0.0</Version>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <EnableMsixTooling>true</EnableMsixTooling>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.250606001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+    <PackageReference Include="CommunityToolkit.WinUI.UI.Controls.Markdown" Version="7.1.2" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.Primitives" Version="8.2.251219" />
+    <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <Target Name="GenerateOpenJarvisIcon"
+          BeforeTargets="CoreCompile;CreateAppHost"
+          Inputs="$(OpenJarvisLogo)"
+          Outputs="$(OpenJarvisIcon)">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\scripts\make-app-icon.ps1&quot; -Png &quot;$(OpenJarvisLogo)&quot; -Ico &quot;$(OpenJarvisIcon)&quot;" />
+  </Target>
+
+  <Target Name="CopyOpenJarvisIcon" AfterTargets="Build">
+    <MakeDir Directories="$(TargetDir)Assets" />
+    <Copy SourceFiles="$(OpenJarvisIcon);$(OpenJarvisLogo)"
+          DestinationFiles="$(TargetDir)Assets\OpenJarvis.ico;$(TargetDir)Assets\OpenJarvis_Circular_Logo.png"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="PublishOpenJarvisIcon" BeforeTargets="ComputeFilesToPublish" DependsOnTargets="GenerateOpenJarvisIcon">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(OpenJarvisIcon)">
+        <RelativePath>Assets\OpenJarvis.ico</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+      <ResolvedFileToPublish Include="$(OpenJarvisLogo)">
+        <RelativePath>Assets\OpenJarvis_Circular_Logo.png</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+</Project>

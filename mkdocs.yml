@@ -148,6 +148,10 @@ nav:
   - Getting Started:
       - Installation: getting-started/installation.md
       - macOS Guide: getting-started/macos.md
+      - WinUI 3 (ARM64): getting-started/windows-winui.md
+      - WinUI versions: getting-started/windows-winui-versions.md
+      - WinUI acceptance: getting-started/windows-winui-acceptance.md
+      - WinUI known issues: getting-started/windows-winui-known-issues.md
       - Quick Start: getting-started/quickstart.md
       - Code Snippets: getting-started/snippets.md
       - Configuration: getting-started/configuration.md

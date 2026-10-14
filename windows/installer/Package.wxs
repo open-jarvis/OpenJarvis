@@ -1,0 +1,22 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="OpenJarvis"
+      Manufacturer="OpenJarvis"
+      Version="1.0.0"
+      UpgradeCode="8f3c1a2e-4b7d-4e91-9c2a-7d5e6f8a9b10"
+      Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of OpenJarvis is already installed." />
+    <Icon Id="OpenJarvis.ico" SourceFile="..\OpenJarvis.WinUI\obj\OpenJarvis.ico" />
+    <Property Id="ARPPRODUCTICON" Value="OpenJarvis.ico" />
+    <MediaTemplate EmbedCab="yes" />
+    <Feature Id="Main" Title="OpenJarvis" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+    </Feature>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="InstallFolder" Name="OpenJarvis" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppStartMenu" Name="OpenJarvis" />
+    </StandardDirectory>
+  </Package>
+</Wix>

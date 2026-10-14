@@ -1,0 +1,98 @@
+<Page
+    x:Class="OpenJarvis.WinUI.Views.AgentsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models"
+    xmlns:converters="using:OpenJarvis.WinUI.Converters">
+    <Page.Resources>
+        <converters:StatusBrushConverter x:Key="StatusBrushConverter" />
+    </Page.Resources>
+    <Grid Padding="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Agents" Style="{StaticResource TitleTextBlockStyle}" />
+            <Button
+                Grid.Column="1"
+                Content="New agent"
+                Click="NewAgent_Click"
+                MinHeight="40"
+                AccessKey="N"
+                AutomationProperties.Name="Create a new agent" />
+        </Grid>
+
+        <ListView
+            x:Name="AgentList"
+            Grid.Row="1"
+            SelectionMode="None"
+            AutomationProperties.Name="Agents">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="models:ManagedAgentSummary">
+                    <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,8">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <Ellipse
+                                Grid.Column="0"
+                                Style="{StaticResource StatusDotStyle}"
+                                VerticalAlignment="Center"
+                                Fill="{x:Bind StatusBrushKey, Mode=OneWay, Converter={StaticResource StatusBrushConverter}}" />
+
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8">
+                                    <Run Text="{x:Bind Status, Mode=OneWay}" />
+                                    <Run Text=" · " />
+                                    <Run Text="{x:Bind Config.ScheduleLabel}" />
+                                    <Run Text=" · last run " />
+                                    <Run Text="{x:Bind LastRunLabel, Mode=OneWay}" />
+                                    <Run Text=" · " />
+                                    <Run Text="{x:Bind TotalRuns, Mode=OneWay}" />
+                                    <Run Text=" runs · " />
+                                    <Run Text="{x:Bind CostLabel, Mode=OneWay}" />
+                                </TextBlock>
+                                <ProgressBar
+                                    Visibility="{x:Bind HasBudget, Mode=OneWay}"
+                                    Maximum="1"
+                                    Value="{x:Bind BudgetFractionValue, Mode=OneWay}"
+                                    Foreground="{x:Bind BudgetBrushKey, Mode=OneWay, Converter={StaticResource StatusBrushConverter}}"
+                                    Width="200"
+                                    HorizontalAlignment="Left" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <Button Content="Chat" Tag="{x:Bind}" Click="Chat_Click" MinHeight="36" AutomationProperties.Name="Chat with this agent" />
+                                <Button Content="Run" Tag="{x:Bind}" Click="Run_Click" IsEnabled="{x:Bind CanRun, Mode=OneWay}" MinHeight="36" AutomationProperties.Name="Run this agent" />
+                                <Button Content="Pause" Tag="{x:Bind}" Click="Pause_Click" IsEnabled="{x:Bind CanPause, Mode=OneWay}" MinHeight="36" AutomationProperties.Name="Pause this agent" />
+                                <Button Content="Resume" Tag="{x:Bind}" Click="Resume_Click" IsEnabled="{x:Bind CanResume, Mode=OneWay}" MinHeight="36" AutomationProperties.Name="Resume this agent" />
+                                <Button Content="Recover" Tag="{x:Bind}" Click="Recover_Click" IsEnabled="{x:Bind CanRecover, Mode=OneWay}" MinHeight="36" AutomationProperties.Name="Recover this agent" />
+                            </StackPanel>
+
+                            <Button
+                                Grid.Column="3"
+                                Tag="{x:Bind}"
+                                Click="Delete_Click"
+                                Style="{StaticResource FlatIconButtonStyle}"
+                                ToolTipService.ToolTip="Delete agent"
+                                AutomationProperties.Name="Delete agent">
+                                <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                            </Button>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
+</Page>

@@ -203,6 +203,24 @@ impl Default for AppleFmEngineConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FoundryLocalEngineConfig {
+    #[serde(default = "default_foundry_local_host")]
+    pub host: String,
+}
+
+fn default_foundry_local_host() -> String {
+    "http://localhost:5273".into()
+}
+
+impl Default for FoundryLocalEngineConfig {
+    fn default() -> Self {
+        Self {
+            host: default_foundry_local_host(),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Engine config
 // ---------------------------------------------------------------------------
@@ -231,6 +249,10 @@ pub struct EngineConfig {
     pub uzu: UzuEngineConfig,
     #[serde(default)]
     pub apple_fm: AppleFmEngineConfig,
+    #[serde(default)]
+    pub foundry_local: FoundryLocalEngineConfig,
+    #[serde(default)]
+    pub allow_cloud: bool,
 }
 
 fn default_engine_name() -> String {
@@ -251,6 +273,8 @@ impl Default for EngineConfig {
             nexa: NexaEngineConfig::default(),
             uzu: UzuEngineConfig::default(),
             apple_fm: AppleFmEngineConfig::default(),
+            foundry_local: FoundryLocalEngineConfig::default(),
+            allow_cloud: false,
         }
     }
 }

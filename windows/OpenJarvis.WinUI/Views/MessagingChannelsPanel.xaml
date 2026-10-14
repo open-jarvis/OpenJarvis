@@ -1,0 +1,129 @@
+<UserControl
+    x:Class="OpenJarvis.WinUI.Views.MessagingChannelsPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models">
+    <StackPanel Spacing="20">
+        <InfoBar x:Name="ErrorBar" Severity="Error" IsOpen="False" IsClosable="True" />
+
+        <StackPanel Spacing="8">
+            <TextBlock Text="Connected channels" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <TextBlock
+                x:Name="NoBindingsText"
+                Text="No channels connected for this agent yet."
+                Opacity="0.7"
+                Visibility="Collapsed" />
+            <ItemsControl x:Name="BindingsList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:ChannelBinding">
+                        <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,8" Padding="12">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind ChannelType}" FontWeight="SemiBold" />
+                                    <TextBlock
+                                        Text="Live — connected now"
+                                        Visibility="{x:Bind IsLive}"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Foreground="{ThemeResource StatusSuccessBrush}" />
+                                    <TextBlock
+                                        Text="Saved — restart OpenJarvis to activate"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Opacity="0.7" />
+                                </StackPanel>
+                                <Button
+                                    Grid.Column="1"
+                                    Content="Remove"
+                                    Tag="{x:Bind Id}"
+                                    Click="RemoveBinding_Click"
+                                    AutomationProperties.Name="Remove channel" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <StackPanel Spacing="8">
+            <TextBlock Text="Slack" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock
+                        Text="Connects immediately — no restart needed."
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Opacity="0.7" />
+                    <PasswordBox x:Name="SlackBotTokenBox" Header="Bot token (xoxb-…)" PasswordRevealMode="Peek" AutomationProperties.Name="Slack bot token" />
+                    <PasswordBox x:Name="SlackAppTokenBox" Header="App-level token (xapp-…)" PasswordRevealMode="Peek" AutomationProperties.Name="Slack app-level token" />
+                    <Button Content="Connect" Click="SlackConnect_Click" MinHeight="36" HorizontalAlignment="Left" AutomationProperties.Name="Connect Slack" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <StackPanel Spacing="8">
+            <TextBlock Text="iMessage + SMS (SendBlue)" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock
+                        Text="Connects immediately — no restart needed."
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Opacity="0.7" />
+                    <PasswordBox x:Name="SendBlueKeyIdBox" Header="API key ID" PasswordRevealMode="Peek" AutomationProperties.Name="SendBlue API key ID" />
+                    <PasswordBox x:Name="SendBlueSecretBox" Header="API secret key" PasswordRevealMode="Peek" AutomationProperties.Name="SendBlue API secret key" />
+                    <Button Content="Verify" Click="SendBlueVerify_Click" MinHeight="36" HorizontalAlignment="Left" AutomationProperties.Name="Verify SendBlue credentials" />
+                    <ComboBox
+                        x:Name="SendBlueNumberBox"
+                        Header="Phone number"
+                        IsEnabled="False"
+                        HorizontalAlignment="Stretch"
+                        AutomationProperties.Name="SendBlue phone number" />
+                    <Button
+                        x:Name="SendBlueConnectButton"
+                        Content="Connect"
+                        Click="SendBlueConnect_Click"
+                        IsEnabled="False"
+                        MinHeight="36"
+                        HorizontalAlignment="Left"
+                        AutomationProperties.Name="Connect SendBlue" />
+                    <StackPanel x:Name="SendBlueWebhookPanel" Spacing="8" Visibility="Collapsed">
+                        <TextBlock
+                            Text="Optional: register a public webhook URL (e.g. from your own ngrok tunnel) so SendBlue can reach this device."
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Opacity="0.7"
+                            TextWrapping="Wrap" />
+                        <TextBox
+                            x:Name="SendBlueWebhookBox"
+                            PlaceholderText="https://your-tunnel.example.com/webhooks/sendblue"
+                            AutomationProperties.Name="SendBlue webhook URL" />
+                        <Button Content="Register webhook" Click="SendBlueRegisterWebhook_Click" MinHeight="36" HorizontalAlignment="Left" AutomationProperties.Name="Register SendBlue webhook" />
+                        <TextBlock x:Name="SendBlueWebhookStatus" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <StackPanel Spacing="8">
+            <TextBlock Text="Other channels" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <InfoBar
+                        Severity="Informational"
+                        IsOpen="True"
+                        IsClosable="False"
+                        Message="These channels save their credentials now but only start after you restart OpenJarvis — the backend resolves them once at startup." />
+                    <ComboBox
+                        x:Name="OtherChannelBox"
+                        Header="Channel"
+                        HorizontalAlignment="Stretch"
+                        SelectionChanged="OtherChannelBox_SelectionChanged"
+                        AutomationProperties.Name="Other channel type" />
+                    <StackPanel x:Name="OtherChannelFieldsPanel" Spacing="8" />
+                    <Button Content="Save" Click="OtherChannelSave_Click" MinHeight="36" HorizontalAlignment="Left" AutomationProperties.Name="Save other channel" />
+                    <TextBlock x:Name="OtherChannelResultText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

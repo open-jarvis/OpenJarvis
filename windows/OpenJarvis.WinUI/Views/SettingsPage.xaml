@@ -1,0 +1,265 @@
+<Page
+    x:Class="OpenJarvis.WinUI.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:OpenJarvis.WinUI.Views">
+    <ScrollViewer Padding="24">
+        <StackPanel MaxWidth="720" Spacing="20">
+            <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}" />
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Setup" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Text="After you allow local setup on the launch screen, OpenJarvis installs Foundry Local and loads the selected model automatically. This shows that status live."
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Opacity="0.8"
+                            TextWrapping="Wrap" />
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon
+                                x:Name="SetupStatusIcon"
+                                Grid.Column="0"
+                                FontSize="16"
+                                VerticalAlignment="Top"
+                                Glyph="&#xE895;" />
+                            <TextBlock
+                                x:Name="SetupStatusText"
+                                Grid.Column="1"
+                                Text="Checking backend…"
+                                TextWrapping="Wrap"
+                                AutomationProperties.LiveSetting="Polite" />
+                        </Grid>
+                        <Button
+                            x:Name="RetrySetupButton"
+                            Content="Retry setup"
+                            Click="RetrySetup_Click"
+                            MinHeight="36"
+                            HorizontalAlignment="Left"
+                            AutomationProperties.Name="Retry setup" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Appearance" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <ComboBox
+                        x:Name="ThemeBox"
+                        Header="Theme"
+                        HorizontalAlignment="Stretch"
+                        SelectionChanged="ThemeBox_SelectionChanged"
+                        AutomationProperties.Name="Theme">
+                        <ComboBoxItem Content="Use system" Tag="Default" />
+                        <ComboBoxItem Content="Light" Tag="Light" />
+                        <ComboBoxItem Content="Dark" Tag="Dark" />
+                    </ComboBox>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Engine" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel Spacing="12">
+                        <TextBox
+                            x:Name="ApiBox"
+                            Header="API base URL"
+                            AutomationProperties.Name="API base URL" />
+                        <NumberBox
+                            x:Name="TemperatureBox"
+                            Header="Temperature"
+                            Minimum="0"
+                            Maximum="2"
+                            SmallChange="0.1"
+                            SpinButtonPlacementMode="Inline"
+                            AutomationProperties.Name="Temperature" />
+                        <NumberBox
+                            x:Name="MaxTokensBox"
+                            Header="Max tokens"
+                            Minimum="16"
+                            Maximum="8192"
+                            SpinButtonPlacementMode="Inline"
+                            AutomationProperties.Name="Max tokens" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Cloud" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel Spacing="8">
+                        <ToggleSwitch
+                            x:Name="CloudSwitch"
+                            Header="Allow cloud inference"
+                            OffContent="Local only"
+                            OnContent="Cloud allowed"
+                            Toggled="CloudSwitch_Toggled"
+                            AutomationProperties.Name="Allow cloud inference" />
+                        <TextBlock
+                            Text="Cloud engines stay off until you turn this on. Prompts and conversation data then may leave this device."
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Opacity="0.8"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Cloud Models" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock
+                    Text="API keys for direct cloud model inference. Each key saves immediately when you leave its field — there is no separate Save step for this section."
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Opacity="0.8"
+                    TextWrapping="Wrap" />
+                <views:CloudModelsPanel />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Tool Keys" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="Web Search (Tavily)" FontWeight="SemiBold" />
+                            <TextBlock
+                                x:Name="TavilyStatusText"
+                                Text="Not configured"
+                                Style="{StaticResource CaptionTextBlockStyle}" />
+                        </StackPanel>
+                        <PasswordBox
+                            x:Name="TavilyKeyBox"
+                            Grid.Column="1"
+                            PlaceholderText="TAVILY_API_KEY"
+                            PasswordRevealMode="Peek"
+                            LostFocus="TavilyKeyBox_LostFocus"
+                            AutomationProperties.Name="Tavily API key" />
+                        <Button
+                            x:Name="TavilyRemoveButton"
+                            Grid.Column="2"
+                            Content="Remove"
+                            Click="TavilyRemove_Click"
+                            Visibility="Collapsed"
+                            AutomationProperties.Name="Remove Tavily API key" />
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Memory" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel Spacing="12">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon x:Name="MemoryStatusIcon" Grid.Column="0" FontSize="16" VerticalAlignment="Top" Glyph="&#xE895;" />
+                            <TextBlock x:Name="MemoryStatusText" Grid.Column="1" Text="Checking memory backend…" TextWrapping="Wrap" />
+                        </Grid>
+                        <ToggleSwitch
+                            x:Name="MemoryContextSwitch"
+                            Header="Use memory context"
+                            OffContent="Off"
+                            OnContent="Automatically inject relevant memories into conversations"
+                            AutomationProperties.Name="Use memory context" />
+                        <ComboBox
+                            x:Name="MemoryBackendBox"
+                            Header="Memory backend"
+                            HorizontalAlignment="Stretch"
+                            AutomationProperties.Name="Memory backend">
+                            <ComboBoxItem Content="sqlite" Tag="sqlite" />
+                            <ComboBoxItem Content="faiss" Tag="faiss" />
+                            <ComboBoxItem Content="bm25" Tag="bm25" />
+                            <ComboBoxItem Content="colbert" Tag="colbert" />
+                            <ComboBoxItem Content="hybrid" Tag="hybrid" />
+                        </ComboBox>
+                        <Slider
+                            x:Name="MemoryTopKSlider"
+                            Header="Results to inject"
+                            Minimum="1"
+                            Maximum="20"
+                            StepFrequency="1"
+                            AutomationProperties.Name="Results to inject" />
+                        <Slider
+                            x:Name="MemoryMinScoreSlider"
+                            Header="Min relevance score"
+                            Minimum="0"
+                            Maximum="1"
+                            StepFrequency="0.05"
+                            AutomationProperties.Name="Minimum relevance score" />
+                        <Slider
+                            x:Name="MemoryMaxTokensSlider"
+                            Header="Max context tokens"
+                            Minimum="256"
+                            Maximum="8192"
+                            StepFrequency="256"
+                            AutomationProperties.Name="Max context tokens" />
+                        <TextBlock
+                            Text="Memory settings are saved to config.toml and need a backend restart to take effect, same as Allow cloud inference."
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Opacity="0.8"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Voice" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel Spacing="8">
+                        <ToggleSwitch
+                            x:Name="VoiceOutputSwitch"
+                            Header="Read replies aloud"
+                            OffContent="Off"
+                            OnContent="On"
+                            Toggled="VoiceOutputSwitch_Toggled"
+                            AutomationProperties.Name="Read replies aloud" />
+                        <ToggleSwitch
+                            x:Name="VoiceAutoplaySwitch"
+                            Header="Automatically read new replies"
+                            OffContent="Off"
+                            OnContent="On"
+                            IsEnabled="False"
+                            AutomationProperties.Name="Automatically read new replies" />
+                        <TextBlock
+                            Text="Speech uses Windows' own speech recognition and voices, not the OpenJarvis backend."
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Opacity="0.8"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Hardware" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <TextBlock x:Name="HardwareBlock" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="Windows AI APIs" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Text="These APIs are probed at runtime and are not used as the chat engine."
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Opacity="0.8"
+                            TextWrapping="Wrap" />
+                        <ItemsControl x:Name="WindowsAiList" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <Button Content="Save" Click="Save_Click" MinHeight="40" AccessKey="S" AutomationProperties.Name="Save settings" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

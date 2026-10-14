@@ -1,0 +1,61 @@
+<Page
+    x:Class="OpenJarvis.WinUI.Views.ApprovalsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models">
+    <Grid Padding="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <StackPanel Spacing="8" Margin="0,0,0,16">
+            <TextBlock Text="Approvals" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock
+                Text="Pending tool actions. This list refreshes every 10 seconds."
+                TextWrapping="Wrap"
+                Style="{StaticResource CaptionTextBlockStyle}" />
+        </StackPanel>
+        <ListView
+            x:Name="ApprovalList"
+            Grid.Row="1"
+            SelectionMode="None"
+            AutomationProperties.Name="Pending approvals">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="models:PendingApproval">
+                    <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,8">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Spacing="2">
+                                <TextBlock Text="{x:Bind Tool, Mode=OneWay}" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind Summary, Mode=OneWay}" TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.85" />
+                                <TextBlock Text="{x:Bind Tier, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+                            </StackPanel>
+                            <Button
+                                Grid.Column="1"
+                                Content="Approve"
+                                MinWidth="88"
+                                MinHeight="40"
+                                VerticalAlignment="Center"
+                                Tag="{x:Bind Id}"
+                                Click="Approve_Click"
+                                AutomationProperties.Name="Approve" />
+                            <Button
+                                Grid.Column="2"
+                                Content="Deny"
+                                MinWidth="88"
+                                MinHeight="40"
+                                VerticalAlignment="Center"
+                                Tag="{x:Bind Id}"
+                                Click="Deny_Click"
+                                AutomationProperties.Name="Deny" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
+</Page>

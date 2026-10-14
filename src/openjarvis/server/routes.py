@@ -671,6 +671,23 @@ def _handle_agent(
     )
 
 
+def _format_tool_sse_event(name: str, data: dict) -> str:
+    """Format a named SSE event for a tool-call lifecycle event.
+
+    ``tool_call_start``'s ``arguments`` arrives as a parsed dict (the
+    in-process EventBus payload) but the WinUI/web SSE contract
+    (``ChatPage.xaml.cs``'s ``ApplySse``) expects it as JSON text — copy
+    before normalizing so other bus subscribers (traces, managed-agent
+    activity) keep receiving the original object.
+    """
+    import json as _json
+
+    if name == "tool_call_start" and not isinstance(data.get("arguments"), str):
+        data = dict(data)
+        data["arguments"] = _json.dumps(data.get("arguments"))
+    return f"event: {name}\ndata: {_json.dumps(data)}\n\n"
+
+
 async def _handle_agent_stream(
     agent,
     model: str,
@@ -691,6 +708,17 @@ async def _handle_agent_stream(
 
     Requests that explicitly supply OpenAI ``tools`` continue to use
     ``_handle_stream_tools`` so their raw tool-call deltas are preserved.
+
+    While the worker thread runs, this subscribes to ``bus`` for
+    ``TOOL_CALL_START``/``TOOL_CALL_END`` and forwards them as named SSE
+    events so the desktop UI's tool-activity cards (``ChatPage.xaml.cs``
+    ``ApplySse``) have something to render — previously this endpoint only
+    ever emitted the final answer, so those events (which the agent's
+    ``ToolExecutor`` genuinely publishes onto the same ``bus``, confirmed by
+    ``check_tool_calling`` / tool-use testing against this same path) never
+    reached the client. Goes through ``_handle_agent`` (not a bare
+    ``agent.run()``) so the per-agent model-override lock (#759) and
+    ``TraceCollector`` wiring stay intact.
     """
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     query_text = ""
@@ -700,6 +728,8 @@ async def _handle_agent_stream(
             break
 
     async def generate():
+        from openjarvis.core.events import EventType
+
         first_chunk = ChatCompletionChunk(
             id=chunk_id,
             model=model,
@@ -707,8 +737,30 @@ async def _handle_agent_stream(
         )
         yield f"data: {first_chunk.model_dump_json()}\n\n"
 
-        try:
-            response = await asyncio.to_thread(
+        tool_event_names = {
+            EventType.TOOL_CALL_START: "tool_call_start",
+            EventType.TOOL_CALL_END: "tool_call_end",
+        }
+        loop = asyncio.get_event_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        done_sentinel = object()
+        subscriptions: dict = {}
+
+        if bus is not None:
+            for event_type in tool_event_names:
+
+                def _make_callback(_queue=queue, _loop=loop):
+                    def _callback(event):
+                        _loop.call_soon_threadsafe(_queue.put_nowait, event)
+
+                    return _callback
+
+                callback = _make_callback()
+                subscriptions[event_type] = callback
+                bus.subscribe(event_type, callback)
+
+        agent_future = asyncio.ensure_future(
+            asyncio.to_thread(
                 _handle_agent,
                 agent,
                 model,
@@ -717,6 +769,21 @@ async def _handle_agent_stream(
                 trace_store=trace_store,
                 bus=bus,
             )
+        )
+        agent_future.add_done_callback(
+            lambda _f: loop.call_soon_threadsafe(queue.put_nowait, done_sentinel)
+        )
+
+        try:
+            while True:
+                item = await queue.get()
+                if item is done_sentinel:
+                    break
+                sse_name = tool_event_names.get(item.event_type)
+                if sse_name:
+                    yield _format_tool_sse_event(sse_name, item.data)
+
+            response = agent_future.result()
         except Exception as exc:
             logging.getLogger("openjarvis.server").error(
                 "Agent stream error: %s",
@@ -738,6 +805,9 @@ async def _handle_agent_stream(
             yield f"data: {error_chunk.model_dump_json()}\n\n"
             yield "data: [DONE]\n\n"
             return
+        finally:
+            for event_type, callback in subscriptions.items():
+                bus.unsubscribe(event_type, callback)
 
         content = _response_content(response)
         if content:
@@ -1372,16 +1442,46 @@ async def reset_telemetry():
 
 @router.get("/v1/info")
 async def server_info(request: Request):
-    """Return server configuration: model, agent, engine."""
+    """Return server configuration: model, agent, engine, hardware."""
     agent = getattr(request.app.state, "agent", None)
     agent_id = getattr(agent, "agent_id", None) if agent else None
     # Fall back to configured agent name if agent didn't instantiate
     if agent_id is None:
         agent_id = getattr(request.app.state, "agent_name", None)
+    hw = getattr(request.app.state, "hardware", None)
+    gpu = getattr(hw, "gpu", None) if hw is not None else None
+    tool_calling = getattr(request.app.state, "tool_calling", None) or {}
+    hardware = None
+    if hw is not None:
+        hardware = {
+            "platform": getattr(hw, "platform", ""),
+            "arch": getattr(hw, "arch", ""),
+            "cpu_brand": getattr(hw, "cpu_brand", ""),
+            "cpu_count": getattr(hw, "cpu_count", 0),
+            "ram_gb": getattr(hw, "ram_gb", 0.0),
+            "execution_provider": getattr(hw, "execution_provider", ""),
+            "execution_provider_fallback": bool(
+                getattr(hw, "execution_provider_fallback", False)
+            ),
+            "gpu": None
+            if gpu is None
+            else {
+                "vendor": gpu.vendor,
+                "name": gpu.name,
+                "vram_gb": gpu.vram_gb,
+                "count": gpu.count,
+            },
+        }
     return {
         "model": getattr(request.app.state, "model", ""),
         "agent": agent_id,
         "engine": getattr(request.app.state, "engine_name", ""),
+        "hardware": hardware,
+        "allow_cloud": bool(getattr(request.app.state, "allow_cloud", False)),
+        "tool_calling": {
+            "supported": bool(tool_calling.get("supported", True)),
+            "reason": tool_calling.get("reason") or "",
+        },
     }
 
 

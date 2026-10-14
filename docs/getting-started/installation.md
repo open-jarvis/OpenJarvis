@@ -297,6 +297,7 @@ The detected GPU vendor and reported name select the engine:
 | Apple GPU | `mlx` |
 | NVIDIA name containing A100, H100, H200, L40, A10, or A30 | `vllm` |
 | Other NVIDIA | `ollama` |
+| Windows ARM + NVIDIA (RTX Spark / N1X) | `foundry_local` |
 | AMD name containing MI300, MI325, MI350, or MI355 | `vllm` |
 | Other AMD (including Radeon) | `lemonade` |
 

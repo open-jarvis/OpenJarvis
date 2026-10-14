@@ -117,6 +117,7 @@ All providers produce the same output format consumed by agents:
 | **Exo** | `exo` | OpenAI-compatible | 52415 | No (distributed) | Distributed inference across heterogeneous devices |
 | **Nexa** | `nexa` | OpenAI-compatible | 18181 | No (CPU/GPU) | On-device inference with GGUF models |
 | **Lemonade** | `lemonade` | OpenAI-compatible | 13305 | AMD GPU/NPU | AMD consumer GPUs (RDNA), Ryzen AI NPUs |
+| **Foundry Local** | `foundry_local` | OpenAI-compatible | discovered | Windows GPU/NPU | Windows ARM + Windows ML (NVIDIA RTX Spark, Copilot+) |
 | **Uzu** | `uzu` | OpenAI-compatible | 8000 | Varies | Uzu inference runtime |
 | **Apple FM (shim)** | `apple_fm` | OpenAI-compatible | 8079 | Apple Silicon | Apple Foundation Models over HTTP, for external OpenAI clients |
 | **Apple FM (in-process)** | `afm` | Python SDK (in-process) | — | Apple Silicon | Apple Foundation Models with no HTTP hop — the preferred path |
@@ -210,6 +211,18 @@ The Lemonade backend connects to the [Lemonade](https://lemonade-server.ai/) inf
 - **Install:** Visit [lemonade-server.ai](https://lemonade-server.ai/) for platform-specific installation instructions
 - **Best for:** Ryzen AI GPUs and NPUs, and AMD-based desktop and laptop systems
 
+### Foundry Local
+
+The Foundry Local backend talks to Microsoft Foundry Local's OpenAI-compatible HTTP API. On Windows it uses Windows ML execution providers (CUDA, TensorRT RTX, WebGPU, QNN, or CPU). The listen port is assigned when the server starts; OpenJarvis discovers it via `foundry server status` (or legacy `foundry service status`) or `FOUNDRY_LOCAL_HOST` and writes `[engine.foundry_local] host`.
+
+- **Fallback host:** `http://localhost:5273` (only if discovery fails)
+- **Health check:** `GET /v1/models`
+- **Tool calling:** probed at `jarvis serve` startup; a 400 fails closed so agent runs do not hang
+- **Install:** [Get started with Foundry Local](https://learn.microsoft.com/en-us/windows/ai/foundry-local/get-started)
+- **Best for:** Windows 11 24H2+ ARM64 devices, including Surface Laptop Ultra (NVIDIA RTX Spark)
+
+Cloud engines are not added to `MultiEngine` until `[engine] allow_cloud = true`.
+
 ### Uzu
 
 The Uzu backend connects to the Uzu inference runtime. Unlike other OpenAI-compatible engines, Uzu serves its API at the root path (no `/v1` prefix).
@@ -287,7 +300,9 @@ graph TD
     B -->|No| C["llamacpp"]
     B -->|Yes| D{"GPU vendor?"}
     D -->|Apple| E["mlx"]
-    D -->|NVIDIA| F{"Datacenter card?<br/>(A100, H100, H200,<br/>L40, A10, A30)"}
+    D -->|NVIDIA| W{"Windows ARM?"}
+    W -->|Yes| FL["foundry_local"]
+    W -->|No| F{"Datacenter card?<br/>(A100, H100, H200,<br/>L40, A10, A30)"}
     F -->|Yes| G["vllm"]
     F -->|No| H["ollama"]
     D -->|AMD| I{"Datacenter card?<br/>(MI300, MI325,<br/>MI350, MI355)"}
@@ -397,6 +412,8 @@ The `EngineConfig` dataclass and its per-engine sub-dataclasses map these settin
 | `LlamaCppEngineConfig` | `host` | `http://localhost:8080` | llama.cpp server URL |
 | `LlamaCppEngineConfig` | `binary_path` | `""` | Path to llama.cpp binary (for managed mode) |
 | `LemonadeEngineConfig` | `host` | `http://localhost:13305` | Lemonade server URL |
+| `FoundryLocalEngineConfig` | `host` | discovered (`http://localhost:5273` fallback) | Foundry Local OpenAI base URL |
+| `EngineConfig` | `allow_cloud` | `false` | When false, cloud engines stay out of MultiEngine |
 
 !!! note "Backward compatibility"
     The old flat field names `ollama_host`, `vllm_host`, `llamacpp_host`, `llamacpp_path`, `sglang_host`, and `lemonade_host` under `[engine]` are still accepted as backward-compatible properties on `EngineConfig`. New configurations should use the nested sub-section format.

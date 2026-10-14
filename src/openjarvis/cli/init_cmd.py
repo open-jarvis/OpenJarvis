@@ -172,6 +172,18 @@ def _next_steps_text(engine: str, model: str = "") -> str:
             '     jarvis ask "Hello"\n\n'
             "  Run `jarvis doctor` to verify your setup."
         ),
+        "foundry_local": (
+            "Next steps:\n\n"
+            "  1. Install Foundry Local (Windows ML, ARM64):\n"
+            "     https://learn.microsoft.com/en-us/windows/ai/foundry-local/get-started\n\n"
+            "  2. Start the server and load a catalog model:\n"
+            "     foundry server start\n"
+            "     foundry model download Phi-4-mini-instruct\n"
+            "     foundry model load Phi-4-mini-instruct\n\n"
+            "  3. Serve OpenJarvis against it:\n"
+            "     jarvis serve --engine foundry_local --model Phi-4-mini-instruct\n\n"
+            "  Run `jarvis doctor` to verify your setup."
+        ),
     }
     return steps.get(engine, steps["ollama"])
 

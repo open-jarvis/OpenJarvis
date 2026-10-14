@@ -1,0 +1,102 @@
+<Window
+    x:Class="OpenJarvis.WinUI.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:OpenJarvis.WinUI.Views"
+    Title="OpenJarvis">
+    <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" SizeChanged="RootGrid_SizeChanged">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="K" Modifiers="Control" Invoked="CommandPaletteAccelerator_Invoked" />
+        </Grid.KeyboardAccelerators>
+        <Grid x:Name="ShellGrid" Visibility="Collapsed">
+            <NavigationView
+                x:Name="NavView"
+                IsSettingsVisible="True"
+                IsBackButtonVisible="Collapsed"
+                PaneDisplayMode="Left"
+                OpenPaneLength="260"
+                CompactPaneLength="48"
+                SelectionChanged="NavView_SelectionChanged"
+                PaneOpening="NavView_PaneOpening"
+                PaneClosing="NavView_PaneClosing"
+                AutomationProperties.Name="OpenJarvis navigation">
+                <NavigationView.PaneHeader>
+                    <TextBlock
+                        Margin="12,8,12,0"
+                        Text="OpenJarvis"
+                        Style="{StaticResource SubtitleTextBlockStyle}" />
+                </NavigationView.PaneHeader>
+                <NavigationView.PaneCustomContent>
+                    <views:ChatListPane x:Name="ChatListPane" ConversationOpened="ChatListPane_ConversationOpened" />
+                </NavigationView.PaneCustomContent>
+                <NavigationView.MenuItems>
+                    <NavigationViewItem Content="Chat" Tag="chat" AccessKey="C" AutomationProperties.Name="Chat">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE8F2;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem Content="Dashboard" Tag="dashboard" AccessKey="D" AutomationProperties.Name="Dashboard">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE9D2;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem Content="Data Sources" Tag="datasources" AccessKey="S" AutomationProperties.Name="Data Sources">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xEDA2;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem Content="Agents" Tag="agents" AccessKey="G" AutomationProperties.Name="Agents">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE99A;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem Content="Approvals" Tag="approvals" AccessKey="A" AutomationProperties.Name="Approvals">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE8D2;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem Content="Logs" Tag="logs" AccessKey="L" AutomationProperties.Name="Logs">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE81C;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                </NavigationView.MenuItems>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <views:StatusBanner Grid.Row="0" />
+                    <Frame x:Name="ContentFrame" Grid.Row="1" IsTabStop="True" />
+                </Grid>
+            </NavigationView>
+
+            <views:SidebarResizeGrip
+                x:Name="NavPaneSplitter"
+                Width="8"
+                HorizontalAlignment="Left"
+                Background="Transparent"
+                IsTabStop="True"
+                PointerPressed="NavPaneSplitter_PointerPressed"
+                PointerMoved="NavPaneSplitter_PointerMoved"
+                PointerReleased="NavPaneSplitter_PointerReleased"
+                PointerCaptureLost="NavPaneSplitter_PointerCaptureLost"
+                PointerEntered="NavPaneSplitter_PointerEntered"
+                PointerExited="NavPaneSplitter_PointerExited"
+                KeyDown="NavPaneSplitter_KeyDown"
+                ToolTipService.ToolTip="Drag to resize"
+                AutomationProperties.Name="Resize navigation pane">
+                <Border
+                    x:Name="NavPaneSplitterBar"
+                    Width="2"
+                    HorizontalAlignment="Center"
+                    Opacity="0.6"
+                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            </views:SidebarResizeGrip>
+        </Grid>
+
+        <views:SetupView x:Name="SetupOverlay" />
+
+        <views:CommandPalette x:Name="Palette" Visibility="Collapsed" ItemActivated="Palette_ItemActivated" />
+    </Grid>
+</Window>

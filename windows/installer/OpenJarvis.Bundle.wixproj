@@ -1,0 +1,13 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <OutputType>Bundle</OutputType>
+    <Platform>ARM64</Platform>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <MsiPath Condition="'$(MsiPath)' == ''">bin\$(Configuration)\OpenJarvis.msi</MsiPath>
+    <DefineConstants>MsiPath=$(MsiPath)</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Bal.wixext" Version="5.0.2" />
+    <Compile Include="Bundle.wxs" />
+  </ItemGroup>
+</Project>

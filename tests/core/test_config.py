@@ -40,11 +40,14 @@ class TestDefaults:
         assert ec.sglang.host == "http://localhost:30000"
         assert ec.llamacpp.host == "http://localhost:8080"
         assert ec.lemonade.host == "http://localhost:13305"
+        assert ec.foundry_local.host == "http://localhost:5273"
+        assert ec.allow_cloud is False
         assert ec.llamacpp.binary_path == ""
         # Backward-compat properties still work
         assert ec.ollama_host == ""
         assert ec.vllm_host == "http://localhost:8000"
         assert ec.lemonade_host == "http://localhost:13305"
+        assert ec.foundry_local_host == "http://localhost:5273"
 
 
 class TestRecommendEngine:
@@ -80,6 +83,27 @@ class TestRecommendEngine:
         )
         assert recommend_engine(hw) == "lemonade"
 
+    def test_windows_arm_nvidia_recommends_foundry_local(self) -> None:
+        hw = HardwareInfo(
+            platform="windows",
+            arch="ARM64",
+            gpu=GpuInfo(
+                vendor="nvidia",
+                name="NVIDIA RTX Spark N1X",
+                vram_gb=24.0,
+                count=1,
+            ),
+        )
+        assert recommend_engine(hw) == "foundry_local"
+
+    def test_windows_x64_nvidia_stays_ollama(self) -> None:
+        hw = HardwareInfo(
+            platform="windows",
+            arch="AMD64",
+            gpu=GpuInfo(vendor="nvidia", name="NVIDIA GeForce RTX 4090", vram_gb=24),
+        )
+        assert recommend_engine(hw) == "ollama"
+
 
 class TestTomlLoading:
     def test_load_missing_file_uses_defaults(self, tmp_path: Path) -> None:
@@ -107,6 +131,18 @@ class TestTomlLoading:
         assert cfg.engine.default == "lemonade"
         assert cfg.engine.lemonade.host == "http://custom-lemonade:19000"
         assert cfg.engine.lemonade_host == "http://custom-lemonade:19000"
+
+    def test_loads_nested_foundry_local_and_allow_cloud(self, tmp_path: Path) -> None:
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(
+            '[engine]\ndefault = "foundry_local"\nallow_cloud = true\n\n'
+            '[engine.foundry_local]\nhost = "http://127.0.0.1:59959"\n'
+        )
+        cfg = load_config(toml_file)
+        assert cfg.engine.default == "foundry_local"
+        assert cfg.engine.allow_cloud is True
+        assert cfg.engine.foundry_local.host == "http://127.0.0.1:59959"
+        assert cfg.engine.foundry_local_host == "http://127.0.0.1:59959"
 
     def test_system_prompt_block_parsed(self, tmp_path: Path) -> None:
         """Regression for #401: the [system_prompt] block (and its prefix)
@@ -141,6 +177,8 @@ class TestGenerateToml:
         assert "[engine]" in toml
         assert 'default = "vllm"' in toml
         assert "H100" in toml
+        parsed = tomllib.loads(toml)
+        assert parsed["engine"]["allow_cloud"] is False
 
     def test_default_server_bind_is_loopback(self) -> None:
         toml = generate_default_toml(HardwareInfo())

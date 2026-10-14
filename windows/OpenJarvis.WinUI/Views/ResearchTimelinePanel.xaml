@@ -1,0 +1,53 @@
+<UserControl
+    x:Class="OpenJarvis.WinUI.Views.ResearchTimelinePanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:OpenJarvis.WinUI.Models">
+    <StackPanel x:Name="Root" Spacing="4" Margin="0,0,0,8" Visibility="Collapsed">
+        <StackPanel
+            x:Name="AnalyzingRow"
+            Orientation="Horizontal"
+            Spacing="8"
+            AutomationProperties.LiveSetting="Polite">
+            <ProgressRing Width="14" Height="14" IsActive="True" />
+            <TextBlock Text="Analyzing query…" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+        </StackPanel>
+
+        <Expander x:Name="StepsExpander" Visibility="Collapsed" HorizontalContentAlignment="Stretch">
+            <Expander.Header>
+                <TextBlock x:Name="StepsHeaderText" Style="{StaticResource CaptionTextBlockStyle}" />
+            </Expander.Header>
+            <ItemsControl x:Name="StepsList" Padding="4,8,4,4">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:ResearchStepItem">
+                        <StackPanel Margin="0,0,0,8" Spacing="2">
+                            <TextBlock Text="{x:Bind Query}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock
+                                Text="{x:Bind ResultsLabel, Mode=OneWay}"
+                                Visibility="{x:Bind Complete, Mode=OneWay}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Opacity="0.7" />
+                            <TextBlock
+                                Text="{x:Bind TopTitlesLabel, Mode=OneWay}"
+                                Visibility="{x:Bind Complete, Mode=OneWay}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Opacity="0.6"
+                                TextTrimming="CharacterEllipsis" />
+                            <ProgressBar IsIndeterminate="True" Visibility="{x:Bind CompleteInverse, Mode=OneWay}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Expander>
+
+        <StackPanel
+            x:Name="SynthesizingRow"
+            Orientation="Horizontal"
+            Spacing="8"
+            Visibility="Collapsed"
+            AutomationProperties.LiveSetting="Polite">
+            <ProgressRing Width="14" Height="14" IsActive="True" />
+            <TextBlock Text="Synthesizing findings…" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>

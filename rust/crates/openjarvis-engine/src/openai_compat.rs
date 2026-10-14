@@ -75,6 +75,10 @@ impl OpenAICompatEngine {
         Self::new("apple_fm", host, None, 120.0)
     }
 
+    pub fn foundry_local(host: &str) -> Self {
+        Self::new("foundry_local", host, None, 120.0)
+    }
+
     fn build_headers(&self) -> reqwest::header::HeaderMap {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
