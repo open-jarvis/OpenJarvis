@@ -449,11 +449,52 @@ def _engine_key_for_model(engine: Any, model: str) -> str | None:
     return None
 
 
+def _local_engine_advertises(engine: Any, model: str) -> bool:
+    """Whether a non-cloud engine behind *engine* lists *model* verbatim.
+
+    Local OpenAI-compatible servers such as LM Studio advertise
+    ``publisher/model`` IDs (e.g. ``qwen/qwen3-4b-2507``) that look like
+    OpenRouter IDs to :func:`~openjarvis.server.cloud_router.is_cloud_model`.
+    When a local engine lists the exact ID, it owns the model.
+    """
+    from openjarvis.engine.multi import MultiEngine
+    from openjarvis.security.guardrails import GuardrailsEngine
+    from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+
+    current = engine
+    while isinstance(current, (InstrumentedEngine, GuardrailsEngine)):
+        if isinstance(current, InstrumentedEngine):
+            current = current._inner
+        else:
+            current = current._engine
+    if isinstance(current, MultiEngine):
+        key = current.engine_key_for(model)
+        owner = next((eng for k, eng in current._engines if k == key), None)
+        return owner is not None and getattr(owner, "is_cloud", False) is not True
+    if getattr(current, "is_cloud", False) is True:
+        return False
+    try:
+        return model in current.list_models()
+    except Exception:
+        logging.getLogger("openjarvis.server").debug(
+            "Could not list models for the local-ownership check", exc_info=True
+        )
+        return False
+
+
 def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
-    """Whether *model* should bypass the configured engine for direct cloud."""
+    """Whether *model* should bypass the configured engine for direct cloud.
+
+    A model a local engine advertises is never sent to a cloud provider, even
+    when its ``org/model`` shape matches the OpenRouter name heuristic.
+    """
     from openjarvis.server.cloud_router import is_cloud_model
 
-    return is_cloud_model(model) and _engine_key_for_model(engine, model) != "litellm"
+    return (
+        is_cloud_model(model)
+        and _engine_key_for_model(engine, model) != "litellm"
+        and not _local_engine_advertises(engine, model)
+    )
 
 
 def _handle_direct(
