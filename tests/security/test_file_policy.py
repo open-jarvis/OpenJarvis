@@ -65,6 +65,23 @@ class TestIsSensitiveFile:
     def test_sensitive_env_in_path(self) -> None:
         assert is_sensitive_file(Path("/some/dir/.env")) is True
 
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "pass.txt",
+            "password.txt",
+            "passwords.txt",
+            "shadow",
+            "gshadow",
+            "credentials",
+            ".git-credentials",
+        ],
+    )
+    def test_sensitive_plaintext_credential_files(
+        self, name: str, policy_backend: None
+    ) -> None:
+        assert is_sensitive_file(Path("/srv/app") / name) is True
+
     def test_not_sensitive_py(self) -> None:
         assert is_sensitive_file("main.py") is False
 
