@@ -32,10 +32,13 @@ def record_until_silence(
     silence_seconds: float = _SILENCE_SECONDS,
     startup_silence_seconds: float = _STARTUP_SILENCE_SECONDS,
     max_seconds: float = _MAX_RECORD_SECONDS,
+    require_speech: bool = False,
 ) -> bytes:
     """Record from the default microphone until silence is detected.
 
-    Returns raw WAV bytes (16-bit mono).
+    Returns raw WAV bytes (16-bit mono). With ``require_speech``, returns
+    ``b""`` when speech never began, so always-on listeners can skip
+    transcribing silence.
     Raises RuntimeError if sounddevice is not installed.
     """
     try:
@@ -77,6 +80,8 @@ def record_until_silence(
                 if silence_count >= silence_chunks:
                     break
 
+    if require_speech and not has_speech:
+        return b""
     return _frames_to_wav(frames, sample_rate)
 
 
@@ -123,4 +128,26 @@ def play_wav(audio: bytes, sample_rate: int = 24000) -> None:
     sd.wait()
 
 
-__all__ = ["play_wav", "record_until_silence"]
+def chirp_wav(
+    tones: tuple[float, ...] = (1320.0, 1760.0),
+    tone_seconds: float = 0.07,
+    sample_rate: int = 24000,
+    volume: float = 0.3,
+) -> bytes:
+    """Synthesize a short rising acknowledgement chirp as 16-bit mono WAV."""
+    import math
+    import struct
+
+    n = int(tone_seconds * sample_rate)
+    fade = max(1, n // 8)  # soft edges avoid audible clicks
+    samples: list[int] = []
+    for freq in tones:
+        for i in range(n):
+            env = min(1.0, i / fade, (n - 1 - i) / fade)
+            value = volume * env * math.sin(2 * math.pi * freq * i / sample_rate)
+            samples.append(int(value * 32767))
+    frames = [struct.pack(f"{len(samples)}h", *samples)]
+    return _frames_to_wav(frames, sample_rate)
+
+
+__all__ = ["chirp_wav", "play_wav", "record_until_silence"]
