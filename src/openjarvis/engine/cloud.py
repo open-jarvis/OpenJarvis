@@ -5,6 +5,9 @@ OpenAI, Anthropic, Google, MiniMax, DeepSeek, and Atlas Cloud API backends.
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
+import asyncio
 import json
 import logging
 import os
@@ -502,7 +505,8 @@ class CloudEngine(InferenceEngine):
         # Supports both standard API keys (api.openai.com) and ChatGPT
         # OAuth tokens (chatgpt.com) via OPENAI_CODEX_BASE_URL override.
         codex_token = os.environ.get("OPENAI_CODEX_API_KEY")
-        if codex_token:
+        local_codex = os.environ.get("OPENAI_CODEX_USE_LOCAL_AUTH") == "1"
+        if codex_token or local_codex:
             codex_url = os.environ.get(
                 "OPENAI_CODEX_BASE_URL",
                 "https://api.openai.com/v1",
@@ -513,6 +517,12 @@ class CloudEngine(InferenceEngine):
                 "token": codex_token,
                 "url": codex_url,
             }
+            if local_codex and not codex_token:
+                from openjarvis.engine._codex_auth import LocalCodexAuth
+
+                if codex_url != "https://chatgpt.com/backend-api/codex/responses":
+                    raise EngineConnectionError("Local Codex auth requires the ChatGPT endpoint")
+                self._codex_client["auth"] = LocalCodexAuth()
 
     def _prepare_anthropic_messages(
         self,
@@ -586,10 +596,14 @@ class CloudEngine(InferenceEngine):
                 input_msgs.append(
                     {
                         "role": m.role.value,
-                        "content": [{"type": "input_text", "text": m.content}],
+                        "content": [{"type": "output_text" if m.role.value == "assistant" else "input_text", "text": m.content}],
                     }
                 )
         return instructions, input_msgs
+
+    def _codex_access_token(self) -> str:
+        auth = self._codex_client.get("auth")
+        return auth.access_token() if auth else self._codex_client["token"]
 
     def _generate_codex(
         self,
@@ -618,21 +632,36 @@ class CloudEngine(InferenceEngine):
             body["instructions"] = instructions
 
         headers = {
-            "Authorization": f"Bearer {self._codex_client['token']}",
+            "Authorization": f"Bearer {self._codex_access_token()}",
             "Content-Type": "application/json",
             "OpenAI-Beta": "responses=experimental",
         }
 
         t0 = time.monotonic()
-        resp = httpx.post(
-            self._codex_client["url"],
-            json=body,
-            headers=headers,
-            timeout=120.0,
-        )
+        if urlparse(self._codex_client["url"]).hostname == "chatgpt.com":
+            # ChatGPT Codex requires streaming transport even for sync callers.
+            body["stream"] = True
+            headers["Accept"] = "text/event-stream"
+            data = None
+            with httpx.stream("POST", self._codex_client["url"], json=body,
+                              headers=headers, timeout=120.0) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line.startswith("data: ") or line[6:] == "[DONE]":
+                        continue
+                    item = json.loads(line[6:])
+                    if item.get("type") in {"error", "response.failed", "response.incomplete"}:
+                        raise EngineConnectionError("Codex response failed")
+                    if item.get("type") == "response.completed":
+                        data = item.get("response")
+            if not isinstance(data, dict):
+                raise EngineConnectionError("Codex stream ended before completion")
+        else:
+            resp = httpx.post(self._codex_client["url"], json=body,
+                              headers=headers, timeout=120.0)
+            resp.raise_for_status()
+            data = resp.json()
         elapsed = time.monotonic() - t0
-        resp.raise_for_status()
-        data = resp.json()
 
         # Extract text from Responses API output.
         # The output array contains items of type "reasoning" and "message";
@@ -1366,12 +1395,13 @@ class CloudEngine(InferenceEngine):
             body["instructions"] = instructions
 
         headers = {
-            "Authorization": f"Bearer {self._codex_client['token']}",
+            "Authorization": f"Bearer {await asyncio.to_thread(self._codex_access_token)}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
             "OpenAI-Beta": "responses=experimental",
         }
 
+        completed = False
         async with httpx.AsyncClient() as client:
             async with client.stream(
                 "POST",
@@ -1392,10 +1422,17 @@ class CloudEngine(InferenceEngine):
                     except (json.JSONDecodeError, ValueError):
                         continue
                     etype = event.get("type", "")
+                    if etype in {"error", "response.failed", "response.incomplete"}:
+                        raise EngineConnectionError("Codex response failed")
+                    if etype == "response.completed":
+                        completed = True
                     if etype == "response.output_text.delta":
                         delta = event.get("delta", "")
                         if delta:
                             yield delta
+
+        if not completed:
+            raise EngineConnectionError("Codex stream ended before completion")
 
     async def _stream_openai(
         self,

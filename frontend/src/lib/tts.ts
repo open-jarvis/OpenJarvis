@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { suspendDesktopWake, resumeDesktopWake } from './desktop-wake';
 import { synthesizeSpeech, fetchTtsHealth } from './api';
 
 export type TtsState = 'idle' | 'loading' | 'speaking';
@@ -71,6 +72,7 @@ function teardown(): void {
     controller.abort();
     controller = null;
   }
+  resumeDesktopWake();
 }
 
 export const useTtsStore = create<TtsStore>((set, get) => ({
@@ -131,6 +133,8 @@ export const useTtsStore = create<TtsStore>((set, get) => ({
         set({ state: 'idle', speakingId: null, error: 'Playback failed', errorId: id });
       };
 
+      await suspendDesktopWake();
+      if (mine !== token) return;
       await el.play();
       if (mine === token) set({ state: 'speaking', speakingId: id });
     } catch (err) {
