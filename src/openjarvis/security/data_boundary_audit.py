@@ -59,6 +59,10 @@ API_KEY_ENV_VARS = {
         {"cartesia", "text_to_speech"},
     ),
     "DEEPSEEK_API_KEY": ("DeepSeek cloud inference", {"deepseek"}),
+    "ELEVENLABS_API_KEY": (
+        "ElevenLabs cloud text-to-speech",
+        {"elevenlabs", "text_to_speech"},
+    ),
     "FXMACRODATA_API_KEY": (
         "FXMacroData macro and FX data lookup",
         {"fx_macro_data", "fxmacrodata"},
@@ -227,7 +231,7 @@ MARKET_DATA_TOOLS = {"fx_macro_data"}
 CHANNEL_OUTBOUND_TOOLS = {"channel_send"}
 CONNECTOR_NETWORK_TOOLS = {"digest_collect", "execute_pending_actions"}
 CLOUD_MEDIA_TOOLS = {"audio_transcribe", "image_generate", "text_to_speech"}
-CLOUD_TTS_BACKENDS = {"cartesia", "openai", "openai_tts"}
+CLOUD_TTS_BACKENDS = {"cartesia", "elevenlabs", "openai", "openai_tts"}
 # Local knowledge chunks scanned by an inference engine (Deep Research path).
 KNOWLEDGE_ENGINE_TOOLS = {"scan_chunks"}
 # External egress surfaces (web, browser, HTTP, channels, media, knowledge LM).
