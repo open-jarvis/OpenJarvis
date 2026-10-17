@@ -2173,11 +2173,15 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
 
 
 def generate_minimal_toml(
-    hw: HardwareInfo, engine: str | None = None, *, host: str | None = None
+    hw: HardwareInfo,
+    engine: str | None = None,
+    *,
+    host: str | None = None,
+    model: str | None = None,
 ) -> str:
     """Render a minimal TOML config with only essential settings."""
     engine = engine or recommend_engine(hw)
-    model = recommend_model(hw, engine)
+    model = model if model is not None else recommend_model(hw, engine)
     gpu_comment = ""
     if hw.gpu:
         mem_label = "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
@@ -2210,11 +2214,15 @@ enabled = ["code_interpreter", "web_search", "file_read", "shell_exec"]
 
 
 def generate_default_toml(
-    hw: HardwareInfo, engine: str | None = None, *, host: str | None = None
+    hw: HardwareInfo,
+    engine: str | None = None,
+    *,
+    host: str | None = None,
+    model: str | None = None,
 ) -> str:
     """Render a commented TOML string suitable for ``~/.openjarvis/config.toml``."""
     engine = engine or recommend_engine(hw)
-    model = recommend_model(hw, engine)
+    model = model if model is not None else recommend_model(hw, engine)
     gpu_line = ""
     if hw.gpu:
         gpu_line = f"# Detected GPU: {hw.gpu.name} ({hw.gpu.vram_gb} GB VRAM)"

@@ -107,6 +107,23 @@ class TestMinimalConfig:
         # Should have the reference hint
         assert "jarvis init --full" in content
 
+    def test_low_resource_uses_small_model_defaults(self, tmp_path: Path) -> None:
+        config_dir = tmp_path / ".openjarvis"
+        config_path = config_dir / "config.toml"
+        with (
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_DIR", config_dir),
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
+            mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
+        ):
+            result = CliRunner().invoke(
+                cli, ["init", "--low-resource", _NO_DL]
+            )
+        assert result.exit_code == 0, result.output
+        content = config_path.read_text()
+        assert 'default = "ollama"' in content
+        assert 'default_model = "qwen3.5:2b"' in content
+        assert "low-resource profile" in result.output
+
     def test_init_full_generates_verbose_config(self, tmp_path: Path) -> None:
         """jarvis init --full produces the full reference config."""
         config_dir = tmp_path / ".openjarvis"
