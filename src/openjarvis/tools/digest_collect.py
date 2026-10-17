@@ -33,7 +33,7 @@ _SECTION_ORDER: List[tuple] = [
             "github_notifications",
         },
     ),
-    ("CALENDAR", {"gcalendar"}),
+    ("CALENDAR", {"gcalendar", "caldav"}),
     ("WORLD", {"weather", "hackernews", "news_rss"}),
     ("MUSIC", {"spotify", "apple_music"}),
 ]
@@ -263,20 +263,44 @@ def _format_gcalendar(doc: Document) -> str:
             try:
                 start_dt = datetime.fromisoformat(parts[0].replace("Z", "+00:00"))
                 end_dt = datetime.fromisoformat(parts[1].replace("Z", "+00:00"))
-                diff = end_dt - start_dt
-                mins = int(diff.total_seconds() / 60)
-                if mins >= 60:
-                    hrs = mins // 60
-                    remaining = mins % 60
-                    duration = f"{hrs} hour" + ("s" if hrs > 1 else "")
-                    if remaining:
-                        duration += f" {remaining} min"
-                else:
-                    duration = f"{mins} min"
-                time_range = f" ({duration})"
+                time_range = f" ({_format_duration(end_dt - start_dt)})"
             except (ValueError, TypeError):
                 pass
     return f"[gcalendar id={doc.doc_id}] {time_str} — {title}{time_range}"
+
+
+def _format_duration(diff: timedelta) -> str:
+    """Format a duration as '30 min', '1 hour' or '2 hours 15 min'."""
+    mins = int(diff.total_seconds() / 60)
+    if mins < 60:
+        return f"{mins} min"
+    hrs = mins // 60
+    remaining = mins % 60
+    duration = f"{hrs} hour" + ("s" if hrs > 1 else "")
+    if remaining:
+        duration += f" {remaining} min"
+    return duration
+
+
+def _format_caldav(doc: Document) -> str:
+    """Format a CalDAV event; includes the day since the sync window spans days."""
+    title = doc.title or "(No title)"
+    meta = doc.metadata
+    calendar = f" [{meta['calendar']}]" if meta.get("calendar") else ""
+    if meta.get("all_day"):
+        day = doc.timestamp.strftime("%a %b %-d")
+        return f"[caldav id={doc.doc_id}] {day} (all day) — {title}{calendar}"
+
+    when = doc.timestamp.strftime("%a %b %-d %-I:%M %p")
+    duration = ""
+    try:
+        start_dt = datetime.fromisoformat(meta["start"])
+        end_dt = datetime.fromisoformat(meta["end"])
+        if end_dt > start_dt:
+            duration = f" ({_format_duration(end_dt - start_dt)})"
+    except (KeyError, ValueError, TypeError):
+        pass
+    return f"[caldav id={doc.doc_id}] {when} — {title}{duration}{calendar}"
 
 
 def _format_spotify(doc: Document) -> str:
@@ -347,6 +371,7 @@ _FORMATTERS: Dict[str, Any] = {
     "outlook": _format_outlook,
     "notion": _format_notion,
     "gcalendar": _format_gcalendar,
+    "caldav": _format_caldav,
     "weather": _format_weather,
     "github_notifications": _format_github_notifications,
     "hackernews": _format_hackernews,

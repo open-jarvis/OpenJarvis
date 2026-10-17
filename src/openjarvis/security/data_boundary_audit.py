@@ -190,6 +190,7 @@ _CONFIG_STORE_PATHS: tuple[tuple[str, str, str, Status], ...] = (
 
 PERSONAL_DIGEST_SOURCES = {
     "apple_health",
+    "caldav",
     "dropbox",
     "gcalendar",
     "gcontacts",

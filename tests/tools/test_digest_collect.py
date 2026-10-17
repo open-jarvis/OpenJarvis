@@ -58,3 +58,79 @@ def test_digest_collect_missing_connector():
 
     assert result.success is True  # Partial success
     assert "not available" in result.content
+
+
+def _caldav_doc(doc_id, title, start, end, *, all_day=False, calendar="Work"):
+    return Document(
+        doc_id=doc_id,
+        source="caldav",
+        doc_type="event",
+        content=f"Title: {title}",
+        title=title,
+        timestamp=start
+        if isinstance(start, datetime)
+        else datetime(*start.timetuple()[:3]),
+        metadata={
+            "calendar": calendar,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "all_day": all_day,
+        },
+    )
+
+
+def test_digest_collect_caldav_events_land_in_calendar_section():
+    from openjarvis.tools.digest_collect import DigestCollectTool
+
+    docs = [
+        _caldav_doc(
+            "caldav:a",
+            "Standup",
+            datetime(2026, 10, 14, 9, 0),
+            datetime(2026, 10, 14, 9, 30),
+        ),
+        _caldav_doc(
+            "caldav:b",
+            "Quarterly review",
+            datetime(2026, 10, 15, 16, 0),
+            datetime(2026, 10, 15, 17, 30),
+            calendar="Family",
+        ),
+    ]
+    mock_connector = MagicMock()
+    mock_connector.return_value.is_connected.return_value = True
+    mock_connector.return_value.sync.return_value = docs
+
+    with patch.object(ConnectorRegistry, "contains", return_value=True):
+        with patch.object(ConnectorRegistry, "get", return_value=mock_connector):
+            result = DigestCollectTool().execute(sources=["caldav"], hours_back=24)
+
+    assert "=== CALENDAR ===" in result.content
+    assert (
+        "[caldav id=caldav:a] Wed Oct 14 9:00 AM — Standup (30 min) [Work]"
+        in result.content
+    )
+    assert (
+        "[caldav id=caldav:b] Thu Oct 15 4:00 PM — Quarterly review "
+        "(1 hour 30 min) [Family]" in result.content
+    )
+
+
+def test_format_caldav_all_day_event():
+    from datetime import date
+
+    from openjarvis.tools.digest_collect import _format_doc
+
+    doc = _caldav_doc(
+        "caldav:h", "Holiday", date(2026, 10, 14), date(2026, 10, 15), all_day=True
+    )
+
+    assert _format_doc("caldav", doc) == (
+        "[caldav id=caldav:h] Wed Oct 14 (all day) — Holiday [Work]"
+    )
+
+
+def test_caldav_is_a_personal_digest_source():
+    from openjarvis.security.data_boundary_audit import PERSONAL_DIGEST_SOURCES
+
+    assert "caldav" in PERSONAL_DIGEST_SOURCES
