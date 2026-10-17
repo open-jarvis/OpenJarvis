@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
 # Stub for `uv` — records args, exits with $UV_STUB_EXIT.
 echo "$@" >> "${UV_STUB_LOG:-/dev/null}"
+# build-extension.sh targets a venv via VIRTUAL_ENV; record it so tests can
+# assert which venv the extension was built into.
+if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+    echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> "${UV_STUB_LOG:-/dev/null}"
+fi
 exit "${UV_STUB_EXIT:-0}"

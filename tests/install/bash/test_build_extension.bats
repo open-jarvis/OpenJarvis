@@ -36,10 +36,28 @@ teardown() {
     [ -f "$OPENJARVIS_HOME/.state/extension-built" ]
 }
 
-@test "calls uv run maturin develop with the right manifest" {
+@test "calls maturin develop with the right manifest" {
     UV_STUB_EXIT=0 run bash "$SCRIPT"
-    grep -q "run maturin develop -m" "$UV_STUB_LOG"
+    grep -q "tool run maturin develop --uv -m" "$UV_STUB_LOG"
     grep -q "rust/crates/openjarvis-python/Cargo.toml" "$UV_STUB_LOG"
+}
+
+@test "builds into the installer venv when it exists" {
+    mkdir -p "$OPENJARVIS_HOME/.venv"
+    UV_STUB_EXIT=0 run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    grep -q "VIRTUAL_ENV=$OPENJARVIS_HOME/.venv" "$UV_STUB_LOG"
+}
+
+@test "falls back to the source checkout venv without an installer venv" {
+    UV_STUB_EXIT=0 run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    grep -q "VIRTUAL_ENV=$OPENJARVIS_HOME/src/.venv" "$UV_STUB_LOG"
+}
+
+@test "verifies the import against the active venv without re-syncing" {
+    UV_STUB_EXIT=0 run bash "$SCRIPT"
+    grep -q "run --active --no-sync python -c import openjarvis_rust" "$UV_STUB_LOG"
 }
 
 @test "atomic rename — no .tmp file left behind" {
