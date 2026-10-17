@@ -17,12 +17,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@base-ui/react": "^1.8.0",
+    "@base-ui/react": "^1.9.0",
     "@fontsource-variable/geist": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/api": "^2.12.1",
+    "@tauri-apps/api": "^2.12.3",
     "@tauri-apps/plugin-autostart": "^2",
-    "@tauri-apps/plugin-dialog": "^2.8.1",
+    "@tauri-apps/plugin-dialog": "^2.8.2",
     "@tauri-apps/plugin-global-shortcut": "^2",
     "@tauri-apps/plugin-notification": "^2",
     "@tauri-apps/plugin-process": "^2",
@@ -31,9 +31,9 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "katex": "^0.19.0",
-    "lucide-react": "^1.53.0",
+    "lucide-react": "^1.55.0",
     "motion": "^13.4.4",
-    "posthog-js": "^1.438.3",
+    "posthog-js": "^1.438.7",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
@@ -50,14 +50,14 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.12.1",
+    "@tauri-apps/cli": "^2.12.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "typescript": "~7.0.2",
     "vite": "^8.3.4",
     "vite-plugin-pwa": "^2.0.0",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.4"
   },
   "allowScripts": {
     "core-js": false,
