@@ -67,6 +67,7 @@ Each server object supports the following fields:
 |------------------|----------------|----------|----------------------------------------------------------|
 | `name`           | string         | No       | Human-readable name used in log messages. Defaults to `<unnamed>`. |
 | `url`            | string         | No*      | URL for Streamable HTTP transport.                       |
+| `token`          | string         | No       | Bearer token sent as `Authorization: Bearer <token>` with Streamable HTTP (e.g. a Home Assistant long-lived access token). Keep a file-based `servers` config owner-readable only (`chmod 600`) when it holds tokens. |
 | `command`         | string         | No*      | Command to launch a stdio-based MCP server.              |
 | `args`           | list of strings| No       | Arguments passed to the stdio command.                   |
 | `include_tools`  | list of strings| No       | Whitelist of tool names to import. Only these tools are loaded. |
@@ -127,6 +128,18 @@ To load everything except specific tools, use `exclude_tools`:
 enabled = true
 servers = '[{"name": "ha", "url": "http://172.16.3.1:9583/private_abc123", "exclude_tools": ["hassCreateBackup", "hassDeleteBackup"]}]'
 ```
+
+Tool names must match what the server reports. Home Assistant's built-in MCP
+Server integration (`https://<host>/api/mcp`) prefixes them with their domain,
+e.g. `homeassistant__GetLiveContext` or `intent__HassTurnOn`.
+
+!!! note
+    `jarvis ask`, `jarvis serve` and `jarvis chat` also apply the agent's tool
+    list (`--tools`, otherwise `[tools] enabled` / `[agent] tools`) to MCP
+    tools. If you set such a list, add the MCP tool names you want to it;
+    leave it unset to load every tool that passes the per-server filters.
+    MCP tools are only offered to agents that use tools (e.g. `native_react`,
+    `orchestrator`), not to `simple`.
 
 ## Transport Types
 
