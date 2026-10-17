@@ -40,7 +40,7 @@ class MultiEngine(InferenceEngine):
             except Exception as exc:
                 logger.debug("Failed to list models for %s: %s", key, exc)
 
-    _CLOUD_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "claude-", "gemini-", "openrouter/")
+    _CLOUD_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "claude-", "gemini-", "openrouter/", "codex/")
 
     def _engine_for(self, model: str) -> InferenceEngine:
         """Find the engine that owns a model, refreshing the map once if needed."""
@@ -126,7 +126,10 @@ class MultiEngine(InferenceEngine):
         if key is not None:
             return key
         self._refresh_map()
-        return self._model_key_map.get(model)
+        key = self._model_key_map.get(model)
+        if key is None and model.startswith("codex/"):
+            return next((k for k, _ in self._engines if k == "cloud"), None)
+        return key
 
     def health(self) -> bool:
         return any(engine.health() for _key, engine in self._engines)

@@ -1,3 +1,6 @@
+mod attached_server;
+mod wake_launcher;
+
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
@@ -1745,7 +1748,11 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
 // ---------------------------------------------------------------------------
 
 fn api_base() -> String {
-    format!("http://127.0.0.1:{}", JARVIS_PORT)
+    match attached_server::configured_base() {
+        Some(Ok(base)) => base,
+        Some(Err(_)) => "http://127.0.0.1:0".into(), // fail closed
+        None => format!("http://127.0.0.1:{}", JARVIS_PORT),
+    }
 }
 
 #[tauri::command]
@@ -1763,6 +1770,10 @@ async fn start_backend(
     backend: tauri::State<'_, SharedBackend>,
     status: tauri::State<'_, SharedStatus>,
 ) -> Result<(), String> {
+    if let Some(base) = attached_server::configured_base() {
+        attached_server::connect(base, status.inner().clone()).await;
+        return Ok(());
+    }
     if read_configured_inference_config().is_none() {
         *status.lock().await = SetupStatus::default();
         return Err("Choose an inference source before starting OpenJarvis.".into());
@@ -1786,6 +1797,7 @@ async fn reset_inference_source(
     backend: tauri::State<'_, SharedBackend>,
     status: tauri::State<'_, SharedStatus>,
 ) -> Result<(), String> {
+    attached_server::require_managed_mode()?;
     backend.lock().await.stop_all().await;
     discard_pending_inference_setup()?;
     *status.lock().await = SetupStatus::default();
@@ -1970,6 +1982,7 @@ async fn fetch_models(api_url: String) -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 async fn run_jarvis_command(args: Vec<String>) -> Result<String, String> {
+    attached_server::require_managed_mode()?;
     let uv_bin = resolve_bin("uv");
 
     let mut cmd_args = vec!["run".to_string(), "jarvis".to_string()];
@@ -2465,6 +2478,7 @@ async fn set_inference_source(
     api_key: Option<String>,
     pending: Option<bool>,
 ) -> Result<(), String> {
+    attached_server::require_managed_mode()?;
     let kind = match kind.as_str() {
         "ollama" => SourceKind::Ollama,
         "custom" => SourceKind::Custom,
@@ -3326,36 +3340,63 @@ async fn hide_overlay() -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let backend: SharedBackend = Arc::new(Mutex::new(BackendManager::default()));
-    let configured_at_launch = match read_configured_inference_config() {
-        Some(cfg) if cfg.confirmed => {
-            // A confirmed source never consumes a staging slot. Clear any
-            // remnant from a prior interrupted config write.
-            let _ = secure_store_set(PENDING_INFERENCE_API_KEY, "");
-            Some(cfg)
-        }
-        Some(_) => {
-            // A prior first-run boot was interrupted or failed before it
-            // reached ready. Never replay that unvalidated choice on launch.
-            let _ = discard_pending_inference_setup();
-            None
-        }
-        None => {
-            // Clean up a stage left behind if the process exited between the
-            // secure-store write and the pending config write.
-            let _ = secure_store_set(PENDING_INFERENCE_API_KEY, "");
-            None
+    let attached = attached_server::configured_base();
+    let configured_at_launch = if attached.is_some() {
+        None // Do not read/write the managed desktop's source or credentials.
+    } else {
+        match read_configured_inference_config() {
+            Some(cfg) if cfg.confirmed => {
+                // A confirmed source never consumes a staging slot. Clear any
+                // remnant from a prior interrupted config write.
+                let _ = secure_store_set(PENDING_INFERENCE_API_KEY, "");
+                Some(cfg)
+            }
+            Some(_) => {
+                // A prior first-run boot was interrupted or failed before it
+                // reached ready. Never replay that unvalidated choice on launch.
+                let _ = discard_pending_inference_setup();
+                None
+            }
+            None => {
+                // Clean up a stage left behind if the process exited between the
+                // secure-store write and the pending config write.
+                let _ = secure_store_set(PENDING_INFERENCE_API_KEY, "");
+                None
+            }
         }
     };
     let initial_status = configured_at_launch
         .as_ref()
         .map(SetupStatus::starting)
         .unwrap_or_default();
+    let initial_status = if attached.is_some() {
+        attached_server::starting_status()
+    } else {
+        initial_status
+    };
     let status: SharedStatus = Arc::new(Mutex::new(initial_status));
 
     let boot_backend_ref = backend.clone();
     let boot_status_ref = status.clone();
 
     tauri::Builder::default()
+        .on_permission_request(|webview, kind| {
+            use tauri::webview::{PermissionKind, PermissionResponse};
+            if attached_server::configured_base().is_none() {
+                return PermissionResponse::Default;
+            }
+            if matches!(kind, PermissionKind::Microphone)
+                && webview.label() == "main"
+                && webview
+                    .url()
+                    .is_ok_and(|url| attached_server::bundled_origin(&url))
+            {
+                // Recording remains explicitly initiated by the UI microphone button.
+                PermissionResponse::Allow
+            } else {
+                PermissionResponse::Deny
+            }
+        })
         .manage(backend.clone())
         .manage(status.clone())
         .plugin(tauri_plugin_notification::init())
@@ -3370,10 +3411,25 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
                 let _ = window.set_focus();
             }
         }))
+        .on_window_event(|window, event| {
+            if wake_launcher::enabled() && window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(move |app| {
+            wake_launcher::start(app.handle());
+            if wake_launcher::enabled() && std::env::args().any(|arg| arg == "--hidden") {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
             // System tray
             let show = MenuItemBuilder::with_id("show", "Show / Hide").build(app)?;
             let health = MenuItemBuilder::with_id("health", "Health: starting...")
@@ -3438,13 +3494,16 @@ pub fn run() {
             // Returning users keep automatic startup after they have persisted
             // a source. Fresh installs stay inert until the setup UI records
             // explicit consent and invokes `start_backend`.
-            if configured_at_launch.is_some() {
+            if let Some(base) = attached {
+                tauri::async_runtime::spawn(attached_server::connect(base, boot_status_ref));
+            } else if configured_at_launch.is_some() {
                 tauri::async_runtime::spawn(start_managed_boot(boot_backend_ref, boot_status_ref));
             }
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            wake_launcher::set_desktop_speech_busy,
             get_setup_status,
             get_api_base,
             start_backend,
@@ -3478,12 +3537,21 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building OpenJarvis Desktop")
-        .run(move |_app, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                let b = backend.clone();
-                tauri::async_runtime::spawn(async move {
-                    b.lock().await.stop_all().await;
-                });
+        .run(move |app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                // Keep the event loop alive while the wake worker releases audio.
+                static EXITING: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !EXITING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_exit();
+                    let b = backend.clone();
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        wake_launcher::shutdown(&app).await;
+                        b.lock().await.stop_all().await;
+                        app.exit(0);
+                    });
+                }
             }
         });
 }

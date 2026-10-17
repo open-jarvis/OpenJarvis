@@ -453,7 +453,8 @@ def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
     """Whether *model* should bypass the configured engine for direct cloud."""
     from openjarvis.server.cloud_router import is_cloud_model
 
-    return is_cloud_model(model) and _engine_key_for_model(engine, model) != "litellm"
+    return (not model.startswith("codex/") and is_cloud_model(model)
+            and _engine_key_for_model(engine, model) != "litellm")
 
 
 def _handle_direct(
@@ -991,7 +992,8 @@ async def _handle_stream(
                     _inner = getattr(engine, "_inner", engine)
                     if isinstance(_inner, MultiEngine):
                         _routed = _inner._engine_for(model)
-                        if _routed is not None and getattr(_routed, "is_cloud", False):
+                        if (_routed is not None and getattr(_routed, "is_cloud", False)
+                                and not model.startswith("codex/")):
                             _use_local_fallback = True
                 except Exception:
                     pass
@@ -1122,8 +1124,14 @@ async def list_models(request: Request) -> ModelListResponse:
     model_ids = [
         m
         for m in all_ids
-        if not is_cloud_model(m) or _engine_key_for_model(engine, m) == "litellm"
+        if m.startswith("codex/") or not is_cloud_model(m) or _engine_key_for_model(engine, m) == "litellm"
     ]
+    configured = getattr(request.app.state, "model", "")
+    if isinstance(configured, str) and configured.startswith("codex/") and configured not in model_ids:
+        if _engine_key_for_model(engine, configured) == "cloud":
+            model_ids.append(configured)
+    if configured in model_ids:
+        model_ids = [configured] + [mid for mid in model_ids if mid != configured]
     if not model_ids:
         model_ids = await list_local_models()
 

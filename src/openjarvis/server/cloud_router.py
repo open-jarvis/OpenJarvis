@@ -69,6 +69,8 @@ def _load_keys() -> dict[str, str]:
 
 def get_provider(model: str) -> str | None:
     """Return the provider for a model name, or None if it's a local model."""
+    if model.startswith("codex/"):
+        return "codex"
     if any(model.startswith(p) for p in _OPENAI_PREFIXES):
         return "openai"
     if any(model.startswith(p) for p in _ANTHROPIC_PREFIXES):
@@ -369,7 +371,16 @@ async def stream_cloud(
     """Stream tokens from a cloud provider for the given model."""
     provider = get_provider(model)
 
-    if provider == "openai":
+    if provider == "codex":
+        from openjarvis.engine.cloud import CloudEngine
+        engine = CloudEngine()
+        try:
+            async for token in engine.stream(messages, model=model, temperature=temperature,
+                                             max_tokens=max_tokens):
+                yield token
+        finally:
+            engine.close()
+    elif provider == "openai":
         async for token in _stream_openai(model, messages, temperature, max_tokens):
             yield token
 

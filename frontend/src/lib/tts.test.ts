@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./api', () => ({
+  isTauri: () => false,
   synthesizeSpeech: vi.fn(),
   fetchTtsHealth: vi.fn(),
 }));

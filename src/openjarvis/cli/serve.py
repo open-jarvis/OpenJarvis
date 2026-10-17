@@ -110,6 +110,11 @@ def _resolve_server_model(
     )
 
     for candidate in candidates:
+        if candidate and candidate.startswith("codex/"):
+            owner = getattr(engine, "engine_key_for", lambda _: None)(candidate)
+            can_serve = getattr(engine, "can_serve", lambda _: False)
+            if owner == "cloud" or (engine_name == "cloud" and can_serve(candidate)):
+                return candidate
         if candidate and (not available or candidate in available):
             return candidate
 
