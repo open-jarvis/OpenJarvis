@@ -222,6 +222,7 @@ class SystemBuilder:
                 capability_policy=sec.capability_policy,
                 agent_id=agent_name,
                 rate_limiter=sec.rate_limiter,
+                boundary_guard=sec.boundary_guard,
             )
             if tool_list
             else None
@@ -256,6 +257,7 @@ class SystemBuilder:
                         capability_policy=sec.capability_policy,
                         agent_id=agent_name,
                         rate_limiter=sec.rate_limiter,
+                        boundary_guard=sec.boundary_guard,
                     )
                 skill_few_shot_examples = skill_manager.get_few_shot_examples()
             except Exception as exc:
@@ -353,6 +355,7 @@ class SystemBuilder:
             session_store=session_store,
             capability_policy=capability_policy,
             audit_logger=sec.audit_logger,
+            boundary_guard=sec.boundary_guard,
             rate_limiter=sec.rate_limiter,
             agent_manager=agent_manager,
             agent_scheduler=agent_scheduler,

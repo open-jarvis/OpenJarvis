@@ -242,6 +242,7 @@ class QueryOrchestrator:
             bus=s.bus,
             capability_policy=s.capability_policy,
             rate_limiter=getattr(s, "rate_limiter", None),
+            boundary_guard=getattr(s, "boundary_guard", None),
             agent_id=agent_name,
         )
 

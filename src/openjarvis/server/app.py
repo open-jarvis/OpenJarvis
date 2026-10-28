@@ -177,6 +177,7 @@ def create_app(
     capability_policy=None,
     rate_limiter=None,
     audit_logger=None,
+    boundary_guard=None,
     api_key: str = "",
     webhook_config: dict | None = None,
     cors_origins: list[str] | None = None,
@@ -209,7 +210,12 @@ def create_app(
             bus = EventBus(record_history=False)
         if any(
             primitive is None
-            for primitive in (capability_policy, rate_limiter, audit_logger)
+            for primitive in (
+                capability_policy,
+                rate_limiter,
+                audit_logger,
+                boundary_guard,
+            )
         ):
             # Programmatic factory callers must receive the same config-driven
             # enforcement as ``jarvis serve``. Explicitly injected primitives
@@ -224,6 +230,8 @@ def create_app(
                 rate_limiter = derived_security.rate_limiter
             if audit_logger is None:
                 audit_logger = derived_security.audit_logger
+            if boundary_guard is None:
+                boundary_guard = derived_security.boundary_guard
 
     # A pre-built tool-using agent is part of the factory's remote execution
     # surface too. Fill only missing executor fields so explicit per-agent
@@ -237,6 +245,7 @@ def create_app(
         bus=bus,
         capability_policy=capability_policy,
         rate_limiter=rate_limiter,
+        boundary_guard=boundary_guard,
         agent_id=(
             agent_name
             or getattr(agent, "_runtime_agent_id", "")
@@ -306,6 +315,7 @@ def create_app(
     app.state.capability_policy = capability_policy
     app.state.rate_limiter = rate_limiter
     app.state.audit_logger = audit_logger
+    app.state.boundary_guard = boundary_guard
     app.state.mcp_tools = list(mcp_tools or [])
     app.state._mcp_discovery_lock = threading.Lock()
     app.state._mcp_clients_lock = threading.Lock()

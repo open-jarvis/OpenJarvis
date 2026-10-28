@@ -61,6 +61,9 @@ class TestSetupSecurityEnabled:
         assert isinstance(sec, SecurityContext)
         # Audit logger should always work (no Rust dependency)
         assert sec.audit_logger is not None
+        # Outbound tool calls must receive a boundary guard even if the
+        # optional Rust-backed scanners are unavailable.
+        assert sec.boundary_guard is not None
 
     def test_graceful_without_rust(self) -> None:
         """Scanners fail gracefully when Rust is unavailable."""

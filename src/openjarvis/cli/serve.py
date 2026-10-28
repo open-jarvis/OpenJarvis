@@ -640,6 +640,7 @@ def serve(
                     capability_policy=sec.capability_policy,
                     agent_id=agent_key or "scheduler",
                     rate_limiter=sec.rate_limiter,
+                    boundary_guard=sec.boundary_guard,
                 )
                 if resolved_tools
                 else None

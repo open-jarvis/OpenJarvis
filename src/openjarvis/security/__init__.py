@@ -20,6 +20,7 @@ class SecurityContext:
     capability_policy: Any = None
     audit_logger: Any = None
     rate_limiter: Any = None
+    boundary_guard: Any = None
 
 
 def setup_security(
@@ -41,8 +42,8 @@ def setup_security(
     from openjarvis.security.types import RedactionMode
 
     # Scanners + engine wrapping
+    scanners: list[BaseScanner] = []
     try:
-        scanners: list[BaseScanner] = []
         if config.security.secret_scanner:
             scanners.append(SecretScanner())
         if config.security.pii_scanner:
@@ -123,11 +124,24 @@ def setup_security(
     except Exception as exc:
         logger.debug("Failed to set up audit logger: %s", exc)
 
+    # Tool calls that leave the device (HTTP, cloud-connected tools and
+    # channels) need the same PII/secret policy as model inference.  The
+    # executor applies this guard only to tools marked non-local.
+    from openjarvis.security.boundary import BoundaryGuard
+
+    boundary_guard = BoundaryGuard(
+        mode=config.security.mode,
+        enabled=True,
+        bus=bus,
+        scanners=scanners,
+    )
+
     return SecurityContext(
         engine=engine,
         capability_policy=cap_policy,
         audit_logger=audit,
         rate_limiter=rate_limiter,
+        boundary_guard=boundary_guard,
     )
 
 

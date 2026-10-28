@@ -61,6 +61,7 @@ def wire_agent_security(
     bus: Any = None,
     capability_policy: Any = None,
     rate_limiter: Any = None,
+    boundary_guard: Any = None,
     agent_id: str = "",
     overwrite: bool = True,
     synchronize_runtime_cache: bool = False,
@@ -80,6 +81,10 @@ def wire_agent_security(
         overwrite or getattr(agent, "_rate_limiter", None) is None
     ):
         agent._rate_limiter = rate_limiter
+    if boundary_guard is not None and (
+        overwrite or getattr(agent, "_boundary_guard", None) is None
+    ):
+        agent._boundary_guard = boundary_guard
     if agent_id and (overwrite or not getattr(agent, "_runtime_agent_id", "")):
         agent._runtime_agent_id = agent_id
 
@@ -120,6 +125,10 @@ def wire_agent_security(
         overwrite or getattr(executor, "_rate_limiter", None) is None
     ):
         executor._rate_limiter = rate_limiter
+    if boundary_guard is not None and (
+        overwrite or getattr(executor, "_boundary_guard", None) is None
+    ):
+        executor._boundary_guard = boundary_guard
     if agent_id and (
         overwrite or synchronize_runtime_cache or not getattr(executor, "_agent_id", "")
     ):

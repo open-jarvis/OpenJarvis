@@ -41,12 +41,14 @@ def test_factory_derives_missing_security_and_secures_prebuilt_agent(
     policy = object()
     limiter = object()
     audit = object()
+    boundary_guard = object()
     setup = MagicMock(
         return_value=SecurityContext(
             engine=wrapped,
             capability_policy=policy,
             rate_limiter=limiter,
             audit_logger=audit,
+            boundary_guard=boundary_guard,
         )
     )
     monkeypatch.setattr("openjarvis.security.setup_security", setup)
@@ -68,11 +70,13 @@ def test_factory_derives_missing_security_and_secures_prebuilt_agent(
     assert app.state.capability_policy is policy
     assert app.state.rate_limiter is limiter
     assert app.state.audit_logger is audit
+    assert app.state.boundary_guard is boundary_guard
     assert agent._engine is wrapped
     assert agent._bus is app.state.bus
     assert agent._executor._bus is app.state.bus
     assert agent._executor._capability_policy is policy
     assert agent._executor._rate_limiter is limiter
+    assert agent._executor._boundary_guard is boundary_guard
     assert agent._executor._agent_id == "tool-agent"
 
 

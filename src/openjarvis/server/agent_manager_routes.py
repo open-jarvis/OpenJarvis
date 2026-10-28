@@ -1327,6 +1327,7 @@ async def _stream_managed_agent(
         confirm_callback=None,
         capability_policy=getattr(app_state, "capability_policy", None),
         rate_limiter=getattr(app_state, "rate_limiter", None),
+        boundary_guard=getattr(app_state, "boundary_guard", None),
         agent_id=agent_id,
     )
     # The executor is request-local, but the conversation is not: seed taint
