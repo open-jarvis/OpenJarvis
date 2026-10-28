@@ -270,6 +270,9 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Keep async fixtures isolated per test and pin the behavior before the
+# pytest-asyncio default changes in a future release.
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "amd: requires AMD GPU",
     "apple: requires Apple Silicon",
