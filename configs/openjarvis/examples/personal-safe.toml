@@ -1,0 +1,55 @@
+# Personal-safe baseline: local conversation only.
+# Add a capability only after testing it in isolation and reviewing its data path.
+
+[intelligence]
+provider = "local"
+preferred_engine = "ollama"
+default_model = "qwen3:8b"
+
+[agent]
+default_agent = "orchestrator"
+max_turns = 4
+tools = "calculator,think"
+context_from_memory = false
+
+[tools.mcp]
+# MCP servers are third-party execution/data boundaries. Keep them disabled
+# until each server and its permissions have been reviewed.
+enabled = false
+
+[security]
+enabled = true
+profile = "shared"
+mode = "block"
+scan_input = true
+scan_output = true
+secret_scanner = true
+pii_scanner = true
+enforce_tool_confirmation = true
+ssrf_protection = true
+rate_limit_enabled = true
+# Do not add a home directory. Use one narrow workspace if file tools are
+# explicitly enabled later.
+allowed_dirs = []
+
+[security.capabilities]
+enabled = true
+default_deny = true
+
+[sandbox]
+# Enable and configure a mount allowlist before enabling code or shell tools.
+enabled = false
+
+[analytics]
+enabled = false
+choice_recorded = true
+
+[telemetry]
+enabled = false
+
+[traces]
+enabled = false
+
+[server]
+host = "127.0.0.1"
+port = 8000

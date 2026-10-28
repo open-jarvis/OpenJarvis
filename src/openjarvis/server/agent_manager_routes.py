@@ -1028,8 +1028,12 @@ async def _stream_managed_agent(
                     agent_id=agent_id,
                     max_turns=int(config.get("max_turns", 8)),
                     temperature=float(config.get("temperature", 0.3)),
-                    interactive=True,
-                    confirm_callback=lambda _prompt: True,
+                    # HTTP/SSE requests cannot provide a trustworthy
+                    # synchronous human confirmation.  Fail closed for tools
+                    # that declare requires_confirmation until an explicit
+                    # approval workflow is used.
+                    interactive=False,
+                    confirm_callback=None,
                 )
                 if resolved_toolkit.mcp_clients:
                     dr_agent._mcp_clients = resolved_toolkit.mcp_clients
@@ -1317,8 +1321,10 @@ async def _stream_managed_agent(
     stream_tool_executor = ToolExecutor(
         tools=resolved_toolkit.instances,
         bus=bus,
-        interactive=True,
-        confirm_callback=lambda _prompt: True,
+        # This request-scoped executor serves remote clients too; it must
+        # never auto-approve privileged actions on their behalf.
+        interactive=False,
+        confirm_callback=None,
         capability_policy=getattr(app_state, "capability_policy", None),
         rate_limiter=getattr(app_state, "rate_limiter", None),
         agent_id=agent_id,
@@ -1888,8 +1894,8 @@ def create_agent_manager_router(
                                         request.app.state, "rate_limiter", None
                                     ),
                                     agent_id=agent_id,
-                                    interactive=True,
-                                    confirm_callback=lambda _prompt: True,
+                                    interactive=False,
+                                    confirm_callback=None,
                                 )
 
                                 def handler(text: str) -> str:
@@ -1971,8 +1977,8 @@ def create_agent_manager_router(
                                         request.app.state, "rate_limiter", None
                                     ),
                                     agent_id=agent_id,
-                                    interactive=True,
-                                    confirm_callback=lambda _prompt: True,
+                                    interactive=False,
+                                    confirm_callback=None,
                                 )
                         bus = getattr(request.app.state, "bus", None)
                         if bus is None:

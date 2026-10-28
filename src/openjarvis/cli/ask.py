@@ -439,7 +439,10 @@ def _run_agent(
                 capability_policy=capability_policy,
                 agent_id=getattr(agent_cls, "agent_id", agent_name),
                 interactive=True,
-                confirm_callback=lambda prompt: True,
+                # A skill can invoke the same privileged tools as an agent.
+                # Never turn its confirmation requirement into an implicit
+                # approval merely because ``jarvis ask`` is interactive.
+                confirm_callback=lambda prompt: click.confirm(prompt, default=False),
             )
             skill_manager = SkillManager(
                 bus,
@@ -477,7 +480,11 @@ def _run_agent(
         agent_kwargs["tools"] = tools
         agent_kwargs["max_turns"] = config.agent.max_turns
         agent_kwargs["interactive"] = True
-        agent_kwargs["confirm_callback"] = lambda prompt: True
+        # Privileged tools (for example shell_exec and git_commit) must have
+        # an explicit approval from the person at the terminal.
+        agent_kwargs["confirm_callback"] = lambda prompt: click.confirm(
+            prompt, default=False
+        )
         agent_kwargs["agent_id"] = agent_name
         if capability_policy is not None:
             agent_kwargs["capability_policy"] = capability_policy
