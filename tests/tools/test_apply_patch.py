@@ -221,3 +221,90 @@ class TestApplyPatchTool:
         assert result.success is True
         content = f.read_text(encoding="utf-8")
         assert content == "keep\nkeep_too\n"
+
+    def test_create_new_file_from_dev_null_patch(self, tmp_path):
+        new_file = tmp_path / "test_new_file.txt"
+        patch = (
+            "--- /dev/null\n"
+            "+++ b/test_new_file.txt\n"
+            "@@ -0,0 +1,2 @@\n"
+            "+line one\n"
+            "+line two\n"
+        )
+        tool = ApplyPatchTool()
+        result = tool.execute(patch=patch, path=str(new_file))
+        assert result.success is True
+        assert new_file.exists()
+        assert new_file.read_text(encoding="utf-8") == "line one\nline two\n"
+        assert "backup_path" not in result.metadata
+
+    def test_create_new_file_auto_detect_path_nested_dirs(self, tmp_path):
+        nested_file = tmp_path / "sub" / "dir" / "created.txt"
+        patch = (
+            f"--- /dev/null\n+++ b/{nested_file}\n@@ -0,0 +1,1 @@\n+created content\n"
+        )
+        tool = ApplyPatchTool()
+        result = tool.execute(patch=patch)
+        assert result.success is True
+        assert nested_file.exists()
+        assert nested_file.read_text(encoding="utf-8") == "created content\n"
+
+    def test_patch_empty_file_with_old_start_zero(self, tmp_path):
+        empty_file = tmp_path / "empty.txt"
+        empty_file.write_text("", encoding="utf-8")
+        patch = (
+            "--- a/empty.txt\n"
+            "+++ b/empty.txt\n"
+            "@@ -0,0 +1,2 @@\n"
+            "+first line\n"
+            "+second line\n"
+        )
+        tool = ApplyPatchTool()
+        result = tool.execute(patch=patch, path=str(empty_file), backup=True)
+        assert result.success is True
+        assert empty_file.read_text(encoding="utf-8") == "first line\nsecond line\n"
+        bak = tmp_path / "empty.txt.bak"
+        assert bak.exists()
+        assert bak.read_text(encoding="utf-8") == ""
+
+    def test_create_file_crlf_line_endings(self, tmp_path):
+        target = tmp_path / "crlf_new.txt"
+        patch = (
+            "--- /dev/null\r\n"
+            "+++ b/crlf_new.txt\r\n"
+            "@@ -0,0 +1,2 @@\r\n"
+            "+line1\r\n"
+            "+line2\r\n"
+        )
+        tool = ApplyPatchTool()
+        result = tool.execute(patch=patch, path=str(target), backup=False)
+        assert result.success is True
+        with open(target, "rb") as f:
+            raw_bytes = f.read()
+        assert raw_bytes == b"line1\r\nline2\r\n"
+
+    @pytest.mark.parametrize(
+        "header",
+        [
+            "--- /dev/null\n",
+            "--- a/dev/null\n",
+            "--- /dev/null\t2026-01-01 00:00:00.000000000 +0000\n",
+            "--- dev/null\n",
+        ],
+    )
+    def test_create_new_file_dev_null_variants(self, tmp_path, header):
+        f = tmp_path / "variant.txt"
+        patch = f"{header}+++ b/variant.txt\n@@ -0,0 +1,1 @@\n+variant content\n"
+        tool = ApplyPatchTool()
+        result = tool.execute(patch=patch, path=str(f), backup=False)
+        assert result.success is True
+        assert f.read_text(encoding="utf-8") == "variant content\n"
+
+    def test_create_sensitive_file_blocked(self, tmp_path):
+        env_file = tmp_path / ".env"
+        patch = "--- /dev/null\n+++ b/.env\n@@ -0,0 +1,1 @@\n+SECRET=123\n"
+        tool = ApplyPatchTool()
+        result = tool.execute(patch=patch, path=str(env_file))
+        assert result.success is False
+        assert "sensitive" in result.content.lower()
+        assert not env_file.exists()
