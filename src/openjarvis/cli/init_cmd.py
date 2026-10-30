@@ -255,6 +255,12 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
     "--no-download", is_flag=True, default=False, help="Skip the model download prompt."
 )
 @click.option(
+    "--low-resource",
+    is_flag=True,
+    default=False,
+    help="Use a small Ollama model; CPU fallback works when an iGPU is unsupported.",
+)
+@click.option(
     "--no-scan",
     "skip_scan",
     is_flag=True,
@@ -305,6 +311,7 @@ def init(
     full_config: bool = False,
     engine: Optional[str] = None,
     no_download: bool = False,
+    low_resource: bool = False,
     skip_scan: bool = False,
     host: Optional[str] = None,
     enable_digest: bool = False,
@@ -315,6 +322,11 @@ def init(
     """Detect hardware and generate ~/.openjarvis/config.toml."""
     print_banner(quiet=(ctx.obj or {}).get("quiet", False))
     console = Console()
+
+    if low_resource and (config or preset):
+        raise click.UsageError(
+            "--low-resource cannot be combined with --config or --preset"
+        )
 
     # Cloud auto-detect — inform user if a key is in env.
     detected_cloud = detect_cloud_keys()
@@ -376,6 +388,9 @@ def init(
 
     console.print("[bold]Detecting hardware...[/bold]")
     hw = detect_hardware()
+
+    if low_resource and engine is None:
+        engine = "ollama"
 
     console.print(f"  Platform : {hw.platform}")
     console.print(f"  CPU      : {hw.cpu_brand} ({hw.cpu_count} cores)")
@@ -465,10 +480,15 @@ def init(
     if config:
         toml_content = config.read_text(encoding="utf-8")
     else:
+        model_override = "qwen3.5:2b" if low_resource else None
         if full_config:
-            toml_content = generate_default_toml(hw, engine=engine, host=host)
+            toml_content = generate_default_toml(
+                hw, engine=engine, host=host, model=model_override
+            )
         else:
-            toml_content = generate_minimal_toml(hw, engine=engine, host=host)
+            toml_content = generate_minimal_toml(
+                hw, engine=engine, host=host, model=model_override
+            )
 
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     # ``--config`` selects an existing file to install; it is not an alternate
@@ -546,7 +566,7 @@ sources = ["hackernews", "news_rss"]
     skills_dir.mkdir(exist_ok=True)
 
     selected_engine = engine or recommend_engine(hw)
-    model = recommend_model(hw, selected_engine)
+    model = "qwen3.5:2b" if low_resource else recommend_model(hw, selected_engine)
 
     if not model:
         console.print(
@@ -557,9 +577,14 @@ sources = ["hackernews", "news_rss"]
         spec = find_model_spec(model)
         size_gb = estimated_download_gb(spec.parameter_count_b) if spec else 0
         avail = _available_memory_gb(hw)
+        memory_note = (
+            "low-resource profile"
+            if low_resource
+            else f"{avail:.0f} GB available memory"
+        )
         console.print(
             f"\n  [bold]Recommended model:[/bold] {model} (~{size_gb:.1f} GB)"
-            f"  [dim](selected for {avail:.0f} GB available memory)[/dim]"
+            f"  [dim](selected for {memory_note})[/dim]"
         )
 
         if not no_download and not from_bare_jarvis and spec:
