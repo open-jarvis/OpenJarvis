@@ -80,6 +80,15 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
       { id: 'atlascloud/Qwen/Qwen3-235B-A22B-Instruct-2507', desc: 'Qwen3 235B via Atlas Cloud' },
     ],
   },
+  {
+    name: 'Cheaper Inference',
+    envKey: 'CHEAPER_INFERENCE_API_KEY',
+    models: [
+      { id: 'cheaperinference/gpt-5.4-mini', desc: 'GPT-5.4 Mini via Cheaper Inference' },
+      { id: 'cheaperinference/claude-sonnet-5', desc: 'Claude Sonnet 5 via Cheaper Inference' },
+      { id: 'cheaperinference/gemini-3.1-pro', desc: 'Gemini 3.1 Pro via Cheaper Inference' },
+    ],
+  },
 ];
 
 type Tab = 'installed' | 'catalogue' | 'cloud';
