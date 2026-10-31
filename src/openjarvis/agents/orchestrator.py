@@ -204,7 +204,24 @@ class OrchestratorAgent(ToolUsingAgent):
                 if denial is not None:
                     tool_result = denial
                 else:
-                    tool_result = self._executor.execute(tool_call)
+                    # Same loop-guard check as function-calling mode: without
+                    # it a model repeating one call was only stopped by
+                    # max_turns.
+                    verdict = (
+                        self._loop_guard.check_call(
+                            tool_call.name, tool_call.arguments
+                        )
+                        if self._loop_guard
+                        else None
+                    )
+                    if verdict is not None and verdict.blocked:
+                        tool_result = ToolResult(
+                            tool_name=tool_call.name,
+                            content=f"Loop guard: {verdict.reason}",
+                            success=False,
+                        )
+                    else:
+                        tool_result = self._executor.execute(tool_call)
                 all_tool_results.append(tool_result)
 
                 if tool_result.success:
@@ -315,23 +332,30 @@ class OrchestratorAgent(ToolUsingAgent):
         if thought_match:
             result["thought"] = thought_match.group(1).strip()
 
+        # Field markers only count at the start of a line. Unanchored, prose
+        # inside THOUGHT such as "I need a tool: search" or "before the final
+        # answer: ..." was parsed as a real TOOL / FINAL_ANSWER field.
         final_match = re.search(
-            r"FINAL[_ ]?ANSWER:\s*(.+)",
+            r"^[ \t]*FINAL[_ ]?ANSWER:\s*(.+)",
             text,
-            re.DOTALL | re.IGNORECASE,
+            re.DOTALL | re.IGNORECASE | re.MULTILINE,
         )
         if final_match:
             result["final_answer"] = final_match.group(1).strip()
             return result
 
-        tool_match = re.search(r"TOOL:\s*(.+)", text, re.IGNORECASE)
+        tool_match = re.search(
+            r"^[ \t]*TOOL:\s*(.+)",
+            text,
+            re.IGNORECASE | re.MULTILINE,
+        )
         if tool_match:
             result["tool"] = tool_match.group(1).strip()
 
         input_match = re.search(
-            r"INPUT:\s*(.+?)(?=\nTHOUGHT:|\nTOOL:|\nFINAL|\Z)",
+            r"^[ \t]*INPUT:\s*(.+?)(?=\nTHOUGHT:|\nTOOL:|\nFINAL|\Z)",
             text,
-            re.DOTALL | re.IGNORECASE,
+            re.DOTALL | re.IGNORECASE | re.MULTILINE,
         )
         if input_match:
             result["input"] = input_match.group(1).strip()

@@ -10,6 +10,12 @@ static SENSITIVE_PATTERNS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
         ".secret",
         "id_rsa",
         "id_ed25519",
+        "id_ecdsa",
+        "id_dsa",
+        "id_ecdsa_sk",
+        "id_ed25519_sk",
+        ".npmrc",
+        ".pypirc",
         ".htpasswd",
         ".pgpass",
         ".netrc",
@@ -25,7 +31,7 @@ static SENSITIVE_PATTERNS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 });
 
 static SENSITIVE_EXTENSIONS: Lazy<Vec<&'static str>> =
-    Lazy::new(|| vec![".pem", ".key", ".p12", ".pfx", ".jks", ".secrets"]);
+    Lazy::new(|| vec![".pem", ".key", ".p12", ".pfx", ".jks", ".secrets", ".kdbx"]);
 
 static SENSITIVE_PREFIXES: Lazy<Vec<&'static str>> = Lazy::new(|| vec![".env.", "credentials."]);
 
@@ -64,6 +70,10 @@ fn matches_sensitive_name(path: &Path) -> bool {
         Some(n) => n,
         None => return false,
     };
+    // Case-insensitive: on macOS and Windows ".ENV" or "Id_Rsa" name the same
+    // file as ".env" / "id_rsa". All patterns are lowercase.
+    let lowered = name.to_lowercase();
+    let name = lowered.as_str();
 
     if SENSITIVE_PATTERNS.contains(name) {
         return true;
@@ -110,6 +120,28 @@ mod tests {
             panic!("failed to create test symlink: {error}");
         }
         true
+    }
+
+    #[test]
+    fn test_case_insensitive_and_extra_names() {
+        for name in [
+            ".ENV",
+            "Id_Rsa",
+            "server.PEM",
+            "id_ecdsa",
+            "id_dsa",
+            ".npmrc",
+            ".pypirc",
+            "vault.KDBX",
+            ".Env.Local",
+        ] {
+            assert!(
+                is_sensitive_file(Path::new(&format!("/srv/app/{name}"))),
+                "{name} should be sensitive"
+            );
+        }
+        assert!(!is_sensitive_file(Path::new("/srv/app/environment.py")));
+        assert!(!is_sensitive_file(Path::new("/srv/app/id_rsa.pub")));
     }
 
     #[test]
