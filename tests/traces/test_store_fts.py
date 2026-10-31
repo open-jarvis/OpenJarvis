@@ -135,3 +135,112 @@ class TestFTS5Search:
 
         with pytest.raises(sqlite3.OperationalError, match="no such table"):
             store.search("trace")
+
+
+class TestFTSDeleteSync:
+    """The delete half of the external-content sync pair.
+
+    Without an AFTER DELETE trigger a removed trace keeps its index entry:
+    its tokens stay matchable and reads through the index fail with
+    "missing row N from content table".
+    """
+
+    def test_deleted_trace_is_not_matchable(self, store):
+        store.save(_make_trace("t1", "my private medical question", "the answer"))
+        store.save(_make_trace("t2", "an unrelated kitchen question", "other"))
+
+        store._conn.execute("DELETE FROM traces WHERE trace_id = 't1'")
+        store._conn.commit()
+
+        rows = store._conn.execute(
+            "SELECT rowid FROM traces_fts WHERE traces_fts MATCH 'medical'"
+        ).fetchall()
+        assert rows == []
+
+        # The surviving trace is untouched.
+        rows = store._conn.execute(
+            "SELECT rowid FROM traces_fts WHERE traces_fts MATCH 'kitchen'"
+        ).fetchall()
+        assert len(rows) == 1
+
+    def test_indexed_columns_remain_readable_after_delete(self, store):
+        """A stale entry makes reads through the index raise.
+
+        ``TraceStore.search`` joins back to ``traces`` and so silently skips
+        an orphaned index row; reading the indexed columns straight from
+        ``traces_fts`` is what surfaces the inconsistency, with
+        "missing row N from content table".
+        """
+        store.save(_make_trace("t1", "first question", "first answer"))
+        store.save(_make_trace("t2", "second question", "second answer"))
+
+        store._conn.execute("DELETE FROM traces WHERE trace_id = 't1'")
+        store._conn.commit()
+
+        rows = store._conn.execute(
+            "SELECT query FROM traces_fts WHERE traces_fts MATCH 'question'"
+        ).fetchall()
+        assert [r[0] for r in rows] == ["second question"]
+
+        # The public search path keeps working too.
+        assert [r["trace_id"] for r in store.search("question")] == ["t2"]
+
+    def test_update_of_indexed_column_reindexes(self, store):
+        store.save(_make_trace("t1", "original wording", "result"))
+
+        store._conn.execute(
+            "UPDATE traces SET query = 'replacement wording' WHERE trace_id = 't1'"
+        )
+        store._conn.commit()
+
+        assert (
+            store._conn.execute(
+                "SELECT rowid FROM traces_fts WHERE traces_fts MATCH 'original'"
+            ).fetchall()
+            == []
+        )
+        assert (
+            len(
+                store._conn.execute(
+                    "SELECT rowid FROM traces_fts WHERE traces_fts MATCH 'replacement'"
+                ).fetchall()
+            )
+            == 1
+        )
+
+    def test_stale_index_from_an_older_database_is_rebuilt(self, tmp_path):
+        """A database written before the triggers existed is repaired on open."""
+        from openjarvis.traces.store import (
+            _CREATE_FTS,
+            _CREATE_STEPS,
+            _CREATE_TRACES,
+            _FTS_SYNC_INSERT,
+            TraceStore,
+        )
+
+        db = tmp_path / "legacy.db"
+        conn = sqlite3.connect(str(db))
+        for stmt in (_CREATE_TRACES, _CREATE_STEPS, _CREATE_FTS, _FTS_SYNC_INSERT):
+            conn.execute(stmt)
+        conn.execute(
+            "INSERT INTO traces (trace_id, query, agent, result) "
+            "VALUES ('old', 'leftover secret', 'a', 'r')"
+        )
+        conn.execute("DELETE FROM traces")
+        conn.commit()
+        # The pre-fix state: row gone, token still indexed.
+        assert conn.execute(
+            "SELECT rowid FROM traces_fts WHERE traces_fts MATCH 'leftover'"
+        ).fetchall()
+        conn.close()
+
+        TraceStore(db)  # opening it runs the one-time rebuild
+
+        conn = sqlite3.connect(str(db))
+        assert (
+            conn.execute(
+                "SELECT rowid FROM traces_fts WHERE traces_fts MATCH 'leftover'"
+            ).fetchall()
+            == []
+        )
+        conn.close()
