@@ -538,3 +538,41 @@ class TestPersonaFilesReachModel:
         assert result.exit_code == 0, result.output
         messages = engine.generate.call_args.args[0]
         assert "ORCH_PERSONA_SENTINEL" in messages[0].content
+
+
+class _StopAfterMcpLoad(Exception):
+    pass
+
+
+def test_ask_resolves_mcp_servers_file_against_config_dir(tmp_path, monkeypatch):
+    """A file-based ``servers`` value is resolved next to the loaded config."""
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.core.events import EventBus
+    from openjarvis.core.registry import AgentRegistry
+
+    ask_module = importlib.import_module("openjarvis.cli.ask")
+    AgentRegistry.register_value("mcp_config_dir_agent", _ConfirmingAgent)
+    seen = {}
+
+    def fake_loader(mcp_cfg, **kwargs):
+        seen.update(kwargs)
+        raise _StopAfterMcpLoad
+
+    monkeypatch.setattr("openjarvis.mcp.loader.load_mcp_tools_from_config", fake_loader)
+    config = JarvisConfig()
+    config._config_dir = tmp_path
+
+    with pytest.raises(_StopAfterMcpLoad):
+        ask_module._run_agent(
+            "mcp_config_dir_agent",
+            "hi",
+            MagicMock(),
+            "m",
+            [],
+            config,
+            EventBus(),
+            0.1,
+            32,
+        )
+
+    assert seen["config_dir"] == tmp_path
