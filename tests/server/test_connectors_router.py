@@ -733,6 +733,31 @@ def test_connect_news_rss_requires_and_persists_feeds(app, tmp_path: Path) -> No
         _instances.pop("news_rss", None)
 
 
+def test_connect_caldav_over_http_is_rejected(app, tmp_path: Path) -> None:
+    """CalDAV credentials are local-only; HTTP must not overwrite them."""
+    from openjarvis.connectors.caldav_calendar import CalDAVConnector
+    from openjarvis.server.connectors_router import _instances
+
+    instance = CalDAVConnector(
+        url="https://cloud.example.com/remote.php/dav",
+        username="luis",
+        password="configured-password",
+        config_path=str(tmp_path / "caldav.json"),
+    )
+    instance.sync = lambda **_kwargs: iter(())
+    _instances["caldav"] = instance
+    try:
+        resp = app.post(
+            "/v1/connectors/caldav/connect",
+            json={"email": "attacker", "password": "attacker-password"},
+        )
+        assert resp.status_code == 400
+        assert "caldav.json" in resp.json()["detail"]
+        assert instance._settings().password == "configured-password"
+    finally:
+        _instances.pop("caldav", None)
+
+
 def test_gmail_quota_exhaustion_is_reported_as_rate_limited(app, monkeypatch):
     import time
 

@@ -4,14 +4,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from functools import cached_property
+from typing import Any, Dict, List, Optional
 
 from openjarvis.connectors._stubs import Document
 from openjarvis.core.registry import ConnectorRegistry, ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Section definitions: ordered list of (section_name, connector_ids)
@@ -33,7 +37,7 @@ _SECTION_ORDER: List[tuple] = [
             "github_notifications",
         },
     ),
-    ("CALENDAR", {"gcalendar"}),
+    ("CALENDAR", {"gcalendar", "caldav"}),
     ("WORLD", {"weather", "hackernews", "news_rss"}),
     ("MUSIC", {"spotify", "apple_music"}),
 ]
@@ -263,20 +267,44 @@ def _format_gcalendar(doc: Document) -> str:
             try:
                 start_dt = datetime.fromisoformat(parts[0].replace("Z", "+00:00"))
                 end_dt = datetime.fromisoformat(parts[1].replace("Z", "+00:00"))
-                diff = end_dt - start_dt
-                mins = int(diff.total_seconds() / 60)
-                if mins >= 60:
-                    hrs = mins // 60
-                    remaining = mins % 60
-                    duration = f"{hrs} hour" + ("s" if hrs > 1 else "")
-                    if remaining:
-                        duration += f" {remaining} min"
-                else:
-                    duration = f"{mins} min"
-                time_range = f" ({duration})"
+                time_range = f" ({_format_duration(end_dt - start_dt)})"
             except (ValueError, TypeError):
                 pass
     return f"[gcalendar id={doc.doc_id}] {time_str} — {title}{time_range}"
+
+
+def _format_duration(diff: timedelta) -> str:
+    """Format a duration as '30 min', '1 hour' or '2 hours 15 min'."""
+    mins = int(diff.total_seconds() / 60)
+    if mins < 60:
+        return f"{mins} min"
+    hrs = mins // 60
+    remaining = mins % 60
+    duration = f"{hrs} hour" + ("s" if hrs > 1 else "")
+    if remaining:
+        duration += f" {remaining} min"
+    return duration
+
+
+def _format_caldav(doc: Document) -> str:
+    """Format a CalDAV event; includes the day since the sync window spans days."""
+    title = doc.title or "(No title)"
+    meta = doc.metadata
+    calendar = f" [{meta['calendar']}]" if meta.get("calendar") else ""
+    if meta.get("all_day"):
+        day = doc.timestamp.strftime("%a %b %-d")
+        return f"[caldav id={doc.doc_id}] {day} (all day) — {title}{calendar}"
+
+    when = doc.timestamp.strftime("%a %b %-d %-I:%M %p")
+    duration = ""
+    try:
+        start_dt = datetime.fromisoformat(meta["start"])
+        end_dt = datetime.fromisoformat(meta["end"])
+        if end_dt > start_dt:
+            duration = f" ({_format_duration(end_dt - start_dt)})"
+    except (KeyError, ValueError, TypeError):
+        pass
+    return f"[caldav id={doc.doc_id}] {when} — {title}{duration}{calendar}"
 
 
 def _format_spotify(doc: Document) -> str:
@@ -347,6 +375,7 @@ _FORMATTERS: Dict[str, Any] = {
     "outlook": _format_outlook,
     "notion": _format_notion,
     "gcalendar": _format_gcalendar,
+    "caldav": _format_caldav,
     "weather": _format_weather,
     "github_notifications": _format_github_notifications,
     "hackernews": _format_hackernews,
@@ -419,12 +448,71 @@ def _filter_pending_invites(docs: List[Document]) -> List[Document]:
     return pending
 
 
+# [digest.<section>] tables whose sources are advertised in the tool spec.
+_DIGEST_CONFIG_SECTIONS = ("calendar", "messages", "health", "world")
+# Source IDs come from user config and end up in the model prompt, so only
+# plain connector-style identifiers are advertised.
+_SOURCE_ID_RE = re.compile(r"[a-z0-9_]{1,40}")
+_SOURCES_DESCRIPTION = (
+    "List of connector IDs to fetch from (e.g., ['gmail', 'oura', 'gcalendar'])."
+)
+
+
+def _configured_digest_sources(digest: Optional[Any] = None) -> str:
+    """Return the user's ``[digest.*]`` sources as ``section: id, id; ...``.
+
+    Lets a chat agent query e.g. ``caldav`` instead of guessing the
+    ``gcalendar`` example.  *digest* is a ``DigestConfig``; when omitted the
+    default config is loaded.  Returns ``""`` when it cannot be loaded.
+    """
+    if digest is None:
+        try:
+            from openjarvis.core.config import load_config
+
+            digest = load_config().digest
+        except Exception as exc:
+            logger.debug(
+                "digest_collect: could not load digest config: %s",
+                type(exc).__name__,
+            )
+            return ""
+
+    parts: List[str] = []
+    for name in _DIGEST_CONFIG_SECTIONS:
+        section = getattr(digest, name, None)
+        sources = [
+            source
+            for source in getattr(section, "sources", None) or []
+            if isinstance(source, str) and _SOURCE_ID_RE.fullmatch(source)
+        ]
+        if sources:
+            parts.append(f"{name}: {', '.join(sources)}")
+    return "; ".join(parts)
+
+
 @ToolRegistry.register("digest_collect")
 class DigestCollectTool(BaseTool):
     """Collect recent data from multiple connectors for digest synthesis."""
 
     tool_id = "digest_collect"
     is_local = True
+
+    def __init__(self, digest_config: Optional[Any] = None) -> None:
+        self._digest_config = digest_config
+
+    @cached_property
+    def _sources_description(self) -> str:
+        # Built once per instance: a config edit takes effect on the next
+        # session, like the rest of the agent's tool list.
+        configured = _configured_digest_sources(self._digest_config)
+        if not configured:
+            return _SOURCES_DESCRIPTION
+        # Drop the generic example: models copy it (e.g. `gcalendar`) even
+        # when the user's calendar is another connector.
+        return (
+            "List of connector IDs to fetch from. Use the IDs configured "
+            f"for this user: {configured}."
+        )
 
     @property
     def spec(self) -> ToolSpec:
@@ -442,10 +530,7 @@ class DigestCollectTool(BaseTool):
                     "sources": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": (
-                            "List of connector IDs to fetch from "
-                            "(e.g., ['gmail', 'oura', 'gcalendar'])."
-                        ),
+                        "description": self._sources_description,
                     },
                     "hours_back": {
                         "type": "number",

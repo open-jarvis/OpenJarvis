@@ -205,7 +205,7 @@ class QueryOrchestrator:
             from openjarvis.tools.digest_collect import DigestCollectTool
             from openjarvis.tools.text_to_speech import TextToSpeechTool
 
-            digest_tools = [DigestCollectTool(), TextToSpeechTool()]
+            digest_tools = [DigestCollectTool(digest_config=dc), TextToSpeechTool()]
             existing = agent_kwargs.get("tools", [])
             agent_kwargs["tools"] = digest_tools + list(existing)
 
