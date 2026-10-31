@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import ipaddress
 import json
 import os
 import secrets
@@ -454,6 +455,13 @@ def _ensure_frontend_dependencies(frontend: Path, npm: str) -> None:
         )
 
 
+def _is_loopback_host(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host in ("localhost", "")
+
+
 @click.command()
 @click.option(
     "--frontend-port", default=5173, show_default=True, type=click.IntRange(1, 65535)
@@ -461,9 +469,20 @@ def _ensure_frontend_dependencies(frontend: Path, npm: str) -> None:
 @click.option(
     "--api-port", default=8000, show_default=True, type=click.IntRange(1, 65535)
 )
+@click.option(
+    "--host",
+    default=None,
+    help="Bind the API and frontend to this address (use 0.0.0.0 for trusted LAN access).",
+)
 @click.option("--no-server", is_flag=True, help="Do not start the API server.")
 @click.option("--no-browser", is_flag=True, help="Only start the frontend.")
-def gui(frontend_port: int, api_port: int, no_server: bool, no_browser: bool) -> None:
+def gui(
+    frontend_port: int,
+    api_port: int,
+    host: str | None,
+    no_server: bool,
+    no_browser: bool,
+) -> None:
     """Start the browser-based graphical mode in the default browser.
 
     This command is intended for source checkouts. For an installed desktop
@@ -477,6 +496,11 @@ def gui(frontend_port: int, api_port: int, no_server: bool, no_browser: bool) ->
             "Download the OpenJarvis desktop app or run this command "
             "from a source checkout."
         )
+    if host and not _is_loopback_host(host) and no_server:
+        raise click.ClickException(
+            "LAN access with --no-server cannot verify API authentication. "
+            "Start the API through `jarvis gui --host` so its bind safety check runs."
+        )
     npm = shutil.which("npm") or shutil.which("npm.cmd")
     if npm is None:
         raise click.ClickException(
@@ -489,6 +513,12 @@ def gui(frontend_port: int, api_port: int, no_server: bool, no_browser: bool) ->
     # without this a perfectly healthy API turned into the misleading "Could
     # not start the OpenJarvis API server." Adopt it instead.
     if not no_server and _api_healthy(api_port):
+        if host and not _is_loopback_host(host):
+            raise click.ClickException(
+                "A server is already running on this port. Stop it with "
+                "`jarvis stop`, then rerun `jarvis gui --host` so the API "
+                "bind safety check is applied before LAN access is enabled."
+            )
         if not _daemon_pid_alive(api_port, require_ready=True):
             raise click.ClickException(
                 f"API port {api_port} is already serving an unregistered service. "
@@ -508,17 +538,20 @@ def gui(frontend_port: int, api_port: int, no_server: bool, no_browser: bool) ->
                 "uv is required to start the API with desktop dependencies. "
                 "Install uv or use --no-server with an already-running API."
             )
+        server_command = [
+            uv,
+            "run",
+            "--extra",
+            "desktop",
+            "jarvis",
+            "start",
+            "--port",
+            str(api_port),
+        ]
+        if host:
+            server_command.extend(["--host", host])
         server = subprocess.run(
-            [
-                uv,
-                "run",
-                "--extra",
-                "desktop",
-                "jarvis",
-                "start",
-                "--port",
-                str(api_port),
-            ],
+            server_command,
             cwd=frontend.parent,
             check=False,
         )
@@ -542,7 +575,7 @@ def gui(frontend_port: int, api_port: int, no_server: bool, no_browser: bool) ->
             "dev",
             "--",
             "--host",
-            "127.0.0.1",
+            host or "127.0.0.1",
             "--port",
             str(frontend_port),
             "--strictPort",
@@ -572,6 +605,13 @@ def gui(frontend_port: int, api_port: int, no_server: bool, no_browser: bool) ->
         owner.refresh()
         url = f"http://127.0.0.1:{frontend_port}"
         console.print(f"[green]OpenJarvis graphical mode is ready:[/green] {url}")
+        if host and not _is_loopback_host(host):
+            console.print(
+                "For another device on your trusted LAN, open "
+                f"http://<this-computer-LAN-IP>:{frontend_port}. "
+                "The API requires OPENJARVIS_API_KEY or a key from "
+                "`jarvis auth create-key`."
+            )
         if not no_browser:
             webbrowser.open(url)
 
