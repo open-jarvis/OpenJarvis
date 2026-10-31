@@ -2,11 +2,28 @@
 
 from __future__ import annotations
 
+import logging
+import queue
+import re
+import threading
 from typing import Any, Optional
 
 from rich.markup import escape
 
+logger = logging.getLogger(__name__)
+
 VOICE_EXIT = object()
+
+# Replies are spoken sentence by sentence so playback can start after the
+# first chunk is synthesized instead of after the whole reply. Fragments
+# shorter than this are merged into the next one ("Sim, senhor." alone would
+# add a pause for little gain).
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?…])\s+")
+_MIN_SPEECH_CHUNK_CHARS = 20
+
+# Only local backends are warmed up with a real synthesis: for API backends
+# it would be a billed request the user never asked for.
+_LOCAL_TTS_BACKENDS = frozenset({"kokoro"})
 
 # Backend selection is shared with the API server and lives in
 # openjarvis.speech._tts_discovery. Importing that at module level would pull
@@ -46,17 +63,49 @@ class VoiceSession:
         self._tts_attempted: set[str] = set()
         self._voice_prefs: tuple[str, str, float] | None = None
         self._voice_warned: set[str] = set()
+        # Held while a backend is resolved or warmed up, so a turn that starts
+        # mid warm-up waits for the loaded model instead of loading a second copy.
+        self._stt_lock = threading.RLock()
+        self._tts_lock = threading.RLock()
+
+    def warm_up(self) -> None:
+        """Load the STT and TTS models in a background thread.
+
+        Both load lazily on first use, which on CPU adds tens of seconds to
+        the first voice turn. Failures are only logged here; the real call
+        reports them to the user.
+        """
+        threading.Thread(target=self._warm_up, name="voice-warmup", daemon=True).start()
+
+    def _warm_up(self) -> None:
+        with self._stt_lock:
+            try:
+                ensure_model = getattr(self.get_stt_backend(), "_ensure_model", None)
+                if callable(ensure_model):
+                    ensure_model()
+            except Exception:
+                logger.debug("STT warm-up failed", exc_info=True)
+        with self._tts_lock:
+            try:
+                backend = self.get_tts_backend()
+                if getattr(backend, "backend_id", "") in _LOCAL_TTS_BACKENDS:
+                    # A short synthesis also loads the language pipeline and
+                    # voice tensor, not just the shared model.
+                    backend.synthesize("Ok.", **self.synth_kwargs_for(backend))
+            except Exception:
+                logger.debug("TTS warm-up failed", exc_info=True)
 
     def get_stt_backend(self) -> Any:
         """Resolve and health-check STT once, then reuse the loaded backend."""
-        if not self._stt_resolved:
-            from openjarvis.core.config import load_config
-            from openjarvis.speech._discovery import get_speech_backend
+        with self._stt_lock:
+            if not self._stt_resolved:
+                from openjarvis.core.config import load_config
+                from openjarvis.speech._discovery import get_speech_backend
 
-            config = self._config if self._config is not None else load_config()
-            self._stt_backend = get_speech_backend(config)
-            self._stt_resolved = True
-        return self._stt_backend
+                config = self._config if self._config is not None else load_config()
+                self._stt_backend = get_speech_backend(config)
+                self._stt_resolved = True
+            return self._stt_backend
 
     def get_stt_language(self) -> Optional[str]:
         """Return the configured ``speech.language``, or None to auto-detect."""
@@ -67,14 +116,25 @@ class VoiceSession:
 
     def get_tts_backend(self) -> Any:
         """Return a cached healthy TTS backend, falling through once per key."""
-        if self._tts_backend is not None:
+        with self._tts_lock:
+            if self._tts_backend is not None:
+                return self._tts_backend
+
+            from openjarvis.speech._tts_discovery import get_tts_backend
+
+            preferred, _, _ = self.get_voice_preferences()
+            self._tts_backend = get_tts_backend(
+                preferred, attempted=self._tts_attempted
+            )
             return self._tts_backend
 
-        from openjarvis.speech._tts_discovery import get_tts_backend
-
-        preferred, _, _ = self.get_voice_preferences()
-        self._tts_backend = get_tts_backend(preferred, attempted=self._tts_attempted)
-        return self._tts_backend
+    def synth_kwargs_for(self, backend: Any, console: Any = None) -> dict[str, Any]:
+        """Keyword arguments for ``backend.synthesize`` from the voice config."""
+        voice_id, speed = self.voice_for_backend(backend, console)
+        synth_kwargs: dict[str, Any] = {"output_format": "wav", "speed": speed}
+        if voice_id:
+            synth_kwargs["voice_id"] = voice_id
+        return synth_kwargs
 
     def get_voice_preferences(self) -> tuple[str, str, float]:
         """Resolve configured (tts_backend, voice_id, speed), cached per session."""
@@ -187,16 +247,13 @@ def speak(text: str, console: Any, session: VoiceSession | None = None) -> None:
         console.print(f"[red]Invalid speech config: {_terminal_safe_text(exc)}[/red]")
         return
 
+    chunks = _split_for_speech(text)
     while (backend := active_session.get_tts_backend()) is not None:
         try:
-            voice_id, speed = active_session.voice_for_backend(backend, console)
-            synth_kwargs: dict[str, Any] = {"output_format": "wav", "speed": speed}
-            if voice_id:
-                synth_kwargs["voice_id"] = voice_id
-            result = backend.synthesize(text, **synth_kwargs)
-            if result.audio:
-                play_wav(result.audio, sample_rate=result.sample_rate)
-            return
+            synth_kwargs = active_session.synth_kwargs_for(backend, console)
+            # Only the first chunk decides whether this backend works; once it
+            # is playing, falling back would restart the reply from the top.
+            first = backend.synthesize(chunks[0], **synth_kwargs)
         except Exception as exc:
             console.print(
                 f"[dim yellow]Voice backend "
@@ -204,11 +261,69 @@ def speak(text: str, console: Any, session: VoiceSession | None = None) -> None:
                 f"{_terminal_safe_text(exc)}[/dim yellow]"
             )
             active_session.discard_tts_backend()
+            continue
+        _play_pipelined(backend, first, chunks[1:], synth_kwargs, console, play_wav)
+        return
 
     console.print(
         "[dim yellow]No TTS backend available — install kokoro: "
         "pip install kokoro[/dim yellow]"
     )
+
+
+def _split_for_speech(text: str) -> list[str]:
+    """Split a reply into sentence-sized chunks for incremental playback."""
+    chunks: list[str] = []
+    pending = ""
+    for sentence in _SENTENCE_BREAK.split(text.strip()):
+        pending = f"{pending} {sentence}".strip()
+        if len(pending) >= _MIN_SPEECH_CHUNK_CHARS:
+            chunks.append(pending)
+            pending = ""
+    if pending:
+        chunks.append(pending)
+    return chunks or [text]
+
+
+def _play_pipelined(
+    backend: Any,
+    first: Any,
+    rest: list[str],
+    synth_kwargs: dict[str, Any],
+    console: Any,
+    play_wav: Any,
+) -> None:
+    """Play ``first`` while the remaining chunks are synthesized in order."""
+    results: queue.Queue[Any] = queue.Queue()
+
+    def synthesize_rest() -> None:
+        try:
+            for chunk in rest:
+                results.put(backend.synthesize(chunk, **synth_kwargs))
+        except Exception as exc:
+            results.put(exc)
+
+    if rest:
+        threading.Thread(target=synthesize_rest, name="voice-tts", daemon=True).start()
+
+    try:
+        result = first
+        for remaining in range(len(rest), -1, -1):
+            if isinstance(result, Exception):
+                console.print(
+                    f"[dim yellow]Voice playback stopped: "
+                    f"{_terminal_safe_text(result)}[/dim yellow]"
+                )
+                return
+            if result.audio:
+                play_wav(result.audio, sample_rate=result.sample_rate)
+            if remaining:
+                result = results.get()
+    except Exception as exc:
+        console.print(
+            "[dim yellow]Voice playback failed: "
+            f"{_terminal_safe_text(exc)}[/dim yellow]"
+        )
 
 
 __all__ = ["VOICE_EXIT", "VoiceSession", "read_voice_input", "record_voice", "speak"]
