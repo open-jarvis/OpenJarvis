@@ -1656,6 +1656,87 @@ class TestModelsEndpoint:
         assert "Hello" in resp.text
         assert '"engine": "litellm"' in resp.text
 
+    def test_local_engine_org_model_streams_locally(self):
+        """A ``publisher/model`` ID advertised by a local engine stays local.
+
+        LM Studio lists models as ``qwen/qwen3-4b-2507``; the OpenRouter name
+        heuristic must not send that chat to a cloud provider.
+        """
+        from openjarvis.engine.multi import MultiEngine
+
+        model = "qwen/qwen3-4b-2507"
+        local = _make_engine(models=[model])
+        local.engine_id = "lmstudio"
+        local.is_cloud = False
+        engine = MultiEngine([("lmstudio", local)])
+        app = create_app(engine, model, config=_test_config())
+
+        async def direct_cloud_tokens():
+            yield "wrong backend"
+
+        with patch(
+            "openjarvis.server.cloud_router.stream_cloud",
+            return_value=direct_cloud_tokens(),
+        ) as stream_cloud:
+            resp = TestClient(app).post(
+                "/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "stream": True,
+                },
+            )
+
+        assert resp.status_code == 200
+        stream_cloud.assert_not_called()
+        assert "Hello" in resp.text
+        assert '"engine": "lmstudio"' in resp.text
+
+
+class TestDirectCloudRouting:
+    """``_uses_direct_cloud_router`` decides when a chat leaves the device."""
+
+    @staticmethod
+    def _multi(*entries):
+        from openjarvis.engine.multi import MultiEngine
+
+        engines = []
+        for key, models, is_cloud in entries:
+            eng = MagicMock()
+            eng.is_cloud = is_cloud
+            eng.list_models.return_value = models
+            engines.append((key, eng))
+        return MultiEngine(engines)
+
+    def test_org_model_listed_by_local_engine_stays_local(self):
+        from openjarvis.server.routes import _uses_direct_cloud_router
+
+        engine = self._multi(("lmstudio", ["google/gemma-4-e4b"], False))
+        assert _uses_direct_cloud_router(engine, "google/gemma-4-e4b") is False
+
+    def test_org_model_listed_only_by_cloud_engine_goes_to_cloud(self):
+        from openjarvis.server.routes import _uses_direct_cloud_router
+
+        engine = self._multi(
+            ("lmstudio", ["qwen3-4b-instruct-2507"], False),
+            ("cloud", ["meta-llama/llama-3-8b"], True),
+        )
+        assert _uses_direct_cloud_router(engine, "meta-llama/llama-3-8b") is True
+
+    def test_unknown_org_model_still_goes_to_cloud(self):
+        from openjarvis.server.routes import _uses_direct_cloud_router
+
+        engine = self._multi(("lmstudio", ["qwen3-4b-instruct-2507"], False))
+        assert _uses_direct_cloud_router(engine, "meta-llama/llama-3-8b") is True
+
+    def test_plain_local_engine_listing_org_model_stays_local(self):
+        from openjarvis.server.routes import _uses_direct_cloud_router
+
+        engine = _make_engine(models=["qwen/qwen3-4b-2507"])
+        engine.engine_id = "lmstudio"
+        engine.is_cloud = False
+        assert _uses_direct_cloud_router(engine, "qwen/qwen3-4b-2507") is False
+
 
 # ---------------------------------------------------------------------------
 # Health endpoint tests
