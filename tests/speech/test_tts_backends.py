@@ -147,11 +147,14 @@ def test_kokoro_missing_chinese_deps_gives_actionable_error(monkeypatch):
     from openjarvis.speech.kokoro_tts import KokoroTTSBackend
 
     class FakeKPipeline:
-        def __init__(self, lang_code, model):
+        def __init__(self, lang_code, model, repo_id=None):
             # Mimic what happens inside Kokoro when misaki.zh can't import.
             raise ImportError("No module named 'ordered_set'")
 
     class FakeKModel:
+        def __init__(self, **kwargs):
+            pass
+
         def to(self, _device):
             return self
 
@@ -189,7 +192,7 @@ def test_kokoro_pipeline_cached_per_language(monkeypatch):
             return self
 
     class FakeKPipeline:
-        def __init__(self, lang_code, model):
+        def __init__(self, lang_code, model, repo_id=None):
             init_calls.append(lang_code)
             self.model = model
 
@@ -217,6 +220,9 @@ def test_kokoro_pipeline_cache_is_thread_safe(monkeypatch):
     init_calls = []
 
     class FakeKModel:
+        def __init__(self, **kwargs):
+            pass
+
         def to(self, _device):
             return self
 
@@ -224,7 +230,7 @@ def test_kokoro_pipeline_cache_is_thread_safe(monkeypatch):
             return self
 
     class FakeKPipeline:
-        def __init__(self, lang_code, model):
+        def __init__(self, lang_code, model, repo_id=None):
             init_calls.append(lang_code)
             time.sleep(0.02)
 
@@ -260,6 +266,9 @@ def test_kokoro_pipeline_cache_evicts_lru_and_cleans_up(monkeypatch):
     instances = {}
 
     class FakeKModel:
+        def __init__(self, **kwargs):
+            pass
+
         def to(self, _device):
             return self
 
@@ -267,7 +276,7 @@ def test_kokoro_pipeline_cache_evicts_lru_and_cleans_up(monkeypatch):
             return self
 
     class FakeKPipeline:
-        def __init__(self, lang_code, model):
+        def __init__(self, lang_code, model, repo_id=None):
             self.closed = False
             instances[lang_code] = self
 
@@ -320,6 +329,9 @@ def test_kokoro_synthesize_routes_voice_to_correct_language(monkeypatch):
     call_args = []
 
     class FakeKModel:
+        def __init__(self, **kwargs):
+            pass
+
         def to(self, device):
             self.device = device
             return self
@@ -328,7 +340,7 @@ def test_kokoro_synthesize_routes_voice_to_correct_language(monkeypatch):
             return self
 
     class FakeKPipeline:
-        def __init__(self, lang_code, model):
+        def __init__(self, lang_code, model, repo_id=None):
             init_args.append(lang_code)
             self.model = model
 
@@ -383,7 +395,7 @@ def test_kokoro_reuses_model_and_honors_path_and_device(monkeypatch):
             return self
 
     class FakeKPipeline:
-        def __init__(self, lang_code, model):
+        def __init__(self, lang_code, model, repo_id=None):
             pipeline_models.append((lang_code, model))
 
     monkeypatch.setitem(
@@ -396,12 +408,17 @@ def test_kokoro_reuses_model_and_honors_path_and_device(monkeypatch):
     backend._ensure_pipeline("a")
     backend._ensure_pipeline("z")
 
-    assert model_inits == [{"model": "/models/kokoro.pth"}]
+    assert model_inits == [
+        {"repo_id": "hexgrad/Kokoro-82M", "model": "/models/kokoro.pth"}
+    ]
     assert model_devices == ["cpu"]
     assert pipeline_models[0][1] is pipeline_models[1][1]
 
 
 class _FakeKModel:
+    def __init__(self, **kwargs):
+        pass
+
     def to(self, _device):
         return self
 
@@ -466,7 +483,7 @@ def test_kokoro_tolerates_unloadable_spacy_for_non_english_voices(monkeypatch):
     pipelines = []
 
     class FakeKPipeline:
-        def __init__(self, lang_code, model):
+        def __init__(self, lang_code, model, repo_id=None):
             pipelines.append(lang_code)
 
     _serve_kokoro_importing_spacy(monkeypatch, FakeKPipeline)
@@ -629,7 +646,7 @@ def test_kokoro_health_and_pipeline_share_one_model(monkeypatch):
     errors = []
 
     class SlowModel(_FakeKModel):
-        def __init__(self):
+        def __init__(self, **kwargs):
             models.append(self)
             time.sleep(0.02)
 
@@ -703,7 +720,7 @@ def test_kokoro_health_does_not_build_english_pipeline(monkeypatch):
     pipelines = []
 
     class FakeKPipeline:
-        def __init__(self, lang_code, model):
+        def __init__(self, lang_code, model, repo_id=None):
             pipelines.append(lang_code)
 
     monkeypatch.setitem(

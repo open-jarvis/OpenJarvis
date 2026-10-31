@@ -138,3 +138,80 @@ class TestSimpleAgent:
         agent.run("Hello")
         call_kwargs = engine.generate.call_args[1]
         assert call_kwargs["model"] == "qwen3:8b"
+
+
+class _StreamingEngine:
+    """Engine stub whose ``stream`` is an async generator, like real engines."""
+
+    engine_id = "mock-stream"
+
+    def __init__(self, deltas, error: Exception | None = None) -> None:
+        self._deltas = deltas
+        self._error = error
+        self.stream_calls: list[tuple] = []
+
+    async def stream(self, messages, **kwargs):
+        self.stream_calls.append((messages, kwargs))
+        for delta in self._deltas:
+            yield delta
+        if self._error is not None:
+            raise self._error
+
+
+class TestSimpleAgentRunStream:
+    def test_yields_engine_deltas_in_order(self):
+        engine = _StreamingEngine(["Bon", "jour", " !"])
+        agent = SimpleAgent(engine, "test-model")
+        assert list(agent.run_stream("Hello")) == ["Bon", "jour", " !"]
+
+    def test_uses_same_messages_and_generation_kwargs_as_run(self):
+        engine = _StreamingEngine(["ok"])
+        agent = SimpleAgent(engine, "qwen3:8b", temperature=0.1, max_tokens=256)
+        list(agent.run_stream("Hello"))
+        messages, kwargs = engine.stream_calls[0]
+        assert [m.role for m in messages] == [Role.SYSTEM, Role.USER]
+        assert messages[-1].content == "Hello"
+        assert kwargs["model"] == "qwen3:8b"
+        assert kwargs["temperature"] == 0.1
+        assert kwargs["max_tokens"] == 256
+
+    def test_forwards_only_allowlisted_engine_options(self):
+        engine = _StreamingEngine(["ok"])
+        agent = SimpleAgent(
+            engine, "test-model", engine_options={"num_ctx": 4096, "bogus": 1}
+        )
+        list(agent.run_stream("Hello"))
+        _, kwargs = engine.stream_calls[0]
+        assert kwargs["num_ctx"] == 4096
+        assert "bogus" not in kwargs
+
+    def test_turn_end_reports_streamed_length_after_exhaustion(self):
+        bus = EventBus(record_history=True)
+        engine = _StreamingEngine(["abc", "de"])
+        agent = SimpleAgent(engine, "test-model", bus=bus)
+        deltas = agent.run_stream("Hello")
+        types_before = [e.event_type for e in bus.history]
+        assert EventType.AGENT_TURN_START in types_before
+        assert EventType.AGENT_TURN_END not in types_before
+        list(deltas)
+        end = [e for e in bus.history if e.event_type == EventType.AGENT_TURN_END][0]
+        assert end.data["content_length"] == 5
+
+    def test_engine_without_stream_raises_not_implemented(self):
+        import pytest
+
+        engine = MagicMock(spec=["generate", "engine_id"])
+        agent = SimpleAgent(engine, "test-model")
+        with pytest.raises(NotImplementedError):
+            agent.run_stream("Hello")
+
+    def test_mid_stream_engine_error_propagates_after_partial_output(self):
+        import pytest
+
+        engine = _StreamingEngine(["partial"], error=RuntimeError("boom"))
+        agent = SimpleAgent(engine, "test-model")
+        received = []
+        with pytest.raises(RuntimeError, match="boom"):
+            for delta in agent.run_stream("Hello"):
+                received.append(delta)
+        assert received == ["partial"]

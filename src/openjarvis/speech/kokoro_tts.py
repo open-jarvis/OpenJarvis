@@ -167,7 +167,12 @@ class KokoroTTSBackend(TTSBackend):
             try:
                 # KModel is language-blind and is by far the heaviest part of
                 # Kokoro. Reuse one model across every language pipeline.
-                pipeline = KPipeline(lang_code=lang_code, model=self._ensure_model())
+                # repo_id silences KPipeline's "Defaulting repo_id" warning.
+                pipeline = KPipeline(
+                    lang_code=lang_code,
+                    model=self._ensure_model(),
+                    repo_id="hexgrad/Kokoro-82M",
+                )
             except ImportError as exc:
                 # Kokoro loads language-specific G2P resources at init time and
                 # several languages need extra dependencies that aren't pulled in
@@ -227,7 +232,18 @@ class KokoroTTSBackend(TTSBackend):
 
         model_kwargs = {"model": self._model_path} if self._model_path else {}
         try:
-            self._model = KModel(**model_kwargs).to(device).eval()
+            import warnings
+
+            # repo_id passed explicitly to silence kokoro's "Defaulting
+            # repo_id" warning; torch emits dropout / weight_norm
+            # deprecation noise while the graph is built.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                self._model = (
+                    KModel(repo_id="hexgrad/Kokoro-82M", **model_kwargs)
+                    .to(device)
+                    .eval()
+                )
         except RuntimeError as exc:
             raise RuntimeError(
                 f"Failed to initialize Kokoro on device {device!r}: {exc}"
