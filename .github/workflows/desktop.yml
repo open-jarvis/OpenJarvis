@@ -293,12 +293,17 @@ jobs:
           # first definitive answer rather than retrying into the same wall.
           attempt=1
           while [ "$attempt" -le 3 ]; do
-            out=$(xcrun notarytool history \
+            # GitHub invokes bash with -e: capture failure in a conditional
+            # so credential errors reach the diagnostics below.
+            if out=$(xcrun notarytool history \
               --apple-id "$A_ID" \
               --team-id "$A_TEAM" \
               --password "$A_PASS" \
-              --output-format json 2>&1)
-            rc=$?
+              --output-format json 2>&1); then
+              rc=0
+            else
+              rc=$?
+            fi
 
             if [ $rc -eq 0 ]; then
               echo "Apple notarization preflight OK — credentials valid, team reachable, agreements in effect."

@@ -36,8 +36,19 @@ jobs:
         run: npm install --global npm@11.19.0
 
       - run: npm ci
+      - name: Test audit policy
+        run: node --test scripts/check-audit.node-test.mjs
       - name: Audit dependencies
-        run: npm audit
+        run: |
+          # Keep the full report visible, including the temporary dev-only
+          # deepmerge exception. Network/registry errors must still fail.
+          audit_status=0
+          npm audit --json > "$RUNNER_TEMP/npm-audit.json" || audit_status=$?
+          cat "$RUNNER_TEMP/npm-audit.json"
+          if [ "$audit_status" -gt 1 ]; then
+            exit "$audit_status"
+          fi
+          node scripts/check-audit.mjs "$RUNNER_TEMP/npm-audit.json"
       - run: npm test
       - run: npx tsc --noEmit
       - run: npm run build
