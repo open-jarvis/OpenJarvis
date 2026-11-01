@@ -2893,6 +2893,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
   const [setupType, setSetupType] = useState<string | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const loadBindings = useCallback(() => {
     fetchAgentChannels(agentId).then(setBindings).catch(() => setBindings([]));
@@ -2912,6 +2913,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
     if (missing.length > 0) return;
 
     setLoading(true);
+    setError(null);
     try {
       const config: Record<string, string> = {};
       for (const f of ch.fields) {
@@ -2922,14 +2924,18 @@ function MessagingTab({ agentId }: { agentId: string }) {
       setSetupType(null);
       setFormValues({});
       loadBindings();
-    } catch { /* */ } finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to connect channel');
+    } finally { setLoading(false); }
   };
 
   const handleRemove = async (bindingId: string) => {
     try {
       await unbindAgentChannel(agentId, bindingId);
       loadBindings();
-    } catch { /* */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove channel');
+    }
   };
 
   const inputStyle: React.CSSProperties = {
@@ -2948,6 +2954,18 @@ function MessagingTab({ agentId }: { agentId: string }) {
       }}>
         Connect a messaging channel so you can talk to your agent from your phone or other devices.
       </div>
+      {error && (
+        <div style={{
+          color: 'var(--color-error, #ef4444)',
+          fontSize: 12,
+          marginBottom: 12,
+          padding: '8px 10px',
+          border: '1px solid color-mix(in srgb, var(--color-error, #ef4444) 35%, transparent)',
+          borderRadius: 6,
+        }}>
+          {error}
+        </div>
+      )}
 
       {/* SendBlue wizard — primary option */}
       <SendBlueWizard
