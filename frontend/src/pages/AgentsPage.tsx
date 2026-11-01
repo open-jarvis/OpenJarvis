@@ -2367,6 +2367,24 @@ const MESSAGING_CHANNELS: MessagingChannelConfig[] = [
   // SendBlue (iMessage + SMS) is handled by the dedicated SendBlueWizard above.
   // These are the other supported channels.
   {
+    type: 'telegram',
+    name: 'Telegram',
+    icon: 'TG',
+    description: 'Chat with your agent from Telegram',
+    setupSteps: [
+      '1. Open Telegram and message @BotFather',
+      '2. Send /newbot, follow the prompts, and copy the bot token',
+      '3. Paste the token below and click Connect',
+      '4. Optional: enter comma-separated Telegram chat IDs to restrict who can use the bot',
+    ],
+    fields: [
+      { key: 'bot_token', label: 'Bot Token', placeholder: '123456789:AA...', type: 'password', required: true },
+      { key: 'allowed_chat_ids', label: 'Allowed Chat IDs (optional)', placeholder: '123456789,987654321' },
+    ],
+    activeLabel: () => 'Connected to Telegram',
+    howToUse: () => 'Open your Telegram bot and send it a message to talk to your agent.',
+  },
+  {
     type: 'slack',
     name: 'Slack',
     icon: '#',
