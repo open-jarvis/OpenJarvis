@@ -145,17 +145,22 @@ class TestToolTimeout:
                     timeout_seconds=0.01,
                 )
 
+        def live_tool_workers() -> set[threading.Thread]:
+            return {
+                thread
+                for thread in threading.enumerate()
+                if thread.name.startswith("openjarvis-tool-")
+            }
+
+        # Workers left by earlier tests may still be alive, so count only new ones.
+        workers_before = live_tool_workers()
         executor = ToolExecutor([BrieflyStuckTool(delay=0.3)])
         results = [
             executor.execute(ToolCall(id=str(i), name="slow_tool", arguments="{}"))
             for i in range(24)
         ]
 
-        workers = [
-            thread
-            for thread in threading.enumerate()
-            if thread.name.startswith("openjarvis-tool-")
-        ]
+        workers = live_tool_workers() - workers_before
         assert len(workers) <= 8
         assert all(not result.success for result in results)
         assert any("capacity is exhausted" in result.content for result in results)

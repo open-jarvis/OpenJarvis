@@ -97,7 +97,7 @@ class InstrumentedEngine(InferenceEngine):
 
         gpu_sample: Optional[GpuSample] = None
         energy_sample: Optional[Any] = None
-        # perf_counter: time.time() has ~16 ms resolution on Windows, so short calls read as 0 s.
+        # perf_counter: time.time() is ~16 ms on Windows; short calls read as 0 s.
         t0 = time.perf_counter()
 
         # Prefer EnergyMonitor over legacy GpuMonitor

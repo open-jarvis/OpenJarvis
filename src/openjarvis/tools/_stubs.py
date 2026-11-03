@@ -433,7 +433,7 @@ class ToolExecutor:
 
         # Execute with timeout
         timeout = tool.spec.timeout_seconds or self._default_timeout
-        # perf_counter: time.time() has ~16 ms resolution on Windows, so fast tools read as 0 s.
+        # perf_counter: time.time() is ~16 ms on Windows; fast tools read as 0 s.
         t0 = time.perf_counter()
         future = _TOOL_RUNNER.submit(tool.execute, **params)
         try:
