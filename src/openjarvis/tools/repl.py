@@ -137,10 +137,14 @@ def _stop_runaway_thread(thread: threading.Thread) -> None:
     """
     if thread.ident is None:
         return
-    ctypes.pythonapi.PyThreadState_SetAsyncExc(
+    # Idents can be reused after a thread exits, so this is best-effort. A return
+    # value above 1 means several thread states matched; undo the request.
+    matched = ctypes.pythonapi.PyThreadState_SetAsyncExc(
         ctypes.c_ulong(thread.ident),
         ctypes.py_object(SystemExit),
     )
+    if matched > 1:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread.ident), None)
 
 
 # ---------------------------------------------------------------------------
