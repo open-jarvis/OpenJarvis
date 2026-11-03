@@ -176,8 +176,8 @@ def _trim_thread_context(ctx: List[Dict[str, Any]], cap: int) -> List[Dict[str, 
 def shape_results_for_model(
     hits: List[SearchHit],
     *,
-    detailed_top: int = 5,
-    thread_ctx_per_hit: int = 3,
+    detailed_top: int = 3,
+    thread_ctx_per_hit: int = 1,
     total_cap: int = 20,
     ref_offset: int = 0,
 ) -> Dict[str, Any]:

@@ -499,6 +499,18 @@ def test_shape_results_for_model_respects_ref_offset() -> None:
     assert refs == [21, 22, 23]
 
 
+def test_shape_results_for_model_keeps_snippets_for_top_three_only() -> None:
+    """Only the top hits carry a content snippet, which keeps the prompt small.
+
+    Each search result is re-read on every planner turn, so a full snippet for
+    every hit makes long research runs slow on a CPU-only machine.
+    """
+    hits = [_mk_hit(title=f"t{i}", document_id=f"granola:{i}") for i in range(5)]
+    shaped = shape_results_for_model(hits)
+    has_snippet = ["snippet" in h for h in shaped["hits"]]
+    assert has_snippet == [True, True, True, False, False]
+
+
 def test_build_sources_for_client_respects_ref_offset() -> None:
     """``build_sources_for_client`` agrees with ``shape_results_for_model``."""
     hits = [_mk_hit(title=f"t{i}", document_id=f"granola:{i}") for i in range(3)]
