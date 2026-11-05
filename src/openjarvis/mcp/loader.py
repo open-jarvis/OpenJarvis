@@ -74,7 +74,8 @@ def build_transport(
     ``url`` nor ``command``.
 
     ``auth_header`` (optional) sends ``token`` under that header name
-    instead of ``Authorization: Bearer``.
+    instead of ``Authorization: Bearer``. ``env`` (optional, stdio only)
+    adds environment variables for the command.
     """
     from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
 
@@ -93,6 +94,8 @@ def build_transport(
         stdio_kwargs: dict[str, Any] = {}
         if request_timeout is not None:
             stdio_kwargs["response_timeout"] = request_timeout
+        if cfg.get("env"):
+            stdio_kwargs["env"] = dict(cfg["env"])
         return StdioTransport(
             command=[command] + list(cfg.get("args", [])), **stdio_kwargs
         )

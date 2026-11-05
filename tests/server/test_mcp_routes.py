@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
@@ -379,3 +380,80 @@ def test_stdio_validation(env):
         ["--port", "1"],
         None,
     )
+
+
+_STDIO_SERVER = """
+import json, os, sys
+for line in sys.stdin:
+    req = json.loads(line)
+    if "id" not in req:
+        continue
+    if req["method"] == "initialize":
+        result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}},
+                  "serverInfo": {"name": "env", "version": "1"}}
+    elif req["method"] == "tools/list":
+        ok = os.environ.get("FAKE_KEY") == os.environ.get("EXPECTED")
+        name = "env_ok" if ok else "env_missing"
+        result = {"tools": [{"name": name, "description": "",
+                             "inputSchema": {"type": "object"}}]}
+    else:
+        result = {}
+    print(json.dumps({"jsonrpc": "2.0", "id": req["id"], "result": result}),
+          flush=True)
+"""
+
+
+def test_stdio_env_secrets_are_write_only(env, tmp_path, monkeypatch):
+    script = tmp_path / "env_server.py"
+    script.write_text(_STDIO_SERVER)
+    monkeypatch.setenv("EXPECTED", SECRET)
+    payload = {
+        "name": "env",
+        "transport": "stdio",
+        "command": sys.executable,
+        "args": [str(script)],
+        "env_names": ["FAKE_KEY", "OTHER"],
+        "env": {"FAKE_KEY": SECRET},
+    }
+    res = env.client.post("/v1/mcp/servers", json=payload)
+    assert res.status_code == 201
+    assert SECRET not in res.text
+    server = res.json()["server"]
+    assert server["env_names"] == ["FAKE_KEY", "OTHER"]
+    assert server["env_set"] == ["FAKE_KEY"]
+    assert SECRET not in (env.tmp / "mcp" / "servers.json").read_text()
+    assert SECRET not in env.client.get("/v1/mcp/servers").text
+
+    sid = server["id"]
+    tools = env.client.post(f"/v1/mcp/servers/{sid}/test").json()["tools"]
+    assert [t["name"] for t in tools] == ["env_ok"]
+
+    # A draft test reuses the stored value when the draft omits it.
+    draft = {**payload, "id": sid}
+    draft.pop("env")
+    tools = env.client.post("/v1/mcp/servers/test", json=draft).json()["tools"]
+    assert [t["name"] for t in tools] == ["env_ok"]
+
+    # Omitted values are kept; "" clears; dropped names are removed.
+    update = {**payload, "env": {"OTHER": "x"}}
+    res = env.client.put(f"/v1/mcp/servers/{sid}", json=update)
+    assert res.json()["server"]["env_set"] == ["FAKE_KEY", "OTHER"]
+    update = {**payload, "env_names": ["OTHER"], "env": {"OTHER": ""}}
+    res = env.client.put(f"/v1/mcp/servers/{sid}", json=update)
+    assert res.json()["server"]["env_set"] == []
+    assert env.store.env(sid) == {}
+
+    runtime = env.store.runtime_configs()
+    assert "env" not in runtime[0]
+
+
+def test_env_validation_does_not_echo_values(env):
+    base = {"name": "s", "transport": "stdio", "command": "x"}
+    res = env.client.post(
+        "/v1/mcp/servers",
+        json={**base, "env_names": ["A"], "env": {"B": SECRET}},
+    )
+    assert res.status_code == 422
+    assert SECRET not in res.text
+    res = env.client.post("/v1/mcp/servers", json={**base, "env_names": ["1BAD"]})
+    assert res.status_code == 422

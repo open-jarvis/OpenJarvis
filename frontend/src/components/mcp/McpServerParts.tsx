@@ -73,6 +73,7 @@ export function McpServerForm({
   initial,
   editing,
   savedToken,
+  savedEnv = [],
   onCancel,
   onSave,
   onTest,
@@ -80,6 +81,8 @@ export function McpServerForm({
   initial: McpForm;
   editing: boolean;
   savedToken: boolean;
+  /** Names of environment variables that already have a stored value. */
+  savedEnv?: string[];
   onCancel: () => void;
   onSave: (form: McpForm) => Promise<void>;
   onTest: (form: McpForm) => Promise<McpTestResult>;
@@ -91,6 +94,8 @@ export function McpServerForm({
   const [result, setResult] = useState<McpTestResult | null>(null);
   const set = <K extends keyof McpForm>(key: K, value: McpForm[K]) => setForm((f) => ({ ...f, [key]: value }));
   const fieldClass = 'w-full px-2 py-1.5 rounded text-xs';
+  const setEnv = (index: number, patch: Partial<McpForm['env'][number]>) =>
+    setForm((f) => ({ ...f, env: f.env.map((row, i) => (i === index ? { ...row, ...patch } : row)) }));
 
   const run = async (fn: () => Promise<void>, setBusy: (b: boolean) => void) => {
     setError('');
@@ -168,6 +173,46 @@ export function McpServerForm({
           <Field label="Arguments" hint="One argument per line. Do not put secrets here; arguments are stored in plain text.">
             <textarea className={`${fieldClass} font-mono`} rows={3} style={inputStyle} value={form.args} onChange={(e) => set('args', e.target.value)} />
           </Field>
+          <div className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            <span className="block mb-1">Secret environment variables</span>
+            {form.env.map((row, i) => (
+              <div key={i} className="flex items-center gap-2 mb-1.5">
+                <input
+                  className={`${fieldClass} font-mono`}
+                  style={{ ...inputStyle, maxWidth: '40%' }}
+                  value={row.name}
+                  placeholder="API_KEY"
+                  aria-label="Variable name"
+                  onChange={(e) => setEnv(i, { name: e.target.value })}
+                />
+                <input
+                  type="password"
+                  autoComplete="off"
+                  className={fieldClass}
+                  style={inputStyle}
+                  value={row.value}
+                  aria-label={`Value for ${row.name || 'variable'}`}
+                  placeholder={savedEnv.includes(row.name.trim()) ? 'Saved — leave blank to keep' : 'Value'}
+                  onChange={(e) => setEnv(i, { value: e.target.value })}
+                />
+                <button
+                  type="button"
+                  className={smallButton}
+                  style={inputStyle}
+                  aria-label={`Remove ${row.name || 'variable'}`}
+                  onClick={() => set('env', form.env.filter((_, j) => j !== i))}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button type="button" className={smallButton} style={inputStyle} onClick={() => set('env', [...form.env, { name: '', value: '' }])}>
+              + Add variable
+            </button>
+            <span className="block mt-1 text-[11px]" style={mutedText}>
+              Passed to the command. Values are stored like tokens and never shown again.
+            </span>
+          </div>
         </>
       )}
 

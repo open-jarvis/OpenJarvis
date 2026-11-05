@@ -4,9 +4,10 @@ GUI-managed servers live in :class:`openjarvis.mcp.store.MCPServerStore`.
 Servers declared in ``config.toml`` are listed read-only (and can be
 tested) but never written.
 
-Secrets are write-only: responses carry ``has_token`` instead of the
-token, and request bodies are parsed by hand so validation errors never
-echo the submitted input (FastAPI's default 422 body includes it).
+Secrets are write-only: responses carry ``has_token`` and ``env_set``
+(variable names only) instead of the token and environment values, and
+request bodies are parsed by hand so validation errors never echo the
+submitted input (FastAPI's default 422 body includes it).
 
 MCP tools are discovered once at server start-up, so changes made here
 take effect after a restart; responses report ``restart_required``.
@@ -18,7 +19,7 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any, Callable, List, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 _CONFIG_ID_PREFIX = "config-"
 _HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
+_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # Headers the transport sets itself; a token must not override them.
 _RESERVED_HEADERS = {
     "accept",
@@ -56,6 +58,11 @@ class MCPServerIn(BaseModel):
     token: Optional[str] = Field(default=None, max_length=8192)
     command: Optional[str] = Field(default=None, max_length=1024)
     args: List[str] = Field(default_factory=list, max_length=100)
+    # Names of secret environment variables for stdio servers.
+    env_names: List[str] = Field(default_factory=list, max_length=50)
+    # Write-only values keyed by name. On update, omitted names keep their
+    # stored value and "" clears one.
+    env: Optional[Dict[str, str]] = Field(default=None, max_length=50)
     include_tools: List[str] = Field(default_factory=list, max_length=500)
     exclude_tools: List[str] = Field(default_factory=list, max_length=500)
     enabled: bool = True
@@ -82,9 +89,20 @@ class MCPServerIn(BaseModel):
                 self.auth_header = None
             self.command = None
             self.args = []
+            self.env_names = []
+            self.env = None
         else:
             if not self.command:
                 raise ValueError("command is required for stdio servers")
+            names = list(dict.fromkeys(n.strip() for n in self.env_names))
+            if not all(_ENV_NAME_RE.match(n) for n in names):
+                raise ValueError("env_names must be valid environment variable names")
+            self.env_names = names
+            for key, value in (self.env or {}).items():
+                if key not in names:
+                    raise ValueError("env keys must be listed in env_names")
+                if len(value) > 8192:
+                    raise ValueError("env values must be at most 8192 characters")
             self.url = None
             self.auth_type = "none"
             self.auth_header = None
@@ -93,7 +111,7 @@ class MCPServerIn(BaseModel):
         return self
 
     def fields(self) -> dict[str, Any]:
-        return self.model_dump(exclude={"token"})
+        return self.model_dump(exclude={"token", "env"})
 
 
 class MCPServerTestIn(MCPServerIn):
@@ -138,11 +156,15 @@ async def _parse_body(request: Request, model: type[BaseModel]) -> Any:
     try:
         return model.model_validate(data)
     except ValidationError as exc:
-        token = data.get("token") if isinstance(data.get("token"), str) else None
+        secrets: list[Optional[str]] = [
+            data.get("token") if isinstance(data.get("token"), str) else None
+        ]
+        if isinstance(data.get("env"), dict):
+            secrets += [v for v in data["env"].values() if isinstance(v, str)]
         errors = [
             {
                 "loc": [str(p) for p in err.get("loc", ())],
-                "msg": _redact(str(err.get("msg", "invalid value")), [token]),
+                "msg": _redact(str(err.get("msg", "invalid value")), secrets),
             }
             for err in exc.errors(include_input=False, include_url=False)
         ]
@@ -160,6 +182,8 @@ def _gui_view(record: dict[str, Any], store: MCPServerStore) -> dict[str, Any]:
         "has_token": store.has_token(record.get("id", "")),
         "command": record.get("command"),
         "args": list(record.get("args") or []),
+        "env_names": list(record.get("env_names") or []),
+        "env_set": store.env_set(record.get("id", "")),
         "include_tools": list(record.get("include_tools") or []),
         "exclude_tools": list(record.get("exclude_tools") or []),
         "enabled": bool(record.get("enabled", True)),
@@ -183,6 +207,8 @@ def _config_view(index: int, cfg: dict[str, Any]) -> dict[str, Any]:
         "has_token": bool(cfg.get("token")),
         "command": cfg.get("command") or None,
         "args": [],
+        "env_names": [],
+        "env_set": [],
         "include_tools": list(cfg.get("include_tools") or []),
         "exclude_tools": list(cfg.get("exclude_tools") or []),
         "enabled": True,
@@ -243,7 +269,7 @@ def run_server_test(cfg: dict[str, Any]) -> dict[str, Any]:
     from openjarvis.mcp.loader import build_transport, filter_server_tools
     from openjarvis.tools.mcp_adapter import MCPToolProvider
 
-    secrets = [cfg.get("token"), cfg.get("url")]
+    secrets = [cfg.get("token"), cfg.get("url"), *(cfg.get("env") or {}).values()]
     client = None
     try:
         transport = build_transport(cfg, request_timeout=_TEST_TIMEOUT_SECONDS)
@@ -348,7 +374,9 @@ def create_mcp_router(
         record = _store_call(lambda: mcp_store.get(server_id))
         if record is None:
             raise HTTPException(404, "MCP server not found")
-        return to_runtime_config(record, mcp_store.token(server_id))
+        return to_runtime_config(
+            record, mcp_store.token(server_id), mcp_store.env(server_id)
+        )
 
     router = APIRouter(prefix="/v1/mcp", tags=["mcp"])
 
@@ -370,7 +398,9 @@ def create_mcp_router(
     async def create_server(request: Request) -> dict[str, Any]:
         body: MCPServerIn = await _parse_body(request, MCPServerIn)
         token = body.token if body.auth_type != "none" else None
-        record = _store_call(lambda: mcp_store.create(body.fields(), token=token))
+        record = _store_call(
+            lambda: mcp_store.create(body.fields(), token=token, env=body.env)
+        )
         return {
             "server": _gui_view(record, mcp_store),
             "restart_required": _restart_required(),
@@ -383,7 +413,9 @@ def create_mcp_router(
         if body.auth_type == "none":
             token = None
         record = _store_call(
-            lambda: mcp_store.update(server_id, body.fields(), token=token)
+            lambda: mcp_store.update(
+                server_id, body.fields(), token=token, env=body.env
+            )
         )
         if record is None:
             raise HTTPException(404, "MCP server not found")
@@ -402,11 +434,15 @@ def create_mcp_router(
     async def test_draft(request: Request) -> dict[str, Any]:
         body: MCPServerTestIn = await _parse_body(request, MCPServerTestIn)
         token = body.token
-        if token is None and body.id:
-            token = _store_call(lambda: mcp_store.token(body.id or ""))
+        env = dict(body.env or {})
+        if body.id:
+            if token is None:
+                token = _store_call(lambda: mcp_store.token(body.id or ""))
+            stored = _store_call(lambda: mcp_store.env(body.id or ""))
+            env = {**stored, **env}
         record = body.fields()
         record.pop("id", None)
-        return await _run_test(to_runtime_config(record, token))
+        return await _run_test(to_runtime_config(record, token, env))
 
     @router.post("/servers/{server_id}/test")
     async def test_server(server_id: str) -> dict[str, Any]:

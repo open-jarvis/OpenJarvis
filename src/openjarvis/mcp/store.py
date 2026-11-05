@@ -4,7 +4,8 @@ Server records and their secrets live in two separate owner-only files
 under one root directory:
 
 * ``servers.json`` — self-contained server records (no secrets);
-* ``secrets.json`` — tokens keyed by server id.
+* ``secrets.json`` — tokens and secret environment variables keyed by
+  server id.
 
 The global store's root is ``<config dir>/mcp``. The store takes the root
 as a parameter so another scope (for example a per-team layer) can reuse
@@ -37,6 +38,7 @@ RECORD_FIELDS = (
     "auth_header",
     "command",
     "args",
+    "env_names",
     "include_tools",
     "exclude_tools",
     "enabled",
@@ -44,6 +46,8 @@ RECORD_FIELDS = (
 
 # Sentinel for ``update(token=KEEP)``: leave the stored secret unchanged.
 KEEP = object()
+
+Secrets = dict[str, dict[str, Any]]
 
 
 def default_store_root(config_dir: Optional[Path] = None) -> Path:
@@ -84,7 +88,7 @@ class MCPServerStore:
     def _servers(self) -> list[dict[str, Any]]:
         return self._read(self._servers_path, "servers", [])
 
-    def _secrets(self) -> dict[str, dict[str, str]]:
+    def _secrets(self) -> Secrets:
         return self._read(self._secrets_path, "secrets", {})
 
     def _write_servers(self, servers: list[dict[str, Any]]) -> None:
@@ -92,7 +96,7 @@ class MCPServerStore:
             self._servers_path, {"version": _FORMAT_VERSION, "servers": servers}
         )
 
-    def _write_secrets(self, secrets: dict[str, dict[str, str]]) -> None:
+    def _write_secrets(self, secrets: Secrets) -> None:
         secure_write_json(
             self._secrets_path, {"version": _FORMAT_VERSION, "secrets": secrets}
         )
@@ -118,24 +122,50 @@ class MCPServerStore:
         with self._lock:
             return self._secrets().get(server_id, {}).get("token") or None
 
-    def create(self, fields: dict[str, Any], *, token: Optional[str]) -> dict:
+    def env(self, server_id: str) -> dict[str, str]:
+        """Return the stored secret environment variables for a server."""
+        with self._lock:
+            return _entry_env(self._secrets().get(server_id, {}))
+
+    def env_set(self, server_id: str) -> list[str]:
+        """Names of the environment variables that have a stored value."""
+        return sorted(self.env(server_id))
+
+    def create(
+        self,
+        fields: dict[str, Any],
+        *,
+        token: Optional[str],
+        env: Optional[dict[str, str]] = None,
+    ) -> dict:
         record = {k: fields.get(k) for k in RECORD_FIELDS}
         record["id"] = uuid.uuid4().hex[:12]
         record["created_at"] = record["updated_at"] = _now()
         with self._lock:
             servers = self._servers()
             servers.append(record)
-            if token:
+            entry = _secret_entry({}, record, token, env)
+            if entry:
                 secrets = self._secrets()
-                secrets[record["id"]] = {"token": token}
+                secrets[record["id"]] = entry
                 self._write_secrets(secrets)
             self._write_servers(servers)
         return dict(record)
 
     def update(
-        self, server_id: str, fields: dict[str, Any], *, token: Any = KEEP
+        self,
+        server_id: str,
+        fields: dict[str, Any],
+        *,
+        token: Any = KEEP,
+        env: Optional[dict[str, str]] = None,
     ) -> Optional[dict]:
-        """Replace a record's fields. ``token``: ``KEEP``, ``None`` clears."""
+        """Replace a record's fields.
+
+        ``token``: ``KEEP``, or ``None`` to clear. ``env`` sets the given
+        variables ("" clears one); others keep their stored value, and
+        names no longer in ``env_names`` are dropped.
+        """
         with self._lock:
             servers = self._servers()
             for index, server in enumerate(servers):
@@ -146,10 +176,12 @@ class MCPServerStore:
             record = {**server, **{k: fields.get(k) for k in RECORD_FIELDS}}
             record["updated_at"] = _now()
             servers[index] = record
-            if token is not KEEP:
-                secrets = self._secrets()
-                if token:
-                    secrets[server_id] = {"token": token}
+            secrets = self._secrets()
+            old = secrets.get(server_id, {})
+            entry = _secret_entry(old, record, token, env)
+            if entry != old:
+                if entry:
+                    secrets[server_id] = entry
                 else:
                     secrets.pop(server_id, None)
                 self._write_secrets(secrets)
@@ -173,14 +205,46 @@ class MCPServerStore:
         with self._lock:
             servers = self._servers()
             secrets = self._secrets()
-        return [
-            to_runtime_config(s, secrets.get(s.get("id", ""), {}).get("token"))
-            for s in servers
-            if s.get("enabled", True) or not only_enabled
-        ]
+        configs = []
+        for server in servers:
+            if not (server.get("enabled", True) or not only_enabled):
+                continue
+            entry = secrets.get(server.get("id", ""), {})
+            configs.append(
+                to_runtime_config(server, entry.get("token"), _entry_env(entry))
+            )
+        return configs
 
 
-def to_runtime_config(record: dict[str, Any], token: Optional[str]) -> dict:
+def _entry_env(entry: dict[str, Any]) -> dict[str, str]:
+    env = entry.get("env")
+    return dict(env) if isinstance(env, dict) else {}
+
+
+def _secret_entry(
+    old: dict[str, Any],
+    record: dict[str, Any],
+    token: Any,
+    env: Optional[dict[str, str]],
+) -> dict[str, Any]:
+    """Return the secrets entry for ``record`` after applying the changes."""
+    entry: dict[str, Any] = {}
+    stored_token = old.get("token") if token is KEEP else token
+    if stored_token:
+        entry["token"] = stored_token
+    names = list(record.get("env_names") or [])
+    values = {**_entry_env(old), **(env or {})}
+    kept = {k: values[k] for k in names if values.get(k)}
+    if kept:
+        entry["env"] = kept
+    return entry
+
+
+def to_runtime_config(
+    record: dict[str, Any],
+    token: Optional[str],
+    env: Optional[dict[str, str]] = None,
+) -> dict:
     """Convert a stored record to the dict shape the MCP loaders accept."""
     cfg: dict[str, Any] = {
         "id": record.get("id"),
@@ -191,6 +255,10 @@ def to_runtime_config(record: dict[str, Any], token: Optional[str]) -> dict:
     if record.get("transport") == "stdio":
         cfg["command"] = record.get("command") or ""
         cfg["args"] = list(record.get("args") or [])
+        names = record.get("env_names") or []
+        values = {k: env[k] for k in names if env and env.get(k)}
+        if values:
+            cfg["env"] = values
     else:
         cfg["url"] = record.get("url")
         auth_type = record.get("auth_type") or "none"

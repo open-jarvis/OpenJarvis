@@ -4,6 +4,7 @@ import {
   createMcpServer,
   deleteMcpServer,
   emptyMcpForm,
+  formFromCatalog,
   formFromServer,
   formToInput,
   isToolActive,
@@ -13,6 +14,8 @@ import {
   toggleInput,
   toolToggleInput,
   updateMcpServer,
+  type McpCatalogEntry,
+  type McpForm,
   type McpServer,
   type McpServerList,
   type McpTestResult,
@@ -26,8 +29,13 @@ import {
   serverTarget,
   smallButton,
 } from '../components/mcp/McpServerParts';
+import { McpCatalog } from '../components/mcp/McpCatalog';
 
-type Editing = { mode: 'new' } | { mode: 'edit'; server: McpServer } | null;
+type Editing =
+  | { mode: 'catalog' }
+  | { mode: 'new'; initial: McpForm; entry?: McpCatalogEntry }
+  | { mode: 'edit'; server: McpServer }
+  | null;
 
 const errorText = { color: 'var(--color-error)' };
 
@@ -112,6 +120,7 @@ export function McpServerDetail({
           <div className="text-xs mt-1 font-mono break-all" style={mutedText}>
             {serverTarget(server)}
             {server.has_token && ' · token saved'}
+            {server.env_set.length > 0 && ` · ${server.env_set.join(', ')} saved`}
           </div>
           {server.read_only && (
             <div className="text-[11px] mt-1 flex items-center gap-1" style={mutedText}>
@@ -287,7 +296,7 @@ export function McpPage() {
             <button
               type="button"
               onClick={() => {
-                setEditing({ mode: 'new' });
+                setEditing({ mode: 'catalog' });
                 setSelectedId(null);
               }}
               className={`${smallButton} w-full justify-center mb-2 py-1.5`}
@@ -318,17 +327,31 @@ export function McpPage() {
             className="flex-1 rounded-lg p-5 overflow-y-auto min-w-0"
             style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
           >
-            {editing ? (
+            {editing?.mode === 'catalog' ? (
+              <McpCatalog
+                onPick={(entry) => setEditing({ mode: 'new', initial: formFromCatalog(entry), entry })}
+                onCustom={() => setEditing({ mode: 'new', initial: emptyMcpForm })}
+              />
+            ) : editing ? (
               <>
                 <h2 className="text-base font-semibold" style={{ color: 'var(--color-text)' }}>
-                  {editingServer ? `Edit ${editingServer.name}` : 'Add MCP server'}
+                  {editingServer ? `Edit ${editingServer.name}` : editing.mode === 'new' && editing.entry ? `Add ${editing.entry.name}` : 'Add MCP server'}
                 </h2>
+                {editing.mode === 'new' && editing.entry && (
+                  <p className="text-xs mt-1" style={mutedText}>
+                    {editing.entry.auth_note}{' '}
+                    <a href={editing.entry.source} target="_blank" rel="noreferrer" style={{ color: 'var(--color-accent)' }}>
+                      Docs
+                    </a>
+                  </p>
+                )}
                 <McpServerForm
-                  key={editingServer?.id || 'new'}
-                  initial={editingServer ? formFromServer(editingServer) : emptyMcpForm}
+                  key={editingServer?.id || (editing.mode === 'new' && editing.entry?.id) || 'new'}
+                  initial={editingServer ? formFromServer(editingServer) : editing.mode === 'new' ? editing.initial : emptyMcpForm}
                   editing={!!editingServer}
                   savedToken={!!editingServer?.has_token}
-                  onCancel={() => setEditing(null)}
+                  savedEnv={editingServer?.env_set}
+                  onCancel={() => setEditing(editing.mode === 'new' ? { mode: 'catalog' } : null)}
                   onTest={(form) =>
                     testMcpDraft({ ...formToInput(form, { editing: !!editingServer }), id: editingServer?.id })
                   }
@@ -369,9 +392,10 @@ export function McpPage() {
               />
             ) : (
               data && (
-                <div className="text-xs" style={mutedText}>
-                  Add an MCP server by URL (Streamable HTTP) or as a local command (stdio).
-                </div>
+                <McpCatalog
+                  onPick={(entry) => setEditing({ mode: 'new', initial: formFromCatalog(entry), entry })}
+                  onCustom={() => setEditing({ mode: 'new', initial: emptyMcpForm })}
+                />
               )
             )}
           </section>

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue
 import subprocess
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from openjarvis.mcp.protocol import MCPRequest, MCPResponse
 
@@ -73,10 +74,13 @@ class StdioTransport(MCPTransport):
         command: List[str],
         *,
         response_timeout: float = 600.0,
+        env: Optional[Dict[str, str]] = None,
     ) -> None:
         if response_timeout <= 0:
             raise ValueError("response_timeout must be positive")
         self._command = command
+        # Extra variables layered on top of the parent environment.
+        self._env = dict(env) if env else None
         self._response_timeout = response_timeout
         self._process: Optional[subprocess.Popen[str]] = None
         self._stdout_queue: queue.Queue[Any] = queue.Queue(
@@ -100,6 +104,7 @@ class StdioTransport(MCPTransport):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env={**os.environ, **self._env} if self._env else None,
         )
         self._reader_thread = threading.Thread(
             target=self._read_stdout,

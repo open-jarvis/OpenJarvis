@@ -2,11 +2,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { McpServerForm, RestartNotice, TestResultView } from './McpServerParts';
 import { McpServerDetail, McpServerListItem } from '../../pages/McpPage';
+import { MCP_CATALOG, McpCatalogCard } from './McpCatalog';
 import {
   emptyMcpForm,
   formFromServer,
+  formFromCatalog,
   formToInput,
   isToolActive,
+  searchCatalog,
   toggleInput,
   toolToggleInput,
   type McpServer,
@@ -22,6 +25,8 @@ const httpServer: McpServer = {
   has_token: true,
   command: null,
   args: [],
+  env_names: [],
+  env_set: [],
   include_tools: ['search'],
   exclude_tools: [],
   enabled: true,
@@ -154,5 +159,85 @@ describe('MCP server rendering', () => {
 
   it('explains that a restart is needed', () => {
     expect(renderToStaticMarkup(<RestartNotice />)).toContain('Restart OpenJarvis');
+  });
+});
+
+describe('secret environment variables', () => {
+  const stdio: McpServer = {
+    ...httpServer,
+    transport: 'stdio',
+    url: null,
+    auth_type: 'none',
+    auth_header: null,
+    has_token: false,
+    command: 'npx',
+    args: ['-y', 'pkg'],
+    env_names: ['API_KEY', 'TEAM'],
+    env_set: ['API_KEY'],
+  };
+
+  it('sends names always and only the values that were typed', () => {
+    const form = formFromServer(stdio);
+    expect(form.env).toEqual([
+      { name: 'API_KEY', value: '' },
+      { name: 'TEAM', value: '' },
+    ]);
+    expect(formToInput(form, { editing: true })).toMatchObject({ env_names: ['API_KEY', 'TEAM'] });
+    expect(formToInput(form, { editing: true })).not.toHaveProperty('env');
+    const typed = { ...form, env: [{ name: 'TEAM', value: 't1' }] };
+    expect(formToInput(typed, { editing: true })).toMatchObject({ env_names: ['TEAM'], env: { TEAM: 't1' } });
+  });
+
+  it('never prefills env values and marks saved ones', () => {
+    const html = renderToStaticMarkup(
+      <McpServerForm
+        initial={formFromServer(stdio)}
+        editing
+        savedToken={false}
+        savedEnv={stdio.env_set}
+        onCancel={vi.fn()}
+        onSave={vi.fn()}
+        onTest={vi.fn()}
+      />,
+    );
+    expect(html).toMatch(/aria-label="Value for API_KEY"[^>]*placeholder="Saved — leave blank to keep"/);
+    expect(html).toMatch(/aria-label="Value for TEAM"[^>]*placeholder="Value"/);
+    expect(html).not.toMatch(/type="password"[^>]*value="[^"]/);
+  });
+});
+
+describe('MCP catalog', () => {
+  it('has unique ids, a source and a valid server for every entry', () => {
+    const ids = MCP_CATALOG.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const e of MCP_CATALOG) {
+      expect(e.source).toMatch(/^https:\/\//);
+      expect(['official', 'reference', 'community']).toContain(e.kind);
+      if (e.server.transport === 'http') expect(e.server.url).toMatch(/^https?:\/\//);
+      else expect(e.server.command).toBeTruthy();
+    }
+    expect(ids).toContain('gmail');
+  });
+
+  it('pre-fills the form without any secret', () => {
+    const github = MCP_CATALOG.find((e) => e.id === 'github-local')!;
+    const form = formFromCatalog(github);
+    expect(form).toMatchObject({ transport: 'stdio', command: 'docker', token: '' });
+    expect(form.env).toEqual([{ name: 'GITHUB_PERSONAL_ACCESS_TOKEN', value: '' }]);
+    const exa = formFromCatalog(MCP_CATALOG.find((e) => e.id === 'exa')!);
+    expect(exa).toMatchObject({ auth_type: 'header', auth_header: 'x-api-key' });
+  });
+
+  it('searches by text and category', () => {
+    expect(searchCatalog(MCP_CATALOG, 'gmail', null).map((e) => e.id)).toEqual(['gmail']);
+    expect(searchCatalog(MCP_CATALOG, '', 'search').every((e) => e.category === 'search')).toBe(true);
+  });
+
+  it('does not offer to add OAuth-only servers', () => {
+    const gmail = MCP_CATALOG.find((e) => e.id === 'gmail')!;
+    const html = renderToStaticMarkup(<McpCatalogCard entry={gmail} onPick={vi.fn()} />);
+    expect(html).toContain('Needs OAuth');
+    expect(html).not.toContain('Add Gmail');
+    expect(html).toContain('Official');
   });
 });

@@ -6,6 +6,8 @@ import { apiFetch } from './api';
 //
 // Tokens are write-only: the server returns `has_token`, never the token.
 // On update, omit `token` to keep the stored one and send "" to clear it.
+// Secret environment variables (stdio) work the same way: the server
+// returns `env_set` (names with a stored value) and never the values.
 
 export type McpTransport = 'http' | 'stdio';
 export type McpAuthType = 'none' | 'bearer' | 'header';
@@ -20,6 +22,8 @@ export interface McpServer {
   has_token: boolean;
   command: string | null;
   args: string[];
+  env_names: string[];
+  env_set: string[];
   include_tools: string[];
   exclude_tools: string[];
   enabled: boolean;
@@ -44,6 +48,9 @@ export interface McpServerInput {
   token?: string;
   command?: string;
   args: string[];
+  env_names?: string[];
+  /** Values to set; omitted names keep their stored value, "" clears. */
+  env?: Record<string, string>;
   include_tools: string[];
   exclude_tools: string[];
   enabled: boolean;
@@ -119,6 +126,7 @@ export interface McpForm {
   clearToken: boolean;
   command: string;
   args: string;
+  env: { name: string; value: string }[];
   include_tools: string;
   exclude_tools: string;
   enabled: boolean;
@@ -134,6 +142,7 @@ export const emptyMcpForm: McpForm = {
   clearToken: false,
   command: '',
   args: '',
+  env: [],
   include_tools: '',
   exclude_tools: '',
   enabled: true,
@@ -149,6 +158,7 @@ export function formFromServer(server: McpServer): McpForm {
     auth_header: server.auth_header || '',
     command: server.command || '',
     args: server.args.join('\n'),
+    env: (server.env_names || []).map((name) => ({ name, value: '' })),
     include_tools: server.include_tools.join(', '),
     exclude_tools: server.exclude_tools.join(', '),
     enabled: server.enabled,
@@ -185,6 +195,10 @@ export function formToInput(form: McpForm, { editing }: { editing: boolean }): M
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
+    const rows = form.env.map((r) => ({ name: r.name.trim(), value: r.value })).filter((r) => r.name);
+    input.env_names = rows.map((r) => r.name);
+    const values = Object.fromEntries(rows.filter((r) => r.value).map((r) => [r.name, r.value]));
+    if (Object.keys(values).length) input.env = values;
   }
   return input;
 }
@@ -212,4 +226,53 @@ export function toolToggleInput(server: McpServer, tool: string, active: boolean
   if (!active) exclude.push(tool);
   else if (include.length && !include.includes(tool)) include.push(tool);
   return { ...input, include_tools: include, exclude_tools: exclude };
+}
+
+// -- catalog ----------------------------------------------------------------
+
+export type McpCatalogKind = 'official' | 'reference' | 'community';
+
+export interface McpCatalogEntry {
+  id: string;
+  name: string;
+  category: string;
+  kind: McpCatalogKind;
+  description: string;
+  source: string;
+  auth_note: string;
+  requires_oauth?: boolean;
+  server: {
+    transport: McpTransport;
+    url?: string;
+    auth_type: McpAuthType;
+    auth_header?: string;
+    command?: string;
+    args?: string[];
+    env_names?: string[];
+  };
+}
+
+/** Pre-fill the add-server form from a catalog entry. */
+export function formFromCatalog(entry: McpCatalogEntry): McpForm {
+  const s = entry.server;
+  return {
+    ...emptyMcpForm,
+    name: entry.name,
+    transport: s.transport,
+    url: s.url || '',
+    auth_type: s.transport === 'http' ? s.auth_type : 'none',
+    auth_header: s.auth_header || '',
+    command: s.command || '',
+    args: (s.args || []).join('\n'),
+    env: (s.env_names || []).map((name) => ({ name, value: '' })),
+  };
+}
+
+export function searchCatalog(entries: McpCatalogEntry[], query: string, category: string | null): McpCatalogEntry[] {
+  const q = query.trim().toLowerCase();
+  return entries.filter(
+    (e) =>
+      (!category || e.category === category) &&
+      (!q || [e.name, e.description, e.category, e.id].some((f) => f.toLowerCase().includes(q))),
+  );
 }
