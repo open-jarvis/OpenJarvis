@@ -308,6 +308,7 @@ def to_runtime_config(
     """
     cfg: dict[str, Any] = {
         "id": record.get("id"),
+        "source": "gui",
         "name": record.get("name") or "<unnamed>",
         "include_tools": list(record.get("include_tools") or []),
         "exclude_tools": list(record.get("exclude_tools") or []),
