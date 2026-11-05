@@ -84,9 +84,15 @@ class CreateAgentRequest(BaseModel):
     agent_type: str = "monitor_operative"
     config: Optional[Dict[str, Any]] = None
     template_id: Optional[str] = None
+    team_id: Optional[str] = None
+
+
+class TeamRequest(BaseModel):
+    name: str
 
 
 class UpdateAgentRequest(BaseModel):
+    team_id: Optional[str] = None
     name: Optional[str] = None
     agent_type: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
@@ -1644,19 +1650,53 @@ def create_agent_manager_router(
     # ── Agent lifecycle ──────────────────────────────────────
 
     @agents_router.get("")
-    async def list_agents():
-        return {"agents": manager.list_agents()}
+    async def list_agents(team_id: Optional[str] = None):
+        return {"agents": manager.list_agents(team_id=team_id)}
+
+    @agents_router.get("/teams")
+    async def list_teams():
+        return {"teams": manager.list_teams()}
+
+    @agents_router.post("/teams", status_code=201)
+    async def create_team(req: TeamRequest):
+        try:
+            return manager.create_team(req.name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @agents_router.patch("/teams/{team_id}")
+    async def rename_team(team_id: str, req: TeamRequest):
+        try:
+            return manager.rename_team(team_id, req.name)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Team not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @agents_router.delete("/teams/{team_id}")
+    async def delete_team(team_id: str):
+        try:
+            manager.delete_team(team_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Team not found") from exc
+        return {"status": "deleted"}
 
     @agents_router.post("")
     async def create_agent(req: CreateAgentRequest, request: Request):
-        if req.template_id:
-            agent = manager.create_from_template(
-                req.template_id, req.name, overrides=req.config
-            )
-        else:
-            agent = manager.create_agent(
-                name=req.name, agent_type=req.agent_type, config=req.config
-            )
+        try:
+            if req.template_id:
+                agent = manager.create_from_template(
+                    req.template_id, req.name, overrides=req.config, team_id=req.team_id
+                )
+            else:
+                agent = manager.create_agent(
+                    name=req.name,
+                    agent_type=req.agent_type,
+                    config=req.config,
+                    team_id=req.team_id,
+                )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         # Register with scheduler if cron/interval
         scheduler = getattr(request.app.state, "agent_scheduler", None)
@@ -1684,7 +1724,13 @@ def create_agent_manager_router(
             kwargs["agent_type"] = req.agent_type
         if req.config is not None:
             kwargs["config"] = req.config
-        return manager.update_agent(agent_id, **kwargs)
+        # Explicit null clears membership; omission leaves it unchanged.
+        if "team_id" in req.model_fields_set:
+            kwargs["team_id"] = req.team_id
+        try:
+            return manager.update_agent(agent_id, **kwargs)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @agents_router.delete("/{agent_id}")
     async def delete_agent(agent_id: str):

@@ -453,7 +453,14 @@ export interface ManagedAgentConfig extends Record<string, unknown> {
   schedule_value?: string | number;
 }
 
+export interface AgentTeam {
+  id: string;
+  name: string;
+  created_at: number;
+}
+
 export interface ManagedAgent {
+  team_id?: string | null;
   id: string;
   name: string;
   agent_type: string;
@@ -541,6 +548,7 @@ export async function createManagedAgent(body: {
   name: string;
   agent_type?: string;
   template_id?: string;
+  team_id?: string | null;
   config?: Record<string, unknown>;
 }): Promise<ManagedAgent> {
   const res = await apiFetch(`/v1/managed-agents`, {
@@ -554,7 +562,7 @@ export async function createManagedAgent(body: {
 
 export async function updateManagedAgent(
   agentId: string,
-  body: Partial<{ name: string; agent_type: string; config: Record<string, unknown> }>,
+  body: Partial<{ name: string; agent_type: string; config: Record<string, unknown>; team_id: string | null }>,
 ): Promise<ManagedAgent> {
   const res = await apiFetch(`/v1/managed-agents/${agentId}`, {
     method: 'PATCH',
@@ -1226,3 +1234,35 @@ export async function setInferenceSource(
 export const stageInferenceSource = (
   src: InferenceSource & { apiKey?: string },
 ): Promise<void> => setInferenceSource(src, { pending: true });
+
+
+async function agentTeamRequest(path = '', method = 'GET', name?: string): Promise<any> {
+  const res = await apiFetch(`/v1/managed-agents/teams${path}`, {
+    method,
+    ...(name === undefined ? {} : {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(typeof error.detail === 'string' ? error.detail : 'Could not update teams. Please try again.');
+  }
+  return res.json();
+}
+
+export async function fetchAgentTeams(): Promise<AgentTeam[]> {
+  return (await agentTeamRequest()).teams;
+}
+
+export async function createAgentTeam(name: string): Promise<AgentTeam> {
+  return agentTeamRequest('', 'POST', name);
+}
+
+export async function renameAgentTeam(id: string, name: string): Promise<AgentTeam> {
+  return agentTeamRequest(`/${encodeURIComponent(id)}`, 'PATCH', name);
+}
+
+export async function deleteAgentTeam(id: string): Promise<void> {
+  await agentTeamRequest(`/${encodeURIComponent(id)}`, 'DELETE');
+}

@@ -33,6 +33,14 @@ CREATE TABLE IF NOT EXISTS managed_agents (
 );
 """
 
+_CREATE_TEAMS = """\
+CREATE TABLE IF NOT EXISTS agent_teams (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    created_at REAL NOT NULL
+);
+"""
+
 _CREATE_TASKS = """\
 CREATE TABLE IF NOT EXISTS agent_tasks (
     id              TEXT PRIMARY KEY,
@@ -125,6 +133,7 @@ class AgentManager:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
+        self._conn.execute(_CREATE_TEAMS)
         self._conn.execute(_CREATE_AGENTS)
         self._conn.execute(_CREATE_TASKS)
         self._conn.execute(_CREATE_BINDINGS)
@@ -146,6 +155,10 @@ class AgentManager:
             # JSON-encoded array of {tool, arguments, result, success, latency}
             "ALTER TABLE agent_messages ADD COLUMN tool_calls TEXT",
         ]
+        _MIGRATIONS.append(
+            "ALTER TABLE managed_agents ADD COLUMN team_id TEXT "
+            "REFERENCES agent_teams(id) ON DELETE SET NULL"
+        )
         for migration in _MIGRATIONS:
             try:
                 self._conn.execute(migration)
@@ -202,7 +215,9 @@ class AgentManager:
         name: str,
         agent_type: str = "monitor_operative",
         config: Optional[Dict[str, Any]] = None,
+        team_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        self._validate_team_id(team_id)
         agent_id = uuid.uuid4().hex[:12]
         now = time.time()
         config = dict(config or {})
@@ -210,20 +225,29 @@ class AgentManager:
         self._conn.execute(
             "INSERT INTO managed_agents"
             " (id, name, agent_type, config_json,"
-            " status, summary_memory, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, 'idle', '', ?, ?)",
-            (agent_id, name, agent_type, config_json, now, now),
+            " status, summary_memory, created_at, updated_at, team_id)"
+            " VALUES (?, ?, ?, ?, 'idle', '', ?, ?, ?)",
+            (agent_id, name, agent_type, config_json, now, now, team_id),
         )
         self._conn.commit()
         return self.get_agent(agent_id)  # type: ignore[return-value]
 
     @_db_locked
-    def list_agents(self, include_archived: bool = False) -> List[Dict[str, Any]]:
-        query = "SELECT * FROM managed_agents"
+    def list_agents(
+        self, include_archived: bool = False, team_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        query = "SELECT * FROM managed_agents WHERE 1=1"
+        params: list[Any] = []
         if not include_archived:
-            query += " WHERE status != 'archived'"
+            query += " AND status != 'archived'"
+        if team_id is not None:
+            if team_id == "":
+                query += " AND team_id IS NULL"
+            else:
+                query += " AND team_id = ?"
+                params.append(team_id)
         query += " ORDER BY updated_at DESC"
-        rows = self._conn.execute(query).fetchall()
+        rows = self._conn.execute(query, params).fetchall()
         return [self._row_to_agent(r) for r in rows]
 
     @_db_locked
@@ -237,6 +261,10 @@ class AgentManager:
     def update_agent(self, agent_id: str, **kwargs: Any) -> Dict[str, Any]:
         sets: List[str] = []
         vals: List[Any] = []
+        if "team_id" in kwargs:
+            self._validate_team_id(kwargs["team_id"])
+            sets.append("team_id = ?")
+            vals.append(kwargs["team_id"])
         for key in ("name", "agent_type", "status", "current_activity"):
             if key in kwargs:
                 sets.append(f"{key} = ?")
@@ -620,7 +648,12 @@ class AgentManager:
         return templates
 
     def create_from_template(
-        self, template_id: str, name: str, overrides: Optional[Dict[str, Any]] = None
+        self,
+        template_id: str,
+        name: str,
+        overrides: Optional[Dict[str, Any]] = None,
+        *,
+        team_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create an agent from a template with optional overrides."""
         templates = self.list_templates()
@@ -641,7 +674,87 @@ class AgentManager:
                 instruction=instruction or "(No specific instruction provided)",
             )
 
-        return self.create_agent(name=name, agent_type=agent_type, config=config)
+        return self.create_agent(
+            name=name, agent_type=agent_type, config=config, team_id=team_id
+        )
+
+    def _validate_team_id(self, team_id: Optional[str]) -> None:
+        if (
+            team_id is not None
+            and not self._conn.execute(
+                "SELECT 1 FROM agent_teams WHERE id = ?", (team_id,)
+            ).fetchone()
+        ):
+            raise ValueError("Team not found")
+
+    @staticmethod
+    def _team_name(name: str) -> str:
+        name = name.strip()
+        if not name or len(name) > 120:
+            raise ValueError("Team name must contain 1 to 120 characters")
+        return name
+
+    @_db_locked
+    def list_teams(self) -> List[Dict[str, Any]]:
+        """List organizational teams, including teams with no agents."""
+        return [
+            dict(row)
+            for row in self._conn.execute(
+                "SELECT * FROM agent_teams ORDER BY name COLLATE NOCASE, id"
+            ).fetchall()
+        ]
+
+    @_db_locked
+    def create_team(self, name: str) -> Dict[str, Any]:
+        """Create a named team; names are unique without ASCII case differences."""
+        team = {
+            "id": uuid.uuid4().hex[:12],
+            "name": self._team_name(name),
+            "created_at": time.time(),
+        }
+        try:
+            with self._conn:
+                self._conn.execute(
+                    "INSERT INTO agent_teams (id, name, created_at) VALUES (?, ?, ?)",
+                    (team["id"], team["name"], team["created_at"]),
+                )
+        except sqlite3.IntegrityError:
+            raise ValueError("A team with this name already exists") from None
+        return team
+
+    @_db_locked
+    def rename_team(self, team_id: str, name: str) -> Dict[str, Any]:
+        """Rename a team without changing agent membership."""
+        name = self._team_name(name)
+        try:
+            with self._conn:
+                cursor = self._conn.execute(
+                    "UPDATE agent_teams SET name = ? WHERE id = ?", (name, team_id)
+                )
+                if not cursor.rowcount:
+                    raise KeyError("Team not found")
+        except sqlite3.IntegrityError:
+            raise ValueError("A team with this name already exists") from None
+        return dict(
+            self._conn.execute(
+                "SELECT * FROM agent_teams WHERE id = ?", (team_id,)
+            ).fetchone()
+        )
+
+    @_db_locked
+    def delete_team(self, team_id: str) -> None:
+        """Delete a team, preserving its agents and all their related records."""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE managed_agents SET team_id = NULL, updated_at = ? "
+                "WHERE team_id = ?",
+                (time.time(), team_id),
+            )
+            cursor = self._conn.execute(
+                "DELETE FROM agent_teams WHERE id = ?", (team_id,)
+            )
+            if not cursor.rowcount:
+                raise KeyError("Team not found")
 
     # ── Message queue ─────────────────────────────────────────────
 
@@ -829,6 +942,7 @@ class AgentManager:
             "id": row["id"],
             "name": row["name"],
             "agent_type": row["agent_type"],
+            "team_id": row["team_id"],
             "config": json.loads(config_raw) if config_raw else {},
             "status": row["status"],
             "summary_memory": row["summary_memory"] or "",
