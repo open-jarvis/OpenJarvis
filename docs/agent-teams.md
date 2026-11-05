@@ -22,7 +22,7 @@ A non-null unknown team ID is rejected on assignment. Team names are trimmed, co
 
 ## Company accounts and connections
 
-Select a team, then **Connections & communication** → **Add company connection**. Each team owns independent HTTP MCP connections with their own endpoint, provider/service name and bearer credential. For example, Company A and Company B may both use the same Gmail MCP endpoint with different access tokens. Clients and sessions are created independently for each team and turn. The configured provider name must be unique within a team; different teams may use the same provider name.
+Select a team, then **الإعدادات والاتصالات** (team settings) → **+ إضافة اتصال** (Add connection). Each team owns independent HTTP MCP connections with their own endpoint, provider/service name and bearer credential. For example, Company A and Company B may both use the same Gmail MCP endpoint with different access tokens. Clients and sessions are created independently for each team and turn. The configured provider name must be unique within a team; different teams may use the same provider name.
 
 Only the team's connections are exposed to its agents. Neither a missing credential, discovery failure nor tool error falls back to the globally configured MCP account. Agent **Overview** includes an **Enable this team's connections** switch; an agent's explicit MCP opt-out remains effective. Global MCP behavior remains available to legacy agents that have never been assigned a team. Once an agent has been team-scoped, removing it from the team or deleting the team does not re-enable global accounts: assign it to another team to restore company connections. Existing team members are marked team-scoped during migration.
 
@@ -46,7 +46,9 @@ Existing global memory and knowledge are not migrated into teams. Deleting a tea
 
 ## Talking to a team (orchestrator)
 
-Each team can have an **orchestrator**: one of its agents, chosen under **Connections & communication** → *Team orchestrator*. Choose **كلّم الفريق** (Talk to the team) to send the team a request with a title, the request text, original product photos, an approved logo, approved contact details, whether paid Bria processing is allowed, and a run limit. The request goes to the orchestrator; you never pass results between agents yourself.
+Each team has its own pages. Pick a team on **Agents** and open **صفحة الفريق والطلبات** (`/agents/teams/<team>`) for its members and requests, or **الإعدادات والاتصالات** (`/agents/teams/<team>/settings`) for its name, orchestrator, MCP connections, cross-team communication and deletion. Every request has its own page (`/agents/teams/<team>/requests/<request>`), so it can be bookmarked or shared.
+
+Each team can have an **orchestrator**: one of its agents, chosen on the team settings page. Choose **طلب جديد للفريق** (New team request) to send the team a request with a title, the request text, original product photos, an approved logo, approved contact details, whether paid Bria processing is allowed, and a run limit. The request goes to the orchestrator; you never pass results between agents yourself.
 
 - The orchestrator assigns up to four **tasks** per run with `team_assign_tasks` (lead only). Each task **runs the receiving agent automatically**.
 - When a member finishes, its reply returns to the orchestrator automatically as a **report**. Reports waiting for the orchestrator in the same request are delivered together in one run.
@@ -71,7 +73,7 @@ The release agent submits the exact final PNG, caption, Cairo time and quality r
 
 ## Communication permissions
 
-Agents may message other active agents in their own team. Cross-team messaging is denied by default and requires both teams to select each other under **Connections & communication**. Clear either side's checkbox and save to revoke permission. The receiving team gets a message, not access to the sender's accounts, tools, memory or conversation history.
+Agents may message other active agents in their own team. Cross-team messaging is denied by default and requires both teams to select each other on their team settings pages. Clear either side's checkbox and save to revoke permission. The receiving team gets a message, not access to the sender's accounts, tools, memory or conversation history.
 
 The runtime binds `managed_agent_peers`, `managed_agent_message`, and `managed_connection_status` to the real source agent. The model cannot supply a different sender identity. Peer discovery exposes only the IDs, names and team IDs of currently reachable agents. Sending queues an attributed `agent_to_agent` message; it does not run the recipient automatically. The recipient consumes queued messages on its next managed tick, with peer content explicitly marked as untrusted rather than operator instructions. Pending messages are blocked if permission is revoked or either agent moves teams before delivery. Already consumed messages cannot be recalled.
 

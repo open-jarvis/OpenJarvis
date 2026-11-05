@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
 import {
   cancelTeamCampaign, createTeamCampaign, decideApproval, fetchCampaignFileBlob, fetchTeamCampaign,
   fetchTeamCampaigns, refreshPublication, retryPublication, retryTeamHandoff, sendTeamFollowUp, setTeamCampaignMaxRuns,
 } from '../lib/api';
-import type { AgentTeam, ManagedAgent, TeamCampaign, TeamHandoff, TeamPublication } from '../lib/api';
+import type { AgentTeam, TeamCampaign, TeamHandoff, TeamPublication } from '../lib/api';
 
 const field = 'rounded-lg px-3 py-2 text-sm w-full disabled:opacity-40';
 const style = { background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' };
@@ -42,7 +43,7 @@ function formatCairo(iso: string) {
   } catch { return iso; }
 }
 
-function NewRequestForm({ team, onCreated, disabled }: { team: AgentTeam; onCreated: (c: TeamCampaign) => void; disabled: boolean }) {
+export function NewRequestForm({ team, onCreated, disabled }: { team: AgentTeam; onCreated: (c: TeamCampaign) => void; disabled: boolean }) {
   const [busy, setBusy] = useState(false);
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -57,8 +58,7 @@ function NewRequestForm({ team, onCreated, disabled }: { team: AgentTeam; onCrea
     } catch (error) { toast.error(error instanceof Error ? error.message : 'تعذّر إرسال الطلب.'); }
     finally { setBusy(false); }
   }
-  return <form onSubmit={submit} className="space-y-3 p-4" style={card}>
-    <h3 className="font-semibold text-sm">طلب جديد للفريق</h3>
+  return <form onSubmit={submit} className="space-y-3 p-4 max-w-2xl" style={card}>
     <label className="block text-sm">العنوان<input name="title" required maxLength={120} className={`${field} mt-1`} style={style} placeholder="منشورات نوفمبر" disabled={busy || disabled} /></label>
     <label className="block text-sm">ماذا تريد من الفريق؟<textarea name="brief" required rows={4} maxLength={20000} className={`${field} mt-1`} style={style} placeholder="منشور واحد لعبوات الكرتون المموج مع موعد مقترح…" disabled={busy || disabled} /></label>
     <label className="block text-sm">صور المنتجات الأصلية<input name="photos" type="file" multiple accept="image/png,image/jpeg,image/webp" className="block mt-1 text-sm" disabled={busy || disabled} /></label>
@@ -116,7 +116,7 @@ function HandoffRow({ handoff, onRetry }: { handoff: TeamHandoff; onRetry: (id: 
   </li>;
 }
 
-function CampaignDetail({ campaignId, onBack }: { campaignId: string; onBack: () => void }) {
+export function CampaignDetail({ campaignId, backTo }: { campaignId: string; backTo: string }) {
   const [campaign, setCampaign] = useState<TeamCampaign | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -142,9 +142,9 @@ function CampaignDetail({ campaignId, onBack }: { campaignId: string; onBack: ()
   if (!campaign) return <p role="status" className="text-sm">جارٍ التحميل…</p>;
   const images = (campaign.files || []).filter((f) => /^(originals|final)\/.*\.(png|jpe?g|webp)$/i.test(f.path));
   return <div className="space-y-4">
-    <button type="button" onClick={onBack} className="text-sm underline">→ كل الطلبات</button>
+    <Link to={backTo} className="text-sm underline">→ كل طلبات الفريق</Link>
     <header className="space-y-1">
-      <h3 className="font-semibold" dir="auto">{campaign.title}</h3>
+      <h2 className="text-lg font-semibold" dir="auto">{campaign.title}</h2>
       <p className="text-sm"><strong>{CAMPAIGN_STATUS[campaign.display_status] || campaign.display_status}</strong>{live && ' · يتحدث تلقائيًا'}</p>
       {campaign.status_reason && <p className="text-sm" style={muted}>{campaign.status_reason}</p>}
       <p className="text-xs" style={muted}>التشغيلات المستخدمة {campaign.runs_used} من {campaign.max_runs}{' '}
@@ -173,31 +173,21 @@ function CampaignDetail({ campaignId, onBack }: { campaignId: string; onBack: ()
   </div>;
 }
 
-export function TeamRequests({ team, agents }: { team: AgentTeam; agents: ManagedAgent[] }) {
-  const [campaigns, setCampaigns] = useState<TeamCampaign[]>([]);
-  const [openId, setOpenId] = useState<string | null>(null);
+export function CampaignList({ team }: { team: AgentTeam }) {
+  const [campaigns, setCampaigns] = useState<TeamCampaign[] | null>(null);
   const [error, setError] = useState('');
-  const lead = agents.find((agent) => agent.id === team.lead_agent_id);
   const load = useCallback(async () => {
     try { setCampaigns(await fetchTeamCampaigns(team.id)); setError(''); }
     catch (e) { setError(e instanceof Error ? e.message : 'تعذّر تحميل الطلبات.'); }
   }, [team.id]);
   useEffect(() => { load(); }, [load]);
-  return <section dir="rtl" lang="ar" aria-label={`كلّم فريق ${team.name}`} className="mt-4 pt-4 space-y-4" style={{ borderTop: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
-    <div>
-      <h2 className="font-semibold">كلّم فريق {team.name}</h2>
-      <p className="text-sm max-w-2xl" style={muted}>{lead ? `طلبك يصل إلى المنسّق «${lead.name}»، فيوزّع المهام على الفريق ويعرض عليك المسودة. لا يُجدول شيء في Buffer إلا بعد موافقتك.` : 'حدّد منسّق الفريق أولًا من «إعدادات الفريق والاتصالات» حتى تستطيع مخاطبة الفريق.'}</p>
-    </div>
-    {openId ? <CampaignDetail campaignId={openId} onBack={() => { setOpenId(null); load(); }} /> : <>
-      <NewRequestForm team={team} disabled={!lead} onCreated={(c) => { setOpenId(c.id); load(); }} />
-      {error && <p role="alert" className="text-sm">{error}</p>}
-      <ul className="space-y-2">{campaigns.map((c) => <li key={c.id}>
-        <button type="button" onClick={() => setOpenId(c.id)} className="w-full text-start p-3 rounded-lg" style={card}>
-          <span className="block text-sm font-medium" dir="auto">{c.title}</span>
-          <span className="block text-xs" style={muted}>{CAMPAIGN_STATUS[c.display_status] || c.display_status}{c.attention_count > 0 && ` · ${c.attention_count} يحتاج تدخّلك`}</span>
-        </button>
-      </li>)}</ul>
-      {!campaigns.length && !error && <p className="text-sm" style={muted}>لا توجد طلبات بعد.</p>}
-    </>}
-  </section>;
+  if (error) return <p role="alert" className="text-sm">{error} <button type="button" onClick={load} className="underline">إعادة المحاولة</button></p>;
+  if (!campaigns) return <p role="status" className="text-sm" style={muted}>جارٍ التحميل…</p>;
+  if (!campaigns.length) return <p className="text-sm" style={muted}>لا توجد طلبات بعد.</p>;
+  return <ul className="space-y-2">{campaigns.map((c) => <li key={c.id}>
+    <Link to={`/agents/teams/${team.id}/requests/${c.id}`} className="block p-3 rounded-lg" style={card}>
+      <span className="block text-sm font-medium" dir="auto">{c.title}</span>
+      <span className="block text-xs" style={muted}>{CAMPAIGN_STATUS[c.display_status] || c.display_status}{c.attention_count > 0 && ` · ${c.attention_count} يحتاج تدخّلك`}</span>
+    </Link>
+  </li>)}</ul>;
 }

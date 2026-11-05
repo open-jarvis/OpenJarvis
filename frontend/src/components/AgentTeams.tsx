@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { AgentTeamSettings } from './AgentTeamSettings';
-import { TeamRequests } from './TeamRequests';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, MessagesSquare } from 'lucide-react';
-import { createAgentTeam, renameAgentTeam, deleteAgentTeam, updateManagedAgent } from '../lib/api';
+import { Plus, MessagesSquare, Settings } from 'lucide-react';
+import { createAgentTeam, updateManagedAgent } from '../lib/api';
 import type { AgentTeam, ManagedAgent } from '../lib/api';
 
 const style = { background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' };
@@ -49,62 +48,45 @@ export function AgentTeamAssignment({ teams, agent, onUpdated }: {
 export function AgentTeamToolbar({ teams, agents, filter, onFilter, onUpdated, unavailable }: {
   teams: AgentTeam[]; agents: ManagedAgent[]; filter: string; onFilter: (value: string) => void; onUpdated: () => void; unavailable: boolean;
 }) {
-  const [editing, setEditing] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showRequests, setShowRequests] = useState(false);
   const selected = teams.find((team) => team.id === filter);
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || editing === null) return;
+    if (!name.trim()) return;
     setBusy(true);
     try {
-      if (editing) await renameAgentTeam(editing, name.trim());
-      else await createAgentTeam(name.trim());
-      setEditing(null); setName(''); onUpdated();
-      toast.success(editing ? 'Team renamed' : 'Team created');
+      const team = await createAgentTeam(name.trim());
+      setCreating(false); setName(''); onUpdated(); onFilter(team.id);
+      toast.success('Team created');
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not save team.'); }
-    finally { setBusy(false); }
-  }
-  async function remove() {
-    if (!selected || !window.confirm(`Delete team “${selected.name}”? Its agents will become unassigned. Agents and their work will be kept.`)) return;
-    setBusy(true);
-    try {
-      await deleteAgentTeam(selected.id);
-      onFilter('all'); setEditing(null); onUpdated();
-      toast.success('Team deleted. Its agents are now unassigned.');
-    } catch { toast.error('Could not delete team. Please try again.'); }
     finally { setBusy(false); }
   }
   return <section aria-label="Agent teams" className="mb-6 space-y-3">
     <div className="flex flex-wrap items-end gap-2">
       <div className="flex-1 min-w-48 max-w-sm">
         <label htmlFor="team-filter" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Team</label>
-        <select id="team-filter" value={filter} onChange={(e) => { onFilter(e.target.value); setEditing(null); setShowSettings(false); setShowRequests(false); }} disabled={unavailable || busy} className={`${control} w-full`} style={style}>
+        <select id="team-filter" value={filter} onChange={(e) => { onFilter(e.target.value); setCreating(false); }} disabled={unavailable || busy} className={`${control} w-full`} style={style}>
           <option value="all">All teams · {agents.length} agents</option>
           <option value="unassigned">Unassigned agents ({agents.filter((agent) => !agent.team_id).length})</option>
           {teams.map((team) => <option key={team.id} value={team.id}>{team.name} ({agents.filter((agent) => agent.team_id === team.id).length})</option>)}
         </select>
       </div>
-      <button type="button" disabled={unavailable || busy} onClick={() => { setEditing(''); setName(''); }} className={`${control} inline-flex items-center gap-2`} style={style}><Plus size={15} />New team</button>
+      <button type="button" disabled={unavailable || busy} onClick={() => { setCreating(true); setName(''); }} className={`${control} inline-flex items-center gap-2`} style={style}><Plus size={15} />New team</button>
       {selected && <>
-        <button type="button" disabled={busy} onClick={() => { setShowRequests((value) => !value); setShowSettings(false); }} aria-expanded={showRequests} className={`${control} inline-flex items-center gap-2`} style={style}><MessagesSquare size={15} />كلّم الفريق</button>
-        <button type="button" disabled={busy} onClick={() => { setShowSettings((value) => !value); setShowRequests(false); }} aria-expanded={showSettings} className={control} style={style}>إعدادات الفريق والاتصالات</button>
-        <button type="button" disabled={busy} onClick={() => { setEditing(selected.id); setName(selected.name); }} className={`${control} inline-flex items-center gap-2`} style={style}><Pencil size={15} />Rename</button>
-        <button type="button" disabled={busy} onClick={remove} className={`${control} inline-flex items-center gap-2`} style={style}><Trash2 size={15} />Delete team</button>
+        <Link to={`/agents/teams/${selected.id}`} className={`${control} inline-flex items-center gap-2`} style={style}><MessagesSquare size={15} />صفحة الفريق والطلبات</Link>
+        <Link to={`/agents/teams/${selected.id}/settings`} className={`${control} inline-flex items-center gap-2`} style={style}><Settings size={15} />الإعدادات والاتصالات</Link>
       </>}
     </div>
-    {editing !== null && <form onSubmit={save} className="flex flex-wrap items-end gap-2">
+    {creating && <form onSubmit={save} className="flex flex-wrap items-end gap-2">
       <div className="flex-1 min-w-48 max-w-sm">
         <label htmlFor="team-name" className="block text-sm mb-1" style={{ color: 'var(--color-text-secondary)' }}>Team name</label>
         <input id="team-name" autoFocus dir="auto" required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} disabled={busy} placeholder="Company or project name" className={`${control} w-full`} style={style} />
       </div>
       <button type="submit" disabled={busy || !name.trim()} className={control} style={style}>{busy ? 'Saving…' : 'Save team'}</button>
-      <button type="button" disabled={busy} onClick={() => setEditing(null)} className={control} style={style}>Cancel</button>
+      <button type="button" disabled={busy} onClick={() => setCreating(false)} className={control} style={style}>Cancel</button>
     </form>}
-    {selected && showSettings && <AgentTeamSettings key={selected.id} team={selected} teams={teams} agents={agents} onUpdated={onUpdated} />}
-    {selected && showRequests && <TeamRequests key={selected.id} team={selected} agents={agents} />}
     {unavailable && <p role="status" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Teams could not be loaded. <button type="button" onClick={onUpdated} className="underline">Try again</button></p>}
   </section>;
 }

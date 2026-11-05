@@ -29,9 +29,7 @@ export function AgentTeamSettings({ team, teams, agents, onUpdated }: {
     finally { setBusy(false); }
   }
 
-  return <div dir="rtl" lang="ar" className="mt-4 pt-4 space-y-6" style={{ borderTop: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
-    <h2 className="font-semibold">إعدادات فريق {team.name}</h2>
-
+  return <div className="space-y-8">
     <section aria-labelledby="team-lead-title" className="space-y-2">
       <h3 id="team-lead-title" className="font-semibold text-sm">منسّق الفريق</h3>
       <label className="block text-sm max-w-xl" style={muted}>يستلم ما ترسله في «كلّم الفريق» ويوزّع المهام على الأعضاء.
