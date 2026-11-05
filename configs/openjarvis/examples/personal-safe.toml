@@ -12,6 +12,20 @@ max_turns = 4
 tools = "calculator,think"
 context_from_memory = false
 
+[speech]
+# Voice input is deliberately pinned to the local Faster-Whisper backend.
+# It never falls back to a cloud provider, even if cloud API keys happen to
+# exist in the shell environment. The model is downloaded once by its vendor
+# on first use; after that, microphone audio is transcribed on this machine.
+backend = "faster-whisper"
+model = "base"
+language = "pt"
+# CPU is deliberate: it keeps speech reliable in WSL without depending on a
+# matching CUDA/cuBLAS runtime. The rest of OpenJarvis may still use the GPU.
+device = "cpu"
+# int8 keeps the local model's memory footprint modest on CPU.
+compute_type = "int8"
+
 [tools.mcp]
 # MCP servers are third-party execution/data boundaries. Keep them disabled
 # until each server and its permissions have been reviewed.
@@ -28,9 +42,9 @@ pii_scanner = true
 enforce_tool_confirmation = true
 ssrf_protection = true
 rate_limit_enabled = true
-# Do not add a home directory. Use one narrow workspace if file tools are
-# explicitly enabled later.
-allowed_dirs = []
+# The Obsidian connector and file tools may only read this single vault root.
+# Do not replace this with a broad home/OneDrive directory.
+allowed_dirs = ["/mnt/c/Users/engle/OneDrive/Obsidian"]
 
 [security.capabilities]
 enabled = true

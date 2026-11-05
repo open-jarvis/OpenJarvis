@@ -70,7 +70,7 @@ export function Sidebar() {
       {!sidebarOpen && (
         <button
           onClick={toggleSidebar}
-          className="fixed top-3 left-3 z-30 p-2 rounded-lg transition-colors cursor-pointer"
+          className="fixed top-[70px] left-3 z-30 p-2 rounded-lg transition-colors cursor-pointer"
           style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-secondary)' }}
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
           onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--color-bg-secondary)')}
@@ -80,7 +80,7 @@ export function Sidebar() {
       )}
 
       <aside
-        className={`
+        className={`oj-sidebar
           flex flex-col h-full shrink-0 transition-all duration-200 ease-in-out overflow-hidden
           fixed md:relative z-30
           ${sidebarOpen ? 'w-[260px]' : 'w-0'}
@@ -94,7 +94,7 @@ export function Sidebar() {
       >
         <div className="flex flex-col h-full w-[260px]">
           {/* Header */}
-          <div className="flex items-center justify-between px-3 pt-3 pb-2">
+          <div className="oj-sidebar-header flex items-center justify-between px-3 pt-3 pb-2">
             <button
               onClick={toggleSidebar}
               className="p-2 rounded-lg transition-colors cursor-pointer"

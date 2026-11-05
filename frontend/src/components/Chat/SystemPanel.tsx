@@ -77,7 +77,7 @@ export function SystemPanel() {
 
   return (
     <div
-      className="flex flex-col h-full overflow-y-auto"
+      className="oj-system-panel flex flex-col h-full overflow-y-auto"
       style={{
         width: 280,
         minWidth: 280,

@@ -1,192 +1,296 @@
-import { useMemo } from 'react';
-import type { ReactNode } from 'react';
+import { useMemo, useState } from 'react';
+import type { WheelEvent } from 'react';
 import {
-  Activity,
-  Bot,
-  Braces,
-  Check,
-  CircleDot,
-  Cpu,
+  Box,
+  Crosshair,
   Database,
-  FileText,
-  LockKeyhole,
-  MessageSquare,
-  Network,
-  Radio,
-  Search,
-  ShieldCheck,
+  Maximize2,
+  Minus,
+  Plus,
+  RotateCcw,
   Sparkles,
-  Zap,
 } from 'lucide-react';
-import type { LogEntry, ToolCallInfo } from '../types';
+import type { ChatMessage, ToolCallInfo } from '../types';
 import { useAppStore } from '../lib/store';
 import './orchestrator.css';
 
-type NodeKind = 'conversation' | 'model' | 'tool' | 'research' | 'data' | 'agents' | 'logs';
+type NodeKind = 'core' | 'context' | 'source' | 'skill';
+type SkillState = 'ready' | 'active' | 'locked' | 'pending';
 
-interface NodeState {
-  id: NodeKind;
+interface GraphNode {
+  id: string;
+  kind: NodeKind;
   label: string;
   detail: string;
   x: number;
   y: number;
-  active: boolean;
-  current?: boolean;
-  count?: number;
+  size: number;
+  state?: SkillState;
 }
 
-const nodeIcons = {
-  conversation: MessageSquare,
-  model: Cpu,
-  tool: Braces,
-  research: Search,
-  data: Database,
-  agents: Bot,
-  logs: FileText,
-} as const;
-
-const number = new Intl.NumberFormat('pt-BR');
-
-function clock(timestamp: number) {
-  return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(timestamp);
+interface GraphLink {
+  source: string;
+  target: string;
+  kind: 'context' | 'knowledge' | 'skill';
 }
 
-function lastToolCalls(messages: { toolCalls?: ToolCallInfo[] }[]) {
-  return messages.flatMap((message) => message.toolCalls ?? []);
+interface GraphModel {
+  nodes: GraphNode[];
+  links: GraphLink[];
+  skillCount: number;
+  activeSkillCount: number;
+  readySkillCount: number;
+  sourceCount: number;
+  contextCount: number;
 }
 
-function statusFor(node: NodeKind, logs: LogEntry[], calls: ToolCallInfo[], messages: number, isStreaming: boolean) {
-  if (node === 'conversation') return messages > 0;
-  if (node === 'model') return isStreaming || logs.some((entry) => entry.category === 'model' || entry.category === 'chat');
-  if (node === 'tool') return calls.length > 0;
-  if (node === 'research') return logs.some((entry) => entry.message.toLowerCase().includes('research') || entry.message.toLowerCase().includes('search'));
-  if (node === 'data') return false;
-  if (node === 'agents') return isStreaming;
-  return logs.length > 0;
+interface Camera {
+  scale: number;
+}
+
+const CAMERA_DEFAULT: Camera = { scale: 1 };
+const CORE_ID = 'openjarvis-orchestrator';
+
+/**
+ * The semi-orbit is a stable capability map for the personal-safe profile.
+ * It intentionally describes both capabilities currently available and the
+ * private boundaries the user has not authorised yet.
+ */
+const SKILL_CATALOG = [
+  { id: 'reasoning', label: 'RACIOCÍNIO', ready: true, detail: 'motor local' },
+  { id: 'calculator', label: 'CÁLCULO', ready: true, detail: 'motor local' },
+  { id: 'memory', label: 'MEMÓRIA', ready: false, detail: 'não configurada' },
+  { id: 'knowledge', label: 'CONHECIMENTO', ready: false, detail: 'base não conectada' },
+  { id: 'research', label: 'PESQUISA', ready: false, detail: 'rede bloqueada' },
+  { id: 'files', label: 'ARQUIVOS', ready: false, detail: 'sem diretórios autorizados' },
+  { id: 'obsidian', label: 'OBSIDIAN', ready: false, detail: 'aguardando autorização' },
+] as const;
+
+function catalogSkillId(tool: string) {
+  const name = tool.toLowerCase();
+  if (name === 'think' || name.includes('reason')) return 'reasoning';
+  if (name.includes('calcul')) return 'calculator';
+  if (name.includes('memory')) return 'memory';
+  if (name.includes('knowledge') || name.includes('kg_')) return 'knowledge';
+  if (name.includes('search') || name.includes('web') || name.includes('http')) return 'research';
+  if (name.includes('file')) return 'files';
+  if (name.includes('obsidian')) return 'obsidian';
+  return null;
+}
+
+function compact(text: string, max = 25) {
+  const trimmed = text.replace(/\s+/g, ' ').trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed || 'Sem conteúdo';
+}
+
+function toolCalls(messages: ChatMessage[]) {
+  return messages.flatMap((message) => (message.toolCalls ?? []).map((call) => ({ call, message })));
+}
+
+function arcPosition(index: number, total: number) {
+  const angle = total <= 1 ? 0 : -72 + (index / (total - 1)) * 144;
+  const radians = (angle * Math.PI) / 180;
+  // A compact right-hand rail leaves enough vertical separation for twelve
+  // skills while keeping labels and status text inside the canvas.
+  return { x: 775 + Math.cos(radians) * 76, y: 325 + Math.sin(radians) * 176 };
+}
+
+/**
+ * Converts only data already held by the browser into graph data. A future
+ * local knowledge connector can add `source` nodes here without changing the
+ * camera, graph renderer, skills arc, or interaction model.
+ */
+function buildGraph(messages: ChatMessage[]): GraphModel {
+  const visibleMessages = messages.slice(-14);
+  const nodes: GraphNode[] = [{
+    id: CORE_ID, kind: 'core', label: 'ORQUESTRADOR', detail: 'núcleo local', x: 500, y: 325, size: 20,
+  }];
+  const links: GraphLink[] = [];
+
+  visibleMessages.forEach((message, index) => {
+    const angle = -138 + (index / Math.max(visibleMessages.length - 1, 1)) * 276;
+    const radians = (angle * Math.PI) / 180;
+    const radius = 130 + (index % 3) * 45;
+    const id = `context-${message.id}`;
+    nodes.push({
+      id,
+      kind: 'context',
+      label: message.role === 'user' ? 'SOLICITAÇÃO' : 'RESPOSTA',
+      detail: compact(message.content),
+      x: 500 + Math.cos(radians) * radius,
+      y: 325 + Math.sin(radians) * (radius * 0.72),
+      size: message.role === 'user' ? 6 : 5,
+    });
+    links.push({ source: CORE_ID, target: id, kind: 'context' });
+
+    (message.researchSources ?? []).slice(0, 3).forEach((source, sourceIndex) => {
+      const sourceId = `source-${message.id}-${source.ref}`;
+      const sourceAngle = radians + (sourceIndex - 1) * 0.26;
+      nodes.push({
+        id: sourceId,
+        kind: 'source',
+        label: 'FONTE',
+        detail: compact(source.title || source.sender || 'Fonte de pesquisa'),
+        x: 500 + Math.cos(sourceAngle) * (radius + 85),
+        y: 325 + Math.sin(sourceAngle) * ((radius + 85) * 0.72),
+        size: 4,
+      });
+      links.push({ source: id, target: sourceId, kind: 'knowledge' });
+    });
+  });
+
+  const calls = toolCalls(visibleMessages);
+  const activeCalls = new Map<string, { call: ToolCallInfo; message: ChatMessage }>();
+  calls.forEach(({ call, message }) => {
+    const id = catalogSkillId(call.tool);
+    if (id && !activeCalls.has(id)) activeCalls.set(id, { call, message });
+  });
+
+  SKILL_CATALOG.forEach((skill, index) => {
+    const point = arcPosition(index, SKILL_CATALOG.length);
+    const activeCall = activeCalls.get(skill.id);
+    const state: SkillState = activeCall ? 'active' : skill.ready ? 'ready' : skill.id === 'obsidian' ? 'pending' : 'locked';
+    const detail = activeCall ? `${activeCall.call.tool} · em uso` : skill.detail;
+    const skillId = `skill-${skill.id}`;
+    nodes.push({ id: skillId, kind: 'skill', label: skill.label, detail, x: point.x, y: point.y, size: 3.5, state });
+    if (activeCall) links.push({ source: `context-${activeCall.message.id}`, target: skillId, kind: 'skill' });
+  });
+
+  return {
+    nodes,
+    links,
+    skillCount: SKILL_CATALOG.length,
+    activeSkillCount: activeCalls.size,
+    readySkillCount: SKILL_CATALOG.filter((skill) => skill.ready).length,
+    sourceCount: nodes.filter((node) => node.kind === 'source').length,
+    contextCount: visibleMessages.length,
+  };
 }
 
 export function OrchestratorPage() {
   const messages = useAppStore((state) => state.messages);
-  const logs = useAppStore((state) => state.logEntries);
   const stream = useAppStore((state) => state.streamState);
-  const selectedModel = useAppStore((state) => state.selectedModel);
-  const serverInfo = useAppStore((state) => state.serverInfo);
-  const savings = useAppStore((state) => state.savings);
-  const liveEnergy = useAppStore((state) => state.liveEnergy);
+  const graph = useMemo(() => buildGraph(messages), [messages]);
+  const [camera, setCamera] = useState<Camera>(CAMERA_DEFAULT);
+  const [selectedNodeId, setSelectedNodeId] = useState(CORE_ID);
+  const selected = graph.nodes.find((node) => node.id === selectedNodeId) ?? graph.nodes[0];
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const constellationNodes = graph.nodes.filter((node) => node.kind !== 'skill');
+  const skillNodes = graph.nodes.filter((node) => node.kind === 'skill');
+  const constellationLinks = graph.links.filter((link) => link.kind !== 'skill');
+  const skillLinks = graph.links.filter((link) => link.kind === 'skill');
+  const selectedSkillId = selected?.kind === 'skill' ? selected.id.replace('skill-', '') : null;
+  const selectedSkillCall = selectedSkillId
+    ? toolCalls(messages).find(({ call }) => catalogSkillId(call.tool) === selectedSkillId)
+    : undefined;
 
-  const view = useMemo(() => {
-    const calls = lastToolCalls(messages);
-    const running = stream.activeToolCalls.find((call) => call.status === 'running');
-    const recentLogs = logs.slice(-6).reverse();
-    const activeDestination: NodeKind | undefined = running ? 'tool'
-      : stream.isStreaming && logs.some((entry) => entry.message.toLowerCase().includes('research') || entry.message.toLowerCase().includes('search')) ? 'research'
-      : undefined;
-    const localModel = selectedModel || serverInfo?.model || 'Aguardando seleção';
-    const nodes: NodeState[] = [
-      { id: 'conversation', label: 'CONVERSA', detail: messages.length ? `${messages.length} mensagens na sessão` : 'Sem mensagens nesta sessão', x: 17, y: 49, active: statusFor('conversation', logs, calls, messages.length, stream.isStreaming), current: stream.isStreaming && !activeDestination },
-      { id: 'model', label: 'MODELO LOCAL', detail: localModel, x: 48, y: 82, active: statusFor('model', logs, calls, messages.length, stream.isStreaming), current: stream.isStreaming },
-      { id: 'tool', label: 'FERRAMENTAS', detail: running ? `${running.tool} em execução` : calls.length ? `${calls.length} acionamento${calls.length === 1 ? '' : 's'}` : 'Nenhuma ferramenta acionada', x: 77, y: 29, active: statusFor('tool', logs, calls, messages.length, stream.isStreaming), current: activeDestination === 'tool', count: calls.length || undefined },
-      { id: 'research', label: 'PESQUISA', detail: statusFor('research', logs, calls, messages.length, stream.isStreaming) ? 'Atividade registrada' : 'Não acionada nesta sessão', x: 82, y: 49, active: statusFor('research', logs, calls, messages.length, stream.isStreaming), current: activeDestination === 'research' },
-      { id: 'data', label: 'FONTES DE DADOS', detail: 'Nenhuma fonte acessada nesta sessão', x: 72, y: 73, active: false },
-      { id: 'agents', label: 'AGENTES', detail: stream.isStreaming ? 'Orquestração em curso' : 'Sem execução em curso', x: 48, y: 16, active: statusFor('agents', logs, calls, messages.length, stream.isStreaming), current: stream.isStreaming },
-      { id: 'logs', label: 'LOGS', detail: logs.length ? `${logs.length} eventos locais` : 'Sem eventos registrados', x: 24, y: 23, active: statusFor('logs', logs, calls, messages.length, stream.isStreaming) },
-    ];
-    const route = activeDestination === 'tool'
-      ? `conversa → modelo local → ${running?.tool ?? 'ferramenta'}`
-      : activeDestination === 'research'
-        ? 'conversa → modelo local → pesquisa'
-        : stream.isStreaming ? 'conversa → modelo local → resposta'
-          : 'Aguardando uma solicitação local';
-    const detail = stream.isStreaming
-      ? stream.phase || 'O modelo local está preparando uma resposta.'
-      : calls.length
-        ? `Última ferramenta observada: ${calls[calls.length - 1].tool}.`
-        : 'A rota será exibida quando você iniciar uma conversa ou uma ferramenta for acionada.';
-    return { calls, recentLogs, nodes, route, detail, localModel, activeDestination };
-  }, [logs, messages, selectedModel, serverInfo, stream]);
+  const changeZoom = (delta: number) => setCamera((current) => ({
+    ...current,
+    scale: Math.min(2.8, Math.max(0.45, Number((current.scale + delta).toFixed(2)))),
+  }));
 
-  const activeNodeIds = new Set(view.nodes.filter((node) => node.active).map((node) => node.id));
-  const energyValue = liveEnergy ? `${liveEnergy.power_w.toFixed(1)} W` : 'em espera';
+  const handleWheel = (event: WheelEvent<SVGSVGElement>) => {
+    event.preventDefault();
+    changeZoom(event.deltaY < 0 ? 0.12 : -0.12);
+  };
 
   return (
-    <div className="orchestrator-page">
-      <header className="orchestrator-topbar">
-        <div className="orchestrator-title"><span className="brand-orbit" /><span>OPEN<span>JARVIS</span></span><i /><strong>ORQUESTRADOR</strong></div>
-        <div className="privacy-mark"><LockKeyhole size={13} /> LOCAL E PRIVADO</div>
-      </header>
-
-      <div className="orchestrator-layout">
-        <aside className="orchestrator-rail system-rail">
-          <RailHeading icon={<Activity size={17} />} title="ATIVIDADE LOCAL" status={stream.isStreaming ? 'em execução' : 'em espera'} live={stream.isStreaming} />
-          <div className="model-select"><Cpu size={20} /><div><span>MODELO LOCAL</span><strong>{view.localModel}</strong></div><CircleDot size={15} /></div>
-          <div className="rail-chart"><div className="rail-chart-header"><span>Atividade</span><strong>{logs.length ? 'registrada' : 'sem eventos'}</strong></div><ActivityBars count={Math.max(logs.length, messages.length)} /></div>
-          <div className="rail-meter"><div><Zap size={17} /><span>Energia atual</span><strong>{energyValue}</strong></div><span className="meter-track"><i style={{ width: liveEnergy ? `${Math.min(100, liveEnergy.power_w)}%` : '0%' }} /></span></div>
-          <div className="health-list"><Health label="Requisições locais" value={number.format(savings?.total_calls ?? 0)} /><Health label="Tokens" value={number.format(savings?.total_tokens ?? 0)} /><Health label="Eventos de sessão" value={number.format(logs.length)} /></div>
-        </aside>
-
-        <main className="orbital-stage">
-          <div className="stage-heading"><span>MAPA DE DECISÃO</span><div className={`live-chip ${stream.isStreaming ? 'active' : ''}`}><i />{stream.isStreaming ? 'ATIVO AGORA' : 'SEM ROTA ATIVA'}</div></div>
-          <div className="orbit-field">
-            <div className="nebula nebula-one" /><div className="nebula nebula-two" />
-            <div className="orbit orbit-a" /><div className="orbit orbit-b" /><div className="orbit orbit-c" />
-            <svg className="routing-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-              {view.nodes.map((node) => node.id !== 'model' && <line key={node.id} className={activeNodeIds.has(node.id) ? 'observed' : ''} x1="50" y1="50" x2={node.x} y2={node.y} />)}
-              {stream.isStreaming && <polyline className="route-active" points={view.activeDestination === 'tool' ? '17,49 48,82 77,29' : view.activeDestination === 'research' ? '17,49 48,82 82,49' : '17,49 48,82 50,50'} />}
-            </svg>
-            <div className={`orchestrator-core ${stream.isStreaming ? 'thinking' : ''}`}><div className="core-void" /><div className="core-wave" /><strong>ORQUESTRADOR</strong><span>{stream.isStreaming ? 'processando rota' : 'pronto'}</span></div>
-            {view.nodes.map((node) => <OrbitNode key={node.id} node={node} />)}
-          </div>
-          <div className="stage-footer"><span><i className="legend active" /> sinal observado</span><span><i className="legend current" /> rota em curso</span><span><i className="legend idle" /> não acionado</span></div>
-        </main>
-
-        <aside className="orchestrator-rail decision-rail">
-          <RailHeading icon={<Network size={17} />} title="DECISÃO ATUAL" />
-          <div className={`route-card ${stream.isStreaming ? 'active' : ''}`}><span>ROTA</span><strong>{view.route}</strong></div>
-          <p className="decision-description">{view.detail}</p>
-          <div className="decision-steps">
-            <DecisionStep label="Solicitação recebida" detail={messages.length ? 'Entrada da conversa local' : 'Aguardando entrada'} state={messages.length ? 'done' : 'idle'} />
-            <DecisionStep label="Análise e compreensão" detail={stream.isStreaming ? 'Interpretação em curso' : 'Sem processamento em curso'} state={stream.isStreaming ? 'current' : 'idle'} />
-            <DecisionStep label="Modelo local" detail={stream.isStreaming ? 'Gerando estratégia de resposta' : view.localModel} state={stream.isStreaming ? 'current' : activeNodeIds.has('model') ? 'done' : 'idle'} />
-            <DecisionStep label={view.activeDestination === 'tool' ? 'Ferramenta' : view.activeDestination === 'research' ? 'Pesquisa' : 'Roteamento'} detail={view.activeDestination === 'tool' ? 'Chamada de ferramenta em curso' : view.activeDestination === 'research' ? 'Coleta de informações em curso' : 'Nenhum destino externo acionado'} state={view.activeDestination ? 'current' : 'idle'} />
-            <DecisionStep label="Consolidação e resposta" detail={stream.isStreaming ? 'Aguardando conclusão' : 'Sem resposta pendente'} state="idle" />
-          </div>
-          <div className="no-external"><ShieldCheck size={16} /><span>Nenhuma integração externa ativa</span></div>
-        </aside>
-      </div>
-
-      <section className="local-timeline" aria-label="Linha do tempo local">
-        <div className="timeline-title"><Radio size={16} /><strong>Linha do tempo</strong><span>eventos locais</span></div>
-        <div className="timeline-events">
-          {view.recentLogs.length ? view.recentLogs.map((entry, index) => <TimelineEvent key={`${entry.timestamp}-${index}`} entry={entry} />) : <div className="timeline-empty"><Sparkles size={15} /> Aguardando uma atividade na sessão para construir a linha do tempo.</div>}
+    <div className="knowledge-page">
+      <section className="knowledge-stage" aria-label="Grafo de conhecimento e skills">
+        <div className="constellation-bg" aria-hidden="true" />
+        <div className="graph-header-floating">
+          <div><span>MAPA DE CONHECIMENTO</span><strong>{stream.isStreaming ? 'ORQUESTRANDO EM TEMPO REAL' : 'SESSÃO LOCAL'}</strong></div>
+          <span className={stream.isStreaming ? 'is-live' : ''}><i />{stream.isStreaming ? 'grafo em atualização' : 'grafo navegável'}</span>
         </div>
+
+        <aside className="graph-inspector-floating">
+          <div className="floating-label"><Crosshair size={13} /> {selected?.kind === 'skill' ? 'SKILL EM FOCO' : 'SINAL EM FOCO'}</div>
+          <strong>{selected?.label ?? 'ORQUESTRADOR'}</strong>
+          <p>{selected?.detail ?? 'núcleo local'}</p>
+          <div className="inspector-meta"><span>{selected?.kind === 'skill' ? 'skill' : selected?.kind === 'source' ? 'fonte de conhecimento' : selected?.kind === 'context' ? 'contexto da sessão' : 'núcleo local'}</span><span>local</span></div>
+          <div className="skill-activity">
+            <span>EXECUÇÃO NA SESSÃO</span>
+            {selected?.kind !== 'skill' && <p>Selecione uma skill para acompanhar como ela foi usada.</p>}
+            {selected?.kind === 'skill' && !selectedSkillCall && <p>Sem execução registrada nesta sessão.</p>}
+            {selectedSkillCall && <>
+              <strong className={`skill-call-status ${selectedSkillCall.call.status}`}>{selectedSkillCall.call.status === 'success' ? 'concluída' : selectedSkillCall.call.status === 'error' ? 'atenção necessária' : 'em execução'}</strong>
+              <p>{selectedSkillCall.call.result ? compact(selectedSkillCall.call.result, 88) : 'Chamada registrada; aguardando saída resumida.'}</p>
+            </>}
+          </div>
+        </aside>
+
+        <div className="graph-source-floating">
+          <Database size={15} />
+          <div><strong>FONTES DE CONHECIMENTO</strong><span>{graph.sourceCount ? `${graph.sourceCount} fonte${graph.sourceCount === 1 ? '' : 's'} na sessão` : 'Nenhuma base conectada'}</span></div>
+          <small>Obsidian: aguardando autorização</small>
+        </div>
+
+        <div className="graph-controls" aria-label="Controles de navegação do grafo">
+          <button onClick={() => changeZoom(0.16)} title="Aproximar"><Plus size={17} /></button>
+          <button onClick={() => changeZoom(-0.16)} title="Afastar"><Minus size={17} /></button>
+          <button onClick={() => setCamera(CAMERA_DEFAULT)} title="Centralizar"><Maximize2 size={15} /></button>
+          <span>{Math.round(camera.scale * 100)}%</span>
+        </div>
+        <div className="graph-gesture-hint"><Crosshair size={13} /> scroll para zoom · núcleo ancorado</div>
+
+        <svg
+          className="knowledge-canvas"
+          viewBox="0 0 1000 650"
+          role="application"
+          aria-label="Grafo de conhecimento local: use a rolagem para aproximar ou afastar o núcleo ancorado"
+          onWheel={handleWheel}
+        >
+          <defs>
+            <radialGradient id="coreGlow"><stop offset="0%" stopColor="#1de5ff" stopOpacity=".4" /><stop offset="65%" stopColor="#0d7fb5" stopOpacity=".11" /><stop offset="100%" stopColor="#06111d" stopOpacity="0" /></radialGradient>
+            <filter id="nodeGlow"><feGaussianBlur stdDeviation="3" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+          </defs>
+          <g transform={`translate(500 325) scale(${camera.scale}) translate(-500 -325)`}>
+            <g className="constellation-motion">
+              <circle className="constellation-aura" cx="500" cy="325" r="238" />
+              <circle className="constellation-aura constellation-aura-inner" cx="500" cy="325" r="128" />
+              {constellationLinks.map((link) => {
+                const source = nodeById.get(link.source);
+                const target = nodeById.get(link.target);
+                if (!source || !target) return null;
+                return <line key={`${link.source}-${link.target}`} className={`graph-link ${link.kind}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} />;
+              })}
+              {constellationNodes.map((node) => <GraphNode key={node.id} node={node} selected={node.id === selectedNodeId} onSelect={setSelectedNodeId} />)}
+            </g>
+          </g>
+          <g className="skills-layer">
+            <path className="skills-orbit" d="M 798 158 Q 904 325 798 492" />
+            {skillLinks.map((link) => {
+              const source = nodeById.get(link.source);
+              const target = nodeById.get(link.target);
+              if (!source || !target) return null;
+              return <line key={`${link.source}-${link.target}`} className={`graph-link ${link.kind} static-skill-link`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} />;
+            })}
+            {skillNodes.map((node) => <GraphNode key={node.id} node={node} selected={node.id === selectedNodeId} onSelect={setSelectedNodeId} />)}
+          </g>
+        </svg>
+
+        <div className="skills-arc-label"><Sparkles size={14} /><span>SKILLS</span><small>{graph.activeSkillCount ? `${graph.activeSkillCount} em uso` : `${graph.readySkillCount} prontas · ${graph.skillCount - graph.readySkillCount} protegidas`}</small></div>
+        <div className="knowledge-legend"><span><i className="context" /> contexto</span><span><i className="source" /> conhecimento</span><span><i className="skill" /> skill</span><span><i className="core" /> orquestrador</span></div>
       </section>
+
+      <footer className="graph-footer">
+        <div><RotateCcw size={14} /><span>Constelação em rotação contínua · núcleo ancorado</span></div>
+        <div><Box size={14} /><span>{graph.contextCount} contexto{graph.contextCount === 1 ? '' : 's'} · {graph.activeSkillCount} em uso · {graph.sourceCount} fonte{graph.sourceCount === 1 ? '' : 's'}</span></div>
+      </footer>
     </div>
   );
 }
 
-function RailHeading({ icon, title, status, live }: { icon: ReactNode; title: string; status?: string; live?: boolean }) {
-  return <div className="rail-heading"><div>{icon}<strong>{title}</strong></div>{status && <span className={live ? 'live' : ''}><i />{status}</span>}</div>;
-}
-
-function Health({ label, value }: { label: string; value: string }) {
-  return <div><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function ActivityBars({ count }: { count: number }) {
-  const values = [18, 31, 24, 45, 33, 58, 39, 67, 44, 52, 76, 61, 84, 58, 47, 70];
-  return <div className="activity-bars" aria-label={`${count} sinais na sessão`}>{values.map((value, index) => <i key={index} style={{ height: `${count ? Math.min(100, value + count * 2) : 10}%` }} />)}</div>;
-}
-
-function OrbitNode({ node }: { node: NodeState }) {
-  const Icon = nodeIcons[node.id];
-  return <div className={`orbit-node ${node.active ? 'observed' : ''} ${node.current ? 'current' : ''}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}><span className="node-icon"><Icon size={18} /></span><div><strong>{node.label}</strong><small>{node.detail}</small></div>{node.count && <b>{node.count}</b>}</div>;
-}
-
-function DecisionStep({ label, detail, state }: { label: string; detail: string; state: 'done' | 'current' | 'idle' }) {
-  return <div className={`decision-step ${state}`}><i>{state === 'done' ? <Check size={10} /> : null}</i><div><strong>{label}</strong><small>{detail}</small></div></div>;
-}
-
-function TimelineEvent({ entry }: { entry: LogEntry }) {
-  const error = entry.level === 'error';
-  return <div className={`timeline-event ${error ? 'error' : ''}`}><i /><time>{clock(entry.timestamp)}</time><strong>{entry.category === 'tool' ? 'Ferramenta' : entry.category === 'model' ? 'Modelo' : entry.category === 'chat' ? 'Conversa' : 'Servidor'}</strong><span>{entry.message}</span></div>;
+function GraphNode({ node, selected, onSelect }: { node: GraphNode; selected: boolean; onSelect: (id: string) => void }) {
+  const radius = node.kind === 'core' ? 23 : node.size;
+  const labelOffset = node.kind === 'skill' ? 6 : 9;
+  return (
+    <g className={`graph-node ${node.kind} ${node.state ?? ''} ${selected ? 'selected' : ''}`} onClick={(event) => { event.stopPropagation(); onSelect(node.id); }} role="button" tabIndex={0} aria-label={`${node.label}: ${node.detail}`}>
+      {node.kind === 'core' && <circle className="core-halo" cx={node.x} cy={node.y} r="72" fill="url(#coreGlow)" />}
+      <circle className="node-ring" cx={node.x} cy={node.y} r={radius + (node.kind === 'skill' ? 2 : 2)} />
+      <circle className="node-star" cx={node.x} cy={node.y} r={radius} filter={node.kind === 'core' || node.kind === 'skill' ? 'url(#nodeGlow)' : undefined} />
+      <text className="node-label" x={node.x + radius + labelOffset} y={node.y - 2}>{node.label}</text>
+      <text className="node-detail" x={node.x + radius + labelOffset} y={node.y + 8}>{node.detail}</text>
+    </g>
+  );
 }

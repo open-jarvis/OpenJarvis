@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Square, Paperclip, Search } from 'lucide-react';
+import { Send, Square, Paperclip, Radio, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat, streamResearch } from '../../lib/sse';
@@ -12,6 +12,7 @@ import {
 } from '../../lib/chat-telemetry';
 import { MicButton } from './MicButton';
 import { useSpeech } from '../../hooks/useSpeech';
+import { useTtsStore } from '../../lib/tts';
 import type {
   ChatMessage,
   MessageTelemetry,
@@ -79,11 +80,20 @@ function useResearchCorpusSync(enabled: boolean): {
   return state;
 }
 
+function isUsableVoiceTranscript(value: string): boolean {
+  // Whisper occasionally returns punctuation-only fragments for background
+  // noise. Never turn those artifacts into an autonomous chat request.
+  return value.replace(/[^\p{L}\p{N}]/gu, '').length >= 2;
+}
+
 export function InputArea() {
   const [input, setInput] = useState('');
+  const [voiceSessionEnabled, setVoiceSessionEnabled] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const voiceSessionStartingRef = useRef(false);
+  const lastTtsEndRef = useRef(0);
 
   const activeId = useAppStore((s) => s.activeId);
   const selectedModel = useAppStore((s) => s.selectedModel);
@@ -101,6 +111,7 @@ export function InputArea() {
   const deepResearch = useAppStore((s) => s.deepResearch);
   const setDeepResearch = useAppStore((s) => s.setDeepResearch);
   const corpusSync = useResearchCorpusSync(deepResearch);
+  const ttsState = useTtsStore((s) => s.state);
   const isCurrentChatStreaming = streamState.isStreaming && streamState.conversationId === activeId;
 
   const {
@@ -109,6 +120,7 @@ export function InputArea() {
     available: speechAvailable,
     startRecording,
     stopRecording,
+    cancelRecording,
   } = useSpeech();
 
   // Abort in-flight stream when the user switches models mid-generation.
@@ -127,7 +139,7 @@ export function InputArea() {
     prevModelRef.current = selectedModel;
   }, [selectedModel, streamState.isStreaming, resetStream]);
 
-  const micDisabled = !speechEnabled || !speechAvailable || streamState.isStreaming;
+  const micDisabled = !speechEnabled || !speechAvailable || streamState.isStreaming || voiceSessionEnabled;
   const micReason: 'not-enabled' | 'no-backend' | 'streaming' | undefined =
     !speechEnabled ? 'not-enabled'
     : !speechAvailable ? 'no-backend'
@@ -139,6 +151,17 @@ export function InputArea() {
       toast.error(speechError, { duration: 8000 });
     }
   }, [speechError]);
+
+  // The local TTS output is not a user command. If speakers rather than
+  // headphones are in use, stopping capture here prevents Jarvis from
+  // transcribing its own reply into another request.
+  useEffect(() => {
+    if (ttsState !== 'idle') {
+      if (speechState === 'recording') cancelRecording();
+      return;
+    }
+    lastTtsEndRef.current = Date.now();
+  }, [ttsState, speechState, cancelRecording]);
 
   const handleMicClick = useCallback(async () => {
     if (speechState === 'recording') {
@@ -171,15 +194,16 @@ export function InputArea() {
     resetStream();
   }, [resetStream]);
 
-  const sendMessage = useCallback(async () => {
-    const content = input.trim();
+  const sendMessage = useCallback(async (voiceContent?: string) => {
+    const content = (voiceContent ?? input).trim();
     if (!content || streamState.isStreaming) return;
     if (!selectedModel) {
       toast.error('Pick a model first (⌘K)');
       return;
     }
 
-    setInput('');
+    // A continuous voice turn must not erase a draft the user is composing.
+    if (voiceContent === undefined) setInput('');
 
     let convId = activeId;
     if (!convId) {
@@ -554,6 +578,82 @@ export function InputArea() {
     maxTokens,
   ]);
 
+  const startVoiceSessionTurn = useCallback(async () => {
+    if (
+      !voiceSessionEnabled ||
+      voiceSessionStartingRef.current ||
+      speechState !== 'idle' ||
+      !speechEnabled ||
+      !speechAvailable ||
+      !selectedModel ||
+      modelLoading ||
+      streamState.isStreaming ||
+      ttsState !== 'idle'
+    ) return;
+
+    voiceSessionStartingRef.current = true;
+    try {
+      await startRecording({
+        autoStopOnSilence: true,
+        onTranscript: (text) => {
+          const message = text.trim();
+          // Close the small race where playback starts after a phrase has
+          // already reached the transcription API.
+          if (
+            message &&
+            isUsableVoiceTranscript(message) &&
+            useTtsStore.getState().state === 'idle'
+          ) {
+            void sendMessage(message);
+          }
+        },
+      });
+    } finally {
+      voiceSessionStartingRef.current = false;
+    }
+  }, [
+    voiceSessionEnabled,
+    speechState,
+    speechEnabled,
+    speechAvailable,
+    selectedModel,
+    modelLoading,
+    streamState.isStreaming,
+    ttsState,
+    startRecording,
+    sendMessage,
+  ]);
+
+  // A voice session only captures while Jarvis is idle. The browser does the
+  // voice/silence measurement locally; the server receives audio only after a
+  // phrase ends, and the loop resumes after the assistant response completes.
+  useEffect(() => {
+    if (!voiceSessionEnabled) return;
+    // Give the browser's audio output a moment to drain after `ended` before
+    // opening the microphone again. This matters when speakers are used.
+    const elapsedSinceTts = Date.now() - lastTtsEndRef.current;
+    const restart = window.setTimeout(
+      () => void startVoiceSessionTurn(),
+      Math.max(700 - elapsedSinceTts, 0),
+    );
+    return () => window.clearTimeout(restart);
+  }, [voiceSessionEnabled, speechState, streamState.isStreaming, ttsState, startVoiceSessionTurn]);
+
+  useEffect(() => () => cancelRecording(), [cancelRecording]);
+
+  const toggleVoiceSession = useCallback(() => {
+    if (voiceSessionEnabled) {
+      setVoiceSessionEnabled(false);
+      cancelRecording();
+      return;
+    }
+    if (!speechEnabled || !speechAvailable || !selectedModel) {
+      toast.error('Enable speech and select a local model first.');
+      return;
+    }
+    setVoiceSessionEnabled(true);
+  }, [voiceSessionEnabled, cancelRecording, speechEnabled, speechAvailable, selectedModel]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -580,6 +680,22 @@ export function InputArea() {
           >
             <Search size={12} />
             Deep Research
+          </button>
+          <button
+            type="button"
+            onClick={toggleVoiceSession}
+            disabled={!voiceSessionEnabled && (!speechEnabled || !speechAvailable || !selectedModel)}
+            aria-pressed={voiceSessionEnabled}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs transition-colors cursor-pointer disabled:cursor-default disabled:opacity-50"
+            style={{
+              background: voiceSessionEnabled ? 'var(--color-accent-subtle)' : 'transparent',
+              border: `1px solid ${voiceSessionEnabled ? 'var(--color-accent)' : 'var(--color-border)'}`,
+              color: voiceSessionEnabled ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
+            }}
+            title={voiceSessionEnabled ? 'Voice session: listening locally' : 'Start local voice session'}
+          >
+            <Radio size={12} className={voiceSessionEnabled && speechState === 'recording' ? 'animate-pulse' : ''} />
+            {voiceSessionEnabled ? 'Listening' : 'Voice session'}
           </button>
         </div>
         {deepResearch && corpusSync.syncing && corpusSync.itemsSynced > 0 && (
@@ -632,7 +748,7 @@ export function InputArea() {
               reason={micReason}
             />
             <button
-              onClick={sendMessage}
+              onClick={() => void sendMessage()}
               disabled={streamState.isStreaming || !input.trim() || modelLoading || !selectedModel}
               title={selectedModel ? 'Send message' : 'Pick a model first (⌘K)'}
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
@@ -648,8 +764,9 @@ export function InputArea() {
       </div>
       <div className="flex items-center justify-center mt-2 text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
         <span>
-          <kbd className="font-mono">Enter</kbd> to send &middot;{' '}
-          <kbd className="font-mono">Shift+Enter</kbd> for new line
+          {voiceSessionEnabled
+            ? 'Listening locally — click Voice session to stop'
+            : <><kbd className="font-mono">Enter</kbd> to send &middot; <kbd className="font-mono">Shift+Enter</kbd> for new line</>}
         </span>
       </div>
     </div>

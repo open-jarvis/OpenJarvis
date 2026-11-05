@@ -8,6 +8,7 @@ import stat
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -89,6 +90,28 @@ def test_connect_obsidian(app, tmp_path):
     data = resp.json()
     assert data["connector_id"] == "obsidian"
     assert data["connected"] is True
+
+
+def test_connect_obsidian_enforces_authorized_directory(app, tmp_path):
+    """Filesystem connectors cannot bypass security.allowed_dirs."""
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    app.app.state.config = SimpleNamespace(
+        security=SimpleNamespace(enabled=True, allowed_dirs=[str(allowed)])
+    )
+
+    blocked = app.post(
+        "/v1/connectors/obsidian/connect", json={"path": str(outside)}
+    )
+    assert blocked.status_code == 403
+
+    permitted = app.post(
+        "/v1/connectors/obsidian/connect", json={"path": str(allowed)}
+    )
+    assert permitted.status_code == 200
+    assert permitted.json()["connected"] is True
 
 
 def test_disconnect(app):

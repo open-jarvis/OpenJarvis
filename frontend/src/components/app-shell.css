@@ -1,0 +1,61 @@
+.openjarvis-shell {
+  --color-bg: #050912;
+  --color-bg-secondary: #081522;
+  --color-bg-tertiary: #0d2234;
+  --color-surface: #071725;
+  --color-sidebar: rgba(4, 13, 22, .92);
+  --color-border: rgba(91, 204, 242, .16);
+  --color-border-subtle: rgba(91, 204, 242, .07);
+  --color-text: #e6f4ff;
+  --color-text-secondary: #93b1c3;
+  --color-text-tertiary: #638397;
+  --color-text-inverse: #04111d;
+  --color-accent: #12d8f8;
+  --color-accent-hover: #73e7ff;
+  --color-accent-subtle: rgba(18, 216, 248, .10);
+  --color-accent-glow: rgba(18, 216, 248, .26);
+  --color-accent-purple: #5aa9ff;
+  --color-accent-purple-hover: #8bc4ff;
+  --color-accent-purple-subtle: rgba(90, 169, 255, .12);
+  --color-accent-amber: #d8b66d;
+  --color-accent-amber-hover: #f0d48e;
+  --color-accent-amber-subtle: rgba(216, 182, 109, .12);
+  --color-success: #55e0bc;
+  --color-warning: #d8b66d;
+  --color-error: #e99d9d;
+  --color-code-bg: #06121e;
+  --color-input-bg: #071724;
+  --color-input-border: rgba(91, 204, 242, .22);
+  --color-user-bubble: rgba(16, 142, 183, .17);
+  --color-user-bubble-text: #e7f8ff;
+  --color-on-accent: #04111d;
+  --color-disabled-bg: #0a1a27;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, .28);
+  --shadow-lg: 0 22px 55px rgba(0, 0, 0, .42);
+  background: #050912;
+  color: var(--color-text);
+  isolation: isolate;
+}
+
+.oj-global-header {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  height: 58px;
+  flex: 0 0 58px;
+  padding: 0 72px 0 22px;
+  border-bottom: 1px solid var(--color-border);
+  background: linear-gradient(90deg, rgba(4, 15, 25, .95), rgba(6, 22, 36, .81) 58%, rgba(4, 15, 25, .95));
+  box-shadow: inset 0 -1px rgba(255, 255, 255, .018);
+}
+
+.oj-global-header::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; opacity: .55; background: linear-gradient(90deg, transparent 0%, rgba(18, 216, 248, .65) 32%, rgba(90, 169, 255, .38) 68%, transparent 100%); }
+.oj-brand-lockup { display: flex; align-items: center; gap: 10px; color: #f0fbff; font: 700 15px/1 var(--font-hud); letter-spacing: .15em; }.oj-brand-lockup span span { color: var(--color-accent); }
+.oj-brand-signal { position: relative; width: 25px; height: 25px; border: 2px solid var(--color-accent); border-right-color: #18587a; border-radius: 50%; box-shadow: 0 0 16px rgba(18, 216, 248, .46); }.oj-brand-signal::before { content: ''; position: absolute; inset: 4px; border: 1px solid rgba(161, 239, 255, .66); border-radius: 50%; }.oj-brand-signal::after { content: ''; position: absolute; right: -4px; top: -1px; width: 5px; height: 5px; border-radius: 50%; background: var(--color-accent); box-shadow: 0 0 7px var(--color-accent); }
+.oj-page-name { margin-left: 18px; padding-left: 18px; border-left: 1px solid rgba(118, 197, 228, .28); color: #759bab; font: 700 9px var(--font-hud); letter-spacing: .17em; text-transform: uppercase; }.oj-global-status { display: flex; align-items: center; gap: 8px; margin-left: auto; color: #aae8f6; font: 700 9px var(--font-hud); letter-spacing: .12em; }.oj-global-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 9px rgba(85,224,188,.8); }
+.oj-sidebar { position: relative; box-shadow: 14px 0 45px rgba(0, 0, 0, .15); }.oj-sidebar::after { content: ''; position: absolute; z-index: -1; top: 0; right: -1px; width: 1px; height: 100%; opacity: .8; background: linear-gradient(transparent, rgba(18,216,248,.35), transparent); }.oj-sidebar-header { display: flex; align-items: center; min-height: 48px; padding-bottom: 8px; border-bottom: 1px solid rgba(92, 194, 228, .10); }
+.oj-system-panel { position: relative; background: linear-gradient(180deg, rgba(5, 18, 30, .94), rgba(5, 13, 23, .98)) !important; box-shadow: -12px 0 35px rgba(0, 0, 0, .16); }.oj-chat-page { position: relative; background: radial-gradient(ellipse at 50% 0%, rgba(16, 179, 221, .055), transparent 42%); }.oj-chat-toolbar { border-bottom: 1px solid rgba(93, 204, 242, .08); }
+.openjarvis-shell .hud-backdrop { background-image: radial-gradient(circle at 20% 0%, rgba(18, 216, 248, .075), transparent 38%), radial-gradient(circle at 88% 110%, rgba(90, 169, 255, .075), transparent 43%); }.openjarvis-shell .hud-backdrop::before { opacity: .3; background-size: 42px 42px; }.openjarvis-shell input::placeholder { color: #638397; }
+@media (max-width: 720px) { .oj-global-header { padding-left: 58px; padding-right: 55px; }.oj-page-name { margin-left: 10px; padding-left: 10px; }.oj-global-status { display: none; } }

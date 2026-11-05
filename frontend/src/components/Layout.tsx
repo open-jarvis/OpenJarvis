@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Outlet, useNavigate } from 'react-router';
+import { Outlet, useLocation, useNavigate } from 'react-router';
 import { ApprovalBell } from './ApprovalBell';
 import { Sidebar } from './Sidebar/Sidebar';
 import { SystemPulse } from './SystemPulse';
 import { useAppStore } from '../lib/store';
 import { checkHealth } from '../lib/api';
+import './app-shell.css';
 
 export function Layout() {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
@@ -23,12 +24,28 @@ export function Layout() {
   }, []);
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const pageName: Record<string, string> = {
+    '/': 'CONVERSA',
+    '/orchestrator': 'ORQUESTRADOR',
+    '/dashboard': 'VISÃO GERAL',
+    '/data-sources': 'FONTES DE DADOS',
+    '/agents': 'AGENTES',
+    '/logs': 'REGISTROS',
+    '/settings': 'CONFIGURAÇÕES',
+    '/get-started': 'INÍCIO',
+  };
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden relative" style={{ paddingTop: '3px' }}>
+    <div className="openjarvis-shell flex flex-col h-full w-full overflow-hidden relative" style={{ paddingTop: '3px' }}>
       <div className="hud-backdrop" aria-hidden="true" />
       <SystemPulse apiReachable={apiReachable} />
       <ApprovalBell />
+      <header className="oj-global-header">
+        <div className="oj-brand-lockup"><span className="oj-brand-signal" /><span>OPEN<span>JARVIS</span></span></div>
+        <span className="oj-page-name">{pageName[location.pathname] ?? 'OPENJARVIS'}</span>
+        <span className="oj-global-status"><i /> LOCAL E PRIVADO</span>
+      </header>
 
       {/* Health check banner */}
       {apiReachable === false && (

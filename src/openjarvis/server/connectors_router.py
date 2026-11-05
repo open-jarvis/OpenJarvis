@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from functools import wraps
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 # ``Request`` must be importable at *module* scope so that FastAPI can resolve
@@ -28,6 +29,40 @@ logger = logging.getLogger(__name__)
 # Module-level cache of connector instances (keyed by connector_id).
 _instances: Dict[str, Any] = {}
 _SYNC_STOP_TIMEOUT_SECONDS = 5.0
+
+
+def _authorize_filesystem_connector_path(path: str, config: Any) -> Path:
+    """Resolve and authorize a filesystem connector root.
+
+    File tools already honor ``security.allowed_dirs``. Connectors ingesting a
+    directory are the same data boundary and must not become a bypass around
+    that allow-list. When security is configured, an empty list means that no
+    filesystem connector has been authorized yet.
+    """
+    candidate = Path(path).expanduser().resolve()
+    if not candidate.is_dir():
+        raise ValueError("The supplied directory does not exist or is not accessible.")
+
+    security = getattr(config, "security", None)
+    if security is None or not getattr(security, "enabled", False):
+        return candidate
+
+    allowed_dirs = getattr(security, "allowed_dirs", []) or []
+    if not allowed_dirs:
+        raise PermissionError(
+            "No filesystem connector directory is authorized. "
+            "Add the vault root to security.allowed_dirs first."
+        )
+
+    for allowed_dir in allowed_dirs:
+        try:
+            root = Path(allowed_dir).expanduser().resolve()
+            if candidate.is_relative_to(root):
+                return candidate
+        except (OSError, TypeError, ValueError):
+            continue
+
+    raise PermissionError("Path is outside the authorized filesystem directories.")
 
 
 def _knowledge_sources(connector_id: str, connector: Any = None) -> tuple[str, ...]:
@@ -507,7 +542,11 @@ def create_connectors_router():
 
     @router.post("/{connector_id}/connect")
     @_serialized_async
-    async def connect_connector(connector_id: str, req: ConnectRequest):
+    async def connect_connector(
+        connector_id: str,
+        req: ConnectRequest,
+        request: Request,
+    ):
         """Connect a connector using the supplied credentials."""
         _ensure_connectors_registered()
         if not ConnectorRegistry.contains(connector_id):
@@ -524,10 +563,24 @@ def create_connectors_router():
             if auth_type == "filesystem":
                 # Filesystem connectors accept a vault / directory path.
                 if req.path:
-                    instance._vault_path = req.path
-                    from pathlib import Path
+                    try:
+                        vault_path = _authorize_filesystem_connector_path(
+                            req.path,
+                            getattr(request.app.state, "config", None),
+                        )
+                    except PermissionError as exc:
+                        # Return directly: this route is lifecycle-serialized,
+                        # and a filesystem denial is an expected policy result,
+                        # not an exceptional connector failure.
+                        from fastapi.responses import JSONResponse
 
-                    instance._connected = Path(req.path).is_dir()
+                        return JSONResponse(status_code=403, content={"detail": str(exc)})
+                    except ValueError as exc:
+                        from fastapi.responses import JSONResponse
+
+                        return JSONResponse(status_code=400, content={"detail": str(exc)})
+                    instance._vault_path = str(vault_path)
+                    instance._connected = True
 
             elif auth_type == "oauth":
                 # A pasted ``client_id:client_secret`` pair is NOT a completed
@@ -624,6 +677,8 @@ def create_connectors_router():
                 if req.password and hasattr(instance, "_password"):
                     instance._password = req.password
 
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
