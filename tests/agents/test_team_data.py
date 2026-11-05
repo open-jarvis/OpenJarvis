@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import stat
+
 import pytest
 
 from openjarvis.agents.manager import AgentManager
@@ -75,7 +78,11 @@ def test_teams_never_share_memory_or_use_global(manager, app_config, global_back
     with toolkit(manager, legacy, app_config, global_backend) as tk:
         assert tk.data_scope.memory_backend is global_backend
         assert "9000" not in run(tk, "memory_search", query="budget").content
-    assert (team_data_dir(manager, a["id"]) / "memory.db").is_file()
+    team_dir = team_data_dir(manager, a["id"])
+    assert (team_dir / "memory.db").is_file()
+    if os.name == "posix":
+        for path in (team_dir.parent, team_dir):
+            assert stat.S_IMODE(path.stat().st_mode) == 0o700
 
 
 def test_memory_file_is_per_team(manager, app_config, global_backend, tmp_path):

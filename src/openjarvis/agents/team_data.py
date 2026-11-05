@@ -9,7 +9,6 @@ team gets a private ``team-data/_agents/<agent_id>/`` area until reassigned.
 from __future__ import annotations
 
 import logging
-import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Optional
@@ -34,21 +33,26 @@ def _checked_id(value: str) -> str:
     return value
 
 
+def _team_data_root(manager: Any) -> Path:
+    return Path(manager._db_path).parent / "team-data"
+
+
 def team_data_dir(manager: Any, team_id: str) -> Path:
-    return Path(manager._db_path).parent / "team-data" / _checked_id(team_id)
+    return _team_data_root(manager) / _checked_id(team_id)
 
 
-def _ensure_private_dir(path: Path) -> Path:
-    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+def _ensure_private_dir(manager: Any, *parts: str) -> Path:
+    """Create team-data/<parts...> with every level owner-only (0700)."""
+    path = _team_data_root(manager)
+    for part in ("", *parts):
+        path = path / part if part else path
+        path.mkdir(exist_ok=True, mode=0o700)
+        path.chmod(0o700)
     return path
 
 
 def ensure_team_data_dir(manager: Any, team_id: str) -> Path:
-    return _ensure_private_dir(team_data_dir(manager, team_id))
-
-
-def remove_team_data(manager: Any, team_id: str) -> None:
-    shutil.rmtree(team_data_dir(manager, team_id), ignore_errors=True)
+    return _ensure_private_dir(manager, _checked_id(team_id))
 
 
 def _create_memory_backend(app_config: Any, db_path: Path) -> Any:
@@ -69,12 +73,7 @@ def _create_memory_backend(app_config: Any, db_path: Path) -> Any:
 def _agent_data_dir(manager: Any, agent_record: Any) -> Path:
     if agent_record.get("team_id"):
         return ensure_team_data_dir(manager, agent_record["team_id"])
-    return _ensure_private_dir(
-        Path(manager._db_path).parent
-        / "team-data"
-        / "_agents"
-        / _checked_id(agent_record["id"])
-    )
+    return _ensure_private_dir(manager, "_agents", _checked_id(agent_record["id"]))
 
 
 def agent_memory_files_config(manager: Any, agent_record: Any, app_config: Any) -> Any:
@@ -135,7 +134,6 @@ __all__ = [
     "AgentDataScope",
     "agent_memory_files_config",
     "ensure_team_data_dir",
-    "remove_team_data",
     "resolve_agent_data_scope",
     "team_data_dir",
 ]
