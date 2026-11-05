@@ -196,6 +196,44 @@ def _fingerprint(configs: list[dict[str, Any]]) -> str:
     return hashlib.sha256(blob).hexdigest()
 
 
+def _friendly_test_error(exc: BaseException, cfg: dict[str, Any]) -> str:
+    """Turn a connection failure into a short message the user can act on."""
+    import httpx
+
+    seen: list[BaseException] = []
+    current: Optional[BaseException] = exc
+    while current is not None and current not in seen:
+        seen.append(current)
+        current = current.__cause__ or current.__context__
+    for err in seen:
+        if isinstance(err, httpx.HTTPStatusError):
+            code = err.response.status_code
+            if code in (401, 403):
+                return (
+                    "The server rejected the credentials (HTTP "
+                    f"{code}). Check the token and the authentication method."
+                )
+            if code == 404:
+                return "No MCP endpoint at this URL (HTTP 404). Check the URL."
+            return f"The server returned an error (HTTP {code}). Try again later."
+        if isinstance(err, httpx.TimeoutException):
+            return "The server did not respond in time. Check that it is running."
+        if isinstance(err, httpx.ConnectError):
+            return (
+                "Could not reach the server. Check the URL and that the server "
+                "is running."
+            )
+        if isinstance(err, FileNotFoundError):
+            command = cfg.get("command") or "the command"
+            return f"Could not start {command}: command not found."
+    if cfg.get("command"):
+        return (
+            "The command started but did not respond as an MCP server. "
+            "Check the command and its arguments."
+        )
+    return "Connected, but the server did not respond as an MCP server."
+
+
 def run_server_test(cfg: dict[str, Any]) -> dict[str, Any]:
     """Connect to one server and list its tools; never raises.
 
@@ -227,8 +265,11 @@ def run_server_test(cfg: dict[str, Any]) -> dict[str, Any]:
             ],
         }
     except Exception as exc:
-        message = _redact(f"{type(exc).__name__}: {exc}", secrets)
-        return {"ok": False, "error": message[:500]}
+        logger.info(
+            "MCP server test failed: %s",
+            _redact(f"{type(exc).__name__}: {exc}", secrets)[:500],
+        )
+        return {"ok": False, "error": _redact(_friendly_test_error(exc, cfg), secrets)}
     finally:
         if client is not None:
             try:

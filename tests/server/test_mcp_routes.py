@@ -192,8 +192,78 @@ def test_test_error_never_contains_token(env, fake_mcp):
     res = env.client.post("/v1/mcp/servers/test", json=payload)
     body = res.json()
     assert body["ok"] is False
-    assert "401" in body["error"]
+    assert body["error"].startswith("The server rejected the credentials (HTTP 401)")
+    assert "Error" not in body["error"]
     assert SECRET not in res.text
+
+
+def _unused_port():
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+class _NotMCPHandler(BaseHTTPRequestHandler):
+    """Answers 404 under /missing and plain non-JSON-RPC text elsewhere."""
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):  # noqa: N802
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        if self.path.startswith("/missing"):
+            self.send_response(404)
+            self.end_headers()
+            return
+        body = b"hello"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@pytest.fixture
+def not_mcp_url():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _NotMCPHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            lambda base: _http_payload(f"http://127.0.0.1:{_unused_port()}/mcp"),
+            "Could not reach the server.",
+        ),
+        (lambda base: _http_payload(f"{base}/missing/mcp"), "No MCP endpoint"),
+        (
+            lambda base: _http_payload(f"{base}/mcp"),
+            "Connected, but the server did not respond as an MCP server.",
+        ),
+        (
+            lambda base: {
+                "name": "Missing",
+                "transport": "stdio",
+                "command": "openjarvis-no-such-mcp-command",
+            },
+            "Could not start openjarvis-no-such-mcp-command: command not found.",
+        ),
+    ],
+)
+def test_test_errors_are_actionable(env, not_mcp_url, payload, expected):
+    body = env.client.post("/v1/mcp/servers/test", json=payload(not_mcp_url)).json()
+    assert body["ok"] is False
+    assert body["error"].startswith(expected)
+    assert "Error:" not in body["error"]
+    assert SECRET not in body["error"]
 
 
 def test_custom_auth_header(env, fake_mcp):
