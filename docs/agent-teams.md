@@ -44,13 +44,38 @@ Team agents never receive the global memory backend, global `MEMORY.md` or globa
 
 Existing global memory and knowledge are not migrated into teams. Deleting a team keeps its `team-data/<team_id>/` folder on disk so no client data is lost; no agent can reach it afterwards, and you can remove the folder manually. Per-agent conversation history and summary memory were already stored per agent.
 
+## Talking to a team (orchestrator)
+
+Each team can have an **orchestrator**: one of its agents, chosen under **Connections & communication** → *Team orchestrator*. Choose **كلّم الفريق** (Talk to the team) to send the team a request with a title, the request text, original product photos, an approved logo, approved contact details, whether paid Bria processing is allowed, and a run limit. The request goes to the orchestrator; you never pass results between agents yourself.
+
+- The orchestrator assigns up to four **tasks** per run with `team_assign_tasks` (lead only). Each task **runs the receiving agent automatically**.
+- When a member finishes, its reply returns to the orchestrator automatically as a **report**. Reports waiting for the orchestrator in the same request are delivered together in one run.
+- `managed_agent_message` stays an informational message: it never runs its recipient.
+- Follow-up messages from you on a request also go to the orchestrator.
+
+Every request, task, report, file and status is stored in the agents database and the team's `team-data/<team_id>/campaigns/<request_id>/` folder (`originals/`, `drafts/`, `final/`, `approved/`), so work resumes after a restart. A run interrupted by a restart is requeued within its attempt budget.
+
+Safety limits:
+
+- Policy is checked when a handoff is created and again right before it runs: membership, both teams' communication consent, and the orchestrator role. A change in between blocks the handoff with a visible Arabic reason.
+- One atomic claim per handoff; it never runs twice. A request has a run budget (default 16), at most 30 handoffs, depth 12 and four tasks per run. No self-handoffs.
+- A **paused** agent is never resumed by the team: its tasks show *الوكيل موقوف* and start only after you resume it. Over-budget, errored or stalled agents block their tasks with an Arabic reason and a **retry** button.
+- A run that returns nothing is retried once after a minute, then marked failed.
+- Content written by agents is fenced in the recipient's prompt as untrusted data with no authority to change permissions, budgets or connections. Files cannot be shared with another team.
+
+## Approved publishing (Buffer)
+
+Add two publisher-only connections to the team: **Buffer** (an API key with posting permission from the company's own Buffer account) and **Cloudflare R2** (a public bucket for approved images; Buffer has no upload endpoint and fetches images from a public URL at publish time). Choose **Verify**: only a successful provider call marks a connection *Verified*; saved settings alone are never treated as authentication. For Buffer, choose the company's channel after verifying. These connections are never exposed to agents and are never replaced by a global account.
+
+The release agent submits the exact final PNG, caption, Cairo time and quality review with `marketing_submit_review`. The request then shows the image, caption, channel and time with **Approve** / **Deny**. Approval is bound to that image's SHA-256 (an immutable copy in `approved/`), caption and time; any change needs a new approval. After approval only, the server uploads that one file to R2 under a random name and creates one `customScheduled` post in Buffer (`dueAt` in UTC, converted from Africa/Cairo), then records the Buffer post ID, time and status. Buffer has no idempotency key: an interrupted or uncertain create is looked up in Buffer by channel, time and text before any retry, so a post is never scheduled twice.
+
 ## Communication permissions
 
 Agents may message other active agents in their own team. Cross-team messaging is denied by default and requires both teams to select each other under **Connections & communication**. Clear either side's checkbox and save to revoke permission. The receiving team gets a message, not access to the sender's accounts, tools, memory or conversation history.
 
 The runtime binds `managed_agent_peers`, `managed_agent_message`, and `managed_connection_status` to the real source agent. The model cannot supply a different sender identity. Peer discovery exposes only the IDs, names and team IDs of currently reachable agents. Sending queues an attributed `agent_to_agent` message; it does not run the recipient automatically. The recipient consumes queued messages on its next managed tick, with peer content explicitly marked as untrusted rather than operator instructions. Pending messages are blocked if permission is revoked or either agent moves teams before delivery. Already consumed messages cannot be recalled.
 
-This enforces account selection and messaging policy through managed-agent tool resolution and the managed message queue. Together with team memory and knowledge, this keeps each team's accounts and stored data apart. It is **not an OS-level sandbox**: file tools, shell/code execution, HTTP tools, global non-MCP connectors and channels retain their existing permissions, and can still reach other companies' files on the same machine (including another team's `team-data/` folder). Do not grant an agent general-purpose tools capable of accessing other companies' data and then treat these team controls as a security sandbox. Tenant authorization, filesystem isolation and separate execution identities remain additional work.
+This enforces account selection, messaging and handoff policy through managed-agent tool resolution, the managed message queue and the handoff dispatcher. Together with team memory and knowledge, this keeps each team's accounts and stored data apart. It is **not an OS-level sandbox**: file tools, shell/code execution, HTTP tools, global non-MCP connectors and channels retain their existing permissions, and can still reach other companies' files on the same machine (including another team's `team-data/` folder). Do not grant an agent general-purpose tools capable of accessing other companies' data and then treat these team controls as a security sandbox. Tenant authorization, filesystem isolation and separate execution identities remain additional work.
 
 Additional endpoints:
 
@@ -58,6 +83,11 @@ Additional endpoints:
 - `GET /v1/managed-agents/teams/{team_id}/connections`: credential-free metadata.
 - `POST /v1/managed-agents/teams/{team_id}/connections` with `name`, `provider`, `url`, optional `auth_type` (`bearer` by default), and optional `token`. An empty bearer token leaves the connection awaiting authentication.
 - `DELETE /v1/managed-agents/teams/{team_id}/connections/{connection_id}`: revoke only the connection owned by that team.
+- `POST /v1/managed-agents/teams/{team_id}/connections` also accepts `kind` (`mcp`, `buffer`, `r2`) and non-secret `settings`. `POST .../connections/{id}/verify` checks the credential with the provider; `PUT .../connections/{id}/channel` selects the Buffer channel.
+- `PUT /v1/managed-agents/teams/{team_id}/lead` with `{"agent_id": ...}`: set or clear the orchestrator.
+- `GET|POST /v1/managed-agents/teams/{team_id}/campaigns` (multipart: `title`, `brief`, `contact`, `allow_bria`, `max_runs`, `photos[]`, `logo`): list or send requests to the team.
+- `GET /v1/managed-agents/campaigns/{id}`, `POST .../messages`, `POST .../cancel`, `GET .../file?path=`: request timeline, follow-ups, stop, and previews of files inside that request only.
+- `POST /v1/managed-agents/handoffs/{id}/retry`, `POST /v1/managed-agents/publications/{action_id}/retry|refresh`.
 - `GET /v1/managed-agents/teams/{team_id}/knowledge`: number of chunks in the team's knowledge store.
 - `POST /v1/managed-agents/teams/{team_id}/knowledge` with `content` and optional `title`: add text to the team's knowledge store only.
 

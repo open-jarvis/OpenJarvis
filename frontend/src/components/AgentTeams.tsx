@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { AgentTeamSettings } from './AgentTeamSettings';
+import { TeamRequests } from './TeamRequests';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, MessagesSquare } from 'lucide-react';
 import { createAgentTeam, renameAgentTeam, deleteAgentTeam, updateManagedAgent } from '../lib/api';
 import type { AgentTeam, ManagedAgent } from '../lib/api';
 
@@ -52,6 +53,7 @@ export function AgentTeamToolbar({ teams, agents, filter, onFilter, onUpdated, u
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showRequests, setShowRequests] = useState(false);
   const selected = teams.find((team) => team.id === filter);
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -79,7 +81,7 @@ export function AgentTeamToolbar({ teams, agents, filter, onFilter, onUpdated, u
     <div className="flex flex-wrap items-end gap-2">
       <div className="flex-1 min-w-48 max-w-sm">
         <label htmlFor="team-filter" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Team</label>
-        <select id="team-filter" value={filter} onChange={(e) => { onFilter(e.target.value); setEditing(null); setShowSettings(false); }} disabled={unavailable || busy} className={`${control} w-full`} style={style}>
+        <select id="team-filter" value={filter} onChange={(e) => { onFilter(e.target.value); setEditing(null); setShowSettings(false); setShowRequests(false); }} disabled={unavailable || busy} className={`${control} w-full`} style={style}>
           <option value="all">All teams · {agents.length} agents</option>
           <option value="unassigned">Unassigned agents ({agents.filter((agent) => !agent.team_id).length})</option>
           {teams.map((team) => <option key={team.id} value={team.id}>{team.name} ({agents.filter((agent) => agent.team_id === team.id).length})</option>)}
@@ -87,7 +89,8 @@ export function AgentTeamToolbar({ teams, agents, filter, onFilter, onUpdated, u
       </div>
       <button type="button" disabled={unavailable || busy} onClick={() => { setEditing(''); setName(''); }} className={`${control} inline-flex items-center gap-2`} style={style}><Plus size={15} />New team</button>
       {selected && <>
-        <button type="button" disabled={busy} onClick={() => setShowSettings((value) => !value)} aria-expanded={showSettings} className={control} style={style}>Connections & communication</button>
+        <button type="button" disabled={busy} onClick={() => { setShowRequests((value) => !value); setShowSettings(false); }} aria-expanded={showRequests} className={`${control} inline-flex items-center gap-2`} style={style}><MessagesSquare size={15} />كلّم الفريق</button>
+        <button type="button" disabled={busy} onClick={() => { setShowSettings((value) => !value); setShowRequests(false); }} aria-expanded={showSettings} className={control} style={style}>Connections & communication</button>
         <button type="button" disabled={busy} onClick={() => { setEditing(selected.id); setName(selected.name); }} className={`${control} inline-flex items-center gap-2`} style={style}><Pencil size={15} />Rename</button>
         <button type="button" disabled={busy} onClick={remove} className={`${control} inline-flex items-center gap-2`} style={style}><Trash2 size={15} />Delete team</button>
       </>}
@@ -100,7 +103,8 @@ export function AgentTeamToolbar({ teams, agents, filter, onFilter, onUpdated, u
       <button type="submit" disabled={busy || !name.trim()} className={control} style={style}>{busy ? 'Saving…' : 'Save team'}</button>
       <button type="button" disabled={busy} onClick={() => setEditing(null)} className={control} style={style}>Cancel</button>
     </form>}
-    {selected && showSettings && <AgentTeamSettings key={selected.id} team={selected} teams={teams} onUpdated={onUpdated} />}
+    {selected && showSettings && <AgentTeamSettings key={selected.id} team={selected} teams={teams} agents={agents} onUpdated={onUpdated} />}
+    {selected && showRequests && <TeamRequests key={selected.id} team={selected} agents={agents} />}
     {unavailable && <p role="status" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Teams could not be loaded. <button type="button" onClick={onUpdated} className="underline">Try again</button></p>}
   </section>;
 }

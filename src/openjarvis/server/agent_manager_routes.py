@@ -94,9 +94,12 @@ class TeamPolicyRequest(BaseModel):
 class TeamConnectionRequest(BaseModel):
     name: str
     provider: str
-    url: str
+    url: str = ""
     auth_type: str = "bearer"
     token: SecretStr = SecretStr("")
+    # "mcp" (agent tools), or publisher-only "buffer" / "r2".
+    kind: str = "mcp"
+    settings: Dict[str, Any] = {}
 
 
 class TeamRequest(BaseModel):
@@ -973,7 +976,9 @@ async def _stream_managed_agent(
     from openjarvis.agents.team_data import agent_memory_files_config
 
     # Team agents read their team's MEMORY.md, never the global one.
-    live_record = manager.get_agent(agent_record["id"]) or agent_record
+    live_record = manager.get_agent(agent_record["id"])
+    if not isinstance(live_record, dict):
+        live_record = agent_record
     final_system_prompt = _build_managed_system_prompt(
         system_prompt or "",
         app_config,
@@ -1765,6 +1770,8 @@ def create_agent_manager_router(
                 url=req.url,
                 auth_type=req.auth_type,
                 token=req.token.get_secret_value(),
+                kind=req.kind,
+                settings=req.settings,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Team not found") from exc
@@ -1822,6 +1829,10 @@ def create_agent_manager_router(
         finally:
             store.close()
         return {"chunks_added": len(chunks), "doc_id": doc_id}
+
+    from openjarvis.server.team_campaign_routes import register_campaign_routes
+
+    register_campaign_routes(agents_router, manager)
 
     @agents_router.delete("/teams/{team_id}/connections/{connection_id}")
     async def delete_team_connection(team_id: str, connection_id: str):

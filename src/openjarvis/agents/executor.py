@@ -709,6 +709,23 @@ class AgentExecutor:
                 agent["name"],
             )
 
+        # Team handoffs this run was started for (requests, tasks, reports).
+        try:
+            from openjarvis.agents.campaigns import format_batch_for_prompt
+
+            campaigns = getattr(type(self._manager), "campaigns", None)
+            batch = (
+                self._manager.campaigns.running_batch_for(agent["id"])
+                if campaigns is not None
+                else []
+            )
+            if batch:
+                input_text = (
+                    f"{input_text}\n\n{format_batch_for_prompt(self._manager, batch)}"
+                )
+        except Exception:
+            logger.warning("Could not load team handoffs", exc_info=True)
+
         # Build AgentContext with memory results from FTS5 backend
         from openjarvis.agents._stubs import AgentContext
 

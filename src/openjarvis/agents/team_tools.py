@@ -178,6 +178,134 @@ class ManagedConnectionStatusTool(ManagedPeersTool):
         )
 
 
+class TeamAssignTasksTool(ManagedPeersTool):
+    """Lead-only: assign tasks that run the receiving members automatically."""
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name="team_assign_tasks",
+            description=(
+                "أنت منسّق الفريق: أسند مهام لأعضاء فريقك (حتى 4 في كل تشغيل). "
+                "كل مهمة تشغّل الوكيل المستلِم تلقائيًا، ونتيجته ترجع إليك كتقرير. "
+                "اكتب التعليمات كاملة بالعربية، وأرفق مسارات ملفات الطلب النسبية. "
+                "استخدم managed_agent_peers لمعرفة المعرّفات."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "tasks": {
+                        "type": "array",
+                        "maxItems": 4,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "target_agent_id": {"type": "string"},
+                                "title": {"type": "string"},
+                                "instructions": {"type": "string"},
+                                "files": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["target_agent_id", "title", "instructions"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["tasks"],
+                "additionalProperties": False,
+            },
+            category="agents",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        from openjarvis.agents.campaigns import HandoffRejected
+
+        try:
+            if set(params) != {"tasks"}:
+                raise HandoffRejected("أرسل قائمة tasks فقط.")
+            created = self.manager.campaigns.assign_tasks(
+                self.source_id, params["tasks"]
+            )
+            return ToolResult(
+                tool_name=self.spec.name,
+                success=True,
+                content=json.dumps(
+                    [
+                        {
+                            "task_id": item["id"],
+                            "target_agent_id": item["target_agent_id"],
+                            "status": "pending",
+                        }
+                        for item in created
+                    ],
+                    ensure_ascii=False,
+                ),
+            )
+        except HandoffRejected as exc:
+            return ToolResult(tool_name=self.spec.name, success=False, content=str(exc))
+
+
+class CampaignFilesTool(ManagedPeersTool):
+    """List files of the team request this agent is working on now."""
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name="campaign_files",
+            description=(
+                "اعرض ملفات الطلب الحالي (الأصول والمسودات والصور النهائية) "
+                "بمساراتها النسبية، أو مرّر path لقراءة ملف نصي صغير منها "
+                "(.json أو .html أو .md أو .txt)، مثل بيانات تصدير "
+                "final/creative-....png.json. متاح أثناء تنفيذ مهمة للفريق فقط."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+            },
+            category="agents",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        store = self.manager.campaigns
+        batch = store.running_batch_for(self.source_id)
+        if not batch:
+            return ToolResult(
+                tool_name=self.spec.name,
+                success=False,
+                content="لا يوجد طلب فريق قيد التنفيذ لهذا الوكيل.",
+            )
+        campaign = store.get_campaign(batch[0]["campaign_id"])
+        path = params.get("path")
+        if path:
+            from openjarvis.agents.campaigns import HandoffRejected
+
+            try:
+                file = store.resolve_campaign_file(campaign, str(path))
+            except HandoffRejected as exc:
+                return ToolResult(
+                    tool_name=self.spec.name, success=False, content=str(exc)
+                )
+            if file.suffix.lower() not in {".json", ".html", ".md", ".txt"}:
+                return ToolResult(
+                    tool_name=self.spec.name,
+                    success=False,
+                    content="يمكن قراءة ملفات .json و.html و.md و.txt فقط.",
+                )
+            text = file.read_text(encoding="utf-8", errors="replace")
+            if file.suffix.lower() == ".html":
+                # Drop embedded images: the layout text is what reviewers need.
+                import re
+
+                text = re.sub(r"data:image/[^\"']+", "data:image/…", text)
+            return ToolResult(
+                tool_name=self.spec.name, success=True, content=text[:20000]
+            )
+        return ToolResult(
+            tool_name=self.spec.name,
+            success=True,
+            content=json.dumps(store.list_files(campaign), ensure_ascii=False),
+        )
+
+
 def discover_team_connections(
     manager: Any, agent_id: str
 ) -> tuple[list[Any], list[Any]]:
@@ -191,7 +319,9 @@ def discover_team_connections(
         return [], []
     tools, clients = [], []
     for connection in manager.list_team_connections(agent["team_id"]):
-        if connection["status"] != "configured":
+        if connection.get("kind", "mcp") != "mcp":
+            continue  # Publisher-only credentials are never agent tools.
+        if connection["status"] not in {"configured", "verified"}:
             continue
         client = None
         try:

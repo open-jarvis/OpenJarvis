@@ -184,6 +184,16 @@ class AgentManager:
         self._conn.execute(
             "UPDATE managed_agents SET team_scoped = 1 WHERE team_id IS NOT NULL"
         )
+        for statement in (
+            "ALTER TABLE team_mcp_connections ADD COLUMN kind "
+            "TEXT NOT NULL DEFAULT 'mcp'",
+            "ALTER TABLE team_mcp_connections ADD COLUMN settings_json "
+            "TEXT NOT NULL DEFAULT '{}'",
+        ):
+            try:
+                self._conn.execute(statement)
+            except sqlite3.OperationalError:
+                pass  # Existing database already has this column.
         for column in ("communication_json",):
             try:
                 self._conn.execute(
@@ -203,6 +213,16 @@ class AgentManager:
         # worker are recovered lazily by start_tick()'s stale-lock overtake.
         if clear_stale_running:
             self._clear_stale_running_state()
+
+    @property
+    def campaigns(self):
+        """Team requests and task handoffs (created on first use)."""
+        store = getattr(self, "_campaigns", None)
+        if store is None:
+            from openjarvis.agents.campaigns import CampaignStore
+
+            store = self._campaigns = CampaignStore(self)
+        return store
 
     @_db_locked
     def _clear_stale_running_state(self) -> None:
@@ -799,6 +819,9 @@ class AgentManager:
             "name": row["name"],
             "created_at": row["created_at"],
             "communicate_with": json.loads(row["communication_json"]),
+            "lead_agent_id": (
+                row["lead_agent_id"] if "lead_agent_id" in row.keys() else None
+            ),
         }
 
     @_db_locked
@@ -911,15 +934,69 @@ class AgentManager:
         result = []
         for row in rows:
             connection = dict(row)
+            connection["settings"] = json.loads(connection.pop("settings_json") or "{}")
             configured = (
                 row["auth_type"] == "none"
                 or self._connection_secret_path(row["id"]).is_file()
             )
-            connection["status"] = (
-                "configured" if configured else "needs_authentication"
-            )
+            # Saved settings are "configured"; only a successful live check by
+            # the provider client (verify) records "verified".
+            if not configured:
+                status = "needs_authentication"
+            elif connection["settings"].get("last_error"):
+                status = "error"
+            elif connection["settings"].get("verified_at"):
+                status = "verified"
+            else:
+                status = "configured"
+            connection["status"] = status
             result.append(connection)
         return result
+
+    @_db_locked
+    def get_team_connection(
+        self, team_id: str, connection_id: str
+    ) -> Optional[Dict[str, Any]]:
+        return next(
+            (
+                c
+                for c in self.list_team_connections(team_id)
+                if c["id"] == connection_id
+            ),
+            None,
+        )
+
+    @_db_locked
+    def team_connection_of_kind(
+        self, team_id: str, kind: str
+    ) -> Optional[Dict[str, Any]]:
+        """The team's own connection of a provider kind (never a global one)."""
+        return next(
+            (c for c in self.list_team_connections(team_id) if c["kind"] == kind),
+            None,
+        )
+
+    @_db_locked
+    def update_team_connection_settings(
+        self, team_id: str, connection_id: str, **changes: Any
+    ) -> Dict[str, Any]:
+        """Merge non-secret settings (verification state, chosen channel...)."""
+        connection = self.get_team_connection(team_id, connection_id)
+        if connection is None:
+            raise KeyError("Connection not found")
+        settings = dict(connection["settings"])
+        for key, value in changes.items():
+            if value is None:
+                settings.pop(key, None)
+            else:
+                settings[key] = value
+        self._conn.execute(
+            "UPDATE team_mcp_connections SET settings_json = ? "
+            "WHERE id = ? AND team_id = ?",
+            (json.dumps(settings, ensure_ascii=False), connection_id, team_id),
+        )
+        self._conn.commit()
+        return self.get_team_connection(team_id, connection_id)  # type: ignore[return-value]
 
     @_db_locked
     def create_team_connection(
@@ -931,11 +1008,16 @@ class AgentManager:
         url: str,
         auth_type: str = "bearer",
         token: str = "",
+        kind: str = "mcp",
+        settings: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Save a team-owned HTTP connection and private per-connection credential.
 
         The token is stored in a mode-0600 file, never in process environment,
         returned metadata, agent configuration or the global MCP credential.
+        ``kind`` "mcp" connections are discovered as agent tools. "buffer" and
+        "r2" connections are used only by the server-side publisher after human
+        approval; agents never receive tools for them.
         """
         from urllib.parse import urlsplit
 
@@ -944,6 +1026,16 @@ class AgentManager:
         if not self.get_team(team_id):
             raise KeyError("Team not found")
         name, provider = self._team_name(name), self._team_name(provider)
+        if kind not in {"mcp", "buffer", "r2"}:
+            raise ValueError("Choose an MCP, Buffer or Cloudflare R2 connection")
+        if kind != "mcp":
+            from openjarvis.marketing.connections import normalize_provider_settings
+
+            url, settings = normalize_provider_settings(kind, url, settings or {})
+            auth_type = "bearer"
+            if not token.strip():
+                raise ValueError("This connection needs its credential")
+        settings = settings or {}
         parsed = urlsplit(url)
         if not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("Use an MCP endpoint without credentials in its URL")
@@ -967,8 +1059,8 @@ class AgentManager:
             with self._conn:
                 self._conn.execute(
                     "INSERT INTO team_mcp_connections "
-                    "(id,team_id,name,provider,url,auth_type,created_at) "
-                    "VALUES (?,?,?,?,?,?,?)",
+                    "(id,team_id,name,provider,url,auth_type,created_at,kind,"
+                    "settings_json) VALUES (?,?,?,?,?,?,?,?,?)",
                     (
                         connection_id,
                         team_id,
@@ -977,6 +1069,8 @@ class AgentManager:
                         url,
                         auth_type,
                         time.time(),
+                        kind,
+                        json.dumps(settings, ensure_ascii=False),
                     ),
                 )
         except Exception:
@@ -1008,7 +1102,8 @@ class AgentManager:
             return False
         return bool(
             self._conn.execute(
-                "SELECT 1 FROM team_mcp_connections WHERE id = ? AND team_id = ?",
+                "SELECT 1 FROM team_mcp_connections WHERE id = ? AND team_id = ? "
+                "AND kind = 'mcp'",
                 (connection_id, agent["team_id"]),
             ).fetchone()
         )

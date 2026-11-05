@@ -371,6 +371,10 @@ def resolve_agent_tools(
     team_knowledge: dict[str, Any] = {}
 
     def instantiate(name: str) -> Any:
+        tool_cls = ToolRegistry.get(name)
+        if getattr(tool_cls, "needs_agent_context", False):
+            # Bound to the real agent: campaign files come from its running task.
+            return tool_cls(manager=manager, agent_id=agent_record.get("id"))
         if name == "memory_manage" and data_scope.team_scoped:
             return ToolRegistry.get(name)(
                 memory_path=data_scope.memory_files_config.memory_path
@@ -429,14 +433,22 @@ def resolve_agent_tools(
             owned_resources.extend(resolved_clients)
         if manager is not None:
             from openjarvis.agents.team_tools import (
+                CampaignFilesTool,
                 ManagedConnectionStatusTool,
                 ManagedPeersTool,
                 ManagedSendTool,
+                TeamAssignTasksTool,
             )
 
             add_instance(ManagedPeersTool(manager, agent_record["id"]))
             add_instance(ManagedSendTool(manager, agent_record["id"]))
             add_instance(ManagedConnectionStatusTool(manager, agent_record["id"]))
+            add_instance(CampaignFilesTool(manager, agent_record["id"]))
+            campaigns = getattr(type(manager), "campaigns", None)
+            if campaigns is not None and manager.campaigns.is_current_lead(
+                agent_record["id"]
+            ):
+                add_instance(TeamAssignTasksTool(manager, agent_record["id"]))
     elif manager is not None:
         from openjarvis.agents.team_tools import GlobalMCPTool
 
