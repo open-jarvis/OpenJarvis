@@ -92,6 +92,30 @@ To pull a new model:
 ollama pull qwen3.5:35b
 ```
 
+## Hands-free voice chat
+
+With speech dependencies installed, `jarvis chat --voice` accepts typed messages
+or records one utterance after you press Enter. Add `--wake-word computer` to
+listen continuously and respond to utterances beginning with “computer”, “hey
+computer”, or “okay computer”. Saying just the wake word plays a short chime and
+records your next utterance as the command. Press Ctrl+C to stop listening.
+
+You can also set defaults in `~/.openjarvis/config.toml`:
+
+```toml
+[speech]
+language = "pt"            # Empty means automatic language detection
+wake_word = "computador"  # Used by jarvis chat --voice; empty means press Enter
+wake_chime = true
+wake_chime_sound = ""      # Optional path to a WAV file; empty uses a built-in chirp
+```
+
+Wake-word matching happens after transcription. Every non-silent utterance is
+sent to the selected speech backend, including speech without the wake word.
+Use a local speech backend to keep this audio on-device; remote speech backends
+receive it before the wake word is checked. Both wake-word listening and the
+follow-up command honor `speech.language`.
+
 ## Using the Browser App
 
 Start the backend server and the React frontend with one command:
