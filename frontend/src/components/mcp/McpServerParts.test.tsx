@@ -27,6 +27,11 @@ const httpServer: McpServer = {
   args: [],
   env_names: [],
   env_set: [],
+  oauth_client_id: null,
+  has_client_secret: false,
+  oauth_scopes: [],
+  oauth_auth_params: {},
+  oauth_status: null,
   include_tools: ['search'],
   exclude_tools: [],
   enabled: true,
@@ -233,11 +238,100 @@ describe('MCP catalog', () => {
     expect(searchCatalog(MCP_CATALOG, '', 'search').every((e) => e.category === 'search')).toBe(true);
   });
 
-  it('does not offer to add OAuth-only servers', () => {
-    const gmail = MCP_CATALOG.find((e) => e.id === 'gmail')!;
-    const html = renderToStaticMarkup(<McpCatalogCard entry={gmail} onPick={vi.fn()} />);
+  it('does not offer to add servers marked OAuth-unsupported', () => {
+    const entry = { ...MCP_CATALOG[0], requires_oauth: true };
+    const html = renderToStaticMarkup(<McpCatalogCard entry={entry} onPick={vi.fn()} />);
     expect(html).toContain('Needs OAuth');
-    expect(html).not.toContain('Add Gmail');
+    expect(html).not.toContain(`Add ${entry.name}`);
+  });
+
+  it('pre-fills Gmail for OAuth with its documented scopes and setup steps', () => {
+    const gmail = MCP_CATALOG.find((e) => e.id === 'gmail')!;
+    const form = formFromCatalog(gmail);
+    expect(form.auth_type).toBe('oauth');
+    expect(form.oauth_scopes.split(' ')).toEqual([
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.compose',
+    ]);
+    expect(form.oauth_auth_params).toEqual({ access_type: 'offline', prompt: 'consent' });
+    expect(gmail.oauth_setup?.join(' ')).toContain('Web application');
+    const html = renderToStaticMarkup(<McpCatalogCard entry={gmail} onPick={vi.fn()} />);
+    expect(html).toContain('Add Gmail');
     expect(html).toContain('Official');
+  });
+});
+
+describe('OAuth servers', () => {
+  const oauthServer: McpServer = {
+    ...httpServer,
+    auth_type: 'oauth',
+    auth_header: null,
+    has_token: false,
+    oauth_client_id: 'cid',
+    has_client_secret: true,
+    oauth_scopes: ['a', 'b'],
+    oauth_auth_params: { prompt: 'consent' },
+    oauth_status: 'signed_out',
+  };
+
+  it('sends client fields, keeps the secret unless typed, and no token', () => {
+    const input = formToInput(formFromServer(oauthServer), { editing: true });
+    expect(input).toMatchObject({
+      auth_type: 'oauth',
+      oauth_client_id: 'cid',
+      oauth_scopes: ['a', 'b'],
+      oauth_auth_params: { prompt: 'consent' },
+    });
+    expect(input).not.toHaveProperty('oauth_client_secret');
+    expect(input).not.toHaveProperty('token');
+    const typed = { ...formFromServer(oauthServer), oauth_client_secret: 's3' };
+    expect(formToInput(typed, { editing: true }).oauth_client_secret).toBe('s3');
+  });
+
+  it('shows the redirect URI and setup steps but never the secret', () => {
+    const html = renderToStaticMarkup(
+      <McpServerForm
+        initial={formFromServer(oauthServer)}
+        editing
+        savedToken={false}
+        savedClientSecret
+        oauthSetup={['Create a Web application client.']}
+        redirectUri="http://127.0.0.1:18765/v1/mcp/oauth/callback"
+        onCancel={vi.fn()}
+        onSave={vi.fn()}
+        onTest={vi.fn()}
+      />,
+    );
+    expect(html).toContain('http://127.0.0.1:18765/v1/mcp/oauth/callback');
+    expect(html).toContain('Create a Web application client.');
+    expect(html).toContain('Remove saved client secret');
+    expect(html).not.toMatch(/type="password"[^>]*value="[^"]/);
+  });
+
+  const detail = (server: McpServer) =>
+    renderToStaticMarkup(
+      <McpServerDetail
+        server={server}
+        busy={false}
+        onTest={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onToggleTool={vi.fn()}
+        onSignIn={vi.fn()}
+        onSignOut={vi.fn()}
+      />,
+    );
+
+  it('offers sign in, sign in again and sign out by status', () => {
+    expect(detail(oauthServer)).toContain('Sign in to list its tools.');
+    expect(detail(oauthServer)).toMatch(/Sign in<\/button>/);
+    expect(detail({ ...oauthServer, oauth_status: 'expired' })).toContain('Sign in again');
+    const connected = detail({ ...oauthServer, oauth_status: 'connected' });
+    expect(connected).toContain('Signed in');
+    expect(connected).toContain('Sign out');
+    expect(renderToStaticMarkup(<McpServerListItem server={oauthServer} selected={false} onSelect={vi.fn()} />)).toContain(
+      'Not signed in',
+    );
   });
 });

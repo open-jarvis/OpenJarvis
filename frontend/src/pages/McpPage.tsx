@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Lock, Pencil, Plug, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { LogIn, LogOut, Lock, Pencil, Plug, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import {
   createMcpServer,
   deleteMcpServer,
@@ -7,8 +7,11 @@ import {
   formFromCatalog,
   formFromServer,
   formToInput,
+  getMcpOAuthRedirectUri,
   isToolActive,
   listMcpServers,
+  signOutMcpOAuth,
+  startMcpOAuth,
   testMcpDraft,
   testMcpServer,
   toggleInput,
@@ -45,8 +48,11 @@ function statusColor(server: McpServer, result?: McpTestResult): string {
   return result.ok ? 'var(--color-success)' : 'var(--color-error)';
 }
 
+const OAUTH_LABELS = { signed_out: 'Not signed in', connected: 'Signed in', expired: 'Sign-in expired' } as const;
+
 function statusLabel(server: McpServer, result?: McpTestResult): string {
   if (!server.enabled) return 'Disabled';
+  if (server.oauth_status && server.oauth_status !== 'connected') return OAUTH_LABELS[server.oauth_status];
   if (!result) return 'Not tested';
   if (!result.ok) return 'Connection failed';
   const tools = result.tools || [];
@@ -96,6 +102,8 @@ export function McpServerDetail({
   onDelete,
   onToggle,
   onToggleTool,
+  onSignIn,
+  onSignOut,
 }: {
   server: McpServer;
   result?: McpTestResult;
@@ -105,6 +113,8 @@ export function McpServerDetail({
   onDelete: () => void;
   onToggle: () => void;
   onToggleTool: (tool: string, active: boolean) => void;
+  onSignIn?: () => void;
+  onSignOut?: () => void;
 }) {
   const tools = result?.ok ? result.tools || [] : [];
   return (
@@ -125,6 +135,30 @@ export function McpServerDetail({
           {server.read_only && (
             <div className="text-[11px] mt-1 flex items-center gap-1" style={mutedText}>
               <Lock size={10} /> Defined in config.toml. Edit that file to change it.
+            </div>
+          )}
+          {server.oauth_status && (
+            <div className="text-xs mt-2 flex items-center gap-2">
+              <span
+                style={{ color: server.oauth_status === 'connected' ? 'var(--color-success)' : 'var(--color-text-secondary)' }}
+              >
+                {OAUTH_LABELS[server.oauth_status]}
+              </span>
+              {server.oauth_status === 'connected' ? (
+                <button type="button" onClick={onSignOut} disabled={busy} className={smallButton} style={inputStyle}>
+                  <LogOut size={11} /> Sign out
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onSignIn}
+                  disabled={busy}
+                  className={smallButton}
+                  style={{ background: 'var(--color-accent)', color: 'white', border: '1px solid var(--color-accent)' }}
+                >
+                  <LogIn size={11} /> {server.oauth_status === 'expired' ? 'Sign in again' : 'Sign in'}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -158,7 +192,11 @@ export function McpServerDetail({
         </div>
         {!result && (
           <div className="text-xs" style={mutedText}>
-            {busy ? 'Connecting…' : 'Test the server to list its tools.'}
+            {busy
+              ? 'Connecting…'
+              : server.oauth_status && server.oauth_status !== 'connected'
+                ? 'Sign in to list its tools.'
+                : 'Test the server to list its tools.'}
           </div>
         )}
         {result && !result.ok && <div className="text-xs break-words" style={errorText}>{result.error}</div>}
@@ -204,6 +242,7 @@ export function McpPage() {
   const [editing, setEditing] = useState<Editing>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, McpTestResult>>({});
+  const [redirectUri, setRedirectUri] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -220,6 +259,12 @@ export function McpPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    getMcpOAuthRedirectUri()
+      .then((r) => setRedirectUri(r.redirect_uri))
+      .catch(() => setRedirectUri(''));
+  }, []);
 
   const all = data ? [...data.servers, ...data.config_servers] : [];
   const selected = all.find((s) => s.id === selectedId) || (editing ? null : all[0]) || null;
@@ -248,9 +293,55 @@ export function McpPage() {
   // List tools when a server is first opened.
   const selectedKey = selected?.id;
   useEffect(() => {
-    if (selected && selected.enabled && !results[selected.id] && busyId === null) void test(selected);
+    const signedOut = selected?.oauth_status && selected.oauth_status !== 'connected';
+    if (selected && selected.enabled && !signedOut && !results[selected.id] && busyId === null) void test(selected);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey]);
+
+  // The sign-in window tells us when it is done; re-read and re-test then.
+  const signingIn = useRef<{ id: string; popup: Window } | null>(null);
+  const finishSignIn = useCallback(async () => {
+    const current = signingIn.current;
+    if (!current) return;
+    signingIn.current = null;
+    const list = await refresh();
+    const server = list?.servers.find((s) => s.id === current.id);
+    setResults(({ [current.id]: _stale, ...rest }) => rest);
+    if (server?.oauth_status === 'connected') void test(server);
+  }, [refresh, test]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'openjarvis-mcp-oauth') void finishSignIn();
+    };
+    window.addEventListener('message', onMessage);
+    const timer = window.setInterval(() => {
+      if (signingIn.current?.popup.closed) void finishSignIn();
+    }, 1000);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      window.clearInterval(timer);
+    };
+  }, [finishSignIn]);
+
+  const signIn = (server: McpServer) => {
+    // Open the window during the click so it is not blocked as a popup.
+    const popup = window.open('', 'openjarvis-mcp-oauth', 'width=520,height=700');
+    void withBusy(server.id, async () => {
+      try {
+        const { authorization_url } = await startMcpOAuth(server.id);
+        if (!popup) {
+          window.location.assign(authorization_url);
+          return;
+        }
+        popup.location.href = authorization_url;
+        signingIn.current = { id: server.id, popup };
+      } catch (e) {
+        popup?.close();
+        throw e;
+      }
+    });
+  };
 
   const toggleTool = (server: McpServer, tool: string, active: boolean) =>
     withBusy(server.id, async () => {
@@ -351,6 +442,9 @@ export function McpPage() {
                   editing={!!editingServer}
                   savedToken={!!editingServer?.has_token}
                   savedEnv={editingServer?.env_set}
+                  savedClientSecret={!!editingServer?.has_client_secret}
+                  oauthSetup={editing.mode === 'new' ? editing.entry?.oauth_setup : undefined}
+                  redirectUri={redirectUri}
                   onCancel={() => setEditing(editing.mode === 'new' ? { mode: 'catalog' } : null)}
                   onTest={(form) =>
                     testMcpDraft({ ...formToInput(form, { editing: !!editingServer }), id: editingServer?.id })
@@ -389,6 +483,14 @@ export function McpPage() {
                   });
                 }}
                 onToggleTool={(tool, active) => void toggleTool(selected, tool, active)}
+                onSignIn={() => signIn(selected)}
+                onSignOut={() =>
+                  void withBusy(selected.id, async () => {
+                    await signOutMcpOAuth(selected.id);
+                    setResults(({ [selected.id]: _stale, ...rest }) => rest);
+                    await refresh();
+                  })
+                }
               />
             ) : (
               data && (

@@ -10,7 +10,7 @@ import subprocess
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from openjarvis.mcp.protocol import MCPRequest, MCPResponse
 
@@ -277,11 +277,15 @@ class StreamableHTTPTransport(MCPTransport):
         auth_header: Optional[str] = None,
         connect_timeout: float = 10.0,
         request_timeout: float = 60.0,
+        token_provider: Optional[Callable[[bool], Optional[str]]] = None,
     ) -> None:
         import httpx
 
         self._url = url
         self._token = token
+        # Called before each request (OAuth); ``True`` forces a refresh
+        # after the server answers 401.
+        self._token_provider = token_provider
         # Custom header name for the token (e.g. ``X-API-Key``). ``None``
         # keeps the default ``Authorization: Bearer <token>`` form.
         self._auth_header = auth_header or None
@@ -302,7 +306,7 @@ class StreamableHTTPTransport(MCPTransport):
         parsed = urlparse(self._url)
         return f"{parsed.scheme}://{parsed.netloc}"
 
-    def _build_headers(self) -> dict:
+    def _build_headers(self, force_refresh: bool = False) -> dict:
         """Build common request headers.
 
         Sends ``Authorization: Bearer <token>`` when the transport was
@@ -317,11 +321,14 @@ class StreamableHTTPTransport(MCPTransport):
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         }
-        if self._token:
+        token = (
+            self._token_provider(force_refresh) if self._token_provider else self._token
+        )
+        if token:
             if self._auth_header:
-                headers[self._auth_header] = self._token
+                headers[self._auth_header] = token
             else:
-                headers["Authorization"] = f"Bearer {self._token}"
+                headers["Authorization"] = f"Bearer {token}"
         if self._session_id is not None:
             headers["Mcp-Session-Id"] = self._session_id
         return headers
@@ -337,6 +344,12 @@ class StreamableHTTPTransport(MCPTransport):
                 json=request.to_dict(),
                 headers=headers,
             )
+            if response.status_code == 401 and self._token_provider:
+                response = self._client.post(
+                    self._url,
+                    json=request.to_dict(),
+                    headers=self._build_headers(force_refresh=True),
+                )
             response.raise_for_status()
         except httpx.ConnectError as exc:
             raise RuntimeError(

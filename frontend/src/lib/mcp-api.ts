@@ -10,7 +10,8 @@ import { apiFetch } from './api';
 // returns `env_set` (names with a stored value) and never the values.
 
 export type McpTransport = 'http' | 'stdio';
-export type McpAuthType = 'none' | 'bearer' | 'header';
+export type McpAuthType = 'none' | 'bearer' | 'header' | 'oauth';
+export type McpOAuthStatus = 'signed_out' | 'connected' | 'expired';
 
 export interface McpServer {
   id: string;
@@ -24,6 +25,12 @@ export interface McpServer {
   args: string[];
   env_names: string[];
   env_set: string[];
+  oauth_client_id: string | null;
+  has_client_secret: boolean;
+  oauth_scopes: string[];
+  oauth_auth_params: Record<string, string>;
+  /** Only for `auth_type: 'oauth'`; null otherwise. */
+  oauth_status: McpOAuthStatus | null;
   include_tools: string[];
   exclude_tools: string[];
   enabled: boolean;
@@ -51,6 +58,11 @@ export interface McpServerInput {
   env_names?: string[];
   /** Values to set; omitted names keep their stored value, "" clears. */
   env?: Record<string, string>;
+  oauth_client_id?: string;
+  /** Write-only; omit to keep the stored secret, "" clears it. */
+  oauth_client_secret?: string;
+  oauth_scopes?: string[];
+  oauth_auth_params?: Record<string, string>;
   include_tools: string[];
   exclude_tools: string[];
   enabled: boolean;
@@ -109,6 +121,20 @@ export function testMcpServer(id: string): Promise<McpTestResult> {
   return send(`/v1/mcp/servers/${encodeURIComponent(id)}/test`, 'POST');
 }
 
+/** Returns the URL to open for signing in to an OAuth server. */
+export function startMcpOAuth(id: string): Promise<{ authorization_url: string; redirect_uri: string }> {
+  return send(`/v1/mcp/servers/${encodeURIComponent(id)}/oauth/start`, 'POST');
+}
+
+export function signOutMcpOAuth(id: string): Promise<{ signed_out: boolean; restart_required: boolean }> {
+  return send(`/v1/mcp/servers/${encodeURIComponent(id)}/oauth/sign-out`, 'POST');
+}
+
+/** The redirect URI to register with an OAuth client. */
+export function getMcpOAuthRedirectUri(): Promise<{ redirect_uri: string }> {
+  return send('/v1/mcp/oauth/redirect-uri', 'GET');
+}
+
 /** Test an unsaved draft. `id` lets the server reuse a saved token. */
 export function testMcpDraft(input: McpServerInput & { id?: string }): Promise<McpTestResult> {
   return send('/v1/mcp/servers/test', 'POST', input);
@@ -127,6 +153,11 @@ export interface McpForm {
   command: string;
   args: string;
   env: { name: string; value: string }[];
+  oauth_client_id: string;
+  oauth_client_secret: string;
+  clearClientSecret: boolean;
+  oauth_scopes: string;
+  oauth_auth_params: Record<string, string>;
   include_tools: string;
   exclude_tools: string;
   enabled: boolean;
@@ -143,6 +174,11 @@ export const emptyMcpForm: McpForm = {
   command: '',
   args: '',
   env: [],
+  oauth_client_id: '',
+  oauth_client_secret: '',
+  clearClientSecret: false,
+  oauth_scopes: '',
+  oauth_auth_params: {},
   include_tools: '',
   exclude_tools: '',
   enabled: true,
@@ -159,6 +195,9 @@ export function formFromServer(server: McpServer): McpForm {
     command: server.command || '',
     args: server.args.join('\n'),
     env: (server.env_names || []).map((name) => ({ name, value: '' })),
+    oauth_client_id: server.oauth_client_id || '',
+    oauth_scopes: (server.oauth_scopes || []).join(' '),
+    oauth_auth_params: { ...(server.oauth_auth_params || {}) },
     include_tools: server.include_tools.join(', '),
     exclude_tools: server.exclude_tools.join(', '),
     enabled: server.enabled,
@@ -185,7 +224,13 @@ export function formToInput(form: McpForm, { editing }: { editing: boolean }): M
   if (form.transport === 'http') {
     input.url = form.url.trim();
     if (form.auth_type === 'header') input.auth_header = form.auth_header.trim();
-    if (form.auth_type !== 'none') {
+    if (form.auth_type === 'oauth') {
+      input.oauth_client_id = form.oauth_client_id.trim();
+      input.oauth_scopes = form.oauth_scopes.split(/[\s,]+/).filter(Boolean);
+      input.oauth_auth_params = form.oauth_auth_params;
+      if (form.oauth_client_secret) input.oauth_client_secret = form.oauth_client_secret;
+      else if (editing && form.clearClientSecret) input.oauth_client_secret = '';
+    } else if (form.auth_type !== 'none') {
       if (form.token) input.token = form.token;
       else if (editing && form.clearToken) input.token = '';
     }
@@ -241,6 +286,8 @@ export interface McpCatalogEntry {
   source: string;
   auth_note: string;
   requires_oauth?: boolean;
+  /** Steps for creating the OAuth client the server needs. */
+  oauth_setup?: string[];
   server: {
     transport: McpTransport;
     url?: string;
@@ -249,6 +296,8 @@ export interface McpCatalogEntry {
     command?: string;
     args?: string[];
     env_names?: string[];
+    oauth_scopes?: string[];
+    oauth_auth_params?: Record<string, string>;
   };
 }
 
@@ -265,6 +314,8 @@ export function formFromCatalog(entry: McpCatalogEntry): McpForm {
     command: s.command || '',
     args: (s.args || []).join('\n'),
     env: (s.env_names || []).map((name) => ({ name, value: '' })),
+    oauth_scopes: (s.oauth_scopes || []).join(' '),
+    oauth_auth_params: { ...(s.oauth_auth_params || {}) },
   };
 }
 

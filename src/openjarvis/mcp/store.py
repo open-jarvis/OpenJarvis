@@ -4,8 +4,8 @@ Server records and their secrets live in two separate owner-only files
 under one root directory:
 
 * ``servers.json`` — self-contained server records (no secrets);
-* ``secrets.json`` — tokens and secret environment variables keyed by
-  server id.
+* ``secrets.json`` — tokens, secret environment variables, OAuth client
+  secrets and OAuth tokens, keyed by server id.
 
 The global store's root is ``<config dir>/mcp``. The store takes the root
 as a parameter so another scope (for example a per-team layer) can reuse
@@ -39,6 +39,9 @@ RECORD_FIELDS = (
     "command",
     "args",
     "env_names",
+    "oauth_client_id",
+    "oauth_scopes",
+    "oauth_auth_params",
     "include_tools",
     "exclude_tools",
     "enabled",
@@ -131,12 +134,37 @@ class MCPServerStore:
         """Names of the environment variables that have a stored value."""
         return sorted(self.env(server_id))
 
+    def oauth_tokens(self, server_id: str) -> Optional[dict[str, Any]]:
+        with self._lock:
+            tokens = self._secrets().get(server_id, {}).get("oauth")
+        return dict(tokens) if isinstance(tokens, dict) else None
+
+    def set_oauth_tokens(self, server_id: str, tokens: Optional[dict]) -> None:
+        """Store (or with ``None`` remove) a server's OAuth tokens."""
+        with self._lock:
+            secrets = self._secrets()
+            entry = dict(secrets.get(server_id, {}))
+            if tokens:
+                entry["oauth"] = dict(tokens)
+            else:
+                entry.pop("oauth", None)
+            if entry:
+                secrets[server_id] = entry
+            else:
+                secrets.pop(server_id, None)
+            self._write_secrets(secrets)
+
+    def oauth_client_secret(self, server_id: str) -> Optional[str]:
+        with self._lock:
+            return self._secrets().get(server_id, {}).get("oauth_client_secret")
+
     def create(
         self,
         fields: dict[str, Any],
         *,
         token: Optional[str],
         env: Optional[dict[str, str]] = None,
+        oauth_client_secret: Optional[str] = None,
     ) -> dict:
         record = {k: fields.get(k) for k in RECORD_FIELDS}
         record["id"] = uuid.uuid4().hex[:12]
@@ -144,7 +172,7 @@ class MCPServerStore:
         with self._lock:
             servers = self._servers()
             servers.append(record)
-            entry = _secret_entry({}, record, token, env)
+            entry = _secret_entry({}, record, token, env, oauth_client_secret)
             if entry:
                 secrets = self._secrets()
                 secrets[record["id"]] = entry
@@ -159,12 +187,15 @@ class MCPServerStore:
         *,
         token: Any = KEEP,
         env: Optional[dict[str, str]] = None,
+        oauth_client_secret: Any = KEEP,
     ) -> Optional[dict]:
         """Replace a record's fields.
 
-        ``token``: ``KEEP``, or ``None`` to clear. ``env`` sets the given
-        variables ("" clears one); others keep their stored value, and
-        names no longer in ``env_names`` are dropped.
+        ``token`` and ``oauth_client_secret``: ``KEEP``, or ``None`` to
+        clear. ``env`` sets the given variables ("" clears one); others
+        keep their stored value, and names no longer in ``env_names`` are
+        dropped. OAuth tokens are dropped when the URL, client or auth
+        type changes.
         """
         with self._lock:
             servers = self._servers()
@@ -178,7 +209,12 @@ class MCPServerStore:
             servers[index] = record
             secrets = self._secrets()
             old = secrets.get(server_id, {})
-            entry = _secret_entry(old, record, token, env)
+            entry = _secret_entry(old, record, token, env, oauth_client_secret)
+            if "oauth" in entry and any(
+                server.get(k) != record.get(k)
+                for k in ("url", "auth_type", "oauth_client_id")
+            ):
+                del entry["oauth"]
             if entry != old:
                 if entry:
                     secrets[server_id] = entry
@@ -211,7 +247,13 @@ class MCPServerStore:
                 continue
             entry = secrets.get(server.get("id", ""), {})
             configs.append(
-                to_runtime_config(server, entry.get("token"), _entry_env(entry))
+                to_runtime_config(
+                    server,
+                    entry.get("token"),
+                    _entry_env(entry),
+                    oauth_root=self.root,
+                    oauth_connected="oauth" in entry,
+                )
             )
         return configs
 
@@ -226,12 +268,23 @@ def _secret_entry(
     record: dict[str, Any],
     token: Any,
     env: Optional[dict[str, str]],
+    oauth_client_secret: Any = KEEP,
 ) -> dict[str, Any]:
     """Return the secrets entry for ``record`` after applying the changes."""
     entry: dict[str, Any] = {}
     stored_token = old.get("token") if token is KEEP else token
     if stored_token:
         entry["token"] = stored_token
+    if record.get("auth_type") == "oauth":
+        secret = (
+            old.get("oauth_client_secret")
+            if oauth_client_secret is KEEP
+            else oauth_client_secret
+        )
+        if secret:
+            entry["oauth_client_secret"] = secret
+        if old.get("oauth"):
+            entry["oauth"] = old["oauth"]
     names = list(record.get("env_names") or [])
     values = {**_entry_env(old), **(env or {})}
     kept = {k: values[k] for k in names if values.get(k)}
@@ -244,8 +297,15 @@ def to_runtime_config(
     record: dict[str, Any],
     token: Optional[str],
     env: Optional[dict[str, str]] = None,
+    *,
+    oauth_root: Optional[Path] = None,
+    oauth_connected: bool = False,
 ) -> dict:
-    """Convert a stored record to the dict shape the MCP loaders accept."""
+    """Convert a stored record to the dict shape the MCP loaders accept.
+
+    OAuth servers carry no token: the transport reads (and refreshes) it
+    from the store at ``oauth_root`` on each request.
+    """
     cfg: dict[str, Any] = {
         "id": record.get("id"),
         "name": record.get("name") or "<unnamed>",
@@ -262,7 +322,11 @@ def to_runtime_config(
     else:
         cfg["url"] = record.get("url")
         auth_type = record.get("auth_type") or "none"
-        if auth_type != "none" and token:
+        if auth_type == "oauth":
+            if oauth_root is not None:
+                cfg["oauth_store_root"] = str(oauth_root)
+            cfg["oauth_connected"] = oauth_connected
+        elif auth_type != "none" and token:
             cfg["token"] = token
             if auth_type == "header":
                 cfg["auth_header"] = record.get("auth_header")

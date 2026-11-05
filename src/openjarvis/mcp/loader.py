@@ -75,7 +75,9 @@ def build_transport(
 
     ``auth_header`` (optional) sends ``token`` under that header name
     instead of ``Authorization: Bearer``. ``env`` (optional, stdio only)
-    adds environment variables for the command.
+    adds environment variables for the command. ``oauth_store_root``
+    (OAuth servers) makes the transport read and refresh the access token
+    from that store on each request.
     """
     from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
 
@@ -89,6 +91,14 @@ def build_transport(
             kwargs["auth_header"] = cfg["auth_header"]
         if request_timeout is not None:
             kwargs["request_timeout"] = request_timeout
+        if cfg.get("oauth_store_root") and cfg.get("id"):
+            from pathlib import Path
+
+            from openjarvis.mcp.oauth import OAuthTokenProvider
+            from openjarvis.mcp.store import MCPServerStore
+
+            store = MCPServerStore(Path(cfg["oauth_store_root"]))
+            kwargs["token_provider"] = OAuthTokenProvider(store, cfg["id"])
         return StreamableHTTPTransport(url=url, token=cfg.get("token"), **kwargs)
     if command:
         stdio_kwargs: dict[str, Any] = {}

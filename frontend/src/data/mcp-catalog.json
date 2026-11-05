@@ -9,13 +9,28 @@
       "kind": "official",
       "description": "Read, search and send Gmail.",
       "source": "https://developers.google.com/workspace/guides/configure-mcp-servers",
-      "auth_note": "OAuth 2.0 only (Developer Preview).",
+      "auth_note": "OAuth sign-in with an OAuth client you create in Google Cloud (Developer Preview).",
       "server": {
         "transport": "http",
         "url": "https://gmailmcp.googleapis.com/mcp/v1",
-        "auth_type": "none"
+        "auth_type": "oauth",
+        "oauth_scopes": [
+          "https://www.googleapis.com/auth/gmail.readonly",
+          "https://www.googleapis.com/auth/gmail.compose"
+        ],
+        "oauth_auth_params": {
+          "access_type": "offline",
+          "prompt": "consent"
+        }
       },
-      "requires_oauth": true
+      "oauth_setup": [
+        "Create or pick a Google Cloud project and join the Google Workspace Developer Preview Program (https://developers.google.com/workspace/preview).",
+        "Enable the Gmail (gmail.googleapis.com) API and the Gmail MCP (gmailmcp.googleapis.com) API for the project.",
+        "In Google Auth Platform, set up Branding, Audience and Data Access. Under Data Access add the scopes listed below. With an External audience, add yourself as a test user.",
+        "Go to Google Auth Platform > Clients > Create Client (https://console.cloud.google.com/auth/clients/create) and choose \"Web application\".",
+        "Under Authorized redirect URIs add the redirect URI shown below, exactly.",
+        "Select \"Use this client for an AI-powered agent\", click Create, and copy the client ID and client secret into this form."
+      ]
     },
     {
       "id": "google-calendar",
@@ -24,13 +39,29 @@
       "kind": "official",
       "description": "Calendar events.",
       "source": "https://developers.google.com/workspace/guides/configure-mcp-servers",
-      "auth_note": "OAuth 2.0 only (Developer Preview).",
+      "auth_note": "OAuth sign-in with an OAuth client you create in Google Cloud (Developer Preview).",
       "server": {
         "transport": "http",
         "url": "https://calendarmcp.googleapis.com/mcp/v1",
-        "auth_type": "none"
+        "auth_type": "oauth",
+        "oauth_scopes": [
+          "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+          "https://www.googleapis.com/auth/calendar.events.freebusy",
+          "https://www.googleapis.com/auth/calendar.events.readonly"
+        ],
+        "oauth_auth_params": {
+          "access_type": "offline",
+          "prompt": "consent"
+        }
       },
-      "requires_oauth": true
+      "oauth_setup": [
+        "Create or pick a Google Cloud project and join the Google Workspace Developer Preview Program (https://developers.google.com/workspace/preview).",
+        "Enable the Google Calendar (calendar-json.googleapis.com) API and the Calendar MCP (calendarmcp.googleapis.com) API for the project.",
+        "In Google Auth Platform, set up Branding, Audience and Data Access. Under Data Access add the scopes listed below. With an External audience, add yourself as a test user.",
+        "Go to Google Auth Platform > Clients > Create Client (https://console.cloud.google.com/auth/clients/create) and choose \"Web application\".",
+        "Under Authorized redirect URIs add the redirect URI shown below, exactly.",
+        "Select \"Use this client for an AI-powered agent\", click Create, and copy the client ID and client secret into this form."
+      ]
     },
     {
       "id": "google-drive",
@@ -39,13 +70,28 @@
       "kind": "official",
       "description": "Drive files.",
       "source": "https://developers.google.com/workspace/guides/configure-mcp-servers",
-      "auth_note": "OAuth 2.0 only (Developer Preview).",
+      "auth_note": "OAuth sign-in with an OAuth client you create in Google Cloud (Developer Preview).",
       "server": {
         "transport": "http",
         "url": "https://drivemcp.googleapis.com/mcp/v1",
-        "auth_type": "none"
+        "auth_type": "oauth",
+        "oauth_scopes": [
+          "https://www.googleapis.com/auth/drive.readonly",
+          "https://www.googleapis.com/auth/drive.file"
+        ],
+        "oauth_auth_params": {
+          "access_type": "offline",
+          "prompt": "consent"
+        }
       },
-      "requires_oauth": true
+      "oauth_setup": [
+        "Create or pick a Google Cloud project and join the Google Workspace Developer Preview Program (https://developers.google.com/workspace/preview).",
+        "Enable the Google Drive (drive.googleapis.com) API and the Drive MCP (drivemcp.googleapis.com) API for the project.",
+        "In Google Auth Platform, set up Branding, Audience and Data Access. Under Data Access add the scopes listed below. With an External audience, add yourself as a test user.",
+        "Go to Google Auth Platform > Clients > Create Client (https://console.cloud.google.com/auth/clients/create) and choose \"Web application\".",
+        "Under Authorized redirect URIs add the redirect URI shown below, exactly.",
+        "Select \"Use this client for an AI-powered agent\", click Create, and copy the client ID and client secret into this form."
+      ]
     },
     {
       "id": "slack",
@@ -54,13 +100,17 @@
       "kind": "official",
       "description": "Search and read Slack messages.",
       "source": "https://docs.slack.dev/ai/mcp-server/",
-      "auth_note": "OAuth only (user token).",
+      "auth_note": "OAuth sign-in with a Slack app you create (no automatic registration).",
       "server": {
         "transport": "http",
         "url": "https://mcp.slack.com/mcp",
-        "auth_type": "none"
+        "auth_type": "oauth"
       },
-      "requires_oauth": true
+      "oauth_setup": [
+        "Create a Slack app at https://api.slack.com/apps and follow Slack's MCP server guide for the scopes it needs.",
+        "Add the redirect URI shown below to the app's OAuth redirect URLs.",
+        "Copy the app's client ID and client secret into this form."
+      ]
     },
     {
       "id": "slack-zencoder",
@@ -87,13 +137,17 @@
       "kind": "official",
       "description": "Tasks and projects.",
       "source": "https://developers.asana.com/docs/using-asanas-mcp-server",
-      "auth_note": "OAuth only.",
+      "auth_note": "OAuth sign-in with an Asana app you create (no automatic registration).",
       "server": {
         "transport": "http",
         "url": "https://mcp.asana.com/v2/mcp",
-        "auth_type": "none"
+        "auth_type": "oauth"
       },
-      "requires_oauth": true
+      "oauth_setup": [
+        "Create an app in the Asana developer console (https://app.asana.com/0/my-apps).",
+        "Add the redirect URI shown below to the app's redirect URLs.",
+        "Copy the app's client ID and client secret into this form."
+      ]
     },
     {
       "id": "github",
@@ -140,7 +194,7 @@
       "kind": "official",
       "description": "Pages, databases and search.",
       "source": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
-      "auth_note": "Bearer MCP token from the Notion developer portal (Business/Enterprise plans). Otherwise OAuth.",
+      "auth_note": "Bearer MCP token from the Notion developer portal (Business/Enterprise plans), or OAuth sign-in.",
       "server": {
         "transport": "http",
         "url": "https://mcp.notion.com/mcp",

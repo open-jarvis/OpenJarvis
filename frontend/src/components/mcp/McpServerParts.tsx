@@ -74,6 +74,9 @@ export function McpServerForm({
   editing,
   savedToken,
   savedEnv = [],
+  savedClientSecret = false,
+  oauthSetup,
+  redirectUri,
   onCancel,
   onSave,
   onTest,
@@ -83,6 +86,11 @@ export function McpServerForm({
   savedToken: boolean;
   /** Names of environment variables that already have a stored value. */
   savedEnv?: string[];
+  savedClientSecret?: boolean;
+  /** Steps for creating the OAuth client, from the catalog entry. */
+  oauthSetup?: string[];
+  /** The redirect URI to register with the OAuth client. */
+  redirectUri?: string;
   onCancel: () => void;
   onSave: (form: McpForm) => Promise<void>;
   onTest: (form: McpForm) => Promise<McpTestResult>;
@@ -138,6 +146,7 @@ export function McpServerForm({
               <option value="none">None</option>
               <option value="bearer">Bearer token (Authorization header)</option>
               <option value="header">Token in a custom header</option>
+              <option value="oauth">OAuth sign-in</option>
             </select>
           </Field>
           {form.auth_type === 'header' && (
@@ -145,7 +154,55 @@ export function McpServerForm({
               <input className={fieldClass} style={inputStyle} value={form.auth_header} placeholder="X-API-Key" onChange={(e) => set('auth_header', e.target.value)} />
             </Field>
           )}
-          {form.auth_type !== 'none' && (
+          {form.auth_type === 'oauth' && (
+            <>
+              {oauthSetup && oauthSetup.length > 0 && (
+                <div className="text-xs mb-3 rounded p-3" style={{ ...inputStyle, color: 'var(--color-text-secondary)' }}>
+                  <div className="font-medium mb-1" style={{ color: 'var(--color-text)' }}>Create the OAuth client</div>
+                  <ol className="list-decimal pl-4 space-y-1">
+                    {oauthSetup.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+              {redirectUri && (
+                <div className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+                  <span className="block mb-1">Redirect URI</span>
+                  <code className="block px-2 py-1.5 rounded break-all select-all font-mono" style={inputStyle}>
+                    {redirectUri}
+                  </code>
+                </div>
+              )}
+              <Field label="Client ID" hint="Leave empty if the server registers clients automatically.">
+                <input className={fieldClass} style={inputStyle} value={form.oauth_client_id} onChange={(e) => set('oauth_client_id', e.target.value)} />
+              </Field>
+              <Field label="Client secret" hint="Stored in an owner-only file on the server. It is never shown again.">
+                <input
+                  type="password"
+                  autoComplete="off"
+                  className={fieldClass}
+                  style={inputStyle}
+                  value={form.oauth_client_secret}
+                  placeholder={savedClientSecret && !form.clearClientSecret ? 'Saved — leave blank to keep' : ''}
+                  onChange={(e) => set('oauth_client_secret', e.target.value)}
+                />
+                {editing && savedClientSecret && (
+                  <span className="flex items-center gap-1 mt-1 text-[11px]" style={mutedText}>
+                    <input type="checkbox" checked={form.clearClientSecret} onChange={(e) => set('clearClientSecret', e.target.checked)} />
+                    Remove saved client secret
+                  </span>
+                )}
+              </Field>
+              <Field label="Scopes (optional)" hint="Space-separated. Empty uses the scopes the server advertises.">
+                <input className={`${fieldClass} font-mono`} style={inputStyle} value={form.oauth_scopes} onChange={(e) => set('oauth_scopes', e.target.value)} />
+              </Field>
+              <div className="text-[11px] mb-3" style={mutedText}>
+                Save the server, then use “Sign in” to connect your account.
+              </div>
+            </>
+          )}
+          {form.auth_type !== 'none' && form.auth_type !== 'oauth' && (
             <Field label="Token" hint="Stored in an owner-only file on the server. It is never shown again.">
               <input
                 type="password"

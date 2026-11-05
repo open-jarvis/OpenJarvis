@@ -9,6 +9,10 @@ Secrets are write-only: responses carry ``has_token`` and ``env_set``
 request bodies are parsed by hand so validation errors never echo the
 submitted input (FastAPI's default 422 body includes it).
 
+OAuth servers are signed in to from the browser: ``.../oauth/start``
+returns the authorization URL and ``/v1/mcp/oauth/callback`` completes
+the code exchange (see :mod:`openjarvis.mcp.oauth`).
+
 MCP tools are discovered once at server start-up, so changes made here
 take effect after a restart; responses report ``restart_required``.
 """
@@ -23,6 +27,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from openjarvis.mcp.store import KEEP, MCPServerStore, to_runtime_config
@@ -40,6 +45,16 @@ _RESERVED_HEADERS = {
     "host",
     "mcp-session-id",
 }
+_OAUTH_RESERVED_PARAMS = (
+    "response_type",
+    "client_id",
+    "redirect_uri",
+    "state",
+    "code_challenge",
+    "code_challenge_method",
+    "resource",
+    "scope",
+)
 _TEST_TIMEOUT_SECONDS = 20.0
 _MAX_BODY_BYTES = 64 * 1024
 
@@ -52,7 +67,7 @@ class MCPServerIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     transport: Literal["http", "stdio"]
     url: Optional[str] = Field(default=None, max_length=2048)
-    auth_type: Literal["none", "bearer", "header"] = "none"
+    auth_type: Literal["none", "bearer", "header", "oauth"] = "none"
     auth_header: Optional[str] = Field(default=None, max_length=100)
     # Write-only. On update: omitted/null keeps the stored token, "" clears.
     token: Optional[str] = Field(default=None, max_length=8192)
@@ -63,6 +78,13 @@ class MCPServerIn(BaseModel):
     # Write-only values keyed by name. On update, omitted names keep their
     # stored value and "" clears one.
     env: Optional[Dict[str, str]] = Field(default=None, max_length=50)
+    # OAuth: leave the client ID empty to register one dynamically.
+    oauth_client_id: Optional[str] = Field(default=None, max_length=512)
+    # Write-only. On update: omitted/null keeps the stored secret, "" clears.
+    oauth_client_secret: Optional[str] = Field(default=None, max_length=2048)
+    oauth_scopes: List[str] = Field(default_factory=list, max_length=50)
+    # Extra authorization-request parameters, e.g. to ask for a refresh token.
+    oauth_auth_params: Dict[str, str] = Field(default_factory=dict, max_length=10)
     include_tools: List[str] = Field(default_factory=list, max_length=500)
     exclude_tools: List[str] = Field(default_factory=list, max_length=500)
     enabled: bool = True
@@ -87,6 +109,15 @@ class MCPServerIn(BaseModel):
                     raise ValueError("auth_header cannot be a reserved header")
             else:
                 self.auth_header = None
+            if self.auth_type == "oauth":
+                self.token = None
+                self.oauth_client_id = self.oauth_client_id or None
+                self.oauth_scopes = [s for s in self.oauth_scopes if s.strip()]
+                reserved = set(_OAUTH_RESERVED_PARAMS)
+                if any(k in reserved for k in self.oauth_auth_params):
+                    raise ValueError("oauth_auth_params cannot override core params")
+            else:
+                self._clear_oauth()
             self.command = None
             self.args = []
             self.env_names = []
@@ -106,12 +137,19 @@ class MCPServerIn(BaseModel):
             self.url = None
             self.auth_type = "none"
             self.auth_header = None
+            self._clear_oauth()
         self.include_tools = [t for t in (s.strip() for s in self.include_tools) if t]
         self.exclude_tools = [t for t in (s.strip() for s in self.exclude_tools) if t]
         return self
 
+    def _clear_oauth(self) -> None:
+        self.oauth_client_id = None
+        self.oauth_client_secret = None
+        self.oauth_scopes = []
+        self.oauth_auth_params = {}
+
     def fields(self) -> dict[str, Any]:
-        return self.model_dump(exclude={"token", "env"})
+        return self.model_dump(exclude={"token", "env", "oauth_client_secret"})
 
 
 class MCPServerTestIn(MCPServerIn):
@@ -159,6 +197,8 @@ async def _parse_body(request: Request, model: type[BaseModel]) -> Any:
         secrets: list[Optional[str]] = [
             data.get("token") if isinstance(data.get("token"), str) else None
         ]
+        if isinstance(data.get("oauth_client_secret"), str):
+            secrets.append(data["oauth_client_secret"])
         if isinstance(data.get("env"), dict):
             secrets += [v for v in data["env"].values() if isinstance(v, str)]
         errors = [
@@ -184,6 +224,7 @@ def _gui_view(record: dict[str, Any], store: MCPServerStore) -> dict[str, Any]:
         "args": list(record.get("args") or []),
         "env_names": list(record.get("env_names") or []),
         "env_set": store.env_set(record.get("id", "")),
+        **_oauth_view(record, store),
         "include_tools": list(record.get("include_tools") or []),
         "exclude_tools": list(record.get("exclude_tools") or []),
         "enabled": bool(record.get("enabled", True)),
@@ -191,6 +232,32 @@ def _gui_view(record: dict[str, Any], store: MCPServerStore) -> dict[str, Any]:
         "read_only": False,
         "created_at": record.get("created_at"),
         "updated_at": record.get("updated_at"),
+    }
+
+
+def _oauth_view(
+    record: dict[str, Any], store: Optional[MCPServerStore]
+) -> dict[str, Any]:
+    status = None
+    if record.get("auth_type") == "oauth" and store is not None:
+        from openjarvis.mcp.oauth import is_expired
+
+        server_id = record.get("id", "")
+        tokens = store.oauth_tokens(server_id)
+        if not tokens:
+            status = "signed_out"
+        elif is_expired(tokens) and not tokens.get("refresh_token"):
+            status = "expired"
+        else:
+            status = "connected"
+    return {
+        "oauth_client_id": record.get("oauth_client_id"),
+        "has_client_secret": bool(
+            store and record.get("id") and store.oauth_client_secret(record["id"])
+        ),
+        "oauth_scopes": list(record.get("oauth_scopes") or []),
+        "oauth_auth_params": dict(record.get("oauth_auth_params") or {}),
+        "oauth_status": status,
     }
 
 
@@ -209,6 +276,7 @@ def _config_view(index: int, cfg: dict[str, Any]) -> dict[str, Any]:
         "args": [],
         "env_names": [],
         "env_set": [],
+        **_oauth_view({}, None),
         "include_tools": list(cfg.get("include_tools") or []),
         "exclude_tools": list(cfg.get("exclude_tools") or []),
         "enabled": True,
@@ -234,6 +302,10 @@ def _friendly_test_error(exc: BaseException, cfg: dict[str, Any]) -> str:
     for err in seen:
         if isinstance(err, httpx.HTTPStatusError):
             code = err.response.status_code
+            if code in (401, 403) and "oauth_connected" in cfg:
+                if not cfg.get("oauth_connected"):
+                    return "Not signed in. Sign in to this server first."
+                return f"The server rejected the sign-in (HTTP {code}). Sign in again."
             if code in (401, 403):
                 return (
                     "The server rejected the credentials (HTTP "
@@ -374,8 +446,16 @@ def create_mcp_router(
         record = _store_call(lambda: mcp_store.get(server_id))
         if record is None:
             raise HTTPException(404, "MCP server not found")
+        return _runtime(record)
+
+    def _runtime(record: dict[str, Any]) -> dict[str, Any]:
+        server_id = record.get("id", "")
         return to_runtime_config(
-            record, mcp_store.token(server_id), mcp_store.env(server_id)
+            record,
+            mcp_store.token(server_id),
+            mcp_store.env(server_id),
+            oauth_root=mcp_store.root,
+            oauth_connected=mcp_store.oauth_tokens(server_id) is not None,
         )
 
     router = APIRouter(prefix="/v1/mcp", tags=["mcp"])
@@ -399,7 +479,12 @@ def create_mcp_router(
         body: MCPServerIn = await _parse_body(request, MCPServerIn)
         token = body.token if body.auth_type != "none" else None
         record = _store_call(
-            lambda: mcp_store.create(body.fields(), token=token, env=body.env)
+            lambda: mcp_store.create(
+                body.fields(),
+                token=token,
+                env=body.env,
+                oauth_client_secret=body.oauth_client_secret,
+            )
         )
         return {
             "server": _gui_view(record, mcp_store),
@@ -414,7 +499,15 @@ def create_mcp_router(
             token = None
         record = _store_call(
             lambda: mcp_store.update(
-                server_id, body.fields(), token=token, env=body.env
+                server_id,
+                body.fields(),
+                token=token,
+                env=body.env,
+                oauth_client_secret=(
+                    KEEP
+                    if body.oauth_client_secret is None
+                    else body.oauth_client_secret
+                ),
             )
         )
         if record is None:
@@ -442,7 +535,19 @@ def create_mcp_router(
             env = {**stored, **env}
         record = body.fields()
         record.pop("id", None)
-        return await _run_test(to_runtime_config(record, token, env))
+        cfg = to_runtime_config(record, token, env)
+        if body.auth_type == "oauth":
+            # Reuse a saved sign-in only when the draft still points at it.
+            saved = (
+                _store_call(lambda: mcp_store.get(body.id or "")) if body.id else None
+            )
+            same = saved is not None and all(
+                saved.get(k) == record.get(k)
+                for k in ("url", "auth_type", "oauth_client_id")
+            )
+            cfg = _runtime({**record, "id": body.id}) if same else cfg
+            cfg.setdefault("oauth_connected", False)
+        return await _run_test(cfg)
 
     @router.post("/servers/{server_id}/test")
     async def test_server(server_id: str) -> dict[str, Any]:
@@ -453,7 +558,128 @@ def create_mcp_router(
 
         return await run_in_threadpool(tester, cfg)
 
+    # -- OAuth sign-in ------------------------------------------------------
+
+    from openjarvis.mcp import oauth as mcp_oauth
+
+    pending = mcp_oauth.PendingSignIns()
+
+    def _redirect_uri(request: Request) -> str:
+        configured = getattr(_config().tools.mcp, "oauth_redirect_uri", "") or ""
+        if configured:
+            return configured
+        base = str(request.base_url).rstrip("/")
+        # Behind a local reverse proxy the forwarded scheme can be https
+        # while this server only speaks http on loopback; the browser
+        # reaches the callback directly, so use the socket address.
+        server = request.scope.get("server")
+        if urlparse(base).hostname in ("127.0.0.1", "localhost", "::1") and server:
+            host, port = server[0], server[1]
+            host = f"[{host}]" if ":" in str(host) else host
+            base = f"http://{host}:{port}"
+        return f"{base}/v1/mcp/oauth/callback"
+
+    @router.get("/oauth/redirect-uri")
+    def oauth_redirect_uri(request: Request) -> dict[str, Any]:
+        return {"redirect_uri": _redirect_uri(request)}
+
+    @router.post("/servers/{server_id}/oauth/start")
+    async def oauth_start(server_id: str, request: Request) -> dict[str, Any]:
+        from starlette.concurrency import run_in_threadpool
+
+        record = _store_call(lambda: mcp_store.get(server_id))
+        if record is None:
+            raise HTTPException(404, "MCP server not found")
+        if record.get("auth_type") != "oauth":
+            raise HTTPException(400, "This server does not use OAuth sign-in")
+        redirect_uri = _redirect_uri(request)
+        client_id = record.get("oauth_client_id")
+        client_secret = mcp_store.oauth_client_secret(server_id)
+
+        def _prepare() -> str:
+            discovery = mcp_oauth.discover(record["url"])
+            nonlocal client_id, client_secret
+            if not client_id:
+                if not discovery.registration_endpoint:
+                    raise mcp_oauth.OAuthError(
+                        "This server needs an OAuth client you create yourself. "
+                        "Enter its client ID and secret, then sign in."
+                    )
+                registered = mcp_oauth.register_client(
+                    discovery.registration_endpoint, redirect_uri
+                )
+                client_id = registered["client_id"]
+                client_secret = registered.get("client_secret")
+            sign_in = mcp_oauth.PendingSignIn(
+                server_id=server_id,
+                verifier="",
+                redirect_uri=redirect_uri,
+                discovery=discovery,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
+            scopes = list(record.get("oauth_scopes") or []) or discovery.scopes
+            return mcp_oauth.start_sign_in(
+                sign_in, pending, scopes, record.get("oauth_auth_params") or {}
+            )
+
+        try:
+            url = await run_in_threadpool(_prepare)
+        except mcp_oauth.OAuthError as exc:
+            raise HTTPException(400, str(exc)) from None
+        return {"authorization_url": url, "redirect_uri": redirect_uri}
+
+    @router.get("/oauth/callback", response_class=HTMLResponse)
+    async def oauth_callback(request: Request) -> HTMLResponse:
+        from starlette.concurrency import run_in_threadpool
+
+        params = request.query_params
+        sign_in = pending.pop(params.get("state") or "")
+        if sign_in is None:
+            return _callback_page(False, "This sign-in link expired. Start again.")
+        if params.get("error"):
+            return _callback_page(False, "Sign-in was cancelled or refused.")
+        code = params.get("code")
+        if not code:
+            return _callback_page(False, "The authorization server sent no code.")
+        try:
+            tokens = await run_in_threadpool(mcp_oauth.exchange_code, sign_in, code)
+        except mcp_oauth.OAuthError as exc:
+            return _callback_page(False, str(exc))
+        if _store_call(lambda: mcp_store.get(sign_in.server_id)) is None:
+            return _callback_page(False, "The MCP server was deleted.")
+        _store_call(lambda: mcp_store.set_oauth_tokens(sign_in.server_id, tokens))
+        return _callback_page(True, "Signed in. You can close this window.")
+
+    @router.post("/servers/{server_id}/oauth/sign-out")
+    def oauth_sign_out(server_id: str) -> dict[str, Any]:
+        if _store_call(lambda: mcp_store.get(server_id)) is None:
+            raise HTTPException(404, "MCP server not found")
+        _store_call(lambda: mcp_store.set_oauth_tokens(server_id, None))
+        return {"signed_out": True, "restart_required": _restart_required()}
+
     return router
+
+
+def _callback_page(ok: bool, message: str) -> HTMLResponse:
+    """Small page shown in the sign-in window; never includes a token."""
+    import html
+
+    status = "ok" if ok else "error"
+    body = f"""<!doctype html><html><head><meta charset="utf-8">
+<title>OpenJarvis sign-in</title></head>
+<body style="font-family:system-ui;padding:2rem">
+<p>{html.escape(message)}</p>
+<script>
+try {{ window.opener && window.opener.postMessage(
+  {{ type: "openjarvis-mcp-oauth", status: "{status}" }}, "*"); }} catch (e) {{}}
+{"setTimeout(function(){ window.close(); }, 800);" if ok else ""}
+</script></body></html>"""
+    return HTMLResponse(
+        body,
+        status_code=200 if ok else 400,
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+    )
 
 
 __all__ = ["MCPServerIn", "create_mcp_router", "run_server_test"]
