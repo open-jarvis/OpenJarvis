@@ -3,8 +3,8 @@
 Credentials never enter prompts or artifacts. Every file read or written stays
 inside the current request's folder (``team-data/<team>/campaigns/<id>/``):
 ``originals/`` (operator uploads, never modified), ``drafts/`` (HTML layouts,
-images returned by the team's MCP services), ``final/`` (exported
-PNGs) and ``approved/`` (immutable copies). Image editing services are team MCP
+images returned by the team's MCP services) and ``final/`` (exported PNGs
+the operator reviews and downloads). Image editing services are team MCP
 connections, not built-in tools.
 Text, logo and contact details are composed deterministically; no image model
 writes package labels, headlines or numbers.
@@ -159,65 +159,4 @@ class MarketingCreativeTool(_CampaignTool):
             return self._result(False, f"تعذّر تركيب التصميم: {exc}")
 
 
-# ── Approval submission ──────────────────────────────────────────────
-
-
-@ToolRegistry.register("marketing_submit_review")
-class MarketingSubmitReviewTool(_CampaignTool):
-    tool_id = "marketing_submit_review"
-
-    @property
-    def spec(self) -> ToolSpec:
-        return ToolSpec(
-            name=self.tool_id,
-            description=(
-                "أرسل الصورة النهائية (final/*.png) ونص المنشور والموعد بتوقيت القاهرة "
-                "ونتيجة مراجعة الجودة إلى المستخدم للموافقة. لا تُجدول أو تنشر شيئًا: "
-                "الجدولة في Buffer تتم فقط بعد موافقة المستخدم الصريحة على هذه النسخة "
-                "بالتحديد. أي تغيير بعد الإرسال يحتاج موافقة جديدة."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "final_png": {"type": "string"},
-                    "caption": {"type": "string"},
-                    "scheduled_at": {
-                        "type": "string",
-                        "description": "YYYY-MM-DD HH:MM بتوقيت القاهرة",
-                    },
-                    "quality_review": {"type": "string"},
-                },
-                "required": ["final_png", "caption", "scheduled_at", "quality_review"],
-            },
-            category="proactive",
-        )
-
-    def execute(self, **params: Any) -> ToolResult:
-        from openjarvis.marketing.publisher import PublishError, submit_for_approval
-        from openjarvis.marketing.render import RenderError
-
-        try:
-            _, campaign = self._campaign()
-            result = submit_for_approval(
-                self._manager,
-                agent_id=self._agent_id,
-                campaign=campaign,
-                final_png=str(params.get("final_png", "")),
-                caption=str(params.get("caption", "")),
-                scheduled_at=str(params.get("scheduled_at", "")),
-                quality_review=str(params.get("quality_review", "")),
-            )
-            result["message"] = (
-                "أُرسلت المسودة للمستخدم للموافقة. لم تُجدول بعد في Buffer."
-            )
-            return self._result(True, result)
-        except (ToolFailure, PublishError, RenderError) as exc:
-            return self._result(False, str(exc))
-        except (OSError, ValueError) as exc:
-            return self._result(False, f"تعذّر إرسال المسودة للموافقة: {exc}")
-
-
-__all__ = [
-    "MarketingCreativeTool",
-    "MarketingSubmitReviewTool",
-]
+__all__ = ["MarketingCreativeTool"]

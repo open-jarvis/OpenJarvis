@@ -37,7 +37,7 @@ MAX_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 60
 MAX_CONTENT_CHARS = 20000
 MAX_FILES = 20
-CAMPAIGN_SUBDIRS = ("originals", "drafts", "final", "approved")
+CAMPAIGN_SUBDIRS = ("originals", "drafts", "final")
 
 _CREATE = """
 CREATE TABLE IF NOT EXISTS agent_campaigns (
@@ -320,12 +320,13 @@ class CampaignStore:
         lead = self.team_lead(campaign["team_id"])
         if not lead:
             raise HandoffRejected("لا يوجد منسّق محدد لهذا الفريق.")
+        # A follow-up reopens the request for the team. Older local databases
+        # may still hold review statuses from an earlier draft.
         if campaign["status"] in {
-            "awaiting_approval",
             "completed",
+            "awaiting_approval",
             "changes_requested",
         }:
-            # A follow-up reopens the request for the team.
             self.set_campaign_status(campaign_id, "active")
             campaign = self.get_campaign(campaign_id)
         return self._insert(
@@ -689,11 +690,6 @@ def format_batch_for_prompt(manager: Any, batch: List[Dict[str, Any]]) -> str:
     ]
     if options.get("contact"):
         lines.append(f"بيانات التواصل المعتمدة (انسخها حرفيًا): {options['contact']}")
-    paid = options.get("allow_paid")
-    lines.append(
-        "الاتصالات المعلَّمة كخدمات مدفوعة: "
-        + ("مسموحة في هذا الطلب." if paid else "غير مسموحة.")
-    )
     lines.append(
         "لتمرير ملف من الطلب إلى أداة اتصال (team_...) اكتب campaign:<المسار النسبي>؛ "
         "يرسل النظام الملف نفسه دون أن يمر عبرك."

@@ -1,4 +1,4 @@
-"""Team requests, orchestrator, publisher connections and approved publishing.
+"""Team requests, the orchestrator and team MCP connection checks.
 
 Registered on the managed-agents router (``/v1/managed-agents``). Operator
 facing errors are Arabic. Credentials are accepted only on creation and never
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import File, Form, HTTPException, Request, UploadFile
+from fastapi import File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -38,11 +38,6 @@ class RunLimitRequest(BaseModel):
 
 class AccessRequest(BaseModel):
     agent_ids: List[str] = []
-    paid: bool = False
-
-
-class ChannelRequest(BaseModel):
-    channel_id: str
 
 
 def _http(exc: Exception, status: int = 400) -> HTTPException:
@@ -70,7 +65,6 @@ async def _save_image(upload: UploadFile, folder: Path, stem: str) -> str:
 
 def register_campaign_routes(router: Any, manager: Any) -> None:
     from openjarvis.agents.campaigns import HandoffRejected
-    from openjarvis.marketing import publisher
 
     store = manager.campaigns  # Also creates the lead column.
 
@@ -121,7 +115,6 @@ def register_campaign_routes(router: Any, manager: Any) -> None:
                     handoff["result"] = (message or {}).get("content")
             value["handoffs"] = handoffs
             value["files"] = store.list_files(campaign)
-            value["publications"] = publisher.list_publications(manager, campaign["id"])
         return value
 
     # ── Orchestrator ─────────────────────────────────────────────
@@ -150,7 +143,6 @@ def register_campaign_routes(router: Any, manager: Any) -> None:
         title: str = Form(...),
         brief: str = Form(...),
         contact: str = Form(""),
-        allow_paid: bool = Form(False),
         max_runs: int = Form(16),
         photos: List[UploadFile] = File(default=[]),
         logo: Optional[UploadFile] = File(default=None),
@@ -167,7 +159,7 @@ def register_campaign_routes(router: Any, manager: Any) -> None:
                 team_id,
                 title=title,
                 brief=brief,
-                options={"contact": contact, "allow_paid": bool(allow_paid)},
+                options={"contact": contact},
                 max_runs=max_runs,
             )
         except KeyError as exc:
@@ -261,136 +253,41 @@ def register_campaign_routes(router: Any, manager: Any) -> None:
         }
         return FileResponse(file, media_type=media, headers=headers)
 
-    # ── Publications (approved Buffer posts) ─────────────────────
-
-    @router.post("/publications/{action_id}/retry")
-    async def retry_publication(action_id: str):
-        try:
-            return publisher.retry(manager, action_id)
-        except publisher.PublishError as exc:
-            raise _http(exc, 409) from exc
-
-    @router.post("/publications/{action_id}/refresh")
-    async def refresh_publication(action_id: str):
-        from openjarvis.marketing.buffer import BufferError
-
-        try:
-            return publisher.refresh_status(manager, action_id)
-        except (publisher.PublishError, BufferError) as exc:
-            raise _http(exc, 409) from exc
-
-    # ── Publisher connections (Buffer, R2) ───────────────────────
+    # ── Team MCP connections ─────────────────────────────────────
 
     @router.post("/teams/{team_id}/connections/{connection_id}/verify")
     async def verify_connection(team_id: str, connection_id: str):
-        from openjarvis.marketing.buffer import BufferClient, BufferError
-        from openjarvis.marketing.r2 import R2Client, R2Error
-
         connection = manager.get_team_connection(team_id, connection_id)
         if connection is None:
             raise HTTPException(404, "الاتصال غير موجود.")
-        token = manager._team_connection_token(connection_id)
-        extra: Dict[str, Any] = {}
         try:
-            if connection["kind"] == "buffer":
-                account = BufferClient(token).verify()
-                orgs = account.get("organizations") or []
-                org = connection["settings"].get("organization_id")
-                if not org and len(orgs) == 1:
-                    org = orgs[0]["id"]
-                if org and org not in {o["id"] for o in orgs}:
-                    raise BufferError("المؤسسة المحددة غير موجودة في حساب Buffer هذا.")
-                extra = {"organizations": orgs, "channels": []}
-                if org:
-                    extra["channels"] = [
-                        {
-                            k: c.get(k)
-                            for k in (
-                                "id",
-                                "name",
-                                "displayName",
-                                "service",
-                                "timezone",
-                                "isQueuePaused",
-                            )
-                        }
-                        for c in BufferClient(token).channels(org)
-                    ]
-                manager.update_team_connection_settings(
-                    team_id,
-                    connection_id,
-                    organization_id=org,
-                    verified_at=time.time(),
-                    last_error=None,
-                )
-            elif connection["kind"] == "r2":
-                settings = connection["settings"]
-                R2Client(
-                    account_id=settings["account_id"],
-                    bucket=settings["bucket"],
-                    access_key_id=settings["access_key_id"],
-                    secret_access_key=token,
-                    public_base_url=settings["public_base_url"],
-                ).verify()
-                manager.update_team_connection_settings(
-                    team_id, connection_id, verified_at=time.time(), last_error=None
-                )
-            else:
-                extra = {"tools": _verify_mcp(manager, connection)}
-                manager.update_team_connection_settings(
-                    team_id,
-                    connection_id,
-                    tools=extra["tools"],
-                    verified_at=time.time(),
-                    last_error=None,
-                )
-        except (BufferError, R2Error, _McpVerifyError) as exc:
+            tools = _verify_mcp(manager, connection)
+        except _McpVerifyError as exc:
             manager.update_team_connection_settings(
                 team_id, connection_id, verified_at=None, last_error=str(exc)
             )
             raise _http(exc, 409) from exc
+        manager.update_team_connection_settings(
+            team_id,
+            connection_id,
+            tools=tools,
+            verified_at=time.time(),
+            last_error=None,
+        )
         result = manager.get_team_connection(team_id, connection_id)
-        result.update(extra)
+        result["tools"] = tools
         return result
 
     @router.put("/teams/{team_id}/connections/{connection_id}/access")
     async def connection_access(team_id: str, connection_id: str, req: AccessRequest):
         try:
             return manager.set_team_connection_access(
-                team_id, connection_id, agent_ids=req.agent_ids, paid=req.paid
+                team_id, connection_id, agent_ids=req.agent_ids
             )
         except KeyError as exc:
             raise HTTPException(404, "اتصال MCP غير موجود.") from exc
         except ValueError as exc:
             raise HTTPException(400, "اختر وكلاء من أعضاء هذا الفريق فقط.") from exc
-
-    @router.put("/teams/{team_id}/connections/{connection_id}/channel")
-    async def choose_channel(team_id: str, connection_id: str, req: ChannelRequest):
-        from openjarvis.marketing.buffer import BufferClient, BufferError
-
-        connection = manager.get_team_connection(team_id, connection_id)
-        if connection is None or connection["kind"] != "buffer":
-            raise HTTPException(404, "اتصال Buffer غير موجود.")
-        org = connection["settings"].get("organization_id")
-        if not org or connection["status"] != "verified":
-            raise HTTPException(409, "تحقق من اتصال Buffer أولًا.")
-        try:
-            channels = BufferClient(
-                manager._team_connection_token(connection_id)
-            ).channels(org)
-        except BufferError as exc:
-            raise _http(exc, 409) from exc
-        channel = next((c for c in channels if c.get("id") == req.channel_id), None)
-        if channel is None:
-            raise HTTPException(400, "القناة غير موجودة في مؤسسة Buffer هذه.")
-        return manager.update_team_connection_settings(
-            team_id,
-            connection_id,
-            channel_id=channel["id"],
-            channel_name=channel.get("displayName") or channel.get("name"),
-            channel_service=channel.get("service"),
-            channel_timezone=channel.get("timezone"),
-        )
 
 
 class _McpVerifyError(RuntimeError):
@@ -437,29 +334,4 @@ def _verify_mcp(manager: Any, connection: Dict[str, Any]) -> List[Dict[str, str]
     ]
 
 
-def approve_marketing_action(request: Request, action: Any) -> Dict[str, Any]:
-    """Called by the approval route for marketing actions only."""
-    from openjarvis.marketing import publisher
-
-    manager = getattr(request.app.state, "agent_manager", None)
-    if manager is None:
-        raise HTTPException(503, "مدير الوكلاء غير متاح؛ أعد تشغيل الخادم.")
-    try:
-        return publisher.approve(manager, action.id)
-    except publisher.PublishError as exc:
-        raise HTTPException(409, str(exc)) from exc
-
-
-def deny_marketing_action(request: Request, action: Any) -> None:
-    from openjarvis.marketing import publisher
-
-    manager = getattr(request.app.state, "agent_manager", None)
-    if manager is not None:
-        publisher.deny(manager, action.id)
-
-
-__all__ = [
-    "approve_marketing_action",
-    "deny_marketing_action",
-    "register_campaign_routes",
-]
+__all__ = ["register_campaign_routes"]

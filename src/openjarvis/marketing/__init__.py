@@ -1,1 +1,1 @@
-"""Marketing production and approved publishing for managed-agent teams."""
+"""Marketing creative rendering for managed-agent teams."""

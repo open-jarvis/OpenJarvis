@@ -277,7 +277,7 @@ class StreamableHTTPTransport(MCPTransport):
 
         self._url = url
         self._token = token
-        # Provider-specific auth headers (e.g. ``api_token``).
+        # Custom auth headers configured on a team MCP connection.
         self._extra_headers = dict(headers or {})
         self._session_id: Optional[str] = None
         self._client = httpx.Client(

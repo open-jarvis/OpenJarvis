@@ -151,13 +151,6 @@ class TeamMCPTool(BaseTool):
             agent.get("team_id"), self._connection_id
         )
         store, campaign = self._campaign()
-        if (connection or {}).get("settings", {}).get("paid"):
-            options = (campaign or {}).get("options") or {}
-            if not options.get("allow_paid"):
-                return self._fail(
-                    f"«{connection['name']}» خدمة مدفوعة وغير مسموحة في هذا الطلب؛ "
-                    "اطلب إذن المستخدم."
-                )
         try:
             params = self._resolve_files(params, store, campaign)
         except (ValueError, HandoffRejected, OSError) as exc:
@@ -470,8 +463,6 @@ def discover_team_connections(
         return [], []
     tools, clients = [], []
     for connection in manager.list_team_connections(agent["team_id"]):
-        if connection.get("kind", "mcp") != "mcp":
-            continue  # Publisher-only credentials are never agent tools.
         if connection["status"] not in {"configured", "verified"}:
             continue
         if not manager.connection_open_to(connection, agent_id):

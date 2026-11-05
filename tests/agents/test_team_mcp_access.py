@@ -1,4 +1,4 @@
-"""Team MCP connections: custom auth header, per-agent access, paid gate, files.
+"""Team MCP connections: custom auth header, per-agent access, campaign files.
 
 Uses a real local Streamable-HTTP MCP server (no external services).
 """
@@ -160,13 +160,11 @@ def test_header_auth_and_access_limited_to_chosen_agents(env):
         client.close()
     assert _tool(manager, writer) == ([], [])
     assert not manager.team_connection_allowed(writer["id"], connection["id"])
-    manager.set_team_connection_access(
-        team["id"], connection["id"], agent_ids=[], paid=False
-    )
+    manager.set_team_connection_access(team["id"], connection["id"], agent_ids=[])
     assert manager.team_connection_allowed(writer["id"], connection["id"])
     with pytest.raises(ValueError):
         manager.set_team_connection_access(
-            team["id"], connection["id"], agent_ids=["ffffffffffff"], paid=False
+            team["id"], connection["id"], agent_ids=["ffffffffffff"]
         )
 
 
@@ -185,22 +183,10 @@ def test_invalid_header_names_rejected(env):
             )
 
 
-def test_paid_service_needs_request_permission(env):
-    manager, team, lead, designer, writer, add = env
-    add(paid=True)
-    _running_task(manager, team, lead, designer, allow_paid=False)
-    tools, clients = _tool(manager, designer)
-    result = tools[0].execute(image="campaign:originals/box.png")
-    assert not result.success and "مدفوعة" in result.content
-    assert FakeMCP.received == []
-    for client in clients:
-        client.close()
-
-
 def test_campaign_file_sent_by_runtime_and_result_saved_for_review(env):
     manager, team, lead, designer, writer, add = env
-    add(paid=True)
-    campaign, root = _running_task(manager, team, lead, designer, allow_paid=True)
+    add()
+    campaign, root = _running_task(manager, team, lead, designer)
     tools, clients = _tool(manager, designer)
     result = tools[0].execute(image="campaign:originals/box.png")
     for client in clients:

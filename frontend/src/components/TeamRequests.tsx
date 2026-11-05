@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
 import {
-  cancelTeamCampaign, createTeamCampaign, decideApproval, fetchCampaignFileBlob, fetchTeamCampaign,
-  fetchTeamCampaigns, refreshPublication, retryPublication, retryTeamHandoff, sendTeamFollowUp, setTeamCampaignMaxRuns,
+  cancelTeamCampaign, createTeamCampaign, fetchCampaignFileBlob, fetchTeamCampaign,
+  fetchTeamCampaigns, retryTeamHandoff, sendTeamFollowUp, setTeamCampaignMaxRuns,
 } from '../lib/api';
-import type { AgentTeam, TeamCampaign, TeamHandoff, TeamPublication } from '../lib/api';
+import type { AgentTeam, TeamCampaign, TeamHandoff } from '../lib/api';
 
 const field = 'rounded-lg px-3 py-2 text-sm w-full disabled:opacity-40';
 const style = { background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' };
@@ -14,8 +14,7 @@ const card = { border: '1px solid var(--color-border)', borderRadius: 12 };
 
 const CAMPAIGN_STATUS: Record<string, string> = {
   active: 'الفريق يعمل', waiting_for_you: 'بانتظار ردك', needs_attention: 'يحتاج تدخّلك',
-  awaiting_approval: 'المسودة بانتظار موافقتك', scheduled: 'مجدول في Buffer', changes_requested: 'طلبت تعديلات',
-  publish_failed: 'فشلت الجدولة', cancelled: 'أُوقف', failed: 'تعذّر البدء', completed: 'اكتمل',
+  cancelled: 'أُوقف', failed: 'تعذّر البدء', completed: 'اكتمل',
 };
 const HANDOFF_STATUS: Record<TeamHandoff['status'], string> = {
   pending: 'في الانتظار', running: 'قيد التنفيذ', completed: 'اكتمل', failed: 'فشل', blocked: 'متوقف',
@@ -23,7 +22,7 @@ const HANDOFF_STATUS: Record<TeamHandoff['status'], string> = {
 };
 const KIND: Record<TeamHandoff['kind'], string> = { request: 'طلب', task: 'مهمة', report: 'تقرير' };
 
-function AuthedImage({ campaignId, path, alt, className }: { campaignId: string; path: string; alt: string; className?: string }) {
+function useCampaignFile(campaignId: string, path: string) {
   const [src, setSrc] = useState('');
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -33,14 +32,27 @@ function AuthedImage({ campaignId, path, alt, className }: { campaignId: string;
       .catch(() => alive && setFailed(true));
     return () => { alive = false; if (url) URL.revokeObjectURL(url); };
   }, [campaignId, path]);
+  return { src, failed };
+}
+
+function AuthedImage({ campaignId, path, alt, className }: { campaignId: string; path: string; alt: string; className?: string }) {
+  const { src, failed } = useCampaignFile(campaignId, path);
   if (failed) return <p className="text-xs" style={muted}>تعذّر تحميل الصورة.</p>;
   return src ? <img src={src} alt={alt} className={className} /> : <p className="text-xs" style={muted}>جارٍ التحميل…</p>;
 }
 
-function formatCairo(iso: string) {
-  try {
-    return new Intl.DateTimeFormat('ar-EG', { dateStyle: 'full', timeStyle: 'short', timeZone: 'Africa/Cairo' }).format(new Date(iso));
-  } catch { return iso; }
+function FinalImage({ campaignId, path }: { campaignId: string; path: string }) {
+  const { src, failed } = useCampaignFile(campaignId, path);
+  const name = path.split('/').pop() || 'final.png';
+  return <figure className="space-y-2">
+    {failed ? <p className="text-sm" role="alert">تعذّر تحميل الصورة.</p>
+      : src ? <img src={src} alt={`الصورة النهائية ${name}`} className="w-full max-w-md aspect-square object-contain rounded-lg" style={{ background: 'var(--color-bg-secondary)' }} />
+        : <p role="status" className="text-sm" style={muted}>جارٍ التحميل…</p>}
+    <figcaption className="flex flex-wrap items-center gap-3 text-sm">
+      <span className="text-xs break-all" dir="ltr" style={muted}>{path}</span>
+      {src && <a href={src} download={name} className="underline font-semibold">تنزيل PNG</a>}
+    </figcaption>
+  </figure>;
 }
 
 export function NewRequestForm({ team, onCreated, disabled }: { team: AgentTeam; onCreated: (c: TeamCampaign) => void; disabled: boolean }) {
@@ -48,7 +60,6 @@ export function NewRequestForm({ team, onCreated, disabled }: { team: AgentTeam;
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    if (!form.get('allow_paid')) form.set('allow_paid', 'false');
     setBusy(true);
     try {
       const campaign = await createTeamCampaign(team.id, form);
@@ -64,44 +75,9 @@ export function NewRequestForm({ team, onCreated, disabled }: { team: AgentTeam;
     <label className="block text-sm">صور المنتجات الأصلية<input name="photos" type="file" multiple accept="image/png,image/jpeg,image/webp" className="block mt-1 text-sm" disabled={busy || disabled} /></label>
     <label className="block text-sm">الشعار المعتمد<input name="logo" type="file" accept="image/png,image/jpeg,image/webp" className="block mt-1 text-sm" disabled={busy || disabled} /></label>
     <label className="block text-sm">بيانات التواصل المعتمدة (تُكتب حرفيًا على التصميم)<input name="contact" maxLength={160} className={`${field} mt-1`} style={style} dir="auto" disabled={busy || disabled} /></label>
-    <label className="flex items-center gap-2 text-sm"><input name="allow_paid" type="checkbox" value="true" disabled={busy || disabled} />السماح باستخدام الاتصالات المعلَّمة كخدمات مدفوعة</label>
     <label className="block text-sm max-w-40">حد التشغيل لهذا الطلب<input name="max_runs" type="number" min={1} max={60} defaultValue={16} className={`${field} mt-1`} style={style} disabled={busy || disabled} /></label>
     <button type="submit" disabled={busy || disabled} className="text-sm underline disabled:opacity-40">{busy ? 'جارٍ الإرسال…' : 'أرسل للفريق'}</button>
   </form>;
-}
-
-function PublicationCard({ campaign, pub, onChanged }: { campaign: TeamCampaign; pub: TeamPublication; onChanged: () => void }) {
-  const [busy, setBusy] = useState(false);
-  async function run(action: () => Promise<unknown>, success: string) {
-    setBusy(true);
-    try { await action(); toast.success(success); onChanged(); }
-    catch (error) { toast.error(error instanceof Error ? error.message : 'تعذّر التنفيذ.'); }
-    finally { setBusy(false); }
-  }
-  return <article className="p-4 space-y-3" style={card} aria-label="مسودة المنشور">
-    <div className="flex flex-wrap gap-4">
-      <AuthedImage campaignId={campaign.id} path={pub.image_path} alt="الصورة النهائية للمنشور" className="w-64 h-64 object-contain rounded-lg" />
-      <div className="flex-1 min-w-56 space-y-2 text-sm">
-        <p><strong>الحالة:</strong> {pub.state_label}</p>
-        {pub.state_reason && <p role="status" style={muted}>{pub.state_reason}</p>}
-        <p><strong>القناة:</strong> {pub.channel_name || 'لم تُحدد قناة Buffer بعد'}</p>
-        <p><strong>الموعد:</strong> {formatCairo(pub.scheduled_local)} (بتوقيت القاهرة)</p>
-        {pub.buffer_post_id && <p><strong>معرّف المنشور في Buffer:</strong> <span dir="ltr">{pub.buffer_post_id}</span> {pub.buffer_status && `· ${pub.buffer_status}`}</p>}
-        {!!pub.needs_review && <p role="alert" className="font-medium">تنبيه: الصورة تحتوي أجزاء أعادت خدمة خارجية بناءها. قارنها بالأصل قبل الموافقة؛ لا تُعتبر مطابقة تلقائيًا.</p>}
-      </div>
-    </div>
-    <div className="text-sm"><strong>نص المنشور:</strong><p className="whitespace-pre-wrap mt-1" dir="auto">{pub.caption}</p></div>
-    {pub.quality_review && <details className="text-sm"><summary>نتيجة مراجعة الجودة</summary><p className="whitespace-pre-wrap mt-1" dir="auto">{pub.quality_review}</p></details>}
-    <p className="text-xs" style={muted}>الموافقة تخص هذه الصورة بالتحديد (بصمة {pub.image_sha256.slice(0, 12)}) وهذا النص وهذا الموعد. أي تغيير يحتاج موافقة جديدة.</p>
-    <div className="flex flex-wrap gap-4">
-      {pub.state === 'awaiting_approval' && <>
-        <button type="button" disabled={busy} className="text-sm underline font-semibold disabled:opacity-40" onClick={() => run(() => decideApproval(pub.action_id, 'approve'), 'تمت الموافقة؛ جارٍ الجدولة في Buffer.')}>أوافق — جدولة في Buffer</button>
-        <button type="button" disabled={busy} className="text-sm underline disabled:opacity-40" onClick={() => window.confirm('رفض هذه المسودة؟ يمكنك إرسال ملاحظاتك للفريق بعدها.') && run(() => decideApproval(pub.action_id, 'deny'), 'رُفضت المسودة.')}>رفض</button>
-      </>}
-      {pub.state === 'failed' && <button type="button" disabled={busy} className="text-sm underline disabled:opacity-40" onClick={() => run(() => retryPublication(pub.action_id), 'أُعيدت المحاولة؛ سنتحقق من Buffer أولًا.')}>إعادة المحاولة</button>}
-      {pub.state === 'scheduled' && <button type="button" disabled={busy} className="text-sm underline disabled:opacity-40" onClick={() => run(() => refreshPublication(pub.action_id), 'حُدّثت الحالة من Buffer.')}>تحديث الحالة من Buffer</button>}
-    </div>
-  </article>;
 }
 
 function HandoffRow({ handoff, onRetry }: { handoff: TeamHandoff; onRetry: (id: string) => void }) {
@@ -126,7 +102,7 @@ export function CampaignDetail({ campaignId, backTo }: { campaignId: string; bac
     catch (e) { setError(e instanceof Error ? e.message : 'تعذّر تحميل الطلب.'); }
   }, [campaignId]);
   useEffect(() => { load(); }, [load]);
-  const live = !!campaign && (campaign.open_handoffs > 0 || (campaign.publications || []).some((p) => ['approved', 'uploading', 'uploaded', 'creating', 'uncertain'].includes(p.state)));
+  const live = !!campaign && campaign.open_handoffs > 0;
   useEffect(() => {
     if (!live) return;
     const timer = window.setInterval(load, 4000);
@@ -140,7 +116,9 @@ export function CampaignDetail({ campaignId, backTo }: { campaignId: string; bac
   }
   if (error) return <p role="alert" className="text-sm">{error} <button type="button" onClick={load} className="underline">إعادة المحاولة</button></p>;
   if (!campaign) return <p role="status" className="text-sm">جارٍ التحميل…</p>;
-  const images = (campaign.files || []).filter((f) => /^(originals|final)\/.*\.(png|jpe?g|webp)$/i.test(f.path));
+  const images = (campaign.files || []).filter((f) => /^originals\/.*\.(png|jpe?g|webp)$/i.test(f.path));
+  // Newest final export first: this is what the operator reviews and downloads.
+  const finals = (campaign.files || []).filter((f) => /^final\/.*\.png$/i.test(f.path)).sort((a, b) => b.modified_at - a.modified_at);
   return <div className="space-y-4">
     <Link to={backTo} className="text-sm underline">→ كل طلبات الفريق</Link>
     <header className="space-y-1">
@@ -151,13 +129,19 @@ export function CampaignDetail({ campaignId, backTo }: { campaignId: string; bac
         {campaign.runs_used >= campaign.max_runs - 2 && campaign.max_runs < 60 && <button type="button" disabled={busy} className="underline disabled:opacity-40" onClick={() => act(() => setTeamCampaignMaxRuns(campaign.id, Math.min(60, campaign.max_runs + 8)), 'رُفع حد التشغيل.')}>رفع الحد بـ 8</button>}
       </p>
     </header>
-    {(campaign.publications || []).map((pub) => <PublicationCard key={pub.action_id} campaign={campaign} pub={pub} onChanged={load} />)}
+    <section aria-labelledby="final-images-title" className="p-4 space-y-3" style={card}>
+      <h3 id="final-images-title" className="text-sm font-semibold">الصور النهائية</h3>
+      {finals.length ? <>
+        <p className="text-xs" style={muted}>راجع الصورة بنفسك قبل استخدامها، وقارنها بالأصل إن كانت خدمة خارجية قد عدّلتها. لطلب تعديل اكتب للفريق بالأسفل.</p>
+        <div className="grid gap-4 sm:grid-cols-2">{finals.map((f) => <FinalImage key={f.path} campaignId={campaign.id} path={f.path} />)}</div>
+      </> : <p className="text-sm" style={muted}>لم يُصدِّر الفريق صورة نهائية بعد.</p>}
+    </section>
     <section aria-label="سير العمل">
       <h4 className="text-sm font-semibold mb-1">سير العمل</h4>
       <ul>{(campaign.handoffs || []).map((h) => <HandoffRow key={h.id} handoff={h} onRetry={(id) => act(() => retryTeamHandoff(id), 'أُعيدت المحاولة.')} />)}</ul>
     </section>
     {images.length > 0 && <section aria-label="الملفات">
-      <h4 className="text-sm font-semibold mb-2">الصور</h4>
+      <h4 className="text-sm font-semibold mb-2">الصور الأصلية</h4>
       <div className="flex flex-wrap gap-3">{images.map((f) => <figure key={f.path} className="w-32">
         <AuthedImage campaignId={campaign.id} path={f.path} alt={f.path} className="w-32 h-32 object-contain rounded" />
         <figcaption className="text-xs break-all" dir="ltr" style={muted}>{f.path}</figcaption>

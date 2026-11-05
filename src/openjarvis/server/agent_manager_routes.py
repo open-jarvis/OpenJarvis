@@ -97,8 +97,6 @@ class TeamConnectionRequest(BaseModel):
     url: str = ""
     auth_type: str = "bearer"
     token: SecretStr = SecretStr("")
-    # "mcp" (agent tools), or publisher-only "buffer" / "r2".
-    kind: str = "mcp"
     settings: Dict[str, Any] = {}
 
 
@@ -1770,7 +1768,6 @@ def create_agent_manager_router(
                 url=req.url,
                 auth_type=req.auth_type,
                 token=req.token.get_secret_value(),
-                kind=req.kind,
                 settings=req.settings,
             )
         except KeyError as exc:

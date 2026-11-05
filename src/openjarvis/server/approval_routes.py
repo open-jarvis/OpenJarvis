@@ -8,13 +8,12 @@ from typing import Any, Dict, Optional
 from openjarvis.tools.approval_store import (
     STATUS_APPROVED,
     STATUS_DENIED,
-    STATUS_PENDING,
     ApprovalStore,
     PendingAction,
 )
 
 try:
-    from fastapi import APIRouter, HTTPException, Request
+    from fastapi import APIRouter, HTTPException
 except ImportError:
     raise ImportError("fastapi is required for approval routes")
 
@@ -56,38 +55,23 @@ async def list_pending_approvals() -> Dict[str, Any]:
 
 
 @router.post("/v1/approvals/{action_id}/approve")
-async def approve_action(action_id: str, request: Request) -> Dict[str, Any]:
+async def approve_action(action_id: str) -> Dict[str, Any]:
     store = _get_store()
     action = store.get_action(action_id)
     if action is None:
         raise HTTPException(status_code=404, detail="Action not found")
-    if action.action_type == "marketing_buffer_schedule":
-        # Validates the exact approved image/caption/time before scheduling.
-        from openjarvis.server.team_campaign_routes import approve_marketing_action
-
-        result = approve_marketing_action(request, action)
-        logger.info("Marketing action %s approved via UI", action_id)
-        return {"id": action_id, **result}
-    if action.status != STATUS_PENDING:
-        raise HTTPException(status_code=409, detail="Action is no longer pending")
     store.update_status(action_id, STATUS_APPROVED)
     logger.info("Action %s approved via UI", action_id)
     return {"status": "approved", "id": action_id}
 
 
 @router.post("/v1/approvals/{action_id}/deny")
-async def deny_action(action_id: str, request: Request) -> Dict[str, Any]:
+async def deny_action(action_id: str) -> Dict[str, Any]:
     store = _get_store()
     action = store.get_action(action_id)
     if action is None:
         raise HTTPException(status_code=404, detail="Action not found")
-    if action.status != STATUS_PENDING:
-        raise HTTPException(status_code=409, detail="Action is no longer pending")
     store.update_status(action_id, STATUS_DENIED)
-    if action.action_type == "marketing_buffer_schedule":
-        from openjarvis.server.team_campaign_routes import deny_marketing_action
-
-        deny_marketing_action(request, action)
     logger.info("Action %s denied via UI", action_id)
     return {"status": "denied", "id": action_id}
 

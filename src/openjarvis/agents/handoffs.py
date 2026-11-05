@@ -43,12 +43,10 @@ class HandoffDispatcher:
         executor: Any,
         *,
         poll_interval: float = 2.0,
-        publisher_transport: Any = None,
     ) -> None:
         self._manager = manager
         self._executor = executor
         self._poll = poll_interval
-        self._publisher_transport = publisher_transport
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -61,9 +59,6 @@ class HandoffDispatcher:
             recovered = self._manager.campaigns.recover_interrupted()
             if recovered:
                 logger.info("Requeued %d interrupted handoff(s)", recovered)
-            from openjarvis.marketing import publisher
-
-            publisher.recover_interrupted(self._manager)
         except Exception:
             logger.exception("Handoff recovery failed")
         self._stop.clear()
@@ -93,13 +88,7 @@ class HandoffDispatcher:
     # ── One pass ────────────────────────────────────────────────
 
     def dispatch_once(self) -> int:
-        """Run at most one handoff and advance publications. Returns runs."""
-        try:
-            from openjarvis.marketing import publisher
-
-            publisher.process_due(self._manager, transport=self._publisher_transport)
-        except Exception:
-            logger.exception("Publication dispatch error")
+        """Run at most one due handoff. Returns runs."""
         for handoff in self._manager.campaigns.due_handoffs():
             if self._stop.is_set():
                 return 0

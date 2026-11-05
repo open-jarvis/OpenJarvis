@@ -185,16 +185,13 @@ class AgentManager:
         self._conn.execute(
             "UPDATE managed_agents SET team_scoped = 1 WHERE team_id IS NOT NULL"
         )
-        for statement in (
-            "ALTER TABLE team_mcp_connections ADD COLUMN kind "
-            "TEXT NOT NULL DEFAULT 'mcp'",
-            "ALTER TABLE team_mcp_connections ADD COLUMN settings_json "
-            "TEXT NOT NULL DEFAULT '{}'",
-        ):
-            try:
-                self._conn.execute(statement)
-            except sqlite3.OperationalError:
-                pass  # Existing database already has this column.
+        try:
+            self._conn.execute(
+                "ALTER TABLE team_mcp_connections ADD COLUMN settings_json "
+                "TEXT NOT NULL DEFAULT '{}'"
+            )
+        except sqlite3.OperationalError:
+            pass  # Existing database already has this column.
         for column in ("communication_json",):
             try:
                 self._conn.execute(
@@ -935,6 +932,9 @@ class AgentManager:
         result = []
         for row in rows:
             connection = dict(row)
+            # Older local databases may hold non-MCP rows from an earlier draft.
+            if connection.pop("kind", "mcp") != "mcp":
+                continue
             connection["settings"] = json.loads(connection.pop("settings_json") or "{}")
             configured = (
                 row["auth_type"] == "none"
@@ -968,20 +968,10 @@ class AgentManager:
         )
 
     @_db_locked
-    def team_connection_of_kind(
-        self, team_id: str, kind: str
-    ) -> Optional[Dict[str, Any]]:
-        """The team's own connection of a provider kind (never a global one)."""
-        return next(
-            (c for c in self.list_team_connections(team_id) if c["kind"] == kind),
-            None,
-        )
-
-    @_db_locked
     def update_team_connection_settings(
         self, team_id: str, connection_id: str, **changes: Any
     ) -> Dict[str, Any]:
-        """Merge non-secret settings (verification state, chosen channel...)."""
+        """Merge non-secret settings (verification state, allowed agents...)."""
         connection = self.get_team_connection(team_id, connection_id)
         if connection is None:
             raise KeyError("Connection not found")
@@ -1009,16 +999,12 @@ class AgentManager:
         url: str,
         auth_type: str = "bearer",
         token: str = "",
-        kind: str = "mcp",
         settings: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Save a team-owned HTTP connection and private per-connection credential.
 
         The token is stored in a mode-0600 file, never in process environment,
         returned metadata, agent configuration or the global MCP credential.
-        ``kind`` "mcp" connections are discovered as agent tools. "buffer" and
-        "r2" connections are used only by the server-side publisher after human
-        approval; agents never receive tools for them.
         """
         from urllib.parse import urlsplit
 
@@ -1027,18 +1013,7 @@ class AgentManager:
         if not self.get_team(team_id):
             raise KeyError("Team not found")
         name, provider = self._team_name(name), self._team_name(provider)
-        if kind not in {"mcp", "buffer", "r2"}:
-            raise ValueError("Choose an MCP, Buffer or Cloudflare R2 connection")
-        if kind != "mcp":
-            from openjarvis.marketing.connections import normalize_provider_settings
-
-            url, settings = normalize_provider_settings(kind, url, settings or {})
-            auth_type = "bearer"
-            if not token.strip():
-                raise ValueError("This connection needs its credential")
-        if kind == "mcp":
-            settings = self._mcp_settings(team_id, settings or {}, auth_type)
-        settings = settings or {}
+        settings = self._mcp_settings(team_id, settings or {}, auth_type)
         parsed = urlsplit(url)
         if not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("Use an MCP endpoint without credentials in its URL")
@@ -1062,8 +1037,8 @@ class AgentManager:
             with self._conn:
                 self._conn.execute(
                     "INSERT INTO team_mcp_connections "
-                    "(id,team_id,name,provider,url,auth_type,created_at,kind,"
-                    "settings_json) VALUES (?,?,?,?,?,?,?,?,?)",
+                    "(id,team_id,name,provider,url,auth_type,created_at,"
+                    "settings_json) VALUES (?,?,?,?,?,?,?,?)",
                     (
                         connection_id,
                         team_id,
@@ -1072,7 +1047,6 @@ class AgentManager:
                         url,
                         auth_type,
                         time.time(),
-                        kind,
                         json.dumps(settings, ensure_ascii=False),
                     ),
                 )
@@ -1096,7 +1070,7 @@ class AgentManager:
     def _mcp_settings(
         self, team_id: str, settings: Dict[str, Any], auth_type: str
     ) -> Dict[str, Any]:
-        """Validate MCP settings: auth header name, paid flag, allowed agents."""
+        """Validate MCP settings: auth header name and allowed agents."""
         clean: Dict[str, Any] = {}
         if auth_type == "header":
             header = str(settings.get("header_name") or "").strip()
@@ -1105,10 +1079,7 @@ class AgentManager:
             ):
                 raise ValueError("Choose a valid authentication header name")
             clean["header_name"] = header
-        clean["paid"] = bool(settings.get("paid"))
         clean["agent_ids"] = self._member_ids(team_id, settings.get("agent_ids") or [])
-        if settings.get("preset"):
-            clean["preset"] = str(settings["preset"])[:32]
         return clean
 
     def _member_ids(self, team_id: str, agent_ids: Any) -> List[str]:
@@ -1127,17 +1098,15 @@ class AgentManager:
         connection_id: str,
         *,
         agent_ids: List[str],
-        paid: bool,
     ) -> Dict[str, Any]:
-        """Limit an MCP connection to chosen members; mark it as a paid service."""
+        """Limit an MCP connection to chosen members (empty: the whole team)."""
         connection = self.get_team_connection(team_id, connection_id)
-        if connection is None or connection["kind"] != "mcp":
+        if connection is None:
             raise KeyError("Connection not found")
         return self.update_team_connection_settings(
             team_id,
             connection_id,
             agent_ids=self._member_ids(team_id, agent_ids),
-            paid=bool(paid),
         )
 
     @staticmethod
@@ -1166,11 +1135,7 @@ class AgentManager:
         if agent["config"].get("mcp_tools", True) is False:
             return False
         connection = self.get_team_connection(agent["team_id"], connection_id)
-        return bool(
-            connection
-            and connection["kind"] == "mcp"
-            and self.connection_open_to(connection, agent_id)
-        )
+        return bool(connection and self.connection_open_to(connection, agent_id))
 
     @_db_locked
     def _team_connection_token(self, connection_id: str) -> str:

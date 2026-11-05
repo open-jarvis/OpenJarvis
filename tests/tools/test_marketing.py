@@ -1,4 +1,4 @@
-"""Marketing tools are bound to the running team request; no paid calls."""
+"""Marketing tools are bound to the running team request."""
 
 import json
 import struct
@@ -7,10 +7,7 @@ import zlib
 import pytest
 
 from openjarvis.agents.manager import AgentManager
-from openjarvis.tools.marketing import (
-    MarketingCreativeTool,
-    MarketingSubmitReviewTool,
-)
+from openjarvis.tools.marketing import MarketingCreativeTool
 
 
 def _png(width, height, rgb=(200, 150, 90)) -> bytes:
@@ -71,14 +68,13 @@ def running(tmp_path):
 
 
 def test_tools_refuse_without_a_running_request(tmp_path):
-    for tool in (MarketingCreativeTool(), MarketingSubmitReviewTool()):
-        result = tool.execute(product_image="x", headline="y")
-        assert not result.success and "الفرق" in result.content
+    result = MarketingCreativeTool().execute(product_image="x", headline="y")
+    assert not result.success and "الفرق" in result.content
 
 
 def test_files_outside_the_request_are_rejected(running):
     manager, designer, start = running
-    start(allow_paid=True, logo="originals/logo.png", contact="0100")
+    start(logo="originals/logo.png", contact="0100")
     result = MarketingCreativeTool(manager, designer["id"]).execute(
         product_image="../../../agents.db", headline="عنوان"
     )
@@ -87,7 +83,7 @@ def test_files_outside_the_request_are_rejected(running):
 
 def test_creative_needs_approved_logo_and_contact(running):
     manager, designer, start = running
-    start(allow_paid=False)
+    start()
     result = MarketingCreativeTool(manager, designer["id"]).execute(
         product_image="originals/box.png", headline="عنوان"
     )
@@ -103,7 +99,7 @@ def test_creative_exports_png_with_metadata(running):
         pytest.skip("Chrome/Chromium not installed")
     manager, designer, start = running
     campaign, root = start(
-        allow_paid=False, logo="originals/logo.png", contact="0100 000 0000 · سوفت باك"
+        logo="originals/logo.png", contact="0100 000 0000 · سوفت باك"
     )
     result = MarketingCreativeTool(manager, designer["id"]).execute(
         product_image="originals/box.png", headline="عبوات تحمي منتجك"
@@ -131,7 +127,11 @@ def test_softpack_templates_are_arabic_and_limit_tools():
     ):
         template = templates[template_id]
         assert "منسّق" in template["system_prompt_template"]
-    assert "marketing_submit_review" in templates["softpack_release"]["tools"]
+    # The release agent only prepares the final package for the operator.
+    assert templates["softpack_release"]["tools"] == ["think"]
+    for template in templates.values():
+        if template["id"].startswith("softpack_"):
+            assert "marketing_submit_review" not in template["system_prompt_template"]
     assert "campaign:" in templates["softpack_production"]["system_prompt_template"]
     # Image services are ordinary team MCP connections, so the design agent
     # must be allowed to discover them (team agents never get global MCP).

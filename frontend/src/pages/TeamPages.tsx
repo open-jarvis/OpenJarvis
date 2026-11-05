@@ -79,7 +79,7 @@ export function TeamPage() {
           {lead && <Link to={`/agents/teams/${team.id}/requests/new`} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm" style={style}><Plus size={15} />طلب جديد للفريق</Link>}
         </div>
         <p className="text-sm max-w-2xl" style={muted}>{lead
-          ? `طلبك يصل إلى المنسّق «${lead.name}»، فيوزّع المهام على الفريق ويعرض عليك المسودة. لا يُجدول شيء في Buffer إلا بعد موافقتك.`
+          ? `طلبك يصل إلى المنسّق «${lead.name}»، فيوزّع المهام على الفريق، وتجد الصورة النهائية في صفحة الطلب لتراجعها وتنزّلها.`
           : <>حدّد منسّق الفريق أولًا من <Link to={`/agents/teams/${team.id}/settings`} className="underline">الإعدادات والاتصالات</Link> حتى تستطيع مخاطبة الفريق.</>}</p>
         <CampaignList team={team} />
       </section>

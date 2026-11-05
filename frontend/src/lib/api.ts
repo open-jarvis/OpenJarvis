@@ -1270,8 +1270,6 @@ export async function deleteAgentTeam(id: string): Promise<void> {
   await agentTeamRequest(`/${encodeURIComponent(id)}`, 'DELETE');
 }
 
-export type TeamConnectionKind = 'mcp' | 'buffer' | 'r2';
-
 export interface TeamConnection {
   id: string;
   team_id: string;
@@ -1279,8 +1277,7 @@ export interface TeamConnection {
   provider: string;
   url: string;
   auth_type: 'bearer' | 'none' | 'header';
-  kind?: TeamConnectionKind;
-  settings?: Record<string, string | number | null>;
+  settings?: { header_name?: string; agent_ids?: string[]; verified_at?: number | null; last_error?: string | null; tools?: { name: string; description: string }[] };
   status: 'configured' | 'needs_authentication' | 'verified' | 'error';
 }
 
@@ -1301,7 +1298,7 @@ export async function fetchTeamConnections(teamId: string): Promise<TeamConnecti
 
 export async function createTeamConnection(teamId: string, connection: {
   name: string; provider: string; url: string; auth_type: 'bearer' | 'none' | 'header'; token: string;
-  kind?: TeamConnectionKind; settings?: Record<string, string>;
+  settings?: { header_name?: string; agent_ids?: string[] };
 }): Promise<TeamConnection> {
   const res = await apiFetch(`/v1/managed-agents/teams/${encodeURIComponent(teamId)}/connections`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(connection),
@@ -1319,7 +1316,7 @@ export async function deleteTeamConnection(teamId: string, connectionId: string)
 }
 
 // ---------------------------------------------------------------------------
-// Team requests (orchestrator), handoffs and approved publishing
+// Team requests (orchestrator) and handoffs
 // ---------------------------------------------------------------------------
 
 async function teamJson<T>(path: string, init: RequestInit = {}, fallback = 'تعذّر تنفيذ الطلب.'): Promise<T> {
@@ -1354,24 +1351,6 @@ export interface TeamHandoff {
   result?: string | null;
 }
 
-export interface TeamPublication {
-  action_id: string;
-  image_path: string;
-  image_sha256: string;
-  caption: string;
-  scheduled_local: string;
-  due_at_utc: string;
-  state: string;
-  state_label: string;
-  state_reason: string;
-  channel_name?: string | null;
-  needs_review?: number;
-  quality_review?: string;
-  buffer_post_id?: string | null;
-  buffer_status?: string | null;
-  image_url?: string | null;
-}
-
 export interface TeamCampaign {
   id: string;
   team_id: string;
@@ -1381,7 +1360,7 @@ export interface TeamCampaign {
   display_status: string;
   status_reason: string;
   lead_agent_id: string;
-  options: { contact?: string; logo?: string; allow_paid?: boolean };
+  options: { contact?: string; logo?: string };
   max_runs: number;
   runs_used: number;
   open_handoffs: number;
@@ -1390,7 +1369,6 @@ export interface TeamCampaign {
   updated_at: number;
   handoffs?: TeamHandoff[];
   files?: { path: string; size: number; modified_at: number }[];
-  publications?: TeamPublication[];
 }
 
 export async function setTeamLead(teamId: string, agentId: string | null): Promise<AgentTeam> {
@@ -1425,38 +1403,16 @@ export async function retryTeamHandoff(handoffId: string): Promise<TeamCampaign>
   return teamJson(`/handoffs/${encodeURIComponent(handoffId)}/retry`, { method: 'POST' });
 }
 
-export async function retryPublication(actionId: string): Promise<TeamPublication> {
-  return teamJson(`/publications/${encodeURIComponent(actionId)}/retry`, { method: 'POST' });
-}
-
-export async function refreshPublication(actionId: string): Promise<TeamPublication> {
-  return teamJson(`/publications/${encodeURIComponent(actionId)}/refresh`, { method: 'POST' });
-}
-
 export async function fetchCampaignFileBlob(campaignId: string, path: string): Promise<Blob> {
   const res = await apiFetch(`/v1/managed-agents/campaigns/${encodeURIComponent(campaignId)}/file?path=${encodeURIComponent(path)}`);
   if (!res.ok) throw new Error('تعذّر تحميل الملف.');
   return res.blob();
 }
 
-export interface BufferChannel { id: string; name?: string; displayName?: string; service?: string; timezone?: string; isQueuePaused?: boolean }
-
-export async function verifyTeamConnection(teamId: string, connectionId: string): Promise<TeamConnection & { channels?: BufferChannel[] }> {
+export async function verifyTeamConnection(teamId: string, connectionId: string): Promise<TeamConnection> {
   return teamJson(`/teams/${encodeURIComponent(teamId)}/connections/${encodeURIComponent(connectionId)}/verify`, { method: 'POST' }, 'Verification failed.');
 }
 
-export async function setTeamConnectionAccess(teamId: string, connectionId: string, agentIds: string[], paid: boolean): Promise<TeamConnection> {
-  return teamJson(`/teams/${encodeURIComponent(teamId)}/connections/${encodeURIComponent(connectionId)}/access`, jsonInit('PUT', { agent_ids: agentIds, paid }), 'تعذّر حفظ الصلاحيات.');
-}
-
-export async function chooseBufferChannel(teamId: string, connectionId: string, channelId: string): Promise<TeamConnection> {
-  return teamJson(`/teams/${encodeURIComponent(teamId)}/connections/${encodeURIComponent(connectionId)}/channel`, jsonInit('PUT', { channel_id: channelId }), 'Could not choose channel.');
-}
-
-export async function decideApproval(actionId: string, decision: 'approve' | 'deny'): Promise<void> {
-  const res = await apiFetch(`/v1/approvals/${encodeURIComponent(actionId)}/${decision}`, { method: 'POST' });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(typeof data.detail === 'string' ? data.detail : 'تعذّر تسجيل قرارك.');
-  }
+export async function setTeamConnectionAccess(teamId: string, connectionId: string, agentIds: string[]): Promise<TeamConnection> {
+  return teamJson(`/teams/${encodeURIComponent(teamId)}/connections/${encodeURIComponent(connectionId)}/access`, jsonInit('PUT', { agent_ids: agentIds }), 'تعذّر حفظ الصلاحيات.');
 }

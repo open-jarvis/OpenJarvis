@@ -6,7 +6,7 @@ Use the **Team** filter to switch between **All teams**, **Unassigned**, or an i
 
 Select a team to rename or delete it. Deleting a team moves its agents to Unassigned; it preserves the agents, their configurations, messages and tasks. Existing agents remain unassigned after upgrading until you explicitly move them.
 
-Teams organize agents and provide independent company MCP connections, per-team memory and knowledge, and policy-controlled managed-agent messaging. They do not enforce tenant access controls, isolate the filesystem or non-MCP connectors, automatically run recipients, or configure publishing providers.
+Teams organize agents and provide independent company MCP connections, per-team memory and knowledge, and policy-controlled managed-agent messaging. They do not enforce tenant access controls, isolate the filesystem or non-MCP connectors, or automatically run recipients. Team connections are plain MCP servers; nothing is posted to any external service on your behalf.
 
 ## API
 
@@ -28,7 +28,7 @@ Only the team's connections are exposed to its agents. Neither a missing credent
 
 Credentials are stored in separate files beside the agents database under `team-connection-secrets/`, using the project's atomic owner-only write helper (0700 directory, 0600 files on POSIX). Tokens are not placed in process environment, agent config, API metadata, or prompts. This is local file protection, not encrypted credential storage or an OS-level tenant boundary. Removing a connection or deleting its team removes its credential file and blocks subsequent tool calls. Calls already in progress may finish. Deleting and recreating a connection is the supported credential replacement procedure.
 
-The connection flow supports Streamable HTTP MCP with a bearer token, a custom header whose name you enter (for example `api_token`), or an explicitly unauthenticated server. **Test connection** connects with the team's credential and lists the server's tools; only then is it *Verified*. Each MCP connection can be limited to chosen team members and marked as a paid service, which runs only for requests that allow paid services. An agent passes a request file to an MCP tool as `campaign:<relative path>`; the runtime sends the file's bytes (base64) so images never pass through the model, and image URLs in the tool's result are downloaded into the request's `drafts/` and flagged for review. HTTPS is required except for an explicitly local HTTP endpoint. URLs must not contain embedded credentials, query parameters or fragments. A provider's account-specific MCP endpoint/token must be obtained through its own authorization process. Built-in Google OAuth login, token refresh and stdio per-company profiles are not included. **Configured** means settings exist, not that Gmail or another account has been verified. No real company account is connected by installing this feature.
+The connection flow supports Streamable HTTP MCP with a bearer token, a custom header whose name you enter (for example `api_token`), or an explicitly unauthenticated server. **Test connection** connects with the team's credential and lists the server's tools; only then is it *Verified*. Each MCP connection can be limited to chosen team members. An agent passes a request file to an MCP tool as `campaign:<relative path>`; the runtime sends the file's bytes (base64) so images never pass through the model, and image URLs in the tool's result are downloaded into the request's `drafts/` and flagged for review. HTTPS is required except for an explicitly local HTTP endpoint. URLs must not contain embedded credentials, query parameters or fragments. A provider's account-specific MCP endpoint/token must be obtained through its own authorization process. Built-in Google OAuth login, token refresh and stdio per-company profiles are not included. **Configured** means settings exist, not that Gmail or another account has been verified. No real company account is connected by installing this feature.
 
 Tools are bound to the connection that discovered them and have stable connection-qualified names, preventing two identically named tools from resolving to another account. Runtime execution checks current agent membership, connection ownership and agent MCP opt-out. Each turn owns and closes its own private MCP clients; it never closes another team's or a global client's session.
 
@@ -48,14 +48,14 @@ Existing global memory and knowledge are not migrated into teams. Deleting a tea
 
 Each team has its own pages. Pick a team on **Agents** and open **صفحة الفريق والطلبات** (`/agents/teams/<team>`) for its members and requests, or **الإعدادات والاتصالات** (`/agents/teams/<team>/settings`) for its name, orchestrator, MCP connections, cross-team communication and deletion. Every request has its own page (`/agents/teams/<team>/requests/<request>`), so it can be bookmarked or shared.
 
-Each team can have an **orchestrator**: one of its agents, chosen on the team settings page. Choose **طلب جديد للفريق** (New team request) to send the team a request with a title, the request text, original product photos, an approved logo, approved contact details, whether connections marked as paid services may be used, and a run limit. The request goes to the orchestrator; you never pass results between agents yourself.
+Each team can have an **orchestrator**: one of its agents, chosen on the team settings page. Choose **طلب جديد للفريق** (New team request) to send the team a request with a title, the request text, original product photos, an approved logo, approved contact details and a run limit. The request goes to the orchestrator; you never pass results between agents yourself.
 
 - The orchestrator assigns up to four **tasks** per run with `team_assign_tasks` (lead only). Each task **runs the receiving agent automatically**.
 - When a member finishes, its reply returns to the orchestrator automatically as a **report**. Reports waiting for the orchestrator in the same request are delivered together in one run.
 - `managed_agent_message` stays an informational message: it never runs its recipient.
 - Follow-up messages from you on a request also go to the orchestrator.
 
-Every request, task, report, file and status is stored in the agents database and the team's `team-data/<team_id>/campaigns/<request_id>/` folder (`originals/`, `drafts/`, `final/`, `approved/`), so work resumes after a restart. A run interrupted by a restart is requeued within its attempt budget.
+Every request, task, report, file and status is stored in the agents database and the team's `team-data/<team_id>/campaigns/<request_id>/` folder (`originals/`, `drafts/`, `final/`), so work resumes after a restart. A run interrupted by a restart is requeued within its attempt budget.
 
 Safety limits:
 
@@ -65,11 +65,9 @@ Safety limits:
 - A run that returns nothing is retried once after a minute, then marked failed.
 - Content written by agents is fenced in the recipient's prompt as untrusted data with no authority to change permissions, budgets or connections. Files cannot be shared with another team.
 
-## Approved publishing (Buffer)
+## Final images
 
-Add two publisher-only connections to the team: **Buffer** (an API key with posting permission from the company's own Buffer account) and **Cloudflare R2** (a public bucket for approved images; Buffer has no upload endpoint and fetches images from a public URL at publish time). Choose **Verify**: only a successful provider call marks a connection *Verified*; saved settings alone are never treated as authentication. For Buffer, choose the company's channel after verifying. These connections are never exposed to agents and are never replaced by a global account.
-
-The release agent submits the exact final PNG, caption, Cairo time and quality review with `marketing_submit_review`. The request then shows the image, caption, channel and time with **Approve** / **Deny**. Approval is bound to that image's SHA-256 (an immutable copy in `approved/`), caption and time; any change needs a new approval. After approval only, the server uploads that one file to R2 under a random name and creates one `customScheduled` post in Buffer (`dueAt` in UTC, converted from Africa/Cairo), then records the Buffer post ID, time and status. Buffer has no idempotency key: an interrupted or uncertain create is looked up in Buffer by channel, time and text before any retry, so a post is never scheduled twice.
+A request ends with the exported PNG in the request's `final/` folder. The request page shows every final image at full width, newest first, with a **Download PNG** link; you review and use it yourself. To ask for changes, send the team a follow-up message on the same page.
 
 ## Communication permissions
 
@@ -85,11 +83,11 @@ Additional endpoints:
 - `GET /v1/managed-agents/teams/{team_id}/connections`: credential-free metadata.
 - `POST /v1/managed-agents/teams/{team_id}/connections` with `name`, `provider`, `url`, optional `auth_type` (`bearer` by default), and optional `token`. An empty bearer token leaves the connection awaiting authentication.
 - `DELETE /v1/managed-agents/teams/{team_id}/connections/{connection_id}`: revoke only the connection owned by that team.
-- `POST /v1/managed-agents/teams/{team_id}/connections` also accepts `kind` (`mcp`, `buffer`, `r2`) and non-secret `settings`. `POST .../connections/{id}/verify` checks the credential with the provider; `PUT .../connections/{id}/channel` selects the Buffer channel. `PUT .../connections/{id}/access` with `{"agent_ids": [...], "paid": true}` limits an MCP connection to chosen members (empty list = all) and marks it paid.
+- `POST /v1/managed-agents/teams/{team_id}/connections` also accepts non-secret `settings` (`header_name` for `auth_type: "header"`, `agent_ids`). `POST .../connections/{id}/verify` connects with the team's credential and lists the server's tools. `PUT .../connections/{id}/access` with `{"agent_ids": [...]}` limits a connection to chosen members (empty list = all).
 - `PUT /v1/managed-agents/teams/{team_id}/lead` with `{"agent_id": ...}`: set or clear the orchestrator.
-- `GET|POST /v1/managed-agents/teams/{team_id}/campaigns` (multipart: `title`, `brief`, `contact`, `allow_paid`, `max_runs`, `photos[]`, `logo`): list or send requests to the team.
+- `GET|POST /v1/managed-agents/teams/{team_id}/campaigns` (multipart: `title`, `brief`, `contact`, `max_runs`, `photos[]`, `logo`): list or send requests to the team.
 - `GET /v1/managed-agents/campaigns/{id}`, `POST .../messages`, `POST .../cancel`, `GET .../file?path=`: request timeline, follow-ups, stop, and previews of files inside that request only.
-- `POST /v1/managed-agents/handoffs/{id}/retry`, `POST /v1/managed-agents/publications/{action_id}/retry|refresh`.
+- `POST /v1/managed-agents/handoffs/{id}/retry`: retry a blocked or failed handoff.
 - `GET /v1/managed-agents/teams/{team_id}/knowledge`: number of chunks in the team's knowledge store.
 - `POST /v1/managed-agents/teams/{team_id}/knowledge` with `content` and optional `title`: add text to the team's knowledge store only.
 
