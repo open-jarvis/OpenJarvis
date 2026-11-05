@@ -64,7 +64,7 @@ export function NewRequestForm({ team, onCreated, disabled }: { team: AgentTeam;
     <label className="block text-sm">صور المنتجات الأصلية<input name="photos" type="file" multiple accept="image/png,image/jpeg,image/webp" className="block mt-1 text-sm" disabled={busy || disabled} /></label>
     <label className="block text-sm">الشعار المعتمد<input name="logo" type="file" accept="image/png,image/jpeg,image/webp" className="block mt-1 text-sm" disabled={busy || disabled} /></label>
     <label className="block text-sm">بيانات التواصل المعتمدة (تُكتب حرفيًا على التصميم)<input name="contact" maxLength={160} className={`${field} mt-1`} style={style} dir="auto" disabled={busy || disabled} /></label>
-    <label className="flex items-center gap-2 text-sm"><input name="allow_paid" type="checkbox" value="true" disabled={busy || disabled} />السماح بالخدمات المدفوعة في اتصالات الفريق (مثل Bria لإزالة اليد أو الخلفية)</label>
+    <label className="flex items-center gap-2 text-sm"><input name="allow_paid" type="checkbox" value="true" disabled={busy || disabled} />السماح باستخدام الاتصالات المعلَّمة كخدمات مدفوعة</label>
     <label className="block text-sm max-w-40">حد التشغيل لهذا الطلب<input name="max_runs" type="number" min={1} max={60} defaultValue={16} className={`${field} mt-1`} style={style} disabled={busy || disabled} /></label>
     <button type="submit" disabled={busy || disabled} className="text-sm underline disabled:opacity-40">{busy ? 'جارٍ الإرسال…' : 'أرسل للفريق'}</button>
   </form>;
@@ -87,7 +87,7 @@ function PublicationCard({ campaign, pub, onChanged }: { campaign: TeamCampaign;
         <p><strong>القناة:</strong> {pub.channel_name || 'لم تُحدد قناة Buffer بعد'}</p>
         <p><strong>الموعد:</strong> {formatCairo(pub.scheduled_local)} (بتوقيت القاهرة)</p>
         {pub.buffer_post_id && <p><strong>معرّف المنشور في Buffer:</strong> <span dir="ltr">{pub.buffer_post_id}</span> {pub.buffer_status && `· ${pub.buffer_status}`}</p>}
-        {!!pub.needs_review && <p role="alert" className="font-medium">تنبيه: الصورة تحتوي أجزاء أعادت Bria بناءها (كانت مخفية خلف اليد). قارنها بالأصل قبل الموافقة؛ لا تُعتبر مطابقة تلقائيًا.</p>}
+        {!!pub.needs_review && <p role="alert" className="font-medium">تنبيه: الصورة تحتوي أجزاء أعادت خدمة خارجية بناءها. قارنها بالأصل قبل الموافقة؛ لا تُعتبر مطابقة تلقائيًا.</p>}
       </div>
     </div>
     <div className="text-sm"><strong>نص المنشور:</strong><p className="whitespace-pre-wrap mt-1" dir="auto">{pub.caption}</p></div>

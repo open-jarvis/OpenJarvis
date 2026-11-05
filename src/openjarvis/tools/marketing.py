@@ -3,7 +3,7 @@
 Credentials never enter prompts or artifacts. Every file read or written stays
 inside the current request's folder (``team-data/<team>/campaigns/<id>/``):
 ``originals/`` (operator uploads, never modified), ``drafts/`` (HTML layouts,
-images returned by the team's MCP services such as Bria), ``final/`` (exported
+images returned by the team's MCP services), ``final/`` (exported
 PNGs) and ``approved/`` (immutable copies). Image editing services are team MCP
 connections, not built-in tools.
 Text, logo and contact details are composed deterministically; no image model

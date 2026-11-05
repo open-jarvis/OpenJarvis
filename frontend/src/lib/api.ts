@@ -1381,7 +1381,7 @@ export interface TeamCampaign {
   display_status: string;
   status_reason: string;
   lead_agent_id: string;
-  options: { contact?: string; logo?: string; allow_paid?: boolean; allow_bria?: boolean };
+  options: { contact?: string; logo?: string; allow_paid?: boolean };
   max_runs: number;
   runs_used: number;
   open_handoffs: number;

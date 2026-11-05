@@ -277,7 +277,7 @@ class StreamableHTTPTransport(MCPTransport):
 
         self._url = url
         self._token = token
-        # Provider-specific auth headers (e.g. Bria's ``api_token``).
+        # Provider-specific auth headers (e.g. ``api_token``).
         self._extra_headers = dict(headers or {})
         self._session_id: Optional[str] = None
         self._client = httpx.Client(

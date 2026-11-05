@@ -132,5 +132,7 @@ def test_softpack_templates_are_arabic_and_limit_tools():
         template = templates[template_id]
         assert "منسّق" in template["system_prompt_template"]
     assert "marketing_submit_review" in templates["softpack_release"]["tools"]
-    assert "bria_prepare_product" not in templates["softpack_production"]["tools"]
     assert "campaign:" in templates["softpack_production"]["system_prompt_template"]
+    # Image services are ordinary team MCP connections, so the design agent
+    # must be allowed to discover them (team agents never get global MCP).
+    assert templates["softpack_production"]["mcp_tools"] is True

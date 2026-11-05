@@ -14,16 +14,11 @@ const card = { border: '1px solid var(--color-border)', borderRadius: 12 };
 type AuthType = 'bearer' | 'header' | 'none';
 interface Preset {
   id: string; title: string; summary: string; kind: TeamConnectionKind;
-  name: string; provider: string; url?: string; auth?: AuthType; header?: string; paid?: boolean;
+  name: string; provider: string; auth?: AuthType;
   tokenLabel: string; help: string;
 }
 
 const PRESETS: Preset[] = [
-  {
-    id: 'bria', title: 'Bria', summary: 'تجهيز صور المنتجات: إزالة اليد أو الخلفية (MCP رسمي).', kind: 'mcp',
-    name: 'Bria', provider: 'Bria', url: 'https://mcp.prod.bria-api.com/mcp', auth: 'header', header: 'api_token', paid: true,
-    tokenLabel: 'مفتاح Bria API', help: 'من Bria Console ← API Keys، بحساب هذه الشركة. يُرسل في ترويسة api_token ولا يراه أي وكيل.',
-  },
   {
     id: 'buffer', title: 'Buffer', summary: 'جدولة المنشورات بعد موافقتك فقط؛ لا يصل إليه الوكلاء.', kind: 'buffer',
     name: 'Buffer', provider: 'Buffer', tokenLabel: 'مفتاح Buffer API', help: 'من Buffer ← Settings ← API، بصلاحية إنشاء المنشورات.',
@@ -33,7 +28,7 @@ const PRESETS: Preset[] = [
     name: 'Cloudflare R2', provider: 'Cloudflare R2', tokenLabel: 'R2 Secret Access Key', help: 'bucket عام خاص بالشركة. تُرفع الصور المعتمدة فقط بأسماء عشوائية.',
   },
   {
-    id: 'mcp', title: 'خادم MCP آخر', summary: 'أي خادم MCP عبر HTTP بحساب هذه الشركة (Gmail، Drive، …).', kind: 'mcp',
+    id: 'mcp', title: 'خادم MCP', summary: 'أي خادم MCP عبر HTTP بحساب هذه الشركة (Gmail، Drive، …).', kind: 'mcp',
     name: '', provider: '', auth: 'bearer', tokenLabel: 'مفتاح الوصول', help: 'استخدم عنوان MCP ومفتاحًا خاصين بحساب هذه الشركة، لا حسابك العام.',
   },
 ];
@@ -62,8 +57,8 @@ function AddConnection({ team, onAdded, onCancel }: { team: AgentTeam; onAdded: 
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   function choose(next: Preset) {
-    setPreset(next); setName(next.name); setUrl(next.url || ''); setAuth(next.auth || 'bearer');
-    setHeader(next.header || ''); setToken(''); setSettings({});
+    setPreset(next); setName(next.name); setUrl(''); setAuth(next.auth || 'bearer');
+    setHeader(''); setToken(''); setSettings({});
   }
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -71,7 +66,7 @@ function AddConnection({ team, onAdded, onCancel }: { team: AgentTeam; onAdded: 
     setBusy(true);
     try {
       const created = await createTeamConnection(team.id, preset.kind === 'mcp'
-        ? { name, provider: preset.provider || name, url, auth_type: auth, token, kind: 'mcp', settings: { ...(auth === 'header' ? { header_name: header } : {}), ...(preset.paid ? { paid: 'true' } : {}), preset: preset.id } }
+        ? { name, provider: preset.provider || name, url, auth_type: auth, token, kind: 'mcp', settings: { ...(auth === 'header' ? { header_name: header } : {}), preset: preset.id } }
         : { name, provider: preset.provider, url: '', auth_type: 'bearer', token, kind: preset.kind, settings });
       setToken('');
       onAdded(created);

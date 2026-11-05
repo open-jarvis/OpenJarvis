@@ -153,7 +153,7 @@ class TeamMCPTool(BaseTool):
         store, campaign = self._campaign()
         if (connection or {}).get("settings", {}).get("paid"):
             options = (campaign or {}).get("options") or {}
-            if not (options.get("allow_paid") or options.get("allow_bria")):
+            if not options.get("allow_paid"):
                 return self._fail(
                     f"«{connection['name']}» خدمة مدفوعة وغير مسموحة في هذا الطلب؛ "
                     "اطلب إذن المستخدم."

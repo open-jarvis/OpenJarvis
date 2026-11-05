@@ -36,8 +36,8 @@ def _png() -> bytes:
     )
 
 
-class FakeBria(BaseHTTPRequestHandler):
-    """Minimal MCP server that requires ``api_token`` like Bria's hosted MCP."""
+class FakeMCP(BaseHTTPRequestHandler):
+    """Minimal MCP server that authenticates with a custom ``api_token`` header."""
 
     received: list = []
 
@@ -46,7 +46,7 @@ class FakeBria(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        if self.headers.get("api_token") != "company-bria-key":
+        if self.headers.get("api_token") != "company-key":
             self.send_response(401)
             self.end_headers()
             return
@@ -59,7 +59,7 @@ class FakeBria(BaseHTTPRequestHandler):
             result = {
                 "protocolVersion": "2025-03-26",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "bria", "version": "1"},
+                "serverInfo": {"name": "fake", "version": "1"},
             }
         elif method == "tools/list":
             result = {
@@ -75,8 +75,10 @@ class FakeBria(BaseHTTPRequestHandler):
                 ]
             }
         else:
-            FakeBria.received.append(body["params"]["arguments"])
-            text = json.dumps({"result": {"image_url": "https://cdn.bria.test/o.png"}})
+            FakeMCP.received.append(body["params"]["arguments"])
+            text = json.dumps(
+                {"result": {"image_url": "https://cdn.example.test/o.png"}}
+            )
             result = {"content": [{"type": "text", "text": text}]}
         out = json.dumps(
             {"jsonrpc": "2.0", "id": body["id"], "result": result}
@@ -89,16 +91,16 @@ class FakeBria(BaseHTTPRequestHandler):
 
 
 @pytest.fixture
-def bria_url():
-    server = ThreadingHTTPServer(("127.0.0.1", 0), FakeBria)
+def mcp_url():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), FakeMCP)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    FakeBria.received = []
+    FakeMCP.received = []
     yield f"http://127.0.0.1:{server.server_port}/mcp"
     server.shutdown()
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch, bria_url):
+def env(tmp_path, monkeypatch, mcp_url):
     monkeypatch.setattr(
         team_tools,
         "_download_transport",
@@ -111,12 +113,12 @@ def env(tmp_path, monkeypatch, bria_url):
     writer = manager.create_agent("الكاتب", team_id=team["id"])
     manager.campaigns.set_team_lead(team["id"], lead["id"])
 
-    def add(token="company-bria-key", **settings):
+    def add(token="company-key", **settings):
         return manager.create_team_connection(
             team["id"],
-            name="Bria",
-            provider="Bria",
-            url=bria_url,
+            name="Images",
+            provider="Images",
+            url=mcp_url,
             auth_type="header",
             token=token,
             settings={"header_name": "api_token", **settings},
@@ -190,7 +192,7 @@ def test_paid_service_needs_request_permission(env):
     tools, clients = _tool(manager, designer)
     result = tools[0].execute(image="campaign:originals/box.png")
     assert not result.success and "مدفوعة" in result.content
-    assert FakeBria.received == []
+    assert FakeMCP.received == []
     for client in clients:
         client.close()
 
@@ -205,9 +207,7 @@ def test_campaign_file_sent_by_runtime_and_result_saved_for_review(env):
         client.close()
     assert result.success, result.content
     # The file's bytes reached the service; the model never saw them.
-    assert FakeBria.received == [
-        {"image": base64.b64encode(b"ORIGINAL-BYTES").decode()}
-    ]
+    assert FakeMCP.received == [{"image": base64.b64encode(b"ORIGINAL-BYTES").decode()}]
     saved = [p for p in (root / "drafts").glob("mcp-*.png")]
     assert len(saved) == 1 and saved[0].read_bytes() == _png()
     meta = json.loads(saved[0].with_name(saved[0].name + ".json").read_text())
@@ -223,7 +223,7 @@ def test_campaign_paths_cannot_escape_the_request(env):
     result = tools[0].execute(image="campaign:../../../agents.db")
     for client in clients:
         client.close()
-    assert not result.success and FakeBria.received == []
+    assert not result.success and FakeMCP.received == []
 
 
 def test_verify_lists_tools_and_reports_bad_key(env):
