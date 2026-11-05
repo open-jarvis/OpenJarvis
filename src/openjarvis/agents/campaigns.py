@@ -689,9 +689,14 @@ def format_batch_for_prompt(manager: Any, batch: List[Dict[str, Any]]) -> str:
     ]
     if options.get("contact"):
         lines.append(f"بيانات التواصل المعتمدة (انسخها حرفيًا): {options['contact']}")
+    paid = options.get("allow_paid") or options.get("allow_bria")
     lines.append(
-        "معالجة Bria المدفوعة: "
-        + ("مسموحة في هذا الطلب." if options.get("allow_bria") else "غير مسموحة.")
+        "الخدمات المدفوعة من اتصالات الفريق (مثل Bria): "
+        + ("مسموحة في هذا الطلب." if paid else "غير مسموحة.")
+    )
+    lines.append(
+        "لتمرير ملف من الطلب إلى أداة اتصال (team_...) اكتب campaign:<المسار النسبي>؛ "
+        "يرسل النظام الملف نفسه دون أن يمر عبرك."
     )
     for item in batch:
         files = "، ".join(item["files"]) or "لا توجد"

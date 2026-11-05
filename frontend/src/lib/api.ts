@@ -1278,7 +1278,7 @@ export interface TeamConnection {
   name: string;
   provider: string;
   url: string;
-  auth_type: 'bearer' | 'none';
+  auth_type: 'bearer' | 'none' | 'header';
   kind?: TeamConnectionKind;
   settings?: Record<string, string | number | null>;
   status: 'configured' | 'needs_authentication' | 'verified' | 'error';
@@ -1300,7 +1300,7 @@ export async function fetchTeamConnections(teamId: string): Promise<TeamConnecti
 }
 
 export async function createTeamConnection(teamId: string, connection: {
-  name: string; provider: string; url: string; auth_type: 'bearer' | 'none'; token: string;
+  name: string; provider: string; url: string; auth_type: 'bearer' | 'none' | 'header'; token: string;
   kind?: TeamConnectionKind; settings?: Record<string, string>;
 }): Promise<TeamConnection> {
   const res = await apiFetch(`/v1/managed-agents/teams/${encodeURIComponent(teamId)}/connections`, {
@@ -1381,7 +1381,7 @@ export interface TeamCampaign {
   display_status: string;
   status_reason: string;
   lead_agent_id: string;
-  options: { contact?: string; logo?: string; allow_bria?: boolean };
+  options: { contact?: string; logo?: string; allow_paid?: boolean; allow_bria?: boolean };
   max_runs: number;
   runs_used: number;
   open_handoffs: number;
@@ -1443,6 +1443,10 @@ export interface BufferChannel { id: string; name?: string; displayName?: string
 
 export async function verifyTeamConnection(teamId: string, connectionId: string): Promise<TeamConnection & { channels?: BufferChannel[] }> {
   return teamJson(`/teams/${encodeURIComponent(teamId)}/connections/${encodeURIComponent(connectionId)}/verify`, { method: 'POST' }, 'Verification failed.');
+}
+
+export async function setTeamConnectionAccess(teamId: string, connectionId: string, agentIds: string[], paid: boolean): Promise<TeamConnection> {
+  return teamJson(`/teams/${encodeURIComponent(teamId)}/connections/${encodeURIComponent(connectionId)}/access`, jsonInit('PUT', { agent_ids: agentIds, paid }), 'تعذّر حفظ الصلاحيات.');
 }
 
 export async function chooseBufferChannel(teamId: string, connectionId: string, channelId: string): Promise<TeamConnection> {

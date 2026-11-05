@@ -4,13 +4,10 @@ import json
 import struct
 import zlib
 
-import httpx
 import pytest
 
 from openjarvis.agents.manager import AgentManager
 from openjarvis.tools.marketing import (
-    BriaClient,
-    BriaPrepareProductTool,
     MarketingCreativeTool,
     MarketingSubmitReviewTool,
 )
@@ -79,92 +76,9 @@ def test_tools_refuse_without_a_running_request(tmp_path):
         assert not result.success and "الفرق" in result.content
 
 
-def test_bria_requires_permission_for_paid_processing(running):
-    manager, designer, start = running
-    start(allow_bria=False, logo="originals/logo.png", contact="0100")
-    tool = BriaPrepareProductTool(manager, designer["id"], client=BriaClient("t"))
-    result = tool.execute(operation="erase_hand", image="originals/box.png")
-    assert not result.success and "غير مسموحة" in result.content
-
-
-def _bria_transport(states, result_bytes, seen):
-    def handler(request):
-        seen.append(request.url.path)
-        if request.method == "POST":
-            body = json.loads(request.content)
-            assert body["sync"] is False and body["image"]
-            assert request.headers["api_token"] == "secret"
-            return httpx.Response(200, json={"request_id": "req-1"})
-        if request.url.path.startswith("/v2/status/"):
-            state = states.pop(0)
-            payload = {"status": state}
-            if state == "COMPLETED":
-                payload["result"] = {"image_url": "https://cdn.bria.example/out.png"}
-            return httpx.Response(200, json=payload)
-        return httpx.Response(200, content=result_bytes)
-
-    return httpx.MockTransport(handler)
-
-
-def test_bria_polls_to_completion_and_flags_reconstruction(running):
-    manager, designer, start = running
-    campaign, root = start(allow_bria=True, logo="originals/logo.png", contact="0100")
-    seen = []
-    client = BriaClient(
-        "secret",
-        _bria_transport(["IN_PROGRESS", "COMPLETED"], _png(400, 600), seen),
-        sleep=lambda s: None,
-    )
-    result = BriaPrepareProductTool(manager, designer["id"], client=client).execute(
-        operation="erase_hand", image="originals/box.png"
-    )
-    data = json.loads(result.content)
-    assert result.success and data["status"] == "completed" and data["needs_review"]
-    out = root / data["image"]
-    meta = json.loads(out.with_name(out.name + ".json").read_text())
-    assert meta["reconstructed"] is True and meta["verified"] is False
-    # The original stays unchanged.
-    assert (root / "originals" / "box.png").read_bytes() == _png(400, 600)
-    assert "secret" not in result.content
-
-
-def test_bria_timeout_reports_pending_then_status_finishes(running):
-    manager, designer, start = running
-    campaign, root = start(allow_bria=True, logo="originals/logo.png", contact="0100")
-    clock = iter(range(0, 10_000, 100))
-    states = ["IN_PROGRESS"] * 3 + ["COMPLETED"]
-    client = BriaClient(
-        "secret",
-        _bria_transport(states, _png(400, 600), []),
-        sleep=lambda s: None,
-        clock=lambda: next(clock),
-    )
-    tool = BriaPrepareProductTool(manager, designer["id"], client=client)
-    first = json.loads(
-        tool.execute(operation="erase_hand", image="originals/box.png").content
-    )
-    assert first["status"] == "pending" and first["request_id"] == "req-1"
-    second = json.loads(tool.execute(operation="status", request_id="req-1").content)
-    assert second["status"] == "completed"
-
-
-@pytest.mark.parametrize("status", [401, 429, 500])
-def test_bria_errors_are_arabic_and_redacted(running, status):
-    manager, designer, start = running
-    start(allow_bria=True, logo="originals/logo.png", contact="0100")
-    transport = httpx.MockTransport(
-        lambda r: httpx.Response(status, text="secret-body")
-    )
-    result = BriaPrepareProductTool(
-        manager, designer["id"], client=BriaClient("secret", transport)
-    ).execute(operation="remove_background", image="originals/box.png")
-    assert not result.success and "secret" not in result.content
-    assert "Bria" in result.content
-
-
 def test_files_outside_the_request_are_rejected(running):
     manager, designer, start = running
-    start(allow_bria=True, logo="originals/logo.png", contact="0100")
+    start(allow_paid=True, logo="originals/logo.png", contact="0100")
     result = MarketingCreativeTool(manager, designer["id"]).execute(
         product_image="../../../agents.db", headline="عنوان"
     )
@@ -173,7 +87,7 @@ def test_files_outside_the_request_are_rejected(running):
 
 def test_creative_needs_approved_logo_and_contact(running):
     manager, designer, start = running
-    start(allow_bria=False)
+    start(allow_paid=False)
     result = MarketingCreativeTool(manager, designer["id"]).execute(
         product_image="originals/box.png", headline="عنوان"
     )
@@ -189,7 +103,7 @@ def test_creative_exports_png_with_metadata(running):
         pytest.skip("Chrome/Chromium not installed")
     manager, designer, start = running
     campaign, root = start(
-        allow_bria=False, logo="originals/logo.png", contact="0100 000 0000 · سوفت باك"
+        allow_paid=False, logo="originals/logo.png", contact="0100 000 0000 · سوفت باك"
     )
     result = MarketingCreativeTool(manager, designer["id"]).execute(
         product_image="originals/box.png", headline="عبوات تحمي منتجك"
@@ -218,4 +132,5 @@ def test_softpack_templates_are_arabic_and_limit_tools():
         template = templates[template_id]
         assert "منسّق" in template["system_prompt_template"]
     assert "marketing_submit_review" in templates["softpack_release"]["tools"]
-    assert "bria_prepare_product" not in templates["softpack_planning"]["tools"]
+    assert "bria_prepare_product" not in templates["softpack_production"]["tools"]
+    assert "campaign:" in templates["softpack_production"]["system_prompt_template"]

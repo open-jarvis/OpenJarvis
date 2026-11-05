@@ -90,7 +90,7 @@ export function AgentTeamToolbar({ teams, agents, filter, onFilter, onUpdated, u
       <button type="button" disabled={unavailable || busy} onClick={() => { setEditing(''); setName(''); }} className={`${control} inline-flex items-center gap-2`} style={style}><Plus size={15} />New team</button>
       {selected && <>
         <button type="button" disabled={busy} onClick={() => { setShowRequests((value) => !value); setShowSettings(false); }} aria-expanded={showRequests} className={`${control} inline-flex items-center gap-2`} style={style}><MessagesSquare size={15} />كلّم الفريق</button>
-        <button type="button" disabled={busy} onClick={() => { setShowSettings((value) => !value); setShowRequests(false); }} aria-expanded={showSettings} className={control} style={style}>Connections & communication</button>
+        <button type="button" disabled={busy} onClick={() => { setShowSettings((value) => !value); setShowRequests(false); }} aria-expanded={showSettings} className={control} style={style}>إعدادات الفريق والاتصالات</button>
         <button type="button" disabled={busy} onClick={() => { setEditing(selected.id); setName(selected.name); }} className={`${control} inline-flex items-center gap-2`} style={style}><Pencil size={15} />Rename</button>
         <button type="button" disabled={busy} onClick={remove} className={`${control} inline-flex items-center gap-2`} style={style}><Trash2 size={15} />Delete team</button>
       </>}

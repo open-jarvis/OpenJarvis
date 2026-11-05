@@ -36,6 +36,11 @@ class RunLimitRequest(BaseModel):
     max_runs: int
 
 
+class AccessRequest(BaseModel):
+    agent_ids: List[str] = []
+    paid: bool = False
+
+
 class ChannelRequest(BaseModel):
     channel_id: str
 
@@ -145,7 +150,7 @@ def register_campaign_routes(router: Any, manager: Any) -> None:
         title: str = Form(...),
         brief: str = Form(...),
         contact: str = Form(""),
-        allow_bria: bool = Form(False),
+        allow_paid: bool = Form(False),
         max_runs: int = Form(16),
         photos: List[UploadFile] = File(default=[]),
         logo: Optional[UploadFile] = File(default=None),
@@ -162,7 +167,7 @@ def register_campaign_routes(router: Any, manager: Any) -> None:
                 team_id,
                 title=title,
                 brief=brief,
-                options={"contact": contact, "allow_bria": bool(allow_bria)},
+                options={"contact": contact, "allow_paid": bool(allow_paid)},
                 max_runs=max_runs,
             )
         except KeyError as exc:
@@ -331,8 +336,15 @@ def register_campaign_routes(router: Any, manager: Any) -> None:
                     team_id, connection_id, verified_at=time.time(), last_error=None
                 )
             else:
-                raise HTTPException(400, "التحقق متاح لاتصالات Buffer وR2 فقط.")
-        except (BufferError, R2Error) as exc:
+                extra = {"tools": _verify_mcp(manager, connection)}
+                manager.update_team_connection_settings(
+                    team_id,
+                    connection_id,
+                    tools=extra["tools"],
+                    verified_at=time.time(),
+                    last_error=None,
+                )
+        except (BufferError, R2Error, _McpVerifyError) as exc:
             manager.update_team_connection_settings(
                 team_id, connection_id, verified_at=None, last_error=str(exc)
             )
@@ -340,6 +352,17 @@ def register_campaign_routes(router: Any, manager: Any) -> None:
         result = manager.get_team_connection(team_id, connection_id)
         result.update(extra)
         return result
+
+    @router.put("/teams/{team_id}/connections/{connection_id}/access")
+    async def connection_access(team_id: str, connection_id: str, req: AccessRequest):
+        try:
+            return manager.set_team_connection_access(
+                team_id, connection_id, agent_ids=req.agent_ids, paid=req.paid
+            )
+        except KeyError as exc:
+            raise HTTPException(404, "اتصال MCP غير موجود.") from exc
+        except ValueError as exc:
+            raise HTTPException(400, "اختر وكلاء من أعضاء هذا الفريق فقط.") from exc
 
     @router.put("/teams/{team_id}/connections/{connection_id}/channel")
     async def choose_channel(team_id: str, connection_id: str, req: ChannelRequest):
@@ -368,6 +391,50 @@ def register_campaign_routes(router: Any, manager: Any) -> None:
             channel_service=channel.get("service"),
             channel_timezone=channel.get("timezone"),
         )
+
+
+class _McpVerifyError(RuntimeError):
+    pass
+
+
+def _verify_mcp(manager: Any, connection: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Connect with the team's credential and list the server's tools."""
+    import httpx
+
+    from openjarvis.agents.team_tools import open_team_mcp_client
+    from openjarvis.tools.mcp_adapter import MCPToolProvider
+
+    client = None
+    try:
+        client = open_team_mcp_client(manager, connection)
+        tools = MCPToolProvider(client).discover()
+    except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        raise _McpVerifyError(
+            "رفض خادم MCP المصادقة؛ راجع المفتاح."
+            if code in {401, 403}
+            else f"ردّ خادم MCP بخطأ (HTTP {code})."
+        ) from None
+    except Exception:
+        # Never echo upstream text: it may contain the credential.
+        raise _McpVerifyError(
+            "تعذّر الاتصال بخادم MCP؛ راجع العنوان والمصادقة."
+        ) from None
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+    if not tools:
+        raise _McpVerifyError("اتصل الخادم لكنه لم يعرض أي أدوات.")
+    return [
+        {
+            "name": tool.spec.name,
+            "description": (tool.spec.description or "")[:200],
+        }
+        for tool in tools[:80]
+    ]
 
 
 def approve_marketing_action(request: Request, action: Any) -> Dict[str, Any]:

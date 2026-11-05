@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import threading
 import time
@@ -1035,6 +1036,8 @@ class AgentManager:
             auth_type = "bearer"
             if not token.strip():
                 raise ValueError("This connection needs its credential")
+        if kind == "mcp":
+            settings = self._mcp_settings(team_id, settings or {}, auth_type)
         settings = settings or {}
         parsed = urlsplit(url)
         if not parsed.hostname or parsed.username or parsed.password:
@@ -1046,8 +1049,8 @@ class AgentManager:
             and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
         ):
             raise ValueError("Use HTTPS, or HTTP for an explicitly local MCP server")
-        if auth_type not in {"bearer", "none"}:
-            raise ValueError("Choose bearer or none authentication")
+        if auth_type not in {"bearer", "none", "header"}:
+            raise ValueError("Choose bearer, header or none authentication")
         if auth_type == "none" and token:
             raise ValueError("Choose bearer authentication when supplying a credential")
         connection_id = uuid.uuid4().hex
@@ -1080,6 +1083,68 @@ class AgentManager:
             c for c in self.list_team_connections(team_id) if c["id"] == connection_id
         )
 
+    _FORBIDDEN_HEADERS = {
+        "host",
+        "content-type",
+        "content-length",
+        "accept",
+        "mcp-session-id",
+        "connection",
+        "transfer-encoding",
+    }
+
+    def _mcp_settings(
+        self, team_id: str, settings: Dict[str, Any], auth_type: str
+    ) -> Dict[str, Any]:
+        """Validate MCP settings: auth header name, paid flag, allowed agents."""
+        clean: Dict[str, Any] = {}
+        if auth_type == "header":
+            header = str(settings.get("header_name") or "").strip()
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", header) or (
+                header.lower() in self._FORBIDDEN_HEADERS
+            ):
+                raise ValueError("Choose a valid authentication header name")
+            clean["header_name"] = header
+        clean["paid"] = bool(settings.get("paid"))
+        clean["agent_ids"] = self._member_ids(team_id, settings.get("agent_ids") or [])
+        if settings.get("preset"):
+            clean["preset"] = str(settings["preset"])[:32]
+        return clean
+
+    def _member_ids(self, team_id: str, agent_ids: Any) -> List[str]:
+        if not isinstance(agent_ids, list):
+            raise ValueError("agent_ids must be a list")
+        members = {a["id"] for a in self.list_agents() if a["team_id"] == team_id}
+        unknown = [a for a in agent_ids if a not in members]
+        if unknown:
+            raise ValueError("Allowed agents must be active members of this team")
+        return sorted(set(agent_ids))
+
+    @_db_locked
+    def set_team_connection_access(
+        self,
+        team_id: str,
+        connection_id: str,
+        *,
+        agent_ids: List[str],
+        paid: bool,
+    ) -> Dict[str, Any]:
+        """Limit an MCP connection to chosen members; mark it as a paid service."""
+        connection = self.get_team_connection(team_id, connection_id)
+        if connection is None or connection["kind"] != "mcp":
+            raise KeyError("Connection not found")
+        return self.update_team_connection_settings(
+            team_id,
+            connection_id,
+            agent_ids=self._member_ids(team_id, agent_ids),
+            paid=bool(paid),
+        )
+
+    @staticmethod
+    def connection_open_to(connection: Dict[str, Any], agent_id: str) -> bool:
+        allowed = (connection.get("settings") or {}).get("agent_ids") or []
+        return not allowed or agent_id in allowed
+
     @_db_locked
     def delete_team_connection(self, team_id: str, connection_id: str) -> None:
         """Revoke a connection and remove only its own credential."""
@@ -1100,12 +1165,11 @@ class AgentManager:
             return False
         if agent["config"].get("mcp_tools", True) is False:
             return False
+        connection = self.get_team_connection(agent["team_id"], connection_id)
         return bool(
-            self._conn.execute(
-                "SELECT 1 FROM team_mcp_connections WHERE id = ? AND team_id = ? "
-                "AND kind = 'mcp'",
-                (connection_id, agent["team_id"]),
-            ).fetchone()
+            connection
+            and connection["kind"] == "mcp"
+            and self.connection_open_to(connection, agent_id)
         )
 
     @_db_locked

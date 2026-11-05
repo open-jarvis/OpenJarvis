@@ -47,7 +47,7 @@ function NewRequestForm({ team, onCreated, disabled }: { team: AgentTeam; onCrea
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    if (!form.get('allow_bria')) form.set('allow_bria', 'false');
+    if (!form.get('allow_paid')) form.set('allow_paid', 'false');
     setBusy(true);
     try {
       const campaign = await createTeamCampaign(team.id, form);
@@ -64,7 +64,7 @@ function NewRequestForm({ team, onCreated, disabled }: { team: AgentTeam; onCrea
     <label className="block text-sm">صور المنتجات الأصلية<input name="photos" type="file" multiple accept="image/png,image/jpeg,image/webp" className="block mt-1 text-sm" disabled={busy || disabled} /></label>
     <label className="block text-sm">الشعار المعتمد<input name="logo" type="file" accept="image/png,image/jpeg,image/webp" className="block mt-1 text-sm" disabled={busy || disabled} /></label>
     <label className="block text-sm">بيانات التواصل المعتمدة (تُكتب حرفيًا على التصميم)<input name="contact" maxLength={160} className={`${field} mt-1`} style={style} dir="auto" disabled={busy || disabled} /></label>
-    <label className="flex items-center gap-2 text-sm"><input name="allow_bria" type="checkbox" value="true" disabled={busy || disabled} />السماح بمعالجة Bria المدفوعة (إزالة اليد أو الخلفية)</label>
+    <label className="flex items-center gap-2 text-sm"><input name="allow_paid" type="checkbox" value="true" disabled={busy || disabled} />السماح بالخدمات المدفوعة في اتصالات الفريق (مثل Bria لإزالة اليد أو الخلفية)</label>
     <label className="block text-sm max-w-40">حد التشغيل لهذا الطلب<input name="max_runs" type="number" min={1} max={60} defaultValue={16} className={`${field} mt-1`} style={style} disabled={busy || disabled} /></label>
     <button type="submit" disabled={busy || disabled} className="text-sm underline disabled:opacity-40">{busy ? 'جارٍ الإرسال…' : 'أرسل للفريق'}</button>
   </form>;
@@ -186,7 +186,7 @@ export function TeamRequests({ team, agents }: { team: AgentTeam; agents: Manage
   return <section dir="rtl" lang="ar" aria-label={`كلّم فريق ${team.name}`} className="mt-4 pt-4 space-y-4" style={{ borderTop: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
     <div>
       <h2 className="font-semibold">كلّم فريق {team.name}</h2>
-      <p className="text-sm max-w-2xl" style={muted}>{lead ? `طلبك يصل إلى المنسّق «${lead.name}»، فيوزّع المهام على الفريق ويعرض عليك المسودة. لا يُجدول شيء في Buffer إلا بعد موافقتك.` : 'حدّد منسّق الفريق أولًا من «Connections & communication» حتى تستطيع مخاطبة الفريق.'}</p>
+      <p className="text-sm max-w-2xl" style={muted}>{lead ? `طلبك يصل إلى المنسّق «${lead.name}»، فيوزّع المهام على الفريق ويعرض عليك المسودة. لا يُجدول شيء في Buffer إلا بعد موافقتك.` : 'حدّد منسّق الفريق أولًا من «إعدادات الفريق والاتصالات» حتى تستطيع مخاطبة الفريق.'}</p>
     </div>
     {openId ? <CampaignDetail campaignId={openId} onBack={() => { setOpenId(null); load(); }} /> : <>
       <NewRequestForm team={team} disabled={!lead} onCreated={(c) => { setOpenId(c.id); load(); }} />
