@@ -25,7 +25,7 @@ from openjarvis.server.model_capabilities import is_embed_only_model
 try:
     from fastapi import APIRouter, HTTPException, Request
     from fastapi.responses import StreamingResponse
-    from pydantic import BaseModel
+    from pydantic import BaseModel, SecretStr
 except ImportError:
     raise ImportError("fastapi and pydantic are required for server routes")
 
@@ -85,6 +85,18 @@ class CreateAgentRequest(BaseModel):
     config: Optional[Dict[str, Any]] = None
     template_id: Optional[str] = None
     team_id: Optional[str] = None
+
+
+class TeamPolicyRequest(BaseModel):
+    communicate_with: List[str]
+
+
+class TeamConnectionRequest(BaseModel):
+    name: str
+    provider: str
+    url: str
+    auth_type: str = "bearer"
+    token: SecretStr = SecretStr("")
 
 
 class TeamRequest(BaseModel):
@@ -942,7 +954,12 @@ async def _stream_managed_agent(
     agent_type = agent_record.get("agent_type", "")
     mcp_adapters: Dict[str, Any] = {}
     mcp_clients: list[Any] = []
-    if app_state is not None and config.get("mcp_tools", True) is not False:
+    if (
+        app_state is not None
+        and config.get("mcp_tools", True) is not False
+        and not agent_record.get("team_id")
+        and not agent_record.get("team_scoped")
+    ):
         try:
             _, mcp_adapters = _get_mcp_tools(app_state)
             mcp_clients = list(getattr(app_state, "_mcp_clients", []))
@@ -967,6 +984,7 @@ async def _stream_managed_agent(
         mcp_clients=mcp_clients,
         knowledge_db_path=getattr(app_state, "knowledge_db_path", None),
         app_config=app_config,
+        manager=manager,
     )
 
     # Load prior conversation context (DESC order, reverse for chronological).
@@ -1681,6 +1699,53 @@ def create_agent_manager_router(
             raise HTTPException(status_code=404, detail="Team not found") from exc
         return {"status": "deleted"}
 
+    @agents_router.put("/teams/{team_id}/policy")
+    async def update_team_policy(team_id: str, req: TeamPolicyRequest):
+        try:
+            return manager.update_team_policy(
+                team_id, communicate_with=req.communicate_with
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Team not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @agents_router.get("/teams/{team_id}/connections")
+    async def team_connections(team_id: str):
+        if manager.get_team(team_id) is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        return {"connections": manager.list_team_connections(team_id)}
+
+    @agents_router.post("/teams/{team_id}/connections", status_code=201)
+    async def create_team_connection(team_id: str, req: TeamConnectionRequest):
+        import sqlite3
+
+        try:
+            return manager.create_team_connection(
+                team_id,
+                name=req.name,
+                provider=req.provider,
+                url=req.url,
+                auth_type=req.auth_type,
+                token=req.token.get_secret_value(),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Team not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(
+                status_code=409, detail="Connection name already exists"
+            ) from exc
+
+    @agents_router.delete("/teams/{team_id}/connections/{connection_id}")
+    async def delete_team_connection(team_id: str, connection_id: str):
+        try:
+            manager.delete_team_connection(team_id, connection_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Connection not found") from exc
+        return {"status": "deleted"}
+
     @agents_router.post("")
     async def create_agent(req: CreateAgentRequest, request: Request):
         try:
@@ -2369,7 +2434,12 @@ def create_agent_manager_router(
 
     @templates_router.post("/{template_id}/instantiate")
     async def instantiate_template(template_id: str, req: CreateAgentRequest):
-        return manager.create_from_template(template_id, req.name, overrides=req.config)
+        try:
+            return manager.create_from_template(
+                template_id, req.name, overrides=req.config, team_id=req.team_id
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ── Global agent endpoints ───────────────────────────────
 

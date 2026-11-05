@@ -454,12 +454,14 @@ export interface ManagedAgentConfig extends Record<string, unknown> {
 }
 
 export interface AgentTeam {
+  communicate_with?: string[];
   id: string;
   name: string;
   created_at: number;
 }
 
 export interface ManagedAgent {
+  team_scoped?: boolean;
   team_id?: string | null;
   id: string;
   name: string;
@@ -523,10 +525,10 @@ export interface PersistedToolCall {
 export interface AgentMessage {
   id: string;
   agent_id: string;
-  direction: 'user_to_agent' | 'agent_to_user';
+  direction: 'user_to_agent' | 'agent_to_user' | 'agent_to_agent';
   content: string;
   mode: 'immediate' | 'queued';
-  status: 'pending' | 'delivered' | 'responded';
+  status: 'pending' | 'delivered' | 'responded' | 'blocked';
   created_at: number;
   tool_calls?: PersistedToolCall[] | null;
 }
@@ -1265,4 +1267,47 @@ export async function renameAgentTeam(id: string, name: string): Promise<AgentTe
 
 export async function deleteAgentTeam(id: string): Promise<void> {
   await agentTeamRequest(`/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+export interface TeamConnection {
+  id: string;
+  team_id: string;
+  name: string;
+  provider: string;
+  url: string;
+  auth_type: 'bearer' | 'none';
+  status: 'configured' | 'needs_authentication';
+}
+
+export async function updateAgentTeamPolicy(id: string, communicateWith: string[]): Promise<AgentTeam> {
+  const res = await apiFetch(`/v1/managed-agents/teams/${encodeURIComponent(id)}/policy`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ communicate_with: communicateWith }),
+  });
+  if (!res.ok) throw new Error('Could not save team communication settings.');
+  return res.json();
+}
+
+export async function fetchTeamConnections(teamId: string): Promise<TeamConnection[]> {
+  const res = await apiFetch(`/v1/managed-agents/teams/${encodeURIComponent(teamId)}/connections`);
+  if (!res.ok) throw new Error('Could not load team connections.');
+  return (await res.json()).connections;
+}
+
+export async function createTeamConnection(teamId: string, connection: {
+  name: string; provider: string; url: string; auth_type: 'bearer' | 'none'; token: string;
+}): Promise<TeamConnection> {
+  const res = await apiFetch(`/v1/managed-agents/teams/${encodeURIComponent(teamId)}/connections`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(connection),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not save connection.');
+  }
+  return res.json();
+}
+
+export async function deleteTeamConnection(teamId: string, connectionId: string): Promise<void> {
+  const res = await apiFetch(`/v1/managed-agents/teams/${encodeURIComponent(teamId)}/connections/${encodeURIComponent(connectionId)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Could not remove connection.');
 }

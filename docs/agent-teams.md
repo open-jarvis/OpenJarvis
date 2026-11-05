@@ -6,7 +6,7 @@ Use the **Team** filter to switch between **All teams**, **Unassigned**, or an i
 
 Select a team to rename or delete it. Deleting a team moves its agents to Unassigned; it preserves the agents, their configurations, messages and tasks. Existing agents remain unassigned after upgrading until you explicitly move them.
 
-Teams provide organizational grouping. They do not enforce tenant access controls, isolate memory backends or chat data, share prompts, automatically hand work between agents, or configure external publishing providers.
+Teams organize agents and provide independent company MCP connections plus policy-controlled managed-agent messaging. They do not enforce tenant access controls, isolate memory backends or chat data, share prompts, automatically run recipients, or configure publishing providers.
 
 ## API
 
@@ -19,3 +19,30 @@ Teams provide organizational grouping. They do not enforce tenant access control
 - `GET /v1/managed-agents?team_id=ID`: filter by team. An empty `team_id=` filters unassigned agents. Omit the parameter to list all agents.
 
 A non-null unknown team ID is rejected on assignment. Team names are trimmed, contain 1–120 characters and are unique under SQLite's NOCASE comparison (ASCII case-insensitive). Membership is a nullable foreign key in the existing agents database and survives restarts. No separate service or dependency is required.
+
+## Company accounts and connections
+
+Select a team, then **Connections & communication** → **Add company connection**. Each team owns independent HTTP MCP connections with their own endpoint, provider/service name and bearer credential. For example, Company A and Company B may both use the same Gmail MCP endpoint with different access tokens. Clients and sessions are created independently for each team and turn. The configured provider name must be unique within a team; different teams may use the same provider name.
+
+Only the team's connections are exposed to its agents. Neither a missing credential, discovery failure nor tool error falls back to the globally configured MCP account. Agent **Overview** includes an **Enable this team's connections** switch; an agent's explicit MCP opt-out remains effective. Global MCP behavior remains available to legacy agents that have never been assigned a team. Once an agent has been team-scoped, removing it from the team or deleting the team does not re-enable global accounts: assign it to another team to restore company connections. Existing team members are marked team-scoped during migration.
+
+Credentials are stored in separate files beside the agents database under `team-connection-secrets/`, using the project's atomic owner-only write helper (0700 directory, 0600 files on POSIX). Tokens are not placed in process environment, agent config, API metadata, or prompts. This is local file protection, not encrypted credential storage or an OS-level tenant boundary. Removing a connection or deleting its team removes its credential file and blocks subsequent tool calls. Calls already in progress may finish. Deleting and recreating a connection is the supported credential replacement procedure.
+
+The current connection flow supports Streamable HTTP MCP with a bearer token, or an explicitly unauthenticated server. HTTPS is required except for an explicitly local HTTP endpoint. URLs must not contain embedded credentials, query parameters or fragments. A provider's account-specific MCP endpoint/token must be obtained through its own authorization process. Built-in Google OAuth login, token refresh and stdio per-company profiles are not included. **Configured** means settings exist, not that Gmail or another account has been verified. No real company account is connected by installing this feature.
+
+Tools are bound to the connection that discovered them and have stable connection-qualified names, preventing two identically named tools from resolving to another account. Runtime execution checks current agent membership, connection ownership and agent MCP opt-out. Each turn owns and closes its own private MCP clients; it never closes another team's or a global client's session.
+
+## Communication permissions
+
+Agents may message other active agents in their own team. Cross-team messaging is denied by default and requires both teams to select each other under **Connections & communication**. Clear either side's checkbox and save to revoke permission. The receiving team gets a message, not access to the sender's accounts, tools, memory or conversation history.
+
+The runtime binds `managed_agent_peers`, `managed_agent_message`, and `managed_connection_status` to the real source agent. The model cannot supply a different sender identity. Peer discovery exposes only the IDs, names and team IDs of currently reachable agents. Sending queues an attributed `agent_to_agent` message; it does not run the recipient automatically. The recipient consumes queued messages on its next managed tick, with peer content explicitly marked as untrusted rather than operator instructions. Pending messages are blocked if permission is revoked or either agent moves teams before delivery. Already consumed messages cannot be recalled.
+
+This enforces account selection and messaging policy through managed-agent tool resolution and the managed message queue. It is **not full company data isolation**: native tools, shared memory/knowledge, persona files, filesystem access, global non-MCP connectors, and arbitrary shell/HTTP tools retain their existing permissions. Do not grant an agent general-purpose tools capable of accessing other companies' data and then treat these team controls as a security sandbox. Tenant authorization, per-team memory stores, filesystem isolation and separate execution identities remain additional work.
+
+Additional endpoints:
+
+- `PUT /v1/managed-agents/teams/{team_id}/policy` with `{"communicate_with":["other-team-id"]}`.
+- `GET /v1/managed-agents/teams/{team_id}/connections`: credential-free metadata.
+- `POST /v1/managed-agents/teams/{team_id}/connections` with `name`, `provider`, `url`, optional `auth_type` (`bearer` by default), and optional `token`. An empty bearer token leaves the connection awaiting authentication.
+- `DELETE /v1/managed-agents/teams/{team_id}/connections/{connection_id}`: revoke only the connection owned by that team.

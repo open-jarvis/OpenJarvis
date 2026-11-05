@@ -34,3 +34,19 @@ it('sends explicit null to clear membership without replacing config', async () 
   expect(options?.method).toBe('PATCH');
   expect(JSON.parse(options?.body as string)).toEqual({ team_id: null });
 });
+
+it('sends a company credential only when saving its own connection', async () => {
+  const { createTeamConnection, fetchTeamConnections, updateAgentTeamPolicy } = await import('./api');
+  const saved = { id: 'connection-a', team_id: 'team-a', provider: 'Gmail', status: 'configured' };
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(saved), { status: 201 }));
+  await expect(createTeamConnection('team-a', { name: 'Company mail', provider: 'Gmail', url: 'https://mcp.example.test/mcp', auth_type: 'bearer', token: 'test-company-token' })).resolves.toEqual(saved);
+  expect(fetchMock.mock.calls[0][0]).toBe('/v1/managed-agents/teams/team-a/connections');
+  expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string).token).toBe('test-company-token');
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ connections: [saved] })));
+  await expect(fetchTeamConnections('team-a')).resolves.toEqual([saved]);
+  expect(fetchMock.mock.calls[1][1]?.body).toBeUndefined();
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ id: 'team-a', communicate_with: ['team-b'] })));
+  await updateAgentTeamPolicy('team-a', ['team-b']);
+  expect(fetchMock.mock.calls[2][0]).toBe('/v1/managed-agents/teams/team-a/policy');
+  expect(JSON.parse(fetchMock.mock.calls[2][1]?.body as string)).toEqual({ communicate_with: ['team-b'] });
+});

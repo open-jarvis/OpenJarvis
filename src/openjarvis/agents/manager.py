@@ -134,6 +134,19 @@ class AgentManager:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.execute(_CREATE_TEAMS)
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS team_mcp_connections (
+                id TEXT PRIMARY KEY,
+                team_id TEXT NOT NULL REFERENCES agent_teams(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                provider TEXT NOT NULL COLLATE NOCASE,
+                url TEXT NOT NULL,
+                auth_type TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                UNIQUE(team_id, name),
+                UNIQUE(team_id, provider)
+            )
+        """)
         self._conn.execute(_CREATE_AGENTS)
         self._conn.execute(_CREATE_TASKS)
         self._conn.execute(_CREATE_BINDINGS)
@@ -156,6 +169,10 @@ class AgentManager:
             "ALTER TABLE agent_messages ADD COLUMN tool_calls TEXT",
         ]
         _MIGRATIONS.append(
+            "ALTER TABLE managed_agents ADD COLUMN team_scoped "
+            "INTEGER NOT NULL DEFAULT 0"
+        )
+        _MIGRATIONS.append(
             "ALTER TABLE managed_agents ADD COLUMN team_id TEXT "
             "REFERENCES agent_teams(id) ON DELETE SET NULL"
         )
@@ -164,6 +181,17 @@ class AgentManager:
                 self._conn.execute(migration)
             except sqlite3.OperationalError:
                 pass  # Column already exists
+        self._conn.execute(
+            "UPDATE managed_agents SET team_scoped = 1 WHERE team_id IS NOT NULL"
+        )
+        for column in ("communication_json",):
+            try:
+                self._conn.execute(
+                    f"ALTER TABLE agent_teams ADD COLUMN {column} "
+                    "TEXT NOT NULL DEFAULT '[]'"
+                )
+            except sqlite3.OperationalError:
+                pass  # Existing database already has this policy column.
         self._conn.commit()
         # Only the authoritative long-running process (the API server, which
         # owns the scheduler) may sweep running→idle on boot. Short-lived CLI
@@ -225,9 +253,9 @@ class AgentManager:
         self._conn.execute(
             "INSERT INTO managed_agents"
             " (id, name, agent_type, config_json,"
-            " status, summary_memory, created_at, updated_at, team_id)"
-            " VALUES (?, ?, ?, ?, 'idle', '', ?, ?, ?)",
-            (agent_id, name, agent_type, config_json, now, now, team_id),
+            " status, summary_memory, created_at, updated_at, team_id, team_scoped)"
+            " VALUES (?, ?, ?, ?, 'idle', '', ?, ?, ?, ?)",
+            (agent_id, name, agent_type, config_json, now, now, team_id, bool(team_id)),
         )
         self._conn.commit()
         return self.get_agent(agent_id)  # type: ignore[return-value]
@@ -265,6 +293,8 @@ class AgentManager:
             self._validate_team_id(kwargs["team_id"])
             sets.append("team_id = ?")
             vals.append(kwargs["team_id"])
+            if kwargs["team_id"] is not None:
+                sets.append("team_scoped = 1")
         for key in ("name", "agent_type", "status", "current_activity"):
             if key in kwargs:
                 sets.append(f"{key} = ?")
@@ -698,7 +728,7 @@ class AgentManager:
     def list_teams(self) -> List[Dict[str, Any]]:
         """List organizational teams, including teams with no agents."""
         return [
-            dict(row)
+            self._row_to_team(row)
             for row in self._conn.execute(
                 "SELECT * FROM agent_teams ORDER BY name COLLATE NOCASE, id"
             ).fetchall()
@@ -720,7 +750,7 @@ class AgentManager:
                 )
         except sqlite3.IntegrityError:
             raise ValueError("A team with this name already exists") from None
-        return team
+        return self.get_team(team["id"])
 
     @_db_locked
     def rename_team(self, team_id: str, name: str) -> Dict[str, Any]:
@@ -735,26 +765,258 @@ class AgentManager:
                     raise KeyError("Team not found")
         except sqlite3.IntegrityError:
             raise ValueError("A team with this name already exists") from None
-        return dict(
-            self._conn.execute(
-                "SELECT * FROM agent_teams WHERE id = ?", (team_id,)
-            ).fetchone()
-        )
+        return self.get_team(team_id)
 
     @_db_locked
     def delete_team(self, team_id: str) -> None:
         """Delete a team, preserving its agents and all their related records."""
+        connections = self.list_team_connections(team_id)
         with self._conn:
             self._conn.execute(
                 "UPDATE managed_agents SET team_id = NULL, updated_at = ? "
                 "WHERE team_id = ?",
                 (time.time(), team_id),
             )
+            for peer in self.list_teams():
+                if team_id in peer["communicate_with"]:
+                    remaining = [x for x in peer["communicate_with"] if x != team_id]
+                    self._conn.execute(
+                        "UPDATE agent_teams SET communication_json = ? WHERE id = ?",
+                        (json.dumps(remaining), peer["id"]),
+                    )
             cursor = self._conn.execute(
                 "DELETE FROM agent_teams WHERE id = ?", (team_id,)
             )
             if not cursor.rowcount:
                 raise KeyError("Team not found")
+        for connection in connections:
+            self._connection_secret_path(connection["id"]).unlink(missing_ok=True)
+
+    @staticmethod
+    def _row_to_team(row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "created_at": row["created_at"],
+            "communicate_with": json.loads(row["communication_json"]),
+        }
+
+    @_db_locked
+    def get_team(self, team_id: str) -> Optional[Dict[str, Any]]:
+        """Read team settings without exposing server credentials."""
+        row = self._conn.execute(
+            "SELECT * FROM agent_teams WHERE id = ?", (team_id,)
+        ).fetchone()
+        return self._row_to_team(row) if row else None
+
+    @_db_locked
+    def update_team_policy(
+        self, team_id: str, *, communicate_with: list[str]
+    ) -> Dict[str, Any]:
+        """Replace bilateral communication preferences; accounts remain team-owned."""
+        if self.get_team(team_id) is None:
+            raise KeyError("Team not found")
+        for values in (communicate_with,):
+            if not isinstance(values, list) or any(
+                not isinstance(value, str) or not value.strip() for value in values
+            ):
+                raise ValueError("Policy entries must be non-empty strings")
+        for peer in communicate_with:
+            if peer == team_id or self.get_team(peer) is None:
+                raise ValueError("Choose other existing teams for communication")
+        with self._conn:
+            self._conn.execute(
+                "UPDATE agent_teams SET communication_json = ? WHERE id = ?",
+                (json.dumps(sorted(set(communicate_with))), team_id),
+            )
+        return self.get_team(team_id)
+
+    @_db_locked
+    def agents_can_communicate(self, source_id: str, target_id: str) -> bool:
+        """Allow same-team messages or explicit consent from both current teams."""
+        source, target = self.get_agent(source_id), self.get_agent(target_id)
+        if not source or not target:
+            return False
+        if source["status"] == "archived" or target["status"] == "archived":
+            return False
+        source_team, target_team = source["team_id"], target["team_id"]
+        if not source_team or not target_team:
+            return False
+        if source_team == target_team:
+            return True
+        a, b = self.get_team(source_team), self.get_team(target_team)
+        return bool(
+            a
+            and b
+            and target_team in a["communicate_with"]
+            and source_team in b["communicate_with"]
+        )
+
+    @_db_locked
+    def list_agent_peers(self, source_id: str) -> List[Dict[str, Any]]:
+        """Expose only reachable agents, without their config, history or memory."""
+        return [
+            {key: agent[key] for key in ("id", "name", "team_id")}
+            for agent in self.list_agents()
+            if agent["id"] != source_id
+            and self.agents_can_communicate(source_id, agent["id"])
+        ]
+
+    @_db_locked
+    def send_agent_message(self, source_id: str, target_id: str, content: str) -> dict:
+        """Queue an attributed message after an atomic live policy check.
+
+        Delivery is queued, never an automatic model run. Source identity is supplied
+        by the runtime-bound tool, not a model-controlled tool parameter.
+        """
+        if not self.agents_can_communicate(source_id, target_id):
+            raise PermissionError("Team communication is not permitted")
+        if not isinstance(content, str) or not content.strip() or len(content) > 20000:
+            raise ValueError("Message must contain 1 to 20000 characters")
+        msg_id = uuid4().hex[:16]
+        now = time.time()
+        source = self.get_agent(source_id)
+        envelope = json.dumps(
+            {
+                "source_agent_id": source_id,
+                "source_team_id": source["team_id"],
+                "target_team_id": self.get_agent(target_id)["team_id"],
+                "message": content,
+            },
+            ensure_ascii=False,
+        )
+        self._conn.execute(
+            "INSERT INTO agent_messages "
+            "(id,agent_id,direction,content,mode,status,created_at) "
+            "VALUES (?,?,'agent_to_agent',?,'queued','pending',?)",
+            (msg_id, target_id, envelope, now),
+        )
+        self._conn.commit()
+        return {"message_id": msg_id, "status": "queued", "target_agent_id": target_id}
+
+    def _connection_secret_path(self, connection_id: str):
+        from pathlib import Path
+
+        if not connection_id or any(c not in "0123456789abcdef" for c in connection_id):
+            raise ValueError("Invalid connection ID")
+        return Path(self._db_path).parent / "team-connection-secrets" / connection_id
+
+    @_db_locked
+    def list_team_connections(self, team_id: str) -> List[Dict[str, Any]]:
+        """List this team's independent connections, never credential values."""
+        rows = self._conn.execute(
+            "SELECT * FROM team_mcp_connections WHERE team_id = ? ORDER BY name",
+            (team_id,),
+        ).fetchall()
+        result = []
+        for row in rows:
+            connection = dict(row)
+            configured = (
+                row["auth_type"] == "none"
+                or self._connection_secret_path(row["id"]).is_file()
+            )
+            connection["status"] = (
+                "configured" if configured else "needs_authentication"
+            )
+            result.append(connection)
+        return result
+
+    @_db_locked
+    def create_team_connection(
+        self,
+        team_id: str,
+        *,
+        name: str,
+        provider: str,
+        url: str,
+        auth_type: str = "bearer",
+        token: str = "",
+    ) -> Dict[str, Any]:
+        """Save a team-owned HTTP connection and private per-connection credential.
+
+        The token is stored in a mode-0600 file, never in process environment,
+        returned metadata, agent configuration or the global MCP credential.
+        """
+        from urllib.parse import urlsplit
+
+        from openjarvis.security.file_utils import secure_write_text
+
+        if not self.get_team(team_id):
+            raise KeyError("Team not found")
+        name, provider = self._team_name(name), self._team_name(provider)
+        parsed = urlsplit(url)
+        if not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("Use an MCP endpoint without credentials in its URL")
+        if parsed.query or parsed.fragment:
+            raise ValueError("Put authentication in the credential field, not the URL")
+        if parsed.scheme != "https" and not (
+            parsed.scheme == "http"
+            and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        ):
+            raise ValueError("Use HTTPS, or HTTP for an explicitly local MCP server")
+        if auth_type not in {"bearer", "none"}:
+            raise ValueError("Choose bearer or none authentication")
+        if auth_type == "none" and token:
+            raise ValueError("Choose bearer authentication when supplying a credential")
+        connection_id = uuid.uuid4().hex
+        secret_path = self._connection_secret_path(connection_id)
+        try:
+            if token.strip():
+                secret_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                secure_write_text(secret_path, token.strip(), mode=0o600)
+            with self._conn:
+                self._conn.execute(
+                    "INSERT INTO team_mcp_connections "
+                    "(id,team_id,name,provider,url,auth_type,created_at) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (
+                        connection_id,
+                        team_id,
+                        name,
+                        provider,
+                        url,
+                        auth_type,
+                        time.time(),
+                    ),
+                )
+        except Exception:
+            secret_path.unlink(missing_ok=True)
+            raise
+        return next(
+            c for c in self.list_team_connections(team_id) if c["id"] == connection_id
+        )
+
+    @_db_locked
+    def delete_team_connection(self, team_id: str, connection_id: str) -> None:
+        """Revoke a connection and remove only its own credential."""
+        cursor = self._conn.execute(
+            "DELETE FROM team_mcp_connections WHERE id = ? AND team_id = ?",
+            (connection_id, team_id),
+        )
+        self._conn.commit()
+        if not cursor.rowcount:
+            raise KeyError("Connection not found")
+        self._connection_secret_path(connection_id).unlink(missing_ok=True)
+
+    @_db_locked
+    def team_connection_allowed(self, agent_id: str, connection_id: str) -> bool:
+        """Check current membership and connection ownership immediately before use."""
+        agent = self.get_agent(agent_id)
+        if not agent or agent["status"] == "archived":
+            return False
+        if agent["config"].get("mcp_tools", True) is False:
+            return False
+        return bool(
+            self._conn.execute(
+                "SELECT 1 FROM team_mcp_connections WHERE id = ? AND team_id = ?",
+                (connection_id, agent["team_id"]),
+            ).fetchone()
+        )
+
+    @_db_locked
+    def _team_connection_token(self, connection_id: str) -> str:
+        """Read only the selected connection's credential for transport construction."""
+        return self._connection_secret_path(connection_id).read_text().strip()
 
     # ── Message queue ─────────────────────────────────────────────
 
@@ -828,11 +1090,37 @@ class AgentManager:
     def get_pending_messages(self, agent_id: str) -> list[dict]:
         rows = self._conn.execute(
             "SELECT * FROM agent_messages"
-            " WHERE agent_id = ? AND direction = 'user_to_agent'"
+            " WHERE agent_id = ? AND direction IN ('user_to_agent', 'agent_to_agent')"
             " AND status = 'pending' ORDER BY created_at ASC",
             (agent_id,),
         ).fetchall()
-        return [self._row_to_message(r) for r in rows]
+        result = []
+        for row in rows:
+            message = self._row_to_message(row)
+            if message["direction"] == "agent_to_agent":
+                try:
+                    envelope = json.loads(message["content"])
+                    source_id = envelope["source_agent_id"]
+                except (ValueError, KeyError, TypeError):
+                    continue
+                source, target = self.get_agent(source_id), self.get_agent(agent_id)
+                unchanged = (
+                    source
+                    and target
+                    and source["team_id"] == envelope.get("source_team_id")
+                    and target["team_id"] == envelope.get("target_team_id")
+                )
+                if not unchanged or not self.agents_can_communicate(
+                    source_id, agent_id
+                ):
+                    self._conn.execute(
+                        "UPDATE agent_messages SET status = 'blocked' WHERE id = ?",
+                        (message["id"],),
+                    )
+                    self._conn.commit()
+                    continue
+            result.append(message)
+        return result
 
     @_db_locked
     def mark_message_delivered(self, message_id: str) -> None:
@@ -943,6 +1231,7 @@ class AgentManager:
             "name": row["name"],
             "agent_type": row["agent_type"],
             "team_id": row["team_id"],
+            "team_scoped": bool(row["team_scoped"]),
             "config": json.loads(config_raw) if config_raw else {},
             "status": row["status"],
             "summary_memory": row["summary_memory"] or "",

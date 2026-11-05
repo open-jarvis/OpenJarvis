@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AgentTeamSettings } from './AgentTeamSettings';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { createAgentTeam, renameAgentTeam, deleteAgentTeam, updateManagedAgent } from '../lib/api';
@@ -31,7 +32,17 @@ export function AgentTeamAssignment({ teams, agent, onUpdated }: {
     } catch { toast.error('Could not update team. Please try again.'); }
     finally { setSaving(false); }
   }
-  return <TeamSelect id="agent-team" teams={teams} value={agent.team_id || ''} onChange={assign} disabled={saving} />;
+  async function enableConnections(enabled: boolean) {
+    setSaving(true);
+    try { await updateManagedAgent(agent.id, { config: { ...agent.config, mcp_tools: enabled } }); onUpdated(); }
+    catch { toast.error('Could not update connection access.'); }
+    finally { setSaving(false); }
+  }
+  return <div className="space-y-2">
+    <TeamSelect id="agent-team" teams={teams} value={agent.team_id || ''} onChange={assign} disabled={saving} />
+    {!agent.team_id && agent.team_scoped && <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Assign a team to restore company connections. Global accounts remain unavailable.</p>}
+    {agent.team_id && <label className="flex gap-2 items-center text-sm" style={{ color: 'var(--color-text-secondary)' }}><input type="checkbox" disabled={saving} checked={agent.config.mcp_tools !== false} onChange={(e) => enableConnections(e.target.checked)} />Enable this team's connections for this agent</label>}
+  </div>;
 }
 
 export function AgentTeamToolbar({ teams, agents, filter, onFilter, onUpdated, unavailable }: {
@@ -40,6 +51,7 @@ export function AgentTeamToolbar({ teams, agents, filter, onFilter, onUpdated, u
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const selected = teams.find((team) => team.id === filter);
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -67,14 +79,15 @@ export function AgentTeamToolbar({ teams, agents, filter, onFilter, onUpdated, u
     <div className="flex flex-wrap items-end gap-2">
       <div className="flex-1 min-w-48 max-w-sm">
         <label htmlFor="team-filter" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Team</label>
-        <select id="team-filter" value={filter} onChange={(e) => { onFilter(e.target.value); setEditing(null); }} disabled={unavailable || busy} className={`${control} w-full`} style={style}>
-          <option value="all">All teams ({agents.length})</option>
-          <option value="unassigned">Unassigned ({agents.filter((agent) => !agent.team_id).length})</option>
+        <select id="team-filter" value={filter} onChange={(e) => { onFilter(e.target.value); setEditing(null); setShowSettings(false); }} disabled={unavailable || busy} className={`${control} w-full`} style={style}>
+          <option value="all">All teams · {agents.length} agents</option>
+          <option value="unassigned">Unassigned agents ({agents.filter((agent) => !agent.team_id).length})</option>
           {teams.map((team) => <option key={team.id} value={team.id}>{team.name} ({agents.filter((agent) => agent.team_id === team.id).length})</option>)}
         </select>
       </div>
       <button type="button" disabled={unavailable || busy} onClick={() => { setEditing(''); setName(''); }} className={`${control} inline-flex items-center gap-2`} style={style}><Plus size={15} />New team</button>
       {selected && <>
+        <button type="button" disabled={busy} onClick={() => setShowSettings((value) => !value)} aria-expanded={showSettings} className={control} style={style}>Connections & communication</button>
         <button type="button" disabled={busy} onClick={() => { setEditing(selected.id); setName(selected.name); }} className={`${control} inline-flex items-center gap-2`} style={style}><Pencil size={15} />Rename</button>
         <button type="button" disabled={busy} onClick={remove} className={`${control} inline-flex items-center gap-2`} style={style}><Trash2 size={15} />Delete team</button>
       </>}
@@ -87,6 +100,7 @@ export function AgentTeamToolbar({ teams, agents, filter, onFilter, onUpdated, u
       <button type="submit" disabled={busy || !name.trim()} className={control} style={style}>{busy ? 'Saving…' : 'Save team'}</button>
       <button type="button" disabled={busy} onClick={() => setEditing(null)} className={control} style={style}>Cancel</button>
     </form>}
+    {selected && showSettings && <AgentTeamSettings key={selected.id} team={selected} teams={teams} onUpdated={onUpdated} />}
     {unavailable && <p role="status" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Teams could not be loaded. <button type="button" onClick={onUpdated} className="underline">Try again</button></p>}
   </section>;
 }

@@ -5,11 +5,8 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from openjarvis.agents.manager import _CREATE_AGENTS, AgentManager
-from openjarvis.server.agent_manager_routes import create_agent_manager_router
 
 
 @pytest.fixture
@@ -21,6 +18,12 @@ def manager(tmp_path):
 
 @pytest.fixture
 def client(manager):
+    pytest.importorskip("fastapi")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from openjarvis.server.agent_manager_routes import create_agent_manager_router
+
     app = FastAPI()
     for router in create_agent_manager_router(manager):
         app.include_router(router)
@@ -161,3 +164,65 @@ def test_api_validation_and_template_membership(client):
     ).json()
     assert agent["team_id"] == team["id"]
     assert "team_id" not in agent["config"]
+
+
+def test_private_connections_api_and_communication_policy(client):
+    a = client.post("/v1/managed-agents/teams", json={"name": "A"}).json()
+    b = client.post("/v1/managed-agents/teams", json={"name": "B"}).json()
+    assert a["communicate_with"] == []
+    result = client.put(
+        f"/v1/managed-agents/teams/{a['id']}/policy",
+        json={"communicate_with": [b["id"]]},
+    )
+    assert result.json()["communicate_with"] == [b["id"]]
+    assert (
+        client.get("/v1/managed-agents/teams").json()["teams"][1]["communicate_with"]
+        == []
+    )
+    payload = {
+        "name": "Gmail",
+        "provider": "Gmail",
+        "url": "https://mcp.example.test/mcp",
+        "token": "fake-private-credential",
+    }
+    endpoint = f"/v1/managed-agents/teams/{a['id']}/connections"
+    response = client.post(endpoint, json=payload)
+    assert response.status_code == 201
+    assert response.json()["status"] == "configured"
+    assert "fake-private-credential" not in response.text
+    assert "token" not in response.json()
+    connection = response.json()
+    assert "fake-private-credential" not in client.get(endpoint).text
+    assert (
+        client.get(f"/v1/managed-agents/teams/{b['id']}/connections").json()[
+            "connections"
+        ]
+        == []
+    )
+    assert (
+        client.delete(
+            f"/v1/managed-agents/teams/{b['id']}/connections/{connection['id']}"
+        ).status_code
+        == 404
+    )
+    assert client.post(endpoint, json=payload).status_code == 409
+    assert client.delete(f"{endpoint}/{connection['id']}").status_code == 200
+    assert client.get(endpoint).json()["connections"] == []
+    assert (
+        client.post(endpoint, json={**payload, "token": ""}).json()["status"]
+        == "needs_authentication"
+    )
+    assert (
+        client.put(
+            f"/v1/managed-agents/teams/{a['id']}/policy",
+            json={"communicate_with": ["missing"]},
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            endpoint,
+            json={**payload, "url": "https://mcp.example.test/mcp?token=private"},
+        ).status_code
+        == 400
+    )
