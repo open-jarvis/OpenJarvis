@@ -30,6 +30,7 @@ _MEMORY_TOOLS = frozenset(
     {"retrieval", "memory_store", "memory_search", "memory_index", "memory_retrieve"}
 )
 _CHANNEL_TOOLS = frozenset({"channel_send", "channel_list", "channel_status"})
+_KNOWLEDGE_TOOLS = frozenset({"knowledge_search", "knowledge_sql", "scan_chunks"})
 
 
 class _SpecOverrideTool:
@@ -126,6 +127,8 @@ class ResolvedAgentTools:
     advertised_specs: list[dict[str, Any]] = field(default_factory=list)
     mcp_clients: list[Any] = field(default_factory=list)
     owned_resources: list[Any] = field(default_factory=list, repr=False)
+    # Effective memory/knowledge for this turn (team-owned for team agents).
+    data_scope: Any = field(default=None, repr=False)
     _closed: bool = field(default=False, init=False, repr=False)
     _finalizer: weakref.finalize = field(init=False, repr=False)
 
@@ -351,6 +354,52 @@ def resolve_agent_tools(
     owned_resources: list[Any] = []
     seen: set[str] = set()
 
+    from openjarvis.agents.team_data import resolve_agent_data_scope
+
+    data_scope = resolve_agent_data_scope(
+        manager,
+        agent_record,
+        memory_backend=memory_backend,
+        knowledge_db_path=knowledge_db_path,
+        app_config=app_config,
+    )
+    memory_backend = data_scope.memory_backend
+    knowledge_db_path = data_scope.knowledge_db_path
+    if data_scope.owned_backend:
+        owned_resources.append(data_scope.memory_backend)
+
+    team_knowledge: dict[str, Any] = {}
+
+    def instantiate(name: str) -> Any:
+        if name == "memory_manage" and data_scope.team_scoped:
+            return ToolRegistry.get(name)(
+                memory_path=data_scope.memory_files_config.memory_path
+            )
+        if name in _KNOWLEDGE_TOOLS and data_scope.team_scoped:
+            # Bind to the team's own knowledge.db; never the global store.
+            if not team_knowledge and Path(knowledge_db_path).exists():
+                team_knowledge.update(
+                    (_tool_name(tool), tool)
+                    for tool in build_deep_research_tools(
+                        engine, model, knowledge_db_path
+                    )
+                )
+                store = getattr(team_knowledge.get("knowledge_sql"), "_store", None)
+                if store is not None:
+                    owned_resources.append(store)
+            if name in team_knowledge:
+                return team_knowledge[name]
+            return ToolRegistry.get(name)()
+        return instantiate_registered_tool(
+            ToolRegistry.get(name),
+            name,
+            engine=engine,
+            model=model,
+            memory_backend=memory_backend,
+            channel_backend=channel_backend,
+            app_config=app_config,
+        )
+
     def add_instance(
         tool: Any,
         *,
@@ -429,15 +478,7 @@ def resolve_agent_tools(
             if name and not ChannelRegistry.contains(name):
                 if ToolRegistry.contains(name):
                     try:
-                        backing_tool = instantiate_registered_tool(
-                            ToolRegistry.get(name),
-                            name,
-                            engine=engine,
-                            model=model,
-                            memory_backend=memory_backend,
-                            channel_backend=channel_backend,
-                            app_config=app_config,
-                        )
+                        backing_tool = instantiate(name)
                     except Exception as exc:
                         logger.warning(
                             "Could not instantiate tool '%s' (%s) — "
@@ -476,17 +517,7 @@ def resolve_agent_tools(
                 )
                 continue
             try:
-                add_instance(
-                    instantiate_registered_tool(
-                        ToolRegistry.get(name),
-                        name,
-                        engine=engine,
-                        model=model,
-                        memory_backend=memory_backend,
-                        channel_backend=channel_backend,
-                        app_config=app_config,
-                    )
-                )
+                add_instance(instantiate(name))
             except Exception as exc:
                 logger.warning(
                     "Could not instantiate tool '%s' (%s) — dropping", name, exc
@@ -502,6 +533,7 @@ def resolve_agent_tools(
         advertised_specs=advertised_specs,
         mcp_clients=resolved_clients,
         owned_resources=owned_resources,
+        data_scope=data_scope,
     )
 
 

@@ -6,7 +6,7 @@ Use the **Team** filter to switch between **All teams**, **Unassigned**, or an i
 
 Select a team to rename or delete it. Deleting a team moves its agents to Unassigned; it preserves the agents, their configurations, messages and tasks. Existing agents remain unassigned after upgrading until you explicitly move them.
 
-Teams organize agents and provide independent company MCP connections plus policy-controlled managed-agent messaging. They do not enforce tenant access controls, isolate memory backends or chat data, share prompts, automatically run recipients, or configure publishing providers.
+Teams organize agents and provide independent company MCP connections, per-team memory and knowledge, and policy-controlled managed-agent messaging. They do not enforce tenant access controls, isolate the filesystem or non-MCP connectors, automatically run recipients, or configure publishing providers.
 
 ## API
 
@@ -32,13 +32,25 @@ The current connection flow supports Streamable HTTP MCP with a bearer token, or
 
 Tools are bound to the connection that discovered them and have stable connection-qualified names, preventing two identically named tools from resolving to another account. Runtime execution checks current agent membership, connection ownership and agent MCP opt-out. Each turn owns and closes its own private MCP clients; it never closes another team's or a global client's session.
 
+## Team memory and knowledge
+
+Each team has its own data folder beside the agents database, `team-data/<team_id>/` (0700 on POSIX), containing:
+
+- `memory.db`: the store behind `memory_store`, `memory_search`, `memory_retrieve`, `memory_index` and `retrieval`, and behind the agent's own cross-tick memory and automatic context retrieval. It uses the configured `[memory] default_backend` when that backend is stored on disk, otherwise SQLite.
+- `MEMORY.md`: the persona memory file injected into prompts and written by `memory_manage`. `SOUL.md` and `USER.md` (including a named persona) remain shared, because they describe the operator and persona rather than a client.
+- `knowledge.db`: the store behind `knowledge_search`, `knowledge_sql`, `scan_chunks` and Deep Research for the team's agents. Add text with `POST /v1/managed-agents/teams/{team_id}/knowledge`. The global uploads and connector syncs still write to the global `knowledge.db`, which team agents never read.
+
+Team agents never receive the global memory backend, global `MEMORY.md` or global knowledge store. Legacy agents that have never been assigned a team keep the global stores unchanged. A team-scoped agent removed from its team gets a private `team-data/_agents/<agent_id>/` area: it cannot read its former team's data, the global stores or other agents' data. Moving an agent to another team switches it to that team's data from its next turn.
+
+Existing global memory and knowledge are not migrated into teams. Deleting a team keeps its `team-data/<team_id>/` folder on disk so no client data is lost; no agent can reach it afterwards, and you can remove the folder manually. Per-agent conversation history and summary memory were already stored per agent.
+
 ## Communication permissions
 
 Agents may message other active agents in their own team. Cross-team messaging is denied by default and requires both teams to select each other under **Connections & communication**. Clear either side's checkbox and save to revoke permission. The receiving team gets a message, not access to the sender's accounts, tools, memory or conversation history.
 
 The runtime binds `managed_agent_peers`, `managed_agent_message`, and `managed_connection_status` to the real source agent. The model cannot supply a different sender identity. Peer discovery exposes only the IDs, names and team IDs of currently reachable agents. Sending queues an attributed `agent_to_agent` message; it does not run the recipient automatically. The recipient consumes queued messages on its next managed tick, with peer content explicitly marked as untrusted rather than operator instructions. Pending messages are blocked if permission is revoked or either agent moves teams before delivery. Already consumed messages cannot be recalled.
 
-This enforces account selection and messaging policy through managed-agent tool resolution and the managed message queue. It is **not full company data isolation**: native tools, shared memory/knowledge, persona files, filesystem access, global non-MCP connectors, and arbitrary shell/HTTP tools retain their existing permissions. Do not grant an agent general-purpose tools capable of accessing other companies' data and then treat these team controls as a security sandbox. Tenant authorization, per-team memory stores, filesystem isolation and separate execution identities remain additional work.
+This enforces account selection and messaging policy through managed-agent tool resolution and the managed message queue. Together with team memory and knowledge, this keeps each team's accounts and stored data apart. It is **not an OS-level sandbox**: file tools, shell/code execution, HTTP tools, global non-MCP connectors and channels retain their existing permissions, and can still reach other companies' files on the same machine (including another team's `team-data/` folder). Do not grant an agent general-purpose tools capable of accessing other companies' data and then treat these team controls as a security sandbox. Tenant authorization, filesystem isolation and separate execution identities remain additional work.
 
 Additional endpoints:
 
@@ -46,3 +58,7 @@ Additional endpoints:
 - `GET /v1/managed-agents/teams/{team_id}/connections`: credential-free metadata.
 - `POST /v1/managed-agents/teams/{team_id}/connections` with `name`, `provider`, `url`, optional `auth_type` (`bearer` by default), and optional `token`. An empty bearer token leaves the connection awaiting authentication.
 - `DELETE /v1/managed-agents/teams/{team_id}/connections/{connection_id}`: revoke only the connection owned by that team.
+- `GET /v1/managed-agents/teams/{team_id}/knowledge`: number of chunks in the team's knowledge store.
+- `POST /v1/managed-agents/teams/{team_id}/knowledge` with `content` and optional `title`: add text to the team's knowledge store only.
+
+Validation errors from the connection endpoint list the failing fields without echoing the submitted body, so a token is never returned in a 422 response.

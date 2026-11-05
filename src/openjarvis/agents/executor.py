@@ -474,6 +474,17 @@ class AgentExecutor:
         )
         self._toolkit_local.current = resolved_toolkit
         tool_instances = resolved_toolkit.instances
+        # Team agents get team-owned memory; legacy agents keep the global store.
+        data_scope = getattr(resolved_toolkit, "data_scope", None)
+        if data_scope is None:
+            from openjarvis.agents.team_data import AgentDataScope
+
+            data_scope = AgentDataScope(
+                memory_backend=getattr(self._system, "memory_backend", None),
+                memory_files_config=getattr(
+                    getattr(self._system, "config", None), "memory_files", None
+                ),
+            )
         logger.info(
             "Agent %s: resolved %d tools (%s)",
             agent["name"],
@@ -565,9 +576,7 @@ class AgentExecutor:
                     self._system, "session_store", None
                 )
             if _accepts("memory_backend"):
-                state_kwargs["memory_backend"] = getattr(
-                    self._system, "memory_backend", None
-                )
+                state_kwargs["memory_backend"] = data_scope.memory_backend
             # Wire SOUL.md / MEMORY.md / USER.md persona files into persistent
             # agents, mirroring the one-shot `jarvis ask` path so they no
             # longer apply to CLI calls only (#376).
@@ -588,7 +597,7 @@ class AgentExecutor:
                         )
                         or ""
                     ),
-                    memory_files_config=getattr(cfg, "memory_files", None),
+                    memory_files_config=data_scope.memory_files_config,
                     system_prompt_config=getattr(cfg, "system_prompt", None),
                 )
 
@@ -708,7 +717,7 @@ class AgentExecutor:
 
         if (
             self._system
-            and getattr(self._system, "memory_backend", None)
+            and data_scope.memory_backend is not None
             and getattr(self._system, "config", None)
             and self._system.config.agent.context_from_memory
         ):
@@ -732,7 +741,7 @@ class AgentExecutor:
                     query = instruction
 
                 if query:
-                    results = self._system.memory_backend.retrieve(
+                    results = data_scope.memory_backend.retrieve(
                         query,
                         top_k=ctx_cfg.top_k,
                     )
