@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Link } from 'react-router';
 import {
   Palette,
   Globe,
@@ -36,7 +37,6 @@ import {
   type MemoryStats,
 } from '../lib/api';
 import { isAutoUpdateDisabled, setAutoUpdateDisabled } from '../components/Desktop/UpdateChecker';
-import { McpServersSection } from '../components/settings/McpServersSection';
 
 const CLOUD_KEY_STATUS_CHANGED = 'openjarvis-cloud-key-status-changed';
 
@@ -662,7 +662,11 @@ export function SettingsPage() {
 
           {/* MCP servers */}
           <Section title="MCP servers">
-            <McpServersSection />
+            <SettingRow label="MCP library" description="Add, test and manage MCP servers and their tools">
+              <Link to="/mcp" className="text-xs font-medium" style={{ color: 'var(--color-accent)' }}>
+                Open MCP page →
+              </Link>
+            </SettingRow>
           </Section>
 
           {/* Memory */}

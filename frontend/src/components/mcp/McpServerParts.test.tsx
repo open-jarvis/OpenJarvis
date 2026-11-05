@@ -1,7 +1,16 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { McpServerForm, McpServerRow, RestartNotice, TestResultView } from './McpServersSection';
-import { emptyMcpForm, formFromServer, formToInput, toggleInput, type McpServer } from '../../lib/mcp-api';
+import { McpServerForm, RestartNotice, TestResultView } from './McpServerParts';
+import { McpServerDetail, McpServerListItem } from '../../pages/McpPage';
+import {
+  emptyMcpForm,
+  formFromServer,
+  formToInput,
+  isToolActive,
+  toggleInput,
+  toolToggleInput,
+  type McpServer,
+} from '../../lib/mcp-api';
 
 const httpServer: McpServer = {
   id: 'abc',
@@ -42,6 +51,22 @@ describe('MCP server form payloads', () => {
     expect(input).not.toHaveProperty('url');
   });
 
+  it('turns single tools off and on', () => {
+    const plain = { ...httpServer, include_tools: [], exclude_tools: [] };
+    const off = toolToggleInput(plain, 'drop', false);
+    expect(off.exclude_tools).toEqual(['drop']);
+    expect(off).not.toHaveProperty('token');
+    expect(toolToggleInput({ ...plain, exclude_tools: ['drop'] }, 'drop', true).exclude_tools).toEqual([]);
+    // With an include list, turning a tool on adds it there.
+    const on = toolToggleInput(httpServer, 'other', true);
+    expect(on.include_tools).toEqual(['search', 'other']);
+    expect(isToolActive(on, 'other')).toBe(true);
+    // Turning off the only included tool must not re-enable the rest.
+    const lastOff = toolToggleInput(httpServer, 'search', false);
+    expect(isToolActive(lastOff, 'search')).toBe(false);
+    expect(isToolActive(lastOff, 'other')).toBe(false);
+  });
+
   it('toggles enabled without touching the token', () => {
     const input = toggleInput(httpServer, false);
     expect(input.enabled).toBe(false);
@@ -51,18 +76,54 @@ describe('MCP server form payloads', () => {
 
 describe('MCP server rendering', () => {
   it('shows config.toml servers as read-only', () => {
+    const server = { ...httpServer, source: 'config' as const, read_only: true };
     const html = renderToStaticMarkup(
-      <McpServerRow server={{ ...httpServer, source: 'config', read_only: true }} onTest={vi.fn()} />,
+      <McpServerDetail
+        server={server}
+        result={{ ok: true, tools: [{ name: 'search', description: '', active: true }] }}
+        busy={false}
+        onTest={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onToggleTool={vi.fn()}
+      />,
     );
     expect(html).toContain('config.toml');
     expect(html).toContain('Test');
-    expect(html).not.toContain('Delete Docs');
+    expect(html).not.toContain('Delete');
+    expect(html).toMatch(/aria-label="Use tool search"[^>]*disabled/);
   });
 
-  it('shows saved-token state without a token value', () => {
-    const html = renderToStaticMarkup(<McpServerRow server={httpServer} onTest={vi.fn()} />);
+  it('shows saved-token state and per-tool switches', () => {
+    const html = renderToStaticMarkup(
+      <McpServerDetail
+        server={httpServer}
+        result={{ ok: true, tools: [{ name: 'search', description: 'Find', active: true }, { name: 'drop', description: '', active: false }] }}
+        busy={false}
+        onTest={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onToggleTool={vi.fn()}
+      />,
+    );
     expect(html).toContain('token saved');
-    expect(html).toContain('Delete Docs');
+    expect(html).toContain('Tools (2)');
+    expect(html).toMatch(/aria-checked="false"[^>]*aria-label="Use tool drop"/);
+  });
+
+  it('summarises a server in the list', () => {
+    const html = renderToStaticMarkup(
+      <McpServerListItem
+        server={httpServer}
+        result={{ ok: true, tools: [{ name: 'a', description: '', active: true }, { name: 'b', description: '', active: false }] }}
+        selected
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(html).toContain('1/2 tools on');
+    expect(renderToStaticMarkup(<McpServerListItem server={{ ...httpServer, enabled: false }} selected={false} onSelect={vi.fn()} />)).toContain('Disabled');
   });
 
   it('never prefills the token field when editing', () => {

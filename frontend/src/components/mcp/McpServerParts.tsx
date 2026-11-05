@@ -1,31 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Plug, Plus, Pencil, Trash2, RefreshCw, Lock } from 'lucide-react';
-import {
-  createMcpServer,
-  deleteMcpServer,
-  emptyMcpForm,
-  formFromServer,
-  formToInput,
-  listMcpServers,
-  testMcpDraft,
-  testMcpServer,
-  toggleInput,
-  updateMcpServer,
-  type McpForm,
-  type McpServer,
-  type McpServerList,
-  type McpTestResult,
-} from '../../lib/mcp-api';
+import { useState } from 'react';
+import { RefreshCw } from 'lucide-react';
+import type { McpForm, McpServer, McpTestResult } from '../../lib/mcp-api';
 
-const inputStyle = {
+export const inputStyle = {
   background: 'var(--color-bg)',
   border: '1px solid var(--color-border)',
   color: 'var(--color-text)',
 };
-const mutedText = { color: 'var(--color-text-tertiary)' };
-const smallButton = 'px-2 py-1 rounded text-[11px] cursor-pointer flex items-center gap-1 disabled:opacity-50';
+export const mutedText = { color: 'var(--color-text-tertiary)' };
+export const smallButton = 'px-2 py-1 rounded text-[11px] cursor-pointer flex items-center gap-1 disabled:opacity-50';
 
-function Toggle({ on, onClick, label, disabled }: { on: boolean; onClick: () => void; label: string; disabled?: boolean }) {
+export function Toggle({ on, onClick, label, disabled }: { on: boolean; onClick: () => void; label: string; disabled?: boolean }) {
   return (
     <button
       type="button"
@@ -69,74 +54,9 @@ export function TestResultView({ result }: { result: McpTestResult }) {
   );
 }
 
-function serverTarget(server: McpServer): string {
+export function serverTarget(server: McpServer): string {
   if (server.transport === 'http') return server.url || '';
   return [server.command, ...server.args].filter(Boolean).join(' ');
-}
-
-export function McpServerRow({
-  server,
-  busy,
-  testResult,
-  onTest,
-  onToggle,
-  onEdit,
-  onDelete,
-}: {
-  server: McpServer;
-  busy?: boolean;
-  testResult?: McpTestResult;
-  onTest: () => void;
-  onToggle?: () => void;
-  onEdit?: () => void;
-  onDelete?: () => void;
-}) {
-  return (
-    <div className="py-3" style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm flex items-center gap-1.5" style={{ color: 'var(--color-text)' }}>
-            {server.name}
-            <span className="text-[10px] uppercase px-1 rounded" style={{ ...mutedText, border: '1px solid var(--color-border)' }}>
-              {server.transport}
-            </span>
-            {server.read_only && (
-              <span className="text-[10px] flex items-center gap-0.5" style={mutedText} title="Defined in config.toml">
-                <Lock size={10} /> config.toml
-              </span>
-            )}
-          </div>
-          <div className="text-xs mt-0.5 font-mono truncate" style={mutedText}>
-            {serverTarget(server)}
-            {server.has_token && ' · token saved'}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button type="button" onClick={onTest} disabled={busy} className={smallButton} style={{ ...inputStyle }}>
-            <RefreshCw size={11} className={busy ? 'animate-spin' : undefined} /> Test
-          </button>
-          {!server.read_only && (
-            <>
-              <button type="button" onClick={onEdit} className={smallButton} style={inputStyle} aria-label={`Edit ${server.name}`}>
-                <Pencil size={11} />
-              </button>
-              <button
-                type="button"
-                onClick={onDelete}
-                className={smallButton}
-                style={{ color: 'var(--color-error)', border: '1px solid var(--color-error)' }}
-                aria-label={`Delete ${server.name}`}
-              >
-                <Trash2 size={11} />
-              </button>
-              <Toggle on={server.enabled} onClick={() => onToggle?.()} label={`Enable ${server.name}`} disabled={busy} />
-            </>
-          )}
-        </div>
-      </div>
-      {testResult && <TestResultView result={testResult} />}
-    </div>
-  );
 }
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -296,135 +216,6 @@ export function RestartNotice() {
       style={{ background: 'var(--color-accent-subtle)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
     >
       Restart OpenJarvis to apply MCP server changes. Tools are loaded when the server starts.
-    </div>
-  );
-}
-
-type Editing = { mode: 'new' } | { mode: 'edit'; server: McpServer } | null;
-
-export function McpServersSection() {
-  const [data, setData] = useState<McpServerList | null>(null);
-  const [loadError, setLoadError] = useState('');
-  const [editing, setEditing] = useState<Editing>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [results, setResults] = useState<Record<string, McpTestResult>>({});
-  const [actionError, setActionError] = useState('');
-
-  const refresh = useCallback(async () => {
-    try {
-      setData(await listMcpServers());
-      setLoadError('');
-    } catch (e: any) {
-      setLoadError(e?.message || 'Could not load MCP servers');
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  const withBusy = async (id: string, fn: () => Promise<void>) => {
-    setBusyId(id);
-    setActionError('');
-    try {
-      await fn();
-    } catch (e: any) {
-      setActionError(e?.message || 'Request failed');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const test = (server: McpServer) =>
-    withBusy(server.id, async () => {
-      const result = await testMcpServer(server.id);
-      setResults((r) => ({ ...r, [server.id]: result }));
-    });
-
-  const editingServer = editing?.mode === 'edit' ? editing.server : null;
-
-  return (
-    <div>
-      <div className="text-xs mb-3" style={mutedText}>
-        Connect OpenJarvis to external MCP servers. Their tools become available to agents.
-      </div>
-      {data && !data.enabled && (
-        <div className="text-xs mb-3" style={{ color: 'var(--color-error)' }}>
-          MCP is turned off in config.toml (<span className="font-mono">[tools.mcp] enabled = false</span>). Servers below are not loaded.
-        </div>
-      )}
-      {data?.restart_required && <RestartNotice />}
-      {loadError && <div className="text-xs mb-3" style={{ color: 'var(--color-error)' }}>{loadError}</div>}
-      {actionError && <div className="text-xs mb-3 break-words" style={{ color: 'var(--color-error)' }}>{actionError}</div>}
-      {data?.config_error && <div className="text-xs mb-3" style={{ color: 'var(--color-error)' }}>{data.config_error}</div>}
-
-      {data && data.servers.length === 0 && data.config_servers.length === 0 && !editing && (
-        <div className="text-xs py-3 flex items-center gap-2" style={mutedText}>
-          <Plug size={14} /> No MCP servers yet.
-        </div>
-      )}
-
-      {data?.servers.map((server) => (
-        <McpServerRow
-          key={server.id}
-          server={server}
-          busy={busyId === server.id}
-          testResult={results[server.id]}
-          onTest={() => void test(server)}
-          onEdit={() => setEditing({ mode: 'edit', server })}
-          onToggle={() =>
-            void withBusy(server.id, async () => {
-              await updateMcpServer(server.id, toggleInput(server, !server.enabled));
-              await refresh();
-            })
-          }
-          onDelete={() => {
-            if (!window.confirm(`Delete MCP server "${server.name}"?`)) return;
-            void withBusy(server.id, async () => {
-              await deleteMcpServer(server.id);
-              await refresh();
-            });
-          }}
-        />
-      ))}
-      {data?.config_servers.map((server) => (
-        <McpServerRow
-          key={server.id}
-          server={server}
-          busy={busyId === server.id}
-          testResult={results[server.id]}
-          onTest={() => void test(server)}
-        />
-      ))}
-
-      {editing ? (
-        <McpServerForm
-          key={editingServer?.id || 'new'}
-          initial={editingServer ? formFromServer(editingServer) : emptyMcpForm}
-          editing={!!editingServer}
-          savedToken={!!editingServer?.has_token}
-          onCancel={() => setEditing(null)}
-          onTest={(form) =>
-            testMcpDraft({ ...formToInput(form, { editing: !!editingServer }), id: editingServer?.id })
-          }
-          onSave={async (form) => {
-            const input = formToInput(form, { editing: !!editingServer });
-            if (editingServer) await updateMcpServer(editingServer.id, input);
-            else await createMcpServer(input);
-            setEditing(null);
-            await refresh();
-          }}
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={() => setEditing({ mode: 'new' })}
-          className={`${smallButton} mt-3`}
-          style={inputStyle}
-        >
-          <Plus size={11} /> Add MCP server
-        </button>
-      )}
     </div>
   );
 }

@@ -193,3 +193,23 @@ export function formToInput(form: McpForm, { editing }: { editing: boolean }): M
 export function toggleInput(server: McpServer, enabled: boolean): McpServerInput {
   return { ...formToInput(formFromServer(server), { editing: true }), enabled };
 }
+
+/** Same rule as the backend's `filter_server_tools`. */
+export function isToolActive(server: Pick<McpServer, 'include_tools' | 'exclude_tools'>, tool: string): boolean {
+  if (server.include_tools.length && !server.include_tools.includes(tool)) return false;
+  return !server.exclude_tools.includes(tool);
+}
+
+/**
+ * Payload that turns one tool on or off (token kept). Turning off adds it
+ * to `exclude_tools`; turning on removes it there and, when an include
+ * list is in use, adds it to that list.
+ */
+export function toolToggleInput(server: McpServer, tool: string, active: boolean): McpServerInput {
+  const input = formToInput(formFromServer(server), { editing: true });
+  const exclude = input.exclude_tools.filter((t) => t !== tool);
+  const include = [...input.include_tools];
+  if (!active) exclude.push(tool);
+  else if (include.length && !include.includes(tool)) include.push(tool);
+  return { ...input, include_tools: include, exclude_tools: exclude };
+}
