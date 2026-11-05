@@ -1145,6 +1145,7 @@ OpenJarvis respects the following environment variables:
 | `GOOGLE_API_KEY` | API key for Google Gemini inference. Required for the `google` engine. |
 | `MINIMAX_API_KEY` | API key for MiniMax cloud inference. Required for the `cloud` engine with MiniMax models (MiniMax-M3, MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed). |
 | `ATLASCLOUD_API_KEY` | API key for [Atlas Cloud](https://www.atlascloud.ai) inference. Required for the `cloud` engine with `atlascloud/`-prefixed models (e.g. `atlascloud/openai/gpt-4.1-mini`, `atlascloud/deepseek-ai/deepseek-v3.2`). Atlas Cloud is an OpenAI-compatible aggregator — `GET https://api.atlascloud.ai/v1/models` lists every routable ID. |
+| `CHEAPER_INFERENCE_API_KEY` | API key for [Cheaper Inference](https://cheaperinference.com). Required for the `cloud` engine with `cheaperinference/`-prefixed models (e.g. `cheaperinference/gpt-5.4-mini`, `cheaperinference/claude-sonnet-5`). Cheaper Inference is an OpenAI-compatible gateway. `GET https://api.cheaperinference.com/v1/models` lists routable IDs for an authenticated client; `/public/models` provides its public catalog without a key. Keys: [cheaperinference.com/signup](https://cheaperinference.com/signup). |
 | `TAVILY_API_KEY` | API key for the Tavily web search engine. Optional — when set, `auto` engine selection prefers Tavily. |
 | `YOUDOTCOM_API_KEY` | API key for the You.com web search engine. Optional — raises the keyless free-tier limits and enables You.com Contents extraction for URL queries. |
 | `SERPLY_API_KEY` | API key for the Serply web search engine, which proxies Google. Optional. When set and no other search key is, `auto` engine selection prefers Serply over the keyless tier. Keys: [serply.io](https://serply.io). |
@@ -1154,8 +1155,13 @@ OpenJarvis respects the following environment variables:
 | `FIRECRAWL_API_URL` | Base URL of the Firecrawl API, for example a [self-hosted Firecrawl](https://docs.firecrawl.dev/contributing/self-host). Optional. Defaults to `https://api.firecrawl.dev`. Any other URL enables the Firecrawl engine without a key, for instances that run without auth. |
 | `OPENJARVIS_WEB_SEARCH_ENGINE` | Web search engine for the `web_search` tool: `auto` (default), `youcom`, `tavily`, `serply`, `firecrawl`, or `duckduckgo`. |
 
-In the desktop app, you can save `ATLASCLOUD_API_KEY` in **Cloud Models** or
-**Settings → API Keys** instead of setting an environment variable.
+In the desktop app, you can save `ATLASCLOUD_API_KEY` and
+`CHEAPER_INFERENCE_API_KEY` in **Cloud Models** or **Settings → API Keys**
+instead of setting an environment variable.
+
+Cost estimates for the bundled Cheaper Inference models use a public-catalog
+snapshot from 2026-10-12, including its long-context price tiers. Marketplace
+rates can change; consult the provider's billing records for settled charges.
 
 ## Next Steps
 
