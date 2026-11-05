@@ -131,3 +131,6 @@ learning.db
 minion_logs/
 *.oj-debug.json
 oj-debug.*.json
+
+# Graphify generated graph and cache (rebuild locally from the knowledge sources)
+graphify-out/

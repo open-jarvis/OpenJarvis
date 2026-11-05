@@ -8,14 +8,16 @@ can be ingested by the knowledge pipeline.
 from __future__ import annotations
 
 import os
+import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Sequence
 from urllib.parse import quote
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
 from openjarvis.core.registry import ConnectorRegistry
 from openjarvis.tools._stubs import ToolSpec
+from openjarvis.core.config import DEFAULT_CONFIG_DIR
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -106,11 +108,53 @@ class ObsidianConnector(BaseConnector):
     display_name = "Obsidian / Markdown"
     auth_type = "filesystem"
 
-    def __init__(self, vault_path: str = "") -> None:
-        self._vault_path = vault_path
-        self._connected: bool = bool(vault_path) and Path(vault_path).is_dir()
+    _CONFIG_PATH = DEFAULT_CONFIG_DIR / "connectors" / "obsidian.json"
+
+    def __init__(
+        self,
+        vault_path: str = "",
+        *,
+        vault_paths: Optional[Sequence[str]] = None,
+    ) -> None:
+        configured = list(vault_paths or ())
+        if vault_path and not configured:
+            configured = [vault_path]
+        if not configured:
+            configured = self._load_saved_paths()
+        self._vault_paths = [str(Path(p).expanduser()) for p in configured if p]
+        self._vault_path = self._vault_paths[0] if self._vault_paths else ""
+        self._connected: bool = bool(self._vault_paths) and all(
+            Path(p).is_dir() for p in self._vault_paths
+        )
         self._items_synced: int = 0
         self._items_total: int = 0
+
+    @classmethod
+    def _load_saved_paths(cls) -> List[str]:
+        try:
+            data = json.loads(cls._CONFIG_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return []
+        paths = data.get("paths") if isinstance(data, dict) else None
+        if isinstance(paths, list):
+            return [p for p in paths if isinstance(p, str) and p]
+        path = data.get("path") if isinstance(data, dict) else None
+        return [path] if isinstance(path, str) and path else []
+
+    def configure_paths(self, paths: Sequence[str], *, persist: bool = True) -> None:
+        """Set one or more local Markdown roots and optionally persist them."""
+        normalized = [str(Path(p).expanduser()) for p in paths if p]
+        self._vault_paths = normalized
+        self._vault_path = normalized[0] if normalized else ""
+        self._connected = bool(normalized) and all(Path(p).is_dir() for p in normalized)
+        if persist:
+            if normalized:
+                self._CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+                self._CONFIG_PATH.write_text(
+                    json.dumps({"paths": normalized}, indent=2), encoding="utf-8"
+                )
+            else:
+                self._CONFIG_PATH.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------
     # BaseConnector interface
@@ -118,12 +162,14 @@ class ObsidianConnector(BaseConnector):
 
     def is_connected(self) -> bool:
         """Return ``True`` if vault_path is set and the directory exists."""
-        return bool(self._vault_path) and Path(self._vault_path).is_dir()
+        return bool(self._vault_paths) and all(Path(p).is_dir() for p in self._vault_paths)
 
     def disconnect(self) -> None:
         """Clear vault_path and mark as disconnected."""
+        self._vault_paths = []
         self._vault_path = ""
         self._connected = False
+        self._CONFIG_PATH.unlink(missing_ok=True)
 
     def sync(
         self,
@@ -141,25 +187,26 @@ class ObsidianConnector(BaseConnector):
             Not used for this filesystem connector (included for API
             compatibility).
         """
-        vault = Path(self._vault_path)
-        vault_name = vault.name
+        roots = [Path(p) for p in self._vault_paths]
+        collected_paths: List[Tuple[Path, Path, int]] = []
+        for root_index, vault in enumerate(roots):
+            for walk_root, dirs, files in os.walk(vault):
+                # Prune hidden and known-junk directories in-place so os.walk
+                # does not descend into them.
+                dirs[:] = [
+                    d for d in dirs if d not in _SKIP_DIRS and not d.startswith(".")
+                ]
 
-        collected_paths: List[Path] = []
-        for root, dirs, files in os.walk(vault):
-            # Prune hidden and known-junk directories in-place so os.walk
-            # does not descend into them.
-            dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not d.startswith(".")]
-
-            for filename in files:
-                fpath = Path(root) / filename
-                if fpath.suffix.lower() not in _TEXT_EXTENSIONS:
-                    continue
-                collected_paths.append(fpath)
+                for filename in files:
+                    fpath = Path(walk_root) / filename
+                    if fpath.suffix.lower() not in _TEXT_EXTENSIONS:
+                        continue
+                    collected_paths.append((vault, fpath, root_index))
 
         self._items_total = len(collected_paths)
         synced = 0
 
-        for fpath in collected_paths:
+        for vault, fpath, root_index in collected_paths:
             # Apply since filter based on mtime
             mtime = datetime.fromtimestamp(fpath.stat().st_mtime, tz=timezone.utc)
             if since is not None and mtime < since:
@@ -174,20 +221,25 @@ class ObsidianConnector(BaseConnector):
 
             title = metadata.get("title") or fpath.stem
             rel_path = fpath.relative_to(vault)
+            root_name = vault.name or f"root-{root_index}"
+            relative_id = str(rel_path) if root_index == 0 else f"{root_name}/{rel_path}"
 
             url = (
-                f"obsidian://open?vault={quote(vault_name)}&file={quote(str(rel_path))}"
+                f"obsidian://open?vault={quote(root_name)}&file={quote(str(rel_path))}"
             )
 
             doc = Document(
-                doc_id=f"obsidian:{rel_path}",
+                doc_id=f"obsidian:{relative_id}",
                 source="obsidian",
                 doc_type="note",
                 content=text,
                 title=str(title),
                 timestamp=mtime,
                 url=url,
-                metadata={k: v for k, v in metadata.items() if k != "title"},
+                metadata={
+                    **{k: v for k, v in metadata.items() if k != "title"},
+                    "knowledge_root": root_name,
+                },
             )
             synced += 1
             yield doc

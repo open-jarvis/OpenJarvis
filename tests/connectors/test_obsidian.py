@@ -184,3 +184,28 @@ def test_registry() -> None:
     assert ConnectorRegistry.contains("obsidian")
     cls = ConnectorRegistry.get("obsidian")
     assert cls.connector_id == "obsidian"
+
+
+def test_sync_multiple_roots_namespaces_secondary_documents(tmp_path: Path) -> None:
+    """A vault and a separate knowledge root can be indexed together."""
+    primary = tmp_path / "vault"
+    secondary = tmp_path / "knowledge-context"
+    primary.mkdir()
+    secondary.mkdir()
+    (primary / "same.md").write_text("# Primary\n", encoding="utf-8")
+    (secondary / "same.md").write_text("# Secondary\n", encoding="utf-8")
+
+    from openjarvis.connectors.obsidian import ObsidianConnector
+
+    connector = ObsidianConnector(vault_paths=[str(primary), str(secondary)])
+    docs = list(connector.sync())
+
+    assert connector.is_connected() is True
+    assert {doc.doc_id for doc in docs} == {
+        "obsidian:same.md",
+        "obsidian:knowledge-context/same.md",
+    }
+    assert {doc.metadata["knowledge_root"] for doc in docs} == {
+        "vault",
+        "knowledge-context",
+    }

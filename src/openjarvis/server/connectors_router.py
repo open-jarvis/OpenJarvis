@@ -556,22 +556,50 @@ def create_connectors_router():
             )
         _reject_pending_disconnect(connector_id)
         instance = _get_or_create(connector_id)
+        filesystem_reconfigured = False
 
         try:
             auth_type = getattr(instance, "auth_type", "unknown")
 
             if auth_type == "filesystem":
                 # Filesystem connectors accept a vault / directory path.
-                if req.path:
+                paths = []
+                if isinstance(req.config, dict):
+                    configured_paths = req.config.get("paths")
+                    if isinstance(configured_paths, list):
+                        paths = [p for p in configured_paths if isinstance(p, str) and p]
+                if req.path and req.path not in paths:
+                    paths.insert(0, req.path)
+                if paths and hasattr(instance, "configure_paths"):
+                    authorized_paths = []
+                    for path in paths:
+                        try:
+                            authorized_paths.append(
+                                str(
+                                    _authorize_filesystem_connector_path(
+                                        path,
+                                        getattr(request.app.state, "config", None),
+                                    )
+                                )
+                            )
+                        except PermissionError as exc:
+                            from fastapi.responses import JSONResponse
+
+                            return JSONResponse(status_code=403, content={"detail": str(exc)})
+                        except ValueError as exc:
+                            from fastapi.responses import JSONResponse
+
+                            return JSONResponse(status_code=400, content={"detail": str(exc)})
+                    previous_paths = tuple(getattr(instance, "_vault_paths", ()))
+                    instance.configure_paths(authorized_paths)
+                    filesystem_reconfigured = previous_paths != tuple(instance._vault_paths)
+                elif req.path:
                     try:
                         vault_path = _authorize_filesystem_connector_path(
                             req.path,
                             getattr(request.app.state, "config", None),
                         )
                     except PermissionError as exc:
-                        # Return directly: this route is lifecycle-serialized,
-                        # and a filesystem denial is an expected policy result,
-                        # not an exceptional connector failure.
                         from fastapi.responses import JSONResponse
 
                         return JSONResponse(status_code=403, content={"detail": str(exc)})
@@ -688,6 +716,24 @@ def create_connectors_router():
         # immediately — the user shouldn't have to click "Sync Now".
         sync_status: Optional[str] = None
         if instance.is_connected():
+            if filesystem_reconfigured:
+                # A newly added root may contain older files than the prior
+                # watermark. Re-scan from the beginning so it is not skipped.
+                try:
+                    from openjarvis.connectors.pipeline import IngestionPipeline
+                    from openjarvis.connectors.store import KnowledgeStore
+                    from openjarvis.connectors.sync_engine import SyncEngine
+
+                    with KnowledgeStore() as store:
+                        with SyncEngine(
+                            pipeline=IngestionPipeline(store=store),
+                        ) as engine:
+                            engine.reset_checkpoint(connector_id)
+                except Exception as exc:  # noqa: BLE001
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Could not reset filesystem sync state: {exc}",
+                    )
             sync_status = _start_sync(connector_id, instance)
 
         return {

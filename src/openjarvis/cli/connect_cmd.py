@@ -87,6 +87,8 @@ def _connect_source(registry: object, source: str, path: str = "") -> None:
                 return
 
         if instance.is_connected():
+            if hasattr(instance, "configure_paths"):
+                instance.configure_paths([path])
             console.print(f"[green]{source} connected at path: {path}[/green]")
         else:
             console.print(
