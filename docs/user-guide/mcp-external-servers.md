@@ -4,7 +4,7 @@ OpenJarvis can extend agent capabilities by connecting to external [Model Contex
 
 ## How It Works
 
-When OpenJarvis starts, it reads the `[tools.mcp]` section in `config.toml`. For each configured server, it:
+When OpenJarvis starts, it reads the servers you added in **Settings → MCP servers** and the `[tools.mcp]` section in `config.toml`. For each configured server, it:
 
 1. Opens a connection using the appropriate transport (Streamable HTTP or stdio).
 2. Performs the MCP initialize handshake (protocol version negotiation and `initialized` notification).
@@ -13,9 +13,48 @@ When OpenJarvis starts, it reads the `[tools.mcp]` section in `config.toml`. For
 
 If a server is unreachable or returns an error, OpenJarvis logs a warning and continues loading the remaining servers. One broken server does not prevent other tools from being available.
 
-## Configuration
+## Managing servers from Settings
 
-External MCP servers are configured in `config.toml` under `[tools.mcp]`. The
+Open **Settings → MCP servers** in the web UI or desktop app to add, edit,
+enable/disable, delete and test servers without editing `config.toml`:
+
+- **Streamable HTTP**: a URL plus optional authentication — a bearer token
+  (`Authorization: Bearer <token>`) or a token sent in a custom header such as
+  `X-API-Key`.
+- **stdio**: a command and its arguments (one per line). Arguments are stored in
+  plain text, so do not put secrets in them.
+- **Only these tools / Hide these tools**: the same `include_tools` /
+  `exclude_tools` filters described below.
+
+**Test connection** runs the MCP handshake and lists the server's tools
+(filtered tools are shown struck through). Errors never include the token.
+
+Servers added this way are stored under `~/.openjarvis/mcp/`:
+
+| File           | Contents                                                  |
+|----------------|-----------------------------------------------------------|
+| `servers.json` | Server records (no secrets).                              |
+| `secrets.json` | Tokens, keyed by server id. Owner-only (`0600`).          |
+
+Tokens are write-only: the API and UI only report whether one is saved. When
+editing, leave the token blank to keep it, or tick **Remove saved token**.
+
+Servers from `config.toml` still load as before. They appear in the list as
+read-only (you can test them, but edit them in `config.toml`). Setting
+`[tools.mcp] enabled = false` turns off every MCP server, including the ones
+added in Settings.
+
+MCP tools are discovered when the server starts, so **restart OpenJarvis**
+after changing servers. The Settings page shows a notice until you do.
+
+The same operations are available over HTTP at `/v1/mcp/servers`
+(`GET`, `POST`), `/v1/mcp/servers/{id}` (`PUT`, `DELETE`),
+`/v1/mcp/servers/{id}/test` and `/v1/mcp/servers/test` (test an unsaved
+draft). Request bodies must be `application/json`.
+
+## Configuration in config.toml
+
+External MCP servers can also be configured in `config.toml` under `[tools.mcp]`. The
 `servers` field accepts either inline JSON or a path to a JSON file:
 
 ```toml
@@ -67,6 +106,8 @@ Each server object supports the following fields:
 |------------------|----------------|----------|----------------------------------------------------------|
 | `name`           | string         | No       | Human-readable name used in log messages. Defaults to `<unnamed>`. |
 | `url`            | string         | No*      | URL for Streamable HTTP transport.                       |
+| `token`          | string         | No       | Token for HTTP servers, sent as `Authorization: Bearer <token>`. |
+| `auth_header`    | string         | No       | Send `token` in this header instead (e.g. `X-API-Key`).  |
 | `command`         | string         | No*      | Command to launch a stdio-based MCP server.              |
 | `args`           | list of strings| No       | Arguments passed to the stdio command.                   |
 | `include_tools`  | list of strings| No       | Whitelist of tool names to import. Only these tools are loaded. |

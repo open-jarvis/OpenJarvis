@@ -269,6 +269,7 @@ class StreamableHTTPTransport(MCPTransport):
         url: str,
         *,
         token: Optional[str] = None,
+        auth_header: Optional[str] = None,
         connect_timeout: float = 10.0,
         request_timeout: float = 60.0,
     ) -> None:
@@ -276,6 +277,9 @@ class StreamableHTTPTransport(MCPTransport):
 
         self._url = url
         self._token = token
+        # Custom header name for the token (e.g. ``X-API-Key``). ``None``
+        # keeps the default ``Authorization: Bearer <token>`` form.
+        self._auth_header = auth_header or None
         self._session_id: Optional[str] = None
         self._client = httpx.Client(
             timeout=httpx.Timeout(
@@ -301,14 +305,18 @@ class StreamableHTTPTransport(MCPTransport):
         servers such as Home Assistant's. Falsy tokens (None / empty
         string) deliberately do NOT send the header, matching the
         upstream MCP spec and the cfg.get("token") plumbing in the
-        builder.
+        builder. With ``auth_header`` set, the raw token is sent under
+        that header name instead.
         """
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         }
         if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
+            if self._auth_header:
+                headers[self._auth_header] = self._token
+            else:
+                headers["Authorization"] = f"Bearer {self._token}"
         if self._session_id is not None:
             headers["Mcp-Session-Id"] = self._session_id
         return headers
