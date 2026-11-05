@@ -36,6 +36,9 @@ class _FakeAuth:
         self.token_requests: list[dict] = []
         self.counter = 0
         self.base = ""
+        self.forbidden = False
+        # Answer with a valid JSON-RPC result but HTTP 403, as Google does.
+        self.result_with_403 = False
 
 
 def _handler(fake: _FakeAuth):
@@ -133,6 +136,18 @@ def _handler(fake: _FakeAuth):
                         {},
                         {"WWW-Authenticate": f'Bearer resource_metadata="{meta}"'},
                     )
+                if fake.forbidden:
+                    return self._json(
+                        403,
+                        {
+                            "error": {
+                                "code": 403,
+                                "message": "Gmail MCP API has not been used in "
+                                f"project 1 before or it is disabled. {auth}",
+                                "status": "PERMISSION_DENIED",
+                            }
+                        },
+                    )
                 req = json.loads(raw)
                 if "id" not in req:
                     self.send_response(202)
@@ -143,8 +158,9 @@ def _handler(fake: _FakeAuth):
                     if req["method"] == "tools/list"
                     else {"protocolVersion": "2025-06-18", "capabilities": {}}
                 )
+                status = 403 if fake.result_with_403 else 200
                 return self._json(
-                    200, {"jsonrpc": "2.0", "id": req["id"], "result": result}
+                    status, {"jsonrpc": "2.0", "id": req["id"], "result": result}
                 )
             return self._json(404, {})
 
@@ -328,3 +344,22 @@ def test_callback_is_exempt_from_api_key_auth():
 
     assert AuthMiddleware._requires_auth("/v1/mcp/oauth/callback") is False
     assert AuthMiddleware._requires_auth("/v1/mcp/servers") is True
+
+
+def test_forbidden_shows_the_server_reason_without_the_token(env, dcr_server):
+    sid = _create(env, dcr_server)["id"]
+    _sign_in(env, sid)
+    dcr_server.forbidden = True
+    res = env.client.post(f"/v1/mcp/servers/{sid}/test").json()
+    assert res["ok"] is False
+    assert res["error"].startswith("The server refused access (HTTP 403): Gmail MCP")
+    assert "access-" not in res["error"]
+
+
+def test_valid_jsonrpc_body_with_error_status_is_used(env, dcr_server):
+    sid = _create(env, dcr_server)["id"]
+    _sign_in(env, sid)
+    dcr_server.result_with_403 = True
+    res = env.client.post(f"/v1/mcp/servers/{sid}/test").json()
+    assert res["ok"] is True
+    assert [t["name"] for t in res["tools"]] == ["inbox"]

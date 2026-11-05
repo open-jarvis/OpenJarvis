@@ -290,6 +290,32 @@ def _fingerprint(configs: list[dict[str, Any]]) -> str:
     return hashlib.sha256(blob).hexdigest()
 
 
+def _server_reason(response: Any) -> str:
+    """Short human-readable reason from an error response, if it has one.
+
+    Reads the standard places: a JSON ``error.message`` / ``message`` /
+    ``error_description``, or ``error_description`` in ``WWW-Authenticate``.
+    """
+    reason = ""
+    try:
+        data = response.json()
+    except Exception:
+        data = None
+    if isinstance(data, dict):
+        error = data.get("error")
+        if isinstance(error, dict):
+            reason = str(error.get("message") or "")
+        reason = reason or str(
+            data.get("error_description") or data.get("message") or ""
+        )
+    if not reason:
+        header = response.headers.get("www-authenticate", "")
+        match = re.search(r'error_description="([^"]*)"', header)
+        reason = match.group(1) if match else ""
+    reason = " ".join(reason.split())
+    return reason[:300] + ("…" if len(reason) > 300 else "")
+
+
 def _friendly_test_error(exc: BaseException, cfg: dict[str, Any]) -> str:
     """Turn a connection failure into a short message the user can act on."""
     import httpx
@@ -302,10 +328,15 @@ def _friendly_test_error(exc: BaseException, cfg: dict[str, Any]) -> str:
     for err in seen:
         if isinstance(err, httpx.HTTPStatusError):
             code = err.response.status_code
+            reason = _server_reason(err.response)
             if code in (401, 403) and "oauth_connected" in cfg:
                 if not cfg.get("oauth_connected"):
                     return "Not signed in. Sign in to this server first."
+                if code == 403 and reason:
+                    return f"The server refused access (HTTP 403): {reason}"
                 return f"The server rejected the sign-in (HTTP {code}). Sign in again."
+            if code == 403 and reason:
+                return f"The server refused access (HTTP 403): {reason}"
             if code in (401, 403):
                 return (
                     "The server rejected the credentials (HTTP "
@@ -332,6 +363,23 @@ def _friendly_test_error(exc: BaseException, cfg: dict[str, Any]) -> str:
     return "Connected, but the server did not respond as an MCP server."
 
 
+def _oauth_secrets(cfg: dict[str, Any]) -> list[Optional[str]]:
+    """Stored OAuth tokens/secret for ``cfg``, so errors can be redacted."""
+    from pathlib import Path
+
+    if not (cfg.get("oauth_store_root") and cfg.get("id")):
+        return []
+    store = MCPServerStore(Path(cfg["oauth_store_root"]))
+    server_id = cfg["id"]
+    try:
+        tokens = store.oauth_tokens(server_id) or {}
+        values = [store.oauth_client_secret(server_id)]
+    except (OSError, ValueError):
+        return []
+    keys = ("access_token", "refresh_token", "client_secret")
+    return values + [tokens.get(k) for k in keys]
+
+
 def run_server_test(cfg: dict[str, Any]) -> dict[str, Any]:
     """Connect to one server and list its tools; never raises.
 
@@ -342,6 +390,7 @@ def run_server_test(cfg: dict[str, Any]) -> dict[str, Any]:
     from openjarvis.tools.mcp_adapter import MCPToolProvider
 
     secrets = [cfg.get("token"), cfg.get("url"), *(cfg.get("env") or {}).values()]
+    secrets += _oauth_secrets(cfg)
     client = None
     try:
         transport = build_transport(cfg, request_timeout=_TEST_TIMEOUT_SECONDS)
@@ -367,6 +416,8 @@ def run_server_test(cfg: dict[str, Any]) -> dict[str, Any]:
             "MCP server test failed: %s",
             _redact(f"{type(exc).__name__}: {exc}", secrets)[:500],
         )
+        # Read again: a refresh during the test may have stored new tokens.
+        secrets += _oauth_secrets(cfg)
         return {"ok": False, "error": _redact(_friendly_test_error(exc, cfg), secrets)}
     finally:
         if client is not None:

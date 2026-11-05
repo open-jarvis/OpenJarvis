@@ -350,7 +350,8 @@ class StreamableHTTPTransport(MCPTransport):
                     json=request.to_dict(),
                     headers=self._build_headers(force_refresh=True),
                 )
-            response.raise_for_status()
+            if not self._is_jsonrpc_reply(response, request):
+                response.raise_for_status()
         except httpx.ConnectError as exc:
             raise RuntimeError(
                 f"Failed to connect to MCP server at {self._safe_url()}: {exc}"
@@ -370,6 +371,33 @@ class StreamableHTTPTransport(MCPTransport):
         if new_session_id is not None:
             self._session_id = new_session_id
         return response
+
+    @classmethod
+    def _is_jsonrpc_reply(cls, response: Any, request: MCPRequest) -> bool:
+        """True for an error status whose body still answers ``request``.
+
+        Some servers (Google's Workspace MCP servers, for one) send a valid
+        JSON-RPC result with a 4xx status. The body is the answer, so use
+        it. 401 is never treated this way: it means the credentials failed.
+        """
+        code = response.status_code
+        if not isinstance(code, int) or code < 400 or code == 401:
+            return False
+        if request.id is None:
+            return False
+        body = response.text
+        try:
+            if "text/event-stream" in response.headers.get("content-type", ""):
+                body = cls._extract_json_from_sse(body)
+            data = json.loads(body)
+        except (ValueError, RuntimeError):
+            return False
+        return (
+            isinstance(data, dict)
+            and data.get("jsonrpc") == "2.0"
+            and data.get("id") == request.id
+            and ("result" in data or "error" in data)
+        )
 
     @staticmethod
     def _extract_json_from_sse(text: str) -> str:
