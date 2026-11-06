@@ -1,5 +1,6 @@
 import type { ResearchEvent, SSEEvent } from '../types';
 import { getBase, authHeaders } from './api';
+import { timeZoneHeaders } from './timezone';
 
 export interface ChatRequest {
   model: string;
@@ -16,7 +17,7 @@ export async function* streamChat(
   const base = getBase();
   const response = await fetch(`${base}/v1/chat/completions`, {
     method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    headers: authHeaders({ 'Content-Type': 'application/json', ...timeZoneHeaders() }),
     body: JSON.stringify(request),
     signal,
   });

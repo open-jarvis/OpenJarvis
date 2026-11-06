@@ -1683,6 +1683,12 @@ class SystemPromptConfig:
     user_max_chars: int = 1500
     skill_desc_max_chars: int = 60
     truncation_strategy: str = "head_tail"
+    # Tell the model the user's time zone and local time so it converts UTC
+    # timestamps from tools. ``timezone`` is an IANA name such as
+    # "Africa/Cairo"; empty uses the server machine's zone. The web UI sends
+    # the device's zone (or the one picked in Settings) per request instead.
+    include_current_time: bool = True
+    timezone: str = ""
 
 
 @dataclass(slots=True)
