@@ -26,6 +26,7 @@ def test_gpt_oss_is_local(model):
         ("openai/gpt-oss-20b", "openrouter"),
         ("openrouter/openai/gpt-oss-120b", "openrouter"),
         ("atlascloud/openai/gpt-oss-120b", "atlascloud"),
+        ("popnow/deepseek/v4-flash/chat", "popnow"),
     ],
 )
 def test_cloud_models_keep_their_provider(model, provider):
