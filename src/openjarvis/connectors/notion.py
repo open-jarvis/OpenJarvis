@@ -48,7 +48,7 @@ def _notion_api_search(
     *,
     cursor: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Call the Notion ``/v1/search`` endpoint to list accessible pages.
+    """Call the Notion ``/v1/search`` endpoint to list accessible pages and databases.
 
     Parameters
     ----------
@@ -63,7 +63,6 @@ def _notion_api_search(
         Raw API response containing ``results`` list and ``has_more`` flag.
     """
     body: Dict[str, Any] = {
-        "filter": {"property": "object", "value": "page"},
         "page_size": 100,
     }
     if cursor:
@@ -71,6 +70,44 @@ def _notion_api_search(
 
     resp = httpx.post(
         f"{_NOTION_API_BASE}/search",
+        headers=_notion_headers(token),
+        json=body,
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _notion_api_query_database(
+    token: str,
+    database_id: str,
+    *,
+    cursor: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Query rows belonging to a Notion database via ``/v1/databases/{id}/query``.
+
+    Parameters
+    ----------
+    token:
+        Notion integration token.
+    database_id:
+        Database UUID.
+    cursor:
+        Pagination cursor (``start_cursor``) from a previous query response.
+
+    Returns
+    -------
+    dict
+        Raw API response containing row pages in ``results`` and ``has_more``.
+    """
+    body: Dict[str, Any] = {
+        "page_size": 100,
+    }
+    if cursor:
+        body["start_cursor"] = cursor
+
+    resp = httpx.post(
+        f"{_NOTION_API_BASE}/databases/{database_id}/query",
         headers=_notion_headers(token),
         json=body,
         timeout=30.0,
@@ -186,6 +223,16 @@ def _render_blocks_to_markdown(blocks: List[Dict[str, Any]]) -> str:
             text = _extract_rich_text(block_data)
             lines.append(text)
 
+        elif block_type == "child_database":
+            title = block_data.get("title", "")
+            if title:
+                lines.append(f"## {title}")
+
+        elif block_type == "child_page":
+            title = block_data.get("title", "")
+            if title:
+                lines.append(f"[Page: {title}]")
+
         else:
             # Generic fallback: extract rich_text if the block data has it
             if "rich_text" in block_data:
@@ -202,7 +249,18 @@ def _render_blocks_to_markdown(blocks: List[Dict[str, Any]]) -> str:
 
 
 def _extract_page_title(page: Dict[str, Any]) -> str:
-    """Extract the plain-text title from a Notion page object."""
+    """Extract the plain-text title from a Notion page or database object."""
+    # Notion databases store their title in a top-level "title" list.
+    db_title_items: List[Dict[str, Any]] = page.get("title", [])
+    if isinstance(db_title_items, list) and db_title_items:
+        title_str = "".join(
+            item.get("plain_text", "")
+            for item in db_title_items
+            if isinstance(item, dict)
+        )
+        if title_str.strip():
+            return title_str.strip()
+
     properties: Dict[str, Any] = page.get("properties", {})
 
     # The title property can be named "title", "Name", or any custom name.
@@ -215,6 +273,57 @@ def _extract_page_title(page: Dict[str, Any]) -> str:
             return "".join(item.get("plain_text", "") for item in title_items)
 
     return "(Untitled)"
+
+
+def _extract_property_value(prop_spec: Any) -> str:
+    """Extract a human-readable string representation of a Notion property value."""
+    if not isinstance(prop_spec, dict):
+        return ""
+    ptype = prop_spec.get("type")
+    if ptype in ("title", "rich_text"):
+        items = prop_spec.get(ptype, [])
+        if isinstance(items, list):
+            return "".join(
+                x.get("plain_text", "") for x in items if isinstance(x, dict)
+            ).strip()
+    elif ptype == "status":
+        status_obj = prop_spec.get("status")
+        if isinstance(status_obj, dict):
+            return status_obj.get("name", "")
+    elif ptype == "select":
+        sel = prop_spec.get("select")
+        if isinstance(sel, dict):
+            return sel.get("name", "")
+    elif ptype == "multi_select":
+        ms = prop_spec.get("multi_select", [])
+        if isinstance(ms, list):
+            return ", ".join(
+                x.get("name", "") for x in ms if isinstance(x, dict) and x.get("name")
+            )
+    elif ptype == "date":
+        d = prop_spec.get("date")
+        if isinstance(d, dict):
+            start = d.get("start", "")
+            end = d.get("end")
+            return f"{start} -> {end}" if end else start
+    elif ptype == "checkbox":
+        return "Yes" if prop_spec.get("checkbox") else "No"
+    elif ptype == "number":
+        num = prop_spec.get("number")
+        return str(num) if num is not None else ""
+    elif ptype == "url":
+        return prop_spec.get("url") or ""
+    elif ptype == "email":
+        return prop_spec.get("email") or ""
+    elif ptype == "phone_number":
+        return prop_spec.get("phone_number") or ""
+    elif ptype == "people":
+        ppl = prop_spec.get("people", [])
+        if isinstance(ppl, list):
+            return ", ".join(
+                x.get("name", "") for x in ppl if isinstance(x, dict) and x.get("name")
+            )
+    return ""
 
 
 def _parse_iso_datetime(dt_str: str) -> datetime:
@@ -310,10 +419,10 @@ class NotionConnector(BaseConnector):
         since: Optional[datetime] = None,
         cursor: Optional[str] = None,
     ) -> Iterator[Document]:
-        """Yield :class:`Document` objects for Notion pages.
+        """Yield :class:`Document` objects for Notion pages and databases.
 
-        Paginates through ``/v1/search`` and fetches block content for each
-        page, rendering it to markdown.
+        Paginates through ``/v1/search`` and fetches content for each page
+        or database, rendering it to markdown.
 
         Parameters
         ----------
@@ -332,14 +441,18 @@ class NotionConnector(BaseConnector):
 
         while True:
             search_resp = _notion_api_search(token, cursor=page_cursor)
-            pages: List[Dict[str, Any]] = search_resp.get("results", [])
+            results: List[Dict[str, Any]] = search_resp.get("results", [])
 
-            for page in pages:
-                page_id: str = page.get("id", "")
-                if not page_id:
+            for item in results:
+                item_id: str = item.get("id", "")
+                if not item_id:
                     continue
 
-                last_edited_str: str = page.get("last_edited_time", "")
+                obj_type: str = item.get("object", "page")
+                if obj_type not in ("page", "database"):
+                    continue
+
+                last_edited_str: str = item.get("last_edited_time", "")
                 timestamp = _parse_iso_datetime(last_edited_str)
 
                 # Apply since filter
@@ -351,21 +464,94 @@ class NotionConnector(BaseConnector):
                     if timestamp < since_aware:
                         continue
 
-                title = _extract_page_title(page)
-                url: Optional[str] = page.get("url")
+                title = _extract_page_title(item)
+                url: Optional[str] = item.get("url")
 
-                blocks = _notion_api_get_blocks(token, page_id)
-                content = _render_blocks_to_markdown(blocks)
+                if obj_type == "database":
+                    lines: List[str] = [f"# {title}"]
+                    desc_items: List[Dict[str, Any]] = item.get("description", [])
+                    if desc_items:
+                        desc = "".join(
+                            x.get("plain_text", "")
+                            for x in desc_items
+                            if isinstance(x, dict)
+                        ).strip()
+                        if desc:
+                            lines.append(desc)
+
+                    # List database schema properties
+                    props = item.get("properties", {})
+                    if props:
+                        prop_lines = ["## Properties"]
+                        for prop_name, prop_spec in props.items():
+                            p_type = (
+                                prop_spec.get("type", "")
+                                if isinstance(prop_spec, dict)
+                                else ""
+                            )
+                            prop_lines.append(
+                                f"- {prop_name} ({p_type})"
+                                if p_type
+                                else f"- {prop_name}"
+                            )
+                        lines.append("\n".join(prop_lines))
+
+                    # Query database rows if available
+                    try:
+                        query_resp = _notion_api_query_database(token, item_id)
+                        rows: List[Dict[str, Any]] = query_resp.get("results", [])
+                        if rows:
+                            row_lines = ["## Rows"]
+                            for row in rows:
+                                row_title = _extract_page_title(row)
+                                row_details: List[str] = []
+                                for p_name, p_data in row.get("properties", {}).items():
+                                    if (
+                                        isinstance(p_data, dict)
+                                        and p_data.get("type") != "title"
+                                    ):
+                                        val = _extract_property_value(p_data)
+                                        if val:
+                                            row_details.append(f"{p_name}: {val}")
+                                if row_details:
+                                    row_lines.append(
+                                        f"- **{row_title}** ({', '.join(row_details)})"
+                                    )
+                                else:
+                                    row_lines.append(f"- {row_title}")
+                            lines.append("\n".join(row_lines))
+                    except Exception:
+                        pass
+
+                    content = "\n\n".join(lines)
+                else:
+                    blocks = _notion_api_get_blocks(token, item_id)
+                    block_content = _render_blocks_to_markdown(blocks)
+                    page_prop_details: List[str] = []
+                    for p_name, p_data in item.get("properties", {}).items():
+                        if isinstance(p_data, dict) and p_data.get("type") != "title":
+                            val = _extract_property_value(p_data)
+                            if val:
+                                page_prop_details.append(f"- {p_name}: {val}")
+                    if page_prop_details:
+                        prop_sec = "## Properties\n" + "\n".join(page_prop_details)
+                        content = (
+                            f"{prop_sec}\n\n{block_content}".strip()
+                            if block_content
+                            else prop_sec
+                        )
+                    else:
+                        content = block_content
 
                 doc = Document(
-                    doc_id=f"notion:{page_id}",
+                    doc_id=f"notion:{item_id}",
                     source="notion",
                     doc_type="document",
                     content=content,
                     title=title,
                     timestamp=timestamp,
                     url=url,
-                    metadata={"page_id": page_id},
+                    metadata={"page_id": item_id, "object": obj_type},
                 )
                 synced += 1
                 yield doc
