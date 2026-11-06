@@ -1,0 +1,251 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GUDIYA AI</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f2f8ff;
+  color: #183b62;
+}
+
+header {
+  background: white;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 2px 10px #cbdff5;
+}
+
+.logo {
+  background: #2789ed;
+  color: white;
+  padding: 12px;
+  border-radius: 50%;
+  font-weight: bold;
+}
+
+header h2 {
+  margin: 0;
+  color: #1675d1;
+}
+
+header small {
+  color: #5794cf;
+}
+
+#chat {
+  height: calc(100dvh - 155px);
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.message {
+  padding: 13px 16px;
+  border-radius: 17px;
+  margin: 12px 0;
+  max-width: 85%;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.bot {
+  background: white;
+  border: 1px solid #d8eaff;
+  margin-right: auto;
+}
+
+.user {
+  background: #2789ed;
+  color: white;
+  margin-left: auto;
+}
+
+.controls {
+  position: fixed;
+  bottom: 0;
+  background: white;
+  padding: 12px;
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  box-shadow: 0 -2px 10px #cbdff5;
+}
+
+input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #bdd9f5;
+  padding: 13px;
+  border-radius: 25px;
+  outline: none;
+}
+
+button {
+  border: none;
+  background: #2789ed;
+  color: white;
+  border-radius: 50%;
+  width: 45px;
+  height: 45px;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: .5;
+}
+
+</style>
+</head>
+
+<body>
+
+<header>
+  <div class="logo">G</div>
+  <div>
+    <h2>GUDIYA AI 💙</h2>
+    <small>Your Friendly AI Assistant</small>
+  </div>
+</header>
+
+<div id="chat">
+  <div class="message bot">
+    नमस्ते! मैं गुड़िया हूँ। 💙
+    आप मुझसे कुछ भी पूछ सकते हैं।
+  </div>
+</div>
+
+<div class="controls">
+  <input id="question"
+    placeholder="Ask GUDIYA anything..."
+    onkeydown="if(event.key==='Enter') sendMessage()">
+
+  <button onclick="startVoice()">🎙️</button>
+  <button onclick="sendMessage()">➤</button>
+</div>
+
+<script>
+
+const chat = document.getElementById("chat");
+const input = document.getElementById("question");
+
+function addMessage(text, type) {
+  const div = document.createElement("div");
+  div.className = "message " + type;
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+async function sendMessage() {
+
+  const question = input.value.trim();
+
+  if (!question) return;
+
+  addMessage(question, "user");
+  input.value = "";
+
+  const loading = addMessage("गुड़िया जवाब सोच रही है... 💙", "bot");
+
+  try {
+
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        message: question,
+        language: "auto",
+        personality: "friendly, empathetic female AI assistant"
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error("AI service unavailable");
+    }
+
+    const data = await response.json();
+
+    loading.textContent =
+      data.reply || "मुझे इसका जवाब नहीं मिला।";
+
+    speak(loading.textContent);
+
+  } catch (error) {
+
+    loading.textContent =
+      "AI Brain अभी कनेक्ट नहीं है। पहले Backend API जोड़ें। 💙";
+
+  }
+}
+
+function speak(text) {
+
+  if (!("speechSynthesis" in window)) return;
+
+  speechSynthesis.cancel();
+
+  const speech = new SpeechSynthesisUtterance(text);
+
+  speech.lang = "hi-IN";
+  speech.rate = 0.92;
+  speech.pitch = 1.12;
+
+  const voices = speechSynthesis.getVoices();
+
+  const femaleVoice = voices.find(v =>
+    /female|woman/i.test(v.name) &&
+    /hi|en/i.test(v.lang)
+  );
+
+  if (femaleVoice) speech.voice = femaleVoice;
+
+  speechSynthesis.speak(speech);
+}
+
+function startVoice() {
+
+  const Recognition =
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
+
+  if (!Recognition) {
+    alert("Voice recognition इस ब्राउज़र में उपलब्ध नहीं है।");
+    return;
+  }
+
+  const recognition = new Recognition();
+
+  recognition.lang = "hi-IN";
+  recognition.interimResults = false;
+
+  recognition.onresult = function(event) {
+    input.value = event.results[0][0].transcript;
+    sendMessage();
+  };
+
+  recognition.onerror = function() {
+    alert("आवाज़ सुनने में समस्या हुई। दोबारा कोशिश करें।");
+  };
+
+  recognition.start();
+}
+
+</script>
+
+</body>
+</html>
