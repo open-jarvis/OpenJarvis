@@ -319,7 +319,7 @@
   }
 
   .prose ul, .prose ol {
-    padding-left: 1.5em;
+    padding-inline-start: 1.5em;
     margin-bottom: 0.75em;
   }
 
@@ -328,8 +328,8 @@
   }
 
   .prose blockquote {
-    border-left: 3px solid var(--color-accent);
-    padding-left: 1em;
+    border-inline-start: 3px solid var(--color-accent);
+    padding-inline-start: 1em;
     margin: 0.75em 0;
     color: var(--color-text-secondary);
   }
