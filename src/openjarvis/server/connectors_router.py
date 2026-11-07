@@ -614,6 +614,21 @@ def create_connectors_router():
                     )
                 instance.configure(feeds)
 
+            elif connector_id == "caldav":
+                # The CalDAV server URL is user-chosen, so accepting it over
+                # HTTP would need the IMAP-style public-address policy. Until
+                # then credentials are configured locally only — and the
+                # generic branch below must not overwrite them.
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "CalDAV is configured locally: create "
+                        "~/.openjarvis/connectors/caldav.json or set the "
+                        "CALDAV_URL, CALDAV_USERNAME and CALDAV_PASSWORD "
+                        "environment variables"
+                    ),
+                )
+
             else:
                 # Generic: try to store token or credentials if the instance
                 # exposes the relevant attributes.
