@@ -72,3 +72,58 @@ async def test_stream_cloud_normalizes_openrouter_model_before_forwarding(
 
     assert tokens == ["ok"]
     assert captured["model"] == expected_forwarded_model
+
+
+def test_load_keys_strips_enclosing_quotes(tmp_path, monkeypatch):
+    env_file = tmp_path / "cloud-keys.env"
+    env_file.write_text(
+        'OPENAI_API_KEY="sk-proj-double-quoted"\n'
+        "ANTHROPIC_API_KEY='sk-ant-single-quoted'\n"
+        "GEMINI_API_KEY=unquoted-key\n"
+        'OPENROUTER_API_KEY="sk-or-test"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cloud_router, "_CLOUD_ENV_FILE", env_file)
+    for k in (
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "OPENROUTER_API_KEY",
+    ):
+        monkeypatch.delenv(k, raising=False)
+
+    keys = cloud_router._load_keys()
+    assert keys["OPENAI_API_KEY"] == "sk-proj-double-quoted"
+    assert keys["ANTHROPIC_API_KEY"] == "sk-ant-single-quoted"
+    assert keys["GEMINI_API_KEY"] == "unquoted-key"
+    assert keys["OPENROUTER_API_KEY"] == "sk-or-test"
+
+
+def test_load_keys_utf8_with_unicode_comments(tmp_path, monkeypatch):
+    env_file = tmp_path / "cloud-keys.env"
+    env_file.write_text(
+        "# Clé API pour OpenAI 🔑\n"
+        'OPENAI_API_KEY="sk-proj-unicode-ok"\n'
+        "# 日本語コメント\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cloud_router, "_CLOUD_ENV_FILE", env_file)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    keys = cloud_router._load_keys()
+    assert keys["OPENAI_API_KEY"] == "sk-proj-unicode-ok"
+
+
+def test_load_keys_edge_cases_and_empty_quotes(tmp_path, monkeypatch):
+    env_file = tmp_path / "cloud-keys.env"
+    env_file.write_text(
+        'EMPTY_DOUBLE=""\nEMPTY_SINGLE=\'\'\nJUST_ONE=" \nMISMATCHED="test\'\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cloud_router, "_CLOUD_ENV_FILE", env_file)
+
+    keys = cloud_router._load_keys()
+    assert keys["EMPTY_DOUBLE"] == ""
+    assert keys["EMPTY_SINGLE"] == ""
+    assert keys["JUST_ONE"] == '"'
+    assert keys["MISMATCHED"] == "\"test'"
