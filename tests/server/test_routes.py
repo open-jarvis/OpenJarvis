@@ -1656,6 +1656,64 @@ class TestModelsEndpoint:
         assert "Hello" in resp.text
         assert '"engine": "litellm"' in resp.text
 
+    def test_configured_nim_model_is_listed(self):
+        """Regression for #1226: NIM models (org/model) must reach the Web UI."""
+        model = "meta/llama-3.1-70b-instruct"
+        engine = _make_engine(models=[model])
+        engine.engine_id = "nim"
+        app = create_app(
+            engine,
+            model,
+            engine_name="nim",
+            config=_test_config(),
+        )
+
+        with patch(
+            "openjarvis.server.cloud_router.list_local_models",
+            new_callable=AsyncMock,
+        ) as list_local_models:
+            list_local_models.return_value = []
+            client = TestClient(app)
+            resp = client.get("/v1/models")
+
+        assert resp.status_code == 200
+        assert [item["id"] for item in resp.json()["data"]] == [model]
+        assert resp.json()["data"][0]["owned_by"] == "nim"
+
+    def test_nim_provider_model_streams_through_active_engine(self):
+        """A NIM ``org/model`` ID must not bypass its engine to OpenRouter."""
+        model = "meta/llama-3.1-70b-instruct"
+        engine = _make_engine(models=[model])
+        engine.engine_id = "nim"
+        app = create_app(
+            engine,
+            model,
+            engine_name="nim",
+            config=_test_config(),
+        )
+
+        async def direct_cloud_tokens():
+            yield "wrong backend"
+
+        with patch(
+            "openjarvis.server.cloud_router.stream_cloud",
+            return_value=direct_cloud_tokens(),
+        ) as stream_cloud:
+            client = TestClient(app)
+            resp = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "stream": True,
+                },
+            )
+
+        assert resp.status_code == 200
+        stream_cloud.assert_not_called()
+        assert "Hello" in resp.text
+        assert '"engine": "nim"' in resp.text
+
 
 # ---------------------------------------------------------------------------
 # Health endpoint tests
