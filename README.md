@@ -1,193 +1,156 @@
 # Friday-AI
 
-Friday-AI is a modified fork of [OpenJarvis](https://github.com/open-jarvis/OpenJarvis), licensed under Apache-2.0.
+**Personal AI, on your own device.**
 
-**Changes made:** renamed the project (Jarvis to Friday) across code, commands and config.
+Friday-AI is a personal AI assistant that runs locally by default. It is built on top of
+[OpenJarvis](https://github.com/open-jarvis/OpenJarvis) (Apache-2.0), the local-first AI
+framework from Stanford's Hazy Research and Scaling Intelligence Lab.
 
-Not affiliated with or endorsed by the OpenJarvis maintainers or Marvel.
+> Friday-AI is an independent fork. It is not affiliated with or endorsed by the
+> OpenJarvis maintainers, Stanford, or Marvel.
 
----
-<div align="center">
-  <img alt="FridayAI" src="assets/FridayAI_Horizontal_Logo.png" width="400">
+## Why Friday-AI?
 
-  <p><i>Personal AI, On Personal Devices.</i></p>
+Most personal AI assistants still send every request to a cloud API, so your "personal"
+AI depends on someone else's server. Friday-AI follows the local-first approach of
+OpenJarvis: the model runs on your own computer through Ollama, and the cloud is used only
+if you choose to configure it.
 
-  <p>
-    <a href="https://arxiv.org/abs/2605.17172"><img src="https://img.shields.io/badge/arXiv-2605.17172-b31b1b.svg" alt="arXiv"></a>
-    <a href="https://friday_ai.stanford.edu/"><img src="https://img.shields.io/badge/project-FridayAI-blue" alt="Project"></a>
-    <a href="https://open-jarvis.github.io/OpenJarvis/"><img src="https://img.shields.io/badge/docs-mkdocs-blue" alt="Docs"></a>
-    <img src="https://img.shields.io/badge/python-%3E%3D3.10-blue" alt="Python">
-    <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License">
-    <a href="https://discord.gg/CMVBmDQ5Fj"><img src="https://img.shields.io/badge/discord-join-7289da?logo=discord&logoColor=white" alt="Discord"></a>
-    <a href="https://x.com/FridayAIAI"><img src="https://img.shields.io/badge/X-@FridayAIAI-black?logo=x&logoColor=white" alt="X / Twitter"></a>
-  </p>
-</div>
+The underlying framework is built around three ideas:
 
----
-
-<div align="center">
-  <img alt="FridayAI demo reel" src="assets/friday_ai_demo_reel.webp" width="75%">
-</div>
-
----
-
-> **[Documentation](https://open-jarvis.github.io/OpenJarvis/)**
->
-> **[Project Site](https://friday_ai.stanford.edu/)**
->
-> **[Paper](https://arxiv.org/abs/2605.17172)**
->
-> **[Leaderboard](https://open-jarvis.github.io/OpenJarvis/leaderboard/)**
->
-> **[Roadmap](https://open-jarvis.github.io/OpenJarvis/development/roadmap/)**
-
-## Why FridayAI?
-
-Personal AI agents are exploding in popularity, but nearly all of them still route intelligence through cloud APIs. Your "personal" AI continues to depend on someone else's server. At the same time, our [Intelligence Per Watt](https://www.intelligence-per-watt.ai/) research showed that local language models already handle 88.7% of single-turn chat and reasoning queries, with intelligence efficiency improving 5.3× from 2023 to 2025. The models and hardware are increasingly ready. What has been missing is the software stack to make local-first personal AI practical.
-
-FridayAI is that stack. It is a framework for local-first personal AI, built around three core ideas: shared primitives for building on-device agents; evaluations that treat energy, FLOPs, latency, and dollar cost as first-class constraints alongside accuracy; and a learning loop that improves models using local trace data. The goal is simple: make it possible to build personal AI agents that run locally by default, calling the cloud only when truly necessary. FridayAI aims to be both a research platform and a production foundation for local AI, in the spirit of PyTorch.
+- **Shared building blocks** for on-device agents
+- **Evaluations** that treat energy, latency and cost as important as accuracy
+- **A learning loop** that improves models using your local trace data
 
 ## Installation
 
-Pick your platform and run one command. Each installer handles [uv](https://docs.astral.sh/uv/), the Python venv, Ollama, and a starter model — about 3 minutes on broadband.
-
-| Platform | One-liner |
-|---|---|
-| **macOS · Linux · WSL2** | `curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh \| bash` |
-| **Native Windows** | `irm https://open-jarvis.github.io/OpenJarvis/install.ps1 \| iex` |
-| **Desktop GUI** | Download `.exe` / `.dmg` / `.deb` / `.rpm` / `.AppImage` from the [latest release](https://github.com/open-jarvis/FridayAI/releases) |
-
-Then `friday` to start. The Rust extension and larger models continue downloading in the background; `friday doctor` shows status.
-
-Platform-specific notes (WSL2 setup, native-Windows scheduled-task service, desktop prerequisites, manual / contributor install): see the [installation docs](https://open-jarvis.github.io/OpenJarvis/getting-started/install/).
-
-## Quick Start
+Friday-AI currently installs from source. You need Python 3.10 to 3.13, Git,
+[uv](https://docs.astral.sh/uv/) and [Ollama](https://ollama.com).
 
 ```bash
-friday                          # start chatting (default: chat-simple)
-friday gui                      # start the graphical browser interface
-friday init --preset <name> --force  # replace config with a starter preset
+git clone https://github.com/aadityasharma2627-code/Friday-AI.git
+cd Friday-AI
+uv sync --extra server
+ollama pull qwen3.5:2b
+uv run friday doctor
 ```
 
-`friday gui` starts the local API server and frontend, then opens the graphical
-chat interface in your default browser. It requires Node.js 22+ and is
-available from a source checkout; packaged desktop installers are available
-from the [latest release](https://github.com/open-jarvis/FridayAI/releases).
+On Windows, if `uv` is not found, use `python -m uv` instead of `uv`. Python 3.14 may fail
+on Windows because some packages have no wheels yet, so use `--python 3.12`.
 
-> Prefix `friday ...` with `uv run`, or `source .venv/bin/activate` first.
+The browser interface (`friday gui`) also needs Node.js 22+. Memory and document search
+need the Rust extension, which is an extra build step.
+
+## Quick start
+
+Prefix commands with `uv run`, or activate the virtual environment first.
+
+```bash
+friday                               # start chatting (default preset: chat-simple)
+friday ask "What is the capital of France?"
+friday doctor                        # check your installation
+friday gui                           # start the browser interface (needs Node.js 22+)
+friday init --preset <name> --force  # replace your config with a starter preset
+```
+
+`--force` overwrites your existing config at `~/.friday_ai/config.toml`, so back it up first.
+
+### Presets
 
 | Preset | What it does |
 |---|---|
-| `morning-digest-mac` / `morning-digest-linux` / `morning-digest-minimal` | Spoken daily briefing from email, calendar, health, news |
-| `deep-research` | Multi-hop research across indexed docs with citations |
-| `code-assistant` | Agent with code execution, file I/O, and shell access |
-| `scheduled-monitor` | Stateful agent on a schedule with memory |
-| `chat-simple` | Lightweight conversation, no tools |
+| `chat-simple` | Lightweight conversation, no tools (default) |
+| `deep-research` | Multi-hop research across indexed documents, with citations |
+| `code-assistant` | Agent with code execution, file I/O and shell access |
+| `scheduled-monitor` | Stateful agent on a schedule, with memory |
+| `morning-digest-mac` / `-linux` / `-minimal` | Spoken daily briefing from email, calendar, health and news |
 
 Example:
 
 ```bash
-friday init --preset morning-digest-mac --force
-friday connect gdrive          # one OAuth covers Gmail / Calendar / Tasks
-friday digest --fresh          # generate and play your first briefing
+friday init --preset morning-digest-minimal --force
+friday connect gdrive      # one sign-in covers Gmail, Calendar and Tasks
+friday digest --fresh      # generate your first briefing
 ```
 
-Per-preset deep dives: [morning digest](https://open-jarvis.github.io/OpenJarvis/user-guide/morning-digest/) · [deep research](https://open-jarvis.github.io/OpenJarvis/user-guide/deep-research/) · [code assistant](https://open-jarvis.github.io/OpenJarvis/user-guide/code-assistant/) · [scheduled monitor](https://open-jarvis.github.io/OpenJarvis/user-guide/scheduled-monitor/) · [chat simple](https://open-jarvis.github.io/OpenJarvis/user-guide/chat-simple/) · or the full [quickstart guide](https://open-jarvis.github.io/OpenJarvis/getting-started/quickstart/).
+## Built-in agents
 
-### Skills
-
-Skills teach agents how to better use tools and improve their reasoning. Every skill is a tool — agents discover them from a catalog and invoke them on demand.
-
-```bash
-# Install skills from public sources
-friday skill install hermes:arxiv
-friday skill sync hermes --category research
-
-# Use skills with any agent
-friday ask "Use the code-explainer skill to explain this Python code: for i in range(5): print(i*2)"
-
-# Optimize skills from your trace history
-friday optimize skills --policy dspy
-
-# Benchmark the impact
-friday bench skills --max-samples 5 --seeds 42
-```
-
-Import from [Hermes Agent](https://github.com/NousResearch/hermes-agent) (~150 skills), [OpenClaw](https://github.com/openclaw/skills) (~13,700 community skills), or any GitHub repo. Skills follow the [agentskills.io](https://agentskills.io/specification) open standard.
-
-See the [Skills User Guide](https://open-jarvis.github.io/OpenJarvis/user-guide/skills/) and [Skills Tutorial](https://open-jarvis.github.io/OpenJarvis/tutorials/skills-workflow/) for details.
-
-### Built-in Agents
-
-FridayAI ships with eight built-in agents across three execution modes (on-demand, scheduled, continuous):
+Friday-AI includes eight agents that run on demand, on a schedule, or continuously.
 
 | Agent | Type | What it does |
-|-------|------|-------------|
-| `morning_digest` | Scheduled | Daily briefing from email, calendar, health, news — with TTS audio |
-| `deep_research` | On-demand | Multi-hop research with citations across web and local docs |
-| `monitor_operative` | Continuous | Long-horizon monitoring with memory, compression, and retrieval |
+|---|---|---|
+| `morning_digest` | Scheduled | Daily briefing from email, calendar, health and news, with audio |
+| `deep_research` | On-demand | Multi-hop research with citations across web and local documents |
+| `monitor_operative` | Continuous | Long-horizon monitoring with memory, compression and retrieval |
 | `orchestrator` | On-demand | Multi-turn reasoning with automatic tool selection |
-| `native_react` | On-demand | ReAct (Thought-Action-Observation) loop agent |
+| `native_react` | On-demand | Thought, action, observation loop |
 | `operative` | Continuous | Persistent autonomous agent with state management |
-| `native_openhands` | On-demand | CodeAct — generates and executes Python code |
+| `native_openhands` | On-demand | Generates and runs Python code |
 | `simple` | On-demand | Single-turn chat, no tools |
 
-See the [User Guide](https://open-jarvis.github.io/OpenJarvis/user-guide/morning-digest/) and [Tutorials](https://open-jarvis.github.io/OpenJarvis/tutorials/) for detailed setup instructions.
+## Skills
 
-Full documentation — including Docker deployment, cloud engines, development setup, and tutorials — at **[open-jarvis.github.io/OpenJarvis](https://open-jarvis.github.io/OpenJarvis/)**.
+Skills teach agents how to use tools better. Every skill is a tool that agents can find
+in a catalog and use when needed.
 
-## Community
+```bash
+friday skill install hermes:arxiv
+friday ask "Use the code-explainer skill to explain: for i in range(5): print(i*2)"
+```
 
-- **GitHub:** [github.com/open-jarvis/FridayAI](https://github.com/open-jarvis/FridayAI)
-- **Discord:** [discord.gg/CMVBmDQ5Fj](https://discord.gg/CMVBmDQ5Fj)
-- **X / Twitter:** [@FridayAIAI](https://x.com/FridayAIAI)
-- **Docs:** [open-jarvis.github.io/OpenJarvis](https://open-jarvis.github.io/OpenJarvis/)
+Skills can be imported from Hermes Agent, OpenClaw, or any GitHub repository.
+
+## Privacy and safety
+
+- With Ollama and a local model, prompts are processed on your machine.
+- Cloud models, web search and integrations send data to outside services and may cost money.
+- If an API key such as `OPENAI_API_KEY` is set, setup may suggest a cloud model as the default.
+- Code and shell tools can act on your real files. Enable them only when you need them.
+- Never commit API keys or your config file to Git.
+
+## What changed from OpenJarvis
+
+- Renamed the project from OpenJarvis to Friday-AI (Python package `friday_ai`, command `friday`)
+- Rewrote the README
+
+All original code is by the OpenJarvis authors. See the
+[upstream repository](https://github.com/open-jarvis/OpenJarvis) for the original project,
+its documentation, community and releases.
+
+## Upstream community
+
+- Original project: [github.com/open-jarvis/OpenJarvis](https://github.com/open-jarvis/OpenJarvis)
+- Documentation: [open-jarvis.github.io/OpenJarvis](https://open-jarvis.github.io/OpenJarvis)
 
 ## Contributing
 
-We welcome contributions! See the [Contributing Guide](CONTRIBUTING.md) for incentives, contribution types, and the PR process.
-
-Quick start for contributors:
+Issues and pull requests are welcome. Please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ```bash
-git clone https://github.com/open-jarvis/FridayAI.git
-cd FridayAI
+git clone https://github.com/aadityasharma2627-code/Friday-AI.git
+cd Friday-AI
 uv sync --extra dev
 uv run pre-commit install
 uv run pytest tests/ -v
 ```
 
-Browse the [Roadmap](https://open-jarvis.github.io/OpenJarvis/development/roadmap/) for areas where help is needed. Comment **"take"** on any issue to get auto-assigned.
-
-## About
-
-FridayAI is part of [Intelligence Per Watt](https://www.intelligence-per-watt.ai/), a research initiative studying the intelligence efficiency of AI systems. The project is developed at [Hazy Research](https://hazyresearch.stanford.edu/) and the [Scaling Intelligence Lab](https://scalingintelligence.stanford.edu/) at [Stanford SAIL](https://ai.stanford.edu/).
-
-## Sponsors
-
-<p>
-  <a href="https://www.laude.org/">Laude Institute</a> &bull;
-  <a href="https://datascience.stanford.edu/marlowe">Stanford Marlowe</a> &bull;
-  <a href="https://cloud.google.com/">Google Cloud Platform</a> &bull;
-  <a href="https://lambda.ai/">Lambda Labs</a> &bull;
-  <a href="https://ollama.com/">Ollama</a> &bull;
-  <a href="https://research.ibm.com/">IBM Research</a> &bull;
-  <a href="https://hai.stanford.edu/">Stanford HAI</a>
-</p>
-
 ## Citation
+
+Friday-AI is based on OpenJarvis. If you use the underlying framework in research, please
+cite the original paper:
+
 ```bibtex
-@misc{saadfalcon2026friday_aipersonalaipersonal,
-      title={FridayAI: Personal AI, On Personal Devices}, 
+@misc{saadfalcon2026openjarvispersonalaipersonal,
+      title={OpenJarvis: Personal AI, On Personal Devices},
       author={Jon Saad-Falcon and Avanika Narayan and Robby Manihani and Tanvir Bhathal and Herumb Shandilya and Hakki Orhun Akengin and Gabriel Bo and Andrew Park and Matthew Hart and Caia Costello and Chuan Li and Christopher Ré and Azalia Mirhoseini},
       year={2026},
       eprint={2605.17172},
       archivePrefix={arXiv},
       primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2605.17172}, 
+      url={https://arxiv.org/abs/2605.17172},
 }
 ```
 
 ## License
 
-[Apache 2.0](LICENSE)
+Licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
