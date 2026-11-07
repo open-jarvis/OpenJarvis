@@ -449,11 +449,21 @@ def _engine_key_for_model(engine: Any, model: str) -> str | None:
     return None
 
 
+# Engines that own routing for provider-qualified ("org/model") model IDs.
+# ``cloud_router.is_cloud_model`` treats any ID containing "/" as an OpenRouter
+# model, which would hide these engines' models from the model list and send
+# their requests to the direct cloud router instead of the engine.
+_ENGINE_ROUTED_PROVIDER_IDS = frozenset({"litellm", "nim"})
+
+
 def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
     """Whether *model* should bypass the configured engine for direct cloud."""
     from openjarvis.server.cloud_router import is_cloud_model
 
-    return is_cloud_model(model) and _engine_key_for_model(engine, model) != "litellm"
+    return (
+        is_cloud_model(model)
+        and _engine_key_for_model(engine, model) not in _ENGINE_ROUTED_PROVIDER_IDS
+    )
 
 
 def _handle_direct(
@@ -1108,8 +1118,9 @@ async def list_models(request: Request) -> ModelListResponse:
     """List selectable engine models for the installed-model picker.
 
     Direct cloud models live in the Cloud Models tab. Models advertised by a
-    configured LiteLLM engine remain here because LiteLLM owns their routing
-    and may use provider-qualified IDs that resemble OpenRouter IDs.
+    configured LiteLLM or NVIDIA NIM engine remain here because those engines
+    own their routing and use provider-qualified IDs that resemble OpenRouter
+    IDs.
     """
     from openjarvis.server.cloud_router import is_cloud_model, list_local_models
 
@@ -1122,7 +1133,8 @@ async def list_models(request: Request) -> ModelListResponse:
     model_ids = [
         m
         for m in all_ids
-        if not is_cloud_model(m) or _engine_key_for_model(engine, m) == "litellm"
+        if not is_cloud_model(m)
+        or _engine_key_for_model(engine, m) in _ENGINE_ROUTED_PROVIDER_IDS
     ]
     if not model_ids:
         model_ids = await list_local_models()
