@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,6 +19,13 @@ from tests.telemetry.energy_test_helpers import (
 
 _PLAT = "openjarvis.telemetry.energy_rapl.platform.system"
 _BASE = "openjarvis.telemetry.energy_rapl._RAPL_BASE"
+
+# The fake sysfs layout uses ``intel-rapl:0`` directory names; ``:`` is not
+# allowed in Windows file names, so these tests only run on POSIX.
+_NEEDS_POSIX_SYSFS = pytest.mark.skipif(
+    platform.system() == "Windows",
+    reason="fake sysfs uses ':' in directory names, which Windows forbids",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +110,7 @@ class TestEnergyMethod:
 # ---------------------------------------------------------------------------
 
 
+@_NEEDS_POSIX_SYSFS
 class TestDomainDiscovery:
     def test_discovers_domains_from_sysfs(self, tmp_path):
         rapl_base = _build_fake_sysfs(tmp_path)
@@ -128,6 +137,7 @@ class TestDomainDiscovery:
 # ---------------------------------------------------------------------------
 
 
+@_NEEDS_POSIX_SYSFS
 class TestSampleNormalDelta:
     def test_normal_counter_delta(self, tmp_path):
         """Start reading, then update energy files, verify delta."""
@@ -166,6 +176,7 @@ class TestSampleNormalDelta:
 # ---------------------------------------------------------------------------
 
 
+@_NEEDS_POSIX_SYSFS
 class TestSampleWrapAround:
     def test_counter_wrap_around(self, tmp_path):
         """When end < start, uses max_energy_range_uj."""
@@ -208,6 +219,7 @@ class TestSampleWrapAround:
 # ---------------------------------------------------------------------------
 
 
+@_NEEDS_POSIX_SYSFS
 class TestSampleDomainCategorization:
     def test_package_domains_categorized_as_cpu(self, tmp_path):
         rapl_base = _build_fake_sysfs(tmp_path)
@@ -239,6 +251,7 @@ class TestSampleDomainCategorization:
 # ---------------------------------------------------------------------------
 
 
+@_NEEDS_POSIX_SYSFS
 class TestClose:
     def test_close_clears_domains(self, tmp_path):
         rapl_base = _build_fake_sysfs(tmp_path)

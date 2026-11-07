@@ -201,7 +201,8 @@ class TestPrintCompletion:
             traces_dir=Path("results/traces/supergpqa_qwen3-8b"),
         )
         output = buf.getvalue()
-        assert "results/test.jsonl" in output
+        # Path renders with the platform separator (``\`` on Windows).
+        assert str(Path("results/test.jsonl")) in output
         assert "traces" in output
         assert "complete" in output.lower()
 

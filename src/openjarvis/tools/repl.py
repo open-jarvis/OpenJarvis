@@ -7,6 +7,7 @@ within the same session.
 
 from __future__ import annotations
 
+import ctypes
 import io
 import threading
 import time
@@ -125,6 +126,25 @@ class _ReplSession:
     created_at: float = field(default_factory=time.time)
     last_used: float = field(default_factory=time.time)
     execution_count: int = 0
+
+
+def _stop_runaway_thread(thread: threading.Thread) -> None:
+    """Raise SystemExit in a timed-out thread so a busy loop cannot keep running.
+
+    Python cannot kill a thread directly. The async exception is delivered at the
+    next bytecode boundary, so pure-Python loops such as ``while True: pass`` stop.
+    Blocking C calls such as ``time.sleep`` finish their wait first.
+    """
+    if thread.ident is None:
+        return
+    # Idents can be reused after a thread exits, so this is best-effort. A return
+    # value above 1 means several thread states matched; undo the request.
+    matched = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_ulong(thread.ident),
+        ctypes.py_object(SystemExit),
+    )
+    if matched > 1:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread.ident), None)
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +329,9 @@ class ReplTool(BaseTool):
                         # Not an expression — execute as statements
                         compiled = compile(code, "<repl>", "exec")
                         exec(compiled, session.namespace)  # noqa: S102
+            except SystemExit:
+                # Raised by _stop_runaway_thread after the caller already timed out.
+                return
             except Exception as exc:
                 result_holder["output"] = f"{type(exc).__name__}: {exc}"
                 result_holder["success"] = False
@@ -325,6 +348,7 @@ class ReplTool(BaseTool):
         thread.join(timeout=self._timeout)
 
         if thread.is_alive():
+            _stop_runaway_thread(thread)
             return (
                 f"Execution timed out after {self._timeout} seconds.",
                 False,
