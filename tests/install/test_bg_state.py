@@ -50,51 +50,54 @@ def test_get_status_rust_failed(tmp_openjarvis_home: Path) -> None:
     assert s.rust_error == "error tail here"
 
 
-def test_get_status_model_downloading(tmp_openjarvis_home: Path) -> None:
-    (tmp_openjarvis_home / ".state" / "models" / "qwen3.5:9b.downloading").write_text(
-        ""
-    )
+def test_get_status_model_downloading(write_model_marker) -> None:
+    write_model_marker("qwen3.5:9b", "downloading")
     s = _bg_state.get_status()
     assert s.models == {"qwen3.5:9b": "downloading"}
 
 
-def test_get_status_model_ready(tmp_openjarvis_home: Path) -> None:
-    (tmp_openjarvis_home / ".state" / "models" / "qwen3.5:9b.ready").write_text("")
+def test_get_status_model_ready(write_model_marker) -> None:
+    write_model_marker("qwen3.5:9b", "ready")
     s = _bg_state.get_status()
     assert s.models == {"qwen3.5:9b": "ready"}
 
 
-def test_get_status_model_failed(tmp_openjarvis_home: Path) -> None:
-    (tmp_openjarvis_home / ".state" / "models" / "qwen3.5:9b.failed").write_text(
-        "net error"
-    )
+def test_get_status_model_failed(write_model_marker) -> None:
+    write_model_marker("qwen3.5:9b", "failed")
     s = _bg_state.get_status()
     assert s.models == {"qwen3.5:9b": "failed"}
 
 
-def test_get_status_ready_supersedes_downloading(tmp_openjarvis_home: Path) -> None:
+def test_get_status_ready_supersedes_downloading(write_model_marker) -> None:
     """If both .downloading and .ready exist (race window), .ready wins."""
-    models_dir = tmp_openjarvis_home / ".state" / "models"
-    (models_dir / "qwen3.5:9b.downloading").write_text("")
-    (models_dir / "qwen3.5:9b.ready").write_text("")
+    write_model_marker("qwen3.5:9b", "downloading")
+    write_model_marker("qwen3.5:9b", "ready")
     s = _bg_state.get_status()
     assert s.models["qwen3.5:9b"] == "ready"
 
 
-def test_all_ready_true_when_all_ready(tmp_openjarvis_home: Path) -> None:
+def test_all_ready_true_when_all_ready(
+    tmp_openjarvis_home: Path, write_model_marker
+) -> None:
     (tmp_openjarvis_home / ".state" / "extension-built").write_text("")
-    (tmp_openjarvis_home / ".state" / "models" / "qwen3.5:9b.ready").write_text("")
+    write_model_marker("qwen3.5:9b", "ready")
     s = _bg_state.get_status()
     assert s.all_ready() is True
 
 
-def test_all_ready_false_when_anything_pending(tmp_openjarvis_home: Path) -> None:
+def test_all_ready_false_when_anything_pending(
+    tmp_openjarvis_home: Path, write_model_marker
+) -> None:
     (tmp_openjarvis_home / ".state" / "extension-built").write_text("")
-    (tmp_openjarvis_home / ".state" / "models" / "qwen3.5:9b.downloading").write_text(
-        ""
-    )
+    write_model_marker("qwen3.5:9b", "downloading")
     s = _bg_state.get_status()
     assert s.all_ready() is False
+
+
+def test_get_status_reads_legacy_model_marker(tmp_openjarvis_home: Path) -> None:
+    (tmp_openjarvis_home / ".state" / "models" / "legacy-model.ready").write_text("")
+    s = _bg_state.get_status()
+    assert s.models == {"legacy-model": "ready"}
 
 
 def test_get_status_handles_deleted_file_race(tmp_openjarvis_home: Path) -> None:
