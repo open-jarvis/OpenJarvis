@@ -53,7 +53,7 @@ results/
 logs/
 # Anchored to repo root — DO NOT use the unanchored form `traces/`.
 # hatchling honors .gitignore when building the wheel; an unanchored
-# `traces/` pattern matches src/openjarvis/traces/ and silently drops
+# `traces/` pattern matches src/friday_ai/traces/ and silently drops
 # the runtime module from the wheel (issue #372).
 /traces/
 coding_task_*
@@ -71,7 +71,7 @@ frontend/dist/
 # Desktop
 desktop/node_modules/
 desktop/dist/
-src/openjarvis/server/static/
+src/friday_ai/server/static/
 
 # Desktop (Tauri)
 frontend/src-tauri/target/
@@ -101,8 +101,8 @@ CLAUDE.md
 # Research output
 research_mining_*
 .python-version
-src/openjarvis/channels/whatsapp_baileys_bridge/node_modules/
-src/openjarvis/agents/claude_code_runner/node_modules/
+src/friday_ai/channels/whatsapp_baileys_bridge/node_modules/
+src/friday_ai/agents/claude_code_runner/node_modules/
 
 # SQLite in-memory artifacts
 :memory:
@@ -116,10 +116,10 @@ scratch/
 
 # ---------------------------------------------------------------------------
 # Distillation runtime artifacts (defense in depth — these should always live
-# in ~/.openjarvis/, never inside the source tree, but we ignore them here in
-# case OPENJARVIS_HOME is misconfigured during dev)
+# in ~/.friday_ai/, never inside the source tree, but we ignore them here in
+# case FRIDAY_AI_HOME is misconfigured during dev)
 # ---------------------------------------------------------------------------
-.openjarvis/
+.friday_ai/
 learning.db
 **/learning/sessions/
 **/learning/pending_review/

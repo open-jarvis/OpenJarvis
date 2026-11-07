@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 import pytest
 
-from openjarvis.agents.opencode import (
+from friday_ai.agents.opencode import (
     OpenCodeAgent,
     _derive_openai_base_url,
     _extract_text,
@@ -26,7 +26,7 @@ SPIKE_RESPONSE = {
         "role": "assistant",
         "agent": "build",
         "modelID": "local-model",
-        "providerID": "openjarvis",
+        "providerID": "friday_ai",
         "finish": "stop",
         "tokens": {"input": 0, "output": 0},
         "sessionID": "ses_x",
@@ -99,12 +99,12 @@ class TestDeriveBaseUrl:
 class TestAvailability:
     def test_true(self, monkeypatch):
         monkeypatch.setattr(
-            "openjarvis.agents.opencode.shutil.which", lambda n: "/usr/bin/opencode"
+            "friday_ai.agents.opencode.shutil.which", lambda n: "/usr/bin/opencode"
         )
         assert is_opencode_available() is True
 
     def test_false(self, monkeypatch):
-        monkeypatch.setattr("openjarvis.agents.opencode.shutil.which", lambda n: None)
+        monkeypatch.setattr("friday_ai.agents.opencode.shutil.which", lambda n: None)
         assert is_opencode_available() is False
 
 
@@ -115,7 +115,7 @@ class TestConfigBuilding:
             "qwen3:8b",
             workspace=str(tmp_path),
         )._build_config()
-        prov = cfg["provider"]["openjarvis"]
+        prov = cfg["provider"]["friday_ai"]
         assert prov["npm"] == "@ai-sdk/openai-compatible"
         assert prov["options"]["baseURL"] == "http://localhost:11434/v1"
         assert "qwen3:8b" in prov["models"]
@@ -166,7 +166,7 @@ class TestConfigBuilding:
 
 class TestRunGracefulDegradation:
     def test_missing_binary_returns_error_result(self, monkeypatch, tmp_path):
-        monkeypatch.setattr("openjarvis.agents.opencode.shutil.which", lambda n: None)
+        monkeypatch.setattr("friday_ai.agents.opencode.shutil.which", lambda n: None)
         agent = OpenCodeAgent(
             SimpleNamespace(_host="http://h:1"),
             "m",
@@ -259,9 +259,9 @@ class TestRunParsing:
         assert res.metadata["finish"] == "stop"
         assert res.metadata["model_id"] == "local-model"
         assert res.metadata["agent"] == "build"
-        # the model was addressed as openjarvis/local-model
+        # the model was addressed as friday_ai/local-model
         assert _FakeClient.last_body["model"] == {
-            "providerID": "openjarvis",
+            "providerID": "friday_ai",
             "modelID": "local-model",
         }
         # tool-results recovered from the intermediate message (not the final one)
@@ -278,7 +278,7 @@ V2_SPIKE_RESPONSE = {
     "agent": "build",
     "finish": "stop",
     "tokens": {"input": 10, "output": 25},
-    "model": {"id": "local-model", "providerID": "openjarvis"},
+    "model": {"id": "local-model", "providerID": "friday_ai"},
     "content": [
         {"type": "text", "text": "Hello from OpenCode V2."},
         {

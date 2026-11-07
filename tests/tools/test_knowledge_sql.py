@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.connectors.store import KnowledgeStore
-from openjarvis.core.registry import ToolRegistry
+from friday_ai.connectors.store import KnowledgeStore
+from friday_ai.core.registry import ToolRegistry
 
 
 @pytest.fixture()
@@ -23,7 +23,7 @@ def store(tmp_path: Path) -> KnowledgeStore:
 
 
 def test_select_count(store: KnowledgeStore) -> None:
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from friday_ai.tools.knowledge_sql import KnowledgeSQLTool
 
     tool = KnowledgeSQLTool(store=store)
     result = tool.execute(query="SELECT COUNT(*) as total FROM knowledge_chunks")
@@ -32,7 +32,7 @@ def test_select_count(store: KnowledgeStore) -> None:
 
 
 def test_group_by_author(store: KnowledgeStore) -> None:
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from friday_ai.tools.knowledge_sql import KnowledgeSQLTool
 
     tool = KnowledgeSQLTool(store=store)
     result = tool.execute(
@@ -48,7 +48,7 @@ def test_group_by_author(store: KnowledgeStore) -> None:
 
 
 def test_rejects_non_select(store: KnowledgeStore) -> None:
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from friday_ai.tools.knowledge_sql import KnowledgeSQLTool
 
     tool = KnowledgeSQLTool(store=store)
     result = tool.execute(query="DELETE FROM knowledge_chunks")
@@ -57,7 +57,7 @@ def test_rejects_non_select(store: KnowledgeStore) -> None:
 
 
 def test_rejects_drop(store: KnowledgeStore) -> None:
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from friday_ai.tools.knowledge_sql import KnowledgeSQLTool
 
     tool = KnowledgeSQLTool(store=store)
     result = tool.execute(query="DROP TABLE knowledge_chunks")
@@ -67,7 +67,7 @@ def test_rejects_drop(store: KnowledgeStore) -> None:
 def test_allows_select_with_keyword_substring(store: KnowledgeStore) -> None:
     """A read-only SELECT must not be rejected because a column/alias merely
     contains a write keyword as a substring (e.g. 'created' -> CREATE)."""
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from friday_ai.tools.knowledge_sql import KnowledgeSQLTool
 
     tool = KnowledgeSQLTool(store=store)
     result = tool.execute(query="SELECT author AS created_author FROM knowledge_chunks")
@@ -78,7 +78,7 @@ def test_allows_select_with_keyword_substring(store: KnowledgeStore) -> None:
 def test_allows_keyword_inside_string_literal(store: KnowledgeStore) -> None:
     """A write keyword appearing only inside a string literal must not be
     treated as a forbidden statement."""
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from friday_ai.tools.knowledge_sql import KnowledgeSQLTool
 
     tool = KnowledgeSQLTool(store=store)
     result = tool.execute(
@@ -89,7 +89,7 @@ def test_allows_keyword_inside_string_literal(store: KnowledgeStore) -> None:
 
 def test_rejects_multi_statement(store: KnowledgeStore) -> None:
     """Multi-statement strings fail with a ToolResult, not an exception."""
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from friday_ai.tools.knowledge_sql import KnowledgeSQLTool
 
     tool = KnowledgeSQLTool(store=store)
     result = tool.execute(query="SELECT 1; VACUUM")
@@ -98,7 +98,7 @@ def test_rejects_multi_statement(store: KnowledgeStore) -> None:
 
 
 def test_handles_bad_sql(store: KnowledgeStore) -> None:
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from friday_ai.tools.knowledge_sql import KnowledgeSQLTool
 
     tool = KnowledgeSQLTool(store=store)
     result = tool.execute(query="SELECT * FROM nonexistent_table")
@@ -106,7 +106,7 @@ def test_handles_bad_sql(store: KnowledgeStore) -> None:
 
 
 def test_filter_by_source(store: KnowledgeStore) -> None:
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from friday_ai.tools.knowledge_sql import KnowledgeSQLTool
 
     tool = KnowledgeSQLTool(store=store)
     result = tool.execute(
@@ -117,7 +117,7 @@ def test_filter_by_source(store: KnowledgeStore) -> None:
 
 
 def test_registered() -> None:
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from friday_ai.tools.knowledge_sql import KnowledgeSQLTool
 
     ToolRegistry.register_value("knowledge_sql", KnowledgeSQLTool)
     assert ToolRegistry.contains("knowledge_sql")

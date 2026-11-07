@@ -51,7 +51,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
-            You are an automated issue fixer for the OpenJarvis repository. Follow these steps in order:
+            You are an automated issue fixer for the FridayAI repository. Follow these steps in order:
 
             ## Step 1: Diagnose
             Read the issue thoroughly. Explore the codebase to understand the problem. If this is a bug report, attempt to reproduce it. Identify the root cause and affected files.

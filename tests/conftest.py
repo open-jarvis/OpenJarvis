@@ -11,29 +11,29 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Set BEFORE importing openjarvis.core.config: DEFAULT_CONFIG_DIR /
+# Set BEFORE importing friday_ai.core.config: DEFAULT_CONFIG_DIR /
 # DEFAULT_CONFIG_PATH are resolved once at import time (the install-script
-# model, where OPENJARVIS_HOME is set before the process starts). Without
-# this, the very first import of openjarvis.core.config in the session --
+# model, where FRIDAY_AI_HOME is set before the process starts). Without
+# this, the very first import of friday_ai.core.config in the session --
 # this file imports it below, and it's transitively imported by nearly
 # everything -- permanently binds those constants (and the ~45 modules that
-# reference them) to the developer's real ~/.openjarvis for the rest of the
+# reference them) to the developer's real ~/.friday_ai for the rest of the
 # run, so tests touching e.g. AgentConfigEvolver or LearningOrchestrator
 # read/write real files under the developer's home directory (#787).
 _MISSING = object()
-_ORIGINAL_OPENJARVIS_HOME = os.environ.get("OPENJARVIS_HOME", _MISSING)
-_ORIGINAL_OPENJARVIS_CONFIG = os.environ.get("OPENJARVIS_CONFIG", _MISSING)
-_TEST_HOME = Path(tempfile.mkdtemp(prefix="openjarvis-test-home-"))
+_ORIGINAL_FRIDAY_AI_HOME = os.environ.get("FRIDAY_AI_HOME", _MISSING)
+_ORIGINAL_FRIDAY_AI_CONFIG = os.environ.get("FRIDAY_AI_CONFIG", _MISSING)
+_TEST_HOME = Path(tempfile.mkdtemp(prefix="friday_ai-test-home-"))
 _TEST_HOME_CLEANED = False
-os.environ["OPENJARVIS_HOME"] = str(_TEST_HOME)
+os.environ["FRIDAY_AI_HOME"] = str(_TEST_HOME)
 # An explicit config path takes precedence inside load_config(). It may point
-# at a developer's real file even when OPENJARVIS_HOME is isolated, so remove
+# at a developer's real file even when FRIDAY_AI_HOME is isolated, so remove
 # it before config.py and its import-time constants are initialized.
-os.environ.pop("OPENJARVIS_CONFIG", None)
+os.environ.pop("FRIDAY_AI_CONFIG", None)
 
-from openjarvis.core.config import GpuInfo, HardwareInfo, load_config  # noqa: E402
-from openjarvis.core.events import EventBus, reset_event_bus  # noqa: E402
-from openjarvis.core.registry import (  # noqa: E402
+from friday_ai.core.config import GpuInfo, HardwareInfo, load_config  # noqa: E402
+from friday_ai.core.events import EventBus, reset_event_bus  # noqa: E402
+from friday_ai.core.registry import (  # noqa: E402
     AgentRegistry,
     BenchmarkRegistry,
     ChannelRegistry,
@@ -69,14 +69,14 @@ def _cleanup_test_home() -> None:
     load_config.cache_clear()
     shutil.rmtree(_TEST_HOME, ignore_errors=True)
 
-    if _ORIGINAL_OPENJARVIS_HOME is _MISSING:
-        os.environ.pop("OPENJARVIS_HOME", None)
+    if _ORIGINAL_FRIDAY_AI_HOME is _MISSING:
+        os.environ.pop("FRIDAY_AI_HOME", None)
     else:
-        os.environ["OPENJARVIS_HOME"] = str(_ORIGINAL_OPENJARVIS_HOME)
-    if _ORIGINAL_OPENJARVIS_CONFIG is _MISSING:
-        os.environ.pop("OPENJARVIS_CONFIG", None)
+        os.environ["FRIDAY_AI_HOME"] = str(_ORIGINAL_FRIDAY_AI_HOME)
+    if _ORIGINAL_FRIDAY_AI_CONFIG is _MISSING:
+        os.environ.pop("FRIDAY_AI_CONFIG", None)
     else:
-        os.environ["OPENJARVIS_CONFIG"] = str(_ORIGINAL_OPENJARVIS_CONFIG)
+        os.environ["FRIDAY_AI_CONFIG"] = str(_ORIGINAL_FRIDAY_AI_CONFIG)
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
@@ -101,22 +101,22 @@ def _no_update_check(monkeypatch: pytest.MonkeyPatch) -> None:
     set, but that only helps in CI; locally (e.g. a dev with a stale
     version-check cache and network access) it fires for real.
     """
-    monkeypatch.setenv("OPENJARVIS_NO_UPDATE_CHECK", "1")
+    monkeypatch.setenv("FRIDAY_AI_NO_UPDATE_CHECK", "1")
 
 
 @pytest.fixture(autouse=True)
-def _isolated_openjarvis_home(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Re-assert OPENJARVIS_HOME and clear load_config()'s cache per test.
+def _isolated_friday_ai_home(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Re-assert FRIDAY_AI_HOME and clear load_config()'s cache per test.
 
-    Two related leaks (#787): (1) something changing OPENJARVIS_HOME
+    Two related leaks (#787): (1) something changing FRIDAY_AI_HOME
     without going through monkeypatch, so it never gets reverted for later
     tests -- re-asserting it here every test is a cheap defense regardless
     of cause; (2) load_config()'s functools.lru_cache(maxsize=1) serving a
     config computed under a *different* test's environment/monkeypatched
     values instead of the current test's.
     """
-    monkeypatch.setenv("OPENJARVIS_HOME", str(_TEST_HOME))
-    monkeypatch.delenv("OPENJARVIS_CONFIG", raising=False)
+    monkeypatch.setenv("FRIDAY_AI_HOME", str(_TEST_HOME))
+    monkeypatch.delenv("FRIDAY_AI_CONFIG", raising=False)
     load_config.cache_clear()
     yield
     load_config.cache_clear()

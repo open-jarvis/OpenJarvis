@@ -1,4 +1,4 @@
-"""Tests for openjarvis.mining.apple_mps_pearl."""
+"""Tests for friday_ai.mining.apple_mps_pearl."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-_AVAIL = "openjarvis.mining._install.pearl_packages_available"
+_AVAIL = "friday_ai.mining._install.pearl_packages_available"
 
 
 @pytest.fixture
 def mps_config():
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget
 
     return MiningConfig(
         provider="apple-mps-pearl",
@@ -37,7 +37,7 @@ def mps_config():
 
 
 def test_detect_requires_macos(hopper_hw):
-    from openjarvis.mining.apple_mps_pearl import AppleMpsPearlProvider
+    from friday_ai.mining.apple_mps_pearl import AppleMpsPearlProvider
 
     with patch(_AVAIL, return_value=True):
         cap = AppleMpsPearlProvider.detect(hopper_hw, engine_id="mlx", model="any")
@@ -46,8 +46,8 @@ def test_detect_requires_macos(hopper_hw):
 
 
 def test_detect_requires_apple_gpu():
-    from openjarvis.core.config import HardwareInfo
-    from openjarvis.mining.apple_mps_pearl import AppleMpsPearlProvider
+    from friday_ai.core.config import HardwareInfo
+    from friday_ai.mining.apple_mps_pearl import AppleMpsPearlProvider
 
     hw = HardwareInfo(
         platform="darwin", cpu_brand="Apple", cpu_count=12, ram_gb=64.0, gpu=None
@@ -59,7 +59,7 @@ def test_detect_requires_apple_gpu():
 
 
 def test_detect_requires_pearl_packages(apple_hw):
-    from openjarvis.mining.apple_mps_pearl import AppleMpsPearlProvider
+    from friday_ai.mining.apple_mps_pearl import AppleMpsPearlProvider
 
     with patch(_AVAIL, return_value=False):
         cap = AppleMpsPearlProvider.detect(apple_hw, engine_id="mlx", model="any")
@@ -68,12 +68,12 @@ def test_detect_requires_pearl_packages(apple_hw):
 
 
 def test_detect_supported_when_torch_mps_available(apple_hw):
-    from openjarvis.mining.apple_mps_pearl import AppleMpsPearlProvider
+    from friday_ai.mining.apple_mps_pearl import AppleMpsPearlProvider
 
     with (
-        patch("openjarvis.mining._install.pearl_packages_available", return_value=True),
+        patch("friday_ai.mining._install.pearl_packages_available", return_value=True),
         patch(
-            "openjarvis.mining.apple_mps_pearl._torch_mps_available",
+            "friday_ai.mining.apple_mps_pearl._torch_mps_available",
             return_value=(True, None),
         ),
     ):
@@ -83,8 +83,8 @@ def test_detect_supported_when_torch_mps_available(apple_hw):
 
 @pytest.mark.parametrize("chip", ["M2 Max", "M3 Max", "M4 Max", "M5 Max"])
 def test_detect_supports_apple_silicon_gpu_generations(chip):
-    from openjarvis.core.config import GpuInfo, HardwareInfo
-    from openjarvis.mining.apple_mps_pearl import AppleMpsPearlProvider
+    from friday_ai.core.config import GpuInfo, HardwareInfo
+    from friday_ai.mining.apple_mps_pearl import AppleMpsPearlProvider
 
     hw = HardwareInfo(
         platform="darwin",
@@ -96,7 +96,7 @@ def test_detect_supports_apple_silicon_gpu_generations(chip):
     with (
         patch(_AVAIL, return_value=True),
         patch(
-            "openjarvis.mining.apple_mps_pearl._torch_mps_available",
+            "friday_ai.mining.apple_mps_pearl._torch_mps_available",
             return_value=(True, None),
         ),
     ):
@@ -106,19 +106,19 @@ def test_detect_supports_apple_silicon_gpu_generations(chip):
 
 
 def test_start_uses_mps_miner_module(mps_config, tmp_path, monkeypatch):
-    from openjarvis.mining.apple_mps_pearl import AppleMpsPearlProvider
+    from friday_ai.mining.apple_mps_pearl import AppleMpsPearlProvider
 
     sidecar = tmp_path / "mining.json"
     log_dir = tmp_path / "logs"
-    monkeypatch.setattr("openjarvis.mining.cpu_pearl._sidecar_path", lambda: sidecar)
-    monkeypatch.setattr("openjarvis.mining.cpu_pearl._log_dir", lambda: log_dir)
-    monkeypatch.setattr("openjarvis.mining.apple_mps_pearl._log_dir", lambda: log_dir)
+    monkeypatch.setattr("friday_ai.mining.cpu_pearl._sidecar_path", lambda: sidecar)
+    monkeypatch.setattr("friday_ai.mining.cpu_pearl._log_dir", lambda: log_dir)
+    monkeypatch.setattr("friday_ai.mining.apple_mps_pearl._log_dir", lambda: log_dir)
     monkeypatch.setenv("TEST_PEARLD_PASSWORD", "secret")
     fake_launcher = MagicMock()
     fake_launcher.is_running.return_value = True
     fake_launcher.pids.return_value = (11111, 22222)
 
-    target = "openjarvis.mining.apple_mps_pearl.PearlSubprocessLauncher"
+    target = "friday_ai.mining.apple_mps_pearl.PearlSubprocessLauncher"
     with patch(target, return_value=fake_launcher) as launcher_cls:
         provider = AppleMpsPearlProvider()
         asyncio.run(provider.start(mps_config))
@@ -126,7 +126,7 @@ def test_start_uses_mps_miner_module(mps_config, tmp_path, monkeypatch):
     assert launcher_cls.call_args.kwargs["provider_id"] == "apple-mps-pearl"
     assert (
         launcher_cls.call_args.kwargs["miner_module"]
-        == "openjarvis.mining._mps_miner_loop_main"
+        == "friday_ai.mining._mps_miner_loop_main"
     )
     payload = json.loads(sidecar.read_text())
     assert payload["provider"] == "apple-mps-pearl"
@@ -146,7 +146,7 @@ def test_mps_noisy_gemm_plain_proof_verifies_when_mps_available():
     from miner_base.noise_generation import NoiseGenerator
     from miner_base.noisy_gemm import POW_TARGET_EASIEST, NoisyGemm
 
-    from openjarvis.mining._mps_miner_loop_main import (
+    from friday_ai.mining._mps_miner_loop_main import (
         MpsNoisyGemmAdapter,
         _mining_config_for_shape,
     )

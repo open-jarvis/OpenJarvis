@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from openjarvis.agents.hybrid.skillorchestra.agent import SkillOrchestraAgent
-from openjarvis.agents.hybrid.skillorchestra.pool import ModelSpec
-from openjarvis.agents.hybrid.skillorchestra.tools import run_code, run_search
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.security.capabilities import CapabilityPolicy
+from friday_ai.agents.hybrid.skillorchestra.agent import SkillOrchestraAgent
+from friday_ai.agents.hybrid.skillorchestra.pool import ModelSpec
+from friday_ai.agents.hybrid.skillorchestra.tools import run_code, run_search
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.security.capabilities import CapabilityPolicy
 
 
 class _Limiter:
@@ -38,7 +38,7 @@ def _grant_local_execution(policy, agent_id="skill-runtime"):
 
 
 def test_enhance_reasoning_denial_prevents_python_subprocess(monkeypatch):
-    from openjarvis.agents.hybrid.skillorchestra import tools as tools_module
+    from friday_ai.agents.hybrid.skillorchestra import tools as tools_module
 
     policy = CapabilityPolicy(default_deny=True)
     limiter = _Limiter()
@@ -73,7 +73,7 @@ def test_enhance_reasoning_denial_prevents_python_subprocess(monkeypatch):
 
 
 def test_enhance_reasoning_requires_tempfile_capabilities(monkeypatch):
-    from openjarvis.agents.hybrid.skillorchestra import tools as tools_module
+    from friday_ai.agents.hybrid.skillorchestra import tools as tools_module
 
     policy = CapabilityPolicy(default_deny=True)
     policy.grant("skill-runtime", "code:execute")
@@ -105,7 +105,7 @@ def test_enhance_reasoning_requires_tempfile_capabilities(monkeypatch):
 def test_custom_retriever_rate_limit_prevents_http_post(monkeypatch):
     import requests
 
-    from openjarvis.agents.hybrid.skillorchestra import tools as tools_module
+    from friday_ai.agents.hybrid.skillorchestra import tools as tools_module
 
     policy = CapabilityPolicy(default_deny=True)
     policy.grant("skill-runtime", "network:fetch")
@@ -141,7 +141,7 @@ def test_custom_retriever_rate_limit_prevents_http_post(monkeypatch):
 
 
 def test_default_provider_search_denial_prevents_provider_call(monkeypatch):
-    from openjarvis.agents.hybrid.skillorchestra import tools as tools_module
+    from friday_ai.agents.hybrid.skillorchestra import tools as tools_module
 
     policy = CapabilityPolicy(default_deny=True)
     _grant_local_execution(policy)
@@ -179,7 +179,7 @@ def test_default_provider_search_denial_prevents_provider_call(monkeypatch):
 
 
 def test_tavily_search_denial_prevents_fetch(monkeypatch):
-    from openjarvis.agents.hybrid.skillorchestra import tools as tools_module
+    from friday_ai.agents.hybrid.skillorchestra import tools as tools_module
 
     policy = CapabilityPolicy(default_deny=True)
     _grant_local_execution(policy)
@@ -213,7 +213,7 @@ def test_tavily_search_denial_prevents_fetch(monkeypatch):
 
 
 def test_provider_search_executes_with_positive_network_grant(monkeypatch):
-    from openjarvis.agents.hybrid.skillorchestra import tools as tools_module
+    from friday_ai.agents.hybrid.skillorchestra import tools as tools_module
 
     policy = CapabilityPolicy(default_deny=True)
     policy.grant("skill-runtime", "network:fetch")
@@ -247,7 +247,7 @@ def test_provider_search_executes_with_positive_network_grant(monkeypatch):
 
 
 def test_tavily_search_executes_with_positive_network_grant(monkeypatch):
-    from openjarvis.agents.hybrid.skillorchestra import tools as tools_module
+    from friday_ai.agents.hybrid.skillorchestra import tools as tools_module
 
     policy = CapabilityPolicy(default_deny=True)
     policy.grant("skill-runtime", "network:fetch")

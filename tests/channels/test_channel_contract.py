@@ -11,14 +11,14 @@ import importlib
 
 import pytest
 
-import openjarvis.channels  # noqa: F401 — trigger registration
-from openjarvis.channels._stubs import ChannelStatus
-from openjarvis.core.registry import ChannelRegistry
+import friday_ai.channels  # noqa: F401 — trigger registration
+from friday_ai.channels._stubs import ChannelStatus
+from friday_ai.core.registry import ChannelRegistry
 
 # Collect channel classes at import time (before registry gets cleared).
 # We store the actual class objects, not registry keys, so they survive
 # the autouse _clean_registries fixture.
-importlib.reload(openjarvis.channels)
+importlib.reload(friday_ai.channels)
 _ALL_CHANNELS = [(key, ChannelRegistry.get(key)) for key in ChannelRegistry.keys()]
 
 

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.core.config import (
+from friday_ai.core.config import (
     GpuInfo,
     HardwareInfo,
     _detect_nvidia_gpu,
@@ -24,9 +24,9 @@ pytestmark = pytest.mark.nvidia
 class TestNVIDIADetection:
     """Tests for _detect_nvidia_gpu() against various nvidia-smi outputs."""
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         return_value="NVIDIA A100-SXM4-80GB, 81920, 1, 8.0",
     )
     def test_nvidia_smi_parsing(self, mock_run, mock_which):
@@ -38,9 +38,9 @@ class TestNVIDIADetection:
         assert gpu.vendor == "nvidia"
         assert gpu.compute_capability == "8.0"
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         return_value=(
             "NVIDIA H100 80GB HBM3, 81920, 4, 9.0\n"
             "NVIDIA H100 80GB HBM3, 81920, 4, 9.0\n"
@@ -55,19 +55,19 @@ class TestNVIDIADetection:
         assert gpu.count == 4
         assert "H100" in gpu.name
 
-    @patch("openjarvis.core.config.shutil.which", return_value=None)
+    @patch("friday_ai.core.config.shutil.which", return_value=None)
     def test_nvidia_smi_not_found(self, mock_which):
         assert _detect_nvidia_gpu() is None
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
-    @patch("openjarvis.core.config._run_cmd", return_value="")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
+    @patch("friday_ai.core.config._run_cmd", return_value="")
     def test_nvidia_smi_error(self, mock_run, mock_which):
         """Empty output from nvidia-smi returns None."""
         assert _detect_nvidia_gpu() is None
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         return_value="NVIDIA GeForce RTX 4090, 24564, 1, 8.9",
     )
     def test_vram_detection(self, mock_run, mock_which):
@@ -76,9 +76,9 @@ class TestNVIDIADetection:
         # 24564 MB -> ~24.0 GB
         assert gpu.vram_gb == pytest.approx(24.0, abs=0.1)
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         return_value="NVIDIA A100-SXM4-80GB, 81920, 1, 8.0",
     )
     def test_compute_capability(self, mock_run, mock_which):
@@ -86,9 +86,9 @@ class TestNVIDIADetection:
         assert gpu is not None
         assert gpu.compute_capability == "8.0"
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         return_value="NVIDIA A100-SXM4-80GB, 81920, 1",
     )
     def test_compute_capability_backwards_compatible(self, mock_run, mock_which):

@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'scripts/install/**'
-      - 'src/openjarvis/cli/**'
+      - 'src/friday_ai/cli/**'
       - 'tests/install/**'
       - '.github/workflows/installer-integration.yml'
   schedule:
@@ -41,42 +41,42 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
-          path: openjarvis-src
+          path: friday_ai-src
 
       - name: Install Ollama mock
-        run: install -m 755 "$GITHUB_WORKSPACE/openjarvis-src/tests/install/bash/stubs/ollama-mock" /usr/local/bin/ollama
+        run: install -m 755 "$GITHUB_WORKSPACE/friday_ai-src/tests/install/bash/stubs/ollama-mock" /usr/local/bin/ollama
 
       - name: Run installer
         run: |
-          chown -R testuser:testuser /home/testuser "$GITHUB_WORKSPACE/openjarvis-src"
+          chown -R testuser:testuser /home/testuser "$GITHUB_WORKSPACE/friday_ai-src"
           su testuser -c '
-            export OPENJARVIS_REPO_URL=file://'"$GITHUB_WORKSPACE"'/openjarvis-src
-            cd '"$GITHUB_WORKSPACE"'/openjarvis-src
+            export FRIDAY_AI_REPO_URL=file://'"$GITHUB_WORKSPACE"'/friday_ai-src
+            cd '"$GITHUB_WORKSPACE"'/friday_ai-src
             bash scripts/install/install.sh --no-bg-orchestrator
           '
 
       - name: Verify install state
         run: |
           su testuser -c '
-            test -d ~/.openjarvis/src
-            test -d ~/.openjarvis/.venv
-            test -f ~/.openjarvis/config.toml
-            test -f ~/.openjarvis/.state/install-state.json
-            test -L ~/.local/bin/jarvis
+            test -d ~/.friday_ai/src
+            test -d ~/.friday_ai/.venv
+            test -f ~/.friday_ai/config.toml
+            test -f ~/.friday_ai/.state/install-state.json
+            test -L ~/.local/bin/friday
           '
 
-      - name: Verify jarvis --version
-        run: su testuser -c '~/.local/bin/jarvis --version'
+      - name: Verify friday --version
+        run: su testuser -c '~/.local/bin/friday --version'
 
-      - name: Verify jarvis doctor exits 0
-        run: su testuser -c '~/.local/bin/jarvis doctor'
+      - name: Verify friday doctor exits 0
+        run: su testuser -c '~/.local/bin/friday doctor'
 
       - name: Verify uninstall is clean
         run: |
           su testuser -c '
-            ~/.local/bin/jarvis-uninstall --yes
-            test ! -d ~/.openjarvis
-            test ! -L ~/.local/bin/jarvis
+            ~/.local/bin/friday-uninstall --yes
+            test ! -d ~/.friday_ai
+            test ! -L ~/.local/bin/friday
           '
 
   macos:
@@ -95,24 +95,24 @@ jobs:
 
       - name: Run installer
         run: |
-          export OPENJARVIS_REPO_URL=file://$(pwd)
+          export FRIDAY_AI_REPO_URL=file://$(pwd)
           bash scripts/install/install.sh --no-bg-orchestrator
 
       - name: Verify install state
         run: |
-          test -d ~/.openjarvis/src
-          test -d ~/.openjarvis/.venv
-          test -f ~/.openjarvis/config.toml
-          test -L ~/.local/bin/jarvis
+          test -d ~/.friday_ai/src
+          test -d ~/.friday_ai/.venv
+          test -f ~/.friday_ai/config.toml
+          test -L ~/.local/bin/friday
 
-      - name: Verify jarvis --version
-        run: ~/.local/bin/jarvis --version
+      - name: Verify friday --version
+        run: ~/.local/bin/friday --version
 
-      - name: Verify jarvis doctor exits 0
-        run: ~/.local/bin/jarvis doctor
+      - name: Verify friday doctor exits 0
+        run: ~/.local/bin/friday doctor
 
       - name: Verify uninstall is clean
         run: |
-          ~/.local/bin/jarvis-uninstall --yes
-          test ! -d ~/.openjarvis
-          test ! -L ~/.local/bin/jarvis
+          ~/.local/bin/friday-uninstall --yes
+          test ! -d ~/.friday_ai
+          test ! -L ~/.local/bin/friday

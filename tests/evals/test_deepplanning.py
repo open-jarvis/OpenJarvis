@@ -2,9 +2,9 @@
 
 from unittest.mock import MagicMock
 
-from openjarvis.evals.core.types import EvalRecord
-from openjarvis.evals.datasets.deepplanning import DeepPlanningDataset
-from openjarvis.evals.scorers.deepplanning_scorer import DeepPlanningScorer
+from friday_ai.evals.core.types import EvalRecord
+from friday_ai.evals.datasets.deepplanning import DeepPlanningDataset
+from friday_ai.evals.scorers.deepplanning_scorer import DeepPlanningScorer
 
 
 def _mock_backend() -> MagicMock:
@@ -75,18 +75,18 @@ class TestDeepPlanningScorer:
 
 class TestDeepPlanningCLI:
     def test_in_benchmarks(self) -> None:
-        from openjarvis.evals.cli import BENCHMARKS
+        from friday_ai.evals.cli import BENCHMARKS
 
         assert "deepplanning" in BENCHMARKS
 
     def test_build_dataset(self) -> None:
-        from openjarvis.evals.cli import _build_dataset
+        from friday_ai.evals.cli import _build_dataset
 
         ds = _build_dataset("deepplanning")
         assert ds.dataset_id == "deepplanning"
 
     def test_build_scorer(self) -> None:
-        from openjarvis.evals.cli import _build_scorer
+        from friday_ai.evals.cli import _build_scorer
 
         s = _build_scorer("deepplanning", _mock_backend(), "test-model")
         assert s.scorer_id == "deepplanning"

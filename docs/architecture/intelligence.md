@@ -42,7 +42,7 @@ class ModelSpec:
 Models are registered in the `ModelRegistry`:
 
 ```python
-from openjarvis.core.registry import ModelRegistry
+from friday_ai.core.registry import ModelRegistry
 
 # Register a model
 ModelRegistry.register_value("qwen3:8b", ModelSpec(
@@ -98,7 +98,7 @@ The built-in model catalog is defined in `intelligence/model_catalog.py` as the 
 The `register_builtin_models()` function populates the `ModelRegistry` with all built-in models. It skips models that are already registered, making it safe to call multiple times:
 
 ```python
-from openjarvis.intelligence import register_builtin_models
+from friday_ai.intelligence import register_builtin_models
 
 register_builtin_models()
 # All BUILTIN_MODELS are now in ModelRegistry
@@ -111,7 +111,7 @@ register_builtin_models()
 When engines are discovered at runtime, they report models that may not be in the built-in catalog. The `merge_discovered_models()` function creates minimal `ModelSpec` entries for these:
 
 ```python
-from openjarvis.intelligence import merge_discovered_models
+from friday_ai.intelligence import merge_discovered_models
 
 # Models reported by Ollama that aren't in the catalog
 merge_discovered_models("ollama", ["phi3:3.8b", "codellama:7b"])
@@ -230,7 +230,7 @@ preferred_engine = "llamacpp"
 `intelligence/__init__.py` exports exactly three names:
 
 ```python
-from openjarvis.intelligence import (
+from friday_ai.intelligence import (
     BUILTIN_MODELS,           # List[ModelSpec] — the full built-in catalog
     merge_discovered_models,  # (engine_key, model_ids) -> None
     register_builtin_models,  # () -> None
@@ -239,7 +239,7 @@ from openjarvis.intelligence import (
 
 ### Backward-Compatibility Shims
 
-The following names are still importable from `openjarvis.intelligence` via shim modules, but their canonical locations have moved:
+The following names are still importable from `friday_ai.intelligence` via shim modules, but their canonical locations have moved:
 
 | Name | Old location | Canonical location |
 |------|-------------|-------------------|

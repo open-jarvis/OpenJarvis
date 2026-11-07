@@ -6,9 +6,9 @@ import json
 
 import httpx
 
-from openjarvis.core.types import Message, Role
-from openjarvis.engine._openai_compat import _OpenAICompatibleEngine
-from openjarvis.engine.ollama import OllamaEngine
+from friday_ai.core.types import Message, Role
+from friday_ai.engine._openai_compat import _OpenAICompatibleEngine
+from friday_ai.engine.ollama import OllamaEngine
 
 # ---------------------------------------------------------------------------
 # _OpenAICompatibleEngine tests

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.recipes.loader import (
+from friday_ai.recipes.loader import (
     Recipe,
     discover_recipes,
     load_recipe,
@@ -44,7 +44,7 @@ DISCRETE_TOML = textwrap.dedent("""\
 
     [eval]
     benchmarks = ["terminalbench", "gaia"]
-    backend = "jarvis-agent"
+    backend = "friday-agent"
     max_samples = 50
     judge_model = "gpt-4o"
 """)
@@ -126,7 +126,7 @@ class TestLoadDiscreteRecipe:
         assert r.system_prompt == "You are a benchmark agent."
         assert r.routing_policy == "heuristic"
         assert r.eval_benchmarks == ["terminalbench", "gaia"]
-        assert r.eval_backend == "jarvis-agent"
+        assert r.eval_backend == "friday-agent"
         assert r.eval_max_samples == 50
         assert r.eval_judge_model == "gpt-4o"
 
@@ -267,7 +267,7 @@ class TestRecipeToEvalSuite:
         bench_names = {b.name for b in suite.benchmarks}
         assert bench_names == {"terminalbench", "gaia"}
         for b in suite.benchmarks:
-            assert b.backend == "jarvis-agent"
+            assert b.backend == "friday-agent"
             assert b.agent == "native_react"
             assert b.tools == ["shell_exec", "file_read", "think"]
             assert b.max_samples == 50
@@ -331,7 +331,7 @@ class TestRecipeToEvalSuite:
             eval_benchmarks=["supergpqa"],
         )
         suite = r.to_eval_suite()
-        assert suite.benchmarks[0].backend == "jarvis-direct"
+        assert suite.benchmarks[0].backend == "friday-direct"
         assert suite.benchmarks[0].agent is None
         assert suite.benchmarks[0].tools == []
 

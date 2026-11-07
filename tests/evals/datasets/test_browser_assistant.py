@@ -1,6 +1,6 @@
 """Tests for the browser_assistant dataset."""
 
-from openjarvis.evals.datasets.browser_assistant import (
+from friday_ai.evals.datasets.browser_assistant import (
     BrowserAssistantDataset,
 )
 

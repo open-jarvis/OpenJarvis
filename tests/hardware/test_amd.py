@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.core.config import (
+from friday_ai.core.config import (
     GpuInfo,
     HardwareInfo,
     _detect_amd_gpu,
@@ -24,9 +24,9 @@ pytestmark = pytest.mark.amd
 class TestAMDDetection:
     """Tests for _detect_amd_gpu() against various rocm-smi outputs."""
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         side_effect=[
             "AMD Instinct MI300X",  # --showproductname
             "GPU[0] : vram Total Memory (B): 206158430208",  # --showmeminfo vram
@@ -39,13 +39,13 @@ class TestAMDDetection:
         assert gpu.vendor == "amd"
         assert "MI300X" in gpu.name
 
-    @patch("openjarvis.core.config.shutil.which", return_value=None)
+    @patch("friday_ai.core.config.shutil.which", return_value=None)
     def test_rocm_smi_not_found(self, mock_which):
         assert _detect_amd_gpu() is None
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         side_effect=[
             "AMD Instinct MI250X\nAMD Instinct MI250X",  # --showproductname
             "",  # --showmeminfo vram (empty)
@@ -58,15 +58,15 @@ class TestAMDDetection:
         assert gpu is not None
         assert "MI250X" in gpu.name
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
-    @patch("openjarvis.core.config._run_cmd", side_effect=["", "", ""])
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
+    @patch("friday_ai.core.config._run_cmd", side_effect=["", "", ""])
     def test_rocm_smi_empty_output(self, mock_run, mock_which):
         """Empty output from rocm-smi --showproductname returns None."""
         assert _detect_amd_gpu() is None
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         side_effect=[
             "AMD Instinct MI300X",
             "GPU[0] : vram Total Memory (B): 206158430208",
@@ -80,9 +80,9 @@ class TestAMDDetection:
         # 206158430208 bytes = ~192.0 GB
         assert gpu.vram_gb == 192.0
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         side_effect=[
             "AMD Instinct MI300X",
             (
@@ -109,9 +109,9 @@ class TestAMDDetection:
         assert gpu is not None
         assert gpu.count == 4
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         side_effect=[
             "AMD Instinct MI300X",
             "garbled output with no valid memory info",

@@ -1,4 +1,4 @@
-"""Tests for ``jarvis start|stop|restart|status`` daemon management commands."""
+"""Tests for ``friday start|stop|restart|status`` daemon management commands."""
 
 from __future__ import annotations
 
@@ -14,35 +14,35 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
-from openjarvis.cli.daemon_cmd import (
+from friday_ai.cli import cli
+from friday_ai.cli.daemon_cmd import (
     _pid_alive,
     _read_pid,
     _write_pid,
 )
-from openjarvis.core.utils import terminate_process
+from friday_ai.core.utils import terminate_process
 
 
 class TestDaemonCommands:
     """Core daemon CLI tests."""
 
     def test_start_command_exists(self) -> None:
-        """``jarvis start --help`` succeeds."""
+        """``friday start --help`` succeeds."""
         result = CliRunner().invoke(cli, ["start", "--help"])
         assert result.exit_code == 0
         out = result.output.lower()
         assert "daemon" in out or "start" in out or "background" in out
 
     def test_stop_no_server(self) -> None:
-        """``jarvis stop`` when no PID file shows 'not running'."""
-        with patch("openjarvis.cli.daemon_cmd._read_pid", return_value=None):
+        """``friday stop`` when no PID file shows 'not running'."""
+        with patch("friday_ai.cli.daemon_cmd._read_pid", return_value=None):
             result = CliRunner().invoke(cli, ["stop"])
         assert result.exit_code != 0
         assert "No running server" in result.output
 
     def test_status_no_server(self) -> None:
-        """``jarvis status`` when no PID file shows 'not running'."""
-        with patch("openjarvis.cli.daemon_cmd._read_pid", return_value=None):
+        """``friday status`` when no PID file shows 'not running'."""
+        with patch("friday_ai.cli.daemon_cmd._read_pid", return_value=None):
             result = CliRunner().invoke(cli, ["status"])
         assert result.exit_code == 0
         assert "not running" in result.output
@@ -50,7 +50,7 @@ class TestDaemonCommands:
     def test_read_pid_no_file(self, tmp_path: Path) -> None:
         """``_read_pid()`` returns None when no PID file exists."""
         with patch(
-            "openjarvis.cli.daemon_cmd._PID_FILE",
+            "friday_ai.cli.daemon_cmd._PID_FILE",
             tmp_path / "nonexistent.pid",
         ):
             assert _read_pid() is None
@@ -59,24 +59,24 @@ class TestDaemonCommands:
         """Write a PID, then read it back with a successful liveness probe."""
         pid_file = tmp_path / "server.pid"
         with (
-            patch("openjarvis.cli.daemon_cmd._PID_FILE", pid_file),
-            patch("openjarvis.cli.daemon_cmd.DEFAULT_CONFIG_DIR", tmp_path),
-            patch("openjarvis.cli.daemon_cmd._pid_alive", return_value=True),
+            patch("friday_ai.cli.daemon_cmd._PID_FILE", pid_file),
+            patch("friday_ai.cli.daemon_cmd.DEFAULT_CONFIG_DIR", tmp_path),
+            patch("friday_ai.cli.daemon_cmd._pid_alive", return_value=True),
         ):
             _write_pid(12345)
             assert pid_file.exists()
             assert _read_pid() == 12345
 
     def test_status_shows_running(self) -> None:
-        """``jarvis status`` shows running info when PID exists."""
+        """``friday status`` shows running info when PID exists."""
         mock_config = MagicMock()
         mock_config.server.host = "127.0.0.1"
         mock_config.server.port = 8000
 
         with (
-            patch("openjarvis.cli.daemon_cmd._read_pid", return_value=9999),
+            patch("friday_ai.cli.daemon_cmd._read_pid", return_value=9999),
             patch(
-                "openjarvis.cli.daemon_cmd.load_config",
+                "friday_ai.cli.daemon_cmd.load_config",
                 return_value=mock_config,
             ),
         ):
@@ -86,8 +86,8 @@ class TestDaemonCommands:
         assert "9999" in result.output
 
     def test_start_already_running(self) -> None:
-        """``jarvis start`` exits with error when a server is already running."""
-        with patch("openjarvis.cli.daemon_cmd._read_pid", return_value=42):
+        """``friday start`` exits with error when a server is already running."""
+        with patch("friday_ai.cli.daemon_cmd._read_pid", return_value=42):
             result = CliRunner().invoke(cli, ["start"])
         assert result.exit_code != 0
         assert "already running" in result.output
@@ -120,7 +120,7 @@ class TestPidLiveness:
         pid_file = tmp_path / "server.pid"
         pid_file.write_text(str(proc.pid))
 
-        with patch("openjarvis.cli.daemon_cmd._PID_FILE", pid_file):
+        with patch("friday_ai.cli.daemon_cmd._PID_FILE", pid_file):
             assert _read_pid() is None
 
         assert not pid_file.exists()
@@ -130,9 +130,9 @@ class TestPidLiveness:
         try:
             pid_file = tmp_path / "server.pid"
             with (
-                patch("openjarvis.cli.daemon_cmd._PID_FILE", pid_file),
+                patch("friday_ai.cli.daemon_cmd._PID_FILE", pid_file),
                 patch(
-                    "openjarvis.cli.daemon_cmd._STATE_FILE", tmp_path / "server.json"
+                    "friday_ai.cli.daemon_cmd._STATE_FILE", tmp_path / "server.json"
                 ),
             ):
                 _write_pid(proc.pid)
@@ -147,7 +147,7 @@ class TestPidLiveness:
     def test_pid_reused_after_registration_does_not_block_or_get_signaled(
         self, tmp_path
     ):
-        from openjarvis.cli import daemon_cmd
+        from friday_ai.cli import daemon_cmd
 
         proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
         pid_file = tmp_path / "server.pid"
@@ -190,14 +190,14 @@ class TestDaemonDetachment:
         the spawn is reached.
         """
         with (
-            patch("openjarvis.cli.daemon_cmd._read_pid", return_value=None),
-            patch("openjarvis.cli.daemon_cmd._read_pid_unlocked", return_value=None),
-            patch("openjarvis.cli.daemon_cmd._state_lock", return_value=nullcontext()),
-            patch("openjarvis.cli.daemon_cmd._write_pid_unlocked"),
-            patch("openjarvis.cli.daemon_cmd.load_config"),
-            patch("openjarvis.cli.daemon_cmd.sys.platform", platform),
-            patch("openjarvis.cli.daemon_cmd.DEFAULT_CONFIG_DIR"),
-            patch("openjarvis.cli.daemon_cmd.subprocess.Popen") as popen,
+            patch("friday_ai.cli.daemon_cmd._read_pid", return_value=None),
+            patch("friday_ai.cli.daemon_cmd._read_pid_unlocked", return_value=None),
+            patch("friday_ai.cli.daemon_cmd._state_lock", return_value=nullcontext()),
+            patch("friday_ai.cli.daemon_cmd._write_pid_unlocked"),
+            patch("friday_ai.cli.daemon_cmd.load_config"),
+            patch("friday_ai.cli.daemon_cmd.sys.platform", platform),
+            patch("friday_ai.cli.daemon_cmd.DEFAULT_CONFIG_DIR"),
+            patch("friday_ai.cli.daemon_cmd.subprocess.Popen") as popen,
             patch("builtins.open", MagicMock()),
         ):
             popen.return_value = MagicMock(pid=4321)
@@ -214,15 +214,15 @@ class TestDaemonDetachment:
     ) -> None:
         """Both direct Python and launchers can protect the startup interval."""
         with (
-            patch("openjarvis.cli.daemon_cmd._read_pid", return_value=None),
-            patch("openjarvis.cli.daemon_cmd._read_pid_unlocked", return_value=None),
-            patch("openjarvis.cli.daemon_cmd._state_lock", return_value=nullcontext()),
-            patch("openjarvis.cli.daemon_cmd.load_config"),
-            patch("openjarvis.cli.daemon_cmd.subprocess.Popen") as popen,
-            patch("openjarvis.cli.daemon_cmd.DEFAULT_CONFIG_DIR", tmp_path),
-            patch("openjarvis.cli.daemon_cmd._LOG_FILE", tmp_path / "server.log"),
-            patch("openjarvis.cli.daemon_cmd.sys.platform", "win32"),
-            patch("openjarvis.cli.daemon_cmd._write_pid_unlocked") as write_pid,
+            patch("friday_ai.cli.daemon_cmd._read_pid", return_value=None),
+            patch("friday_ai.cli.daemon_cmd._read_pid_unlocked", return_value=None),
+            patch("friday_ai.cli.daemon_cmd._state_lock", return_value=nullcontext()),
+            patch("friday_ai.cli.daemon_cmd.load_config"),
+            patch("friday_ai.cli.daemon_cmd.subprocess.Popen") as popen,
+            patch("friday_ai.cli.daemon_cmd.DEFAULT_CONFIG_DIR", tmp_path),
+            patch("friday_ai.cli.daemon_cmd._LOG_FILE", tmp_path / "server.log"),
+            patch("friday_ai.cli.daemon_cmd.sys.platform", "win32"),
+            patch("friday_ai.cli.daemon_cmd._write_pid_unlocked") as write_pid,
             patch.object(subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True),
             patch.object(
                 subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200, create=True
@@ -240,18 +240,18 @@ class TestDaemonDetachment:
             token = write_pid.call_args.kwargs["launch_token"]
             assert token
             assert (
-                popen.call_args.kwargs["env"]["OPENJARVIS_DAEMON_LAUNCH_TOKEN"] == token
+                popen.call_args.kwargs["env"]["FRIDAY_AI_DAEMON_LAUNCH_TOKEN"] == token
             )
 
     def test_second_start_rechecks_under_lock(self, tmp_path: Path) -> None:
         """A second start must not spawn after another caller registered."""
         with (
-            patch("openjarvis.cli.daemon_cmd._read_pid", return_value=None),
-            patch("openjarvis.cli.daemon_cmd._read_pid_unlocked", return_value=4321),
-            patch("openjarvis.cli.daemon_cmd._state_lock", return_value=nullcontext()),
-            patch("openjarvis.cli.daemon_cmd.load_config"),
-            patch("openjarvis.cli.daemon_cmd.DEFAULT_CONFIG_DIR", tmp_path),
-            patch("openjarvis.cli.daemon_cmd.subprocess.Popen") as popen,
+            patch("friday_ai.cli.daemon_cmd._read_pid", return_value=None),
+            patch("friday_ai.cli.daemon_cmd._read_pid_unlocked", return_value=4321),
+            patch("friday_ai.cli.daemon_cmd._state_lock", return_value=nullcontext()),
+            patch("friday_ai.cli.daemon_cmd.load_config"),
+            patch("friday_ai.cli.daemon_cmd.DEFAULT_CONFIG_DIR", tmp_path),
+            patch("friday_ai.cli.daemon_cmd.subprocess.Popen") as popen,
         ):
             result = CliRunner().invoke(cli, ["start"])
             assert result.exit_code != 0
@@ -261,22 +261,22 @@ class TestDaemonDetachment:
     def test_failed_registration_terminates_spawned_tree(self, tmp_path: Path) -> None:
         """A failed launch must clean up its launcher and any descendants."""
         with (
-            patch("openjarvis.cli.daemon_cmd._read_pid", return_value=None),
-            patch("openjarvis.cli.daemon_cmd._read_pid_unlocked", return_value=None),
-            patch("openjarvis.cli.daemon_cmd._state_lock", return_value=nullcontext()),
-            patch("openjarvis.cli.daemon_cmd.load_config"),
-            patch("openjarvis.cli.daemon_cmd.DEFAULT_CONFIG_DIR", tmp_path),
-            patch("openjarvis.cli.daemon_cmd._LOG_FILE", tmp_path / "server.log"),
+            patch("friday_ai.cli.daemon_cmd._read_pid", return_value=None),
+            patch("friday_ai.cli.daemon_cmd._read_pid_unlocked", return_value=None),
+            patch("friday_ai.cli.daemon_cmd._state_lock", return_value=nullcontext()),
+            patch("friday_ai.cli.daemon_cmd.load_config"),
+            patch("friday_ai.cli.daemon_cmd.DEFAULT_CONFIG_DIR", tmp_path),
+            patch("friday_ai.cli.daemon_cmd._LOG_FILE", tmp_path / "server.log"),
             patch(
-                "openjarvis.cli.daemon_cmd._write_pid_unlocked",
+                "friday_ai.cli.daemon_cmd._write_pid_unlocked",
                 side_effect=RuntimeError("conflict"),
             ),
             patch(
-                "openjarvis.cli.daemon_cmd.subprocess.Popen",
+                "friday_ai.cli.daemon_cmd.subprocess.Popen",
                 return_value=MagicMock(pid=4321),
             ),
-            patch("openjarvis.cli.daemon_cmd.terminate_process") as terminate,
-            patch("openjarvis.cli.daemon_cmd.clear_server_state") as clear,
+            patch("friday_ai.cli.daemon_cmd.terminate_process") as terminate,
+            patch("friday_ai.cli.daemon_cmd.clear_server_state") as clear,
         ):
             result = CliRunner().invoke(cli, ["start"])
             assert result.exit_code != 0
@@ -334,7 +334,7 @@ class TestDaemonDetachment:
 
 def test_subprocess_registers_actual_python_pid(tmp_path: Path, monkeypatch) -> None:
     """A real child registers its PID whether Python is direct or uses a launcher."""
-    from openjarvis.cli import daemon_cmd
+    from friday_ai.cli import daemon_cmd
 
     pid_file = tmp_path / "server.pid"
     state_file = tmp_path / "server.json"
@@ -349,7 +349,7 @@ def test_subprocess_registers_actual_python_pid(tmp_path: Path, monkeypatch) -> 
 import os
 import time
 from pathlib import Path
-from openjarvis.cli import daemon_cmd
+from friday_ai.cli import daemon_cmd
 
 daemon_cmd._PID_FILE = Path(os.environ["OJ_TEST_PID_FILE"])
 daemon_cmd._STATE_FILE = Path(os.environ["OJ_TEST_STATE_FILE"])

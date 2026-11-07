@@ -1,7 +1,7 @@
 """Shared fixtures for server route tests.
 
 Server tests build apps via ``create_app``, which (with traces enabled by
-default) wires a ``TraceStore`` at the real ``~/.openjarvis/traces.db``. Now
+default) wires a ``TraceStore`` at the real ``~/.friday_ai/traces.db``. Now
 that the chat endpoints actually *write* traces, an unguarded run would
 pollute the developer's real trace DB and make tests non-hermetic. This
 autouse fixture redirects the traces DB to a per-test temp path.
@@ -19,11 +19,11 @@ import pytest
 def _isolate_traces_db(tmp_path, monkeypatch):
     """Point ``config.traces.db_path`` at a temp file for every server test.
 
-    ``load_config`` returns a fresh ``JarvisConfig`` per call (no caching), so
+    ``load_config`` returns a fresh ``FridayConfig`` per call (no caching), so
     wrapping it to rewrite ``traces.db_path`` only affects calls made during
     the test — there is no global leak.
     """
-    from openjarvis.core import config as _config
+    from friday_ai.core import config as _config
 
     real_load_config = _config.load_config
     db_path = str(tmp_path / "traces.db")
@@ -42,25 +42,25 @@ def _isolate_connector_dbs(tmp_path_factory):
     """Point the knowledge store and sync-state DBs at a per-module temp dir.
 
     ``connectors_router`` opens ``KnowledgeStore()`` and ``SyncEngine`` with no
-    path, so they default to the real ``~/.openjarvis``. Without this, a sync
+    path, so they default to the real ``~/.friday_ai``. Without this, a sync
     test ingests its fixture note there and a disconnect test purges the
     developer's real indexed vault. Module scope, not function scope:
     ``POST /sync`` starts a background thread that can outlive the test, and a
     function-scoped patch would be undone while it is still writing.
     """
-    home = tmp_path_factory.mktemp("openjarvis-home")
+    home = tmp_path_factory.mktemp("friday_ai-home")
     with pytest.MonkeyPatch.context() as mp:
         # store.py imports it lazily from core.config; sync_engine.py binds it
         # at import.
-        mp.setattr("openjarvis.core.config.DEFAULT_CONFIG_DIR", home)
-        mp.setattr("openjarvis.connectors.sync_engine.DEFAULT_CONFIG_DIR", home)
+        mp.setattr("friday_ai.core.config.DEFAULT_CONFIG_DIR", home)
+        mp.setattr("friday_ai.connectors.sync_engine.DEFAULT_CONFIG_DIR", home)
         yield
 
 
 @pytest.fixture(autouse=True)
 def _finish_connector_syncs(monkeypatch):
     """Drain each test's sync workers before its mocks and DB isolation expire."""
-    from openjarvis.server import connectors_router
+    from friday_ai.server import connectors_router
 
     workers: list[threading.Thread] = []
 

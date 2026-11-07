@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import json
 
-from openjarvis.core.events import EventBus
-from openjarvis.core.types import StepType, ToolCall, ToolResult
-from openjarvis.skills.executor import SkillExecutor
-from openjarvis.skills.tool_adapter import SkillTool
-from openjarvis.skills.types import SkillManifest
-from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+from friday_ai.core.events import EventBus
+from friday_ai.core.types import StepType, ToolCall, ToolResult
+from friday_ai.skills.executor import SkillExecutor
+from friday_ai.skills.tool_adapter import SkillTool
+from friday_ai.skills.types import SkillManifest
+from friday_ai.tools._stubs import BaseTool, ToolExecutor, ToolSpec
 
 
 class TestSkillTraceTaggingEndToEnd:
@@ -33,7 +33,7 @@ class TestSkillTraceTaggingEndToEnd:
             nonlocal captured_metadata
             captured_metadata = event.data.get("metadata", {})
 
-        from openjarvis.core.events import EventType
+        from friday_ai.core.events import EventType
 
         bus.subscribe(EventType.TOOL_CALL_END, _on_tool_end)
 
@@ -42,7 +42,7 @@ class TestSkillTraceTaggingEndToEnd:
             name="research-skill",
             description="x",
             markdown_content="Just instructions.",
-            metadata={"openjarvis": {"source": "hermes"}},
+            metadata={"friday_ai": {"source": "hermes"}},
         )
         skill_executor = SkillExecutor(ToolExecutor([], bus=bus))
         skill_tool = SkillTool(manifest, skill_executor)
@@ -61,7 +61,7 @@ class TestSkillTraceTaggingEndToEnd:
 
     def test_trace_collector_writes_metadata_to_step(self) -> None:
         """A real TraceCollector populates TraceStep.metadata from the event."""
-        from openjarvis.traces.collector import TraceCollector
+        from friday_ai.traces.collector import TraceCollector
 
         bus = EventBus(record_history=True)
 
@@ -70,7 +70,7 @@ class TestSkillTraceTaggingEndToEnd:
             name="my-skill",
             description="x",
             markdown_content="Body",
-            metadata={"openjarvis": {"source": "openclaw"}},
+            metadata={"friday_ai": {"source": "openclaw"}},
         )
         skill_executor = SkillExecutor(ToolExecutor([], bus=bus))
         skill_tool = SkillTool(manifest, skill_executor)
@@ -81,7 +81,7 @@ class TestSkillTraceTaggingEndToEnd:
             agent_id = "stub"
 
             def run(self, query, context=None, **kwargs):
-                from openjarvis.agents._stubs import AgentResult
+                from friday_ai.agents._stubs import AgentResult
 
                 tool_executor.execute(
                     ToolCall(
@@ -147,7 +147,7 @@ class TestEventMetadataIsJsonSafe:
     """
 
     def test_event_metadata_excludes_non_json_objects(self):
-        from openjarvis.core.events import EventType
+        from friday_ai.core.events import EventType
 
         bus = EventBus(record_history=True)
         captured: dict = {}
@@ -180,7 +180,7 @@ class TestEventMetadataIsJsonSafe:
 
     def test_skill_metadata_still_present_after_filtering(self):
         """The JSON-safe filter must NOT drop legitimate skill metadata."""
-        from openjarvis.core.events import EventType
+        from friday_ai.core.events import EventType
 
         bus = EventBus(record_history=True)
         captured: dict = {}
@@ -195,7 +195,7 @@ class TestEventMetadataIsJsonSafe:
             name="my-skill",
             description="x",
             markdown_content="Body",
-            metadata={"openjarvis": {"source": "hermes"}},
+            metadata={"friday_ai": {"source": "hermes"}},
         )
         skill_executor = SkillExecutor(ToolExecutor([], bus=bus))
         skill_tool = SkillTool(manifest, skill_executor)

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.core.registry import CompressionRegistry
-from openjarvis.core.types import Message, Role
+from friday_ai.core.registry import CompressionRegistry
+from friday_ai.core.types import Message, Role
 
 
 @pytest.fixture(autouse=True)
 def _register_compressors():
     """Re-register compression strategies after registry clear."""
-    from openjarvis.sessions.compression import (
+    from friday_ai.sessions.compression import (
         ModelSummarization,
         RuleBasedPrecompression,
         SessionConsolidation,
@@ -35,7 +35,7 @@ def _make_messages(n: int) -> list[Message]:
 
 
 def test_rule_based_strips_tool_boilerplate():
-    from openjarvis.sessions.compression import RuleBasedPrecompression
+    from friday_ai.sessions.compression import RuleBasedPrecompression
 
     compressor = RuleBasedPrecompression()
     long_snippet = "x" * 5000
@@ -59,7 +59,7 @@ def test_rule_based_strips_tool_boilerplate():
 
 
 def test_session_consolidation_preserves_recent():
-    from openjarvis.sessions.compression import SessionConsolidation
+    from friday_ai.sessions.compression import SessionConsolidation
 
     compressor = SessionConsolidation()
     msgs = _make_messages(20)
@@ -69,8 +69,8 @@ def test_session_consolidation_preserves_recent():
 
 
 def test_compression_registry():
-    from openjarvis.core.registry import CompressionRegistry
-    from openjarvis.sessions.compression import RuleBasedPrecompression
+    from friday_ai.core.registry import CompressionRegistry
+    from friday_ai.sessions.compression import RuleBasedPrecompression
 
     assert CompressionRegistry.contains("rule_based_precompression")
     cls = CompressionRegistry.get("rule_based_precompression")
@@ -78,7 +78,7 @@ def test_compression_registry():
 
 
 def test_tiered_summaries_gradient():
-    from openjarvis.sessions.compression import TieredSummaries
+    from friday_ai.sessions.compression import TieredSummaries
 
     compressor = TieredSummaries()
     msgs = _make_messages(20)

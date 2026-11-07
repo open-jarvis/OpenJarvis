@@ -93,8 +93,8 @@ contain exactly three nonempty strings; invalid payload shapes are rejected.
 The same workflow can be invoked from Rust:
 
 ```rust
-use openjarvis_cross_device_travel::runtime::Orchestrator;
-use openjarvis_cross_device_travel::travel::{decompose, DemoTransport, Scenario};
+use friday_ai_cross_device_travel::runtime::Orchestrator;
+use friday_ai_cross_device_travel::travel::{decompose, DemoTransport, Scenario};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tasks = decompose("Make travel plans for me.")?;
@@ -110,8 +110,8 @@ The laptop handlers expose concrete research and heavier-model replacement point
 ```rust
 use std::collections::BTreeMap;
 use serde_json::Value;
-use openjarvis_cross_device_travel::protocol::TaskError;
-use openjarvis_cross_device_travel::laptop::{
+use friday_ai_cross_device_travel::protocol::TaskError;
+use friday_ai_cross_device_travel::laptop::{
     research_travel, LaptopPlanner, MockLaptopPlanner, PlannerRequest,
 };
 
@@ -172,18 +172,18 @@ idempotency work but do not provide durable deduplication or exactly-once delive
 Timeout enforcement belongs to the transport. The mock explicitly simulates
 timeouts; it does not start a real timer or interrupt running work.
 
-## OpenJarvis integration map
+## FridayAI integration map
 
 These future integration points are outside the demo's runtime and dependencies.
 
 | Existing interface | Proposed adapter |
 | --- | --- |
-| `rust/crates/openjarvis-agents/src/traits.rs`: `OjAgent::run` | Wrap the laptop workflow as an agent; map `AgentContext` and `AgentResult` metadata to workflow context and results. |
-| `rust/crates/openjarvis-tools/src/traits.rs`: `BaseTool` | Expose device dispatch with a `ToolSpec` argument schema and a `ToolResult` response. |
-| `src/openjarvis/a2a/client.py`: `A2AClient` | Adapt discovery to agent cards and dispatch to the existing `tasks/send` endpoint. |
-| `src/openjarvis/a2a/tool.py`: `A2AAgentTool` | Follow the existing remote-agent-as-tool pattern for Python orchestration. |
-| `rust/crates/openjarvis-core/src/hardware.rs`: `detect_hardware` | Populate laptop compute advertisements; peer discovery still needs its own adapter. |
-| `rust/crates/openjarvis-core/src/types.rs`: `Trace`, `TraceStep` | Record routing, tool calls, and responses in OpenJarvis tracing. |
+| `rust/crates/friday_ai-agents/src/traits.rs`: `OjAgent::run` | Wrap the laptop workflow as an agent; map `AgentContext` and `AgentResult` metadata to workflow context and results. |
+| `rust/crates/friday_ai-tools/src/traits.rs`: `BaseTool` | Expose device dispatch with a `ToolSpec` argument schema and a `ToolResult` response. |
+| `src/friday_ai/a2a/client.py`: `A2AClient` | Adapt discovery to agent cards and dispatch to the existing `tasks/send` endpoint. |
+| `src/friday_ai/a2a/tool.py`: `A2AAgentTool` | Follow the existing remote-agent-as-tool pattern for Python orchestration. |
+| `rust/crates/friday_ai-core/src/hardware.rs`: `detect_hardware` | Populate laptop compute advertisements; peer discovery still needs its own adapter. |
+| `rust/crates/friday_ai-core/src/types.rs`: `Trace`, `TraceStep` | Record routing, tool calls, and responses in FridayAI tracing. |
 
 Integration needs explicit adaptation. Rust A2A currently uses
 `pending/active/cancelled`, whereas Python uses `submitted/working/canceled`;

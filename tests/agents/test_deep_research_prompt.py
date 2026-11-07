@@ -8,7 +8,7 @@ from datetime import datetime
 
 def test_system_prompt_contains_current_date() -> None:
     """The system prompt includes today's date."""
-    from openjarvis.agents.deep_research import _build_system_prompt
+    from friday_ai.agents.deep_research import _build_system_prompt
 
     prompt = _build_system_prompt()
     today = datetime.now().strftime("%B %d, %Y")
@@ -17,7 +17,7 @@ def test_system_prompt_contains_current_date() -> None:
 
 def test_system_prompt_contains_current_time() -> None:
     """The system prompt includes the current time (hour)."""
-    from openjarvis.agents.deep_research import _build_system_prompt
+    from friday_ai.agents.deep_research import _build_system_prompt
 
     prompt = _build_system_prompt()
     # Just check that a time-like pattern exists (e.g. "02:28 PM")
@@ -26,7 +26,7 @@ def test_system_prompt_contains_current_time() -> None:
 
 def test_system_prompt_contains_day_of_week() -> None:
     """The system prompt includes the day of week."""
-    from openjarvis.agents.deep_research import _build_system_prompt
+    from friday_ai.agents.deep_research import _build_system_prompt
 
     prompt = _build_system_prompt()
     day = datetime.now().strftime("%A")
@@ -35,7 +35,7 @@ def test_system_prompt_contains_day_of_week() -> None:
 
 def test_system_prompt_is_dynamic() -> None:
     """Each call to _build_system_prompt returns a fresh prompt with current time."""
-    from openjarvis.agents.deep_research import _build_system_prompt
+    from friday_ai.agents.deep_research import _build_system_prompt
 
     p1 = _build_system_prompt()
     p2 = _build_system_prompt()
@@ -46,7 +46,7 @@ def test_system_prompt_is_dynamic() -> None:
 
 def test_system_prompt_has_response_types() -> None:
     """The prompt describes multiple response types (not just deep research)."""
-    from openjarvis.agents.deep_research import _build_system_prompt
+    from friday_ai.agents.deep_research import _build_system_prompt
 
     prompt = _build_system_prompt()
     assert "Casual" in prompt or "conversational" in prompt
@@ -61,7 +61,7 @@ def test_system_prompt_has_response_types() -> None:
 
 def test_system_prompt_has_tools() -> None:
     """The prompt describes all 4 tools."""
-    from openjarvis.agents.deep_research import _build_system_prompt
+    from friday_ai.agents.deep_research import _build_system_prompt
 
     prompt = _build_system_prompt()
     assert "knowledge_search" in prompt
@@ -72,15 +72,15 @@ def test_system_prompt_has_tools() -> None:
 
 def test_system_prompt_has_no_think_directive() -> None:
     """The prompt starts with /no_think for Qwen compatibility."""
-    from openjarvis.agents.deep_research import _build_system_prompt
+    from friday_ai.agents.deep_research import _build_system_prompt
 
     prompt = _build_system_prompt()
     assert prompt.startswith("/no_think")
 
 
-def test_system_prompt_mentions_jarvis() -> None:
-    """The agent identifies as Jarvis."""
-    from openjarvis.agents.deep_research import _build_system_prompt
+def test_system_prompt_mentions_friday() -> None:
+    """The agent identifies as Friday."""
+    from friday_ai.agents.deep_research import _build_system_prompt
 
     prompt = _build_system_prompt()
-    assert "Jarvis" in prompt
+    assert "Friday" in prompt

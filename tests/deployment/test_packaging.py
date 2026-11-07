@@ -1,8 +1,8 @@
-"""Guards for the openjarvis-rust packaging split (#584 / #615).
+"""Guards for the friday_ai-rust packaging split (#584 / #615).
 
-``openjarvis_rust`` is the native PyO3 extension. It is NOT published to PyPI,
+``friday_ai_rust`` is the native PyO3 extension. It is NOT published to PyPI,
 so it must not appear in the published ``desktop`` extra — listing it there
-breaks ``pip install openjarvis[desktop]`` at install time. It lives in the uv
+breaks ``pip install friday_ai[desktop]`` at install time. It lives in the uv
 ``desktop-native`` dependency group instead (excluded from wheel metadata),
 which the desktop app installs from source via
 ``uv sync --group desktop-native``.
@@ -25,18 +25,18 @@ PYPROJECT = ROOT / "pyproject.toml"
 DESKTOP_LIB_RS = ROOT / "frontend" / "src-tauri" / "src" / "lib.rs"
 WINDOWS_INSTALL_PS1 = ROOT / "deploy" / "windows" / "install.ps1"
 QUICKSTART_SH = ROOT / "scripts" / "quickstart.sh"
-CLAUDE_RUNNER = ROOT / "src" / "openjarvis" / "agents" / "claude_code_runner"
+CLAUDE_RUNNER = ROOT / "src" / "friday_ai" / "agents" / "claude_code_runner"
 
 
 def _pyproject() -> dict:
     return tomllib.loads(PYPROJECT.read_text())
 
 
-def test_openjarvis_rust_not_in_published_desktop_extra() -> None:
+def test_friday_ai_rust_not_in_published_desktop_extra() -> None:
     desktop = _pyproject()["project"]["optional-dependencies"]["desktop"]
-    assert not any("openjarvis-rust" in dep for dep in desktop), (
-        "openjarvis-rust must not be in the published `desktop` extra — it is "
-        "not on PyPI, so it breaks `pip install openjarvis[desktop]`."
+    assert not any("friday_ai-rust" in dep for dep in desktop), (
+        "friday_ai-rust must not be in the published `desktop` extra — it is "
+        "not on PyPI, so it breaks `pip install friday_ai[desktop]`."
     )
 
 
@@ -48,18 +48,18 @@ def test_python310_speech_extras_use_installable_onnxruntime() -> None:
     assert constraint in extras["speech"]
 
 
-def test_openjarvis_rust_lives_in_uv_dependency_group() -> None:
+def test_friday_ai_rust_lives_in_uv_dependency_group() -> None:
     group = _pyproject()["dependency-groups"]["desktop-native"]
-    assert any("openjarvis-rust" in dep for dep in group)
+    assert any("friday_ai-rust" in dep for dep in group)
 
 
-def test_openjarvis_rust_has_local_uv_path_source() -> None:
-    src = _pyproject()["tool"]["uv"]["sources"]["openjarvis-rust"]
-    assert src["path"] == "rust/crates/openjarvis-python"
+def test_friday_ai_rust_has_local_uv_path_source() -> None:
+    src = _pyproject()["tool"]["uv"]["sources"]["friday_ai-rust"]
+    assert src["path"] == "rust/crates/friday_ai-python"
 
 
 def test_desktop_app_syncs_the_native_group() -> None:
-    # Otherwise the group's openjarvis_rust is never installed for the app.
+    # Otherwise the group's friday_ai_rust is never installed for the app.
     assert '"desktop-native"' in DESKTOP_LIB_RS.read_text(), (
         "the desktop app must `uv sync --group desktop-native` so the native "
         "extension is built at launch."
@@ -73,7 +73,7 @@ def test_windows_installer_syncs_the_native_group() -> None:
         in WINDOWS_INSTALL_PS1.read_text()
     ), (
         "the Windows installer must include `--group desktop-native` so "
-        "openjarvis_rust is built during source install."
+        "friday_ai_rust is built during source install."
     )
 
 
@@ -97,7 +97,7 @@ def test_quickstart_installs_web_search_dependencies() -> None:
 def test_claude_runner_wheel_maps_only_runtime_files() -> None:
     wheel = _pyproject()["tool"]["hatch"]["build"]["targets"]["wheel"]
     force_include = wheel["force-include"]
-    source = "src/openjarvis/agents/claude_code_runner"
+    source = "src/friday_ai/agents/claude_code_runner"
 
     assert source not in force_include
     for filename in ("index.mjs", "package.json"):
@@ -116,8 +116,8 @@ def test_sdist_omits_desktop_binaries_and_rebuilds_runtime_wheel(tmp_path) -> No
     project = tmp_path / "project"
     project.mkdir()
     runtime_sources = (
-        "src/openjarvis/__init__.py",
-        "src/openjarvis/templates/data/assistant.toml",
+        "src/friday_ai/__init__.py",
+        "src/friday_ai/templates/data/assistant.toml",
     )
     force_include = _pyproject()["tool"]["hatch"]["build"]["targets"]["wheel"][
         "force-include"
@@ -154,10 +154,10 @@ def test_sdist_omits_desktop_binaries_and_rebuilds_runtime_wheel(tmp_path) -> No
     (project / desktop_source).parent.mkdir(parents=True)
     (project / desktop_source).write_text("// desktop source\n")
     generated_assets = {
-        "src/openjarvis/server/static/index.html": (
+        "src/friday_ai/server/static/index.html": (
             '<script src="assets/app.js"></script>'
         ),
-        "src/openjarvis/server/static/assets/app.js": "// generated frontend\n",
+        "src/friday_ai/server/static/assets/app.js": "// generated frontend\n",
     }
     for relative, contents in generated_assets.items():
         asset = project / relative

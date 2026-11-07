@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openjarvis.learning.spec_search.execute.base import ApplyContext
-from openjarvis.learning.spec_search.models import (
+from friday_ai.learning.spec_search.execute.base import ApplyContext
+from friday_ai.learning.spec_search.models import (
     AutonomyMode,
     Edit,
     EditOp,
@@ -26,7 +26,7 @@ def _make_ctx(tmp_path: Path) -> ApplyContext:
     (tools_dir / "descriptions.toml").write_text(
         '[web_search]\ndescription = "Search"\n'
     )
-    return ApplyContext(openjarvis_home=tmp_path, session_id="s1")
+    return ApplyContext(friday_ai_home=tmp_path, session_id="s1")
 
 
 def _make_auto_edit(edit_id: str = "edit-001") -> Edit:
@@ -72,7 +72,7 @@ class TestExecuteEdits:
     """Tests for execute_edits()."""
 
     def test_applies_auto_tier_edit(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.loop import execute_edits
+        from friday_ai.learning.spec_search.execute.loop import execute_edits
 
         ctx = _make_ctx(tmp_path)
         outcomes = execute_edits(
@@ -84,7 +84,7 @@ class TestExecuteEdits:
         assert outcomes[0].status == "applied"
 
     def test_review_edit_goes_to_pending_in_tiered_mode(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.loop import execute_edits
+        from friday_ai.learning.spec_search.execute.loop import execute_edits
 
         ctx = _make_ctx(tmp_path)
         outcomes = execute_edits(
@@ -96,7 +96,7 @@ class TestExecuteEdits:
         assert outcomes[0].status == "pending_review"
 
     def test_review_edit_applied_in_auto_mode(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.loop import execute_edits
+        from friday_ai.learning.spec_search.execute.loop import execute_edits
 
         ctx = _make_ctx(tmp_path)
         outcomes = execute_edits(
@@ -108,7 +108,7 @@ class TestExecuteEdits:
         assert outcomes[0].status == "applied"
 
     def test_manual_tier_skipped(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.loop import execute_edits
+        from friday_ai.learning.spec_search.execute.loop import execute_edits
 
         ctx = _make_ctx(tmp_path)
         outcomes = execute_edits(
@@ -120,7 +120,7 @@ class TestExecuteEdits:
         assert outcomes[0].status == "skipped"
 
     def test_all_edits_pending_in_manual_mode(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.loop import execute_edits
+        from friday_ai.learning.spec_search.execute.loop import execute_edits
 
         ctx = _make_ctx(tmp_path)
         outcomes = execute_edits(
@@ -132,7 +132,7 @@ class TestExecuteEdits:
         assert outcomes[0].status == "pending_review"
 
     def test_multiple_edits_processed(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.loop import execute_edits
+        from friday_ai.learning.spec_search.execute.loop import execute_edits
 
         ctx = _make_ctx(tmp_path)
         outcomes = execute_edits(

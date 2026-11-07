@@ -7,7 +7,7 @@ body:
       value: |
         Use this template when promoting a raw Hugging Face model to a
         Pearl-compatible `pearl-ai/*-pearl` mining model. A model should remain
-        `planned` in OpenJarvis until this checklist is complete.
+        `planned` in FridayAI until this checklist is complete.
   - type: input
     id: raw_model
     attributes:
@@ -70,15 +70,15 @@ body:
           required: true
         - label: Non-mining layers use int8 vanilla Pearl GEMM
           required: true
-        - label: `jarvis mine init --model <pearl-model-id>` succeeds
+        - label: `friday mine init --model <pearl-model-id>` succeeds
           required: true
-        - label: `jarvis mine start` succeeds
+        - label: `friday mine start` succeeds
           required: true
-        - label: `jarvis ask` succeeds through the mining engine
+        - label: `friday ask` succeeds through the mining engine
           required: true
-        - label: `jarvis mine status` reports gateway/mining metrics
+        - label: `friday mine status` reports gateway/mining metrics
           required: true
-        - label: `jarvis mine validate-model --allow-planned` passes
+        - label: `friday mine validate-model --allow-planned` passes
           required: true
         - label: Gateway/miner logs show no submission errors
           required: true
@@ -89,8 +89,8 @@ body:
       description: Attach logs, metrics, model config, and command output.
       placeholder: |
         - /v1/models output:
-        - `jarvis mine status` output:
-        - `jarvis mine validate-model --output` JSON:
+        - `friday mine status` output:
+        - `friday mine validate-model --output` JSON:
         - gateway metrics excerpt:
         - miner logs:
         - PR/commit that flips status to validated:

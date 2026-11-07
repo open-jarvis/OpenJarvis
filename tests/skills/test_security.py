@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from openjarvis.skills.security import (
+from friday_ai.skills.security import (
     TrustTier,
     classify_trust_tier,
     has_dangerous_capabilities,
     validate_capabilities,
 )
-from openjarvis.skills.types import SkillManifest
+from friday_ai.skills.types import SkillManifest
 
 
 class TestTrustTiers:

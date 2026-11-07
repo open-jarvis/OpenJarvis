@@ -3,7 +3,7 @@ title: Morning Brief
 description: Slack, email, GitHub, and calendar — summarized into a 5-bullet brief on your phone by 7am
 ---
 
-# ☕ Morning Brief — Jarvis reads everything overnight so I don't have to
+# ☕ Morning Brief — Friday reads everything overnight so I don't have to
 
 <figure markdown>
   ![Morning brief in Discord](../assets/showcase/morning-brief.png){ .showcase-screenshot loading=lazy }
@@ -16,15 +16,15 @@ Every morning at 7am, before my first coffee, a message appears in my private Di
 - the two emails I actually need to act on (with one-line summaries)
 - anything mentioned in my team's `#general` Slack channel
 - today's calendar with the next 24 hours of meetings
-- one thing I asked Jarvis to track for me ("did Tuesday's deploy roll out cleanly?")
+- one thing I asked Friday to track for me ("did Tuesday's deploy roll out cleanly?")
 
 It's the first thing I read on my phone, while I'm still in bed. The brief used to take me 25 minutes — opening four apps, scrolling, deciding what mattered. Now it's two minutes of reading and I'm done.
 
 ## Why it's nice
 
 - **Costs me nothing per month.** It runs on a Mac mini in my closet. Same prompt-volume on the OpenAI API would be `~$18/month` based on the leaderboard's estimates.
-- **Nothing leaves my house.** My inbox, my Slack DMs, my calendar — Jarvis reads them locally and writes the digest locally. The only network call is the Discord webhook to my own private server.
-- **It learns my taste.** Over a few weeks Jarvis figured out that PR titles starting with `chore:` aren't worth surfacing and that I don't want to see calendar holds I created myself. The summarizer has a `MEMORY.md` it updates when I react with 👎 to a bullet.
+- **Nothing leaves my house.** My inbox, my Slack DMs, my calendar — Friday reads them locally and writes the digest locally. The only network call is the Discord webhook to my own private server.
+- **It learns my taste.** Over a few weeks Friday figured out that PR titles starting with `chore:` aren't worth surfacing and that I don't want to see calendar holds I created myself. The summarizer has a `MEMORY.md` it updates when I react with 👎 to a bullet.
 
 ## What you'd need
 

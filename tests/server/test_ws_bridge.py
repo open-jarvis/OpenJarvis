@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.core.events import EventBus, EventType
+from friday_ai.core.events import EventBus, EventType
 
 try:
     from fastapi import FastAPI
@@ -30,7 +30,7 @@ def event_bus():
 
 @pytest.fixture
 def app(event_bus):
-    from openjarvis.server.ws_bridge import create_ws_router
+    from friday_ai.server.ws_bridge import create_ws_router
 
     app = FastAPI()
     router = create_ws_router(event_bus)
@@ -67,7 +67,7 @@ class TestWSBridge:
 
     def test_client_disconnect_stops_handler(self, event_bus):
         async def exercise():
-            from openjarvis.server.ws_bridge import create_ws_router
+            from friday_ai.server.ws_bridge import create_ws_router
 
             class FakeWebSocket:
                 app = SimpleNamespace(state=SimpleNamespace(api_key=""))
@@ -87,7 +87,7 @@ class TestWSBridge:
 
     def test_simultaneous_client_message_does_not_drop_event(self, event_bus):
         async def exercise():
-            from openjarvis.server.ws_bridge import create_ws_router
+            from friday_ai.server.ws_bridge import create_ws_router
 
             class FakeWebSocket:
                 def __init__(self):
@@ -126,7 +126,7 @@ class TestWSBridge:
 
     def test_cancelling_handler_cleans_up_child_tasks(self, event_bus):
         async def exercise():
-            from openjarvis.server.ws_bridge import create_ws_router
+            from friday_ai.server.ws_bridge import create_ws_router
 
             class FakeWebSocket:
                 def __init__(self):
@@ -172,8 +172,8 @@ class TestIncludeAllRoutesBusWiring:
     silently never reach any connected browser client."""
 
     def test_uses_app_state_bus_not_global_singleton(self):
-        from openjarvis.core.events import reset_event_bus
-        from openjarvis.server.api_routes import include_all_routes
+        from friday_ai.core.events import reset_event_bus
+        from friday_ai.server.api_routes import include_all_routes
 
         reset_event_bus()  # isolate from other tests' global singleton state
         app = FastAPI()
@@ -199,9 +199,9 @@ class TestIncludeAllRoutesBusWiring:
         ],
     )
     def test_managed_agent_run_paths_publish_to_app_bus(self, path, payload):
-        from openjarvis.agents.executor import AgentExecutor
-        from openjarvis.core.events import reset_event_bus
-        from openjarvis.server.api_routes import include_all_routes
+        from friday_ai.agents.executor import AgentExecutor
+        from friday_ai.core.events import reset_event_bus
+        from friday_ai.server.api_routes import include_all_routes
 
         reset_event_bus()
         app_bus = EventBus()
@@ -236,7 +236,7 @@ class TestIncludeAllRoutesBusWiring:
         with (
             patch.object(AgentExecutor, "execute_tick", publish_tick),
             patch(
-                "openjarvis.server.agent_manager_routes._make_lightweight_system",
+                "friday_ai.server.agent_manager_routes._make_lightweight_system",
                 return_value=MagicMock(),
             ) as make_system,
             client.websocket_connect("/v1/agents/events?agent_id=test-123") as ws,

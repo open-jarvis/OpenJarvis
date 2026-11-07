@@ -1,7 +1,7 @@
 //! Keep the handoff trace executable: reviewers can trust it matches the CLI.
 #[test]
 fn documented_trace_matches_the_executable() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_openjarvis-cross-device-travel"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_friday_ai-cross-device-travel"))
         .arg("happy")
         .output()
         .expect("run demo binary");

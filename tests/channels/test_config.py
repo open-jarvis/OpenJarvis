@@ -5,7 +5,7 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from openjarvis.core.config import ChannelConfig, JarvisConfig, load_config
+from friday_ai.core.config import ChannelConfig, FridayConfig, load_config
 
 
 class TestChannelConfigDefaults:
@@ -23,14 +23,14 @@ class TestChannelConfigDefaults:
         assert cfg.default_agent == "orchestrator"
 
 
-class TestChannelConfigInJarvisConfig:
-    def test_channel_config_in_jarvis_config(self) -> None:
-        cfg = JarvisConfig()
+class TestChannelConfigInFridayConfig:
+    def test_channel_config_in_friday_config(self) -> None:
+        cfg = FridayConfig()
         assert hasattr(cfg, "channel")
         assert isinstance(cfg.channel, ChannelConfig)
 
-    def test_jarvis_config_channel_defaults(self) -> None:
-        cfg = JarvisConfig()
+    def test_friday_config_channel_defaults(self) -> None:
+        cfg = FridayConfig()
         assert cfg.channel.enabled is False
         assert cfg.channel.default_channel == ""
 

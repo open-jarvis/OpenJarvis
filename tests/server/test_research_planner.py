@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from openjarvis.agents.research_loop import DEFAULT_PLANNER_MODEL
-from openjarvis.core.config import JarvisConfig
-from openjarvis.server import research_router
+from friday_ai.agents.research_loop import DEFAULT_PLANNER_MODEL
+from friday_ai.core.config import FridayConfig
+from friday_ai.server import research_router
 
 
 class _DummyEngine:
@@ -21,7 +21,7 @@ class _DummyEngine:
 
 
 def test_resolve_planner_config_uses_chat_defaults() -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.engine.default = "lmstudio"
     cfg.intelligence.default_model = "local-model"
 
@@ -32,7 +32,7 @@ def test_resolve_planner_config_uses_chat_defaults() -> None:
 
 
 def test_resolve_planner_config_prefers_active_chat_runtime() -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.engine.default = "ollama"
     cfg.intelligence.default_model = ""
 
@@ -48,7 +48,7 @@ def test_resolve_planner_config_prefers_active_chat_runtime() -> None:
 
 
 def test_resolve_planner_config_uses_server_model_before_legacy_default() -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.engine.default = "ollama"
     cfg.intelligence.default_model = ""
     cfg.server.model = "serve-model"
@@ -60,7 +60,7 @@ def test_resolve_planner_config_uses_server_model_before_legacy_default() -> Non
 
 
 def test_resolve_planner_config_allows_deep_research_override() -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.engine.default = "lmstudio"
     cfg.intelligence.default_model = "chat-model"
     cfg.deep_research.engine = "vllm"
@@ -73,7 +73,7 @@ def test_resolve_planner_config_allows_deep_research_override() -> None:
 
 
 def test_resolve_planner_config_allows_partial_model_override() -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.engine.default = "lmstudio"
     cfg.intelligence.default_model = "chat-model"
     cfg.deep_research.model = "planner-model"
@@ -85,7 +85,7 @@ def test_resolve_planner_config_allows_partial_model_override() -> None:
 
 
 def test_resolve_planner_config_allows_partial_engine_override() -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.engine.default = "lmstudio"
     cfg.intelligence.default_model = "chat-model"
     cfg.deep_research.engine = "vllm"
@@ -97,7 +97,7 @@ def test_resolve_planner_config_allows_partial_engine_override() -> None:
 
 
 def test_resolve_planner_config_keeps_legacy_fallback_when_unconfigured() -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.engine.default = ""
     cfg.intelligence.default_model = ""
 
@@ -110,14 +110,14 @@ def test_resolve_planner_config_keeps_legacy_fallback_when_unconfigured() -> Non
 def test_build_planner_engine_uses_configured_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.engine.default = "lmstudio"
     cfg.intelligence.default_model = "local-model"
     engine = _DummyEngine()
     calls: list[tuple[str | None, str | None]] = []
 
     def fake_get_engine(
-        config: JarvisConfig,
+        config: FridayConfig,
         engine_key: str | None = None,
         model: str | None = None,
     ) -> tuple[str, _DummyEngine]:
@@ -137,7 +137,7 @@ def test_build_planner_engine_uses_configured_engine(
 def test_build_planner_engine_uses_active_engine_without_config_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.engine.default = "ollama"
     cfg.intelligence.default_model = ""
     active_engine = _DummyEngine()
@@ -161,7 +161,7 @@ def test_build_planner_engine_uses_active_engine_without_config_fallback(
 
 
 def test_build_planner_engine_rejects_active_engine_that_cannot_serve_model() -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
 
     with pytest.raises(RuntimeError, match="selected-model"):
         research_router._build_planner_engine(
@@ -175,14 +175,14 @@ def test_build_planner_engine_rejects_active_engine_that_cannot_serve_model() ->
 def test_build_planner_engine_honors_explicit_deep_research_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.deep_research.engine = "vllm"
     cfg.deep_research.model = "planner-model"
     active_engine = _DummyEngine()
     planner_engine = _DummyEngine()
 
     def fake_get_engine(
-        config: JarvisConfig,
+        config: FridayConfig,
         engine_key: str | None = None,
         model: str | None = None,
     ) -> tuple[str, _DummyEngine]:
@@ -255,12 +255,12 @@ def test_research_route_passes_live_engine_and_selected_model(
 def test_build_planner_engine_rejects_fallback_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.engine.default = "lmstudio"
     cfg.intelligence.default_model = "local-model"
 
     def fake_get_engine(
-        config: JarvisConfig,
+        config: FridayConfig,
         engine_key: str | None = None,
         model: str | None = None,
     ) -> tuple[str, _DummyEngine]:
@@ -275,7 +275,7 @@ def test_build_planner_engine_rejects_fallback_engine(
 def test_build_planner_engine_rejects_unavailable_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.engine.default = "lmstudio"
     cfg.intelligence.default_model = "local-model"
 

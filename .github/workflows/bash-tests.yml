@@ -25,5 +25,5 @@ jobs:
 
       - name: Run bats tests
         env:
-          OPENJARVIS_TEST_PYTHON: /usr/bin/python3
+          FRIDAY_AI_TEST_PYTHON: /usr/bin/python3
         run: bats tests/install/bash/

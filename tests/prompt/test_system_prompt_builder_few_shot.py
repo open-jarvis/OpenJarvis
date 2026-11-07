@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openjarvis.prompt.builder import SystemPromptBuilder
+from friday_ai.prompt.builder import SystemPromptBuilder
 
 
 class TestSystemPromptBuilderFewShot:

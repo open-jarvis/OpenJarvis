@@ -7,8 +7,8 @@ from typing import List
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 # ---------------------------------------------------------------------------
 # Fixture: small vault on disk
@@ -61,7 +61,7 @@ def vault(tmp_path: Path) -> Path:
 
 def _sync_all(vault_path: Path) -> List[Document]:
     """Import connector (triggers registry) and collect all docs."""
-    from openjarvis.connectors.obsidian import ObsidianConnector  # noqa: PLC0415
+    from friday_ai.connectors.obsidian import ObsidianConnector  # noqa: PLC0415
 
     conn = ObsidianConnector(vault_path=str(vault_path))
     return list(conn.sync())
@@ -73,7 +73,7 @@ def _sync_all(vault_path: Path) -> List[Document]:
 
 
 def test_is_connected(vault: Path) -> None:
-    from openjarvis.connectors.obsidian import ObsidianConnector
+    from friday_ai.connectors.obsidian import ObsidianConnector
 
     conn = ObsidianConnector(vault_path=str(vault))
     assert conn.is_connected() is True
@@ -85,7 +85,7 @@ def test_is_connected(vault: Path) -> None:
 
 
 def test_not_connected_bad_path() -> None:
-    from openjarvis.connectors.obsidian import ObsidianConnector
+    from friday_ai.connectors.obsidian import ObsidianConnector
 
     conn = ObsidianConnector(vault_path="/nonexistent/path/that/does/not/exist")
     assert conn.is_connected() is False
@@ -163,7 +163,7 @@ def test_sync_sets_doc_type_note(vault: Path) -> None:
 
 
 def test_disconnect(vault: Path) -> None:
-    from openjarvis.connectors.obsidian import ObsidianConnector
+    from friday_ai.connectors.obsidian import ObsidianConnector
 
     conn = ObsidianConnector(vault_path=str(vault))
     assert conn.is_connected() is True
@@ -178,7 +178,7 @@ def test_disconnect(vault: Path) -> None:
 
 def test_registry() -> None:
     """ObsidianConnector can be registered and retrieved via ConnectorRegistry."""
-    from openjarvis.connectors.obsidian import ObsidianConnector  # noqa: PLC0415
+    from friday_ai.connectors.obsidian import ObsidianConnector  # noqa: PLC0415
 
     ConnectorRegistry.register_value("obsidian", ObsidianConnector)
     assert ConnectorRegistry.contains("obsidian")

@@ -6,7 +6,7 @@ import pytest
 
 st = pytest.importorskip("sentence_transformers")
 
-from openjarvis.tools.storage.embeddings import (  # noqa: E402
+from friday_ai.tools.storage.embeddings import (  # noqa: E402
     Embedder,
     SentenceTransformerEmbedder,
 )

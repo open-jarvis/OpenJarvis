@@ -10,13 +10,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 
 def test_news_rss_registered():
     """NewsRSSConnector is discoverable via ConnectorRegistry."""
-    from openjarvis.connectors.news_rss import NewsRSSConnector
+    from friday_ai.connectors.news_rss import NewsRSSConnector
 
     ConnectorRegistry.register_value("news_rss", NewsRSSConnector)
     assert ConnectorRegistry.contains("news_rss")
@@ -71,7 +71,7 @@ def connector(tmp_path):
     """NewsRSSConnector with fake config file."""
     import json
 
-    from openjarvis.connectors.news_rss import NewsRSSConnector
+    from friday_ai.connectors.news_rss import NewsRSSConnector
 
     config_path = tmp_path / "news_rss.json"
     config_path.write_text(
@@ -92,14 +92,14 @@ def test_is_connected(connector):
 
 
 def test_is_connected_no_file(tmp_path):
-    from openjarvis.connectors.news_rss import NewsRSSConnector
+    from friday_ai.connectors.news_rss import NewsRSSConnector
 
     c = NewsRSSConnector(config_path=str(tmp_path / "missing.json"))
     assert c.is_connected() is False
 
 
 def test_is_connected_empty_feeds(tmp_path):
-    from openjarvis.connectors.news_rss import NewsRSSConnector
+    from friday_ai.connectors.news_rss import NewsRSSConnector
 
     config_path = tmp_path / "news_rss.json"
     config_path.write_text('{"feeds": []}', encoding="utf-8")
@@ -110,7 +110,7 @@ def test_is_connected_empty_feeds(tmp_path):
 def test_sync_rss_feed(connector):
     """Sync parses RSS XML and returns Documents."""
     with patch(
-        "openjarvis.connectors.news_rss._fetch_feed",
+        "friday_ai.connectors.news_rss._fetch_feed",
         return_value=_SAMPLE_RSS,
     ):
         docs = list(connector.sync())
@@ -131,7 +131,7 @@ def test_sync_atom_feed(tmp_path):
     """Sync parses Atom XML and returns Documents."""
     import json
 
-    from openjarvis.connectors.news_rss import NewsRSSConnector
+    from friday_ai.connectors.news_rss import NewsRSSConnector
 
     config_path = tmp_path / "news_rss.json"
     config_path.write_text(
@@ -147,7 +147,7 @@ def test_sync_atom_feed(tmp_path):
     c = NewsRSSConnector(config_path=str(config_path))
 
     with patch(
-        "openjarvis.connectors.news_rss._fetch_feed",
+        "friday_ai.connectors.news_rss._fetch_feed",
         return_value=_SAMPLE_ATOM,
     ):
         docs = list(c.sync())
@@ -160,7 +160,7 @@ def test_sync_atom_feed(tmp_path):
 def test_sync_filters_by_since(connector):
     """Items older than `since` are excluded when date is parseable."""
     with patch(
-        "openjarvis.connectors.news_rss._fetch_feed",
+        "friday_ai.connectors.news_rss._fetch_feed",
         return_value=_SAMPLE_RSS,
     ):
         # Only items after April 1 12:00 should come through
@@ -177,7 +177,7 @@ def test_disconnect(connector):
 
 
 def test_configure_rejects_private_network_feed(tmp_path):
-    from openjarvis.connectors.news_rss import NewsRSSConnector
+    from friday_ai.connectors.news_rss import NewsRSSConnector
 
     connector = NewsRSSConnector(config_path=str(tmp_path / "feeds.json"))
     with pytest.raises(ValueError, match="not allowed"):
@@ -186,7 +186,7 @@ def test_configure_rejects_private_network_feed(tmp_path):
 
 
 def test_fetch_feed_rechecks_redirect_target():
-    from openjarvis.connectors.news_rss import _fetch_feed
+    from friday_ai.connectors.news_rss import _fetch_feed
 
     redirect = MagicMock()
     redirect.status_code = 302
@@ -194,11 +194,11 @@ def test_fetch_feed_rechecks_redirect_target():
 
     with (
         patch(
-            "openjarvis.connectors.news_rss._validate_feed_url",
+            "friday_ai.connectors.news_rss._validate_feed_url",
             side_effect=[MagicMock(), ValueError("RSS feed URL is not allowed")],
         ),
         patch(
-            "openjarvis.connectors.news_rss._request_feed",
+            "friday_ai.connectors.news_rss._request_feed",
             return_value=redirect,
         ) as request_feed,
         pytest.raises(ValueError, match="not allowed"),
@@ -209,7 +209,7 @@ def test_fetch_feed_rechecks_redirect_target():
 
 
 def test_fetch_feed_pins_the_verified_address_against_dns_rebinding():
-    from openjarvis.connectors.news_rss import _fetch_feed
+    from friday_ai.connectors.news_rss import _fetch_feed
 
     public_answer = [
         (
@@ -261,13 +261,13 @@ def test_fetch_feed_pins_the_verified_address_against_dns_rebinding():
             pass
 
     with (
-        patch("openjarvis.security.ssrf.check_ssrf", return_value=None),
+        patch("friday_ai.security.ssrf.check_ssrf", return_value=None),
         patch(
-            "openjarvis.connectors.news_rss.socket.getaddrinfo",
+            "friday_ai.connectors.news_rss.socket.getaddrinfo",
             side_effect=[public_answer, rebound_private_answer],
         ) as resolve,
         patch(
-            "openjarvis.connectors.news_rss._PinnedHTTPConnection",
+            "friday_ai.connectors.news_rss._PinnedHTTPConnection",
             _Connection,
         ),
     ):
@@ -281,7 +281,7 @@ def test_fetch_feed_pins_the_verified_address_against_dns_rebinding():
 
 
 def test_fetch_feed_rejects_private_answer_after_initial_ssrf_check():
-    from openjarvis.connectors.news_rss import _fetch_feed
+    from friday_ai.connectors.news_rss import _fetch_feed
 
     private_answer = [
         (
@@ -293,12 +293,12 @@ def test_fetch_feed_rejects_private_answer_after_initial_ssrf_check():
         )
     ]
     with (
-        patch("openjarvis.security.ssrf.check_ssrf", return_value=None),
+        patch("friday_ai.security.ssrf.check_ssrf", return_value=None),
         patch(
-            "openjarvis.connectors.news_rss.socket.getaddrinfo",
+            "friday_ai.connectors.news_rss.socket.getaddrinfo",
             return_value=private_answer,
         ),
-        patch("openjarvis.connectors.news_rss._PinnedHTTPConnection") as connection,
+        patch("friday_ai.connectors.news_rss._PinnedHTTPConnection") as connection,
         pytest.raises(ValueError, match="non-public IP"),
     ):
         _fetch_feed("http://feeds.example/rss.xml")
@@ -307,7 +307,7 @@ def test_fetch_feed_rejects_private_answer_after_initial_ssrf_check():
 
 
 def test_https_connection_uses_url_hostname_for_tls_sni():
-    from openjarvis.connectors.news_rss import _PinnedHTTPSConnection
+    from friday_ai.connectors.news_rss import _PinnedHTTPSConnection
 
     raw_socket = MagicMock()
     tls_socket = MagicMock()
@@ -315,7 +315,7 @@ def test_https_connection_uses_url_hostname_for_tls_sni():
     ssl_context.wrap_socket.return_value = tls_socket
 
     with patch(
-        "openjarvis.connectors.news_rss.socket.create_connection",
+        "friday_ai.connectors.news_rss.socket.create_connection",
         return_value=raw_socket,
     ) as create_connection:
         connection = _PinnedHTTPSConnection(
@@ -340,14 +340,14 @@ def test_https_connection_uses_url_hostname_for_tls_sni():
 
 
 def test_configure_writes_private_atomic_config(tmp_path):
-    from openjarvis.connectors.news_rss import NewsRSSConnector
+    from friday_ai.connectors.news_rss import NewsRSSConnector
 
     path = tmp_path / "feeds.json"
     connector = NewsRSSConnector(config_path=str(path))
     with (
-        patch("openjarvis.security.ssrf.check_ssrf", return_value=None),
+        patch("friday_ai.security.ssrf.check_ssrf", return_value=None),
         patch(
-            "openjarvis.connectors.news_rss._resolve_host_addresses",
+            "friday_ai.connectors.news_rss._resolve_host_addresses",
             return_value=("93.184.216.34",),
         ),
     ):

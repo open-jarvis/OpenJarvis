@@ -9,13 +9,13 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from openjarvis.core.credentials import get_required_credentials, is_credential_optional
-from openjarvis.core.registry import ToolRegistry
-from openjarvis.security.capabilities import DEFAULT_TOOL_CAPABILITIES
-from openjarvis.tools.fx_macro import FXMacroDataTool
+from friday_ai.core.credentials import get_required_credentials, is_credential_optional
+from friday_ai.core.registry import ToolRegistry
+from friday_ai.security.capabilities import DEFAULT_TOOL_CAPABILITIES
+from friday_ai.tools.fx_macro import FXMacroDataTool
 
 _KEY = "fxmd-secret-key-123456"
-_GET = "openjarvis.tools.fx_macro.httpx.get"
+_GET = "friday_ai.tools.fx_macro.httpx.get"
 
 
 def _response(status=200, body=None, *, text=None, headers=None):
@@ -57,7 +57,7 @@ def _history_payload(**extra):
 def _no_ambient_key(monkeypatch):
     monkeypatch.delenv("FXMACRODATA_API_KEY", raising=False)
     monkeypatch.setattr(
-        "openjarvis.tools.fx_macro.get_tool_credential", lambda *a, **k: None
+        "friday_ai.tools.fx_macro.get_tool_credential", lambda *a, **k: None
     )
 
 
@@ -67,7 +67,7 @@ def _run(tool=None, **params):
 
 
 def test_registered_with_network_capability_and_optional_key():
-    import openjarvis.tools.fx_macro as module
+    import friday_ai.tools.fx_macro as module
 
     module = importlib.reload(module)
     assert ToolRegistry.get("fx_macro_data") is module.FXMacroDataTool
@@ -109,7 +109,7 @@ def test_keyless_history_sends_no_key_refuses_redirects_and_keeps_notices():
 
 def test_key_from_credentials_is_sent_as_header_and_never_returned(monkeypatch):
     monkeypatch.setattr(
-        "openjarvis.tools.fx_macro.get_tool_credential", lambda *a, **k: f" {_KEY} "
+        "friday_ai.tools.fx_macro.get_tool_credential", lambda *a, **k: f" {_KEY} "
     )
     body = _history_payload()
     body["data"][0]["source_url"] = f"https://example.test/?k={_KEY}"

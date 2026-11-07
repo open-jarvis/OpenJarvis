@@ -1,6 +1,6 @@
 """Tests for the daily_digest dataset."""
 
-from openjarvis.evals.datasets.daily_digest import DailyDigestDataset
+from friday_ai.evals.datasets.daily_digest import DailyDigestDataset
 
 
 def test_dataset_loads():

@@ -1,4 +1,4 @@
-"""Tests for openjarvis.learning.spec_search.plan.risk_tier module."""
+"""Tests for friday_ai.learning.spec_search.plan.risk_tier module."""
 
 from __future__ import annotations
 
@@ -7,15 +7,15 @@ class TestTierTable:
     """Tests for TIER_TABLE completeness."""
 
     def test_every_edit_op_has_a_tier(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp
-        from openjarvis.learning.spec_search.plan.risk_tier import TIER_TABLE
+        from friday_ai.learning.spec_search.models import EditOp
+        from friday_ai.learning.spec_search.plan.risk_tier import TIER_TABLE
 
         for op in EditOp:
             assert op in TIER_TABLE, f"Missing tier for {op}"
 
     def test_no_extra_keys(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp
-        from openjarvis.learning.spec_search.plan.risk_tier import TIER_TABLE
+        from friday_ai.learning.spec_search.models import EditOp
+        from friday_ai.learning.spec_search.plan.risk_tier import TIER_TABLE
 
         for key in TIER_TABLE:
             assert key in EditOp, f"Extra key in TIER_TABLE: {key}"
@@ -25,48 +25,48 @@ class TestAssignTier:
     """Tests for assign_tier() function."""
 
     def test_intelligence_ops_are_auto(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp, EditRiskTier
-        from openjarvis.learning.spec_search.plan.risk_tier import assign_tier
+        from friday_ai.learning.spec_search.models import EditOp, EditRiskTier
+        from friday_ai.learning.spec_search.plan.risk_tier import assign_tier
 
         assert assign_tier(EditOp.SET_MODEL_FOR_QUERY_CLASS) == EditRiskTier.AUTO
         assert assign_tier(EditOp.SET_MODEL_PARAM) == EditRiskTier.AUTO
 
     def test_tool_ops_are_auto(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp, EditRiskTier
-        from openjarvis.learning.spec_search.plan.risk_tier import assign_tier
+        from friday_ai.learning.spec_search.models import EditOp, EditRiskTier
+        from friday_ai.learning.spec_search.plan.risk_tier import assign_tier
 
         assert assign_tier(EditOp.ADD_TOOL_TO_AGENT) == EditRiskTier.AUTO
         assert assign_tier(EditOp.REMOVE_TOOL_FROM_AGENT) == EditRiskTier.AUTO
         assert assign_tier(EditOp.EDIT_TOOL_DESCRIPTION) == EditRiskTier.AUTO
 
     def test_agent_param_is_auto(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp, EditRiskTier
-        from openjarvis.learning.spec_search.plan.risk_tier import assign_tier
+        from friday_ai.learning.spec_search.models import EditOp, EditRiskTier
+        from friday_ai.learning.spec_search.plan.risk_tier import assign_tier
 
         assert assign_tier(EditOp.SET_AGENT_PARAM) == EditRiskTier.AUTO
 
     def test_prompt_ops_are_review(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp, EditRiskTier
-        from openjarvis.learning.spec_search.plan.risk_tier import assign_tier
+        from friday_ai.learning.spec_search.models import EditOp, EditRiskTier
+        from friday_ai.learning.spec_search.plan.risk_tier import assign_tier
 
         assert assign_tier(EditOp.PATCH_SYSTEM_PROMPT) == EditRiskTier.REVIEW
         assert assign_tier(EditOp.REPLACE_SYSTEM_PROMPT) == EditRiskTier.REVIEW
 
     def test_agent_class_is_review(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp, EditRiskTier
-        from openjarvis.learning.spec_search.plan.risk_tier import assign_tier
+        from friday_ai.learning.spec_search.models import EditOp, EditRiskTier
+        from friday_ai.learning.spec_search.plan.risk_tier import assign_tier
 
         assert assign_tier(EditOp.SET_AGENT_CLASS) == EditRiskTier.REVIEW
 
     def test_few_shot_is_review(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp, EditRiskTier
-        from openjarvis.learning.spec_search.plan.risk_tier import assign_tier
+        from friday_ai.learning.spec_search.models import EditOp, EditRiskTier
+        from friday_ai.learning.spec_search.plan.risk_tier import assign_tier
 
         assert assign_tier(EditOp.EDIT_FEW_SHOT_EXEMPLARS) == EditRiskTier.REVIEW
 
     def test_lora_is_manual(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp, EditRiskTier
-        from openjarvis.learning.spec_search.plan.risk_tier import assign_tier
+        from friday_ai.learning.spec_search.models import EditOp, EditRiskTier
+        from friday_ai.learning.spec_search.plan.risk_tier import assign_tier
 
         assert assign_tier(EditOp.LORA_FINETUNE) == EditRiskTier.MANUAL
 
@@ -75,13 +75,13 @@ class TestAssignTiers:
     """Tests for assign_tiers() batch function."""
 
     def test_overwrites_teacher_tier(self) -> None:
-        from openjarvis.learning.spec_search.models import (
+        from friday_ai.learning.spec_search.models import (
             Edit,
             EditOp,
             EditPillar,
             EditRiskTier,
         )
-        from openjarvis.learning.spec_search.plan.risk_tier import assign_tiers
+        from friday_ai.learning.spec_search.plan.risk_tier import assign_tiers
 
         # Teacher incorrectly sets AUTO for a prompt edit
         edit = Edit(
@@ -98,13 +98,13 @@ class TestAssignTiers:
         assert result[0].risk_tier == EditRiskTier.REVIEW
 
     def test_preserves_correct_tier(self) -> None:
-        from openjarvis.learning.spec_search.models import (
+        from friday_ai.learning.spec_search.models import (
             Edit,
             EditOp,
             EditPillar,
             EditRiskTier,
         )
-        from openjarvis.learning.spec_search.plan.risk_tier import assign_tiers
+        from friday_ai.learning.spec_search.plan.risk_tier import assign_tiers
 
         edit = Edit(
             id="edit-002",

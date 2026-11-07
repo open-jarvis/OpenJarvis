@@ -1,11 +1,11 @@
-"""Regression tests for tool selection during ``jarvis serve`` startup."""
+"""Regression tests for tool selection during ``friday serve`` startup."""
 
 from __future__ import annotations
 
 import pytest
 
-from openjarvis.cli.serve import _resolve_allowed_tools, _resolve_server_cors_origins
-from openjarvis.core.config import JarvisConfig
+from friday_ai.cli.serve import _resolve_allowed_tools, _resolve_server_cors_origins
+from friday_ai.core.config import FridayConfig
 
 
 @pytest.mark.parametrize(
@@ -16,7 +16,7 @@ from openjarvis.core.config import JarvisConfig
     ],
 )
 def test_tools_enabled_is_used_by_serve(configured):
-    config = JarvisConfig()
+    config = FridayConfig()
     config.tools.enabled = configured
 
     allowed, explicit = _resolve_allowed_tools(config)
@@ -26,7 +26,7 @@ def test_tools_enabled_is_used_by_serve(configured):
 
 
 def test_tools_enabled_takes_precedence_over_legacy_agent_tools():
-    config = JarvisConfig()
+    config = FridayConfig()
     config.tools.enabled = "file_read"
     config.agent.tools = "calculator"
 
@@ -37,7 +37,7 @@ def test_tools_enabled_takes_precedence_over_legacy_agent_tools():
 
 
 def test_agent_tools_remains_a_backward_compatible_fallback():
-    config = JarvisConfig()
+    config = FridayConfig()
     config.agent.tools = "file_read"
 
     allowed, explicit = _resolve_allowed_tools(config)
@@ -47,7 +47,7 @@ def test_agent_tools_remains_a_backward_compatible_fallback():
 
 
 def test_serve_defaults_tools_when_no_selection_is_configured():
-    allowed, explicit = _resolve_allowed_tools(JarvisConfig())
+    allowed, explicit = _resolve_allowed_tools(FridayConfig())
 
     assert allowed == {"think", "calculator", "web_search"}
     assert explicit is False
@@ -55,7 +55,7 @@ def test_serve_defaults_tools_when_no_selection_is_configured():
 
 def test_cors_environment_overrides_configured_defaults(monkeypatch):
     monkeypatch.setenv(
-        "OPENJARVIS_CORS_ORIGINS",
+        "FRIDAY_AI_CORS_ORIGINS",
         " https://frontend.example, https://admin.example ",
     )
 
@@ -65,7 +65,7 @@ def test_cors_environment_overrides_configured_defaults(monkeypatch):
 
 
 def test_cors_config_is_used_without_environment(monkeypatch):
-    monkeypatch.delenv("OPENJARVIS_CORS_ORIGINS", raising=False)
+    monkeypatch.delenv("FRIDAY_AI_CORS_ORIGINS", raising=False)
 
     origins = _resolve_server_cors_origins(["http://localhost:5173"])
 

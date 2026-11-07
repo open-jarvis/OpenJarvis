@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.operators.types import OperatorManifest
+from friday_ai.operators.types import OperatorManifest
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -108,12 +108,12 @@ def _make_system(
     session_store=None,
     memory_backend=None,
 ):
-    """Build a minimal mock JarvisSystem."""
-    from openjarvis.core.config import JarvisConfig
-    from openjarvis.core.events import EventBus
+    """Build a minimal mock FridaySystem."""
+    from friday_ai.core.config import FridayConfig
+    from friday_ai.core.events import EventBus
 
     system = MagicMock()
-    system.config = JarvisConfig()
+    system.config = FridayConfig()
     system.bus = EventBus()
     system.engine = engine or FakeEngine()
     system.engine_key = "test"
@@ -169,7 +169,7 @@ class TestOperatorManifest:
 
 class TestOperatorLoader:
     def test_load_from_toml(self, tmp_path):
-        from openjarvis.operators.loader import load_operator
+        from friday_ai.operators.loader import load_operator
 
         toml_content = """\
 [operator]
@@ -204,7 +204,7 @@ system_prompt = "You are a test operator."
         assert m.system_prompt == "You are a test operator."
 
     def test_inline_prompt(self, tmp_path):
-        from openjarvis.operators.loader import load_operator
+        from friday_ai.operators.loader import load_operator
 
         toml_content = """\
 [operator]
@@ -221,7 +221,7 @@ system_prompt = "Do things."
         assert m.system_prompt == "Do things."
 
     def test_external_prompt_file(self, tmp_path):
-        from openjarvis.operators.loader import load_operator
+        from friday_ai.operators.loader import load_operator
 
         prompt_file = tmp_path / "prompt.md"
         prompt_file.write_text("External prompt content.")
@@ -241,7 +241,7 @@ system_prompt_path = "prompt.md"
         assert m.system_prompt == "External prompt content."
 
     def test_missing_file_returns_empty_prompt(self, tmp_path):
-        from openjarvis.operators.loader import load_operator
+        from friday_ai.operators.loader import load_operator
 
         toml_content = """\
 [operator]
@@ -258,7 +258,7 @@ system_prompt_path = "nonexistent.md"
         assert m.system_prompt == ""
 
     def test_stem_as_default_id(self, tmp_path):
-        from openjarvis.operators.loader import load_operator
+        from friday_ai.operators.loader import load_operator
 
         toml_content = """\
 [operator]
@@ -278,7 +278,7 @@ name = "NoID"
 
 class TestOperatorManager:
     def test_register(self):
-        from openjarvis.operators.manager import OperatorManager
+        from friday_ai.operators.manager import OperatorManager
 
         system = _make_system()
         mgr = OperatorManager(system)
@@ -288,7 +288,7 @@ class TestOperatorManager:
         assert mgr.get_manifest("test") is m
 
     def test_discover(self, tmp_path):
-        from openjarvis.operators.manager import OperatorManager
+        from friday_ai.operators.manager import OperatorManager
 
         toml_content = """\
 [operator]
@@ -305,8 +305,8 @@ name = "Discovered"
         assert mgr.get_manifest("discovered") is not None
 
     def test_activate_creates_scheduler_task(self):
-        from openjarvis.operators.manager import OperatorManager
-        from openjarvis.scheduler.scheduler import TaskScheduler
+        from friday_ai.operators.manager import OperatorManager
+        from friday_ai.scheduler.scheduler import TaskScheduler
 
         store = FakeSchedulerStore()
         scheduler = TaskScheduler(store)
@@ -330,8 +330,8 @@ name = "Discovered"
         assert task_dict["agent"] == "operative"
 
     def test_activate_uses_operative_agent(self):
-        from openjarvis.operators.manager import OperatorManager
-        from openjarvis.scheduler.scheduler import TaskScheduler
+        from friday_ai.operators.manager import OperatorManager
+        from friday_ai.scheduler.scheduler import TaskScheduler
 
         store = FakeSchedulerStore()
         scheduler = TaskScheduler(store)
@@ -346,8 +346,8 @@ name = "Discovered"
         assert task_dict["agent"] == "operative"
 
     def test_activate_passes_metadata(self):
-        from openjarvis.operators.manager import OperatorManager
-        from openjarvis.scheduler.scheduler import TaskScheduler
+        from friday_ai.operators.manager import OperatorManager
+        from friday_ai.scheduler.scheduler import TaskScheduler
 
         store = FakeSchedulerStore()
         scheduler = TaskScheduler(store)
@@ -370,8 +370,8 @@ name = "Discovered"
         assert meta["temperature"] == 0.5
 
     def test_deactivate(self):
-        from openjarvis.operators.manager import OperatorManager
-        from openjarvis.scheduler.scheduler import TaskScheduler
+        from friday_ai.operators.manager import OperatorManager
+        from friday_ai.scheduler.scheduler import TaskScheduler
 
         store = FakeSchedulerStore()
         scheduler = TaskScheduler(store)
@@ -387,8 +387,8 @@ name = "Discovered"
         assert task_dict["status"] == "cancelled"
 
     def test_pause_resume(self):
-        from openjarvis.operators.manager import OperatorManager
-        from openjarvis.scheduler.scheduler import TaskScheduler
+        from friday_ai.operators.manager import OperatorManager
+        from friday_ai.scheduler.scheduler import TaskScheduler
 
         store = FakeSchedulerStore()
         scheduler = TaskScheduler(store)
@@ -408,7 +408,7 @@ name = "Discovered"
         assert task_dict["status"] == "active"
 
     def test_status(self):
-        from openjarvis.operators.manager import OperatorManager
+        from friday_ai.operators.manager import OperatorManager
 
         system = _make_system()
         mgr = OperatorManager(system)
@@ -423,8 +423,8 @@ name = "Discovered"
         assert statuses[0]["status"] == "registered"
 
     def test_activate_idempotent(self):
-        from openjarvis.operators.manager import OperatorManager
-        from openjarvis.scheduler.scheduler import TaskScheduler
+        from friday_ai.operators.manager import OperatorManager
+        from friday_ai.scheduler.scheduler import TaskScheduler
 
         store = FakeSchedulerStore()
         scheduler = TaskScheduler(store)
@@ -438,7 +438,7 @@ name = "Discovered"
         assert id1 == id2
 
     def test_activate_without_scheduler_raises(self):
-        from openjarvis.operators.manager import OperatorManager
+        from friday_ai.operators.manager import OperatorManager
 
         system = _make_system(scheduler=None)
         mgr = OperatorManager(system)
@@ -450,7 +450,7 @@ name = "Discovered"
             mgr.activate("no_sched")
 
     def test_run_once(self):
-        from openjarvis.operators.manager import OperatorManager
+        from friday_ai.operators.manager import OperatorManager
 
         system = _make_system()
         system.ask = MagicMock(return_value={"content": "Tick done."})
@@ -482,11 +482,11 @@ name = "Discovered"
 
 class TestOperativeAgent:
     def test_init_defaults(self):
-        from openjarvis.agents.operative import OperativeAgent
+        from friday_ai.agents.operative import OperativeAgent
 
         engine = FakeEngine()
         with patch(
-            "openjarvis.agents._stubs.load_config",
+            "friday_ai.agents._stubs.load_config",
             side_effect=Exception("no config"),
         ):
             agent = OperativeAgent(engine, "test-model")
@@ -496,12 +496,12 @@ class TestOperativeAgent:
         assert agent._max_turns == 20
 
     def test_accepts_tools(self):
-        from openjarvis.agents.operative import OperativeAgent
+        from friday_ai.agents.operative import OperativeAgent
 
         assert OperativeAgent.accepts_tools is True
 
     def test_run_with_system_prompt(self):
-        from openjarvis.agents.operative import OperativeAgent
+        from friday_ai.agents.operative import OperativeAgent
 
         engine = FakeEngine([{"content": "Response with prompt."}])
         agent = OperativeAgent(
@@ -520,7 +520,7 @@ class TestOperativeAgent:
         )
 
     def test_run_loads_session(self):
-        from openjarvis.agents.operative import OperativeAgent
+        from friday_ai.agents.operative import OperativeAgent
 
         session_store = FakeSessionStore()
         # Pre-populate session with history
@@ -541,7 +541,7 @@ class TestOperativeAgent:
         assert result.content == "New tick done."
 
     def test_run_saves_session(self):
-        from openjarvis.agents.operative import OperativeAgent
+        from friday_ai.agents.operative import OperativeAgent
 
         session_store = FakeSessionStore()
 
@@ -561,7 +561,7 @@ class TestOperativeAgent:
         assert saved[1]["content"] == "Tick response."
 
     def test_run_recalls_state(self):
-        from openjarvis.agents.operative import OperativeAgent
+        from friday_ai.agents.operative import OperativeAgent
 
         memory = FakeMemoryBackend()
         memory.store("operator:recall_test:state", '{"last_run": "2024-01-01"}')
@@ -583,8 +583,8 @@ class TestOperativeAgent:
         assert any("Previous State" in m.content for m in sys_msgs)
 
     def test_run_tool_loop(self):
-        from openjarvis.agents.operative import OperativeAgent
-        from openjarvis.tools._stubs import BaseTool
+        from friday_ai.agents.operative import OperativeAgent
+        from friday_ai.tools._stubs import BaseTool
 
         # Mock tool
         tool = MagicMock(spec=BaseTool)
@@ -623,7 +623,7 @@ class TestOperativeAgent:
         assert result.turns == 2
 
     def test_run_without_persistence(self):
-        from openjarvis.agents.operative import OperativeAgent
+        from friday_ai.agents.operative import OperativeAgent
 
         engine = FakeEngine([{"content": "No persistence needed."}])
         agent = OperativeAgent(engine, "test-model")
@@ -631,7 +631,7 @@ class TestOperativeAgent:
         assert result.content == "No persistence needed."
 
     def test_run_auto_persists_state(self):
-        from openjarvis.agents.operative import OperativeAgent
+        from friday_ai.agents.operative import OperativeAgent
 
         memory = FakeMemoryBackend()
 
@@ -649,7 +649,7 @@ class TestOperativeAgent:
         assert "Tick complete." in state
 
     def test_blank_result_preserves_previous_state(self):
-        from openjarvis.agents.operative import OperativeAgent
+        from friday_ai.agents.operative import OperativeAgent
 
         memory = FakeMemoryBackend()
         state_key = "operator:persist_test:state"
@@ -666,7 +666,7 @@ class TestOperativeAgent:
         assert memory.retrieve(state_key) == "waiting for a reply"
 
     def test_max_turns_exceeded(self):
-        from openjarvis.agents.operative import OperativeAgent
+        from friday_ai.agents.operative import OperativeAgent
 
         # Engine always returns tool calls, never a final answer
         responses = [
@@ -713,7 +713,7 @@ class TestOperativeAgent:
 class TestSystemAskPassthrough:
     def test_system_prompt_forwarded(self):
         """system_prompt kwarg reaches the agent."""
-        from openjarvis.system import JarvisSystem
+        from friday_ai.system import FridaySystem
 
         engine = FakeEngine([{"content": "OK"}])
         system = _make_system(engine=engine)
@@ -734,10 +734,10 @@ class TestSystemAskPassthrough:
             captured.update(kwargs)
             return {"content": "OK"}
 
-        from openjarvis.system import QueryOrchestrator
+        from friday_ai.system import QueryOrchestrator
 
         with patch.object(QueryOrchestrator, "_run_agent", patched_run_agent):
-            real_system = JarvisSystem(
+            real_system = FridaySystem(
                 config=system.config,
                 bus=system.bus,
                 engine=engine,
@@ -751,7 +751,7 @@ class TestSystemAskPassthrough:
 
     def test_operator_id_forwarded(self):
         """operator_id kwarg reaches the agent."""
-        from openjarvis.system import JarvisSystem
+        from friday_ai.system import FridaySystem
 
         engine = FakeEngine([{"content": "OK"}])
         system = _make_system(engine=engine)
@@ -771,10 +771,10 @@ class TestSystemAskPassthrough:
             captured.update(kwargs)
             return {"content": "OK"}
 
-        from openjarvis.system import QueryOrchestrator
+        from friday_ai.system import QueryOrchestrator
 
         with patch.object(QueryOrchestrator, "_run_agent", patched_run_agent):
-            real_system = JarvisSystem(
+            real_system = FridaySystem(
                 config=system.config,
                 bus=system.bus,
                 engine=engine,
@@ -795,7 +795,7 @@ class TestSystemAskPassthrough:
 class TestSchedulerOperatorExecution:
     def test_execute_task_with_operator_metadata(self):
         """Scheduler passes operator metadata through to system.ask()."""
-        from openjarvis.scheduler.scheduler import ScheduledTask, TaskScheduler
+        from friday_ai.scheduler.scheduler import ScheduledTask, TaskScheduler
 
         store = FakeSchedulerStore()
         mock_system = MagicMock()
@@ -837,17 +837,17 @@ class TestSchedulerOperatorExecution:
 
 class TestOperatorsConfig:
     def test_config_defaults(self):
-        from openjarvis.core.config import OperatorsConfig
+        from friday_ai.core.config import OperatorsConfig
 
         cfg = OperatorsConfig()
         assert cfg.enabled is False
         assert "operators" in cfg.manifests_dir
         assert cfg.auto_activate == ""
 
-    def test_config_in_jarvis_config(self):
-        from openjarvis.core.config import JarvisConfig
+    def test_config_in_friday_config(self):
+        from friday_ai.core.config import FridayConfig
 
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         assert hasattr(cfg, "operators")
         assert cfg.operators.enabled is False
 
@@ -859,7 +859,7 @@ class TestOperatorsConfig:
 
 class TestOperatorEvents:
     def test_event_types_exist(self):
-        from openjarvis.core.events import EventType
+        from friday_ai.core.events import EventType
 
         assert hasattr(EventType, "OPERATOR_TICK_START")
         assert hasattr(EventType, "OPERATOR_TICK_END")
@@ -874,11 +874,11 @@ class TestOperatorEvents:
 
 class TestAgentRegistration:
     def test_operative_registered(self):
-        from openjarvis.core.registry import AgentRegistry
+        from friday_ai.core.registry import AgentRegistry
 
         # Re-register if cleared by another test
         if not AgentRegistry.contains("operative"):
-            from openjarvis.agents.operative import OperativeAgent
+            from friday_ai.agents.operative import OperativeAgent
 
             AgentRegistry.register_value("operative", OperativeAgent)
 
@@ -900,13 +900,13 @@ class TestLoadBundledOperators:
         # Find the package-level operators/data/ directory
         here = Path(__file__).resolve()
         project_root = here.parent.parent.parent
-        ops_dir = project_root / "src" / "openjarvis" / "operators" / "data"
+        ops_dir = project_root / "src" / "friday_ai" / "operators" / "data"
         if not ops_dir.is_dir():
             pytest.skip("operators/data/ directory not found")
         return ops_dir
 
     def test_researcher_loads(self, operators_dir):
-        from openjarvis.operators.loader import load_operator
+        from friday_ai.operators.loader import load_operator
 
         m = load_operator(operators_dir / "researcher.toml")
         assert m.id == "researcher"
@@ -914,21 +914,21 @@ class TestLoadBundledOperators:
         assert m.schedule_type == "interval"
 
     def test_news_digest_loads(self, operators_dir):
-        from openjarvis.operators.loader import load_operator
+        from friday_ai.operators.loader import load_operator
 
         m = load_operator(operators_dir / "news_digest.toml")
         assert m.id == "news_digest"
         assert m.schedule_type == "cron"
 
     def test_knowledge_curator_loads(self, operators_dir):
-        from openjarvis.operators.loader import load_operator
+        from friday_ai.operators.loader import load_operator
 
         m = load_operator(operators_dir / "knowledge_curator.toml")
         assert m.id == "knowledge_curator"
         assert "knowledge_add_entity" in m.tools
 
     def test_system_monitor_loads(self, operators_dir):
-        from openjarvis.operators.loader import load_operator
+        from friday_ai.operators.loader import load_operator
 
         m = load_operator(operators_dir / "system_monitor.toml")
         assert m.id == "system_monitor"

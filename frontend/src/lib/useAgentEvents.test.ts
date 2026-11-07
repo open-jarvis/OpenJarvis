@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { buildWsProtocols, buildWsUrl } from './useAgentEvents';
 
-const SETTINGS_KEY = 'openjarvis-settings';
+const SETTINGS_KEY = 'friday_ai-settings';
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -31,14 +31,14 @@ describe('buildWsUrl', () => {
     localStorage.setItem(
       SETTINGS_KEY,
       JSON.stringify({
-        apiUrl: 'https://jarvis.example.com:8443',
+        apiUrl: 'https://friday.example.com:8443',
         apiKey: 'secret+/=',
       }),
     );
 
     const url = new URL(buildWsUrl('agent/one'));
 
-    expect(url.origin).toBe('wss://jarvis.example.com:8443');
+    expect(url.origin).toBe('wss://friday.example.com:8443');
     expect(url.pathname).toBe('/v1/agents/events');
     expect(url.searchParams.get('agent_id')).toBe('agent/one');
     expect(url.searchParams.has('token')).toBe(false);
@@ -66,8 +66,8 @@ describe('buildWsProtocols', () => {
     const protocols = buildWsProtocols();
 
     expect(protocols).toEqual([
-      'openjarvis.auth.v1',
-      `openjarvis.key.b64url.${encoded}`,
+      'friday_ai.auth.v1',
+      `friday_ai.key.b64url.${encoded}`,
     ]);
     expect(new Set(protocols).size).toBe(protocols?.length);
     expect(protocols?.every((value) => /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value)))

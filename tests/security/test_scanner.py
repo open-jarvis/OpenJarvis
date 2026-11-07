@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from openjarvis.security.scanner import PIIScanner, SecretScanner
-from openjarvis.security.types import ThreatLevel
+from friday_ai.security.scanner import PIIScanner, SecretScanner
+from friday_ai.security.types import ThreatLevel
 
 # ---------------------------------------------------------------------------
 # SecretScanner tests

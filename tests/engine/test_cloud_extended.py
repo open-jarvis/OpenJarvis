@@ -7,10 +7,10 @@ from unittest import mock
 
 import pytest
 
-from openjarvis.core.registry import EngineRegistry
-from openjarvis.core.types import Message, Role
-from openjarvis.engine._base import EngineConnectionError
-from openjarvis.engine.cloud import (
+from friday_ai.core.registry import EngineRegistry
+from friday_ai.core.types import Message, Role
+from friday_ai.engine._base import EngineConnectionError
+from friday_ai.engine.cloud import (
     _ANTHROPIC_MODELS,
     _GOOGLE_MODELS,
     _OPENAI_MODELS,

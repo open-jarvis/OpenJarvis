@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openjarvis.cli._runtime_panel import (
+from friday_ai.cli._runtime_panel import (
     MAX_NUM_CTX,
     ChatRuntimeOptions,
     _parse_int,
@@ -49,7 +49,7 @@ def test_parse_int_commas() -> None:
 def test_interactive_zero_ctx_becomes_default() -> None:
     from unittest.mock import MagicMock, patch
 
-    from openjarvis.cli._runtime_panel import interactive_pick_runtime_options
+    from friday_ai.cli._runtime_panel import interactive_pick_runtime_options
 
     with patch("builtins.input", side_effect=["0", ""]):
         opts = interactive_pick_runtime_options(MagicMock(), engine_name="ollama")

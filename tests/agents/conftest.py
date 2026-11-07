@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.agents.executor import AgentExecutor
-from openjarvis.agents.manager import AgentManager
-from openjarvis.agents.scheduler import AgentScheduler
-from openjarvis.core.events import EventBus
+from friday_ai.agents.executor import AgentExecutor
+from friday_ai.agents.manager import AgentManager
+from friday_ai.agents.scheduler import AgentScheduler
+from friday_ai.core.events import EventBus
 from tests.agents.fake_engine import FakeEngine
 from tests.agents.scenario_harness import FakeSystem, ScenarioHarness
 
@@ -15,8 +15,8 @@ from tests.agents.scenario_harness import FakeSystem, ScenarioHarness
 @pytest.fixture
 def scenario_harness(tmp_path):
     """Wire up real components for agent lifecycle testing."""
-    from openjarvis.agents.monitor_operative import MonitorOperativeAgent
-    from openjarvis.core.registry import AgentRegistry
+    from friday_ai.agents.monitor_operative import MonitorOperativeAgent
+    from friday_ai.core.registry import AgentRegistry
 
     # Re-register agent types (conftest auto-clears registries)
     if not AgentRegistry.contains("monitor_operative"):

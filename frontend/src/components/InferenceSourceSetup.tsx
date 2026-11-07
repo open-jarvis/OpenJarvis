@@ -185,7 +185,7 @@ export function OllamaConsent({
             Allow local model setup?
           </h2>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
-            OpenJarvis will start Ollama and may download one model selected for this computer. Model downloads can use several gigabytes of disk space and network data.
+            FridayAI will start Ollama and may download one model selected for this computer. Model downloads can use several gigabytes of disk space and network data.
           </p>
         </div>
       </div>
@@ -269,7 +269,7 @@ export function CustomEndpointSetup({
             Connect your server
           </h2>
           <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-            OpenJarvis will connect only after you submit this form. Ollama will not start or download models.
+            FridayAI will connect only after you submit this form. Ollama will not start or download models.
           </p>
         </div>
         <label className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>

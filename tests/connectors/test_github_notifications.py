@@ -7,13 +7,13 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 
 def test_github_notifications_registered():
     """GitHubNotificationsConnector is discoverable via ConnectorRegistry."""
-    from openjarvis.connectors.github_notifications import (
+    from friday_ai.connectors.github_notifications import (
         GitHubNotificationsConnector,
     )
 
@@ -55,7 +55,7 @@ _NOTIFICATIONS_RESPONSE = [
 @pytest.fixture()
 def connector(tmp_path):
     """GitHubNotificationsConnector with fake token file."""
-    from openjarvis.connectors.github_notifications import (
+    from friday_ai.connectors.github_notifications import (
         GitHubNotificationsConnector,
     )
 
@@ -69,7 +69,7 @@ def test_is_connected(connector):
 
 
 def test_is_connected_no_file(tmp_path):
-    from openjarvis.connectors.github_notifications import (
+    from friday_ai.connectors.github_notifications import (
         GitHubNotificationsConnector,
     )
 
@@ -80,7 +80,7 @@ def test_is_connected_no_file(tmp_path):
 def test_sync_yields_documents(connector):
     """Sync returns Documents for each notification."""
     with patch(
-        "openjarvis.connectors.github_notifications._github_api_get",
+        "friday_ai.connectors.github_notifications._github_api_get",
         return_value=_NOTIFICATIONS_RESPONSE,
     ):
         docs = list(connector.sync(since=datetime(2026, 4, 1)))

@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from openjarvis.agents._stubs import (
+from friday_ai.agents._stubs import (
     AgentContext,
     AgentResult,
     BaseAgent,
     ToolUsingAgent,
 )
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import Conversation, Message, Role, ToolCall, ToolResult
-from openjarvis.tools._stubs import BaseTool, ToolSpec
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.types import Conversation, Message, Role, ToolCall, ToolResult
+from friday_ai.tools._stubs import BaseTool, ToolSpec
 
 # ---------------------------------------------------------------------------
 # Concrete subclass for testing
@@ -163,11 +163,11 @@ class TestBuildMessages:
         assert messages[1].role == Role.USER
 
     def test_empty_config_default_no_system_message(self, monkeypatch):
-        from openjarvis.core.config import JarvisConfig
+        from friday_ai.core.config import FridayConfig
 
-        empty_cfg = JarvisConfig()
+        empty_cfg = FridayConfig()
         empty_cfg.agent.default_system_prompt = ""
-        monkeypatch.setattr("openjarvis.agents._stubs.load_config", lambda: empty_cfg)
+        monkeypatch.setattr("friday_ai.agents._stubs.load_config", lambda: empty_cfg)
 
         engine = MagicMock()
         agent = _ConcreteAgent(engine, "m")
@@ -208,7 +208,7 @@ class TestBuildMessages:
     def test_prompt_builder_merges_context_system_message(self):
         engine = MagicMock()
         prompt_builder = MagicMock()
-        prompt_builder.build.return_value = "You are OpenJarvis."
+        prompt_builder.build.return_value = "You are FridayAI."
         agent = _ConcreteAgent(engine, "m", prompt_builder=prompt_builder)
         conv = Conversation()
         conv.add(
@@ -224,7 +224,7 @@ class TestBuildMessages:
 
         system_messages = [m for m in messages if m.role == Role.SYSTEM]
         assert len(system_messages) == 1
-        assert "You are OpenJarvis." in system_messages[0].content
+        assert "You are FridayAI." in system_messages[0].content
         assert "user likes jazz" in system_messages[0].content
 
     def test_prompt_builder_preserves_caller_system_context(self):
@@ -294,22 +294,22 @@ class TestBuildMessages:
     def test_server_identity_already_merged_with_memory_is_not_duplicated(self):
         engine = MagicMock()
         prompt_builder = MagicMock()
-        prompt_builder.build.return_value = "OpenJarvis identity."
+        prompt_builder.build.return_value = "FridayAI identity."
         agent = _ConcreteAgent(engine, "m", prompt_builder=prompt_builder)
         conv = Conversation()
         conv.add(
             Message(
                 role=Role.SYSTEM,
-                content="OpenJarvis identity.\n\nRemembered preference.",
-                metadata={"openjarvis_identity_prompt": True},
+                content="FridayAI identity.\n\nRemembered preference.",
+                metadata={"friday_ai_identity_prompt": True},
             )
         )
 
         messages = agent._build_messages("new", AgentContext(conversation=conv))
 
         assert [message.role for message in messages] == [Role.SYSTEM, Role.USER]
-        assert messages[0].content == ("OpenJarvis identity.\n\nRemembered preference.")
-        assert messages[0].content.count("OpenJarvis identity.") == 1
+        assert messages[0].content == ("FridayAI identity.\n\nRemembered preference.")
+        assert messages[0].content.count("FridayAI identity.") == 1
 
     def test_only_empty_context_system_messages_emit_no_system_message(self):
         engine = MagicMock()

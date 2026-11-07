@@ -1,4 +1,4 @@
-"""Regression: ``jarvis serve`` must wire the ``SystemPromptBuilder`` into the
+"""Regression: ``friday serve`` must wire the ``SystemPromptBuilder`` into the
 agent it constructs, so SOUL.md / MEMORY.md / USER.md reach the model over HTTP.
 
 ``cli/ask.py`` (and ``cli/chat_cmd.py`` and the managed-agent executor) have
@@ -22,14 +22,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
+from friday_ai.cli import cli
 
 pytest.importorskip("fastapi")
 pytest.importorskip("uvicorn")
 
-# ``openjarvis.cli.serve`` as a package attribute resolves to the click
+# ``friday_ai.cli.serve`` as a package attribute resolves to the click
 # *command* (re-exported); grab the real module to monkeypatch its globals.
-serve_mod = importlib.import_module("openjarvis.cli.serve")
+serve_mod = importlib.import_module("friday_ai.cli.serve")
 
 
 def _fake_engine() -> MagicMock:
@@ -51,12 +51,12 @@ def test_serve_wires_persona_builder_into_served_agent(
     """The agent built on the serve path must carry a SystemPromptBuilder whose
     assembled prompt includes SOUL.md content (regression for the HTTP persona
     loss)."""
-    from openjarvis.agents.monitor_operative import MonitorOperativeAgent
-    from openjarvis.agents.operative import OperativeAgent
-    from openjarvis.agents.orchestrator import OrchestratorAgent
-    from openjarvis.agents.simple import SimpleAgent
-    from openjarvis.core.config import JarvisConfig
-    from openjarvis.core.registry import AgentRegistry
+    from friday_ai.agents.monitor_operative import MonitorOperativeAgent
+    from friday_ai.agents.operative import OperativeAgent
+    from friday_ai.agents.orchestrator import OrchestratorAgent
+    from friday_ai.agents.simple import SimpleAgent
+    from friday_ai.core.config import FridayConfig
+    from friday_ai.core.registry import AgentRegistry
 
     # Persona file with a unique sentinel we can grep for in the built prompt.
     soul = tmp_path / "SOUL.md"
@@ -72,7 +72,7 @@ def test_serve_wires_persona_builder_into_served_agent(
     if not AgentRegistry.contains(agent_name):
         AgentRegistry.register_value(agent_name, agent_classes[agent_name])
 
-    config = JarvisConfig()
+    config = FridayConfig()
     config.server.host = "127.0.0.1"
     config.server.port = 8123
     config.intelligence.default_model = "test-model"
@@ -96,7 +96,7 @@ def test_serve_wires_persona_builder_into_served_agent(
     sec.engine = engine
     sec.capability_policy = None
     sec.audit_logger = None
-    monkeypatch.setattr("openjarvis.security.setup_security", lambda *a, **k: sec)
+    monkeypatch.setattr("friday_ai.security.setup_security", lambda *a, **k: sec)
 
     captured: dict = {}
 
@@ -105,8 +105,8 @@ def test_serve_wires_persona_builder_into_served_agent(
         return MagicMock(name="app")
 
     with (
-        patch("openjarvis.server.app.create_app", side_effect=_capture_create_app),
-        patch("openjarvis.server.daemon.run_server", lambda *a, **k: None),
+        patch("friday_ai.server.app.create_app", side_effect=_capture_create_app),
+        patch("friday_ai.server.daemon.run_server", lambda *a, **k: None),
     ):
         result = CliRunner().invoke(
             cli, ["serve", "--agent", agent_name], catch_exceptions=False

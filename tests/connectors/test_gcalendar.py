@@ -13,8 +13,8 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers — fake API payloads
@@ -60,11 +60,11 @@ def connector(tmp_path: Path):
     """GCalendarConnector pointing at a tmp credentials path (no file yet)."""
     from unittest.mock import patch
 
-    from openjarvis.connectors.gcalendar import GCalendarConnector  # noqa: PLC0415
+    from friday_ai.connectors.gcalendar import GCalendarConnector  # noqa: PLC0415
 
     creds_path = str(tmp_path / "gcalendar.json")
     with patch(
-        "openjarvis.connectors.oauth._SHARED_GOOGLE_CREDENTIALS_PATH",
+        "friday_ai.connectors.oauth._SHARED_GOOGLE_CREDENTIALS_PATH",
         str(tmp_path / "google_shared.json"),
     ):
         yield GCalendarConnector(credentials_path=creds_path)
@@ -98,8 +98,8 @@ def test_auth_url(connector) -> None:
 # ---------------------------------------------------------------------------
 
 
-@patch("openjarvis.connectors.gcalendar._gcal_api_calendars_list")
-@patch("openjarvis.connectors.gcalendar._gcal_api_events_list")
+@patch("friday_ai.connectors.gcalendar._gcal_api_calendars_list")
+@patch("friday_ai.connectors.gcalendar._gcal_api_events_list")
 def test_sync_yields_events(
     mock_events,
     mock_calendars,
@@ -137,7 +137,7 @@ def test_sync_yields_events(
 
 def test_parse_event_timestamp_handles_all_day_events() -> None:
     """All-day events use their calendar date, not the current wall clock."""
-    from openjarvis.connectors.gcalendar import _parse_event_timestamp  # noqa: PLC0415
+    from friday_ai.connectors.gcalendar import _parse_event_timestamp  # noqa: PLC0415
 
     timestamp = _parse_event_timestamp({"start": {"date": "2024-05-26"}})
 
@@ -183,7 +183,7 @@ def test_mcp_tools(connector) -> None:
 
 def test_registry() -> None:
     """GCalendarConnector can be registered and retrieved via ConnectorRegistry."""
-    from openjarvis.connectors.gcalendar import GCalendarConnector  # noqa: PLC0415
+    from friday_ai.connectors.gcalendar import GCalendarConnector  # noqa: PLC0415
 
     # The registry is cleared before each test by the autouse conftest fixture,
     # so we imperatively re-register here (same pattern as test_gmail.py).

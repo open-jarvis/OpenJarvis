@@ -1,31 +1,31 @@
 # API Server
 
-OpenJarvis includes an OpenAI-compatible API server built on FastAPI and uvicorn. It exposes chat completion, model listing, and health check endpoints, making it a drop-in replacement for the OpenAI API when working with local models.
+FridayAI includes an OpenAI-compatible API server built on FastAPI and uvicorn. It exposes chat completion, model listing, and health check endpoints, making it a drop-in replacement for the OpenAI API when working with local models.
 
 ## Starting the Server
 
 The server requires the `[server]` extra (FastAPI + uvicorn):
 
 ```bash
-git clone https://github.com/open-jarvis/OpenJarvis.git
-cd OpenJarvis
+git clone https://github.com/open-jarvis/FridayAI.git
+cd FridayAI
 uv sync --extra server
 ```
 
 Start with default settings:
 
 ```bash
-jarvis serve
+friday serve
 ```
 
 For a cloud-hosted example, see [Deploy on Render](render.md). Its free-tier
-Blueprint is intended for evaluation only because local OpenJarvis state is
+Blueprint is intended for evaluation only because local FridayAI state is
 ephemeral.
 
-The server reads defaults from `~/.openjarvis/config.toml` and auto-detects available engines and models. Override any option via CLI flags:
+The server reads defaults from `~/.friday_ai/config.toml` and auto-detects available engines and models. Override any option via CLI flags:
 
 ```bash
-jarvis serve --host 0.0.0.0 --port 8000 --engine ollama --model qwen3:8b --agent orchestrator
+friday serve --host 0.0.0.0 --port 8000 --engine ollama --model qwen3:8b --agent orchestrator
 ```
 
 ### CLI Options
@@ -41,7 +41,7 @@ jarvis serve --host 0.0.0.0 --port 8000 --engine ollama --model qwen3:8b --agent
 On startup, the server prints a summary:
 
 ```
-Starting OpenJarvis API server
+Starting FridayAI API server
   Engine: ollama
   Model:  qwen3:8b
   Agent:  orchestrator
@@ -49,7 +49,7 @@ Starting OpenJarvis API server
 ```
 
 !!! warning "Server dependency check"
-    If the `[server]` extra is not installed, `jarvis serve` exits with a clear error message explaining how to install the required dependencies.
+    If the `[server]` extra is not installed, `friday serve` exits with a clear error message explaining how to install the required dependencies.
 
 ## Endpoints
 
@@ -163,13 +163,13 @@ Lists all models available on the configured inference engine.
       "id": "qwen3:8b",
       "object": "model",
       "created": 1740100800,
-      "owned_by": "openjarvis"
+      "owned_by": "friday_ai"
     },
     {
       "id": "llama3.1:8b",
       "object": "model",
       "created": 1740100800,
-      "owned_by": "openjarvis"
+      "owned_by": "friday_ai"
     }
   ]
 }
@@ -220,7 +220,7 @@ Send a message to a specific channel.
 ```json
 {
   "target": "slack",
-  "message": "Hello from Jarvis!"
+  "message": "Hello from Friday!"
 }
 ```
 
@@ -258,17 +258,17 @@ Show connection status for all configured channels.
 - `WS /v1/agents/events` streams agent lifecycle events and accepts an optional
   `agent_id` query parameter as a filter.
 
-When `OPENJARVIS_API_KEY` or `[server.auth].api_key` is configured,
+When `FRIDAY_AI_API_KEY` or `[server.auth].api_key` is configured,
 programmatic WebSocket clients should send the same
 `Authorization: Bearer <key>` header used by HTTP requests. Browsers cannot set
 that header on a WebSocket handshake, so browser clients must offer exactly
 these two subprotocol values:
 
-1. `openjarvis.auth.v1`
-2. `openjarvis.key.b64url.<encoded-key>`, where `<encoded-key>` is the unpadded
+1. `friday_ai.auth.v1`
+2. `friday_ai.key.b64url.<encoded-key>`, where `<encoded-key>` is the unpadded
    base64url encoding of the API key's UTF-8 bytes
 
-The server selects `openjarvis.auth.v1` in its handshake response. The built-in
+The server selects `friday_ai.auth.v1` in its handshake response. The built-in
 frontend handles this encoding automatically. Base64url is only a transport
 encoding, not encryption; use `wss://` for remote connections and treat the
 `Sec-WebSocket-Protocol` request header as credential-bearing.
@@ -453,7 +453,7 @@ Response headers include `Cache-Control: no-cache` and `Connection: keep-alive` 
 
 ## Configuration via `config.toml`
 
-The `[server]` section of `~/.openjarvis/config.toml` controls default server behavior:
+The `[server]` section of `~/.friday_ai/config.toml` controls default server behavior:
 
 ```toml
 [server]
@@ -472,7 +472,7 @@ workers = 1
 | `model`   | `string`  | `""`            | Default model name. When empty, falls back to `[intelligence] default_model` or the first model discovered on the engine. |
 | `workers` | `integer` | `1`             | Number of uvicorn workers (for future use).                                |
 
-CLI flags override config file values. For example, `jarvis serve --port 9000` overrides the `port` setting in the config file.
+CLI flags override config file values. For example, `friday serve --port 9000` overrides the `port` setting in the config file.
 
 The server also reads from other config sections at startup:
 
@@ -482,7 +482,7 @@ The server also reads from other config sections at startup:
 
 ## Running Behind a Reverse Proxy
 
-For production deployments, run OpenJarvis behind a reverse proxy like Nginx or Caddy for TLS termination, rate limiting, and authentication.
+For production deployments, run FridayAI behind a reverse proxy like Nginx or Caddy for TLS termination, rate limiting, and authentication.
 
 ### Nginx
 
@@ -494,10 +494,10 @@ map $http_upgrade $connection_upgrade {
 
 server {
     listen 443 ssl;
-    server_name jarvis.example.com;
+    server_name friday.example.com;
 
-    ssl_certificate /etc/ssl/certs/jarvis.pem;
-    ssl_certificate_key /etc/ssl/private/jarvis.key;
+    ssl_certificate /etc/ssl/certs/friday.pem;
+    ssl_certificate_key /etc/ssl/private/friday.key;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -525,7 +525,7 @@ server {
 ### Caddy
 
 ```
-jarvis.example.com {
+friday.example.com {
     reverse_proxy 127.0.0.1:8000 {
         flush_interval -1
     }
@@ -539,7 +539,7 @@ The `flush_interval -1` setting disables response buffering, which is required f
 When running behind a reverse proxy, bind the server to `127.0.0.1` so it only accepts connections from the proxy:
 
 ```bash
-jarvis serve --host 127.0.0.1 --port 8000
+friday serve --host 127.0.0.1 --port 8000
 ```
 
 Or in `config.toml`:

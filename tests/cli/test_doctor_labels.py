@@ -1,4 +1,4 @@
-"""Tests for ``jarvis doctor`` optional dependency labels."""
+"""Tests for ``friday doctor`` optional dependency labels."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest import mock
 
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
+from friday_ai.cli import cli
 
 _real_import = builtins.__import__
 
@@ -50,7 +50,7 @@ class TestDoctorOptionalLabels:
             c for c in data if c["name"] == "Optional: Apple Silicon energy monitoring"
         ]
         assert len(apple_checks) == 1
-        assert "Not installed (openjarvis[energy-apple])" == apple_checks[0]["message"]
+        assert "Not installed (friday_ai[energy-apple])" == apple_checks[0]["message"]
 
     def test_nvidia_label_uses_current_extra_name(self) -> None:
         """NVIDIA hint should reference the current project extra."""
@@ -63,4 +63,4 @@ class TestDoctorOptionalLabels:
             c for c in data if c["name"] == "Optional: NVIDIA energy monitoring"
         ]
         assert len(nvidia_checks) == 1
-        assert "Not installed (openjarvis[gpu-metrics])" == nvidia_checks[0]["message"]
+        assert "Not installed (friday_ai[gpu-metrics])" == nvidia_checks[0]["message"]

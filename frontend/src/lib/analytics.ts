@@ -21,7 +21,7 @@ import posthog from 'posthog-js';
 import { apiFetch } from './api';
 
 /**
- * Mirror of the Python event catalog (src/openjarvis/analytics/events.py
+ * Mirror of the Python event catalog (src/friday_ai/analytics/events.py
  * REGISTRY). Anything not in this set is dropped with a console.warn at
  * track() time, so typos and unallowed events don't silently ship.
  *
@@ -168,7 +168,7 @@ export function track(
       console.warn(
         `[analytics] Unknown event "${event}" dropped. ` +
           `Add it to KNOWN_EVENTS in lib/analytics.ts and to the Python ` +
-          `REGISTRY in src/openjarvis/analytics/events.py.`,
+          `REGISTRY in src/friday_ai/analytics/events.py.`,
       );
     }
     return;
@@ -206,7 +206,7 @@ export function getAnonId(): string {
  * Used for model / tool names that we want to cohort on without
  * actually shipping the raw value (e.g. proprietary model names a
  * power user has configured). Mirror of the backend's
- * :func:`openjarvis.analytics.redaction.hash_id`.
+ * :func:`friday_ai.analytics.redaction.hash_id`.
  */
 export async function hashId(s: string): Promise<string> {
   if (!s) return '';

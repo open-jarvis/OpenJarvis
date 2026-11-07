@@ -5,11 +5,11 @@ description: Smart inbox with message triage and auto-replies across channels
 
 # Messaging Hub
 
-This tutorial walks through `examples/messaging_hub/smart_inbox.py` — a script that connects OpenJarvis to messaging platforms, triages incoming messages by priority, drafts context-aware replies, and produces end-of-day summaries. It demonstrates channel integration, structured agent output, and memory-backed aggregation across multiple messages.
+This tutorial walks through `examples/messaging_hub/smart_inbox.py` — a script that connects FridayAI to messaging platforms, triages incoming messages by priority, drafts context-aware replies, and produces end-of-day summaries. It demonstrates channel integration, structured agent output, and memory-backed aggregation across multiple messages.
 
 !!! tip "Prerequisites"
     - Python 3.10 or later
-    - OpenJarvis installed: `uv sync --extra dev` from the repository root
+    - FridayAI installed: `uv sync --extra dev` from the repository root
     - An inference engine running (Ollama with `qwen3:8b` pulled, or cloud API keys)
     - For live channel mode: channel-specific credentials (see [Setting Up Real Channels](#setting-up-real-channels))
 
@@ -107,7 +107,7 @@ The `think` tool lets the agent reason internally before committing to a categor
     1. Add the Slack MCP server to your configuration:
 
         ```bash title="Terminal"
-        jarvis add slack
+        friday add slack
         ```
 
     2. Set your credentials in `.env` (gitignored):
@@ -141,14 +141,14 @@ The `think` tool lets the agent reason internally before committing to a categor
 
 === "Other Channels"
 
-    OpenJarvis supports LINE, Viber, Mastodon, Rocket.Chat, Zulip, XMPP, Twitch, Nostr, and more. List all available channels:
+    FridayAI supports LINE, Viber, Mastodon, Rocket.Chat, Zulip, XMPP, Twitch, Nostr, and more. List all available channels:
 
     ```bash title="Terminal"
-    jarvis channel list
-    jarvis channel status
+    friday channel list
+    friday channel status
     ```
 
-    Each channel requires its own environment variables. Run `jarvis add <channel>` where available to auto-generate the configuration template.
+    Each channel requires its own environment variables. Run `friday add <channel>` where available to auto-generate the configuration template.
 
 !!! warning "Live channel mode"
     Live channel mode requires channel credentials and the corresponding channel subsystem to be running. Use `--demo` to verify the triage logic before connecting to a real channel.
@@ -171,8 +171,8 @@ tools = ["think", "memory_store", "memory_search"]
 You can load this recipe programmatically:
 
 ```python title="Loading the messaging recipe"
-from openjarvis.recipes import load_recipe
-from openjarvis import SystemBuilder
+from friday_ai.recipes import load_recipe
+from friday_ai import SystemBuilder
 
 recipe = load_recipe("examples/messaging_hub/messaging.toml")
 system = SystemBuilder(**recipe.to_builder_kwargs()).build()
@@ -199,14 +199,14 @@ You can also add domain rules in the system prompt via `messaging.toml` — for 
 
 ## Scheduling the Daily Summary
 
-After processing all messages, the end-of-day summary call runs immediately in the script. For production use, schedule it independently via the OpenJarvis scheduler:
+After processing all messages, the end-of-day summary call runs immediately in the script. For production use, schedule it independently via the FridayAI scheduler:
 
 ```bash title="Terminal"
-jarvis scheduler create "Daily inbox summary" \
+friday scheduler create "Daily inbox summary" \
     --type cron --value "0 17 * * *"
 ```
 
-Or use the operator recipe pattern to run a persistent triage agent on a schedule. See the operator recipes in `src/openjarvis/recipes/data/operators/` for ready-made examples.
+Or use the operator recipe pattern to run a persistent triage agent on a schedule. See the operator recipes in `src/friday_ai/recipes/data/operators/` for ready-made examples.
 
 ## See Also
 

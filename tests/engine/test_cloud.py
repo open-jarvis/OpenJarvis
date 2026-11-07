@@ -7,10 +7,10 @@ from unittest import mock
 
 import pytest
 
-from openjarvis.core.registry import EngineRegistry
-from openjarvis.core.types import Message, Role
-from openjarvis.engine._base import EngineConnectionError
-from openjarvis.engine.cloud import (
+from friday_ai.core.registry import EngineRegistry
+from friday_ai.core.types import Message, Role
+from friday_ai.engine._base import EngineConnectionError
+from friday_ai.engine.cloud import (
     CloudEngine,
     _is_codex_model,
     _is_deepseek_model,
@@ -289,7 +289,7 @@ class TestOpenAIUnsupportedTemperatureRetry:
         assert "temperature" not in calls[1]
 
     def test_is_unsupported_temperature_error_variations(self) -> None:
-        from openjarvis.engine.cloud import _is_unsupported_temperature_error
+        from friday_ai.engine.cloud import _is_unsupported_temperature_error
 
         # Standard OpenAI 400 (#426)
         assert _is_unsupported_temperature_error(
@@ -573,7 +573,7 @@ class TestCodexGenerate:
         }
 
         with mock.patch(
-            "openjarvis.engine.cloud.httpx.post",
+            "friday_ai.engine.cloud.httpx.post",
             return_value=fake_response,
         ) as mock_post:
             result = engine.generate(
@@ -620,7 +620,7 @@ class TestCodexGenerate:
         }
 
         with mock.patch(
-            "openjarvis.engine.cloud.httpx.post",
+            "friday_ai.engine.cloud.httpx.post",
             return_value=fake_response,
         ):
             result = engine.generate(
@@ -649,7 +649,7 @@ class TestCodexGenerate:
         }
 
         with mock.patch(
-            "openjarvis.engine.cloud.httpx.post",
+            "friday_ai.engine.cloud.httpx.post",
             return_value=fake_response,
         ) as mock_post:
             engine.generate(

@@ -1,11 +1,11 @@
-"""Tests for openjarvis.learning.spec_search.gate.benchmark_gate module.
+"""Tests for friday_ai.learning.spec_search.gate.benchmark_gate module.
 
 All tests use mock scorers — no live EvalRunner.
 """
 
 from __future__ import annotations
 
-from openjarvis.learning.spec_search.models import BenchmarkSnapshot
+from friday_ai.learning.spec_search.models import BenchmarkSnapshot
 
 
 def _make_scorer(scores: dict[str, float], overall: float | None = None):
@@ -30,7 +30,7 @@ class TestBenchmarkGate:
     """Tests for BenchmarkGate."""
 
     def test_accepts_improving_edit(self) -> None:
-        from openjarvis.learning.spec_search.gate.benchmark_gate import (
+        from friday_ai.learning.spec_search.gate.benchmark_gate import (
             BenchmarkGate,
         )
 
@@ -54,7 +54,7 @@ class TestBenchmarkGate:
         assert result.delta > 0
 
     def test_rejects_no_improvement(self) -> None:
-        from openjarvis.learning.spec_search.gate.benchmark_gate import (
+        from friday_ai.learning.spec_search.gate.benchmark_gate import (
             BenchmarkGate,
         )
 
@@ -77,7 +77,7 @@ class TestBenchmarkGate:
         assert "no improvement" in result.reason.lower()
 
     def test_rejects_regression(self) -> None:
-        from openjarvis.learning.spec_search.gate.benchmark_gate import (
+        from friday_ai.learning.spec_search.gate.benchmark_gate import (
             BenchmarkGate,
         )
 
@@ -101,7 +101,7 @@ class TestBenchmarkGate:
         assert "regression" in result.reason.lower()
 
     def test_min_improvement_threshold(self) -> None:
-        from openjarvis.learning.spec_search.gate.benchmark_gate import (
+        from friday_ai.learning.spec_search.gate.benchmark_gate import (
             BenchmarkGate,
         )
 
@@ -124,7 +124,7 @@ class TestBenchmarkGate:
         assert not result.accepted
 
     def test_result_contains_snapshot(self) -> None:
-        from openjarvis.learning.spec_search.gate.benchmark_gate import (
+        from friday_ai.learning.spec_search.gate.benchmark_gate import (
             BenchmarkGate,
         )
 

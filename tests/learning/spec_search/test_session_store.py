@@ -1,11 +1,11 @@
-"""Tests for openjarvis.learning.spec_search.storage.session_store module."""
+"""Tests for friday_ai.learning.spec_search.storage.session_store module."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
 
-from openjarvis.learning.spec_search.models import (
+from friday_ai.learning.spec_search.models import (
     AutonomyMode,
     BenchmarkSnapshot,
     EditOutcome,
@@ -87,7 +87,7 @@ class TestSessionStoreInit:
     """Tests for SessionStore initialization."""
 
     def test_creates_tables(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 
@@ -100,7 +100,7 @@ class TestSessionStoreInit:
         store.close()
 
     def test_idempotent_init(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 
@@ -115,7 +115,7 @@ class TestSessionStoreSaveAndGet:
     """Tests for save_session/get_session round-trip."""
 
     def test_round_trip(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 
@@ -129,7 +129,7 @@ class TestSessionStoreSaveAndGet:
         store.close()
 
     def test_update_existing_session(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 
@@ -147,7 +147,7 @@ class TestSessionStoreSaveAndGet:
         store.close()
 
     def test_get_returns_none_for_unknown(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 
@@ -160,7 +160,7 @@ class TestSessionStoreList:
     """Tests for list_sessions ordering and filters."""
 
     def test_lists_in_started_at_desc_order(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 
@@ -179,7 +179,7 @@ class TestSessionStoreList:
         store.close()
 
     def test_filter_by_status(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 
@@ -196,7 +196,7 @@ class TestSessionStoreList:
         store.close()
 
     def test_limit(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 
@@ -219,7 +219,7 @@ class TestEditOutcomes:
     """Tests for save_outcome / list_outcomes."""
 
     def test_round_trip(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 
@@ -238,7 +238,7 @@ class TestEditOutcomes:
         store.close()
 
     def test_multiple_outcomes_per_session(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 
@@ -256,7 +256,7 @@ class TestEditOutcomes:
         store.close()
 
     def test_outcomes_for_unknown_session_returns_empty(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 
@@ -269,7 +269,7 @@ class TestParentSessionChain:
     """Tests for parent_session_id foreign key."""
 
     def test_parent_id_round_trips(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.storage.session_store import (
+        from friday_ai.learning.spec_search.storage.session_store import (
             SessionStore,
         )
 

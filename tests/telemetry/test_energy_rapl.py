@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.telemetry.energy_rapl import (
+from friday_ai.telemetry.energy_rapl import (
     RaplEnergyMonitor,
     _discover_domains,
 )
@@ -16,8 +16,8 @@ from tests.telemetry.energy_test_helpers import (
     assert_sample_result_basics,
 )
 
-_PLAT = "openjarvis.telemetry.energy_rapl.platform.system"
-_BASE = "openjarvis.telemetry.energy_rapl._RAPL_BASE"
+_PLAT = "friday_ai.telemetry.energy_rapl.platform.system"
+_BASE = "friday_ai.telemetry.energy_rapl._RAPL_BASE"
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Tests for openjarvis.evals.backends.external._subprocess_runner."""
+"""Tests for friday_ai.evals.backends.external._subprocess_runner."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.evals.backends.external._subprocess_runner import (
+from friday_ai.evals.backends.external._subprocess_runner import (
     EnergySample,
     SubprocessResult,
     run_one_shot,
@@ -154,7 +154,7 @@ class TestEnergySampler:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """When all samplers fail to initialize, return the null sampler."""
-        from openjarvis.evals.backends.external import _subprocess_runner as m
+        from friday_ai.evals.backends.external import _subprocess_runner as m
 
         # Force every probe to fail
         monkeypatch.setattr(m, "_try_start_nvml", lambda: None)

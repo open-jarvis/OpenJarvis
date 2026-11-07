@@ -6,11 +6,11 @@ import threading
 import time
 from unittest.mock import MagicMock
 
-from openjarvis.agents._stubs import AgentContext
-from openjarvis.agents.orchestrator import OrchestratorAgent
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import Conversation, Message, Role, ToolResult
-from openjarvis.tools._stubs import BaseTool, ToolSpec
+from friday_ai.agents._stubs import AgentContext
+from friday_ai.agents.orchestrator import OrchestratorAgent
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.types import Conversation, Message, Role, ToolResult
+from friday_ai.tools._stubs import BaseTool, ToolSpec
 
 # ---------------------------------------------------------------------------
 # Helpers

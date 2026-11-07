@@ -1,8 +1,8 @@
-"""Tests for openjarvis.learning.spec_search.gate.regression module."""
+"""Tests for friday_ai.learning.spec_search.gate.regression module."""
 
 from __future__ import annotations
 
-from openjarvis.learning.spec_search.models import BenchmarkSnapshot
+from friday_ai.learning.spec_search.models import BenchmarkSnapshot
 
 
 def _make_snapshot(
@@ -22,7 +22,7 @@ class TestRegressionCheck:
     """Tests for regression_check()."""
 
     def test_no_regression_when_all_improve(self) -> None:
-        from openjarvis.learning.spec_search.gate.regression import (
+        from friday_ai.learning.spec_search.gate.regression import (
             regression_check,
         )
 
@@ -32,7 +32,7 @@ class TestRegressionCheck:
         assert not result.has_regression
 
     def test_detects_cluster_regression(self) -> None:
-        from openjarvis.learning.spec_search.gate.regression import (
+        from friday_ai.learning.spec_search.gate.regression import (
             regression_check,
         )
 
@@ -43,7 +43,7 @@ class TestRegressionCheck:
         assert "c2" in result.regressed_clusters
 
     def test_small_drop_within_threshold(self) -> None:
-        from openjarvis.learning.spec_search.gate.regression import (
+        from friday_ai.learning.spec_search.gate.regression import (
             regression_check,
         )
 
@@ -53,7 +53,7 @@ class TestRegressionCheck:
         assert not result.has_regression
 
     def test_new_cluster_in_after_not_flagged(self) -> None:
-        from openjarvis.learning.spec_search.gate.regression import (
+        from friday_ai.learning.spec_search.gate.regression import (
             regression_check,
         )
 
@@ -63,7 +63,7 @@ class TestRegressionCheck:
         assert not result.has_regression
 
     def test_missing_cluster_in_after_flagged(self) -> None:
-        from openjarvis.learning.spec_search.gate.regression import (
+        from friday_ai.learning.spec_search.gate.regression import (
             regression_check,
         )
 
@@ -75,7 +75,7 @@ class TestRegressionCheck:
         assert "c2" in result.regressed_clusters
 
     def test_result_has_details(self) -> None:
-        from openjarvis.learning.spec_search.gate.regression import (
+        from friday_ai.learning.spec_search.gate.regression import (
             regression_check,
         )
 

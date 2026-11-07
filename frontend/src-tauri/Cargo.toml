@@ -1,7 +1,7 @@
 [package]
-name = "openjarvis-desktop"
+name = "friday_ai-desktop"
 version = "1.0.1"
-description = "OpenJarvis Desktop — Native AI assistant with energy monitoring, trace debugging, and learning visualization"
+description = "FridayAI Desktop — Native AI assistant with energy monitoring, trace debugging, and learning visualization"
 edition = "2021"
 license = "MIT"
 

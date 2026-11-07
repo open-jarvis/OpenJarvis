@@ -8,21 +8,21 @@ import pytest
 
 
 def test_ensure_image_already_local():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
 
     fake = MagicMock()
     fake.images.get.return_value = MagicMock(
-        id="sha256:abc", tags=["openjarvis/pearl-miner:main"]
+        id="sha256:abc", tags=["friday_ai/pearl-miner:main"]
     )
     launcher = PearlDockerLauncher(client=fake)
-    out = launcher.ensure_image("openjarvis/pearl-miner:main")
-    assert out == "openjarvis/pearl-miner:main"
-    fake.images.get.assert_called_once_with("openjarvis/pearl-miner:main")
+    out = launcher.ensure_image("friday_ai/pearl-miner:main")
+    assert out == "friday_ai/pearl-miner:main"
+    fake.images.get.assert_called_once_with("friday_ai/pearl-miner:main")
     fake.images.pull.assert_not_called()
 
 
 def test_ensure_image_pulls_if_published():
-    from openjarvis.mining._docker import (
+    from friday_ai.mining._docker import (
         APIError,
         ImageNotFound,
         NotFound,
@@ -34,7 +34,7 @@ def test_ensure_image_pulls_if_published():
     fake.images.pull.return_value = MagicMock(id="sha256:def")
     launcher = PearlDockerLauncher(client=fake)
     with patch(
-        "openjarvis.mining._docker._docker_error_types",
+        "friday_ai.mining._docker._docker_error_types",
         return_value=(ImageNotFound, NotFound, APIError),
     ):
         out = launcher.ensure_image("registry.example/pearl-miner:1.0")
@@ -43,8 +43,8 @@ def test_ensure_image_pulls_if_published():
 
 
 def test_ensure_image_falls_back_to_build_for_default_tag():
-    from openjarvis.mining._constants import PEARL_IMAGE_TAG
-    from openjarvis.mining._docker import (
+    from friday_ai.mining._constants import PEARL_IMAGE_TAG
+    from friday_ai.mining._docker import (
         APIError,
         ImageNotFound,
         NotFound,
@@ -59,7 +59,7 @@ def test_ensure_image_falls_back_to_build_for_default_tag():
         patch.object(launcher, "_clone_pearl_repo") as clone,
         patch.object(launcher, "_docker_build") as build,
         patch(
-            "openjarvis.mining._docker._docker_error_types",
+            "friday_ai.mining._docker._docker_error_types",
             return_value=(ImageNotFound, NotFound, APIError),
         ),
     ):
@@ -74,7 +74,7 @@ def test_ensure_image_falls_back_to_build_for_default_tag():
 def test_ensure_image_errors_when_non_default_tag_missing():
     import pytest
 
-    from openjarvis.mining._docker import (
+    from friday_ai.mining._docker import (
         APIError,
         ImageAcquisitionError,
         ImageNotFound,
@@ -88,7 +88,7 @@ def test_ensure_image_errors_when_non_default_tag_missing():
     launcher = PearlDockerLauncher(client=fake)
     with (
         patch(
-            "openjarvis.mining._docker._docker_error_types",
+            "friday_ai.mining._docker._docker_error_types",
             return_value=(ImageNotFound, NotFound, APIError),
         ),
         pytest.raises(ImageAcquisitionError) as ei,
@@ -98,7 +98,7 @@ def test_ensure_image_errors_when_non_default_tag_missing():
 
 
 def test_docker_build_raises_nofile_limit(tmp_path):
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
 
     entrypoint = tmp_path / "miner" / "vllm-miner" / "entrypoint.sh"
     entrypoint.parent.mkdir(parents=True)
@@ -106,8 +106,8 @@ def test_docker_build_raises_nofile_limit(tmp_path):
     dockerfile = tmp_path / "miner" / "vllm-miner" / "Dockerfile"
     dockerfile.write_text("FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04\n")
     launcher = PearlDockerLauncher(client=MagicMock())
-    with patch("openjarvis.mining._docker.subprocess.run") as run:
-        launcher._docker_build(tmp_path, "openjarvis/pearl-miner:test")
+    with patch("friday_ai.mining._docker.subprocess.run") as run:
+        launcher._docker_build(tmp_path, "friday_ai/pearl-miner:test")
 
     cmd = run.call_args.args[0]
     assert "--ulimit" in cmd
@@ -115,7 +115,7 @@ def test_docker_build_raises_nofile_limit(tmp_path):
 
 
 def test_patch_vllm_dockerfile_keeps_nvcc_runtime(tmp_path):
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
 
     dockerfile = tmp_path / "miner" / "vllm-miner" / "Dockerfile"
     dockerfile.parent.mkdir(parents=True)
@@ -127,7 +127,7 @@ def test_patch_vllm_dockerfile_keeps_nvcc_runtime(tmp_path):
 
 
 def test_patch_vllm_entrypoint_waits_for_gateway_socket(tmp_path):
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
 
     entrypoint = tmp_path / "miner" / "vllm-miner" / "entrypoint.sh"
     entrypoint.parent.mkdir(parents=True)
@@ -148,8 +148,8 @@ def _env_password(monkeypatch):
 
 
 def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
-    from openjarvis.mining._docker import PearlDockerLauncher
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    from friday_ai.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget
 
     fake = MagicMock()
     fake.containers.run.return_value = MagicMock(id="cid-1", status="running")
@@ -159,7 +159,7 @@ def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
         wallet_address="prl1qaaa",
         submit_target=SoloTarget(pearld_rpc_url="http://localhost:44107"),
         extra={
-            "docker_image_tag": "openjarvis/pearl-miner:main",
+            "docker_image_tag": "friday_ai/pearl-miner:main",
             "model": "pearl-ai/Llama-3.3-70B-Instruct-pearl",
             "vllm_port": 8000,
             "gpu_memory_utilization": 0.9,
@@ -171,11 +171,11 @@ def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
             "cuda_visible_devices": "0,1",
         },
     )
-    container = launcher.start(cfg, image="openjarvis/pearl-miner:main")
+    container = launcher.start(cfg, image="friday_ai/pearl-miner:main")
     assert container.id == "cid-1"
     fake.containers.run.assert_called_once()
     kwargs = fake.containers.run.call_args.kwargs
-    assert kwargs["image"] == "openjarvis/pearl-miner:main"
+    assert kwargs["image"] == "friday_ai/pearl-miner:main"
     assert kwargs["command"][0] == "pearl-ai/Llama-3.3-70B-Instruct-pearl"
     assert "--gpu-memory-utilization" in kwargs["command"]
     assert kwargs["restart_policy"]["Name"] == "unless-stopped"
@@ -193,8 +193,8 @@ def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
 def test_launcher_start_maps_host_gpu_ids_to_container_local_cuda_ids(
     _env_password,
 ) -> None:
-    from openjarvis.mining._docker import PearlDockerLauncher
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    from friday_ai.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget
 
     fake = MagicMock()
     fake.containers.run.return_value = MagicMock(id="cid-1", status="running")
@@ -209,7 +209,7 @@ def test_launcher_start_maps_host_gpu_ids_to_container_local_cuda_ids(
         },
     )
 
-    launcher.start(cfg, image="openjarvis/pearl-miner:main")
+    launcher.start(cfg, image="friday_ai/pearl-miner:main")
 
     kwargs = fake.containers.run.call_args.kwargs
     assert kwargs["environment"]["NVIDIA_VISIBLE_DEVICES"] == "1"
@@ -219,8 +219,8 @@ def test_launcher_start_maps_host_gpu_ids_to_container_local_cuda_ids(
 
 
 def test_launcher_start_mounts_local_model_path(_env_password, tmp_path):
-    from openjarvis.mining._docker import LOCAL_MODEL_BIND_PATH, PearlDockerLauncher
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    from friday_ai.mining._docker import LOCAL_MODEL_BIND_PATH, PearlDockerLauncher
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget
 
     local_model = tmp_path / "llama31-pearl"
     local_model.mkdir()
@@ -239,7 +239,7 @@ def test_launcher_start_mounts_local_model_path(_env_password, tmp_path):
         },
     )
 
-    launcher.start(cfg, image="openjarvis/pearl-miner:main")
+    launcher.start(cfg, image="friday_ai/pearl-miner:main")
 
     kwargs = fake.containers.run.call_args.kwargs
     assert kwargs["command"][0] == LOCAL_MODEL_BIND_PATH
@@ -254,7 +254,7 @@ def test_launcher_start_mounts_local_model_path(_env_password, tmp_path):
 
 
 def test_launcher_stop_calls_container_stop_and_remove():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
 
     fake_client = MagicMock()
     fake_container = MagicMock()
@@ -268,21 +268,21 @@ def test_launcher_stop_calls_container_stop_and_remove():
 
 
 def test_launcher_stop_finds_named_container_without_in_memory_reference():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
 
     fake_client = MagicMock()
     fake_container = MagicMock()
     fake_client.containers.get.return_value = fake_container
     launcher = PearlDockerLauncher(client=fake_client)
     launcher.stop()
-    fake_client.containers.get.assert_called_once_with("openjarvis-pearl-miner")
+    fake_client.containers.get.assert_called_once_with("friday_ai-pearl-miner")
     fake_container.stop.assert_called_once()
     fake_container.remove.assert_called_once()
     assert launcher._container is None
 
 
 def test_launcher_is_running_when_container_running():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
 
     fake_client = MagicMock()
     fake_container = MagicMock(status="running")
@@ -293,7 +293,7 @@ def test_launcher_is_running_when_container_running():
 
 
 def test_launcher_is_running_finds_named_container():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
 
     fake_client = MagicMock()
     fake_container = MagicMock(status="running")
@@ -301,11 +301,11 @@ def test_launcher_is_running_finds_named_container():
     fake_client.containers.get.return_value = fake_container
     launcher = PearlDockerLauncher(client=fake_client)
     assert launcher.is_running() is True
-    fake_client.containers.get.assert_called_once_with("openjarvis-pearl-miner")
+    fake_client.containers.get.assert_called_once_with("friday_ai-pearl-miner")
 
 
 def test_launcher_is_running_false_when_container_exited():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
 
     fake_client = MagicMock()
     fake_container = MagicMock()
@@ -317,7 +317,7 @@ def test_launcher_is_running_false_when_container_exited():
 
 
 def test_launcher_get_logs_returns_decoded_string():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
 
     fake_client = MagicMock()
     fake_container = MagicMock()
@@ -328,7 +328,7 @@ def test_launcher_get_logs_returns_decoded_string():
 
 
 def test_launcher_get_logs_redacts_rpc_passwords():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
 
     fake_client = MagicMock()
     fake_container = MagicMock()
@@ -345,11 +345,11 @@ def test_launcher_get_logs_redacts_rpc_passwords():
 
 
 def test_launcher_start_errors_when_password_env_missing():
-    from openjarvis.mining._docker import (
+    from friday_ai.mining._docker import (
         ConfigurationError,
         PearlDockerLauncher,
     )
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget
 
     fake = MagicMock()
     launcher = PearlDockerLauncher(client=fake)
@@ -358,7 +358,7 @@ def test_launcher_start_errors_when_password_env_missing():
         wallet_address="prl1qaaa",
         submit_target=SoloTarget(pearld_rpc_url="http://localhost:44107"),
         extra={
-            "docker_image_tag": "openjarvis/pearl-miner:main",
+            "docker_image_tag": "friday_ai/pearl-miner:main",
             "model": "pearl-ai/Llama-3.3-70B-Instruct-pearl",
             "vllm_port": 8000,
             "gpu_memory_utilization": 0.9,
@@ -368,5 +368,5 @@ def test_launcher_start_errors_when_password_env_missing():
         },
     )
     with pytest.raises(ConfigurationError) as ei:
-        launcher.start(cfg, image="openjarvis/pearl-miner:main")
+        launcher.start(cfg, image="friday_ai/pearl-miner:main")
     assert "DOES_NOT_EXIST_IN_ENV" in str(ei.value)

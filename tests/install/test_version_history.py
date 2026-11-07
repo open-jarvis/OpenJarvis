@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.cli.self_update_cmd import _update_git_checkout
+from friday_ai.cli.self_update_cmd import _update_git_checkout
 
 ROOT = Path(__file__).resolve().parents[2]
 _RUN = subprocess.run
@@ -64,7 +64,7 @@ def _installer_clone(installer, source, clone, cwd, *, env_extra=None):
     kind, executable = installer
     env = {
         **os.environ,
-        "OPENJARVIS_REPO_URL": source,
+        "FRIDAY_AI_REPO_URL": source,
         "SRC_DIR": str(clone),
         "FORCE": "0",
     }
@@ -84,7 +84,7 @@ def _installer_clone(installer, source, clone, cwd, *, env_extra=None):
         end = script.index("    if ($LASTEXITCODE", start)
         body = (
             "$ErrorActionPreference = 'Stop'\n"
-            "$repoUrl = $env:OPENJARVIS_REPO_URL\n"
+            "$repoUrl = $env:FRIDAY_AI_REPO_URL\n"
             "$srcDir = $env:SRC_DIR\n"
             "$gitExe = (Get-Command git).Source\n"
             + script[start:end]
@@ -116,7 +116,7 @@ def test_installer_clone_retains_reachable_release_tag(
         # Exercise remote argument selection without network access. This full
         # local server explicitly supports filtering, unlike shallow CI clones.
         _git(tagged_repo, "config", "uploadpack.allowFilter", "true")
-        source = "https://example.invalid/openjarvis.git"
+        source = "https://example.invalid/friday_ai.git"
         env_extra = {
             "GIT_CONFIG_COUNT": "1",
             "GIT_CONFIG_KEY_0": f"url.{tagged_repo.as_uri()}.insteadOf",
@@ -194,7 +194,7 @@ def test_update_recovers_version_before_reinstall_and_preserves_user_files(
     user_file.write_text("preserve this\n")
     head = _git(clone, "rev-parse", "HEAD")
     active_venv = tmp_path / "managed environment"
-    monkeypatch.setattr("openjarvis.cli.self_update_cmd.sys.prefix", str(active_venv))
+    monkeypatch.setattr("friday_ai.cli.self_update_cmd.sys.prefix", str(active_venv))
     rebuild_versions: list[str] = []
 
     def run(command, **kwargs):
@@ -207,13 +207,13 @@ def test_update_recovers_version_before_reinstall_and_preserves_user_files(
             sys.executable,
             "--inexact",
             "--reinstall-package",
-            "openjarvis",
+            "friday_ai",
         ]
         assert kwargs["env"]["UV_PROJECT_ENVIRONMENT"] == str(active_venv)
         rebuild_versions.append(_git(clone, "describe", "--tags", "--long"))
         return subprocess.CompletedProcess(command, 0)
 
-    monkeypatch.setattr("openjarvis.cli.self_update_cmd.subprocess.run", run)
+    monkeypatch.setattr("friday_ai.cli.self_update_cmd.subprocess.run", run)
     assert _update_git_checkout(clone) == 0
     assert _git(clone, "rev-parse", "--is-shallow-repository") == "false"
     assert _git(clone, "rev-parse", "HEAD") == head
@@ -239,7 +239,7 @@ def test_update_does_not_merge_or_reinstall_diverged_checkout(
         assert command[0] != "uv", "Failed Git update must not report a rebuilt package"
         return _RUN(command, **kwargs)
 
-    monkeypatch.setattr("openjarvis.cli.self_update_cmd.subprocess.run", run)
+    monkeypatch.setattr("friday_ai.cli.self_update_cmd.subprocess.run", run)
     assert _update_git_checkout(clone) != 0
     assert _git(clone, "rev-parse", "HEAD") == original_head
     assert (clone / "local.txt").read_text() == "local work\n"

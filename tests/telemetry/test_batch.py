@@ -9,7 +9,7 @@ from typing import Generator
 
 import pytest
 
-from openjarvis.telemetry.batch import BatchMetrics, EnergyBatch
+from friday_ai.telemetry.batch import BatchMetrics, EnergyBatch
 
 # ---------------------------------------------------------------------------
 # BatchMetrics defaults

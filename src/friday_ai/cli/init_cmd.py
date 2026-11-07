@@ -1,0 +1,584 @@
+"""``friday init`` — detect hardware, generate config, write to disk."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional
+
+import click
+import httpx
+from rich.console import Console
+from rich.markup import escape
+from rich.panel import Panel
+
+from friday_ai.cli._analytics_consent import apply_analytics_choice
+from friday_ai.cli._banner import print_banner
+from friday_ai.cli._bootstrap import detect_cloud_keys
+from friday_ai.cli.model import find_model_spec, hf_download, ollama_pull
+from friday_ai.cli.scan_cmd import PrivacyScanner
+from friday_ai.core.config import (
+    DEFAULT_CONFIG_DIR,
+    DEFAULT_CONFIG_PATH,
+    _available_memory_gb,
+    detect_hardware,
+    estimated_download_gb,
+    generate_default_toml,
+    generate_minimal_toml,
+    recommend_engine,
+    recommend_model,
+)
+
+# Engines supported by ``friday init --engine``.
+_SUPPORTED_ENGINES = [
+    "ollama",
+    "vllm",
+    "sglang",
+    "llamacpp",
+    "mlx",
+    "lmstudio",
+    "exo",
+    "nexa",
+]
+
+
+def _detect_running_engines() -> list[str]:
+    """Probe well-known ports and return engine keys that respond."""
+    import httpx
+
+    _PROBES: dict[str, str] = {
+        "ollama": "http://localhost:11434/api/tags",
+        "vllm": "http://localhost:8000/v1/models",
+        "sglang": "http://localhost:30000/v1/models",
+        "llamacpp": "http://localhost:8080/v1/models",
+        "mlx": "http://localhost:8080/v1/models",
+        "lmstudio": "http://localhost:1234/v1/models",
+        "exo": "http://localhost:52415/v1/models",
+        "nexa": "http://localhost:18181/v1/models",
+    }
+    running: list[str] = []
+    for key, url in _PROBES.items():
+        try:
+            resp = httpx.get(url, timeout=2.0)
+            if resp.status_code < 500:
+                running.append(key)
+        except Exception:
+            pass
+    return running
+
+
+def _next_steps_text(engine: str, model: str = "") -> str:
+    """Return engine-specific next-steps guidance after init."""
+    pull_model = model or "qwen3.5:2b"
+    steps: dict[str, str] = {
+        "ollama": (
+            "Next steps:\n"
+            "\n"
+            "  1. Install and start Ollama:\n"
+            "     curl -fsSL https://ollama.com/install.sh | sh\n"
+            "     ollama serve\n"
+            "\n"
+            f"  2. Pull a model:\n"
+            f"     ollama pull {pull_model}\n"
+            "\n"
+            "  3. Try it out:\n"
+            '     friday ask "Hello"\n'
+            "\n"
+            "  Run `friday doctor` to verify your setup."
+        ),
+        "vllm": (
+            "Next steps:\n"
+            "\n"
+            "  1. Install and start vLLM:\n"
+            "     pip install vllm\n"
+            "     vllm serve Qwen/Qwen3-4B\n"
+            "\n"
+            "  2. Try it out:\n"
+            '     friday ask "Hello"\n'
+            "\n"
+            "  Run `friday doctor` to verify your setup."
+        ),
+        "llamacpp": (
+            "Next steps:\n"
+            "\n"
+            "  1. Install and start llama.cpp:\n"
+            "     brew install llama.cpp\n"
+            "     llama-server -m path/to/model.gguf\n"
+            "\n"
+            "  2. Try it out:\n"
+            '     friday ask "Hello"\n'
+            "\n"
+            "  Run `friday doctor` to verify your setup."
+        ),
+        "sglang": (
+            "Next steps:\n"
+            "\n"
+            "  1. Install and start SGLang:\n"
+            "     pip install sglang[all]\n"
+            "     python -m sglang.launch_server --model-path Qwen/Qwen3-8B\n"
+            "\n"
+            "  2. Try it out:\n"
+            '     friday ask "Hello"\n'
+            "\n"
+            "  Run `friday doctor` to verify your setup."
+        ),
+        "mlx": (
+            "Next steps:\n"
+            "\n"
+            "  1. Install and start MLX:\n"
+            "     pip install mlx-lm\n"
+            "     mlx_lm.server --model mlx-community/Qwen2.5-7B-4bit\n"
+            "\n"
+            "  2. Try it out:\n"
+            '     friday ask "Hello"\n'
+            "\n"
+            "  Run `friday doctor` to verify your setup."
+        ),
+        "lmstudio": (
+            "Next steps:\n"
+            "\n"
+            "  1. Download LM Studio:\n"
+            "     https://lmstudio.ai\n"
+            "\n"
+            "  2. Load a model and start the local server (port 1234)\n"
+            "\n"
+            "  3. Try it out:\n"
+            '     friday ask "Hello"\n'
+            "\n"
+            "  Run `friday doctor` to verify your setup."
+        ),
+        "exo": (
+            "Next steps:\n\n"
+            "  1. Install and start Exo:\n"
+            "     pip install exo\n"
+            "     exo\n\n"
+            "  2. Try it out:\n"
+            '     friday ask "Hello"\n\n'
+            "  Run `friday doctor` to verify your setup."
+        ),
+        "nexa": (
+            "Next steps:\n\n"
+            "  1. Install and start Nexa:\n"
+            "     pip install nexaai\n"
+            "     nexa server\n\n"
+            "  2. Try it out:\n"
+            '     friday ask "Hello"\n\n'
+            "  Run `friday doctor` to verify your setup."
+        ),
+        "lemonade": (
+            "Next steps:\n\n"
+            "  1. Install Lemonade for your platform:\n"
+            "     https://lemonade-server.ai/\n\n"
+            "  2. Start the Lemonade server\n\n"
+            "  3. Try it out:\n"
+            '     friday ask "Hello"\n\n'
+            "  Run `friday doctor` to verify your setup."
+        ),
+    }
+    return steps.get(engine, steps["ollama"])
+
+
+def _quick_privacy_check(console: Console) -> None:
+    """Run critical privacy checks and print compact summary."""
+    scanner = PrivacyScanner()
+    results = scanner.run_quick()
+    if results:
+        console.print("  [bold]Privacy check:[/bold]")
+        for r in results:
+            if r.status == "ok":
+                console.print(f"  [green]\u2713[/green] {r.message}")
+            elif r.status == "warn":
+                console.print(f"  [yellow]![/yellow] {r.message}")
+            elif r.status == "fail":
+                console.print(f"  [red]\u2717[/red] {r.message}")
+    console.print()
+    console.print("  Run [cyan]friday scan[/cyan] for a full environment audit.")
+
+
+def _do_download(engine: str, model: str, spec, console: Console) -> None:
+    """Dispatch model download based on engine type."""
+    import os
+
+    if engine == "ollama":
+        host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+        ollama_pull(host, model, console)
+    elif engine == "llamacpp":
+        repo = spec.metadata.get("hf_repo", "")
+        gguf = spec.metadata.get("gguf_file", "")
+        if repo and gguf:
+            console.print(f"  Downloading [cyan]{gguf}[/cyan] from {repo}...")
+            hf_download(repo, gguf, console)
+        else:
+            console.print(f"  [yellow]No GGUF download info for {model}[/yellow]")
+    elif engine == "mlx":
+        mlx_repo = spec.metadata.get("mlx_repo", "")
+        if mlx_repo:
+            console.print(f"  Downloading [cyan]{mlx_repo}[/cyan]...")
+            hf_download(mlx_repo, None, console)
+        else:
+            console.print(f"  [yellow]No MLX repo info for {model}[/yellow]")
+    elif engine in ("vllm", "sglang"):
+        console.print(
+            f"  [cyan]{model}[/cyan] will download automatically when "
+            f"{engine} starts serving it."
+        )
+    else:
+        console.print(f"  Download {model} through the {engine} interface.")
+
+
+@click.command()
+@click.option(
+    "--analytics/--no-analytics",
+    default=None,
+    help="Consent to or decline external usage analytics without prompting.",
+)
+@click.option(
+    "--force", is_flag=True, help="Overwrite existing config without prompting."
+)
+@click.option(
+    "--config",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to config file to use.",
+)
+@click.option(
+    "--full",
+    "full_config",
+    is_flag=True,
+    help="Generate full reference config with all sections",
+)
+@click.option(
+    "--engine",
+    type=click.Choice(_SUPPORTED_ENGINES, case_sensitive=False),
+    default=None,
+    help="Inference engine to use (skips interactive selection).",
+)
+@click.option(
+    "--no-download", is_flag=True, default=False, help="Skip the model download prompt."
+)
+@click.option(
+    "--no-scan",
+    "skip_scan",
+    is_flag=True,
+    default=False,
+    help="Skip the post-init security environment audit.",
+)
+@click.option(
+    "--host",
+    default=None,
+    help="Remote engine host URL (e.g. http://192.168.1.50:11434).",
+)
+@click.option(
+    "--digest",
+    "enable_digest",
+    is_flag=True,
+    default=False,
+    help="Include Morning Digest config section.",
+)
+@click.option(
+    "--preset",
+    type=click.Choice(
+        [
+            "morning-digest-mac",
+            "morning-digest-linux",
+            "morning-digest-minimal",
+            "deep-research",
+            "code-assistant",
+            "scheduled-monitor",
+            "chat-simple",
+        ],
+        case_sensitive=False,
+    ),
+    default=None,
+    help="Use a pre-built starter config instead of generating one.",
+)
+@click.option(
+    "--from-bare-friday",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help="Run init non-interactively; called by the bare-friday first-run guard.",
+)
+@click.pass_context
+def init(
+    ctx: click.Context,
+    force: bool,
+    config: Optional[Path],
+    full_config: bool = False,
+    engine: Optional[str] = None,
+    no_download: bool = False,
+    skip_scan: bool = False,
+    host: Optional[str] = None,
+    enable_digest: bool = False,
+    preset: Optional[str] = None,
+    from_bare_friday: bool = False,
+    analytics: bool | None = None,
+) -> None:
+    """Detect hardware and generate ~/.friday_ai/config.toml."""
+    print_banner(quiet=(ctx.obj or {}).get("quiet", False))
+    console = Console()
+
+    # Cloud auto-detect — inform user if a key is in env.
+    detected_cloud = detect_cloud_keys()
+    if detected_cloud is not None:
+        console.print(
+            f"[cyan]Detected cloud key in env:[/cyan] {detected_cloud.env_var} "
+            f"(provider: {detected_cloud.provider}). "
+            f"Cloud inference is available via this key."
+        )
+
+    if DEFAULT_CONFIG_PATH.exists() and not force:
+        console.print(
+            f"[yellow]Config already exists at {DEFAULT_CONFIG_PATH}[/yellow]"
+        )
+        if preset:
+            console.print(
+                "Switching presets replaces the existing config. Re-run with "
+                f"[bold]friday init --preset {preset} --force[/bold] to confirm."
+            )
+        else:
+            console.print("Use [bold]--force[/bold] to overwrite.")
+        raise SystemExit(1)
+
+    # Handle --preset: copy a starter config and return early
+    if preset:
+        examples_dir = (
+            Path(__file__).resolve().parents[2] / "configs" / "friday_ai" / "examples"
+        )
+        # Also check installed package location
+        if not examples_dir.exists():
+            examples_dir = (
+                Path(__file__).resolve().parents[3]
+                / "configs"
+                / "friday_ai"
+                / "examples"
+            )
+        preset_path = examples_dir / f"{preset}.toml"
+        if not preset_path.exists():
+            console.print(f"[red]Preset '{preset}' not found.[/red]")
+            console.print(f"  Looked in: {examples_dir}")
+            raise SystemExit(1)
+        DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        DEFAULT_CONFIG_PATH.write_text(
+            apply_analytics_choice(
+                preset_path.read_text(encoding="utf-8"),
+                analytics,
+                prompt=not from_bare_friday,
+            ),
+            encoding="utf-8",
+        )
+        console.print(
+            f"[green]Preset '{preset}' installed to {DEFAULT_CONFIG_PATH}[/green]"
+        )
+        console.print(
+            "\n  Edit the config to customize, then run "
+            "[bold]friday doctor[/bold] to verify."
+        )
+        return
+
+    console.print("[bold]Detecting hardware...[/bold]")
+    hw = detect_hardware()
+
+    console.print(f"  Platform : {hw.platform}")
+    console.print(f"  CPU      : {hw.cpu_brand} ({hw.cpu_count} cores)")
+    console.print(f"  RAM      : {hw.ram_gb} GB")
+    if hw.gpu:
+        mem_label = "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
+        gpu = hw.gpu
+        console.print(
+            f"  GPU      : {gpu.name} ({gpu.vram_gb} GB {mem_label}, x{gpu.count})"
+        )
+    else:
+        console.print("  GPU      : none detected")
+
+    # Resolve engine: explicit flag > interactive selection > auto-detect
+    if engine is None and config is None:
+        recommended = recommend_engine(hw)
+        # Bare-friday cold path: use the recommended engine non-interactively.
+        if from_bare_friday:
+            engine = recommended
+        else:
+            console.print()
+            console.print("[bold]Detecting running inference engines...[/bold]")
+            running = _detect_running_engines()
+            if running:
+                console.print(f"  Found running: [green]{', '.join(running)}[/green]")
+            else:
+                console.print("  No running engines detected.")
+
+            # Build choices: show running engines first, then recommended, then rest
+            seen: set[str] = set()
+            choices: list[str] = []
+            for r in running:
+                if r not in seen:
+                    choices.append(r)
+                    seen.add(r)
+            if recommended not in seen:
+                choices.append(recommended)
+                seen.add(recommended)
+            for e in _SUPPORTED_ENGINES:
+                if e not in seen:
+                    choices.append(e)
+                    seen.add(e)
+
+            # Default: first running engine, or hardware recommendation
+            default = running[0] if running else recommended
+
+            labels = []
+            for c in choices:
+                parts = [c]
+                if c in running:
+                    parts.append("running")
+                if c == recommended:
+                    parts.append("recommended")
+                labels.append(
+                    f"  {c}" + (f"  ({', '.join(parts[1:])})" if len(parts) > 1 else "")
+                )
+
+            console.print()
+            console.print("[bold]Available engines:[/bold]")
+            for label in labels:
+                console.print(label)
+
+            engine = click.prompt(
+                "\nSelect inference engine",
+                type=click.Choice(choices, case_sensitive=False),
+                default=default,
+            )
+
+    # Probe remote host if specified
+    if host:
+        console.print("\n[bold]Checking remote host...[/bold]")
+        try:
+            resp = httpx.get(host.rstrip("/") + "/", timeout=2.0)
+            if resp.status_code < 500:
+                console.print(f"  [green]Reachable[/green] ({host})")
+            else:
+                console.print(
+                    f"  [yellow]Warning:[/yellow] Host returned status "
+                    f"{resp.status_code} — writing config anyway."
+                )
+        except Exception:
+            console.print(
+                f"  [yellow]Warning:[/yellow] Host unreachable ({host}) "
+                f"— writing config anyway."
+            )
+
+    if config:
+        toml_content = config.read_text(encoding="utf-8")
+    else:
+        if full_config:
+            toml_content = generate_default_toml(hw, engine=engine, host=host)
+        else:
+            toml_content = generate_minimal_toml(hw, engine=engine, host=host)
+
+    DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # ``--config`` selects an existing file to install; it is not an alternate
+    # output path.  Always activate the selected/generated configuration at
+    # the canonical location that subsequent ``friday`` commands load.
+    toml_content = apply_analytics_choice(
+        toml_content, analytics, prompt=not from_bare_friday
+    )
+    DEFAULT_CONFIG_PATH.write_text(toml_content, encoding="utf-8")
+
+    console.print()
+    console.print(
+        Panel(
+            escape(toml_content),
+            title=str(DEFAULT_CONFIG_PATH),
+            border_style="green",
+        )
+    )
+    # Append Morning Digest section if requested
+    if enable_digest:
+        digest_section = """
+# ─── Morning Digest ─────────────────────────────────────────
+[digest]
+enabled = true
+schedule = "0 7 * * *"
+timezone = "America/Los_Angeles"
+persona = "friday"
+honorific = "sir"
+tts_backend = "cartesia"
+voice_id = "c8f7835e-28a3-4f0c-80d7-c1302ac62aae"
+voice_speed = 1.2
+sections = ["health", "messages", "calendar", "world"]
+
+[digest.health]
+sources = ["oura"]
+
+[digest.messages]
+sources = ["gmail", "google_tasks", "imessage"]
+
+[digest.calendar]
+sources = ["gcalendar"]
+
+[digest.world]
+sources = ["hackernews", "news_rss"]
+"""
+        target = DEFAULT_CONFIG_PATH
+        existing = target.read_text(encoding="utf-8")
+        target.write_text(existing + digest_section, encoding="utf-8")
+        toml_content = target.read_text(encoding="utf-8")
+        console.print(
+            "[green]Morning Digest config added.[/green] "
+            "Run [bold]friday connect gdrive[/bold] to connect "
+            "Google services, then [bold]friday digest --fresh[/bold]."
+        )
+
+    console.print("[green]Config written successfully.[/green]")
+
+    # Create default memory files (skip if they already exist)
+    soul_path = DEFAULT_CONFIG_DIR / "SOUL.md"
+    if not soul_path.exists():
+        soul_path.write_text(
+            "# Agent Persona\n\nYou are Friday, a helpful personal AI assistant.\n",
+            encoding="utf-8",
+        )
+
+    memory_path = DEFAULT_CONFIG_DIR / "MEMORY.md"
+    if not memory_path.exists():
+        memory_path.write_text("# Agent Memory\n\n", encoding="utf-8")
+
+    user_path = DEFAULT_CONFIG_DIR / "USER.md"
+    if not user_path.exists():
+        user_path.write_text("# User Profile\n\n", encoding="utf-8")
+
+    skills_dir = DEFAULT_CONFIG_DIR / "skills"
+    skills_dir.mkdir(exist_ok=True)
+
+    selected_engine = engine or recommend_engine(hw)
+    model = recommend_model(hw, selected_engine)
+
+    if not model:
+        console.print(
+            "\n  [yellow]! Not enough memory to run any local model.[/yellow]\n"
+            "  Consider a cloud engine or a machine with more RAM."
+        )
+    else:
+        spec = find_model_spec(model)
+        size_gb = estimated_download_gb(spec.parameter_count_b) if spec else 0
+        avail = _available_memory_gb(hw)
+        console.print(
+            f"\n  [bold]Recommended model:[/bold] {model} (~{size_gb:.1f} GB)"
+            f"  [dim](selected for {avail:.0f} GB available memory)[/dim]"
+        )
+
+        if not no_download and not from_bare_friday and spec:
+            prompt = f"  Download {model} (~{size_gb:.1f} GB) now?"
+            if click.confirm(prompt, default=True):
+                _do_download(selected_engine, model, spec, console)
+            else:
+                console.print(
+                    f"\n  Skipped. Download later with:\n"
+                    f"    [bold]friday model pull {model}[/bold]"
+                )
+
+    if not skip_scan:
+        _quick_privacy_check(console)
+    console.print()
+    console.print(
+        Panel(
+            _next_steps_text(selected_engine, model),
+            title="Getting Started",
+            border_style="cyan",
+        )
+    )

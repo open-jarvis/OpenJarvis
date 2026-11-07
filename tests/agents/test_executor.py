@@ -8,15 +8,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.agents._stubs import AgentResult
-from openjarvis.agents.errors import FatalError, RetryableError
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import ToolResult
+from friday_ai.agents._stubs import AgentResult
+from friday_ai.agents.errors import FatalError, RetryableError
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.types import ToolResult
 
 
 @pytest.fixture
 def manager():
-    from openjarvis.agents.manager import AgentManager
+    from friday_ai.agents.manager import AgentManager
 
     with tempfile.TemporaryDirectory() as tmpdir:
         mgr = AgentManager(db_path=str(Path(tmpdir) / "agents.db"))
@@ -31,7 +31,7 @@ def event_bus():
 
 @pytest.fixture
 def executor(manager, event_bus):
-    from openjarvis.agents.executor import AgentExecutor
+    from friday_ai.agents.executor import AgentExecutor
 
     mock_system = MagicMock()
     ex = AgentExecutor(manager=manager, event_bus=event_bus)
@@ -111,7 +111,7 @@ class TestExecutorBasic:
             return AgentResult(content="success")
 
         with patch.object(executor, "_invoke_agent", side_effect=flaky_invoke):
-            with patch("openjarvis.agents.executor.retry_delay", return_value=0):
+            with patch("friday_ai.agents.executor.retry_delay", return_value=0):
                 executor.execute_tick(agent["id"])
 
         assert call_count == 3
@@ -123,7 +123,7 @@ class TestExecutorBasic:
         with patch.object(
             executor, "_invoke_agent", side_effect=RetryableError("always fails")
         ):
-            with patch("openjarvis.agents.executor.retry_delay", return_value=0):
+            with patch("friday_ai.agents.executor.retry_delay", return_value=0):
                 executor.execute_tick(agent["id"])
 
         assert manager.get_agent(agent["id"])["status"] == "error"
@@ -142,7 +142,7 @@ class TestExecutorBasic:
 
 
 def test_empty_turn_with_tool_result_is_not_retried() -> None:
-    from openjarvis.agents.executor import _should_retry_empty_result
+    from friday_ai.agents.executor import _should_retry_empty_result
 
     result = AgentResult(
         content="  ",
@@ -155,8 +155,8 @@ def test_empty_turn_with_tool_result_is_not_retried() -> None:
 
 def test_finalize_tick_reads_agent_result_metadata(tmp_path):
     """_finalize_tick() accumulates cost/tokens from AgentResult.metadata."""
-    from openjarvis.agents.executor import AgentExecutor
-    from openjarvis.agents.manager import AgentManager
+    from friday_ai.agents.executor import AgentExecutor
+    from friday_ai.agents.manager import AgentManager
 
     mgr = AgentManager(str(tmp_path / "test.db"))
     bus = EventBus()
@@ -179,7 +179,7 @@ def test_finalize_tick_reads_agent_result_metadata(tmp_path):
 
 
 def test_tick_model_prefers_system_default_before_legacy_fallback() -> None:
-    from openjarvis.agents.executor import _resolve_tick_model
+    from friday_ai.agents.executor import _resolve_tick_model
 
     system = MagicMock(model="qwen3:8b")
 
@@ -188,8 +188,8 @@ def test_tick_model_prefers_system_default_before_legacy_fallback() -> None:
 
 
 def test_managed_router_receives_every_actual_engine_model() -> None:
-    from openjarvis.agents.executor import _available_tick_models
-    from openjarvis.learning.routing.router import (
+    from friday_ai.agents.executor import _available_tick_models
+    from friday_ai.learning.routing.router import (
         HeuristicRouter,
         build_routing_context,
     )
@@ -214,7 +214,7 @@ def test_managed_router_receives_every_actual_engine_model() -> None:
 
 
 def test_managed_router_excludes_unavailable_fallback_model() -> None:
-    from openjarvis.agents.executor import _available_tick_models
+    from friday_ai.agents.executor import _available_tick_models
 
     engine = MagicMock()
     engine.list_models.return_value = ["tiny:1b", "large:32b"]
@@ -226,7 +226,7 @@ def test_managed_router_excludes_unavailable_fallback_model() -> None:
 
 
 def test_managed_router_retains_resolved_model_when_discovery_fails() -> None:
-    from openjarvis.agents.executor import _available_tick_models
+    from friday_ai.agents.executor import _available_tick_models
 
     engine = MagicMock()
     engine.list_models.side_effect = RuntimeError("offline")

@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.agents.research_loop import (
+from friday_ai.agents.research_loop import (
     SEARCH_TOOL_SPEC,
     SYSTEM_PROMPT,
     ResearchAgent,
@@ -21,7 +21,7 @@ from openjarvis.agents.research_loop import (
     renumber_citations,
     shape_results_for_model,
 )
-from openjarvis.connectors.hybrid_search import SearchHit
+from friday_ai.connectors.hybrid_search import SearchHit
 
 
 class _MockEngine:

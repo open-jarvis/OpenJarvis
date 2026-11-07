@@ -1,4 +1,4 @@
-"""Tests for openjarvis.learning.spec_search.models module."""
+"""Tests for friday_ai.learning.spec_search.models module."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ class TestEditPillar:
     """Tests for EditPillar enum."""
 
     def test_has_four_pillars(self) -> None:
-        from openjarvis.learning.spec_search.models import EditPillar
+        from friday_ai.learning.spec_search.models import EditPillar
 
         assert EditPillar.INTELLIGENCE.value == "intelligence"
         assert EditPillar.AGENT.value == "agent"
@@ -19,7 +19,7 @@ class TestEditPillar:
         assert EditPillar.ENGINE.value == "engine"
 
     def test_is_string_enum(self) -> None:
-        from openjarvis.learning.spec_search.models import EditPillar
+        from friday_ai.learning.spec_search.models import EditPillar
 
         assert isinstance(EditPillar.AGENT, str)
         assert EditPillar("agent") is EditPillar.AGENT
@@ -29,7 +29,7 @@ class TestEditRiskTier:
     """Tests for EditRiskTier enum."""
 
     def test_has_three_tiers(self) -> None:
-        from openjarvis.learning.spec_search.models import EditRiskTier
+        from friday_ai.learning.spec_search.models import EditRiskTier
 
         assert EditRiskTier.AUTO.value == "auto"
         assert EditRiskTier.REVIEW.value == "review"
@@ -40,13 +40,13 @@ class TestEditOp:
     """Tests for EditOp enum — must contain all v1 ops plus v2 placeholders."""
 
     def test_intelligence_ops(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp
+        from friday_ai.learning.spec_search.models import EditOp
 
         assert EditOp.SET_MODEL_FOR_QUERY_CLASS.value == "set_model_for_query_class"
         assert EditOp.SET_MODEL_PARAM.value == "set_model_param"
 
     def test_agent_ops(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp
+        from friday_ai.learning.spec_search.models import EditOp
 
         assert EditOp.PATCH_SYSTEM_PROMPT.value == "patch_system_prompt"
         assert EditOp.REPLACE_SYSTEM_PROMPT.value == "replace_system_prompt"
@@ -55,14 +55,14 @@ class TestEditOp:
         assert EditOp.EDIT_FEW_SHOT_EXEMPLARS.value == "edit_few_shot_exemplars"
 
     def test_tools_ops(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp
+        from friday_ai.learning.spec_search.models import EditOp
 
         assert EditOp.ADD_TOOL_TO_AGENT.value == "add_tool_to_agent"
         assert EditOp.REMOVE_TOOL_FROM_AGENT.value == "remove_tool_from_agent"
         assert EditOp.EDIT_TOOL_DESCRIPTION.value == "edit_tool_description"
 
     def test_v2_placeholder_ops(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOp
+        from friday_ai.learning.spec_search.models import EditOp
 
         assert EditOp.LORA_FINETUNE.value == "lora_finetune"
 
@@ -71,7 +71,7 @@ class TestTriggerKind:
     """Tests for TriggerKind enum."""
 
     def test_four_trigger_kinds(self) -> None:
-        from openjarvis.learning.spec_search.models import TriggerKind
+        from friday_ai.learning.spec_search.models import TriggerKind
 
         assert TriggerKind.SCHEDULED.value == "scheduled"
         assert TriggerKind.CLUSTER.value == "cluster"
@@ -83,7 +83,7 @@ class TestAutonomyMode:
     """Tests for AutonomyMode enum."""
 
     def test_three_modes(self) -> None:
-        from openjarvis.learning.spec_search.models import AutonomyMode
+        from friday_ai.learning.spec_search.models import AutonomyMode
 
         assert AutonomyMode.AUTO.value == "auto"
         assert AutonomyMode.TIERED.value == "tiered"
@@ -94,7 +94,7 @@ class TestSessionStatus:
     """Tests for SessionStatus enum."""
 
     def test_all_statuses(self) -> None:
-        from openjarvis.learning.spec_search.models import SessionStatus
+        from friday_ai.learning.spec_search.models import SessionStatus
 
         assert SessionStatus.INITIATED.value == "initiated"
         assert SessionStatus.DIAGNOSING.value == "diagnosing"
@@ -115,7 +115,7 @@ class TestEdit:
     """Tests for Edit pydantic model."""
 
     def _valid_edit_kwargs(self) -> dict:
-        from openjarvis.learning.spec_search.models import (
+        from friday_ai.learning.spec_search.models import (
             EditOp,
             EditPillar,
             EditRiskTier,
@@ -134,7 +134,7 @@ class TestEdit:
         }
 
     def test_constructs_with_valid_fields(self) -> None:
-        from openjarvis.learning.spec_search.models import Edit
+        from friday_ai.learning.spec_search.models import Edit
 
         edit = Edit(**self._valid_edit_kwargs())
 
@@ -144,7 +144,7 @@ class TestEdit:
         assert edit.references == ["trace-001", "trace-002"]
 
     def test_round_trip_via_json(self) -> None:
-        from openjarvis.learning.spec_search.models import Edit
+        from friday_ai.learning.spec_search.models import Edit
 
         edit = Edit(**self._valid_edit_kwargs())
         as_json = edit.model_dump_json()
@@ -156,7 +156,7 @@ class TestEdit:
         import pytest
         from pydantic import ValidationError
 
-        from openjarvis.learning.spec_search.models import Edit
+        from friday_ai.learning.spec_search.models import Edit
 
         kwargs = self._valid_edit_kwargs()
         kwargs["pillar"] = "not_a_pillar"
@@ -168,7 +168,7 @@ class TestEdit:
         import pytest
         from pydantic import ValidationError
 
-        from openjarvis.learning.spec_search.models import Edit
+        from friday_ai.learning.spec_search.models import Edit
 
         kwargs = self._valid_edit_kwargs()
         kwargs["op"] = "not_an_op"
@@ -177,7 +177,7 @@ class TestEdit:
             Edit(**kwargs)
 
     def test_payload_can_be_empty_dict(self) -> None:
-        from openjarvis.learning.spec_search.models import Edit
+        from friday_ai.learning.spec_search.models import Edit
 
         kwargs = self._valid_edit_kwargs()
         kwargs["payload"] = {}
@@ -186,7 +186,7 @@ class TestEdit:
         assert edit.payload == {}
 
     def test_references_default_empty_list(self) -> None:
-        from openjarvis.learning.spec_search.models import Edit
+        from friday_ai.learning.spec_search.models import Edit
 
         kwargs = self._valid_edit_kwargs()
         del kwargs["references"]
@@ -217,7 +217,7 @@ class TestFailureCluster:
         }
 
     def test_constructs_with_valid_fields(self) -> None:
-        from openjarvis.learning.spec_search.models import FailureCluster
+        from friday_ai.learning.spec_search.models import FailureCluster
 
         cluster = FailureCluster(**self._valid_cluster_kwargs())
 
@@ -228,7 +228,7 @@ class TestFailureCluster:
         assert len(cluster.addressed_by_edit_ids) == 2
 
     def test_round_trip_via_json(self) -> None:
-        from openjarvis.learning.spec_search.models import FailureCluster
+        from friday_ai.learning.spec_search.models import FailureCluster
 
         cluster = FailureCluster(**self._valid_cluster_kwargs())
         as_json = cluster.model_dump_json()
@@ -237,7 +237,7 @@ class TestFailureCluster:
         assert restored == cluster
 
     def test_addressed_by_edit_ids_defaults_empty(self) -> None:
-        from openjarvis.learning.spec_search.models import FailureCluster
+        from friday_ai.learning.spec_search.models import FailureCluster
 
         kwargs = self._valid_cluster_kwargs()
         del kwargs["addressed_by_edit_ids"]
@@ -249,7 +249,7 @@ class TestFailureCluster:
         import pytest
         from pydantic import ValidationError
 
-        from openjarvis.learning.spec_search.models import FailureCluster
+        from friday_ai.learning.spec_search.models import FailureCluster
 
         kwargs = self._valid_cluster_kwargs()
         kwargs["student_failure_rate"] = 1.5
@@ -261,7 +261,7 @@ class TestFailureCluster:
         import pytest
         from pydantic import ValidationError
 
-        from openjarvis.learning.spec_search.models import FailureCluster
+        from friday_ai.learning.spec_search.models import FailureCluster
 
         kwargs = self._valid_cluster_kwargs()
         kwargs["teacher_success_rate"] = -0.1
@@ -281,7 +281,7 @@ class TestLearningPlan:
     def _valid_plan_kwargs(self) -> dict:
         from datetime import datetime, timezone
 
-        from openjarvis.learning.spec_search.models import (
+        from friday_ai.learning.spec_search.models import (
             Edit,
             EditOp,
             EditPillar,
@@ -320,7 +320,7 @@ class TestLearningPlan:
         }
 
     def test_constructs_with_valid_fields(self) -> None:
-        from openjarvis.learning.spec_search.models import LearningPlan
+        from friday_ai.learning.spec_search.models import LearningPlan
 
         plan = LearningPlan(**self._valid_plan_kwargs())
 
@@ -331,7 +331,7 @@ class TestLearningPlan:
         assert plan.estimated_cost_usd == 1.42
 
     def test_round_trip_via_json(self) -> None:
-        from openjarvis.learning.spec_search.models import LearningPlan
+        from friday_ai.learning.spec_search.models import LearningPlan
 
         plan = LearningPlan(**self._valid_plan_kwargs())
         as_json = plan.model_dump_json()
@@ -341,7 +341,7 @@ class TestLearningPlan:
 
     def test_empty_clusters_and_edits_allowed(self) -> None:
         # An aborted session may produce a plan with no clusters and no edits.
-        from openjarvis.learning.spec_search.models import LearningPlan
+        from friday_ai.learning.spec_search.models import LearningPlan
 
         kwargs = self._valid_plan_kwargs()
         kwargs["failure_clusters"] = []
@@ -355,7 +355,7 @@ class TestLearningPlan:
         import pytest
         from pydantic import ValidationError
 
-        from openjarvis.learning.spec_search.models import LearningPlan
+        from friday_ai.learning.spec_search.models import LearningPlan
 
         kwargs = self._valid_plan_kwargs()
         kwargs["estimated_cost_usd"] = -1.0
@@ -382,7 +382,7 @@ class TestBenchmarkSnapshot:
         }
 
     def test_constructs_with_valid_fields(self) -> None:
-        from openjarvis.learning.spec_search.models import BenchmarkSnapshot
+        from friday_ai.learning.spec_search.models import BenchmarkSnapshot
 
         snap = BenchmarkSnapshot(**self._valid_snapshot_kwargs())
 
@@ -393,7 +393,7 @@ class TestBenchmarkSnapshot:
         assert snap.elapsed_seconds == 184.3
 
     def test_round_trip_via_json(self) -> None:
-        from openjarvis.learning.spec_search.models import BenchmarkSnapshot
+        from friday_ai.learning.spec_search.models import BenchmarkSnapshot
 
         snap = BenchmarkSnapshot(**self._valid_snapshot_kwargs())
         restored = BenchmarkSnapshot.model_validate_json(snap.model_dump_json())
@@ -404,7 +404,7 @@ class TestBenchmarkSnapshot:
         import pytest
         from pydantic import ValidationError
 
-        from openjarvis.learning.spec_search.models import BenchmarkSnapshot
+        from friday_ai.learning.spec_search.models import BenchmarkSnapshot
 
         kwargs = self._valid_snapshot_kwargs()
         kwargs["overall_score"] = 1.5
@@ -416,7 +416,7 @@ class TestBenchmarkSnapshot:
         import pytest
         from pydantic import ValidationError
 
-        from openjarvis.learning.spec_search.models import BenchmarkSnapshot
+        from friday_ai.learning.spec_search.models import BenchmarkSnapshot
 
         kwargs = self._valid_snapshot_kwargs()
         kwargs["task_count"] = -1
@@ -446,14 +446,14 @@ class TestEditOutcome:
         }
 
     def test_applied_outcome(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOutcome
+        from friday_ai.learning.spec_search.models import EditOutcome
 
         outcome = EditOutcome(**self._valid_outcome_kwargs())
         assert outcome.status == "applied"
         assert outcome.benchmark_delta == 0.04
 
     def test_rejected_outcome_has_no_applied_at(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOutcome
+        from friday_ai.learning.spec_search.models import EditOutcome
 
         outcome = EditOutcome(
             edit_id="edit-002",
@@ -471,7 +471,7 @@ class TestEditOutcome:
         import pytest
         from pydantic import ValidationError
 
-        from openjarvis.learning.spec_search.models import EditOutcome
+        from friday_ai.learning.spec_search.models import EditOutcome
 
         kwargs = self._valid_outcome_kwargs()
         kwargs["status"] = "totally_made_up"
@@ -480,7 +480,7 @@ class TestEditOutcome:
             EditOutcome(**kwargs)
 
     def test_round_trip_via_json(self) -> None:
-        from openjarvis.learning.spec_search.models import EditOutcome
+        from friday_ai.learning.spec_search.models import EditOutcome
 
         outcome = EditOutcome(**self._valid_outcome_kwargs())
         restored = EditOutcome.model_validate_json(outcome.model_dump_json())
@@ -500,7 +500,7 @@ class TestLearningSession:
         from datetime import datetime, timezone
         from pathlib import Path
 
-        from openjarvis.learning.spec_search.models import (
+        from friday_ai.learning.spec_search.models import (
             AutonomyMode,
             BenchmarkSnapshot,
             SessionStatus,
@@ -535,7 +535,7 @@ class TestLearningSession:
         }
 
     def test_constructs_with_valid_fields(self) -> None:
-        from openjarvis.learning.spec_search.models import LearningSession
+        from friday_ai.learning.spec_search.models import LearningSession
 
         session = LearningSession(**self._valid_session_kwargs())
         assert session.id == "session-001"
@@ -544,7 +544,7 @@ class TestLearningSession:
         assert session.benchmark_after is None
 
     def test_round_trip_via_json(self) -> None:
-        from openjarvis.learning.spec_search.models import LearningSession
+        from friday_ai.learning.spec_search.models import LearningSession
 
         session = LearningSession(**self._valid_session_kwargs())
         as_json = session.model_dump_json()
@@ -553,7 +553,7 @@ class TestLearningSession:
         assert restored == session
 
     def test_supports_parent_session_chain(self) -> None:
-        from openjarvis.learning.spec_search.models import LearningSession
+        from friday_ai.learning.spec_search.models import LearningSession
 
         kwargs = self._valid_session_kwargs()
         kwargs["parent_session_id"] = "session-000"
@@ -565,7 +565,7 @@ class TestLearningSession:
         import pytest
         from pydantic import ValidationError
 
-        from openjarvis.learning.spec_search.models import LearningSession
+        from friday_ai.learning.spec_search.models import LearningSession
 
         kwargs = self._valid_session_kwargs()
         kwargs["status"] = "not_a_status"
@@ -577,7 +577,7 @@ class TestLearningSession:
         import pytest
         from pydantic import ValidationError
 
-        from openjarvis.learning.spec_search.models import LearningSession
+        from friday_ai.learning.spec_search.models import LearningSession
 
         kwargs = self._valid_session_kwargs()
         kwargs["teacher_cost_usd"] = -0.01

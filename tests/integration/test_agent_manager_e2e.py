@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.agents.manager import AgentManager
+from friday_ai.agents.manager import AgentManager
 
 
 @pytest.fixture

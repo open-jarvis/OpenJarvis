@@ -1,6 +1,6 @@
 # Inference Engine Primitive
 
-The Engine primitive provides the **inference runtime** -- the layer that connects OpenJarvis to language model servers. All backends implement a uniform interface, making it straightforward to swap between local and cloud inference without changing application code.
+The Engine primitive provides the **inference runtime** -- the layer that connects FridayAI to language model servers. All backends implement a uniform interface, making it straightforward to swap between local and cloud inference without changing application code.
 
 ---
 
@@ -237,8 +237,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 `>=0.2.1` is the floor: that release added `SystemLanguageModel.token_count` and `.context_size`, which both backends use for token accounting.
 
 ```bash
-jarvis ask --engine afm --model afm-3-core "..."   # in-process
-jarvis host afm-3 --backend apple_fm               # launch the shim
+friday ask --engine afm --model afm-3-core "..."   # in-process
+friday host afm-3 --backend apple_fm               # launch the shim
 ```
 
 - **Model labels:** `afm-3`, `afm-3-core`, `afm-3-core-advanced`
@@ -252,7 +252,7 @@ jarvis host afm-3 --backend apple_fm               # launch the shim
     `stream_response` yields cumulative text snapshots batching roughly 8–10 tokens each, not individual tokens. `ttft` is therefore time-to-first-*chunk* — around 450 ms on an M1 Pro, versus a few tens of ms of real first-token latency — and derived inter-token latencies are inter-*chunk* latencies. Token counts, throughput and per-token energy are unaffected.
 
 !!! note "Energy"
-    AFM runs predominantly on the Neural Engine, so its energy is invisible on a GPU-only rail. Install `openjarvis[energy-apple]` to measure CPU/GPU/DRAM/ANE separately; records are then written with `energy_basis = "soc"` and an `ane_energy_joules` column. Without it, no Apple energy is recorded at all.
+    AFM runs predominantly on the Neural Engine, so its energy is invisible on a GPU-only rail. Install `friday_ai[energy-apple]` to measure CPU/GPU/DRAM/ANE separately; records are then written with `energy_basis = "soc"` and an `ane_energy_joules` column. Without it, no Apple energy is recorded at all.
 
 There is no Private Cloud Compute path in the Python SDK — inference is always on-device, which is what makes the energy measurement meaningful.
 
@@ -267,7 +267,7 @@ The LiteLLM backend connects to a LiteLLM proxy server, which provides a unified
 
 ## Hardware Auto-Detection
 
-OpenJarvis automatically detects system hardware to recommend the best engine. Detection runs at config load time via `detect_hardware()`:
+FridayAI automatically detects system hardware to recommend the best engine. Detection runs at config load time via `detect_hardware()`:
 
 | Detection | Method | Information Extracted |
 |-----------|--------|---------------------|
@@ -315,8 +315,8 @@ Returns a `(key, engine_instance)` tuple for the requested engine, or `None` if 
 Probes all registered engines for health and returns a sorted list of healthy `(key, engine)` pairs. The config default engine is sorted first.
 
 ```python
-from openjarvis.engine import discover_engines
-from openjarvis.core.config import load_config
+from friday_ai.engine import discover_engines
+from friday_ai.core.config import load_config
 
 config = load_config()
 healthy = discover_engines(config)
@@ -328,7 +328,7 @@ healthy = discover_engines(config)
 Calls `list_models()` on each engine and returns a dictionary mapping engine keys to model ID lists:
 
 ```python
-from openjarvis.engine import discover_engines, discover_models
+from friday_ai.engine import discover_engines, discover_models
 
 engines = discover_engines(config)
 models = discover_models(engines)
@@ -363,7 +363,7 @@ Key behaviors:
 
 ## Configuration
 
-Engine hosts and defaults are configured in `~/.openjarvis/config.toml` using **nested per-engine sub-sections**:
+Engine hosts and defaults are configured in `~/.friday_ai/config.toml` using **nested per-engine sub-sections**:
 
 ```toml
 [engine]
@@ -410,8 +410,8 @@ The `EngineConfig` dataclass and its per-engine sub-dataclasses map these settin
 Converts a sequence of `Message` objects to OpenAI-format dictionaries, handling tool calls and tool call IDs:
 
 ```python
-from openjarvis.engine._base import messages_to_dicts
-from openjarvis.core.types import Message, Role
+from friday_ai.engine._base import messages_to_dicts
+from friday_ai.core.types import Message, Role
 
 messages = [Message(role=Role.USER, content="Hello")]
 dicts = messages_to_dicts(messages)
@@ -423,7 +423,7 @@ dicts = messages_to_dicts(messages)
 A custom exception raised when an engine is unreachable. All engine backends catch `httpx.ConnectError` and `httpx.TimeoutException` and re-raise as `EngineConnectionError`:
 
 ```python
-from openjarvis.engine import EngineConnectionError
+from friday_ai.engine import EngineConnectionError
 
 try:
     result = engine.generate(messages, model="qwen3:8b")

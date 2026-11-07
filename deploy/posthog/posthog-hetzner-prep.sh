@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # posthog-hetzner-prep.sh — one-shot Hetzner Cloud server prep for
-# OpenJarvis's self-hosted PostHog analytics backend.
+# FridayAI's self-hosted PostHog analytics backend.
 #
 # Run this on a fresh Ubuntu 22.04+ box (Hetzner CCX23 in Ashburn, or
 # similar) after pointing the desired domain at it. Idempotent: safe
 # to re-run if a step fails partway.
 #
 # Usage:
-#   sudo bash posthog-hetzner-prep.sh analytics.openjarvis.ai you@openjarvis.ai
+#   sudo bash posthog-hetzner-prep.sh analytics.friday_ai.ai you@friday_ai.ai
 #
 # After it finishes:
 #   1. Visit https://<DOMAIN>/ and create the admin account.
-#   2. Create project "OpenJarvis".
+#   2. Create project "FridayAI".
 #   3. Settings → Project → grab the Project API Key (phc_…).
-#   4. Update src/openjarvis/core/config.py AnalyticsConfig defaults:
+#   4. Update src/friday_ai/core/config.py AnalyticsConfig defaults:
 #        host = "https://<DOMAIN>"
 #        key  = "phc_<new>"
 #   5. Ship a release. Frontend + backend + install.sh all read those
@@ -36,7 +36,7 @@ Usage:
   sudo bash posthog-hetzner-prep.sh <domain> <admin_email>
 
 Examples:
-  sudo bash posthog-hetzner-prep.sh analytics.openjarvis.ai team@openjarvis.ai
+  sudo bash posthog-hetzner-prep.sh analytics.friday_ai.ai team@friday_ai.ai
 
 The domain must already resolve to this box (DNS A record) before
 the script runs — Let's Encrypt needs to reach this server on port 80.
@@ -124,14 +124,14 @@ PostHog is up at https://$DOMAIN/
 Next steps:
   1. Open https://$DOMAIN/ in a browser.
   2. Create the first admin account (any email, your password).
-  3. Create project "OpenJarvis".
+  3. Create project "FridayAI".
   4. Settings → Project → Project API Key — copy the phc_… value.
-  5. Update src/openjarvis/core/config.py AnalyticsConfig defaults:
+  5. Update src/friday_ai/core/config.py AnalyticsConfig defaults:
         host = "https://$DOMAIN"
         key  = "phc_<the-new-key>"
   6. Settings → Data Management → set retention to 365 days.
   7. Settings → Recordings → confirm Session Replay is OFF (default).
-  8. Ship a release of OpenJarvis with the new config defaults.
+  8. Ship a release of FridayAI with the new config defaults.
 
 Operational notes:
   - Updates:    bash <(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/upgrade-hobby)

@@ -1,9 +1,9 @@
-"""Tests for openjarvis.optimize.store module."""
+"""Tests for friday_ai.optimize.store module."""
 
 from __future__ import annotations
 
-from openjarvis.learning.optimize.store import OptimizationStore
-from openjarvis.learning.optimize.types import (
+from friday_ai.learning.optimize.store import OptimizationStore
+from friday_ai.learning.optimize.types import (
     OptimizationRun,
     SampleScore,
     SearchDimension,

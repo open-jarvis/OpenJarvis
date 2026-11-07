@@ -1,7 +1,7 @@
 """Static guards for the docs-site savings-leaderboard Supabase wiring.
 
 `docs/javascripts/leaderboard.js` reads the public Supabase anon key from
-`window.OPENJARVIS_SUPABASE_ANON_KEY`. That global is set by a generated
+`window.FRIDAY_AI_SUPABASE_ANON_KEY`. That global is set by a generated
 config file (`leaderboard-config.js`) which must load *before* leaderboard.js,
 and whose value is injected at docs-build time from the VITE_SUPABASE_ANON_KEY
 secret (see `.github/workflows/docs.yml`). These are text-only checks — no
@@ -18,7 +18,7 @@ DOCS_WORKFLOW = ROOT / ".github" / "workflows" / "docs.yml"
 CONFIG_JS = ROOT / "docs" / "javascripts" / "leaderboard-config.js"
 LEADERBOARD_JS = ROOT / "docs" / "javascripts" / "leaderboard.js"
 
-_ANON_GLOBAL = "window.OPENJARVIS_SUPABASE_ANON_KEY"
+_ANON_GLOBAL = "window.FRIDAY_AI_SUPABASE_ANON_KEY"
 
 
 def test_config_js_declares_anon_key_global():

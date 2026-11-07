@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from openjarvis.security.injection_scanner import InjectionScanner
-from openjarvis.security.types import ThreatLevel
+from friday_ai.security.injection_scanner import InjectionScanner
+from friday_ai.security.types import ThreatLevel
 
 
 class TestInjectionScanner:
     def test_python_fallback_without_rust(self, monkeypatch) -> None:
-        import openjarvis._rust_bridge as rust_bridge
+        import friday_ai._rust_bridge as rust_bridge
 
         monkeypatch.setattr(rust_bridge, "RUST_AVAILABLE", False)
         scanner = InjectionScanner()
@@ -26,7 +26,7 @@ class TestInjectionScanner:
     def test_python_fallback_when_rust_scanner_cannot_initialize(
         self, monkeypatch
     ) -> None:
-        import openjarvis._rust_bridge as rust_bridge
+        import friday_ai._rust_bridge as rust_bridge
 
         monkeypatch.setattr(rust_bridge, "RUST_AVAILABLE", True)
         monkeypatch.setattr(
@@ -42,7 +42,7 @@ class TestInjectionScanner:
         assert not result.is_clean
 
     def test_python_fallback_when_rust_scan_fails(self, monkeypatch) -> None:
-        import openjarvis._rust_bridge as rust_bridge
+        import friday_ai._rust_bridge as rust_bridge
 
         class BrokenScanner:
             def scan(self, _text):

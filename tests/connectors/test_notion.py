@@ -12,8 +12,8 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 # ---------------------------------------------------------------------------
 # Fake API payloads
@@ -52,7 +52,7 @@ _BLOCKS_RESPONSE = [
 @pytest.fixture()
 def connector(tmp_path: Path):
     """NotionConnector pointing at a tmp credentials path (no file yet)."""
-    from openjarvis.connectors.notion import NotionConnector  # noqa: PLC0415
+    from friday_ai.connectors.notion import NotionConnector  # noqa: PLC0415
 
     creds_path = str(tmp_path / "notion.json")
     return NotionConnector(credentials_path=creds_path)
@@ -75,7 +75,7 @@ def test_not_connected_without_token(connector) -> None:
 
 def test_connected_with_token() -> None:
     """is_connected() returns True when a token is passed directly."""
-    from openjarvis.connectors.notion import NotionConnector  # noqa: PLC0415
+    from friday_ai.connectors.notion import NotionConnector  # noqa: PLC0415
 
     conn = NotionConnector(token="ntn_fake")
     assert conn.is_connected() is True
@@ -97,8 +97,8 @@ def test_auth_url(connector) -> None:
 # ---------------------------------------------------------------------------
 
 
-@patch("openjarvis.connectors.notion._notion_api_search")
-@patch("openjarvis.connectors.notion._notion_api_get_blocks")
+@patch("friday_ai.connectors.notion._notion_api_search")
+@patch("friday_ai.connectors.notion._notion_api_get_blocks")
 def test_sync_yields_documents(
     mock_blocks,
     mock_search,
@@ -143,7 +143,7 @@ def test_sync_yields_documents(
 
 def test_render_blocks_to_markdown() -> None:
     """_render_blocks_to_markdown converts each block type to the correct markdown."""
-    from openjarvis.connectors.notion import _render_blocks_to_markdown  # noqa: PLC0415
+    from friday_ai.connectors.notion import _render_blocks_to_markdown  # noqa: PLC0415
 
     blocks = [
         {
@@ -243,7 +243,7 @@ def test_mcp_tools(connector) -> None:
 
 def test_registry() -> None:
     """NotionConnector can be registered and retrieved via ConnectorRegistry."""
-    from openjarvis.connectors.notion import NotionConnector  # noqa: PLC0415
+    from friday_ai.connectors.notion import NotionConnector  # noqa: PLC0415
 
     ConnectorRegistry.register_value("notion", NotionConnector)
     assert ConnectorRegistry.contains("notion")

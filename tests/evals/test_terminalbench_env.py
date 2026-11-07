@@ -16,8 +16,8 @@ from typing import Any, Dict, List
 
 import pytest
 
-from openjarvis.evals.core.environment import TaskEnvironmentError
-from openjarvis.evals.execution.terminalbench_env import TerminalBenchTaskEnv
+from friday_ai.evals.core.environment import TaskEnvironmentError
+from friday_ai.evals.execution.terminalbench_env import TerminalBenchTaskEnv
 
 # ---------------------------------------------------------------------------
 # Fake terminal_bench seam

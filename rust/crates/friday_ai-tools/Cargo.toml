@@ -1,0 +1,28 @@
+[package]
+name = "friday_ai-tools"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+friday_ai-core = { path = "../friday_ai-core" }
+friday_ai-engine = { path = "../friday_ai-engine" }
+friday_ai-security = { path = "../friday_ai-security" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+rusqlite = { workspace = true }
+regex = { workspace = true }
+once_cell = { workspace = true }
+uuid = { workspace = true }
+parking_lot = { workspace = true }
+meval = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
+rig-core = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

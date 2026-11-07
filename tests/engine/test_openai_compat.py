@@ -15,11 +15,11 @@ except ImportError:  # respx is an optional test-only dep; MockTransport tests
     respx = None  # type: ignore[assignment]  # still run without it.
     _HAS_RESPX = False
 
-from openjarvis.core.registry import EngineRegistry
-from openjarvis.core.types import Message, Role
-from openjarvis.engine._base import EngineConnectionError
-from openjarvis.engine._openai_compat import EngineContextLengthError
-from openjarvis.engine.openai_compat_engines import MLXEngine, VLLMEngine
+from friday_ai.core.registry import EngineRegistry
+from friday_ai.core.types import Message, Role
+from friday_ai.engine._base import EngineConnectionError
+from friday_ai.engine._openai_compat import EngineContextLengthError
+from friday_ai.engine.openai_compat_engines import MLXEngine, VLLMEngine
 
 # respx-backed tests exercise the SYNC client paths (generate/list_models/health)
 # and skip cleanly when respx is absent; the async stream/timeout/disconnect tests

@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from openjarvis.core.config import (
+from friday_ai.core.config import (
     ChannelConfig,
     DiscordChannelConfig,
     EmailChannelConfig,
@@ -201,7 +201,7 @@ class TestBuildChannelKwargs:
     """Config→kwargs mappers must forward every enforced field."""
 
     def test_telegram_forwards_allowed_chat_ids(self):
-        from openjarvis.system._channel_kwargs import build_channel_kwargs
+        from friday_ai.system._channel_kwargs import build_channel_kwargs
 
         cfg = ChannelConfig()
         cfg.telegram.bot_token = "tok"
@@ -211,7 +211,7 @@ class TestBuildChannelKwargs:
         assert kwargs.get("allowed_chat_ids") == "111, 222"
 
     def test_telegram_omits_empty_allowed_chat_ids(self):
-        from openjarvis.system._channel_kwargs import build_channel_kwargs
+        from friday_ai.system._channel_kwargs import build_channel_kwargs
 
         cfg = ChannelConfig()
         kwargs = build_channel_kwargs(cfg, "telegram")

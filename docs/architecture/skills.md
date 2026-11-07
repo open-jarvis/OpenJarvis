@@ -80,7 +80,7 @@ Adapter that makes any skill look like a regular `BaseTool` to agents:
 Two-pass parser for agentskills.io-compatible SKILL.md frontmatter:
 
 1. **Strict pass** — validates required fields (`name`, `description`), length limits, kebab-case naming rules
-2. **Tolerant pass** — maps non-spec vendor fields to canonical locations via `FIELD_MAPPING` table. Unmapped fields are logged and preserved in `metadata.openjarvis.original_frontmatter`
+2. **Tolerant pass** — maps non-spec vendor fields to canonical locations via `FIELD_MAPPING` table. Unmapped fields are logged and preserved in `metadata.friday_ai.original_frontmatter`
 
 The mapping table is data, not code paths. Adding support for new vendor fields means adding entries — no logic changes.
 
@@ -116,7 +116,7 @@ Takes a `ResolvedSkill` from a source resolver and installs it on disk:
 
 ### SkillOverlay (`skills/overlay.py`)
 
-Sidecar storage for optimization output at `~/.openjarvis/learning/skills/<name>/optimized.toml`:
+Sidecar storage for optimization output at `~/.friday_ai/learning/skills/<name>/optimized.toml`:
 
 ```toml
 [optimized]
@@ -183,7 +183,7 @@ Optimized few-shot examples flow through:
 
 ```
 SkillManager.get_few_shot_examples()
-  → system._skill_few_shot_examples (stashed on JarvisSystem)
+  → system._skill_few_shot_examples (stashed on FridaySystem)
     → _run_agent() → agent_kwargs["skill_few_shot_examples"]
       → ToolUsingAgent._skill_few_shot_examples
         → native_react.run() → REACT_SYSTEM_PROMPT.format(skill_examples=...)
@@ -200,7 +200,7 @@ Skills can compose other skills. At discovery time, SkillManager validates:
 ## File Layout
 
 ```
-src/openjarvis/skills/
+src/friday_ai/skills/
 ├── __init__.py           # Public exports
 ├── types.py              # SkillManifest, SkillStep
 ├── manager.py            # SkillManager

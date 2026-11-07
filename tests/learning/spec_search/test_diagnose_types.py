@@ -1,4 +1,4 @@
-"""Tests for openjarvis.learning.spec_search.diagnose.types module."""
+"""Tests for friday_ai.learning.spec_search.diagnose.types module."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ class TestTraceMeta:
     """Tests for TraceMeta dataclass."""
 
     def test_constructs_with_required_fields(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.types import TraceMeta
+        from friday_ai.learning.spec_search.diagnose.types import TraceMeta
 
         meta = TraceMeta(
             trace_id="trace-001",
@@ -24,7 +24,7 @@ class TestTraceMeta:
         assert meta.feedback == 0.8
 
     def test_feedback_can_be_none(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.types import TraceMeta
+        from friday_ai.learning.spec_search.diagnose.types import TraceMeta
 
         meta = TraceMeta(
             trace_id="trace-002",
@@ -42,7 +42,7 @@ class TestBenchmarkTask:
     """Tests for BenchmarkTask dataclass."""
 
     def test_constructs(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.types import BenchmarkTask
+        from friday_ai.learning.spec_search.diagnose.types import BenchmarkTask
 
         task = BenchmarkTask(
             task_id="task-001",
@@ -58,7 +58,7 @@ class TestStudentRun:
     """Tests for StudentRun dataclass."""
 
     def test_constructs(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.types import StudentRun
+        from friday_ai.learning.spec_search.diagnose.types import StudentRun
 
         run = StudentRun(
             task_id="task-001",
@@ -76,7 +76,7 @@ class TestTeacherRun:
     """Tests for TeacherRun dataclass."""
 
     def test_constructs(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.types import TeacherRun
+        from friday_ai.learning.spec_search.diagnose.types import TeacherRun
 
         run = TeacherRun(
             task_id="task-001",
@@ -92,7 +92,7 @@ class TestComparisonResult:
     """Tests for ComparisonResult dataclass."""
 
     def test_constructs(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.types import ComparisonResult
+        from friday_ai.learning.spec_search.diagnose.types import ComparisonResult
 
         result = ComparisonResult(
             task_id="task-001",
@@ -108,7 +108,7 @@ class TestToolMeta:
     """Tests for ToolMeta dataclass."""
 
     def test_constructs(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.types import ToolMeta
+        from friday_ai.learning.spec_search.diagnose.types import ToolMeta
 
         meta = ToolMeta(
             name="calculator",
@@ -124,7 +124,7 @@ class TestDiagnosticTool:
     """Tests for DiagnosticTool dataclass."""
 
     def test_constructs_with_callable(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.types import DiagnosticTool
+        from friday_ai.learning.spec_search.diagnose.types import DiagnosticTool
 
         def my_func(**kwargs: object) -> str:
             return "result"
@@ -143,7 +143,7 @@ class TestToolCallRecord:
     """Tests for ToolCallRecord dataclass."""
 
     def test_constructs(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.types import ToolCallRecord
+        from friday_ai.learning.spec_search.diagnose.types import ToolCallRecord
 
         record = ToolCallRecord(
             timestamp=datetime(2026, 4, 9, 3, 0, 0, tzinfo=timezone.utc),
@@ -157,7 +157,7 @@ class TestToolCallRecord:
         assert record.latency_ms == 42.5
 
     def test_to_jsonl_dict(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.types import ToolCallRecord
+        from friday_ai.learning.spec_search.diagnose.types import ToolCallRecord
 
         record = ToolCallRecord(
             timestamp=datetime(2026, 4, 9, 3, 0, 0, tzinfo=timezone.utc),

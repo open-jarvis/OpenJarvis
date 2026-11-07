@@ -36,7 +36,7 @@ REAL_WORLD_MENTIONS = [
         "id": "3000000000000000001",
         "author": "ml_researcher",
         "text": (
-            "@OpenJarvisAI does this work with vllm or "
+            "@FridayAIAI does this work with vllm or "
             "do I need ollama specifically?"
         ),
     },
@@ -44,20 +44,20 @@ REAL_WORLD_MENTIONS = [
         "id": "3000000000000000002",
         "author": "indie_hacker",
         "text": (
-            "@OpenJarvisAI can I run the orchestrator agent "
+            "@FridayAIAI can I run the orchestrator agent "
             "on a laptop without a gpu?"
         ),
     },
     {
         "id": "3000000000000000003",
         "author": "macuser",
-        "text": "@OpenJarvisAI how do I install on macos with apple silicon?",
+        "text": "@FridayAIAI how do I install on macos with apple silicon?",
     },
     {
         "id": "3000000000000000004",
         "author": "longwinded_lou",
         "text": (
-            "@OpenJarvisAI how does the memory system handle "
+            "@FridayAIAI how does the memory system handle "
             "conflicting facts? overwrite or keep both?"
         ),
     },
@@ -66,13 +66,13 @@ REAL_WORLD_MENTIONS = [
     {
         "id": "3000000000000000005",
         "author": "off_topic_olive",
-        "text": "@OpenJarvisAI what's the weather in tokyo today?",
+        "text": "@FridayAIAI what's the weather in tokyo today?",
     },
     {
         "id": "3000000000000000006",
         "author": "specific_specs",
         "text": (
-            "@OpenJarvisAI what's the exact tokens-per-second "
+            "@FridayAIAI what's the exact tokens-per-second "
             "on an M3 Pro with the 70B model?"
         ),
     },
@@ -82,7 +82,7 @@ REAL_WORLD_MENTIONS = [
         "id": "3000000000000000007",
         "author": "devops_dan",
         "text": (
-            "@OpenJarvisAI getting a segfault on startup "
+            "@FridayAIAI getting a segfault on startup "
             "with the lemonade backend, 0.18.2"
         ),
     },
@@ -90,7 +90,7 @@ REAL_WORLD_MENTIONS = [
         "id": "3000000000000000008",
         "author": "enterprise_eng",
         "text": (
-            "@OpenJarvisAI any plans for SSO support? "
+            "@FridayAIAI any plans for SSO support? "
             "would love to deploy this internally"
         ),
     },
@@ -98,13 +98,13 @@ REAL_WORLD_MENTIONS = [
         "id": "3000000000000000009",
         "author": "convert_carl",
         "text": (
-            "@OpenJarvisAI switched from langchain last week, this is incredible"
+            "@FridayAIAI switched from langchain last week, this is incredible"
         ),
     },
     {
         "id": "3000000000000000010",
         "author": "crypto_bro",
-        "text": "@OpenJarvisAI BUY $JARVIS COIN guaranteed 10x gains link in bio",
+        "text": "@FridayAIAI BUY $FRIDAY COIN guaranteed 10x gains link in bio",
     },
 ]
 
@@ -130,7 +130,7 @@ def _check_voice(reply: str) -> dict:
 
 
 def main():
-    from openjarvis import Jarvis
+    from friday_ai import Friday
 
     sys.path.insert(0, str(_THIS.parents[1] / "scripts"))
     from index_docs import build_index  # type: ignore
@@ -141,7 +141,7 @@ def main():
     backend = build_index(Path(__file__).resolve().parents[2])
     print(f"Indexed {backend.count()} chunks.\n", flush=True)
 
-    j = Jarvis(model=model, engine_key="ollama")
+    j = Friday(model=model, engine_key="ollama")
     demo_channel = _DemoChannel()
 
     results = []

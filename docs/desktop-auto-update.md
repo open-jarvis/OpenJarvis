@@ -1,6 +1,6 @@
 # Desktop auto-update
 
-The OpenJarvis desktop app ships with [Tauri's updater
+The FridayAI desktop app ships with [Tauri's updater
 plugin](https://v2.tauri.app/plugin/updater/), which checks for new
 versions on launch and every 30 minutes. When a newer signed build is
 available, the app prompts the user to download and install it.
@@ -11,7 +11,7 @@ available, the app prompts the user to download and install it.
 on launch / every 30 min
         │
         ▼
-GET https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/latest.json
+GET https://github.com/open-jarvis/FridayAI/releases/download/desktop-latest/latest.json
         │
         ▼
 Parse manifest: { "version": "X.Y.Z", "platforms": { ... } }
@@ -84,25 +84,25 @@ reinstall.
 
 ## Disabling the updater locally
 
-For frontend development, set `VITE_OPENJARVIS_NO_UPDATER=1` in your
+For frontend development, set `VITE_FRIDAY_AI_NO_UPDATER=1` in your
 shell before running `npm run tauri dev`. Vite injects any
 `VITE_`-prefixed env var into `import.meta.env`, and the
 `UpdateChecker.tsx` component honors it to skip the 30-minute poll.
 
 ```bash
-export VITE_OPENJARVIS_NO_UPDATER=1
+export VITE_FRIDAY_AI_NO_UPDATER=1
 npm run tauri dev
 ```
 
 This is purely a dev escape hatch — it has no effect on production
-builds (where `import.meta.env.VITE_OPENJARVIS_NO_UPDATER` will be
+builds (where `import.meta.env.VITE_FRIDAY_AI_NO_UPDATER` will be
 `undefined` unless you explicitly set it at build time).
 
 ## Verifying a release manually
 
 ```bash
 # Download the latest manifest and confirm it parses cleanly
-curl -fsSL https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/latest.json | jq .
+curl -fsSL https://github.com/open-jarvis/FridayAI/releases/download/desktop-latest/latest.json | jq .
 
 # Fields:
 #   version       — semver string, must match the tag (without leading "v")

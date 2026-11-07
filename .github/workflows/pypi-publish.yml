@@ -65,13 +65,13 @@ jobs:
           cd frontend
           npm ci
           # Vite is configured (frontend/vite.config.ts) with
-          # `outDir: '../src/openjarvis/server/static'` and
+          # `outDir: '../src/friday_ai/server/static'` and
           # `emptyOutDir: true`, so the build writes directly into the
           # Python package's static dir and clears stale assets itself.
           # No rm/cp is needed — and the previous `dist/`-assuming logic
           # was broken because `frontend/dist/` is never produced.
           npm run build
-          STATIC=../src/openjarvis/server/static
+          STATIC=../src/friday_ai/server/static
           test -s "$STATIC/index.html" || {
             echo "::error::${STATIC}/index.html missing or empty after build"
             exit 1

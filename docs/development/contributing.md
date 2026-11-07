@@ -1,7 +1,7 @@
 # Contributing Guide
 
 This guide covers how to set up a development environment, run tests, and
-contribute code to OpenJarvis.
+contribute code to FridayAI.
 
 ---
 
@@ -18,8 +18,8 @@ contribute code to OpenJarvis.
 ### Clone and Install
 
 ```bash
-git clone https://github.com/open-jarvis/OpenJarvis.git
-cd OpenJarvis
+git clone https://github.com/open-jarvis/FridayAI.git
+cd FridayAI
 uv sync --extra dev
 ```
 
@@ -46,15 +46,15 @@ dependencies (pytest, ruff, respx, pytest-asyncio, pytest-cov).
 ### Verify Installation
 
 ```bash
-uv run jarvis --version   # Should print 0.1.0
-uv run jarvis --help      # Show all subcommands
+uv run friday --version   # Should print 0.1.0
+uv run friday --help      # Show all subcommands
 ```
 
 ---
 
 ## Running Tests
 
-OpenJarvis uses [pytest](https://docs.pytest.org/) with approximately 1,000+
+FridayAI uses [pytest](https://docs.pytest.org/) with approximately 1,000+
 tests organized by module.
 
 ### Full Test Suite
@@ -88,7 +88,7 @@ uv run pytest tests/learning/ -v     # All learning tests
 ### Test Coverage
 
 ```bash
-uv run pytest tests/ --cov=openjarvis --cov-report=html
+uv run pytest tests/ --cov=friday_ai --cov-report=html
 ```
 
 ### Test Markers
@@ -125,7 +125,7 @@ uv run pytest tests/ -m "not cloud" -v   # Skip cloud tests
 
 ## Linting
 
-OpenJarvis uses [Ruff](https://docs.astral.sh/ruff/) for linting, configured
+FridayAI uses [Ruff](https://docs.astral.sh/ruff/) for linting, configured
 in `pyproject.toml`:
 
 ```bash
@@ -170,15 +170,15 @@ docstrings with the NumPy docstring style.
 
 ## Project Structure
 
-The source code is organized under `src/openjarvis/`:
+The source code is organized under `src/friday_ai/`:
 
 ```
-src/openjarvis/
+src/friday_ai/
     __init__.py                 # Package root, __version__
-    sdk.py                      # Jarvis class — high-level Python SDK
+    sdk.py                      # Friday class — high-level Python SDK
 
     core/                       # Shared infrastructure
-        config.py               # JarvisConfig, hardware detection, TOML loader
+        config.py               # FridayConfig, hardware detection, TOML loader
         events.py               # EventBus pub/sub system
         registry.py             # RegistryBase[T] and all typed registries
         types.py                # Message, ModelSpec, ToolResult, Trace, etc.
@@ -259,13 +259,13 @@ src/openjarvis/
 
     cli/                        # Click CLI commands
         __init__.py             # main group
-        ask.py                  # jarvis ask
-        init_cmd.py             # jarvis init
-        model.py                # jarvis model list/info
-        memory_cmd.py           # jarvis memory index/search/stats
-        telemetry_cmd.py        # jarvis telemetry stats/export/clear
-        bench_cmd.py            # jarvis bench run
-        serve.py                # jarvis serve
+        ask.py                  # friday ask
+        init_cmd.py             # friday init
+        model.py                # friday model list/info
+        memory_cmd.py           # friday memory index/search/stats
+        telemetry_cmd.py        # friday telemetry stats/export/clear
+        bench_cmd.py            # friday bench run
+        serve.py                # friday serve
 ```
 
 ---
@@ -288,7 +288,7 @@ implementations are added by decorating a class -- no factory modifications
 needed:
 
 ```python
-from openjarvis.core.registry import EngineRegistry
+from friday_ai.core.registry import EngineRegistry
 
 @EngineRegistry.register("my_engine")
 class MyEngine(InferenceEngine):
@@ -315,7 +315,7 @@ pattern to fail gracefully when deps are not installed:
 ```python
 # In __init__.py — import to trigger registration
 try:
-    import openjarvis.memory.faiss_backend  # noqa: F401
+    import friday_ai.memory.faiss_backend  # noqa: F401
 except ImportError:
     pass
 ```
@@ -359,7 +359,7 @@ class BenchmarkResult:
 
 ### Import Style
 
-- Absolute imports only (`from openjarvis.core.registry import ...`)
+- Absolute imports only (`from friday_ai.core.registry import ...`)
 - Sort imports with `ruff` (isort rules enabled)
 - Place `from __future__ import annotations` as the first import
 

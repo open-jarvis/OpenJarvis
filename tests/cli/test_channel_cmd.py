@@ -1,4 +1,4 @@
-"""Tests for the ``jarvis channel`` CLI commands."""
+"""Tests for the ``friday channel`` CLI commands."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from unittest import mock
 
 from click.testing import CliRunner
 
-from openjarvis.channels._stubs import ChannelStatus
-from openjarvis.cli import cli
+from friday_ai.channels._stubs import ChannelStatus
+from friday_ai.cli import cli
 
 
 def _patch_channel(
@@ -25,11 +25,11 @@ def _patch_channel(
     bridge_instance.status.return_value = status_return
 
     config_patch = mock.patch(
-        "openjarvis.core.config.load_config",
+        "friday_ai.core.config.load_config",
         return_value=cfg,
     )
     get_channel_patch = mock.patch(
-        "openjarvis.cli.channel_cmd._get_channel",
+        "friday_ai.cli.channel_cmd._get_channel",
         return_value=bridge_instance,
     )
     return config_patch, get_channel_patch, bridge_instance

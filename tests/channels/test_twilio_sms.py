@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.channels._stubs import ChannelStatus
-from openjarvis.channels.twilio_sms import TwilioSMSChannel
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.registry import ChannelRegistry
+from friday_ai.channels._stubs import ChannelStatus
+from friday_ai.channels.twilio_sms import TwilioSMSChannel
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.registry import ChannelRegistry
 from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
@@ -110,7 +110,7 @@ class TestStatus:
             auth_token="token_test",
             phone_number="+15551234567",
         )
-        with patch("openjarvis.channels.twilio_sms._create_twilio_client"):
+        with patch("friday_ai.channels.twilio_sms._create_twilio_client"):
             ch.connect()
         assert ch.status() == ChannelStatus.CONNECTED
 
@@ -120,7 +120,7 @@ class TestStatus:
             auth_token="token_test",
             phone_number="+15551234567",
         )
-        with patch("openjarvis.channels.twilio_sms._create_twilio_client"):
+        with patch("friday_ai.channels.twilio_sms._create_twilio_client"):
             ch.connect()
             ch.disconnect()
         assert ch.status() == ChannelStatus.DISCONNECTED

@@ -7,17 +7,17 @@ from unittest import mock
 
 import pytest
 
-from openjarvis.core.registry import EngineRegistry
-from openjarvis.core.types import Message, Role
-from openjarvis.engine._base import EngineConnectionError
-from openjarvis.engine.cloud import (
+from friday_ai.core.registry import EngineRegistry
+from friday_ai.core.types import Message, Role
+from friday_ai.engine._base import EngineConnectionError
+from friday_ai.engine.cloud import (
     _MINIMAX_MODELS,
     PRICING,
     CloudEngine,
     _is_minimax_model,
     estimate_cost,
 )
-from openjarvis.intelligence.model_catalog import BUILTIN_MODELS
+from friday_ai.intelligence.model_catalog import BUILTIN_MODELS
 from tests.engine.conftest import CLOUD_KEY_ENV_VARS
 
 

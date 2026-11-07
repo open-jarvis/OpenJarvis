@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.connectors.store import KnowledgeStore
-from openjarvis.core.registry import ToolRegistry
+from friday_ai.connectors.store import KnowledgeStore
+from friday_ai.core.registry import ToolRegistry
 
 
 @pytest.fixture()
@@ -31,7 +31,7 @@ def _fake_engine() -> MagicMock:
 
 
 def test_scan_finds_semantic_matches(store: KnowledgeStore) -> None:
-    from openjarvis.tools.scan_chunks import ScanChunksTool
+    from friday_ai.tools.scan_chunks import ScanChunksTool
 
     engine = _fake_engine()
     tool = ScanChunksTool(store=store, engine=engine, model="test")
@@ -42,7 +42,7 @@ def test_scan_finds_semantic_matches(store: KnowledgeStore) -> None:
 
 
 def test_scan_respects_source_filter(store: KnowledgeStore) -> None:
-    from openjarvis.tools.scan_chunks import ScanChunksTool
+    from friday_ai.tools.scan_chunks import ScanChunksTool
 
     engine = _fake_engine()
     tool = ScanChunksTool(store=store, engine=engine, model="test")
@@ -55,7 +55,7 @@ def test_scan_respects_source_filter(store: KnowledgeStore) -> None:
 
 
 def test_scan_empty_store(tmp_path: Path) -> None:
-    from openjarvis.tools.scan_chunks import ScanChunksTool
+    from friday_ai.tools.scan_chunks import ScanChunksTool
 
     ks = KnowledgeStore(str(tmp_path / "empty.db"))
     engine = _fake_engine()
@@ -66,7 +66,7 @@ def test_scan_empty_store(tmp_path: Path) -> None:
 
 
 def test_registered() -> None:
-    from openjarvis.tools.scan_chunks import ScanChunksTool
+    from friday_ai.tools.scan_chunks import ScanChunksTool
 
     ToolRegistry.register_value("scan_chunks", ScanChunksTool)
     assert ToolRegistry.contains("scan_chunks")

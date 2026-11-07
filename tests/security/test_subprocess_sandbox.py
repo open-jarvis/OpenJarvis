@@ -6,8 +6,8 @@ import os
 import shlex
 import tempfile
 
-from openjarvis.core import get_python_executable
-from openjarvis.security.subprocess_sandbox import (
+from friday_ai.core import get_python_executable
+from friday_ai.security.subprocess_sandbox import (
     build_safe_env,
     kill_process_tree,
     run_sandboxed,

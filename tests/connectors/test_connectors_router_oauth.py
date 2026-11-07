@@ -20,7 +20,7 @@ Sources, and assert the fixed behaviour:
 All tests are hermetic: the connectors directory, the shared Google
 credentials path, and every Google connector's default credentials path are
 redirected to ``tmp_path`` so the suite neither depends on nor pollutes
-``~/.openjarvis/connectors`` (a real source of spurious failures — see the
+``~/.friday_ai/connectors`` (a real source of spurious failures — see the
 verifier note on ``resolve_google_credentials`` silently substituting the
 shared file when the caller-supplied path does not yet exist on disk).
 """
@@ -57,13 +57,13 @@ def hermetic_connectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 
     Ensures connector instances created by the router's ``_get_or_create``
     resolve to the same directory the OAuth callback writes to, and that the
-    test leaves ``~/.openjarvis`` untouched.
+    test leaves ``~/.friday_ai`` untouched.
 
     Why this is more than a one-line monkeypatch: the autouse registry-clear
     fixture causes ``_ensure_connectors_registered()`` to ``importlib.reload``
     each connector module on the first router call, which re-executes the
     module body. To survive that reload we patch ``DEFAULT_CONFIG_DIR`` at its
-    *source* (``openjarvis.core.config``) — every connector re-derives
+    *source* (``friday_ai.core.config``) — every connector re-derives
     ``_DEFAULT_CREDENTIALS_PATH`` from it on reload, so the tmp dir sticks.
     We also pre-register + pre-reload the connectors inside the fixture so the
     reload happens while the patch is live, then reset module state on
@@ -72,10 +72,10 @@ def hermetic_connectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     import importlib
     import sys
 
-    import openjarvis.connectors.oauth as oauth_mod
-    import openjarvis.core.config as config_mod
-    import openjarvis.server.connectors_router as router_mod
-    from openjarvis.core.registry import ConnectorRegistry
+    import friday_ai.connectors.oauth as oauth_mod
+    import friday_ai.core.config as config_mod
+    import friday_ai.server.connectors_router as router_mod
+    from friday_ai.core.registry import ConnectorRegistry
 
     conn_dir = tmp_path / "connectors"
     conn_dir.mkdir(parents=True, exist_ok=True)
@@ -90,16 +90,16 @@ def hermetic_connectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     # patched DEFAULT_CONFIG_DIR now, before any request, and register them so
     # the router's lazy reload-on-empty-registry path is a no-op.
     google_mods = [
-        "openjarvis.connectors.gdrive",
-        "openjarvis.connectors.gcalendar",
-        "openjarvis.connectors.gcontacts",
-        "openjarvis.connectors.gmail",
-        "openjarvis.connectors.google_tasks",
+        "friday_ai.connectors.gdrive",
+        "friday_ai.connectors.gcalendar",
+        "friday_ai.connectors.gcontacts",
+        "friday_ai.connectors.gmail",
+        "friday_ai.connectors.google_tasks",
         # Non-Google OAuth providers (Spotify, Strava) derive their default
         # credentials path from DEFAULT_CONFIG_DIR the same way -- reload
         # them too so the client-pair-detection tests below are hermetic.
-        "openjarvis.connectors.spotify",
-        "openjarvis.connectors.strava",
+        "friday_ai.connectors.spotify",
+        "friday_ai.connectors.strava",
     ]
     for name in google_mods:
         module = importlib.import_module(name)
@@ -124,7 +124,7 @@ def hermetic_connectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 
 @pytest.fixture()
 def client(hermetic_connectors: Path) -> Iterator[TestClient]:
-    from openjarvis.server.connectors_router import create_connectors_router
+    from friday_ai.server.connectors_router import create_connectors_router
 
     app = FastAPI()
     app.include_router(create_connectors_router())
@@ -148,7 +148,7 @@ def test_connect_client_pair_returns_oauth_required_no_browser(
     Covers every Google connector that shares the OAuth provider, proving the
     sibling connectors are fixed too (not just gdrive).
     """
-    with patch("openjarvis.core.open_browser") as mock_browser:
+    with patch("friday_ai.core.open_browser") as mock_browser:
         resp = client.post(
             f"/v1/connectors/{connector_id}/connect", json={"code": _CLIENT_PAIR}
         )
@@ -215,7 +215,7 @@ def test_connect_client_pair_returns_oauth_required_for_non_google_providers(
 ) -> None:
     pair = f"{connector_id}-client-id:{connector_id}-client-secret"
 
-    with patch("openjarvis.core.open_browser") as mock_browser:
+    with patch("friday_ai.core.open_browser") as mock_browser:
         resp = client.post(
             f"/v1/connectors/{connector_id}/connect", json={"code": pair}
         )
@@ -290,7 +290,7 @@ def test_oauth_start_without_creds_returns_400(client: TestClient) -> None:
 def test_oauth_callback_exchanges_and_connects(
     client: TestClient, hermetic_connectors: Path
 ) -> None:
-    import openjarvis.connectors.oauth as oauth_mod
+    import friday_ai.connectors.oauth as oauth_mod
 
     client.post("/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR})
 
@@ -314,7 +314,7 @@ def test_oauth_callback_exchanges_and_connects(
         assert saved["refresh_token"] == "1//REAL"
 
     # The connector now reports connected, and GET /connectors agrees.
-    from openjarvis.connectors.gdrive import GDriveConnector
+    from friday_ai.connectors.gdrive import GDriveConnector
 
     assert GDriveConnector().is_connected() is True
 
@@ -332,7 +332,7 @@ def test_oauth_callback_error_param_renders_failure(client: TestClient) -> None:
 def test_oauth_callback_exchange_failure_renders_error(
     client: TestClient,
 ) -> None:
-    import openjarvis.connectors.oauth as oauth_mod
+    import friday_ai.connectors.oauth as oauth_mod
 
     client.post("/v1/connectors/gdrive/connect", json={"code": _CLIENT_PAIR})
 
@@ -351,7 +351,7 @@ def test_oauth_callback_rejects_missing_access_token_without_false_success(
     hermetic_connectors: Path,
 ) -> None:
     """Client credentials alone must not complete the consent flow."""
-    import openjarvis.connectors.oauth as oauth_mod
+    import friday_ai.connectors.oauth as oauth_mod
 
     client.post("/v1/connectors/spotify/connect", json={"code": "id:secret"})
     with patch.object(
@@ -367,6 +367,6 @@ def test_oauth_callback_rejects_missing_access_token_without_false_success(
     saved = json.loads((hermetic_connectors / "spotify.json").read_text())
     assert "access_token" not in saved
 
-    from openjarvis.connectors.spotify import SpotifyConnector
+    from friday_ai.connectors.spotify import SpotifyConnector
 
     assert SpotifyConnector().is_connected() is False

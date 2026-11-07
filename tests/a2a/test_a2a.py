@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from openjarvis.a2a.protocol import (
+from friday_ai.a2a.protocol import (
     A2ARequest,
     A2AResponse,
     A2ATask,
     AgentCard,
     TaskState,
 )
-from openjarvis.a2a.server import A2AServer
-from openjarvis.core.events import EventBus, EventType
+from friday_ai.a2a.server import A2AServer
+from friday_ai.core.events import EventBus, EventType
 
 
 class TestAgentCard:

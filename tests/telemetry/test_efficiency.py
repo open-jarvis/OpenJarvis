@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.telemetry.efficiency import (
+from friday_ai.telemetry.efficiency import (
     EfficiencyMetrics,
     compute_efficiency,
     estimate_model_bytes_per_token,

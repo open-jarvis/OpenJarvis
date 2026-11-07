@@ -1,4 +1,4 @@
-"""Tests for the ``jarvis telemetry`` CLI commands."""
+"""Tests for the ``friday telemetry`` CLI commands."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from unittest import mock
 
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
-from openjarvis.core.types import TelemetryRecord
-from openjarvis.telemetry.store import TelemetryStore
+from friday_ai.cli import cli
+from friday_ai.core.types import TelemetryRecord
+from friday_ai.telemetry.store import TelemetryStore
 
 
 def _populate_db(db_path: Path, n: int = 3) -> None:
@@ -39,7 +39,7 @@ def _patch_config(tmp_path: Path):
     cfg = mock.MagicMock()
     cfg.telemetry.db_path = str(db_path)
     return mock.patch(
-        "openjarvis.cli.telemetry_cmd.load_config",
+        "friday_ai.cli.telemetry_cmd.load_config",
         return_value=cfg,
     ), db_path
 

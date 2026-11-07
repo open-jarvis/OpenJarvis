@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.skills.types import SkillManifest, SkillStep
+from friday_ai.skills.types import SkillManifest, SkillStep
 
 
 def _manifest(name, depends=None, capabilities=None, steps=None):
@@ -18,14 +18,14 @@ def _manifest(name, depends=None, capabilities=None, steps=None):
 
 class TestBuildDependencyGraph:
     def test_no_dependencies(self):
-        from openjarvis.skills.dependency import build_dependency_graph
+        from friday_ai.skills.dependency import build_dependency_graph
 
         skills = {"a": _manifest("a")}
         graph = build_dependency_graph(skills)
         assert graph == {"a": set()}
 
     def test_simple_dependency(self):
-        from openjarvis.skills.dependency import build_dependency_graph
+        from friday_ai.skills.dependency import build_dependency_graph
 
         skills = {
             "a": _manifest("a"),
@@ -36,7 +36,7 @@ class TestBuildDependencyGraph:
         assert graph["a"] == set()
 
     def test_step_skill_name_edges(self):
-        from openjarvis.skills.dependency import build_dependency_graph
+        from friday_ai.skills.dependency import build_dependency_graph
 
         steps = [SkillStep(skill_name="base_skill", output_key="r")]
         skills = {
@@ -47,7 +47,7 @@ class TestBuildDependencyGraph:
         assert "base_skill" in graph["composite"]
 
     def test_combined_depends_and_steps(self):
-        from openjarvis.skills.dependency import build_dependency_graph
+        from friday_ai.skills.dependency import build_dependency_graph
 
         steps = [SkillStep(skill_name="step_dep", output_key="r")]
         skills = {
@@ -60,7 +60,7 @@ class TestBuildDependencyGraph:
         assert "step_dep" in graph["main"]
 
     def test_multiple_skills_no_overlap(self):
-        from openjarvis.skills.dependency import build_dependency_graph
+        from friday_ai.skills.dependency import build_dependency_graph
 
         skills = {
             "x": _manifest("x"),
@@ -73,7 +73,7 @@ class TestBuildDependencyGraph:
 
 class TestValidateDependencies:
     def test_valid_topological_sort_simple(self):
-        from openjarvis.skills.dependency import validate_dependencies
+        from friday_ai.skills.dependency import validate_dependencies
 
         skills = {
             "a": _manifest("a"),
@@ -83,7 +83,7 @@ class TestValidateDependencies:
         assert order.index("a") < order.index("b")
 
     def test_valid_topological_sort_chain(self):
-        from openjarvis.skills.dependency import validate_dependencies
+        from friday_ai.skills.dependency import validate_dependencies
 
         skills = {
             "a": _manifest("a"),
@@ -95,7 +95,7 @@ class TestValidateDependencies:
         assert order.index("b") < order.index("c")
 
     def test_no_dependencies_returns_all_skills(self):
-        from openjarvis.skills.dependency import validate_dependencies
+        from friday_ai.skills.dependency import validate_dependencies
 
         skills = {
             "x": _manifest("x"),
@@ -105,7 +105,7 @@ class TestValidateDependencies:
         assert set(order) == {"x", "y"}
 
     def test_cycle_detection_raises(self):
-        from openjarvis.skills.dependency import (
+        from friday_ai.skills.dependency import (
             DependencyCycleError,
             validate_dependencies,
         )
@@ -121,7 +121,7 @@ class TestValidateDependencies:
         """Regression for #781: callers that want to recover from a cycle
         (rather than just crash) need to know *which* skills are cyclic
         without parsing the exception message string."""
-        from openjarvis.skills.dependency import (
+        from friday_ai.skills.dependency import (
             DependencyCycleError,
             validate_dependencies,
         )
@@ -136,7 +136,7 @@ class TestValidateDependencies:
         assert exc_info.value.skills == {"a", "b"}
 
     def test_cycle_detection_three_nodes(self):
-        from openjarvis.skills.dependency import (
+        from friday_ai.skills.dependency import (
             DependencyCycleError,
             validate_dependencies,
         )
@@ -150,7 +150,7 @@ class TestValidateDependencies:
             validate_dependencies(skills)
 
     def test_depth_exceeded_raises(self):
-        from openjarvis.skills.dependency import (
+        from friday_ai.skills.dependency import (
             DepthExceededError,
             validate_dependencies,
         )
@@ -168,7 +168,7 @@ class TestValidateDependencies:
             validate_dependencies(skills, max_depth=5)
 
     def test_depth_within_limit_passes(self):
-        from openjarvis.skills.dependency import validate_dependencies
+        from friday_ai.skills.dependency import validate_dependencies
 
         # Chain of depth 3 is within max_depth=5
         skills = {
@@ -180,7 +180,7 @@ class TestValidateDependencies:
         assert len(order) == 3
 
     def test_missing_dependency_silently_skipped(self):
-        from openjarvis.skills.dependency import validate_dependencies
+        from friday_ai.skills.dependency import validate_dependencies
 
         # "missing" is not in skills — should not raise
         skills = {
@@ -190,7 +190,7 @@ class TestValidateDependencies:
         assert "a" in order
 
     def test_custom_max_depth(self):
-        from openjarvis.skills.dependency import (
+        from friday_ai.skills.dependency import (
             DepthExceededError,
             validate_dependencies,
         )
@@ -207,7 +207,7 @@ class TestValidateDependencies:
 
 class TestComputeCapabilityUnion:
     def test_single_skill_no_deps(self):
-        from openjarvis.skills.dependency import compute_capability_union
+        from friday_ai.skills.dependency import compute_capability_union
 
         skills = {
             "a": _manifest("a", capabilities=["read_files"]),
@@ -216,7 +216,7 @@ class TestComputeCapabilityUnion:
         assert "read_files" in caps
 
     def test_transitive_capabilities(self):
-        from openjarvis.skills.dependency import compute_capability_union
+        from friday_ai.skills.dependency import compute_capability_union
 
         skills = {
             "a": _manifest("a", capabilities=["network"]),
@@ -227,7 +227,7 @@ class TestComputeCapabilityUnion:
         assert "disk_write" in caps
 
     def test_deep_transitive_capabilities(self):
-        from openjarvis.skills.dependency import compute_capability_union
+        from friday_ai.skills.dependency import compute_capability_union
 
         skills = {
             "a": _manifest("a", capabilities=["cap_a"]),
@@ -240,7 +240,7 @@ class TestComputeCapabilityUnion:
         assert "cap_c" in caps
 
     def test_no_capabilities(self):
-        from openjarvis.skills.dependency import compute_capability_union
+        from friday_ai.skills.dependency import compute_capability_union
 
         skills = {
             "a": _manifest("a"),
@@ -250,7 +250,7 @@ class TestComputeCapabilityUnion:
         assert caps == []
 
     def test_dedup_capabilities(self):
-        from openjarvis.skills.dependency import compute_capability_union
+        from friday_ai.skills.dependency import compute_capability_union
 
         # Both a and b claim "network"
         skills = {
@@ -262,7 +262,7 @@ class TestComputeCapabilityUnion:
         assert "disk" in caps
 
     def test_missing_skill_returns_empty(self):
-        from openjarvis.skills.dependency import compute_capability_union
+        from friday_ai.skills.dependency import compute_capability_union
 
         skills = {}
         caps = compute_capability_union("nonexistent", skills)

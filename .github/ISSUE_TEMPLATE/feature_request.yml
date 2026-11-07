@@ -24,7 +24,7 @@ body:
     id: area
     attributes:
       label: Primitive Area
-      description: Which part of OpenJarvis does this touch?
+      description: Which part of FridayAI does this touch?
       options:
         - Intelligence
         - Engine

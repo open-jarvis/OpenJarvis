@@ -1,4 +1,4 @@
-"""Tests for openjarvis.learning.spec_search.diagnose.tools module.
+"""Tests for friday_ai.learning.spec_search.diagnose.tools module.
 
 All tests use fixture stubs — no live TraceStore, CloudEngine, or ToolRegistry.
 """
@@ -76,7 +76,7 @@ def _make_stub_config(tmp_path: Path) -> dict:
     config_path.write_text("[learning]\nenabled = true\n")
     return {
         "config_path": config_path,
-        "openjarvis_home": tmp_path,
+        "friday_ai_home": tmp_path,
     }
 
 
@@ -89,7 +89,7 @@ class TestBuildDiagnosticTools:
     """Tests for the build_diagnostic_tools factory."""
 
     def test_returns_expected_tool_names(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.diagnose.tools import (
+        from friday_ai.learning.spec_search.diagnose.tools import (
             build_diagnostic_tools,
         )
 
@@ -117,7 +117,7 @@ class TestBuildDiagnosticTools:
         assert "compare_outputs" in names
 
     def test_all_tools_have_openai_format(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.diagnose.tools import (
+        from friday_ai.learning.spec_search.diagnose.tools import (
             build_diagnostic_tools,
         )
 
@@ -142,7 +142,7 @@ class TestListTraces:
     """Tests for the list_traces diagnostic tool."""
 
     def test_returns_trace_metas(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.diagnose.tools import (
+        from friday_ai.learning.spec_search.diagnose.tools import (
             build_diagnostic_tools,
         )
 
@@ -171,7 +171,7 @@ class TestGetTrace:
     """Tests for the get_trace diagnostic tool."""
 
     def test_returns_trace_details(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.diagnose.tools import (
+        from friday_ai.learning.spec_search.diagnose.tools import (
             build_diagnostic_tools,
         )
 
@@ -192,7 +192,7 @@ class TestGetTrace:
         assert parsed["query"] == "What is 2+2?"
 
     def test_returns_error_for_unknown_trace(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.diagnose.tools import (
+        from friday_ai.learning.spec_search.diagnose.tools import (
             build_diagnostic_tools,
         )
 
@@ -215,7 +215,7 @@ class TestGetCurrentConfig:
     """Tests for the get_current_config diagnostic tool."""
 
     def test_returns_config_content(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.diagnose.tools import (
+        from friday_ai.learning.spec_search.diagnose.tools import (
             build_diagnostic_tools,
         )
 
@@ -238,7 +238,7 @@ class TestGetAgentPrompt:
     """Tests for the get_agent_prompt diagnostic tool."""
 
     def test_returns_prompt_content(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.diagnose.tools import (
+        from friday_ai.learning.spec_search.diagnose.tools import (
             build_diagnostic_tools,
         )
 
@@ -261,7 +261,7 @@ class TestListPersonalBenchmark:
     """Tests for the list_personal_benchmark diagnostic tool."""
 
     def test_returns_benchmark_tasks(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.diagnose.tools import (
+        from friday_ai.learning.spec_search.diagnose.tools import (
             build_diagnostic_tools,
         )
 
@@ -286,8 +286,8 @@ class TestRunSelfOnTask:
     """Tests for the run_self_on_task diagnostic tool."""
 
     def test_passes_message_objects_to_generate(self, tmp_path: Path) -> None:
-        from openjarvis.core.types import Message, Role
-        from openjarvis.learning.spec_search.diagnose.tools import (
+        from friday_ai.core.types import Message, Role
+        from friday_ai.learning.spec_search.diagnose.tools import (
             build_diagnostic_tools,
         )
 

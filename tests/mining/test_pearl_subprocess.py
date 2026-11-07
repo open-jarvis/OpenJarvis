@@ -1,4 +1,4 @@
-"""Tests for openjarvis.mining._pearl_subprocess."""
+"""Tests for friday_ai.mining._pearl_subprocess."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def fake_popen():
 
 def _make_launcher(tmp_path):
     """Build a launcher with safe defaults that won't conflict with anything."""
-    from openjarvis.mining._pearl_subprocess import PearlSubprocessLauncher
+    from friday_ai.mining._pearl_subprocess import PearlSubprocessLauncher
 
     return PearlSubprocessLauncher(
         gateway_host="127.0.0.1",
@@ -34,7 +34,7 @@ def _make_launcher(tmp_path):
 
 def test_launcher_accepts_custom_provider_and_miner_module(fake_popen, tmp_path):
     """Providers can select a distinct miner-loop module and log file."""
-    from openjarvis.mining._pearl_subprocess import PearlSubprocessLauncher
+    from friday_ai.mining._pearl_subprocess import PearlSubprocessLauncher
 
     with patch("subprocess.Popen", return_value=fake_popen) as mock_popen:
         launcher = PearlSubprocessLauncher(
@@ -47,7 +47,7 @@ def test_launcher_accepts_custom_provider_and_miner_module(fake_popen, tmp_path)
             wallet_address="prl1qtest",
             log_dir=tmp_path,
             provider_id="apple-mps-pearl",
-            miner_module="openjarvis.mining._mps_miner_loop_main",
+            miner_module="friday_ai.mining._mps_miner_loop_main",
         )
         launcher.start(m=128, n=128, k=1024, rank=64)
 

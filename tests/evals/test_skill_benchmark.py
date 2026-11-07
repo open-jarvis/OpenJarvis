@@ -10,7 +10,7 @@ import pytest
 
 class TestSkillBenchmarkConfigDefaults:
     def test_defaults(self):
-        from openjarvis.evals.skill_benchmark import SkillBenchmarkConfig
+        from friday_ai.evals.skill_benchmark import SkillBenchmarkConfig
 
         cfg = SkillBenchmarkConfig()
         assert cfg.benchmark == "pinchbench"
@@ -23,7 +23,7 @@ class TestSkillBenchmarkConfigDefaults:
         assert "web_search" in cfg.tools
 
     def test_construct_with_overrides(self):
-        from openjarvis.evals.skill_benchmark import SkillBenchmarkConfig
+        from friday_ai.evals.skill_benchmark import SkillBenchmarkConfig
 
         cfg = SkillBenchmarkConfig(
             benchmark="pinchbench",
@@ -38,7 +38,7 @@ class TestSkillBenchmarkConfigDefaults:
 
 class TestConditionResult:
     def test_create(self):
-        from openjarvis.evals.skill_benchmark import ConditionResult
+        from friday_ai.evals.skill_benchmark import ConditionResult
 
         r = ConditionResult(
             condition="no_skills",
@@ -58,7 +58,7 @@ class TestConditionResult:
 
 class TestConditionComparison:
     def test_create(self):
-        from openjarvis.evals.skill_benchmark import (
+        from friday_ai.evals.skill_benchmark import (
             ConditionComparison,
             ConditionResult,
             SkillBenchmarkConfig,
@@ -90,7 +90,7 @@ class TestConditionComparison:
 
 class TestBuildBackendForCondition:
     def _make_runner(self, tmp_path: Path):
-        from openjarvis.evals.skill_benchmark import (
+        from friday_ai.evals.skill_benchmark import (
             SkillBenchmarkConfig,
             SkillBenchmarkRunner,
         )
@@ -140,7 +140,7 @@ class TestBuildBackendForCondition:
 
 class TestRunCondition:
     def _make_runner(self, tmp_path: Path):
-        from openjarvis.evals.skill_benchmark import (
+        from friday_ai.evals.skill_benchmark import (
             SkillBenchmarkConfig,
             SkillBenchmarkRunner,
         )
@@ -157,7 +157,7 @@ class TestRunCondition:
     ) -> None:
         """run_condition runs the eval once per seed and aggregates the
         results into a ConditionResult."""
-        from openjarvis.evals.skill_benchmark import (
+        from friday_ai.evals.skill_benchmark import (
             SkillBenchmarkRunner,
         )
 
@@ -208,7 +208,7 @@ class TestRunCondition:
     def test_run_condition_single_seed_zero_stddev(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from openjarvis.evals.skill_benchmark import (
+        from friday_ai.evals.skill_benchmark import (
             SkillBenchmarkConfig,
             SkillBenchmarkRunner,
         )
@@ -245,7 +245,7 @@ class TestRunAllConditions:
     def test_run_all_conditions_invokes_all_four(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from openjarvis.evals.skill_benchmark import (
+        from friday_ai.evals.skill_benchmark import (
             ConditionResult,
             SkillBenchmarkConfig,
             SkillBenchmarkRunner,
@@ -292,7 +292,7 @@ class TestRunAllConditions:
     def test_run_all_conditions_computes_deltas(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from openjarvis.evals.skill_benchmark import (
+        from friday_ai.evals.skill_benchmark import (
             ConditionResult,
             SkillBenchmarkConfig,
             SkillBenchmarkRunner,
@@ -344,7 +344,7 @@ class TestRunAllConditions:
 
 class TestWriteReport:
     def test_write_report_creates_dated_markdown(self, tmp_path: Path) -> None:
-        from openjarvis.evals.skill_benchmark import (
+        from friday_ai.evals.skill_benchmark import (
             ConditionComparison,
             ConditionResult,
             SkillBenchmarkConfig,

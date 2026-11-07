@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the energy-measurement backend for this machine.
 #
-# Referenced by `jarvis bench --setup-energy` (see cli/bench_cmd.py), which
+# Referenced by `friday bench --setup-energy` (see cli/bench_cmd.py), which
 # built a path to this script and offered to run it while the file did not
 # exist -- the offer silently did nothing.
 #
@@ -25,7 +25,7 @@ arch="$(uname -m)"
 case "$os" in
 Darwin)
     if [ "$arch" != "arm64" ]; then
-        echo "Intel Macs expose no energy counters OpenJarvis can read." >&2
+        echo "Intel Macs expose no energy counters FridayAI can read." >&2
         exit 1
     fi
     extra="energy-apple"
@@ -51,7 +51,7 @@ Linux)
     ;;
 esac
 
-echo "Installing openjarvis[$extra] ..."
+echo "Installing friday_ai[$extra] ..."
 # --inexact: add this extra without pruning extras the user already has.
 # A plain `uv sync --extra` would uninstall e.g. [dev] and [server].
 uv sync --inexact --extra "$extra"
@@ -59,12 +59,12 @@ uv sync --inexact --extra "$extra"
 echo
 echo "Verifying ..."
 uv run python - <<'PY'
-from openjarvis.telemetry.energy_monitor import create_energy_monitor
+from friday_ai.telemetry.energy_monitor import create_energy_monitor
 
 monitor = create_energy_monitor()
 if monitor is None:
     raise SystemExit(
-        "Energy monitor still unavailable. Run `jarvis doctor` for details."
+        "Energy monitor still unavailable. Run `friday doctor` for details."
     )
 print(f"OK: {monitor.vendor().value} via {monitor.energy_method()}")
 monitor.close()

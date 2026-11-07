@@ -4,24 +4,24 @@
 |---|---|
 | **Date** | 2026-05-05 |
 | **Status** | Design — pending implementation plan |
-| **Owner** | OpenJarvis team |
+| **Owner** | FridayAI team |
 | **Companion spec** | [Spec B — Apple Silicon enablement](2026-05-05-apple-silicon-pearl-mining-design.md) (separate effort, runs in parallel) |
-| **Repos referenced** | `OpenJarvis` (this repo), `pearl-research-labs/pearl` |
+| **Repos referenced** | `FridayAI` (this repo), `pearl-research-labs/pearl` |
 
 ## 1. Summary
 
-Add a new sibling subsystem `openjarvis.mining` that lets users run [Pearl](https://github.com/pearl-research-labs/pearl) Proof-of-Useful-Work mining as a property of their local LLM inference. v1 ships solo mining for users who already have an H100/H200 and run vLLM — the only configuration Pearl's reference miner currently supports. The architecture leaves three deliberate seams for v2 (pool support + a 20% OJ fee) and is engine-agnostic by construction so Apple Silicon, AMD, Ollama, llama.cpp, and MLX paths plug in via the registry without a rewrite when Pearl ships the matching plugins.
+Add a new sibling subsystem `friday_ai.mining` that lets users run [Pearl](https://github.com/pearl-research-labs/pearl) Proof-of-Useful-Work mining as a property of their local LLM inference. v1 ships solo mining for users who already have an H100/H200 and run vLLM — the only configuration Pearl's reference miner currently supports. The architecture leaves three deliberate seams for v2 (pool support + a 20% OJ fee) and is engine-agnostic by construction so Apple Silicon, AMD, Ollama, llama.cpp, and MLX paths plug in via the registry without a rewrite when Pearl ships the matching plugins.
 
 The narrative thesis: Pearl's `vllm-miner` is a vLLM plugin that swaps quantized linear ops with `NoisyGEMM`, a CUDA kernel that produces both the correct matmul output *and* a PoW commitment. Mining IS inference. For an OJ user already serving prompts on a powerful local GPU, this is a way to capture economic value from compute they were going to do anyway — directly aligned with OJ's Intelligence-Per-Watt thesis rather than against it.
 
 ## 2. Scope
 
 ### In scope (v1)
-- New `openjarvis.mining` subsystem with `MiningProvider` ABC, `MinerRegistry`, `MiningCapabilities` / `MiningConfig` / `MiningStats` dataclasses
+- New `friday_ai.mining` subsystem with `MiningProvider` ABC, `MinerRegistry`, `MiningCapabilities` / `MiningConfig` / `MiningStats` dataclasses
 - `vllm-pearl` provider implementation: orchestrate Pearl's published `vllm-miner` Docker container
-- `[mining]` TOML section in OJ config; `MiningConfig` field in `JarvisConfig`
-- New CLI namespace: `jarvis mine init|start|stop|status|doctor|attach|logs`
-- Runtime sidecar at `~/.openjarvis/runtime/mining.json` for engine ↔ mining handoff
+- `[mining]` TOML section in OJ config; `MiningConfig` field in `FridayConfig`
+- New CLI namespace: `friday mine init|start|stop|status|doctor|attach|logs`
+- Runtime sidecar at `~/.friday_ai/runtime/mining.json` for engine ↔ mining handoff
 - Hybrid Docker image acquisition: pull-if-published, otherwise build from a pinned Pearl ref
 - On-demand telemetry via Pearl gateway `:8339/metrics`; `mining_session_id` nullable column on telemetry inference rows
 - v2 seams: `submit_target` tagged-union parsing, zero-valued `fee_bps` / `fees_owed` plumbing, reserved `mining/pools/` location
@@ -49,7 +49,7 @@ These were the forks where the design could have gone several ways. Recorded so 
 | Mining model | Co-located: every inference through the Pearl-flavored vLLM is mining work | Matches Pearl's `vllm-miner` plugin design and OJ's Intelligence-Per-Watt thesis. Side-car deferred until Pearl ships plugins for engines users care about for non-mining inference. |
 | Coupling to Pearl miner process | Wrap-and-launch via Docker | Pearl's Docker image (or Dockerfile) is the most stable contract they expose. (1) "BYO miner" is too thin to be a feature; (3) running Pearl's `uv` workspace natively couples us to their build system. |
 | Module placement | Sibling top-level subsystem `mining/` (peer to `engine/`, `agents/`) | Matches OJ's existing module pattern. `MinerRegistry` is a peer registry. Future non-vLLM providers slot in identically. |
-| Engine attachment | Runtime sidecar JSON at `~/.openjarvis/runtime/mining.json` | Existing vLLM engine class stays untouched. Sidecar is the single source of truth tying mining lifecycle to engine resolution. Inspectable via `cat`. |
+| Engine attachment | Runtime sidecar JSON at `~/.friday_ai/runtime/mining.json` | Existing vLLM engine class stays untouched. Sidecar is the single source of truth tying mining lifecycle to engine resolution. Inspectable via `cat`. |
 | Config shape | Flat top-level `[mining]` TOML section | Only one provider in v1; nested per-engine config can grow later if multi-provider becomes real. |
 | Wallet handling | Paste-only Pearl Taproot address | Keys are sensitive; Pearl's wallet RPC is unstable surface. v1.x can add Oyster integration once the contract stabilizes. |
 | pearld | BYO; user points OJ at their own node | OJ doesn't orchestrate L1 nodes. Doctor surfaces unreachable cleanly. |
@@ -63,7 +63,7 @@ These were the forks where the design could have gone several ways. Recorded so 
 ### 4.1 New module tree
 
 ```
-src/openjarvis/mining/
+src/friday_ai/mining/
     __init__.py          # soft-imports providers (try/except ImportError)
     _stubs.py            # MiningProvider ABC + dataclasses (MiningCapabilities, MiningConfig, MiningStats, SoloTarget, PoolTarget)
     _discovery.py        # detect_providers(hardware, engine, model) -> list[MiningCapabilities]
@@ -73,8 +73,8 @@ src/openjarvis/mining/
     vllm_pearl.py        # @MinerRegistry.register("vllm-pearl") — only impl in v1
     pools/               # RESERVED for v2. Empty in v1 except for an __init__.py with a docstring saying so.
 
-src/openjarvis/cli/
-    mine_cmd.py          # jarvis mine init|start|stop|status|doctor|attach|logs
+src/friday_ai/cli/
+    mine_cmd.py          # friday mine init|start|stop|status|doctor|attach|logs
 
 tests/mining/
     __init__.py
@@ -92,7 +92,7 @@ tests/mining/
 
 ### 4.2 Registry additions
 
-`MinerRegistry` added to `src/openjarvis/core/registry.py` as a peer to `EngineRegistry`, `AgentRegistry`, etc. `tests/conftest.py`'s autouse `_clean_registries` fixture is updated to include `MinerRegistry.clear()`.
+`MinerRegistry` added to `src/friday_ai/core/registry.py` as a peer to `EngineRegistry`, `AgentRegistry`, etc. `tests/conftest.py`'s autouse `_clean_registries` fixture is updated to include `MinerRegistry.clear()`.
 
 `mining/vllm_pearl.py` exposes idempotent `ensure_registered()`:
 
@@ -115,10 +115,10 @@ mining-pearl       = ["docker>=7.0"]   # v1 requires only the Docker SDK
 ### 4.4 The central ABC
 
 ```python
-# src/openjarvis/mining/_stubs.py
+# src/friday_ai/mining/_stubs.py
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from openjarvis.core.config import HardwareInfo
+from friday_ai.core.config import HardwareInfo
 
 @dataclass(slots=True)
 class MiningCapabilities:
@@ -189,7 +189,7 @@ fee_bps                 = 0                          # v1: 0; v2: 2000
 fee_payout_address      = ""                         # v1: ignored; v2: OJ's address
 
 [mining.extra]
-docker_image_tag         = "openjarvis/pearl-miner:<pinned-ref>"
+docker_image_tag         = "friday_ai/pearl-miner:<pinned-ref>"
 model                    = "pearl-ai/Llama-3.3-70B-Instruct-pearl"
 gateway_port             = 8337
 gateway_metrics_port     = 8339
@@ -204,13 +204,13 @@ hf_token_env             = "HF_TOKEN"                # name of env var
 
 Secrets: env-var *names*, never literal values. Matches OJ's existing convention for cloud API keys.
 
-### 5.2 JarvisConfig field
+### 5.2 FridayConfig field
 
 `core/config.py` adds:
 
 ```python
 @dataclass(slots=True)
-class JarvisConfig:
+class FridayConfig:
     ...
     mining: MiningConfig | None = None
 ```
@@ -219,7 +219,7 @@ The TOML loader reads `[mining]`, parses `submit_target` into `SoloTarget | Pool
 
 ### 5.3 Runtime sidecar
 
-`~/.openjarvis/runtime/mining.json` (created on `mine start`, removed on `mine stop`):
+`~/.friday_ai/runtime/mining.json` (created on `mine start`, removed on `mine stop`):
 
 ```json
 {
@@ -238,16 +238,16 @@ Sidecar deliberately omits all secrets and process IDs. `container_id` is the au
 
 ### 5.4 Engine handoff flow
 
-1. `jarvis mine start` → `MinerRegistry.get("vllm-pearl").start(config)`.
+1. `friday mine start` → `MinerRegistry.get("vllm-pearl").start(config)`.
 2. `VllmPearlProvider.start()` calls `_docker.PearlDockerLauncher.start(config)` and writes the sidecar.
 3. `engine/_discovery.py` checks for `mining.json` on every engine lookup. When present, it auto-registers a `vllm` engine instance pointing at `vllm_endpoint`, named `vllm-pearl-mining`, marked default for mining-aware operations.
-4. `jarvis ask` and the SDK route to that endpoint transparently. The user's normal inference is the mining work.
+4. `friday ask` and the SDK route to that endpoint transparently. The user's normal inference is the mining work.
 
 The vLLM engine class itself (`engine/openai_compat_engines.py`) is **not modified**. The change to `engine/_discovery.py` is small and additive: it inspects for `mining.json` and registers a derived `vllm` instance pointing at the mining endpoint when the sidecar is present. Absent sidecar → unchanged discovery behavior.
 
 ### 5.5 Manual mode
 
-Power users running their own Pearl container skip `jarvis mine start` and write the sidecar themselves via `jarvis mine attach --vllm-endpoint=... --gateway-url=...`. Decouples lifecycle from wiring.
+Power users running their own Pearl container skip `friday mine start` and write the sidecar themselves via `friday mine attach --vllm-endpoint=... --gateway-url=...`. Decouples lifecycle from wiring.
 
 ## 6. CLI surface, lifecycle & daemon integration
 
@@ -255,18 +255,18 @@ Power users running their own Pearl container skip `jarvis mine start` and write
 
 | Command | Purpose |
 |---|---|
-| `jarvis mine init` | Interactive: hardware/Docker checks, prompt for wallet + pearld credentials, write `[mining]`, pull/build image. Does NOT start mining. Pre-checks `>=200 GB` free disk. |
-| `jarvis mine start` | Launch container via the registered provider, write sidecar, print endpoint info. Idempotent if running. |
-| `jarvis mine stop` | Stop container, remove sidecar. Idempotent if not running. |
-| `jarvis mine status` | Read sidecar + query gateway `:8339/metrics`. Print `MiningStats`. |
-| `jarvis mine doctor` | Capability matrix; every check ✓/✗ with reason. Works in any state. |
-| `jarvis mine attach` | Manual mode: write sidecar without launching. |
-| `jarvis mine logs [-f]` | Tail container logs through Docker SDK. |
+| `friday mine init` | Interactive: hardware/Docker checks, prompt for wallet + pearld credentials, write `[mining]`, pull/build image. Does NOT start mining. Pre-checks `>=200 GB` free disk. |
+| `friday mine start` | Launch container via the registered provider, write sidecar, print endpoint info. Idempotent if running. |
+| `friday mine stop` | Stop container, remove sidecar. Idempotent if not running. |
+| `friday mine status` | Read sidecar + query gateway `:8339/metrics`. Print `MiningStats`. |
+| `friday mine doctor` | Capability matrix; every check ✓/✗ with reason. Works in any state. |
+| `friday mine attach` | Manual mode: write sidecar without launching. |
+| `friday mine logs [-f]` | Tail container logs through Docker SDK. |
 
 ### 6.2 Doctor output (canonical example)
 
 ```
-$ jarvis mine doctor
+$ friday mine doctor
 Hardware
   GPU vendor          nvidia                           ✓
   Compute capability  sm_90a                           ✓
@@ -277,7 +277,7 @@ Docker
 Disk
   Free in HF cache    312 GB                           ✓  (need ≥ 200 GB)
 Image
-  openjarvis/pearl-miner:<ref>   present (built 2026-04-30)   ✓
+  friday_ai/pearl-miner:<ref>   present (built 2026-04-30)   ✓
 Pearl node
   RPC                 http://localhost:44107           ✓
   Auth                ok                               ✓
@@ -314,17 +314,17 @@ State derivation rules (no separate state file — derived from config + sidecar
 ### 6.4 Daemon integration: deliberately minimal in v1
 
 - Docker handles container restart via `--restart=unless-stopped`. OJ does not babysit.
-- Existing `com.openjarvis.gateway` daemon is unchanged.
+- Existing `com.friday_ai.gateway` daemon is unchanged.
 - v1.x hook: `MiningTelemetryCollector` (already shipped in v1, unwired) can be added to the gateway as a 30-second-tick async task.
-- launchd/systemd installation surface (`jarvis daemon install`) untouched.
+- launchd/systemd installation surface (`friday daemon install`) untouched.
 
 ### 6.5 Concurrency
 
-POSIX `flock` on `~/.openjarvis/runtime/mining.lock` prevents racing `mine start` invocations.
+POSIX `flock` on `~/.friday_ai/runtime/mining.lock` prevents racing `mine start` invocations.
 
-### 6.6 `jarvis ask` UX hint
+### 6.6 `friday ask` UX hint
 
-When `[mining]` is configured but no sidecar exists, `cli/hints.py` emits one line: `"mining configured but not running — start it with \`jarvis mine start\`"`. One-line UX nudge, no new infrastructure.
+When `[mining]` is configured but no sidecar exists, `cli/hints.py` emits one line: `"mining configured but not running — start it with \`friday mine start\`"`. One-line UX nudge, no new infrastructure.
 
 ## 7. Pearl Docker integration
 
@@ -341,7 +341,7 @@ When `[mining]` is configured but no sidecar exists, `cli/hints.py` emits one li
 | Mode | Behavior | When |
 |---|---|---|
 | **Pre-built pull** | OJ `docker pull`s the configured tag if it resolves in a registry | Default once Pearl publishes; users with private registry; CI |
-| **Build-from-pin** | OJ git-clones Pearl at a pinned ref into `~/.openjarvis/cache/pearl/`, then `docker buildx build` | v1 default (Pearl publishes nothing today) |
+| **Build-from-pin** | OJ git-clones Pearl at a pinned ref into `~/.friday_ai/cache/pearl/`, then `docker buildx build` | v1 default (Pearl publishes nothing today) |
 | **BYO image** | User sets `mining.extra.docker_image_tag` to an image they built/pulled themselves | Power users, air-gapped envs |
 
 Selection logic in `_docker.PearlDockerLauncher.ensure_image()`:
@@ -357,7 +357,7 @@ Selection logic in `_docker.PearlDockerLauncher.ensure_image()`:
 ```python
 PEARL_REPO       = "https://github.com/pearl-research-labs/pearl.git"
 PEARL_PINNED_REF = "<sha-or-tag>"            # bumped per OJ release after rev-testing
-PEARL_IMAGE_TAG  = f"openjarvis/pearl-miner:{PEARL_PINNED_REF}"
+PEARL_IMAGE_TAG  = f"friday_ai/pearl-miner:{PEARL_PINNED_REF}"
 ```
 
 OJ release notes call out the Pearl ref shipped. Bumping the ref is its own PR with a documented Pearl-rev workflow.
@@ -377,7 +377,7 @@ container = client.containers.run(
         "--enforce-eager",
         "--max-model-len", str(config.extra.get("max_model_len", 8192)),
     ],
-    name="openjarvis-pearl-miner",
+    name="friday_ai-pearl-miner",
     detach=True,
     auto_remove=False,
     restart_policy={"Name": "unless-stopped"},
@@ -404,7 +404,7 @@ container = client.containers.run(
 ### 7.5 Trade-offs called out
 
 - **`network_mode="host"`** because pearld's RPC at `http://localhost:44107` lives on the host. A user-defined Docker network adds setup steps with no real isolation benefit on a single-tenant miner box. Pragmatism > purity. Note: host networking has Linux semantics; macOS/Windows Docker handle it differently. Acceptable for v1 since H100/H200 + nvidia-container-toolkit constrains the deployment to Linux anyway.
-- **`auto_remove=False`** so a crashed container stays around for `jarvis mine logs` post-mortem.
+- **`auto_remove=False`** so a crashed container stays around for `friday mine logs` post-mortem.
 - **HF cache mounted from host.** 140 GB weight download is one-time, survives container restarts, visible to other tools.
 - **Secrets via env-var names**, never persisted in the container image, the sidecar, or Docker labels.
 
@@ -414,9 +414,9 @@ OJ never sees Pearl mnemonic seeds, never imports Oyster keys, never signs Pearl
 
 ### 7.7 Image lifecycle UX
 
-- `jarvis mine init` triggers `ensure_image()`, streams build/pull output through the CLI with a clear time estimate (`"Building Pearl miner image — first run takes ~45 min on a fast machine"`).
-- `jarvis mine doctor` reports `image: present (tag, age, sha)` or `image: missing (run mine init)`.
-- `jarvis mine prune` (v1.x) cleans old `openjarvis/pearl-miner:*` tags. Manual `docker image rm` works in v1.
+- `friday mine init` triggers `ensure_image()`, streams build/pull output through the CLI with a clear time estimate (`"Building Pearl miner image — first run takes ~45 min on a fast machine"`).
+- `friday mine doctor` reports `image: present (tag, age, sha)` or `image: missing (run mine init)`.
+- `friday mine prune` (v1.x) cleans old `friday_ai/pearl-miner:*` tags. Manual `docker image rm` works in v1.
 
 ## 8. Telemetry hooks & v2 fee/pool seams
 
@@ -440,7 +440,7 @@ Pearl's container exposes `:8339/metrics` (Prometheus exposition format). v1 rea
 
 ### 8.3 Collection cadence
 
-- **v1: on-demand only.** `jarvis mine status` makes one HTTP GET per call (~10 ms). No background polling.
+- **v1: on-demand only.** `friday mine status` makes one HTTP GET per call (~10 ms). No background polling.
 - **v1.x: `MiningTelemetryCollector` lit up in the gateway daemon.** The class is shipped in v1 but unwired. v1.x adds a periodic asyncio task; same `MiningStats` schema, same gateway endpoint. Zero API churn.
 
 ### 8.4 Intelligence-Per-Watt extension
@@ -449,13 +449,13 @@ The `telemetry/store.py` schema gains a nullable `mining_session_id` column on i
 
 - Tagged when an inference goes through the Pearl-mining endpoint; null otherwise.
 - Untagged rows behave exactly as today — zero impact on the non-mining path.
-- `jarvis telemetry stats --mining` (v1.x) joins to the latest `MiningStats` snapshot and reports `tokens / share`, `joules / share`, `est. PRL / kWh`.
+- `friday telemetry stats --mining` (v1.x) joins to the latest `MiningStats` snapshot and reports `tokens / share`, `joules / share`, `est. PRL / kWh`.
 
 v1 ships the column and the no-op join path. v1.x lights up the reporting. This is the metric the IPW thesis genuinely cares about.
 
 ### 8.5 v2 fee/pool seams (three concrete, no more)
 
-**1. `submit_target` parsed into a tagged union; only one variant works.** `SoloTarget` accepted at runtime in v1; `PoolTarget` raises `NotImplementedError("pool support is v2 — track openjarvis#XYZ")`. Reachable only by users who edit their config to opt in.
+**1. `submit_target` parsed into a tagged union; only one variant works.** `SoloTarget` accepted at runtime in v1; `PoolTarget` raises `NotImplementedError("pool support is v2 — track friday_ai#XYZ")`. Reachable only by users who edit their config to opt in.
 
 **2. `fee_bps` / `fee_payout_address` plumbed; zero-valued in v1.** `MiningStats.fees_owed = 0` and `MiningStats.payout_target = "solo"` always in v1. Schema is real; values are zero. No migration in v2.
 
@@ -495,11 +495,11 @@ v1 assumes one mining session per host (one sidecar). Multi-GPU / multi-worker f
 | pearl-gateway can't reach pearld | `:8339/metrics` exposes the error; adapter populates `MiningStats.last_error` | `mine status: last_error` |
 | Container crashes mid-run | Docker `--restart=unless-stopped` restarts; `mine status` shows brief `STARTING` → `RUNNING` | self-healing, logged |
 | Stale sidecar (container died, sidecar not cleaned) | `mine start` validates `container_id`; if Docker says it's gone, removes sidecar and proceeds | one-line warning |
-| Concurrent `mine start` | POSIX `flock` on `~/.openjarvis/runtime/mining.lock`; second invocation errors clearly | clear message |
+| Concurrent `mine start` | POSIX `flock` on `~/.friday_ai/runtime/mining.lock`; second invocation errors clearly | clear message |
 | Already-running `mine start` | Idempotent: detect via sidecar + container introspection, print status, exit 0 | informational |
 | Wallet/config drift | Sidecar carries wallet from start time; `mine status` cross-checks and warns on mismatch | warning, not auto-restart |
 | User edits `submit_target = "pool:..."` in v1 | `start()` raises `NotImplementedError` with tracking issue link | clear error |
-| Pearl protocol upgrade (block format / metric names change) | Adapter zero-fills with one-shot warning. `mine doctor` does a best-effort check: it reads the `image: openjarvis/pearl-miner:<ref>` Docker label and compares against `PEARL_PINNED_REF` baked into the OJ release; mismatch surfaces a warning. **OJ does not poll Pearl's GitHub at runtime.** | warning + spec'd Pearl-rev workflow |
+| Pearl protocol upgrade (block format / metric names change) | Adapter zero-fills with one-shot warning. `mine doctor` does a best-effort check: it reads the `image: friday_ai/pearl-miner:<ref>` Docker label and compares against `PEARL_PINNED_REF` baked into the OJ release; mismatch surfaces a warning. **OJ does not poll Pearl's GitHub at runtime.** | warning + spec'd Pearl-rev workflow |
 | Inference quality regression from NoisyGEMM | **Out of v1 scope to detect.** Documented risk; v1.x may add automated drift detection. | docs only |
 
 ### 9.3 Test strategy

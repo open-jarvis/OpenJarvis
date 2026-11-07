@@ -16,35 +16,35 @@ These are the areas where active development is happening and contributions are 
 ## How to Get Involved
 
 1. Browse the workstreams below for an item that interests you
-2. Check if a [GitHub issue](https://github.com/open-jarvis/OpenJarvis/issues) already exists for it — if not, [open one](https://github.com/open-jarvis/OpenJarvis/issues/new/choose)
+2. Check if a [GitHub issue](https://github.com/open-jarvis/FridayAI/issues) already exists for it — if not, [open one](https://github.com/open-jarvis/FridayAI/issues/new/choose)
 3. Comment **"take"** on the issue to get auto-assigned
-4. Read the [Contributing Guide](https://github.com/open-jarvis/OpenJarvis/blob/main/CONTRIBUTING.md) for development setup and PR process
+4. Read the [Contributing Guide](https://github.com/open-jarvis/FridayAI/blob/main/CONTRIBUTING.md) for development setup and PR process
 
 ---
 
 ## Workstreams
 
-OpenJarvis development is organized into **five independent workstreams**. Contributors can pick any track that matches their skills and interests — workstreams are designed to be worked on in parallel without blocking each other.
+FridayAI development is organized into **five independent workstreams**. Contributors can pick any track that matches their skills and interests — workstreams are designed to be worked on in parallel without blocking each other.
 
 Every item carries a maturity tag:
 
 | Tag | Meaning | Contributor guidance |
 |-----|---------|---------------------|
-| **Ready** | Well-scoped, implementation path is clear | Pick it up — check [issues](https://github.com/open-jarvis/OpenJarvis/issues) for a spec or write one |
-| **Design Needed** | Concept is clear but needs a spec before code | Start a [design discussion](https://github.com/open-jarvis/OpenJarvis/discussions) or draft an RFC |
+| **Ready** | Well-scoped, implementation path is clear | Pick it up — check [issues](https://github.com/open-jarvis/FridayAI/issues) for a spec or write one |
+| **Design Needed** | Concept is clear but needs a spec before code | Start a [design discussion](https://github.com/open-jarvis/FridayAI/discussions) or draft an RFC |
 | **Research-Stage** | Exploratory, needs investigation before designing | Read the relevant papers, prototype, share findings |
 
 ---
 
 ### Workstream 1: Continuous Operators & Agents
 
-Operators are OpenJarvis's key differentiator — persistent, scheduled, stateful agents that run autonomously on personal devices. The current tick-based architecture (OperatorManager → TaskScheduler → AgentExecutor → OperativeAgent) is solid but needs hardening for truly long-horizon autonomy.
+Operators are FridayAI's key differentiator — persistent, scheduled, stateful agents that run autonomously on personal devices. The current tick-based architecture (OperatorManager → TaskScheduler → AgentExecutor → OperativeAgent) is solid but needs hardening for truly long-horizon autonomy.
 
 #### Where you can help
 
 | Item | Maturity | Details |
 |------|----------|---------|
-| Operator health checks & heartbeat monitoring | **Ready** | Add liveness probes to OperatorManager; surface in `jarvis operators status`. Detect stalled operators beyond the existing reconciliation loop. |
+| Operator health checks & heartbeat monitoring | **Ready** | Add liveness probes to OperatorManager; surface in `friday operators status`. Detect stalled operators beyond the existing reconciliation loop. |
 | Metrics collection for operator manifests | **Ready** | The `metrics` field exists in `OperatorManifest` but is not collected. Wire it to telemetry. **Good first issue.** |
 | Capability policy enforcement | **Ready** | `required_capabilities` field exists in manifests but is not enforced. Connect to the existing RBAC `CapabilityPolicy` system. **Good first issue.** |
 | Rate limiting per operator | **Ready** | Prevent runaway operators from hammering inference. Add configurable rate limits to OperatorManager. |
@@ -57,7 +57,7 @@ Operators are OpenJarvis's key differentiator — persistent, scheduled, statefu
 
 ### Workstream 2: Mobile & Messaging Clients
 
-Personal AI must be accessible from the devices people actually carry. OpenJarvis runs on laptops, workstations, and servers — users interact via their phones.
+Personal AI must be accessible from the devices people actually carry. FridayAI runs on laptops, workstations, and servers — users interact via their phones.
 
 **Currently supported:**
 
@@ -105,7 +105,7 @@ Personal AI's core tension: local models preserve privacy but lack capability; c
 
 ### Workstream 4: Tutorials & Documentation
 
-OpenJarvis has reference docs and four tutorials, but critical gaps remain in continuous agents, LM evaluation, learning approaches, and custom tools. Video tutorials are scoped as a contributor opportunity — written tutorials come first, with video scripts included so anyone can record.
+FridayAI has reference docs and four tutorials, but critical gaps remain in continuous agents, LM evaluation, learning approaches, and custom tools. Video tutorials are scoped as a contributor opportunity — written tutorials come first, with video scripts included so anyone can record.
 
 #### Where you can help
 
@@ -123,7 +123,7 @@ OpenJarvis has reference docs and four tutorials, but critical gaps remain in co
 
 ### Workstream 5: Hardware Breadth
 
-Personal AI means running on the hardware people actually own. Each new hardware target expands who can use OpenJarvis and generates data for the research agenda (energy, cost, latency tradeoffs across silicon).
+Personal AI means running on the hardware people actually own. Each new hardware target expands who can use FridayAI and generates data for the research agenda (energy, cost, latency tradeoffs across silicon).
 
 Adding a new hardware target involves up to four components: hardware detection in `core/config.py`, an inference engine adapter in `engine/`, an energy monitor in `telemetry/`, and an entry in the GPU specs database in `telemetry/gpu_monitor.py`.
 

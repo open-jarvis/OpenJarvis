@@ -31,7 +31,7 @@ case "$1" in
         mkdir -p "$target/scripts/install"
         # Provide minimal expected files so install.sh can copy them.
         for s in install-rust.sh build-extension.sh pull-model.sh bg-orchestrator.sh \
-                 jarvis-wrapper.sh jarvis-uninstall.sh; do
+                 friday-wrapper.sh friday-uninstall.sh; do
             cat > "$target/scripts/install/$s" <<EOF2
 #!/usr/bin/env bash
 exit 0
@@ -46,7 +46,7 @@ EOF2
         # allowed range (#476).
         cat > "$target/pyproject.toml" <<EOF2
 [project]
-name = "OpenJarvis"
+name = "FridayAI"
 version = "0.1.1"
 requires-python = ">=3.10,<3.14"
 EOF2

@@ -20,9 +20,9 @@ import pytest
 
 fastapi = pytest.importorskip("fastapi")
 
-from openjarvis.agents._stubs import AgentResult  # noqa: E402
-from openjarvis.server.models import ChatCompletionRequest, ChatMessage  # noqa: E402
-from openjarvis.server.routes import (  # noqa: E402
+from friday_ai.agents._stubs import AgentResult  # noqa: E402
+from friday_ai.server.models import ChatCompletionRequest, ChatMessage  # noqa: E402
+from friday_ai.server.routes import (  # noqa: E402
     _agent_model_locks,
     _get_agent_model_lock,
     _handle_agent,

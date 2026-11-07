@@ -7,10 +7,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import TOKEN_COUNTING_VERSION, Message, Role
-from openjarvis.engine._stubs import StreamChunk
-from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.types import TOKEN_COUNTING_VERSION, Message, Role
+from friday_ai.engine._stubs import StreamChunk
+from friday_ai.telemetry.instrumented_engine import InstrumentedEngine
 
 
 @pytest.fixture
@@ -385,7 +385,7 @@ class TestTokensPerJoule:
 
     def test_tokens_per_joule_formula_via_record(self):
         """Verify the formula: tokens_per_joule = completion_tokens / energy_joules."""
-        from openjarvis.core.types import TelemetryRecord
+        from friday_ai.core.types import TelemetryRecord
 
         # Direct construction — verifies the field accepts computed values
         rec = TelemetryRecord(
@@ -399,7 +399,7 @@ class TestTokensPerJoule:
 
     def test_tokens_per_joule_zero_when_no_tokens(self):
         """tokens_per_joule is 0.0 when completion_tokens is 0."""
-        from openjarvis.core.types import TelemetryRecord
+        from friday_ai.core.types import TelemetryRecord
 
         rec = TelemetryRecord(
             timestamp=1.0,

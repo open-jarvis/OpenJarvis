@@ -9,9 +9,9 @@ import pytest
 import tomllib
 from click.testing import CliRunner
 
-from openjarvis.cli import _analytics_consent
-from openjarvis.cli.init_cmd import init
-from openjarvis.core.config import load_config
+from friday_ai.cli import _analytics_consent
+from friday_ai.cli.init_cmd import init
+from friday_ai.core.config import load_config
 
 
 class TerminalInput(io.StringIO):
@@ -67,21 +67,21 @@ def test_cancelled_prompt_never_consents(monkeypatch) -> None:
 
 @pytest.mark.parametrize("flag", [None, "--analytics", "--no-analytics"])
 def test_init_persists_flag_or_default(
-    tmp_openjarvis_home: Path, flag: str | None
+    tmp_friday_ai_home: Path, flag: str | None
 ) -> None:
     args = ["--engine", "ollama", "--no-download", "--no-scan"]
     if flag:
         args.append(flag)
     result = CliRunner().invoke(init, args)
     assert result.exit_code == 0, result.output
-    cfg = load_config(tmp_openjarvis_home / "config.toml")
+    cfg = load_config(tmp_friday_ai_home / "config.toml")
     assert cfg.analytics.enabled is (flag == "--analytics")
-    assert not (tmp_openjarvis_home / "anon_id").exists()
+    assert not (tmp_friday_ai_home / "anon_id").exists()
 
 
 @pytest.mark.parametrize(("answer", "enabled"), [("\n", True), ("N\n", False)])
 def test_init_persists_interactive_choice(
-    tmp_openjarvis_home: Path, monkeypatch, answer: str, enabled: bool
+    tmp_friday_ai_home: Path, monkeypatch, answer: str, enabled: bool
 ) -> None:
     stream = TerminalInput(answer)
     use_input(monkeypatch, stream)
@@ -89,9 +89,9 @@ def test_init_persists_interactive_choice(
         init, ["--engine", "ollama", "--no-download", "--no-scan"]
     )
     assert result.exit_code == 0, result.output
-    data = tomllib.loads((tmp_openjarvis_home / "config.toml").read_text())
+    data = tomllib.loads((tmp_friday_ai_home / "config.toml").read_text())
     assert data["analytics"]["enabled"] is enabled
-    assert load_config(tmp_openjarvis_home / "config.toml").analytics.enabled is enabled
+    assert load_config(tmp_friday_ai_home / "config.toml").analytics.enabled is enabled
 
 
 def test_supplied_config_is_preserved_without_a_new_choice(monkeypatch) -> None:

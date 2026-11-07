@@ -8,8 +8,8 @@ from typing import Any, Dict, List
 
 import pytest
 
-from openjarvis.evals.core.agentic_runner import AgenticRunner, _extract_patch
-from openjarvis.evals.core.environment import TaskEnvironmentError
+from friday_ai.evals.core.agentic_runner import AgenticRunner, _extract_patch
+from friday_ai.evals.core.environment import TaskEnvironmentError
 
 # ---------------------------------------------------------------------------
 # Mock objects

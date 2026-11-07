@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.telemetry.flops import (
+from friday_ai.telemetry.flops import (
     GPU_PEAK_TFLOPS_BF16,
     MODEL_PARAMS_B,
     compute_mfu,

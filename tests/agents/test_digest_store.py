@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from openjarvis.agents.digest_store import DigestArtifact, DigestStore
+from friday_ai.agents.digest_store import DigestArtifact, DigestStore
 
 
 def test_store_and_retrieve(tmp_path):
@@ -18,7 +18,7 @@ def test_store_and_retrieve(tmp_path):
         sources_used=["gmail", "gcalendar"],
         generated_at=datetime(2026, 4, 1, 6, 0, 0),
         model_used="claude-sonnet-4-6",
-        voice_used="jarvis-v1",
+        voice_used="friday-v1",
     )
 
     store.save(artifact)
@@ -28,7 +28,7 @@ def test_store_and_retrieve(tmp_path):
     assert retrieved.text == "Good morning sir."
     assert retrieved.sections["messages"] == "You have 3 emails."
     assert retrieved.sources_used == ["gmail", "gcalendar"]
-    assert retrieved.voice_used == "jarvis-v1"
+    assert retrieved.voice_used == "friday-v1"
 
     store.close()
 
@@ -42,7 +42,7 @@ def test_get_today(tmp_path):
         sources_used=["gmail"],
         generated_at=datetime.now(tz=__import__("datetime").timezone.utc),
         model_used="test-model",
-        voice_used="jarvis",
+        voice_used="friday",
     )
     store.save(artifact)
     today = store.get_today(timezone_name="UTC")
@@ -68,7 +68,7 @@ def test_history(tmp_path):
                 sources_used=[],
                 generated_at=datetime(2026, 4, 1 + i, 6, 0, 0),
                 model_used="test",
-                voice_used="jarvis",
+                voice_used="friday",
             )
         )
     history = store.history(limit=2)

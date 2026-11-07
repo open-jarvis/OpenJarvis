@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 
 def test_hackernews_registered():
     """HackerNewsConnector is discoverable via ConnectorRegistry."""
-    from openjarvis.connectors.hackernews import HackerNewsConnector
+    from friday_ai.connectors.hackernews import HackerNewsConnector
 
     ConnectorRegistry.register_value("hackernews", HackerNewsConnector)
     assert ConnectorRegistry.contains("hackernews")
@@ -74,7 +74,7 @@ _STORY_ITEMS = {
 
 @pytest.fixture()
 def connector():
-    from openjarvis.connectors.hackernews import HackerNewsConnector
+    from friday_ai.connectors.hackernews import HackerNewsConnector
 
     return HackerNewsConnector()
 
@@ -91,11 +91,11 @@ def test_sync_yields_top_five(connector):
 
     with (
         patch(
-            "openjarvis.connectors.hackernews._hn_top_story_ids",
+            "friday_ai.connectors.hackernews._hn_top_story_ids",
             return_value=_TOP_STORY_IDS,
         ),
         patch(
-            "openjarvis.connectors.hackernews._hn_item",
+            "friday_ai.connectors.hackernews._hn_item",
             side_effect=mock_item,
         ),
     ):

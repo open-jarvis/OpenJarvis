@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.registry import MemoryRegistry
-from openjarvis.tools.storage.sqlite import SQLiteMemory
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.registry import MemoryRegistry
+from friday_ai.tools.storage.sqlite import SQLiteMemory
 
 
 def _make_backend(tmp_path: Path) -> SQLiteMemory:
@@ -146,7 +146,7 @@ def test_event_bus_integration_store(tmp_path: Path):
     bus = EventBus(record_history=True)
     backend = _make_backend(tmp_path)
     # Monkey-patch the global bus for this test
-    import openjarvis.tools.storage.sqlite as mod
+    import friday_ai.tools.storage.sqlite as mod
 
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus
@@ -164,7 +164,7 @@ def test_event_bus_integration_retrieve(tmp_path: Path):
     bus = EventBus(record_history=True)
     backend = _make_backend(tmp_path)
     backend.store("searchable content for events")
-    import openjarvis.tools.storage.sqlite as mod
+    import friday_ai.tools.storage.sqlite as mod
 
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus

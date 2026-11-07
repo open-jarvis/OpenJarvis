@@ -9,7 +9,7 @@ import pytest
 
 
 def test_exchange_google_token_calls_endpoint() -> None:
-    from openjarvis.connectors.oauth import exchange_google_token
+    from friday_ai.connectors.oauth import exchange_google_token
 
     mock_resp = MagicMock()
     mock_resp.json.return_value = {
@@ -33,7 +33,7 @@ def test_exchange_google_token_calls_endpoint() -> None:
 
 
 def test_generic_exchange_rejects_response_without_access_token() -> None:
-    from openjarvis.connectors.oauth import OAUTH_PROVIDERS, _exchange_token
+    from friday_ai.connectors.oauth import OAUTH_PROVIDERS, _exchange_token
 
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"refresh_token": "refresh-only"}
@@ -65,13 +65,13 @@ def test_gdrive_handle_callback_persists_creds_no_background_flow(
     save the client_id/secret; the in-process server flow owns the consent
     round-trip. We assert ``open_browser`` is never invoked.
     """
-    from openjarvis.connectors.gdrive import GDriveConnector
-    from openjarvis.connectors.oauth import load_tokens
+    from friday_ai.connectors.gdrive import GDriveConnector
+    from friday_ai.connectors.oauth import load_tokens
 
     creds = str(tmp_path / "gdrive.json")
     conn = GDriveConnector(credentials_path=creds)
 
-    with patch("openjarvis.core.open_browser") as mock_browser:
+    with patch("friday_ai.core.open_browser") as mock_browser:
         conn.handle_callback("test-id.apps.googleusercontent.com:test-secret")
 
     mock_browser.assert_not_called()
@@ -85,8 +85,8 @@ def test_gdrive_handle_callback_persists_creds_no_background_flow(
 
 
 def test_gdrive_is_connected_requires_access_token(tmp_path: Path) -> None:
-    from openjarvis.connectors.gdrive import GDriveConnector
-    from openjarvis.connectors.oauth import save_tokens
+    from friday_ai.connectors.gdrive import GDriveConnector
+    from friday_ai.connectors.oauth import save_tokens
 
     creds = str(tmp_path / "gdrive.json")
     conn = GDriveConnector(credentials_path=creds)
@@ -104,13 +104,13 @@ def test_gcalendar_handle_callback_persists_creds_no_background_flow(
     tmp_path: Path,
 ) -> None:
     """Sibling connector shares the fix: creds saved, no browser thread (#512)."""
-    from openjarvis.connectors.gcalendar import GCalendarConnector
-    from openjarvis.connectors.oauth import load_tokens
+    from friday_ai.connectors.gcalendar import GCalendarConnector
+    from friday_ai.connectors.oauth import load_tokens
 
     creds = str(tmp_path / "gcalendar.json")
     conn = GCalendarConnector(credentials_path=creds)
 
-    with patch("openjarvis.core.open_browser") as mock_browser:
+    with patch("friday_ai.core.open_browser") as mock_browser:
         conn.handle_callback("test-id.apps.googleusercontent.com:test-secret")
 
     mock_browser.assert_not_called()
@@ -125,13 +125,13 @@ def test_gcontacts_handle_callback_persists_creds_no_background_flow(
     tmp_path: Path,
 ) -> None:
     """Sibling connector shares the fix: creds saved, no browser thread (#512)."""
-    from openjarvis.connectors.gcontacts import GContactsConnector
-    from openjarvis.connectors.oauth import load_tokens
+    from friday_ai.connectors.gcontacts import GContactsConnector
+    from friday_ai.connectors.oauth import load_tokens
 
     creds = str(tmp_path / "gcontacts.json")
     conn = GContactsConnector(credentials_path=creds)
 
-    with patch("openjarvis.core.open_browser") as mock_browser:
+    with patch("friday_ai.core.open_browser") as mock_browser:
         conn.handle_callback("test-id.apps.googleusercontent.com:test-secret")
 
     mock_browser.assert_not_called()
@@ -143,8 +143,8 @@ def test_gcontacts_handle_callback_persists_creds_no_background_flow(
 
 
 def test_gdrive_handle_callback_raw_token(tmp_path: Path) -> None:
-    from openjarvis.connectors.gdrive import GDriveConnector
-    from openjarvis.connectors.oauth import load_tokens
+    from friday_ai.connectors.gdrive import GDriveConnector
+    from friday_ai.connectors.oauth import load_tokens
 
     creds = str(tmp_path / "gdrive.json")
     conn = GDriveConnector(credentials_path=creds)
@@ -159,7 +159,7 @@ def test_gdrive_handle_callback_raw_token(tmp_path: Path) -> None:
 def test_gdrive_auth_url_returns_credentials_page_without_client_id(
     tmp_path: Path,
 ) -> None:
-    from openjarvis.connectors.gdrive import GDriveConnector
+    from friday_ai.connectors.gdrive import GDriveConnector
 
     creds = str(tmp_path / "gdrive.json")
     conn = GDriveConnector(credentials_path=creds)
@@ -171,8 +171,8 @@ def test_gdrive_auth_url_returns_credentials_page_without_client_id(
 def test_gdrive_auth_url_returns_consent_url_with_client_id(
     tmp_path: Path,
 ) -> None:
-    from openjarvis.connectors.gdrive import GDriveConnector
-    from openjarvis.connectors.oauth import save_tokens
+    from friday_ai.connectors.gdrive import GDriveConnector
+    from friday_ai.connectors.oauth import save_tokens
 
     creds = str(tmp_path / "gdrive.json")
     conn = GDriveConnector(credentials_path=creds)

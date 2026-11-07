@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.learning.training.lora import HAS_TORCH, LoRATrainer, LoRATrainingConfig
+from friday_ai.learning.training.lora import HAS_TORCH, LoRATrainer, LoRATrainingConfig
 
 # ---------------------------------------------------------------------------
 # Config tests (no torch required)

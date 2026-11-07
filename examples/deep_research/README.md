@@ -1,7 +1,7 @@
 # Deep Research Assistant
 
 A tutorial example demonstrating how to build a multi-source research agent
-using OpenJarvis. The assistant uses an orchestrator agent loop with web
+using FridayAI. The assistant uses an orchestrator agent loop with web
 search, memory storage, and file output to produce comprehensive research
 reports with citations.
 
@@ -21,7 +21,7 @@ reports with citations.
 ## Prerequisites
 
 - Python 3.10 or later
-- OpenJarvis installed (`uv sync --extra dev` from the repo root)
+- FridayAI installed (`uv sync --extra dev` from the repo root)
 - An inference engine running. Either:
   - **Ollama** (local): `ollama serve` and `ollama pull qwen3:8b`
   - **Cloud API** (remote): set the appropriate key in `.env` and use
@@ -58,7 +58,7 @@ python examples/deep_research/research.py "climate policy trends" \
 | `--output`     | (none)     | File path to save the final report       |
 
 The companion `research.toml` provides the same defaults as a declarative
-recipe that can be loaded with `load_recipe()` or passed to the `jarvis eval`
+recipe that can be loaded with `load_recipe()` or passed to the `friday eval`
 runner.
 
 ## How It Works
@@ -67,7 +67,7 @@ runner.
 User query
   |
   v
-Jarvis SDK  (model + engine selection)
+Friday SDK  (model + engine selection)
   |
   v
 OrchestratorAgent  (multi-turn tool loop, up to max_turns)
@@ -90,7 +90,7 @@ turns.
 ## Customization Tips
 
 - **Add more tools** -- append tool names to the `tools` list in
-  `research.toml` or pass them on the command line. See `jarvis agent info
+  `research.toml` or pass them on the command line. See `friday agent info
   orchestrator` for the full tool catalog.
 - **Adjust temperature** -- lower values (0.2) produce more focused reports;
   higher values (0.8) encourage broader exploration.
@@ -98,7 +98,7 @@ turns.
   Thought-Action-Observation loop, or `native_openhands` for a CodeAct-style
   agent.
 - **Use the recipe programmatically** -- load the TOML with
-  `openjarvis.recipes.load_recipe("examples/deep_research/research.toml")` and
+  `friday_ai.recipes.load_recipe("examples/deep_research/research.toml")` and
   pass the result to `SystemBuilder`.
 
 ## Further Reading
@@ -107,5 +107,5 @@ turns.
   `ToolUsingAgent`, `OrchestratorAgent`) and the `accepts_tools` mechanism.
 - [Architecture: Tools](../../docs/user-guide/tools.md) -- tool registry, MCP adapter, and
   the `ToolExecutor` dispatch pipeline.
-- [Recipes](../../src/openjarvis/recipes/) -- composable TOML configs that
+- [Recipes](../../src/friday_ai/recipes/) -- composable TOML configs that
   wire all five pillars.

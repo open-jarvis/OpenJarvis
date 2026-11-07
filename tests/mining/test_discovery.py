@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 
 def test_detect_supported_on_h100(hopper_hw):
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
 
     cap = detect_for_engine_model(
         hw=hopper_hw,
@@ -19,7 +19,7 @@ def test_detect_supported_on_h100(hopper_hw):
 
 
 def test_detect_unsupported_on_ada_4090(ada_hw):
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
 
     cap = detect_for_engine_model(
         hw=ada_hw,
@@ -33,7 +33,7 @@ def test_detect_unsupported_on_ada_4090(ada_hw):
 
 def test_detect_unsupported_on_apple_engine(apple_hw):
     """Engine check rejects mlx before reaching the GPU vendor branch."""
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
 
     cap = detect_for_engine_model(
         hw=apple_hw,
@@ -47,7 +47,7 @@ def test_detect_unsupported_on_apple_engine(apple_hw):
 
 def test_detect_unsupported_on_apple_gpu_vendor(apple_hw):
     """Apple Silicon GPU is rejected by the vendor branch (Spec B territory)."""
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
 
     cap = detect_for_engine_model(
         hw=apple_hw,
@@ -60,7 +60,7 @@ def test_detect_unsupported_on_apple_gpu_vendor(apple_hw):
 
 
 def test_detect_unsupported_for_non_vllm_engine(hopper_hw):
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
 
     cap = detect_for_engine_model(
         hw=hopper_hw,
@@ -73,7 +73,7 @@ def test_detect_unsupported_for_non_vllm_engine(hopper_hw):
 
 
 def test_detect_unsupported_for_non_pearl_model(hopper_hw):
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
 
     cap = detect_for_engine_model(
         hw=hopper_hw,
@@ -86,7 +86,7 @@ def test_detect_unsupported_for_non_pearl_model(hopper_hw):
 
 
 def test_detect_raw_planned_model_points_to_pearl_variant(hopper_hw):
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
 
     cap = detect_for_engine_model(
         hw=hopper_hw,
@@ -100,7 +100,7 @@ def test_detect_raw_planned_model_points_to_pearl_variant(hopper_hw):
 
 
 def test_detect_planned_pearl_model_is_not_enabled_yet(hopper_hw):
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
 
     cap = detect_for_engine_model(
         hw=hopper_hw,
@@ -115,8 +115,8 @@ def test_detect_planned_pearl_model_is_not_enabled_yet(hopper_hw):
 
 
 def test_detect_unsupported_for_low_vram():
-    from openjarvis.core.config import GpuInfo, HardwareInfo
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.core.config import GpuInfo, HardwareInfo
+    from friday_ai.mining._discovery import detect_for_engine_model
 
     hw = HardwareInfo(
         platform="linux",
@@ -139,9 +139,9 @@ def test_detect_unsupported_for_low_vram():
 
 
 def test_check_docker_available_true():
-    from openjarvis.mining._discovery import check_docker_available
+    from friday_ai.mining._discovery import check_docker_available
 
-    with patch("openjarvis.mining._discovery._docker_client") as fake:
+    with patch("friday_ai.mining._discovery._docker_client") as fake:
         fake.return_value.ping.return_value = True
         fake.return_value.version.return_value = {"Version": "24.0.7"}
         ok, info = check_docker_available()
@@ -150,9 +150,9 @@ def test_check_docker_available_true():
 
 
 def test_check_docker_available_false_when_daemon_down():
-    from openjarvis.mining._discovery import check_docker_available
+    from friday_ai.mining._discovery import check_docker_available
 
-    with patch("openjarvis.mining._discovery._docker_client") as fake:
+    with patch("friday_ai.mining._discovery._docker_client") as fake:
         fake.side_effect = Exception("Cannot connect to the Docker daemon")
         ok, info = check_docker_available()
         assert ok is False
@@ -160,9 +160,9 @@ def test_check_docker_available_false_when_daemon_down():
 
 
 def test_check_docker_available_false_when_sdk_missing():
-    from openjarvis.mining._discovery import check_docker_available
+    from friday_ai.mining._discovery import check_docker_available
 
-    with patch("openjarvis.mining._discovery._docker_client") as fake:
+    with patch("friday_ai.mining._discovery._docker_client") as fake:
         fake.side_effect = RuntimeError(
             "Docker SDK not installed; install with `uv sync --extra mining-pearl-vllm`"
         )
@@ -172,9 +172,9 @@ def test_check_docker_available_false_when_sdk_missing():
 
 
 def test_check_disk_free_passes(tmp_path):
-    from openjarvis.mining._discovery import check_disk_free
+    from friday_ai.mining._discovery import check_disk_free
 
-    with patch("openjarvis.mining._discovery.shutil.disk_usage") as du:
+    with patch("friday_ai.mining._discovery.shutil.disk_usage") as du:
         # 500 GB free
         du.return_value = MagicMock(
             total=1_000_000_000_000,
@@ -186,9 +186,9 @@ def test_check_disk_free_passes(tmp_path):
 
 
 def test_check_disk_free_fails_below_threshold(tmp_path):
-    from openjarvis.mining._discovery import check_disk_free
+    from friday_ai.mining._discovery import check_disk_free
 
-    with patch("openjarvis.mining._discovery.shutil.disk_usage") as du:
+    with patch("friday_ai.mining._discovery.shutil.disk_usage") as du:
         du.return_value = MagicMock(
             total=1_000_000_000_000,
             used=950_000_000_000,
@@ -199,9 +199,9 @@ def test_check_disk_free_fails_below_threshold(tmp_path):
 
 
 def test_check_pearld_reachable_true():
-    from openjarvis.mining._discovery import check_pearld_reachable
+    from friday_ai.mining._discovery import check_pearld_reachable
 
-    with patch("openjarvis.mining._discovery.httpx.post") as post:
+    with patch("friday_ai.mining._discovery.httpx.post") as post:
         post.return_value.status_code = 200
         post.return_value.json.return_value = {
             "result": {"blocks": 442107, "headers": 442107}
@@ -214,23 +214,23 @@ def test_check_pearld_reachable_true():
 def test_check_pearld_reachable_false_on_connection_error():
     import httpx
 
-    from openjarvis.mining._discovery import check_pearld_reachable
+    from friday_ai.mining._discovery import check_pearld_reachable
 
-    with patch("openjarvis.mining._discovery.httpx.post") as post:
+    with patch("friday_ai.mining._discovery.httpx.post") as post:
         post.side_effect = httpx.ConnectError("connection refused")
         ok, info = check_pearld_reachable("http://localhost:44107", "user", "pass")
         assert ok is False
 
 
 def test_check_wallet_address_format_valid():
-    from openjarvis.mining._discovery import check_wallet_address_format
+    from friday_ai.mining._discovery import check_wallet_address_format
 
     ok, info = check_wallet_address_format("prl1qexampleaddress0123456789")
     assert ok is True
 
 
 def test_check_wallet_address_format_valid_prl1p():
-    from openjarvis.mining._discovery import check_wallet_address_format
+    from friday_ai.mining._discovery import check_wallet_address_format
 
     ok, info = check_wallet_address_format(
         "prl1pkf5s56dgm6jpg4z9z9qv5wua4jgs3h8q98rfh3gsqxp60eagmruqdnr3dp"
@@ -239,7 +239,7 @@ def test_check_wallet_address_format_valid_prl1p():
 
 
 def test_check_wallet_address_format_invalid():
-    from openjarvis.mining._discovery import check_wallet_address_format
+    from friday_ai.mining._discovery import check_wallet_address_format
 
     ok, info = check_wallet_address_format("not-a-pearl-address")
     assert ok is False

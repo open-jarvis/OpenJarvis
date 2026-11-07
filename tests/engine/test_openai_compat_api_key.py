@@ -6,8 +6,8 @@ import httpx
 import pytest
 import respx
 
-from openjarvis.core.types import Message, Role
-from openjarvis.engine.openai_compat_engines import (
+from friday_ai.core.types import Message, Role
+from friday_ai.engine.openai_compat_engines import (
     OpenAICompatEngine,
     VLLMEngine,
     normalize_openai_base_url,

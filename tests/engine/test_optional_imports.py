@@ -7,9 +7,9 @@ from unittest import mock
 
 
 def test_optional_engine_import_errors_are_logged(caplog) -> None:
-    import openjarvis.engine as engine_module
+    import friday_ai.engine as engine_module
 
-    caplog.set_level(logging.DEBUG, logger="openjarvis.engine")
+    caplog.set_level(logging.DEBUG, logger="friday_ai.engine")
     with mock.patch.object(
         engine_module.importlib,
         "import_module",

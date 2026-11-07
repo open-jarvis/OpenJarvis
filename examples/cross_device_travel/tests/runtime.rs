@@ -1,4 +1,4 @@
-use openjarvis_cross_device_travel::{protocol::*, runtime::*};
+use friday_ai_cross_device_travel::{protocol::*, runtime::*};
 use serde_json::{json, Value};
 use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 

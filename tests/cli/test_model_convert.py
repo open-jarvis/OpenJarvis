@@ -1,4 +1,4 @@
-"""Tests for ``jarvis model convert`` command."""
+"""Tests for ``friday model convert`` command."""
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
-from openjarvis.cli.model import model
+from friday_ai.cli.model import model
 
-model_module = importlib.import_module("openjarvis.cli.model")
+model_module = importlib.import_module("friday_ai.cli.model")
 
 
 class TestModelConvert:
@@ -80,7 +80,7 @@ class TestModelConvert:
         assert Path(convert_calls[0][1]) != output_dir
         assert Path(convert_calls[0][1]).parent.parent == output_dir.parent
         assert (output_dir / "config.json").is_file()
-        assert "jarvis host" in result.output
+        assert "friday host" in result.output
         assert "--backend mlx" in result.output
 
     def test_convert_mlx_missing_extra(
@@ -272,7 +272,7 @@ class TestModelConvert:
             "q4_k_m",
         ]
         assert (output_dir / "some--repo.q4_k_m.gguf").read_bytes() == b"quantized"
-        assert "jarvis host" in result.output
+        assert "friday host" in result.output
         assert "--backend llamacpp" in result.output
 
     def test_convert_gguf_missing_tool(
@@ -591,7 +591,7 @@ class TestModelConvert:
         assert (output_dir / "Modelfile").read_text(encoding="utf-8") == (
             "FROM ./some--repo.f16.gguf\n"
         )
-        assert "jarvis chat --engine ollama --model repo" in result.output
+        assert "friday chat --engine ollama --model repo" in result.output
 
     @pytest.mark.parametrize("engine", ["vllm", "sglang"])
     def test_direct_hf_engines_are_noop(
@@ -621,7 +621,7 @@ class TestModelConvert:
 
         assert result.exit_code == 0
         assert not output_dir.exists()
-        assert f"jarvis host some/repo --backend {engine}" in result.output
+        assert f"friday host some/repo --backend {engine}" in result.output
 
     def test_llamacpp_tools_found_from_configured_binary(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

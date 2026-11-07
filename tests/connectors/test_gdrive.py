@@ -12,8 +12,8 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers — fake API payloads
@@ -52,12 +52,12 @@ _EXPORT_RESPONSE = "# Q3 Roadmap\n\nThis is the roadmap content."
 @pytest.fixture()
 def connector(tmp_path: Path):
     """GDriveConnector pointing at a tmp credentials path (no file yet)."""
-    from openjarvis.connectors.gdrive import GDriveConnector  # noqa: PLC0415
+    from friday_ai.connectors.gdrive import GDriveConnector  # noqa: PLC0415
 
     creds_path = str(tmp_path / "gdrive.json")
     # Prevent fallback to shared google.json on machines with real credentials
     with patch(
-        "openjarvis.connectors.oauth._SHARED_GOOGLE_CREDENTIALS_PATH",
+        "friday_ai.connectors.oauth._SHARED_GOOGLE_CREDENTIALS_PATH",
         str(tmp_path / "google_shared.json"),
     ):
         yield GDriveConnector(credentials_path=creds_path)
@@ -91,8 +91,8 @@ def test_auth_url(connector) -> None:
 # ---------------------------------------------------------------------------
 
 
-@patch("openjarvis.connectors.gdrive._gdrive_api_list_files")
-@patch("openjarvis.connectors.gdrive._gdrive_api_export")
+@patch("friday_ai.connectors.gdrive._gdrive_api_list_files")
+@patch("friday_ai.connectors.gdrive._gdrive_api_export")
 def test_sync_yields_documents(
     mock_export,
     mock_list,
@@ -172,7 +172,7 @@ def test_mcp_tools(connector) -> None:
 
 def test_registry() -> None:
     """GDriveConnector can be registered and retrieved via ConnectorRegistry."""
-    from openjarvis.connectors.gdrive import GDriveConnector  # noqa: PLC0415
+    from friday_ai.connectors.gdrive import GDriveConnector  # noqa: PLC0415
 
     # The registry is cleared before each test by the autouse conftest fixture,
     # so we imperatively re-register here (same pattern as test_gmail.py).

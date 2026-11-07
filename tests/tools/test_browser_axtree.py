@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from openjarvis.tools.browser_axtree import BrowserAXTreeTool
+from friday_ai.tools.browser_axtree import BrowserAXTreeTool
 
 
 def _make_mock_page():
@@ -35,7 +35,7 @@ class TestBrowserAXTreeTool:
 
     def test_execute_returns_tree(self) -> None:
         session = _make_mock_session()
-        with patch("openjarvis.tools.browser_axtree._session", session):
+        with patch("friday_ai.tools.browser_axtree._session", session):
             tool = BrowserAXTreeTool()
             result = tool.execute()
         assert result.success is True
@@ -44,7 +44,7 @@ class TestBrowserAXTreeTool:
 
     def test_execute_includes_all_roles(self) -> None:
         session = _make_mock_session()
-        with patch("openjarvis.tools.browser_axtree._session", session):
+        with patch("friday_ai.tools.browser_axtree._session", session):
             tool = BrowserAXTreeTool()
             result = tool.execute()
         assert result.success is True
@@ -54,7 +54,7 @@ class TestBrowserAXTreeTool:
 
     def test_execute_includes_node_count_metadata(self) -> None:
         session = _make_mock_session()
-        with patch("openjarvis.tools.browser_axtree._session", session):
+        with patch("friday_ai.tools.browser_axtree._session", session):
             tool = BrowserAXTreeTool()
             result = tool.execute()
         assert result.success is True
@@ -64,7 +64,7 @@ class TestBrowserAXTreeTool:
     def test_execute_max_depth(self) -> None:
         """When max_depth=1 only the root node should appear."""
         session = _make_mock_session()
-        with patch("openjarvis.tools.browser_axtree._session", session):
+        with patch("friday_ai.tools.browser_axtree._session", session):
             tool = BrowserAXTreeTool()
             result = tool.execute(max_depth=1)
         assert result.success is True
@@ -76,7 +76,7 @@ class TestBrowserAXTreeTool:
         page = MagicMock()
         page.accessibility.snapshot.return_value = None
         session = _make_mock_session(page)
-        with patch("openjarvis.tools.browser_axtree._session", session):
+        with patch("friday_ai.tools.browser_axtree._session", session):
             tool = BrowserAXTreeTool()
             result = tool.execute()
         assert result.success is False
@@ -87,7 +87,7 @@ class TestBrowserAXTreeTool:
         type(session).page = PropertyMock(
             side_effect=ImportError("playwright not installed")
         )
-        with patch("openjarvis.tools.browser_axtree._session", session):
+        with patch("friday_ai.tools.browser_axtree._session", session):
             tool = BrowserAXTreeTool()
             result = tool.execute()
         assert result.success is False
@@ -114,7 +114,7 @@ class TestBrowserAXTreeTool:
         page = MagicMock()
         page.accessibility.snapshot.side_effect = Exception("Browser crashed")
         session = _make_mock_session(page)
-        with patch("openjarvis.tools.browser_axtree._session", session):
+        with patch("friday_ai.tools.browser_axtree._session", session):
             tool = BrowserAXTreeTool()
             result = tool.execute()
         assert result.success is False

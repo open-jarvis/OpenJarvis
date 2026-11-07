@@ -16,9 +16,9 @@ Covers:
 
 import json
 
-from openjarvis.evals.core.types import EvalRecord
-from openjarvis.evals.datasets.lifelong_agent import LifelongAgentDataset
-from openjarvis.evals.scorers.lifelong_agent_scorer import (
+from friday_ai.evals.core.types import EvalRecord
+from friday_ai.evals.datasets.lifelong_agent import LifelongAgentDataset
+from friday_ai.evals.scorers.lifelong_agent_scorer import (
     LifelongAgentScorer,
     _compare_table_states,
     _extract_bash_commands,
@@ -637,7 +637,7 @@ class TestDataset:
 class TestDBEnvironment:
     def test_multi_turn_select(self) -> None:
         """DB environment should handle multi-turn SQL interaction."""
-        from openjarvis.evals.environments.lifelong_agent_env import DBEnvironment
+        from friday_ai.evals.environments.lifelong_agent_env import DBEnvironment
 
         record = _db_record(
             direct=[[1, "Alice", 95.5], [2, "Bob", 87.0], [3, "Carol", 92.3]],
@@ -671,7 +671,7 @@ class TestDBEnvironment:
 
     def test_multi_turn_insert(self) -> None:
         """DB environment should handle DML tasks."""
-        from openjarvis.evals.environments.lifelong_agent_env import DBEnvironment
+        from friday_ai.evals.environments.lifelong_agent_env import DBEnvironment
 
         record = _db_record(
             md5="x",
@@ -696,7 +696,7 @@ class TestDBEnvironment:
         env.close()
 
     def test_bad_sql_returns_error(self) -> None:
-        from openjarvis.evals.environments.lifelong_agent_env import DBEnvironment
+        from friday_ai.evals.environments.lifelong_agent_env import DBEnvironment
 
         record = _db_record(direct=[[1]])
         env = DBEnvironment(use_mysql=False)
@@ -708,7 +708,7 @@ class TestDBEnvironment:
         env.close()
 
     def test_unparseable_response(self) -> None:
-        from openjarvis.evals.environments.lifelong_agent_env import DBEnvironment
+        from friday_ai.evals.environments.lifelong_agent_env import DBEnvironment
 
         record = _db_record(direct=[[1]])
         env = DBEnvironment(use_mysql=False)
@@ -723,7 +723,7 @@ class TestDBEnvironment:
 class TestKGEnvironment:
     def test_multi_turn_with_oracle(self) -> None:
         """KG environment should simulate API calls from action_list."""
-        from openjarvis.evals.environments.lifelong_agent_env import KGEnvironment
+        from friday_ai.evals.environments.lifelong_agent_env import KGEnvironment
 
         # Use string action_list matching HF dataset format
         record = _kg_record(
@@ -758,7 +758,7 @@ class TestKGEnvironment:
 
     def test_multi_turn_with_dict_oracle(self) -> None:
         """KG environment should also handle dict-format action_list."""
-        from openjarvis.evals.environments.lifelong_agent_env import KGEnvironment
+        from friday_ai.evals.environments.lifelong_agent_env import KGEnvironment
 
         record = _kg_record(
             answer_list=["m.001"],
@@ -780,7 +780,7 @@ class TestKGEnvironment:
         env.close()
 
     def test_wrong_answer(self) -> None:
-        from openjarvis.evals.environments.lifelong_agent_env import KGEnvironment
+        from friday_ai.evals.environments.lifelong_agent_env import KGEnvironment
 
         record = _kg_record(answer_list=["m.001"])
         env = KGEnvironment()
@@ -793,7 +793,7 @@ class TestKGEnvironment:
         env.close()
 
     def test_invalid_api_call(self) -> None:
-        from openjarvis.evals.environments.lifelong_agent_env import KGEnvironment
+        from friday_ai.evals.environments.lifelong_agent_env import KGEnvironment
 
         record = _kg_record(answer_list=["m.001"])
         env = KGEnvironment()
@@ -805,7 +805,7 @@ class TestKGEnvironment:
         env.close()
 
     def test_partial_f1(self) -> None:
-        from openjarvis.evals.environments.lifelong_agent_env import KGEnvironment
+        from friday_ai.evals.environments.lifelong_agent_env import KGEnvironment
 
         record = _kg_record(answer_list=["m.001", "m.002"])
         env = KGEnvironment()
@@ -825,7 +825,7 @@ class TestOSEnvironment:
         """OS environment should fail loudly without Docker."""
         import shutil
 
-        from openjarvis.evals.environments.lifelong_agent_env import OSEnvironment
+        from friday_ai.evals.environments.lifelong_agent_env import OSEnvironment
 
         if shutil.which("docker"):
             # Docker is available — test that it at least initializes
@@ -848,20 +848,20 @@ class TestOSEnvironment:
 
 class TestCLI:
     def test_in_benchmarks(self) -> None:
-        from openjarvis.evals.cli import BENCHMARKS
+        from friday_ai.evals.cli import BENCHMARKS
 
         assert "lifelong-agent" in BENCHMARKS
         assert BENCHMARKS["lifelong-agent"]["category"] == "agentic"
 
     def test_build_dataset(self) -> None:
-        from openjarvis.evals.cli import _build_dataset
+        from friday_ai.evals.cli import _build_dataset
 
         ds = _build_dataset("lifelong-agent")
         assert ds.dataset_id == "lifelong-agent"
         assert hasattr(ds, "create_task_env")
 
     def test_build_scorer(self) -> None:
-        from openjarvis.evals.cli import _build_scorer
+        from friday_ai.evals.cli import _build_scorer
 
         s = _build_scorer("lifelong-agent", None, "test-model")
         assert s.scorer_id == "lifelong-agent"
@@ -874,18 +874,18 @@ class TestCLI:
 
 class TestRunnerEpisodeMode:
     def test_episode_mode_field_exists(self) -> None:
-        from openjarvis.evals.core.types import RunConfig
+        from friday_ai.evals.core.types import RunConfig
 
         config = RunConfig(
             benchmark="lifelong-agent",
-            backend="jarvis-direct",
+            backend="friday-direct",
             model="test",
             episode_mode=True,
         )
         assert config.episode_mode is True
 
     def test_runner_has_episode_mode_method(self) -> None:
-        from openjarvis.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.runner import EvalRunner
 
         assert hasattr(EvalRunner, "_run_episode_mode")
         assert hasattr(EvalRunner, "_process_interactive")
@@ -893,7 +893,7 @@ class TestRunnerEpisodeMode:
 
     def test_inject_examples_empty(self) -> None:
         """With no examples, record should be returned unchanged."""
-        from openjarvis.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.runner import EvalRunner
 
         record = EvalRecord(
             record_id="test",
@@ -910,7 +910,7 @@ class TestRunnerEpisodeMode:
 
     def test_inject_examples_adds_context(self) -> None:
         """With examples, record should have examples prepended."""
-        from openjarvis.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.runner import EvalRunner
 
         record = EvalRecord(
             record_id="test",
@@ -929,7 +929,7 @@ class TestRunnerEpisodeMode:
 
     def test_inject_examples_with_interaction_history(self) -> None:
         """With full interaction history, should include multi-turn exchanges."""
-        from openjarvis.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.runner import EvalRunner
 
         record = EvalRecord(
             record_id="test",
@@ -960,7 +960,7 @@ class TestRunnerEpisodeMode:
 
     def test_max_prior_examples_constant(self) -> None:
         """Runner should have a FIFO buffer size matching original default."""
-        from openjarvis.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.runner import EvalRunner
 
         assert EvalRunner._MAX_PRIOR_EXAMPLES == 3
 
@@ -986,7 +986,7 @@ class TestKGVariableReference:
 
     def test_variable_ref_in_env(self) -> None:
         """KG environment should resolve variable references."""
-        from openjarvis.evals.environments.lifelong_agent_env import KGEnvironment
+        from friday_ai.evals.environments.lifelong_agent_env import KGEnvironment
 
         record = _kg_record(
             answer_list=["m.001"],
@@ -1045,7 +1045,7 @@ class TestOSActionFormat:
 
 class TestMaxTurns:
     def test_db_max_turns(self) -> None:
-        from openjarvis.evals.environments.lifelong_agent_env import (
+        from friday_ai.evals.environments.lifelong_agent_env import (
             MAX_TURNS_DB,
             DBEnvironment,
         )
@@ -1055,7 +1055,7 @@ class TestMaxTurns:
         assert env.max_turns == 3
 
     def test_kg_max_turns(self) -> None:
-        from openjarvis.evals.environments.lifelong_agent_env import (
+        from friday_ai.evals.environments.lifelong_agent_env import (
             MAX_TURNS_KG,
             KGEnvironment,
         )
@@ -1065,7 +1065,7 @@ class TestMaxTurns:
         assert env.max_turns == 15
 
     def test_os_max_turns(self) -> None:
-        from openjarvis.evals.environments.lifelong_agent_env import (
+        from friday_ai.evals.environments.lifelong_agent_env import (
             MAX_TURNS_OS,
             OSEnvironment,
         )
@@ -1075,7 +1075,7 @@ class TestMaxTurns:
         assert env.max_turns == 5
 
     def test_base_default(self) -> None:
-        from openjarvis.evals.environments.base import TaskEnvironment
+        from friday_ai.evals.environments.base import TaskEnvironment
 
         # Can't instantiate ABC, but verify the property exists
         assert hasattr(TaskEnvironment, "max_turns")

@@ -67,7 +67,7 @@ jobs:
         run: uv sync --extra dev --extra framework-comparison --extra server --extra inference-cloud
 
       - name: Build Rust extension
-        run: uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
+        run: uv run maturin develop --manifest-path rust/crates/friday_ai-python/Cargo.toml
 
       - name: Run tests
         # COVERAGE_CORE=sysmon uses CPython 3.12's sys.monitoring backend,
@@ -77,7 +77,7 @@ jobs:
           COVERAGE_CORE: sysmon
         run: |
           uv run pytest tests/ -n auto -q --tb=short -m "not live and not cloud and not hub" \
-            --cov=openjarvis \
+            --cov=friday_ai \
             --cov-report=term-missing \
             --cov-report=xml \
             --cov-fail-under=60
@@ -95,7 +95,7 @@ jobs:
   # Windows job — empirically exercises the platform-specific code paths that
   # the Ubuntu `test` job can never reach: GlobalMemoryStatusEx RAM detection
   # (#373) and the cp9xx -> UTF-8 stdout reconfigure (#293). Also the only CI
-  # job that builds + imports the mandatory `openjarvis_rust` PyO3 extension
+  # job that builds + imports the mandatory `friday_ai_rust` PyO3 extension
   # on Windows. Public repo -> Windows runner minutes are free.
   #
   # All `run:` steps use static commands only (no `github.event.*`
@@ -130,7 +130,7 @@ jobs:
       - name: Verify Windows RAM detection (#373)
         shell: bash
         run: |
-          uv run python -c "from openjarvis.core.config import _total_ram_gb; ram = _total_ram_gb(); print(f'GlobalMemoryStatusEx RAM = {ram} GB'); assert ram > 0, f'Windows RAM detection returned {ram}, expected > 0'"
+          uv run python -c "from friday_ai.core.config import _total_ram_gb; ram = _total_ram_gb(); print(f'GlobalMemoryStatusEx RAM = {ram} GB'); assert ram > 0, f'Windows RAM detection returned {ram}, expected > 0'"
 
       - name: Run Windows-specific tests (hardware + CLI + daemon)
         shell: bash
@@ -147,13 +147,13 @@ jobs:
       - name: Build + import the PyO3 extension on Windows
         shell: bash
         run: |
-          uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
-          uv run python -c "import openjarvis_rust; print('openjarvis_rust imports on Windows OK')"
+          uv run maturin develop --manifest-path rust/crates/friday_ai-python/Cargo.toml
+          uv run python -c "import friday_ai_rust; print('friday_ai_rust imports on Windows OK')"
 
       - name: Smoke-test CLI
         shell: bash
         run: |
-          uv run jarvis --version
+          uv run friday --version
 
   rust:
     runs-on: ubuntu-latest

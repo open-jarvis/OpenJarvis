@@ -73,7 +73,7 @@ The zero-dependency default backend. Uses SQLite's built-in FTS5 extension for f
 - **Storage:** Documents stored in a `documents` table with automatic FTS5 indexing via triggers
 - **Search:** FTS5 `MATCH` queries with BM25 ranking (more negative rank = better match, converted to positive scores)
 - **Query escaping:** Each word is quoted to avoid FTS5 syntax errors
-- **Persistence:** Data persists across restarts in `~/.openjarvis/memory.db`
+- **Persistence:** Data persists across restarts in `~/.friday_ai/memory.db`
 
 ### FAISS
 
@@ -116,9 +116,9 @@ $$\text{RRF}(d) = \sum_{i} \frac{w_i}{k + \text{rank}_i(d)}$$
 - **Configurable:** RRF constant `k` (default 60) and per-backend weights
 
 ```python
-from openjarvis.tools.storage.sqlite import SQLiteMemory
-from openjarvis.tools.storage.faiss_backend import FAISSMemory
-from openjarvis.tools.storage.hybrid import HybridMemory
+from friday_ai.tools.storage.sqlite import SQLiteMemory
+from friday_ai.tools.storage.faiss_backend import FAISSMemory
+from friday_ai.tools.storage.hybrid import HybridMemory
 
 hybrid = HybridMemory(
     sparse=SQLiteMemory(db_path="memory.db"),
@@ -129,7 +129,7 @@ hybrid = HybridMemory(
 ```
 
 !!! note "Backward compatibility"
-    The old imports (e.g., `from openjarvis.memory.sqlite import SQLiteMemory`) still work via backward-compatibility shims in the `memory/` package, but the canonical location is now `openjarvis.tools.storage.*`.
+    The old imports (e.g., `from friday_ai.memory.sqlite import SQLiteMemory`) still work via backward-compatibility shims in the `memory/` package, but the canonical location is now `friday_ai.tools.storage.*`.
 
 ---
 
@@ -170,7 +170,7 @@ The `chunk_text()` function splits text using paragraph boundaries:
 5. Discard chunks smaller than `min_chunk_size`
 
 ```python
-from openjarvis.tools.storage.chunking import chunk_text, ChunkConfig
+from friday_ai.tools.storage.chunking import chunk_text, ChunkConfig
 
 config = ChunkConfig(chunk_size=256, chunk_overlap=32)
 chunks = chunk_text(document_text, source="docs/guide.md", config=config)
@@ -204,7 +204,7 @@ Ingests a file or directory into chunks:
 
 ```python
 from pathlib import Path
-from openjarvis.tools.storage.ingest import ingest_path
+from friday_ai.tools.storage.ingest import ingest_path
 
 # Ingest a single file
 chunks = ingest_path(Path("docs/guide.md"))
@@ -248,7 +248,7 @@ The default embedder wraps the `sentence-transformers` library:
 - **Output:** NumPy arrays of shape `(n, dim)`
 
 ```python
-from openjarvis.tools.storage.embeddings import SentenceTransformerEmbedder
+from friday_ai.tools.storage.embeddings import SentenceTransformerEmbedder
 
 embedder = SentenceTransformerEmbedder(model_name="all-MiniLM-L6-v2")
 vectors = embedder.embed(["Hello world", "How are you?"])
@@ -296,7 +296,7 @@ How it works:
 6. Returns a **new** message list with the context message prepended
 
 ```python
-from openjarvis.tools.storage.context import inject_context, ContextConfig
+from friday_ai.tools.storage.context import inject_context, ContextConfig
 
 config = ContextConfig(top_k=3, min_score=0.2)
 messages = inject_context("What is the API?", messages, backend, config=config)
@@ -322,8 +322,8 @@ inform your response, citing sources where applicable:
 Memory backends are registered via the `@MemoryRegistry.register("name")` decorator:
 
 ```python
-from openjarvis.core.registry import MemoryRegistry
-from openjarvis.tools.storage._stubs import MemoryBackend
+from friday_ai.core.registry import MemoryRegistry
+from friday_ai.tools.storage._stubs import MemoryBackend
 
 @MemoryRegistry.register("my-backend")
 class MyMemoryBackend(MemoryBackend):
@@ -335,7 +335,7 @@ class MyMemoryBackend(MemoryBackend):
     def clear(self) -> None: ...
 ```
 
-The default backend is configured in `~/.openjarvis/config.toml`. Storage settings live under `[tools.storage]`, and context injection is controlled by `agent.context_from_memory`:
+The default backend is configured in `~/.friday_ai/config.toml`. Storage settings live under `[tools.storage]`, and context injection is controlled by `agent.context_from_memory`:
 
 ```toml
 [agent]
@@ -343,7 +343,7 @@ context_from_memory = true
 
 [tools.storage]
 default_backend = "sqlite"
-db_path = "~/.openjarvis/memory.db"
+db_path = "~/.friday_ai/memory.db"
 context_top_k = 5
 context_min_score = 0.1
 context_max_tokens = 2048

@@ -9,11 +9,11 @@ from unittest.mock import patch
 
 import pytest
 
-pytest.importorskip("fastapi", reason="openjarvis[server] not installed")
+pytest.importorskip("fastapi", reason="friday_ai[server] not installed")
 
-from openjarvis.cli.scan_cmd import PrivacyScanner  # noqa: E402
-from openjarvis.server.api_routes import _iterate_sync_stream  # noqa: E402
-from openjarvis.server.routes import security_scan  # noqa: E402
+from friday_ai.cli.scan_cmd import PrivacyScanner  # noqa: E402
+from friday_ai.server.api_routes import _iterate_sync_stream  # noqa: E402
+from friday_ai.server.routes import security_scan  # noqa: E402
 
 
 def test_security_scan_runs_on_worker_thread() -> None:

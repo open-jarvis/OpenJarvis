@@ -1,4 +1,4 @@
-"""Tests for openjarvis.learning.spec_search.plan.planner module.
+"""Tests for friday_ai.learning.spec_search.plan.planner module.
 
 All tests use mocked CloudEngine — no live API calls.
 """
@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from openjarvis.learning.spec_search.models import (
+from friday_ai.learning.spec_search.models import (
     EditOp,
     EditRiskTier,
     FailureCluster,
@@ -72,7 +72,7 @@ class TestLearningPlanner:
     """Tests for LearningPlanner."""
 
     def test_produces_learning_plan(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.plan.planner import LearningPlanner
+        from friday_ai.learning.spec_search.plan.planner import LearningPlanner
 
         engine = MagicMock()
         engine.generate.return_value = _make_teacher_response([_make_edit_dict()])
@@ -95,7 +95,7 @@ class TestLearningPlanner:
         assert plan.teacher_model == "claude-opus-4-6"
 
     def test_assigns_risk_tiers(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.plan.planner import LearningPlanner
+        from friday_ai.learning.spec_search.plan.planner import LearningPlanner
 
         engine = MagicMock()
         # Teacher incorrectly sets MANUAL for an auto-tier op
@@ -119,7 +119,7 @@ class TestLearningPlanner:
         assert plan.edits[0].risk_tier == EditRiskTier.AUTO
 
     def test_persists_plan_json(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.plan.planner import LearningPlanner
+        from friday_ai.learning.spec_search.plan.planner import LearningPlanner
 
         engine = MagicMock()
         engine.generate.return_value = _make_teacher_response([_make_edit_dict()])
@@ -143,7 +143,7 @@ class TestLearningPlanner:
         assert data["session_id"] == "session-001"
 
     def test_drops_cluster_with_zero_rates(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.plan.planner import LearningPlanner
+        from friday_ai.learning.spec_search.plan.planner import LearningPlanner
 
         engine = MagicMock()
         engine.generate.return_value = _make_teacher_response([_make_edit_dict()])
@@ -188,7 +188,7 @@ class TestLearningPlanner:
         assert "dropped" not in good.skill_gap.lower()
 
     def test_all_clusters_dropped_returns_empty_edits(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.plan.planner import LearningPlanner
+        from friday_ai.learning.spec_search.plan.planner import LearningPlanner
 
         engine = MagicMock()
         engine.generate.return_value = _make_teacher_response([])
@@ -220,7 +220,7 @@ class TestLearningPlanner:
         assert plan.failure_clusters[0].addressed_by_edit_ids == []
 
     def test_persists_teacher_trace_jsonl(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.plan.planner import LearningPlanner
+        from friday_ai.learning.spec_search.plan.planner import LearningPlanner
 
         engine = MagicMock()
         engine.generate.return_value = _make_teacher_response([_make_edit_dict()])
@@ -246,7 +246,7 @@ class TestLearningPlanner:
         assert "cost_usd" in record
 
     def test_handles_malformed_teacher_output(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.plan.planner import LearningPlanner
+        from friday_ai.learning.spec_search.plan.planner import LearningPlanner
 
         engine = MagicMock()
         engine.generate.return_value = {

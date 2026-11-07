@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement Spec A — the v1 vLLM-Pearl mining integration — as a new `openjarvis.mining` subsystem that lets H100/H200 owners running vLLM solo-mine the Pearl PoUW chain with their normal LLM inference.
+**Goal:** Implement Spec A — the v1 vLLM-Pearl mining integration — as a new `friday_ai.mining` subsystem that lets H100/H200 owners running vLLM solo-mine the Pearl PoUW chain with their normal LLM inference.
 
-**Architecture:** New top-level subsystem `mining/` mirrors OJ's existing primitive pattern (peer to `engine/`, `agents/`). A `MiningProvider` ABC + `MinerRegistry` enables future hardware/engine paths (Apple Silicon, AMD, Ollama) without rewrite. The v1 `vllm-pearl` provider orchestrates Pearl's published Docker container; a runtime sidecar at `~/.openjarvis/runtime/mining.json` decouples mining lifecycle from the existing vLLM engine class. Three deliberate seams (`submit_target` tagged-union, zero-valued `fee_bps`/`fees_owed`, reserved `mining/pools/`) leave room for v2 pool support without retrofit pain.
+**Architecture:** New top-level subsystem `mining/` mirrors OJ's existing primitive pattern (peer to `engine/`, `agents/`). A `MiningProvider` ABC + `MinerRegistry` enables future hardware/engine paths (Apple Silicon, AMD, Ollama) without rewrite. The v1 `vllm-pearl` provider orchestrates Pearl's published Docker container; a runtime sidecar at `~/.friday_ai/runtime/mining.json` decouples mining lifecycle from the existing vLLM engine class. Three deliberate seams (`submit_target` tagged-union, zero-valued `fee_bps`/`fees_owed`, reserved `mining/pools/`) leave room for v2 pool support without retrofit pain.
 
 **Tech Stack:** Python 3.10+, `docker>=7.0` SDK, Click CLI, pytest with `unittest.mock`, ruff, uv. References Pearl repo (`pearl-research-labs/pearl`) at a pinned commit/tag.
 
@@ -14,7 +14,7 @@
 
 - All new modules begin with `from __future__ import annotations`.
 - All dataclasses use `@dataclass(slots=True)`.
-- Absolute imports only (`from openjarvis.core.registry import ...`).
+- Absolute imports only (`from friday_ai.core.registry import ...`).
 - Optional dependencies live behind `try / except ImportError` in the parent `__init__.py`.
 - Tests in `tests/conftest.py` autouse-clear all registries — the `ensure_registered()` pattern (idempotent registration guarded by `XRegistry.contains(...)`) is required for components that need to survive the autouse clear.
 - File-naming: `_stubs.py` (ABC + dataclasses), `_discovery.py` (auto-detection), `*_cmd.py` (CLI commands).
@@ -29,15 +29,15 @@
 
 | Path | Responsibility |
 |---|---|
-| `src/openjarvis/mining/__init__.py` | Package init; soft-imports providers via `try/except ImportError` |
-| `src/openjarvis/mining/_stubs.py` | `MiningProvider` ABC, `MiningCapabilities`, `MiningConfig`, `MiningStats`, `SoloTarget`/`PoolTarget` tagged union, `Sidecar` dataclass + read/write helpers |
-| `src/openjarvis/mining/_discovery.py` | `detect_providers()`, hardware/Docker/disk/pearld checks, wallet-format check |
-| `src/openjarvis/mining/_constants.py` | `PEARL_REPO`, `PEARL_PINNED_REF`, `PEARL_IMAGE_TAG`, default ports, default model, sidecar path constants |
-| `src/openjarvis/mining/_docker.py` | `PearlDockerLauncher` — `ensure_image()`, `start()`, `stop()`, `is_running()`, `get_logs()` |
-| `src/openjarvis/mining/_collector.py` | `MiningTelemetryCollector` — full impl, shipped unwired in v1; v1.x lights it up in the gateway daemon |
-| `src/openjarvis/mining/vllm_pearl.py` | `VllmPearlProvider` (`MiningProvider` impl); `_parse_gateway_metrics()`; `ensure_registered()` |
-| `src/openjarvis/mining/pools/__init__.py` | Reserved location for v2 `PoolClient` work — empty except for a docstring saying so |
-| `src/openjarvis/cli/mine_cmd.py` | `jarvis mine` Click group: `init`, `start`, `stop`, `status`, `doctor`, `attach`, `logs` |
+| `src/friday_ai/mining/__init__.py` | Package init; soft-imports providers via `try/except ImportError` |
+| `src/friday_ai/mining/_stubs.py` | `MiningProvider` ABC, `MiningCapabilities`, `MiningConfig`, `MiningStats`, `SoloTarget`/`PoolTarget` tagged union, `Sidecar` dataclass + read/write helpers |
+| `src/friday_ai/mining/_discovery.py` | `detect_providers()`, hardware/Docker/disk/pearld checks, wallet-format check |
+| `src/friday_ai/mining/_constants.py` | `PEARL_REPO`, `PEARL_PINNED_REF`, `PEARL_IMAGE_TAG`, default ports, default model, sidecar path constants |
+| `src/friday_ai/mining/_docker.py` | `PearlDockerLauncher` — `ensure_image()`, `start()`, `stop()`, `is_running()`, `get_logs()` |
+| `src/friday_ai/mining/_collector.py` | `MiningTelemetryCollector` — full impl, shipped unwired in v1; v1.x lights it up in the gateway daemon |
+| `src/friday_ai/mining/vllm_pearl.py` | `VllmPearlProvider` (`MiningProvider` impl); `_parse_gateway_metrics()`; `ensure_registered()` |
+| `src/friday_ai/mining/pools/__init__.py` | Reserved location for v2 `PoolClient` work — empty except for a docstring saying so |
+| `src/friday_ai/cli/mine_cmd.py` | `friday mine` Click group: `init`, `start`, `stop`, `status`, `doctor`, `attach`, `logs` |
 | `tests/mining/__init__.py` | Empty test package init |
 | `tests/mining/conftest.py` | Mining-specific fixtures: synthetic `HardwareInfo`, mock Docker client factory, sample sidecar tmp_path |
 | `tests/mining/fixtures/gateway_metrics_sample.txt` | Real Prometheus output captured from a Pearl gateway run (one snapshot, committed) |
@@ -56,12 +56,12 @@
 
 | Path | Change |
 |---|---|
-| `src/openjarvis/core/registry.py` | Add `MinerRegistry` class + entry in `__all__` |
-| `src/openjarvis/core/config.py` | Add `MiningConfig` field to `JarvisConfig`; add TOML parser for `[mining]` with `submit_target` tagged-union resolution |
-| `src/openjarvis/engine/_discovery.py` | Add sidecar-aware engine resolution: when `~/.openjarvis/runtime/mining.json` exists, register a derived `vllm` engine pointing at `vllm_endpoint` |
-| `src/openjarvis/telemetry/store.py` | Add nullable `mining_session_id` column to inference rows; bump `PRAGMA user_version`; helper to tag rows when sidecar is present |
-| `src/openjarvis/cli/__init__.py` | Register the `mine` Click group |
-| `src/openjarvis/cli/hints.py` | Add hint: "mining configured but not running — start it with `jarvis mine start`" |
+| `src/friday_ai/core/registry.py` | Add `MinerRegistry` class + entry in `__all__` |
+| `src/friday_ai/core/config.py` | Add `MiningConfig` field to `FridayConfig`; add TOML parser for `[mining]` with `submit_target` tagged-union resolution |
+| `src/friday_ai/engine/_discovery.py` | Add sidecar-aware engine resolution: when `~/.friday_ai/runtime/mining.json` exists, register a derived `vllm` engine pointing at `vllm_endpoint` |
+| `src/friday_ai/telemetry/store.py` | Add nullable `mining_session_id` column to inference rows; bump `PRAGMA user_version`; helper to tag rows when sidecar is present |
+| `src/friday_ai/cli/__init__.py` | Register the `mine` Click group |
+| `src/friday_ai/cli/hints.py` | Add hint: "mining configured but not running — start it with `friday mine start`" |
 | `tests/conftest.py` | Add `MinerRegistry.clear()` to autouse `_clean_registries` fixture |
 | `pyproject.toml` | Add `mining-pearl` extra; add `docker` pytest marker |
 | `CLAUDE.md` | Add paragraph under Architecture pointing future-Claude at `mining/` as a sibling subsystem |
@@ -72,7 +72,7 @@
 ## Task 1 — Add `MinerRegistry`
 
 **Files:**
-- Modify: `src/openjarvis/core/registry.py`
+- Modify: `src/friday_ai/core/registry.py`
 - Modify: `tests/conftest.py`
 - Test: `tests/core/test_registry.py` (existing file — add a new test)
 
@@ -82,7 +82,7 @@ Add to `tests/core/test_registry.py`:
 
 ```python
 def test_miner_registry_register_and_get():
-    from openjarvis.core.registry import MinerRegistry
+    from friday_ai.core.registry import MinerRegistry
 
     class _Stub:
         provider_id = "stub-pearl"
@@ -108,7 +108,7 @@ class MinerRegistry(RegistryBase[Any]):
     """Registry for Pearl mining provider implementations.
 
     Each provider implements the ``MiningProvider`` ABC defined in
-    ``openjarvis.mining._stubs``. Registry keys are short lowercase strings
+    ``friday_ai.mining._stubs``. Registry keys are short lowercase strings
     such as ``"vllm-pearl"`` (CUDA + Hopper) and (future) ``"mlx-pearl"``,
     ``"llamacpp-pearl-metal"``, ``"ollama-pearl"``.
     """
@@ -133,7 +133,7 @@ Add a second test below the registration test:
 
 ```python
 def test_miner_registry_cleared_between_tests():
-    from openjarvis.core.registry import MinerRegistry
+    from friday_ai.core.registry import MinerRegistry
     # If autouse clear works, no entry from prior tests remains
     assert MinerRegistry.contains("stub-pearl") is False
 ```
@@ -146,7 +146,7 @@ Expected: both PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/openjarvis/core/registry.py tests/conftest.py tests/core/test_registry.py
+git add src/friday_ai/core/registry.py tests/conftest.py tests/core/test_registry.py
 git commit -m "feat(mining): add MinerRegistry for mining providers"
 ```
 
@@ -155,10 +155,10 @@ git commit -m "feat(mining): add MinerRegistry for mining providers"
 ## Task 2 — Mining package skeleton: constants, ABC, dataclasses, sidecar IO
 
 **Files:**
-- Create: `src/openjarvis/mining/__init__.py`
-- Create: `src/openjarvis/mining/_constants.py`
-- Create: `src/openjarvis/mining/_stubs.py`
-- Create: `src/openjarvis/mining/pools/__init__.py`
+- Create: `src/friday_ai/mining/__init__.py`
+- Create: `src/friday_ai/mining/_constants.py`
+- Create: `src/friday_ai/mining/_stubs.py`
+- Create: `src/friday_ai/mining/pools/__init__.py`
 - Create: `tests/mining/__init__.py`
 - Create: `tests/mining/conftest.py`
 - Create: `tests/mining/test_stubs.py`
@@ -181,7 +181,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.core.config import GpuInfo, HardwareInfo
+from friday_ai.core.config import GpuInfo, HardwareInfo
 
 
 @pytest.fixture
@@ -288,7 +288,7 @@ import pytest
 
 
 def test_mining_capabilities_default_unsupported():
-    from openjarvis.mining._stubs import MiningCapabilities
+    from friday_ai.mining._stubs import MiningCapabilities
     cap = MiningCapabilities(supported=False, reason="needs sm90")
     assert cap.supported is False
     assert cap.reason == "needs sm90"
@@ -296,20 +296,20 @@ def test_mining_capabilities_default_unsupported():
 
 
 def test_solo_target_dataclass():
-    from openjarvis.mining._stubs import SoloTarget
+    from friday_ai.mining._stubs import SoloTarget
     t = SoloTarget(pearld_rpc_url="http://localhost:44107")
     assert t.pearld_rpc_url == "http://localhost:44107"
 
 
 def test_pool_target_dataclass():
-    from openjarvis.mining._stubs import PoolTarget
+    from friday_ai.mining._stubs import PoolTarget
     t = PoolTarget(url="https://pool.example/submit", worker_id="rig01")
     assert t.url == "https://pool.example/submit"
     assert t.worker_id == "rig01"
 
 
 def test_mining_config_v1_defaults():
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget
     cfg = MiningConfig(
         provider="vllm-pearl",
         wallet_address="prl1qexample",
@@ -321,7 +321,7 @@ def test_mining_config_v1_defaults():
 
 
 def test_mining_stats_v1_defaults():
-    from openjarvis.mining._stubs import MiningStats
+    from friday_ai.mining._stubs import MiningStats
     s = MiningStats(provider_id="vllm-pearl")
     assert s.shares_submitted == 0
     assert s.shares_accepted == 0
@@ -330,25 +330,25 @@ def test_mining_stats_v1_defaults():
 
 
 def test_mining_provider_is_abstract():
-    from openjarvis.mining._stubs import MiningProvider
+    from friday_ai.mining._stubs import MiningProvider
     with pytest.raises(TypeError):
         MiningProvider()  # cannot instantiate ABC
 
 
 def test_sidecar_write_then_read_roundtrip(sidecar_path: Path, sample_sidecar_payload: dict):
-    from openjarvis.mining._stubs import Sidecar
+    from friday_ai.mining._stubs import Sidecar
     Sidecar.write(sidecar_path, sample_sidecar_payload)
     payload = Sidecar.read(sidecar_path)
     assert payload == sample_sidecar_payload
 
 
 def test_sidecar_read_missing_returns_none(sidecar_path: Path):
-    from openjarvis.mining._stubs import Sidecar
+    from friday_ai.mining._stubs import Sidecar
     assert Sidecar.read(sidecar_path) is None
 
 
 def test_sidecar_remove_is_idempotent(sidecar_path: Path):
-    from openjarvis.mining._stubs import Sidecar
+    from friday_ai.mining._stubs import Sidecar
     Sidecar.remove(sidecar_path)  # missing file — should not raise
     sidecar_path.write_text(json.dumps({"x": 1}))
     Sidecar.remove(sidecar_path)
@@ -360,12 +360,12 @@ def test_sidecar_remove_is_idempotent(sidecar_path: Path):
 ```bash
 uv run pytest tests/mining/test_stubs.py -v
 ```
-Expected: ALL fail with `ImportError` on `openjarvis.mining._stubs`.
+Expected: ALL fail with `ImportError` on `friday_ai.mining._stubs`.
 
 - [ ] **Step 5: Create `_constants.py`**
 
 ```python
-# src/openjarvis/mining/_constants.py
+# src/friday_ai/mining/_constants.py
 """Constants for the Pearl mining subsystem.
 
 Pinned Pearl ref OJ has tested against. Bumped per OJ release after
@@ -382,7 +382,7 @@ PEARL_REPO = "https://github.com/pearl-research-labs/pearl.git"
 # TODO at implementation time: replace with the specific commit/tag verified
 # against H100. Document the chosen ref in the OJ release notes.
 PEARL_PINNED_REF = "main"
-PEARL_IMAGE_TAG = f"openjarvis/pearl-miner:{PEARL_PINNED_REF}"
+PEARL_IMAGE_TAG = f"friday_ai/pearl-miner:{PEARL_PINNED_REF}"
 
 # Default Pearl-blessed model. Overridable via [mining.extra].model.
 DEFAULT_PEARL_MODEL = "pearl-ai/Llama-3.3-70B-Instruct-pearl"
@@ -399,18 +399,18 @@ DEFAULT_PEARLD_RPC_URL = "http://localhost:44107"
 MIN_FREE_DISK_GB = 200
 
 # Runtime sidecar location (single-session assumption — see spec §8.8).
-RUNTIME_DIR = Path.home() / ".openjarvis" / "runtime"
+RUNTIME_DIR = Path.home() / ".friday_ai" / "runtime"
 SIDECAR_PATH = RUNTIME_DIR / "mining.json"
 SIDECAR_LOCK_PATH = RUNTIME_DIR / "mining.lock"
 
 # Pearl source cache for build-from-pin path (see spec §7.2).
-PEARL_CACHE_DIR = Path.home() / ".openjarvis" / "cache" / "pearl"
+PEARL_CACHE_DIR = Path.home() / ".friday_ai" / "cache" / "pearl"
 ```
 
 - [ ] **Step 6: Create `_stubs.py`**
 
 ```python
-# src/openjarvis/mining/_stubs.py
+# src/friday_ai/mining/_stubs.py
 """ABCs and dataclasses for the mining subsystem.
 
 See spec ``docs/design/2026-05-05-vllm-pearl-mining-integration-design.md``
@@ -427,7 +427,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from openjarvis.core.config import HardwareInfo
+from friday_ai.core.config import HardwareInfo
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +439,7 @@ from openjarvis.core.config import HardwareInfo
 class MiningCapabilities:
     """Result of a provider's ``detect()`` call.
 
-    ``reason`` is human-readable and surfaced verbatim by ``jarvis mine doctor``
+    ``reason`` is human-readable and surfaced verbatim by ``friday mine doctor``
     when ``supported=False``.
     """
 
@@ -530,7 +530,7 @@ class MiningProvider(ABC):
         """Return whether this provider can run on the given combo.
 
         Must be a pure inspection — no subprocess, no network, no Docker. Used
-        by ``jarvis mine doctor`` and ``jarvis mine init`` for fast capability
+        by ``friday mine doctor`` and ``friday mine init`` for fast capability
         reporting.
         """
 
@@ -553,7 +553,7 @@ class MiningProvider(ABC):
 
 
 class Sidecar:
-    """Read/write helpers for ``~/.openjarvis/runtime/mining.json``."""
+    """Read/write helpers for ``~/.friday_ai/runtime/mining.json``."""
 
     @staticmethod
     def write(path: Path, payload: dict[str, Any]) -> None:
@@ -592,7 +592,7 @@ class Sidecar:
 - [ ] **Step 7: Create `mining/__init__.py`**
 
 ```python
-# src/openjarvis/mining/__init__.py
+# src/friday_ai/mining/__init__.py
 """Pearl mining subsystem.
 
 See spec ``docs/design/2026-05-05-vllm-pearl-mining-integration-design.md``.
@@ -604,7 +604,7 @@ Provider modules are soft-imported below — each one fails gracefully if the
 from __future__ import annotations
 
 # Re-export the public ABCs and dataclasses for ergonomic imports.
-from openjarvis.mining._stubs import (
+from friday_ai.mining._stubs import (
     MiningCapabilities,
     MiningConfig,
     MiningProvider,
@@ -619,7 +619,7 @@ from openjarvis.mining._stubs import (
 # defines an idempotent ``ensure_registered()`` so it survives the autouse
 # registry clear in ``tests/conftest.py``.
 try:
-    from openjarvis.mining import vllm_pearl  # noqa: F401
+    from friday_ai.mining import vllm_pearl  # noqa: F401
 
     vllm_pearl.ensure_registered()
 except ImportError:
@@ -640,7 +640,7 @@ __all__ = [
 - [ ] **Step 8: Create `mining/pools/__init__.py`** (reserved for v2)
 
 ```python
-# src/openjarvis/mining/pools/__init__.py
+# src/friday_ai/mining/pools/__init__.py
 """RESERVED for v2 pool support.
 
 Do not add code here in v1. The v2 spec will define a ``PoolClient`` ABC and
@@ -661,16 +661,16 @@ Expected: 9 PASS.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/openjarvis/mining/ tests/mining/__init__.py tests/mining/conftest.py tests/mining/test_stubs.py
+git add src/friday_ai/mining/ tests/mining/__init__.py tests/mining/conftest.py tests/mining/test_stubs.py
 git commit -m "feat(mining): add ABC, dataclasses, constants, sidecar IO"
 ```
 
 ---
 
-## Task 3 — `MiningConfig` integration in `JarvisConfig` + TOML parsing
+## Task 3 — `MiningConfig` integration in `FridayConfig` + TOML parsing
 
 **Files:**
-- Modify: `src/openjarvis/core/config.py`
+- Modify: `src/friday_ai/core/config.py`
 - Test: `tests/core/test_config.py` (existing — add new tests)
 - Test: `tests/mining/fixtures/config_minimal.toml`
 - Test: `tests/mining/fixtures/config_pool_v2.toml`
@@ -700,7 +700,7 @@ pearld_rpc_password_env = "PEARLD_RPC_PASSWORD"
 [mining]
 provider       = "vllm-pearl"
 wallet_address = "prl1qexampleaddress"
-submit_target  = "pool:https://pool.openjarvis.ai/submit"
+submit_target  = "pool:https://pool.friday_ai.ai/submit"
 
 [mining.extra]
 model                   = "pearl-ai/Llama-3.3-70B-Instruct-pearl"
@@ -715,7 +715,7 @@ Add to `tests/core/test_config.py`:
 
 ```python
 def test_mining_config_absent_means_none(tmp_path):
-    from openjarvis.core.config import load_config
+    from friday_ai.core.config import load_config
     cfg_path = tmp_path / "config.toml"
     cfg_path.write_text("")  # empty config
     cfg = load_config(cfg_path)
@@ -724,8 +724,8 @@ def test_mining_config_absent_means_none(tmp_path):
 
 def test_mining_config_solo_parsed(tmp_path):
     from pathlib import Path
-    from openjarvis.core.config import load_config
-    from openjarvis.mining._stubs import SoloTarget
+    from friday_ai.core.config import load_config
+    from friday_ai.mining._stubs import SoloTarget
     src = Path(__file__).parent.parent / "mining" / "fixtures" / "config_minimal.toml"
     target = tmp_path / "config.toml"
     target.write_text(src.read_text())
@@ -741,14 +741,14 @@ def test_mining_config_solo_parsed(tmp_path):
 
 def test_mining_config_pool_parsed_as_pool_target(tmp_path):
     from pathlib import Path
-    from openjarvis.core.config import load_config
-    from openjarvis.mining._stubs import PoolTarget
+    from friday_ai.core.config import load_config
+    from friday_ai.mining._stubs import PoolTarget
     src = Path(__file__).parent.parent / "mining" / "fixtures" / "config_pool_v2.toml"
     target = tmp_path / "config.toml"
     target.write_text(src.read_text())
     cfg = load_config(target)
     assert isinstance(cfg.mining.submit_target, PoolTarget)
-    assert cfg.mining.submit_target.url == "https://pool.openjarvis.ai/submit"
+    assert cfg.mining.submit_target.url == "https://pool.friday_ai.ai/submit"
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -758,18 +758,18 @@ uv run pytest tests/core/test_config.py -k mining -v
 ```
 Expected: 3 FAIL on `cfg.mining` attribute missing.
 
-- [ ] **Step 4: Add `mining` field to `JarvisConfig`**
+- [ ] **Step 4: Add `mining` field to `FridayConfig`**
 
-In `src/openjarvis/core/config.py`, add an import near the top:
+In `src/friday_ai/core/config.py`, add an import near the top:
 
 ```python
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from openjarvis.mining._stubs import MiningConfig
+    from friday_ai.mining._stubs import MiningConfig
 ```
 
-Add the field to `JarvisConfig` (insert in alphabetical order — after `memory_files`, before `operators`):
+Add the field to `FridayConfig` (insert in alphabetical order — after `memory_files`, before `operators`):
 
 ```python
     mining: Optional["MiningConfig"] = None
@@ -777,7 +777,7 @@ Add the field to `JarvisConfig` (insert in alphabetical order — after `memory_
 
 - [ ] **Step 5: Implement TOML parsing for `[mining]` section**
 
-In `src/openjarvis/core/config.py`, locate the existing `load_config()` function (around line 1541). Find the section that processes the loaded TOML data into the `JarvisConfig` (look for where it iterates the `data` dict and assigns to dataclass fields). Add a dedicated handler for `mining` because of the tagged-union parsing — it can't go through the generic walker.
+In `src/friday_ai/core/config.py`, locate the existing `load_config()` function (around line 1541). Find the section that processes the loaded TOML data into the `FridayConfig` (look for where it iterates the `data` dict and assigns to dataclass fields). Add a dedicated handler for `mining` because of the tagged-union parsing — it can't go through the generic walker.
 
 Add this helper near the other `_parse_*` helpers in `core/config.py`:
 
@@ -793,7 +793,7 @@ def _parse_mining_section(data: dict) -> Optional["MiningConfig"]:
 
     # Lazy import to avoid circular: mining/__init__.py imports core/config
     # transitively via _stubs, but only at runtime.
-    from openjarvis.mining._stubs import MiningConfig, PoolTarget, SoloTarget
+    from friday_ai.mining._stubs import MiningConfig, PoolTarget, SoloTarget
 
     section = data["mining"]
     extra = section.get("extra", {}) or {}
@@ -837,8 +837,8 @@ Expected: 3 PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/openjarvis/core/config.py tests/core/test_config.py tests/mining/fixtures/
-git commit -m "feat(mining): integrate MiningConfig into JarvisConfig with TOML parsing"
+git add src/friday_ai/core/config.py tests/core/test_config.py tests/mining/fixtures/
+git commit -m "feat(mining): integrate MiningConfig into FridayConfig with TOML parsing"
 ```
 
 ---
@@ -846,7 +846,7 @@ git commit -m "feat(mining): integrate MiningConfig into JarvisConfig with TOML 
 ## Task 4 — Capability discovery (`mining/_discovery.py`)
 
 **Files:**
-- Create: `src/openjarvis/mining/_discovery.py`
+- Create: `src/friday_ai/mining/_discovery.py`
 - Test: `tests/mining/test_discovery.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -862,7 +862,7 @@ from unittest.mock import MagicMock, patch
 
 
 def test_detect_supported_on_h100(hopper_hw):
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
     cap = detect_for_engine_model(
         hw=hopper_hw,
         engine_id="vllm",
@@ -874,7 +874,7 @@ def test_detect_supported_on_h100(hopper_hw):
 
 
 def test_detect_unsupported_on_ada_4090(ada_hw):
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
     cap = detect_for_engine_model(
         hw=ada_hw,
         engine_id="vllm",
@@ -886,7 +886,7 @@ def test_detect_unsupported_on_ada_4090(ada_hw):
 
 
 def test_detect_unsupported_on_apple(apple_hw):
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
     cap = detect_for_engine_model(
         hw=apple_hw,
         engine_id="mlx",
@@ -898,7 +898,7 @@ def test_detect_unsupported_on_apple(apple_hw):
 
 
 def test_detect_unsupported_for_non_vllm_engine(hopper_hw):
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
     cap = detect_for_engine_model(
         hw=hopper_hw,
         engine_id="ollama",
@@ -910,7 +910,7 @@ def test_detect_unsupported_for_non_vllm_engine(hopper_hw):
 
 
 def test_detect_unsupported_for_non_pearl_model(hopper_hw):
-    from openjarvis.mining._discovery import detect_for_engine_model
+    from friday_ai.mining._discovery import detect_for_engine_model
     cap = detect_for_engine_model(
         hw=hopper_hw,
         engine_id="vllm",
@@ -922,8 +922,8 @@ def test_detect_unsupported_for_non_pearl_model(hopper_hw):
 
 
 def test_detect_unsupported_for_low_vram():
-    from openjarvis.mining._discovery import detect_for_engine_model
-    from openjarvis.core.config import GpuInfo, HardwareInfo
+    from friday_ai.mining._discovery import detect_for_engine_model
+    from friday_ai.core.config import GpuInfo, HardwareInfo
     hw = HardwareInfo(
         platform="linux",
         gpu=GpuInfo(
@@ -943,8 +943,8 @@ def test_detect_unsupported_for_low_vram():
 
 
 def test_check_docker_available_true():
-    from openjarvis.mining._discovery import check_docker_available
-    with patch("openjarvis.mining._discovery._docker_client") as fake:
+    from friday_ai.mining._discovery import check_docker_available
+    with patch("friday_ai.mining._discovery._docker_client") as fake:
         fake.return_value.ping.return_value = True
         fake.return_value.version.return_value = {"Version": "24.0.7"}
         ok, info = check_docker_available()
@@ -953,8 +953,8 @@ def test_check_docker_available_true():
 
 
 def test_check_docker_available_false_when_daemon_down():
-    from openjarvis.mining._discovery import check_docker_available
-    with patch("openjarvis.mining._discovery._docker_client") as fake:
+    from friday_ai.mining._discovery import check_docker_available
+    with patch("friday_ai.mining._discovery._docker_client") as fake:
         fake.side_effect = Exception("Cannot connect to the Docker daemon")
         ok, info = check_docker_available()
         assert ok is False
@@ -962,8 +962,8 @@ def test_check_docker_available_false_when_daemon_down():
 
 
 def test_check_disk_free_passes(tmp_path):
-    from openjarvis.mining._discovery import check_disk_free
-    with patch("openjarvis.mining._discovery.shutil.disk_usage") as du:
+    from friday_ai.mining._discovery import check_disk_free
+    with patch("friday_ai.mining._discovery.shutil.disk_usage") as du:
         # 500 GB free
         du.return_value = MagicMock(total=1_000_000_000_000, used=500_000_000_000, free=500_000_000_000)
         ok, info = check_disk_free(tmp_path)
@@ -971,16 +971,16 @@ def test_check_disk_free_passes(tmp_path):
 
 
 def test_check_disk_free_fails_below_threshold(tmp_path):
-    from openjarvis.mining._discovery import check_disk_free
-    with patch("openjarvis.mining._discovery.shutil.disk_usage") as du:
+    from friday_ai.mining._discovery import check_disk_free
+    with patch("friday_ai.mining._discovery.shutil.disk_usage") as du:
         du.return_value = MagicMock(total=1_000_000_000_000, used=950_000_000_000, free=50_000_000_000)
         ok, info = check_disk_free(tmp_path)
         assert ok is False
 
 
 def test_check_pearld_reachable_true():
-    from openjarvis.mining._discovery import check_pearld_reachable
-    with patch("openjarvis.mining._discovery.httpx.post") as post:
+    from friday_ai.mining._discovery import check_pearld_reachable
+    with patch("friday_ai.mining._discovery.httpx.post") as post:
         post.return_value.status_code = 200
         post.return_value.json.return_value = {"result": {"blocks": 442107, "headers": 442107}}
         ok, info = check_pearld_reachable("http://localhost:44107", "user", "pass")
@@ -989,22 +989,22 @@ def test_check_pearld_reachable_true():
 
 
 def test_check_pearld_reachable_false_on_connection_error():
-    from openjarvis.mining._discovery import check_pearld_reachable
+    from friday_ai.mining._discovery import check_pearld_reachable
     import httpx
-    with patch("openjarvis.mining._discovery.httpx.post") as post:
+    with patch("friday_ai.mining._discovery.httpx.post") as post:
         post.side_effect = httpx.ConnectError("connection refused")
         ok, info = check_pearld_reachable("http://localhost:44107", "user", "pass")
         assert ok is False
 
 
 def test_check_wallet_address_format_valid():
-    from openjarvis.mining._discovery import check_wallet_address_format
+    from friday_ai.mining._discovery import check_wallet_address_format
     ok, info = check_wallet_address_format("prl1qexampleaddress0123456789")
     assert ok is True
 
 
 def test_check_wallet_address_format_invalid():
-    from openjarvis.mining._discovery import check_wallet_address_format
+    from friday_ai.mining._discovery import check_wallet_address_format
     ok, info = check_wallet_address_format("not-a-pearl-address")
     assert ok is False
 ```
@@ -1019,12 +1019,12 @@ Expected: ALL fail with `ImportError`.
 - [ ] **Step 3: Create `_discovery.py`**
 
 ```python
-# src/openjarvis/mining/_discovery.py
+# src/friday_ai/mining/_discovery.py
 """Capability detection for mining providers.
 
 Each function answers a single yes/no question and returns ``(ok: bool,
 info: str)`` where ``info`` is a short human-readable explanation surfaced
-verbatim by ``jarvis mine doctor``.
+verbatim by ``friday mine doctor``.
 """
 
 from __future__ import annotations
@@ -1035,8 +1035,8 @@ from typing import Optional, Tuple
 
 import httpx
 
-from openjarvis.core.config import HardwareInfo
-from openjarvis.mining._stubs import MiningCapabilities
+from friday_ai.core.config import HardwareInfo
+from friday_ai.mining._stubs import MiningCapabilities
 
 # ---------------------------------------------------------------------------
 # Constants for the v1 vllm-pearl provider
@@ -1057,7 +1057,7 @@ def detect_for_engine_model(
     """Capability matrix for the ``vllm-pearl`` provider.
 
     Pure inspection. No subprocess, no Docker, no network. Used by
-    ``jarvis mine doctor`` and ``jarvis mine init``.
+    ``friday mine doctor`` and ``friday mine init``.
     """
     if provider_id != "vllm-pearl":
         return MiningCapabilities(
@@ -1105,7 +1105,7 @@ def detect_for_engine_model(
 
 
 # ---------------------------------------------------------------------------
-# Doctor checks (one per row of `jarvis mine doctor` output)
+# Doctor checks (one per row of `friday mine doctor` output)
 # ---------------------------------------------------------------------------
 
 
@@ -1126,7 +1126,7 @@ def check_docker_available() -> Tuple[bool, str]:
 
 
 def check_disk_free(path: Path) -> Tuple[bool, str]:
-    from openjarvis.mining._constants import MIN_FREE_DISK_GB
+    from friday_ai.mining._constants import MIN_FREE_DISK_GB
 
     usage = shutil.disk_usage(path)
     free_gb = usage.free / (1024**3)
@@ -1186,7 +1186,7 @@ Expected: 13 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/openjarvis/mining/_discovery.py tests/mining/test_discovery.py
+git add src/friday_ai/mining/_discovery.py tests/mining/test_discovery.py
 git commit -m "feat(mining): capability detection + doctor checks"
 ```
 
@@ -1195,7 +1195,7 @@ git commit -m "feat(mining): capability detection + doctor checks"
 ## Task 5 — `PearlDockerLauncher` image acquisition
 
 **Files:**
-- Create: `src/openjarvis/mining/_docker.py`
+- Create: `src/friday_ai/mining/_docker.py`
 - Test: `tests/mining/test_docker.py`
 
 - [ ] **Step 1: Write the failing tests for `ensure_image()`**
@@ -1211,18 +1211,18 @@ from unittest.mock import MagicMock, patch
 
 
 def test_ensure_image_already_local():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
     fake = MagicMock()
-    fake.images.get.return_value = MagicMock(id="sha256:abc", tags=["openjarvis/pearl-miner:main"])
+    fake.images.get.return_value = MagicMock(id="sha256:abc", tags=["friday_ai/pearl-miner:main"])
     launcher = PearlDockerLauncher(client=fake)
-    out = launcher.ensure_image("openjarvis/pearl-miner:main")
-    assert out == "openjarvis/pearl-miner:main"
-    fake.images.get.assert_called_once_with("openjarvis/pearl-miner:main")
+    out = launcher.ensure_image("friday_ai/pearl-miner:main")
+    assert out == "friday_ai/pearl-miner:main"
+    fake.images.get.assert_called_once_with("friday_ai/pearl-miner:main")
     fake.images.pull.assert_not_called()
 
 
 def test_ensure_image_pulls_if_published():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
     import docker.errors as derr
     fake = MagicMock()
     fake.images.get.side_effect = derr.ImageNotFound("nope")
@@ -1234,8 +1234,8 @@ def test_ensure_image_pulls_if_published():
 
 
 def test_ensure_image_falls_back_to_build_for_default_tag():
-    from openjarvis.mining._docker import PearlDockerLauncher
-    from openjarvis.mining._constants import PEARL_IMAGE_TAG
+    from friday_ai.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._constants import PEARL_IMAGE_TAG
     import docker.errors as derr
     fake = MagicMock()
     fake.images.get.side_effect = derr.ImageNotFound("nope")
@@ -1253,7 +1253,7 @@ def test_ensure_image_falls_back_to_build_for_default_tag():
 
 
 def test_ensure_image_errors_when_non_default_tag_missing():
-    from openjarvis.mining._docker import PearlDockerLauncher, ImageAcquisitionError
+    from friday_ai.mining._docker import PearlDockerLauncher, ImageAcquisitionError
     import docker.errors as derr
     import pytest
     fake = MagicMock()
@@ -1274,10 +1274,10 @@ Expected: FAIL with `ImportError`.
 
 - [ ] **Step 3: Implement the launcher's image-acquisition path**
 
-Create `src/openjarvis/mining/_docker.py`:
+Create `src/friday_ai/mining/_docker.py`:
 
 ```python
-# src/openjarvis/mining/_docker.py
+# src/friday_ai/mining/_docker.py
 """Pearl Docker container orchestration.
 
 See spec ``docs/design/2026-05-05-vllm-pearl-mining-integration-design.md``
@@ -1291,7 +1291,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
-from openjarvis.mining._constants import (
+from friday_ai.mining._constants import (
     PEARL_CACHE_DIR,
     PEARL_IMAGE_TAG,
     PEARL_PINNED_REF,
@@ -1400,7 +1400,7 @@ Expected: 4 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/openjarvis/mining/_docker.py tests/mining/test_docker.py
+git add src/friday_ai/mining/_docker.py tests/mining/test_docker.py
 git commit -m "feat(mining): PearlDockerLauncher image acquisition (pull-or-build)"
 ```
 
@@ -1409,7 +1409,7 @@ git commit -m "feat(mining): PearlDockerLauncher image acquisition (pull-or-buil
 ## Task 6 — `PearlDockerLauncher` container lifecycle
 
 **Files:**
-- Modify: `src/openjarvis/mining/_docker.py`
+- Modify: `src/friday_ai/mining/_docker.py`
 - Modify: `tests/mining/test_docker.py`
 
 - [ ] **Step 1: Write failing tests for `start()` / `stop()` / `is_running()` / `get_logs()`**
@@ -1427,8 +1427,8 @@ def _env_password(monkeypatch):
 
 
 def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
-    from openjarvis.mining._docker import PearlDockerLauncher
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    from friday_ai.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget
     fake = MagicMock()
     fake.containers.run.return_value = MagicMock(id="cid-1", status="running")
     launcher = PearlDockerLauncher(client=fake)
@@ -1437,7 +1437,7 @@ def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
         wallet_address="prl1qaaa",
         submit_target=SoloTarget(pearld_rpc_url="http://localhost:44107"),
         extra={
-            "docker_image_tag": "openjarvis/pearl-miner:main",
+            "docker_image_tag": "friday_ai/pearl-miner:main",
             "model": "pearl-ai/Llama-3.3-70B-Instruct-pearl",
             "vllm_port": 8000,
             "gpu_memory_utilization": 0.9,
@@ -1448,12 +1448,12 @@ def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
             "hf_token_env": "HF_TOKEN",
         },
     )
-    container = launcher.start(cfg, image="openjarvis/pearl-miner:main")
+    container = launcher.start(cfg, image="friday_ai/pearl-miner:main")
     assert container.id == "cid-1"
     fake.containers.run.assert_called_once()
     kwargs = fake.containers.run.call_args.kwargs
     # Image
-    assert kwargs["image"] == "openjarvis/pearl-miner:main"
+    assert kwargs["image"] == "friday_ai/pearl-miner:main"
     # Command starts with the model name (positional), then args
     assert kwargs["command"][0] == "pearl-ai/Llama-3.3-70B-Instruct-pearl"
     assert "--gpu-memory-utilization" in kwargs["command"]
@@ -1470,7 +1470,7 @@ def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
 
 
 def test_launcher_stop_calls_container_stop_and_remove():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
     fake_client = MagicMock()
     fake_container = MagicMock()
     launcher = PearlDockerLauncher(client=fake_client)
@@ -1480,7 +1480,7 @@ def test_launcher_stop_calls_container_stop_and_remove():
 
 
 def test_launcher_is_running_when_container_running():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
     fake_client = MagicMock()
     fake_container = MagicMock(status="running")
     fake_container.reload.return_value = None
@@ -1490,7 +1490,7 @@ def test_launcher_is_running_when_container_running():
 
 
 def test_launcher_is_running_false_when_container_exited():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
     fake_client = MagicMock()
     fake_container = MagicMock()
     fake_container.reload.return_value = None
@@ -1501,7 +1501,7 @@ def test_launcher_is_running_false_when_container_exited():
 
 
 def test_launcher_get_logs_returns_decoded_string():
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
     fake_client = MagicMock()
     fake_container = MagicMock()
     fake_container.logs.return_value = b"hello\nworld\n"
@@ -1511,8 +1511,8 @@ def test_launcher_get_logs_returns_decoded_string():
 
 
 def test_launcher_start_errors_when_password_env_missing():
-    from openjarvis.mining._docker import PearlDockerLauncher, ConfigurationError
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    from friday_ai.mining._docker import PearlDockerLauncher, ConfigurationError
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget
     fake = MagicMock()
     launcher = PearlDockerLauncher(client=fake)
     cfg = MiningConfig(
@@ -1520,7 +1520,7 @@ def test_launcher_start_errors_when_password_env_missing():
         wallet_address="prl1qaaa",
         submit_target=SoloTarget(pearld_rpc_url="http://localhost:44107"),
         extra={
-            "docker_image_tag": "openjarvis/pearl-miner:main",
+            "docker_image_tag": "friday_ai/pearl-miner:main",
             "model": "pearl-ai/Llama-3.3-70B-Instruct-pearl",
             "vllm_port": 8000,
             "gpu_memory_utilization": 0.9,
@@ -1530,7 +1530,7 @@ def test_launcher_start_errors_when_password_env_missing():
         },
     )
     with pytest.raises(ConfigurationError) as ei:
-        launcher.start(cfg, image="openjarvis/pearl-miner:main")
+        launcher.start(cfg, image="friday_ai/pearl-miner:main")
     assert "DOES_NOT_EXIST_IN_ENV" in str(ei.value)
 ```
 
@@ -1543,7 +1543,7 @@ Expected: 6 new FAIL.
 
 - [ ] **Step 3: Implement `start()`, `stop()`, `is_running()`, `get_logs()`**
 
-Append to `src/openjarvis/mining/_docker.py`:
+Append to `src/friday_ai/mining/_docker.py`:
 
 ```python
 class ConfigurationError(RuntimeError):
@@ -1558,7 +1558,7 @@ class ConfigurationError(RuntimeError):
         ``image`` must already be resolved by ``ensure_image()``.
         Returns the docker.models.containers.Container object.
         """
-        from openjarvis.mining._stubs import MiningConfig  # noqa: F401  (typing only)
+        from friday_ai.mining._stubs import MiningConfig  # noqa: F401  (typing only)
 
         extra = config.extra
         # Resolve secret env vars (we hold the *name*, not the value).
@@ -1567,7 +1567,7 @@ class ConfigurationError(RuntimeError):
         if password is None:
             raise ConfigurationError(
                 f"environment variable {password_env!r} is not set; "
-                f"set it before running `jarvis mine start`"
+                f"set it before running `friday mine start`"
             )
 
         hf_token_env = extra.get("hf_token_env", "HF_TOKEN")
@@ -1611,7 +1611,7 @@ class ConfigurationError(RuntimeError):
         self._container = self._client.containers.run(
             image=image,
             command=command,
-            name="openjarvis-pearl-miner",
+            name="friday_ai-pearl-miner",
             detach=True,
             auto_remove=False,
             restart_policy={"Name": "unless-stopped"},
@@ -1660,7 +1660,7 @@ Expected: 10 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/openjarvis/mining/_docker.py tests/mining/test_docker.py
+git add src/friday_ai/mining/_docker.py tests/mining/test_docker.py
 git commit -m "feat(mining): PearlDockerLauncher container lifecycle (start/stop/is_running/logs)"
 ```
 
@@ -1669,8 +1669,8 @@ git commit -m "feat(mining): PearlDockerLauncher container lifecycle (start/stop
 ## Task 7 — Gateway metrics adapter
 
 **Files:**
-- Modify: `src/openjarvis/mining/vllm_pearl.py` (creating in next task — for now create the parser as a helper)
-- Create: `src/openjarvis/mining/_metrics.py`
+- Modify: `src/friday_ai/mining/vllm_pearl.py` (creating in next task — for now create the parser as a helper)
+- Create: `src/friday_ai/mining/_metrics.py`
 - Create: `tests/mining/fixtures/gateway_metrics_sample.txt`
 - Create: `tests/mining/test_metrics.py`
 
@@ -1736,7 +1736,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "gateway_metrics_sample.txt"
 
 
 def test_parse_gateway_metrics_full():
-    from openjarvis.mining._metrics import parse_gateway_metrics
+    from friday_ai.mining._metrics import parse_gateway_metrics
     text = FIXTURE.read_text()
     stats = parse_gateway_metrics(text, provider_id="vllm-pearl")
     assert stats.provider_id == "vllm-pearl"
@@ -1749,7 +1749,7 @@ def test_parse_gateway_metrics_full():
 
 
 def test_parse_gateway_metrics_missing_metrics_zero_fills():
-    from openjarvis.mining._metrics import parse_gateway_metrics
+    from friday_ai.mining._metrics import parse_gateway_metrics
     stats = parse_gateway_metrics("# empty exposition\n", provider_id="vllm-pearl")
     assert stats.shares_submitted == 0
     assert stats.shares_accepted == 0
@@ -1758,7 +1758,7 @@ def test_parse_gateway_metrics_missing_metrics_zero_fills():
 
 
 def test_parse_gateway_metrics_ignores_comment_lines():
-    from openjarvis.mining._metrics import parse_gateway_metrics
+    from friday_ai.mining._metrics import parse_gateway_metrics
     stats = parse_gateway_metrics(
         "# HELP something\n# TYPE something counter\nsomething 99\n",
         provider_id="vllm-pearl",
@@ -1775,10 +1775,10 @@ Expected: 3 FAIL.
 
 - [ ] **Step 4: Implement the adapter**
 
-Create `src/openjarvis/mining/_metrics.py`:
+Create `src/friday_ai/mining/_metrics.py`:
 
 ```python
-# src/openjarvis/mining/_metrics.py
+# src/friday_ai/mining/_metrics.py
 """Pearl gateway Prometheus → MiningStats adapter.
 
 The gateway exposes ``:8339/metrics`` in plain Prometheus exposition format.
@@ -1795,7 +1795,7 @@ import logging
 import time
 from typing import Optional
 
-from openjarvis.mining._stubs import MiningStats
+from friday_ai.mining._stubs import MiningStats
 
 log = logging.getLogger(__name__)
 
@@ -1871,7 +1871,7 @@ Expected: 3 PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/openjarvis/mining/_metrics.py tests/mining/test_metrics.py tests/mining/fixtures/
+git add src/friday_ai/mining/_metrics.py tests/mining/test_metrics.py tests/mining/fixtures/
 git commit -m "feat(mining): Prometheus gateway metrics adapter"
 ```
 
@@ -1880,7 +1880,7 @@ git commit -m "feat(mining): Prometheus gateway metrics adapter"
 ## Task 8 — `VllmPearlProvider` (the only v1 provider)
 
 **Files:**
-- Create: `src/openjarvis/mining/vllm_pearl.py`
+- Create: `src/friday_ai/mining/vllm_pearl.py`
 - Create: `tests/mining/test_vllm_pearl.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1899,7 +1899,7 @@ import pytest
 
 
 def test_vllm_pearl_detect_supported_on_h100(hopper_hw):
-    from openjarvis.mining.vllm_pearl import VllmPearlProvider
+    from friday_ai.mining.vllm_pearl import VllmPearlProvider
     cap = VllmPearlProvider.detect(
         hopper_hw, engine_id="vllm",
         model="pearl-ai/Llama-3.3-70B-Instruct-pearl",
@@ -1908,7 +1908,7 @@ def test_vllm_pearl_detect_supported_on_h100(hopper_hw):
 
 
 def test_vllm_pearl_detect_unsupported_on_apple(apple_hw):
-    from openjarvis.mining.vllm_pearl import VllmPearlProvider
+    from friday_ai.mining.vllm_pearl import VllmPearlProvider
     cap = VllmPearlProvider.detect(
         apple_hw, engine_id="mlx",
         model="pearl-ai/Llama-3.3-70B-Instruct-pearl",
@@ -1918,12 +1918,12 @@ def test_vllm_pearl_detect_unsupported_on_apple(apple_hw):
 
 @pytest.mark.asyncio
 async def test_vllm_pearl_start_writes_sidecar(tmp_path, monkeypatch):
-    from openjarvis.mining.vllm_pearl import VllmPearlProvider
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget, Sidecar
+    from friday_ai.mining.vllm_pearl import VllmPearlProvider
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget, Sidecar
 
     sidecar_path = tmp_path / "mining.json"
     monkeypatch.setattr(
-        "openjarvis.mining.vllm_pearl.SIDECAR_PATH", sidecar_path
+        "friday_ai.mining.vllm_pearl.SIDECAR_PATH", sidecar_path
     )
     monkeypatch.setenv("PEARLD_RPC_PASSWORD", "x")
 
@@ -1939,7 +1939,7 @@ async def test_vllm_pearl_start_writes_sidecar(tmp_path, monkeypatch):
         wallet_address="prl1qaaa",
         submit_target=SoloTarget(pearld_rpc_url="http://localhost:44107"),
         extra={
-            "docker_image_tag": "openjarvis/pearl-miner:main",
+            "docker_image_tag": "friday_ai/pearl-miner:main",
             "model": "pearl-ai/Llama-3.3-70B-Instruct-pearl",
             "vllm_port": 8000,
             "gateway_port": 8337,
@@ -1970,19 +1970,19 @@ async def test_vllm_pearl_start_writes_sidecar(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_vllm_pearl_start_pool_target_raises_not_implemented(monkeypatch, tmp_path):
-    from openjarvis.mining.vllm_pearl import VllmPearlProvider
-    from openjarvis.mining._stubs import MiningConfig, PoolTarget
+    from friday_ai.mining.vllm_pearl import VllmPearlProvider
+    from friday_ai.mining._stubs import MiningConfig, PoolTarget
 
     sidecar_path = tmp_path / "mining.json"
     monkeypatch.setattr(
-        "openjarvis.mining.vllm_pearl.SIDECAR_PATH", sidecar_path
+        "friday_ai.mining.vllm_pearl.SIDECAR_PATH", sidecar_path
     )
 
     cfg = MiningConfig(
         provider="vllm-pearl",
         wallet_address="prl1qaaa",
-        submit_target=PoolTarget(url="https://pool.openjarvis.ai/submit"),
-        extra={"docker_image_tag": "openjarvis/pearl-miner:main"},
+        submit_target=PoolTarget(url="https://pool.friday_ai.ai/submit"),
+        extra={"docker_image_tag": "friday_ai/pearl-miner:main"},
     )
     provider = VllmPearlProvider(docker_client=MagicMock())
     with pytest.raises(NotImplementedError) as ei:
@@ -1992,9 +1992,9 @@ async def test_vllm_pearl_start_pool_target_raises_not_implemented(monkeypatch, 
 
 @pytest.mark.asyncio
 async def test_vllm_pearl_stop_removes_sidecar(tmp_path, monkeypatch, written_sidecar):
-    from openjarvis.mining.vllm_pearl import VllmPearlProvider
+    from friday_ai.mining.vllm_pearl import VllmPearlProvider
     monkeypatch.setattr(
-        "openjarvis.mining.vllm_pearl.SIDECAR_PATH", written_sidecar
+        "friday_ai.mining.vllm_pearl.SIDECAR_PATH", written_sidecar
     )
     fake_client = MagicMock()
     provider = VllmPearlProvider(docker_client=fake_client)
@@ -2004,16 +2004,16 @@ async def test_vllm_pearl_stop_removes_sidecar(tmp_path, monkeypatch, written_si
 
 
 def test_vllm_pearl_stats_reads_gateway(monkeypatch, written_sidecar):
-    from openjarvis.mining.vllm_pearl import VllmPearlProvider
+    from friday_ai.mining.vllm_pearl import VllmPearlProvider
     monkeypatch.setattr(
-        "openjarvis.mining.vllm_pearl.SIDECAR_PATH", written_sidecar
+        "friday_ai.mining.vllm_pearl.SIDECAR_PATH", written_sidecar
     )
     sample = (
         "pearl_gateway_shares_submitted_total 100\n"
         "pearl_gateway_shares_accepted_total 99\n"
         "pearl_gateway_blocks_found_total 1\n"
     )
-    with patch("openjarvis.mining.vllm_pearl.httpx.get") as get:
+    with patch("friday_ai.mining.vllm_pearl.httpx.get") as get:
         get.return_value.status_code = 200
         get.return_value.text = sample
         provider = VllmPearlProvider(docker_client=MagicMock())
@@ -2024,8 +2024,8 @@ def test_vllm_pearl_stats_reads_gateway(monkeypatch, written_sidecar):
 
 
 def test_ensure_registered_is_idempotent():
-    from openjarvis.core.registry import MinerRegistry
-    from openjarvis.mining.vllm_pearl import (
+    from friday_ai.core.registry import MinerRegistry
+    from friday_ai.mining.vllm_pearl import (
         VllmPearlProvider,
         ensure_registered,
     )
@@ -2046,10 +2046,10 @@ Expected: 7 FAIL.
 
 - [ ] **Step 3: Implement `VllmPearlProvider`**
 
-Create `src/openjarvis/mining/vllm_pearl.py`:
+Create `src/friday_ai/mining/vllm_pearl.py`:
 
 ```python
-# src/openjarvis/mining/vllm_pearl.py
+# src/friday_ai/mining/vllm_pearl.py
 """The v1 vllm-pearl mining provider.
 
 See spec ``docs/design/2026-05-05-vllm-pearl-mining-integration-design.md``.
@@ -2063,9 +2063,9 @@ from typing import Any, Optional
 
 import httpx
 
-from openjarvis.core.config import HardwareInfo
-from openjarvis.core.registry import MinerRegistry
-from openjarvis.mining._constants import (
+from friday_ai.core.config import HardwareInfo
+from friday_ai.core.registry import MinerRegistry
+from friday_ai.mining._constants import (
     DEFAULT_GATEWAY_METRICS_PORT,
     DEFAULT_GATEWAY_RPC_PORT,
     DEFAULT_PEARL_MODEL,
@@ -2073,10 +2073,10 @@ from openjarvis.mining._constants import (
     PEARL_IMAGE_TAG,
     SIDECAR_PATH,
 )
-from openjarvis.mining._discovery import detect_for_engine_model
-from openjarvis.mining._docker import PearlDockerLauncher
-from openjarvis.mining._metrics import parse_gateway_metrics
-from openjarvis.mining._stubs import (
+from friday_ai.mining._discovery import detect_for_engine_model
+from friday_ai.mining._docker import PearlDockerLauncher
+from friday_ai.mining._metrics import parse_gateway_metrics
+from friday_ai.mining._stubs import (
     MiningCapabilities,
     MiningConfig,
     MiningProvider,
@@ -2108,7 +2108,7 @@ class VllmPearlProvider(MiningProvider):
     async def start(self, config: MiningConfig) -> None:
         if isinstance(config.submit_target, PoolTarget):
             raise NotImplementedError(
-                "pool support is v2 — see openjarvis#XYZ. v1 only accepts "
+                "pool support is v2 — see friday_ai#XYZ. v1 only accepts "
                 "submit_target='solo'."
             )
         assert isinstance(config.submit_target, SoloTarget)
@@ -2190,7 +2190,7 @@ Expected: ALL PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/openjarvis/mining/vllm_pearl.py tests/mining/test_vllm_pearl.py
+git add src/friday_ai/mining/vllm_pearl.py tests/mining/test_vllm_pearl.py
 git commit -m "feat(mining): VllmPearlProvider — the v1 vllm-pearl provider"
 ```
 
@@ -2199,14 +2199,14 @@ git commit -m "feat(mining): VllmPearlProvider — the v1 vllm-pearl provider"
 ## Task 9 — Engine sidecar handoff
 
 **Files:**
-- Modify: `src/openjarvis/engine/_discovery.py`
+- Modify: `src/friday_ai/engine/_discovery.py`
 - Test: `tests/engine/test_discovery.py` (existing — add new tests)
 
 - [ ] **Step 1: Read existing `engine/_discovery.py`**
 
 Run:
 ```bash
-sed -n '1,80p' src/openjarvis/engine/_discovery.py
+sed -n '1,80p' src/friday_ai/engine/_discovery.py
 ```
 
 Identify the function that resolves engines (likely `discover_engines()` or `get_engine()`).
@@ -2220,8 +2220,8 @@ def test_engine_discovery_picks_up_mining_sidecar(tmp_path, monkeypatch, written
     """When a mining sidecar exists, engine resolution should expose a
     'vllm-pearl-mining' engine pointing at the sidecar's vllm_endpoint.
     """
-    from openjarvis.engine._discovery import discover_engines
-    from openjarvis.mining import _constants as mining_const
+    from friday_ai.engine._discovery import discover_engines
+    from friday_ai.mining import _constants as mining_const
 
     monkeypatch.setattr(mining_const, "SIDECAR_PATH", written_sidecar)
 
@@ -2231,8 +2231,8 @@ def test_engine_discovery_picks_up_mining_sidecar(tmp_path, monkeypatch, written
 
 
 def test_engine_discovery_no_mining_engine_when_sidecar_absent(tmp_path, monkeypatch):
-    from openjarvis.engine._discovery import discover_engines
-    from openjarvis.mining import _constants as mining_const
+    from friday_ai.engine._discovery import discover_engines
+    from friday_ai.mining import _constants as mining_const
 
     missing = tmp_path / "no-such-mining.json"
     monkeypatch.setattr(mining_const, "SIDECAR_PATH", missing)
@@ -2267,8 +2267,8 @@ def _maybe_register_mining_sidecar_engine() -> None:
     See Spec A §5.4. Idempotent — safe to call from any discovery path.
     """
     try:
-        from openjarvis.mining import Sidecar
-        from openjarvis.mining._constants import SIDECAR_PATH
+        from friday_ai.mining import Sidecar
+        from friday_ai.mining._constants import SIDECAR_PATH
     except ImportError:
         return
     payload = Sidecar.read(SIDECAR_PATH)
@@ -2279,8 +2279,8 @@ def _maybe_register_mining_sidecar_engine() -> None:
     if not endpoint or not model:
         return
 
-    from openjarvis.core.registry import EngineRegistry
-    from openjarvis.engine.openai_compat_engines import OpenAICompatEngine  # adjust to actual class name
+    from friday_ai.core.registry import EngineRegistry
+    from friday_ai.engine.openai_compat_engines import OpenAICompatEngine  # adjust to actual class name
 
     if EngineRegistry.contains("vllm-pearl-mining"):
         return
@@ -2308,7 +2308,7 @@ Expected: 2 PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/openjarvis/engine/_discovery.py tests/conftest.py tests/mining/conftest.py tests/engine/test_discovery.py
+git add src/friday_ai/engine/_discovery.py tests/conftest.py tests/mining/conftest.py tests/engine/test_discovery.py
 git commit -m "feat(mining): engine discovery picks up runtime sidecar"
 ```
 
@@ -2317,7 +2317,7 @@ git commit -m "feat(mining): engine discovery picks up runtime sidecar"
 ## Task 10 — `MiningTelemetryCollector` (shipped unwired)
 
 **Files:**
-- Create: `src/openjarvis/mining/_collector.py`
+- Create: `src/friday_ai/mining/_collector.py`
 - Create: `tests/mining/test_collector.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -2337,13 +2337,13 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_collector_collect_once_returns_stats(written_sidecar):
-    from openjarvis.mining._collector import MiningTelemetryCollector
+    from friday_ai.mining._collector import MiningTelemetryCollector
 
     sample = (
         "pearl_gateway_shares_submitted_total 50\n"
         "pearl_gateway_shares_accepted_total 49\n"
     )
-    with patch("openjarvis.mining._collector.httpx.get") as get:
+    with patch("friday_ai.mining._collector.httpx.get") as get:
         get.return_value.status_code = 200
         get.return_value.text = sample
         store = MagicMock()
@@ -2357,10 +2357,10 @@ async def test_collector_collect_once_returns_stats(written_sidecar):
 
 @pytest.mark.asyncio
 async def test_collector_run_loop_writes_to_store_then_stops(written_sidecar):
-    from openjarvis.mining._collector import MiningTelemetryCollector
+    from friday_ai.mining._collector import MiningTelemetryCollector
 
     sample = "pearl_gateway_shares_submitted_total 1\n"
-    with patch("openjarvis.mining._collector.httpx.get") as get:
+    with patch("friday_ai.mining._collector.httpx.get") as get:
         get.return_value.status_code = 200
         get.return_value.text = sample
         store = MagicMock()
@@ -2377,9 +2377,9 @@ async def test_collector_run_loop_writes_to_store_then_stops(written_sidecar):
 
 @pytest.mark.asyncio
 async def test_collector_handles_gateway_errors_gracefully(written_sidecar):
-    from openjarvis.mining._collector import MiningTelemetryCollector
+    from friday_ai.mining._collector import MiningTelemetryCollector
 
-    with patch("openjarvis.mining._collector.httpx.get") as get:
+    with patch("friday_ai.mining._collector.httpx.get") as get:
         get.side_effect = ConnectionError("nope")
         store = MagicMock()
         c = MiningTelemetryCollector(
@@ -2398,14 +2398,14 @@ Expected: 3 FAIL.
 
 - [ ] **Step 3: Implement the collector**
 
-Create `src/openjarvis/mining/_collector.py`:
+Create `src/friday_ai/mining/_collector.py`:
 
 ```python
-# src/openjarvis/mining/_collector.py
+# src/friday_ai/mining/_collector.py
 """Background poller for mining telemetry.
 
 Shipped in v1 but **not wired into the gateway daemon**. v1.x will register
-this as a periodic asyncio task in ``openjarvis.daemon.gateway``. v1's
+this as a periodic asyncio task in ``friday_ai.daemon.gateway``. v1's
 status command reads on-demand instead — see ``vllm_pearl.VllmPearlProvider.stats``.
 
 Why ship now? Lighting up the collector in v1.x is a one-line change in the
@@ -2422,8 +2422,8 @@ from typing import Any
 
 import httpx
 
-from openjarvis.mining._metrics import parse_gateway_metrics
-from openjarvis.mining._stubs import MiningStats, Sidecar
+from friday_ai.mining._metrics import parse_gateway_metrics
+from friday_ai.mining._stubs import MiningStats, Sidecar
 
 log = logging.getLogger(__name__)
 
@@ -2492,7 +2492,7 @@ Expected: 3 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/openjarvis/mining/_collector.py tests/mining/test_collector.py
+git add src/friday_ai/mining/_collector.py tests/mining/test_collector.py
 git commit -m "feat(mining): MiningTelemetryCollector — shipped unwired for v1.x"
 ```
 
@@ -2501,14 +2501,14 @@ git commit -m "feat(mining): MiningTelemetryCollector — shipped unwired for v1
 ## Task 11 — Telemetry schema migration (`mining_session_id`)
 
 **Files:**
-- Modify: `src/openjarvis/telemetry/store.py`
+- Modify: `src/friday_ai/telemetry/store.py`
 - Test: `tests/telemetry/test_store.py` (existing — add new tests)
 
 - [ ] **Step 1: Inspect existing `telemetry/store.py` migration approach**
 
 Run:
 ```bash
-grep -n "PRAGMA user_version\|CREATE TABLE\|ALTER TABLE\|migrate" src/openjarvis/telemetry/store.py | head -20
+grep -n "PRAGMA user_version\|CREATE TABLE\|ALTER TABLE\|migrate" src/friday_ai/telemetry/store.py | head -20
 ```
 
 If `PRAGMA user_version` is already used, follow that convention. If migrations are inline `CREATE TABLE IF NOT EXISTS` only, switch to a versioned approach for this change. Document the chosen pattern in the commit message.
@@ -2519,7 +2519,7 @@ Add to `tests/telemetry/test_store.py`:
 
 ```python
 def test_inference_row_has_mining_session_id_column(tmp_path):
-    from openjarvis.telemetry.store import TelemetryStore
+    from friday_ai.telemetry.store import TelemetryStore
     db = tmp_path / "tel.db"
     store = TelemetryStore(db_path=db)
     store.record_inference(
@@ -2536,7 +2536,7 @@ def test_inference_row_has_mining_session_id_column(tmp_path):
 
 
 def test_inference_row_can_be_tagged_with_mining_session_id(tmp_path):
-    from openjarvis.telemetry.store import TelemetryStore
+    from friday_ai.telemetry.store import TelemetryStore
     db = tmp_path / "tel.db"
     store = TelemetryStore(db_path=db)
     store.record_inference(
@@ -2552,8 +2552,8 @@ def test_inference_row_can_be_tagged_with_mining_session_id(tmp_path):
 
 
 def test_record_mining_stats_persists(tmp_path):
-    from openjarvis.telemetry.store import TelemetryStore
-    from openjarvis.mining._stubs import MiningStats
+    from friday_ai.telemetry.store import TelemetryStore
+    from friday_ai.mining._stubs import MiningStats
     db = tmp_path / "tel.db"
     store = TelemetryStore(db_path=db)
     store.record_mining_stats(
@@ -2572,7 +2572,7 @@ Expected: FAIL.
 
 - [ ] **Step 4: Implement the migration**
 
-In `src/openjarvis/telemetry/store.py`:
+In `src/friday_ai/telemetry/store.py`:
 
 1. Bump the schema version constant by 1 (or introduce one if absent).
 2. Add a migration step: `ALTER TABLE inference ADD COLUMN mining_session_id TEXT NULL;` guarded by the version bump.
@@ -2614,16 +2614,16 @@ Expected: ALL PASS (existing tests + 3 new).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/openjarvis/telemetry/store.py tests/telemetry/test_store.py
+git add src/friday_ai/telemetry/store.py tests/telemetry/test_store.py
 git commit -m "feat(telemetry): add mining_session_id + mining_stats table"
 ```
 
 ---
 
-## Task 12 — `jarvis mine doctor` (highest user-facing value, build first)
+## Task 12 — `friday mine doctor` (highest user-facing value, build first)
 
 **Files:**
-- Create: `src/openjarvis/cli/mine_cmd.py`
+- Create: `src/friday_ai/cli/mine_cmd.py`
 - Create: `tests/mining/test_cli.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -2641,11 +2641,11 @@ from click.testing import CliRunner
 
 
 def test_mine_doctor_prints_capability_matrix(monkeypatch):
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
     runner = CliRunner()
 
     # Force the H100 hardware fixture so detect() returns supported.
-    from openjarvis.core.config import GpuInfo, HardwareInfo
+    from friday_ai.core.config import GpuInfo, HardwareInfo
     fake_hw = HardwareInfo(
         platform="linux",
         gpu=GpuInfo(
@@ -2653,10 +2653,10 @@ def test_mine_doctor_prints_capability_matrix(monkeypatch):
             compute_capability="9.0", count=1,
         ),
     )
-    with patch("openjarvis.cli.mine_cmd._detect_hardware", return_value=fake_hw), \
-         patch("openjarvis.cli.mine_cmd.check_docker_available", return_value=(True, "running 24.0.7")), \
-         patch("openjarvis.cli.mine_cmd.check_disk_free", return_value=(True, "300 GB free")), \
-         patch("openjarvis.cli.mine_cmd.check_pearld_reachable", return_value=(True, "block height 442107 (synced)")):
+    with patch("friday_ai.cli.mine_cmd._detect_hardware", return_value=fake_hw), \
+         patch("friday_ai.cli.mine_cmd.check_docker_available", return_value=(True, "running 24.0.7")), \
+         patch("friday_ai.cli.mine_cmd.check_disk_free", return_value=(True, "300 GB free")), \
+         patch("friday_ai.cli.mine_cmd.check_pearld_reachable", return_value=(True, "block height 442107 (synced)")):
         result = runner.invoke(mine, ["doctor"])
     assert result.exit_code == 0, result.output
     out = result.output.lower()
@@ -2667,10 +2667,10 @@ def test_mine_doctor_prints_capability_matrix(monkeypatch):
 
 
 def test_mine_doctor_flags_unsupported_hardware():
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
     runner = CliRunner()
 
-    from openjarvis.core.config import GpuInfo, HardwareInfo
+    from friday_ai.core.config import GpuInfo, HardwareInfo
     fake_hw = HardwareInfo(
         platform="linux",
         gpu=GpuInfo(
@@ -2678,10 +2678,10 @@ def test_mine_doctor_flags_unsupported_hardware():
             compute_capability="8.9", count=1,
         ),
     )
-    with patch("openjarvis.cli.mine_cmd._detect_hardware", return_value=fake_hw), \
-         patch("openjarvis.cli.mine_cmd.check_docker_available", return_value=(True, "ok")), \
-         patch("openjarvis.cli.mine_cmd.check_disk_free", return_value=(True, "300 GB free")), \
-         patch("openjarvis.cli.mine_cmd.check_pearld_reachable", return_value=(False, "connection refused")):
+    with patch("friday_ai.cli.mine_cmd._detect_hardware", return_value=fake_hw), \
+         patch("friday_ai.cli.mine_cmd.check_docker_available", return_value=(True, "ok")), \
+         patch("friday_ai.cli.mine_cmd.check_disk_free", return_value=(True, "300 GB free")), \
+         patch("friday_ai.cli.mine_cmd.check_pearld_reachable", return_value=(False, "connection refused")):
         result = runner.invoke(mine, ["doctor"])
     assert result.exit_code == 0
     assert "✗" in result.output or "FAIL" in result.output.upper()
@@ -2697,8 +2697,8 @@ Expected: FAIL.
 - [ ] **Step 3: Implement `mine_cmd.py` with the `doctor` subcommand**
 
 ```python
-# src/openjarvis/cli/mine_cmd.py
-"""``jarvis mine`` command group.
+# src/friday_ai/cli/mine_cmd.py
+"""``friday mine`` command group.
 
 See spec ``docs/design/2026-05-05-vllm-pearl-mining-integration-design.md``
 section 6 for the full CLI surface.
@@ -2714,21 +2714,21 @@ from typing import Optional
 
 import click
 
-from openjarvis.core.config import HardwareInfo, load_config
-from openjarvis.mining._constants import (
+from friday_ai.core.config import HardwareInfo, load_config
+from friday_ai.mining._constants import (
     DEFAULT_PEARL_MODEL,
     DEFAULT_PEARLD_RPC_URL,
     PEARL_IMAGE_TAG,
     SIDECAR_PATH,
 )
-from openjarvis.mining._discovery import (
+from friday_ai.mining._discovery import (
     check_disk_free,
     check_docker_available,
     check_pearld_reachable,
     check_wallet_address_format,
     detect_for_engine_model,
 )
-from openjarvis.mining._stubs import Sidecar
+from friday_ai.mining._stubs import Sidecar
 
 
 def _detect_hardware() -> HardwareInfo:
@@ -2784,7 +2784,7 @@ def doctor() -> None:
         ok, info = check_pearld_reachable(url, user, password)
         row("pearld", "RPC", ok, info)
     else:
-        row("pearld", "RPC", False, "no [mining] config — run `jarvis mine init`")
+        row("pearld", "RPC", False, "no [mining] config — run `friday mine init`")
 
     click.echo("Wallet")
     if mining_cfg is not None:
@@ -2820,16 +2820,16 @@ Expected: 2 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/openjarvis/cli/mine_cmd.py tests/mining/test_cli.py
-git commit -m "feat(mining-cli): jarvis mine doctor"
+git add src/friday_ai/cli/mine_cmd.py tests/mining/test_cli.py
+git commit -m "feat(mining-cli): friday mine doctor"
 ```
 
 ---
 
-## Task 13 — `jarvis mine init / start / stop`
+## Task 13 — `friday mine init / start / stop`
 
 **Files:**
-- Modify: `src/openjarvis/cli/mine_cmd.py`
+- Modify: `src/friday_ai/cli/mine_cmd.py`
 - Modify: `tests/mining/test_cli.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -2838,14 +2838,14 @@ Append to `tests/mining/test_cli.py`:
 
 ```python
 def test_mine_start_runs_provider_start(monkeypatch):
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
     runner = CliRunner()
     fake_provider_class = MagicMock()
     fake_provider_class.return_value.start = MagicMock(return_value=None)
-    with patch("openjarvis.cli.mine_cmd.MinerRegistry") as reg, \
-         patch("openjarvis.cli.mine_cmd.load_config") as load, \
-         patch("openjarvis.cli.mine_cmd.asyncio.run") as arun:
-        from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    with patch("friday_ai.cli.mine_cmd.MinerRegistry") as reg, \
+         patch("friday_ai.cli.mine_cmd.load_config") as load, \
+         patch("friday_ai.cli.mine_cmd.asyncio.run") as arun:
+        from friday_ai.mining._stubs import MiningConfig, SoloTarget
         load.return_value = MagicMock(mining=MiningConfig(
             provider="vllm-pearl",
             wallet_address="prl1qaaa",
@@ -2858,13 +2858,13 @@ def test_mine_start_runs_provider_start(monkeypatch):
 
 
 def test_mine_stop_calls_provider_stop():
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
     runner = CliRunner()
     fake_provider_class = MagicMock()
-    with patch("openjarvis.cli.mine_cmd.MinerRegistry") as reg, \
-         patch("openjarvis.cli.mine_cmd.load_config") as load, \
-         patch("openjarvis.cli.mine_cmd.asyncio.run") as arun:
-        from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    with patch("friday_ai.cli.mine_cmd.MinerRegistry") as reg, \
+         patch("friday_ai.cli.mine_cmd.load_config") as load, \
+         patch("friday_ai.cli.mine_cmd.asyncio.run") as arun:
+        from friday_ai.mining._stubs import MiningConfig, SoloTarget
         load.return_value = MagicMock(mining=MiningConfig(
             provider="vllm-pearl",
             wallet_address="prl1qaaa",
@@ -2876,9 +2876,9 @@ def test_mine_stop_calls_provider_stop():
 
 
 def test_mine_start_errors_when_no_mining_config():
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
     runner = CliRunner()
-    with patch("openjarvis.cli.mine_cmd.load_config") as load:
+    with patch("friday_ai.cli.mine_cmd.load_config") as load:
         load.return_value = MagicMock(mining=None)
         result = runner.invoke(mine, ["start"])
     assert result.exit_code != 0
@@ -2898,7 +2898,7 @@ Append to `mine_cmd.py`:
 
 ```python
 import asyncio
-from openjarvis.core.registry import MinerRegistry
+from friday_ai.core.registry import MinerRegistry
 
 
 @mine.command()
@@ -2927,7 +2927,7 @@ def init(
     if not cap.supported:
         raise click.ClickException(
             f"vllm-pearl not supported on this host: {cap.reason}\n"
-            f"See `jarvis mine doctor` for details."
+            f"See `friday mine doctor` for details."
         )
 
     ok, info = check_docker_available()
@@ -2941,7 +2941,7 @@ def init(
     if pearld_password_env not in os.environ:
         click.echo(
             f"Warning: ${pearld_password_env} is not set in your environment. "
-            f"Set it before `jarvis mine start`.",
+            f"Set it before `friday mine start`.",
             err=True,
         )
 
@@ -2950,7 +2950,7 @@ def init(
         raise click.ClickException(f"Invalid wallet address: {info}")
 
     # Write config (preserves any existing config sections; appends [mining])
-    config_path = Path.home() / ".openjarvis" / "config.toml"
+    config_path = Path.home() / ".friday_ai" / "config.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     new_section = f"""
 [mining]
@@ -2985,10 +2985,10 @@ hf_token_env             = "HF_TOKEN"
     # Pull/build image
     click.echo(f"Resolving image {image}... (build may take 30-60 min on first run)")
     import docker
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from friday_ai.mining._docker import PearlDockerLauncher
     launcher = PearlDockerLauncher(client=docker.from_env())
     launcher.ensure_image(image)
-    click.echo(f"Done. Run `jarvis mine start` to begin mining.")
+    click.echo(f"Done. Run `friday mine start` to begin mining.")
 
 
 @mine.command()
@@ -2996,14 +2996,14 @@ def start() -> None:
     """Launch the Pearl mining container and write the runtime sidecar."""
     cfg = load_config().mining
     if cfg is None:
-        raise click.ClickException("no [mining] section in config — run `jarvis mine init`")
+        raise click.ClickException("no [mining] section in config — run `friday mine init`")
     provider_cls = MinerRegistry.get(cfg.provider)
     provider = provider_cls()
 
     async def _run():
         await provider.start(cfg)
     asyncio.run(_run())
-    click.echo(f"Mining started. Run `jarvis mine status` for live stats.")
+    click.echo(f"Mining started. Run `friday mine status` for live stats.")
 
 
 @mine.command()
@@ -3032,16 +3032,16 @@ Expected: 5 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/openjarvis/cli/mine_cmd.py tests/mining/test_cli.py
-git commit -m "feat(mining-cli): jarvis mine init/start/stop"
+git add src/friday_ai/cli/mine_cmd.py tests/mining/test_cli.py
+git commit -m "feat(mining-cli): friday mine init/start/stop"
 ```
 
 ---
 
-## Task 14 — `jarvis mine status / attach / logs`
+## Task 14 — `friday mine status / attach / logs`
 
 **Files:**
-- Modify: `src/openjarvis/cli/mine_cmd.py`
+- Modify: `src/friday_ai/cli/mine_cmd.py`
 - Modify: `tests/mining/test_cli.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -3050,19 +3050,19 @@ Append to `tests/mining/test_cli.py`:
 
 ```python
 def test_mine_status_renders_stats(written_sidecar, monkeypatch):
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
     runner = CliRunner()
-    monkeypatch.setattr("openjarvis.cli.mine_cmd.SIDECAR_PATH", written_sidecar)
+    monkeypatch.setattr("friday_ai.cli.mine_cmd.SIDECAR_PATH", written_sidecar)
     sample = (
         "pearl_gateway_shares_submitted_total 100\n"
         "pearl_gateway_shares_accepted_total 99\n"
         "pearl_gateway_blocks_found_total 2\n"
     )
-    with patch("openjarvis.mining.vllm_pearl.httpx.get") as get, \
-         patch("openjarvis.cli.mine_cmd.MinerRegistry") as reg:
+    with patch("friday_ai.mining.vllm_pearl.httpx.get") as get, \
+         patch("friday_ai.cli.mine_cmd.MinerRegistry") as reg:
         get.return_value.status_code = 200
         get.return_value.text = sample
-        from openjarvis.mining.vllm_pearl import VllmPearlProvider
+        from friday_ai.mining.vllm_pearl import VllmPearlProvider
         reg.get.return_value = lambda: VllmPearlProvider(docker_client=MagicMock())
         result = runner.invoke(mine, ["status"])
     assert result.exit_code == 0
@@ -3070,10 +3070,10 @@ def test_mine_status_renders_stats(written_sidecar, monkeypatch):
 
 
 def test_mine_attach_writes_sidecar(tmp_path, monkeypatch):
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
     runner = CliRunner()
     sidecar = tmp_path / "mining.json"
-    monkeypatch.setattr("openjarvis.cli.mine_cmd.SIDECAR_PATH", sidecar)
+    monkeypatch.setattr("friday_ai.cli.mine_cmd.SIDECAR_PATH", sidecar)
     result = runner.invoke(mine, [
         "attach",
         "--vllm-endpoint", "http://127.0.0.1:8000/v1",
@@ -3086,11 +3086,11 @@ def test_mine_attach_writes_sidecar(tmp_path, monkeypatch):
 
 
 def test_mine_logs_streams_container_output(monkeypatch):
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
     runner = CliRunner()
     fake_launcher = MagicMock()
     fake_launcher.get_logs.return_value = "log line 1\nlog line 2\n"
-    with patch("openjarvis.cli.mine_cmd.PearlDockerLauncher",
+    with patch("friday_ai.cli.mine_cmd.PearlDockerLauncher",
                return_value=fake_launcher):
         result = runner.invoke(mine, ["logs", "--tail", "100"])
     assert result.exit_code == 0
@@ -3110,7 +3110,7 @@ Append to `mine_cmd.py`:
 
 ```python
 import time
-from openjarvis.mining._docker import PearlDockerLauncher
+from friday_ai.mining._docker import PearlDockerLauncher
 
 
 @mine.command()
@@ -3118,7 +3118,7 @@ def status() -> None:
     """Print live mining stats from the gateway."""
     cfg = load_config().mining
     if cfg is None:
-        raise click.ClickException("no [mining] section — run `jarvis mine init`")
+        raise click.ClickException("no [mining] section — run `friday mine init`")
     provider_cls = MinerRegistry.get(cfg.provider)
     provider = provider_cls()
     s = provider.stats()
@@ -3175,7 +3175,7 @@ def logs(tail_n: int, follow: bool) -> None:
     launcher = PearlDockerLauncher(client=docker.from_env())
     # Re-attach to the running container by name.
     try:
-        container = docker.from_env().containers.get("openjarvis-pearl-miner")
+        container = docker.from_env().containers.get("friday_ai-pearl-miner")
         launcher._container = container
     except Exception as e:  # noqa: BLE001
         raise click.ClickException(f"no running mining container: {e}")
@@ -3192,8 +3192,8 @@ Expected: 8 PASS (cumulative).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/openjarvis/cli/mine_cmd.py tests/mining/test_cli.py
-git commit -m "feat(mining-cli): jarvis mine status/attach/logs"
+git add src/friday_ai/cli/mine_cmd.py tests/mining/test_cli.py
+git commit -m "feat(mining-cli): friday mine status/attach/logs"
 ```
 
 ---
@@ -3201,16 +3201,16 @@ git commit -m "feat(mining-cli): jarvis mine status/attach/logs"
 ## Task 15 — Register `mine` group; add hint
 
 **Files:**
-- Modify: `src/openjarvis/cli/__init__.py`
-- Modify: `src/openjarvis/cli/hints.py`
+- Modify: `src/friday_ai/cli/__init__.py`
+- Modify: `src/friday_ai/cli/hints.py`
 - Test: `tests/cli/test_main.py` (or wherever CLI registration is tested)
 - Test: `tests/cli/test_hints.py` (existing)
 
 - [ ] **Step 1: Inspect current `cli/__init__.py`**
 
 ```bash
-sed -n '1,50p' src/openjarvis/cli/__init__.py
-grep -n "add_command\|@main.command\|main.add_command" src/openjarvis/cli/__init__.py | head -20
+sed -n '1,50p' src/friday_ai/cli/__init__.py
+grep -n "add_command\|@main.command\|main.add_command" src/friday_ai/cli/__init__.py | head -20
 ```
 
 Identify how other commands are registered.
@@ -3222,7 +3222,7 @@ Add to `tests/cli/test_main.py` (create if absent):
 ```python
 def test_mine_subcommand_registered():
     from click.testing import CliRunner
-    from openjarvis.cli import main
+    from friday_ai.cli import main
     runner = CliRunner()
     result = runner.invoke(main, ["mine", "--help"])
     assert result.exit_code == 0
@@ -3242,7 +3242,7 @@ uv run pytest tests/cli/test_main.py::test_mine_subcommand_registered -v
 Add to `cli/__init__.py` near other `add_command` calls:
 
 ```python
-from openjarvis.cli.mine_cmd import mine
+from friday_ai.cli.mine_cmd import mine
 main.add_command(mine)
 ```
 
@@ -3254,7 +3254,7 @@ In `cli/hints.py`, add a function (or extend existing hint logic) that emits one
 def mining_not_running_hint(cfg, sidecar_present: bool) -> Optional[str]:
     if cfg is None or sidecar_present:
         return None
-    return "mining configured but not running — start it with `jarvis mine start`"
+    return "mining configured but not running — start it with `friday mine start`"
 ```
 
 Wire it into wherever hints are surfaced (read existing hint integration points first; mirror the pattern).
@@ -3265,21 +3265,21 @@ Add to `tests/cli/test_hints.py`:
 
 ```python
 def test_mining_not_running_hint_when_configured_no_sidecar():
-    from openjarvis.cli.hints import mining_not_running_hint
+    from friday_ai.cli.hints import mining_not_running_hint
     cfg = object()  # any truthy stand-in for MiningConfig
     msg = mining_not_running_hint(cfg, sidecar_present=False)
     assert msg is not None
-    assert "jarvis mine start" in msg
+    assert "friday mine start" in msg
 
 
 def test_mining_not_running_hint_silent_when_running():
-    from openjarvis.cli.hints import mining_not_running_hint
+    from friday_ai.cli.hints import mining_not_running_hint
     msg = mining_not_running_hint(object(), sidecar_present=True)
     assert msg is None
 
 
 def test_mining_not_running_hint_silent_when_unconfigured():
-    from openjarvis.cli.hints import mining_not_running_hint
+    from friday_ai.cli.hints import mining_not_running_hint
     msg = mining_not_running_hint(None, sidecar_present=False)
     assert msg is None
 ```
@@ -3293,7 +3293,7 @@ uv run pytest tests/cli/test_main.py tests/cli/test_hints.py -v
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/openjarvis/cli/__init__.py src/openjarvis/cli/hints.py tests/cli/test_main.py tests/cli/test_hints.py
+git add src/friday_ai/cli/__init__.py src/friday_ai/cli/hints.py tests/cli/test_main.py tests/cli/test_hints.py
 git commit -m "feat(mining-cli): register `mine` group + add not-running hint"
 ```
 
@@ -3359,7 +3359,7 @@ git commit -m "chore: add mining-pearl extra and docker pytest marker"
 ```markdown
 # Pearl mining
 
-OpenJarvis can mine the [Pearl](https://github.com/pearl-research-labs/pearl)
+FridayAI can mine the [Pearl](https://github.com/pearl-research-labs/pearl)
 Proof-of-Useful-Work blockchain through your local LLM inference. v1
 supports H100/H200 hosts running vLLM. Apple Silicon, AMD, and other
 inference backends are tracked separately — see [Spec B](../design/2026-05-05-apple-silicon-pearl-mining-design.md).
@@ -3381,14 +3381,14 @@ inference backends are tracked separately — see [Spec B](../design/2026-05-05-
 uv sync --extra mining-pearl
 export PEARLD_RPC_PASSWORD=<your-pearld-password>
 export HF_TOKEN=<your-hf-token>
-uv run jarvis mine init    # writes [mining] config + builds Docker image (30-60 min first time)
-uv run jarvis mine start
-uv run jarvis mine status
+uv run friday mine init    # writes [mining] config + builds Docker image (30-60 min first time)
+uv run friday mine start
+uv run friday mine status
 ```
 
 ## Diagnosing problems
 
-`jarvis mine doctor` prints one row per check with a clear ✓ or ✗ and reason.
+`friday mine doctor` prints one row per check with a clear ✓ or ✗ and reason.
 Read top-down — fix what's failing before retrying `mine start`.
 
 ## What v1 does NOT support
@@ -3409,22 +3409,22 @@ Read top-down — fix what's failing before retrying `mine start`.
 ```markdown
 # Adding a new mining provider
 
-The `openjarvis.mining` subsystem uses a registry pattern identical to
+The `friday_ai.mining` subsystem uses a registry pattern identical to
 `engine/`, `agents/`, etc. To add a new provider (e.g., for Apple Silicon,
 AMD, or a future engine), implement the `MiningProvider` ABC and register
 via `@MinerRegistry.register("<key>")`.
 
 ## Steps
 
-1. Create `src/openjarvis/mining/<provider>.py`.
-2. Subclass `openjarvis.mining.MiningProvider`.
+1. Create `src/friday_ai/mining/<provider>.py`.
+2. Subclass `friday_ai.mining.MiningProvider`.
 3. Implement `detect()`, `start()`, `stop()`, `is_running()`, `stats()`.
 4. Define an idempotent `ensure_registered()` (required for test isolation —
    see `tests/conftest.py` autouse clear).
 5. Add a soft-import in `mining/__init__.py`:
    ```python
    try:
-       from openjarvis.mining import <provider>  # noqa: F401
+       from friday_ai.mining import <provider>  # noqa: F401
        <provider>.ensure_registered()
    except ImportError:
        pass
@@ -3455,7 +3455,7 @@ If your local `CLAUDE.md` exists and is intended for editing, add this paragraph
 In `REVIEW.md` under "Registry pattern compliance" (or the closest equivalent bullet about new components needing registry registration), add:
 
 ```markdown
-- New mining providers must register via `MinerRegistry` in `src/openjarvis/core/registry.py` and expose an idempotent `ensure_registered()` per the autouse-clear test convention.
+- New mining providers must register via `MinerRegistry` in `src/friday_ai/core/registry.py` and expose an idempotent `ensure_registered()` per the autouse-clear test convention.
 ```
 
 - [ ] **Step 5: Run mkdocs locally to verify rendering**
@@ -3498,14 +3498,14 @@ Expected: clean.
 - [ ] **Step 3: Coverage**
 
 ```bash
-uv run pytest tests/mining/ --cov=openjarvis.mining --cov-report=term-missing
+uv run pytest tests/mining/ --cov=friday_ai.mining --cov-report=term-missing
 ```
 Expected: ≥ 80% coverage on the new `mining/` package.
 
-- [ ] **Step 4: Smoke `jarvis mine doctor` on a non-mining dev box**
+- [ ] **Step 4: Smoke `friday mine doctor` on a non-mining dev box**
 
 ```bash
-uv run jarvis mine doctor
+uv run friday mine doctor
 ```
 Expected: doctor runs, hardware/Docker/Pearl rows print honest ✗ where applicable, exit code 0.
 
@@ -3516,11 +3516,11 @@ gh pr create --title "feat(mining): vllm-pearl integration (v1, Spec A)" --body 
 Implements [Spec A](docs/design/2026-05-05-vllm-pearl-mining-integration-design.md). Solo mining only, no pool, no fee. v2 seams in place per spec §8.5.
 
 ## Summary
-- New `openjarvis.mining` subsystem with `MiningProvider` ABC + `MinerRegistry`
+- New `friday_ai.mining` subsystem with `MiningProvider` ABC + `MinerRegistry`
 - `vllm-pearl` provider wrapping Pearl's Docker container
-- Runtime sidecar (`~/.openjarvis/runtime/mining.json`) for engine ↔ mining handoff
+- Runtime sidecar (`~/.friday_ai/runtime/mining.json`) for engine ↔ mining handoff
 - Telemetry: on-demand reads in v1; `MiningTelemetryCollector` shipped unwired for v1.x
-- New CLI: `jarvis mine init|start|stop|status|doctor|attach|logs`
+- New CLI: `friday mine init|start|stop|status|doctor|attach|logs`
 - New optional extra: `mining-pearl`
 - New pytest marker: `docker`
 - Docs: user guide, contributor guide, REVIEW.md update
@@ -3530,7 +3530,7 @@ Implements [Spec A](docs/design/2026-05-05-vllm-pearl-mining-integration-design.
 - [x] `uv run ruff check src/ tests/`
 - [x] `uv run ruff format --check src/ tests/`
 - [x] `uv run mkdocs build`
-- [ ] Manual smoke: `uv run jarvis mine doctor` on a non-mining dev box prints honest output
+- [ ] Manual smoke: `uv run friday mine doctor` on a non-mining dev box prints honest output
 - [ ] Manual smoke (release-gate): full mine init → start → status → stop on a real H100 host
 EOF
 )"

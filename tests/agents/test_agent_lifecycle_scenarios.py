@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.agents.errors import RetryableError
-from openjarvis.core.events import EventType
+from friday_ai.agents.errors import RetryableError
+from friday_ai.core.events import EventType
 from tests.agents.scenario_harness import ScenarioHarness
 
 # ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ def test_interval_scheduled_agent(scenario_harness: ScenarioHarness) -> None:
     aid = agent["id"]
 
     # Register at base_time — next_fire = base_time + 60
-    with patch("openjarvis.agents.scheduler.time") as mock_time:
+    with patch("friday_ai.agents.scheduler.time") as mock_time:
         mock_time.time.return_value = base_time
         h.scheduler.register_agent(aid)
 
@@ -72,7 +72,7 @@ def test_interval_scheduled_agent(scenario_harness: ScenarioHarness) -> None:
     assert info["next_fire"] == pytest.approx(base_time + 60, abs=1)
 
     # At base_time + 30 the agent should NOT fire
-    with patch("openjarvis.agents.scheduler.time") as mock_time:
+    with patch("friday_ai.agents.scheduler.time") as mock_time:
         mock_time.time.return_value = base_time + 30
         h.scheduler._check_due_agents()
 
@@ -81,7 +81,7 @@ def test_interval_scheduled_agent(scenario_harness: ScenarioHarness) -> None:
     assert agent["total_runs"] == 0
 
     # At base_time + 61 the agent SHOULD fire
-    with patch("openjarvis.agents.scheduler.time") as mock_time:
+    with patch("friday_ai.agents.scheduler.time") as mock_time:
         mock_time.time.return_value = base_time + 61
         h.scheduler._check_due_agents()
 
@@ -249,7 +249,7 @@ def test_error_retry_success(scenario_harness: ScenarioHarness) -> None:
     aid = agent["id"]
 
     # Patch retry_delay to avoid real sleeps
-    with patch("openjarvis.agents.executor.time.sleep"):
+    with patch("friday_ai.agents.executor.time.sleep"):
         h.executor.execute_tick(aid)
 
     assert h.engine.call_count == 3
@@ -280,7 +280,7 @@ def test_error_exhaustion(scenario_harness: ScenarioHarness) -> None:
     )
     aid = agent["id"]
 
-    with patch("openjarvis.agents.executor.time.sleep"):
+    with patch("friday_ai.agents.executor.time.sleep"):
         h.executor.execute_tick(aid)
 
     agent = h.manager.get_agent(aid)
@@ -363,7 +363,7 @@ def test_pause_resume(scenario_harness: ScenarioHarness) -> None:
     aid = agent["id"]
 
     # Register at base_time
-    with patch("openjarvis.agents.scheduler.time") as mock_time:
+    with patch("friday_ai.agents.scheduler.time") as mock_time:
         mock_time.time.return_value = base_time
         h.scheduler.register_agent(aid)
 
@@ -371,7 +371,7 @@ def test_pause_resume(scenario_harness: ScenarioHarness) -> None:
     h.manager.pause_agent(aid)
 
     # Advance past interval — should NOT fire because paused
-    with patch("openjarvis.agents.scheduler.time") as mock_time:
+    with patch("friday_ai.agents.scheduler.time") as mock_time:
         mock_time.time.return_value = base_time + 61
         h.scheduler._check_due_agents()
 
@@ -383,7 +383,7 @@ def test_pause_resume(scenario_harness: ScenarioHarness) -> None:
     h.manager.resume_agent(aid)
 
     # Now advance again — should fire
-    with patch("openjarvis.agents.scheduler.time") as mock_time:
+    with patch("friday_ai.agents.scheduler.time") as mock_time:
         mock_time.time.return_value = base_time + 61
         h.scheduler._check_due_agents()
 
@@ -416,13 +416,13 @@ def test_multi_agent_scheduling(scenario_harness: ScenarioHarness) -> None:
             },
         )
         agents.append(a)
-        with patch("openjarvis.agents.scheduler.time") as mock_time:
+        with patch("friday_ai.agents.scheduler.time") as mock_time:
             mock_time.time.return_value = base_time
             h.scheduler.register_agent(a["id"])
 
     # At base_time + 35, only agent 0 (30s interval) should fire
     h.engine._call_count = 0
-    with patch("openjarvis.agents.scheduler.time") as mock_time:
+    with patch("friday_ai.agents.scheduler.time") as mock_time:
         mock_time.time.return_value = base_time + 35
         h.scheduler._check_due_agents()
 
@@ -438,7 +438,7 @@ def test_multi_agent_scheduling(scenario_harness: ScenarioHarness) -> None:
     # fires again at exactly 65)
     h.engine._responses = [{"content": "Agent response again."}]
     h.engine._call_count = 0
-    with patch("openjarvis.agents.scheduler.time") as mock_time:
+    with patch("friday_ai.agents.scheduler.time") as mock_time:
         mock_time.time.return_value = base_time + 65
         h.scheduler._check_due_agents()
 
@@ -452,7 +452,7 @@ def test_multi_agent_scheduling(scenario_harness: ScenarioHarness) -> None:
     # At base_time + 125, all three should have fired
     h.engine._responses = [{"content": "All fired."}]
     h.engine._call_count = 0
-    with patch("openjarvis.agents.scheduler.time") as mock_time:
+    with patch("friday_ai.agents.scheduler.time") as mock_time:
         mock_time.time.return_value = base_time + 125
         h.scheduler._check_due_agents()
 
