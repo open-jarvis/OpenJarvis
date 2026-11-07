@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from openjarvis.learning.routing.complexity import (
+from friday_ai.learning.routing.complexity import (
     ComplexityQueryAnalyzer,
     ComplexityResult,
     adjust_tokens_for_model,
@@ -83,7 +83,7 @@ class TestScoreComplexity:
     def test_repeated_opening_word_does_not_block_scoring(self, word):
         code = (
             "import sys\n"
-            "from openjarvis.learning.routing.complexity import score_complexity\n"
+            "from friday_ai.learning.routing.complexity import score_complexity\n"
             "result = score_complexity(sys.stdin.read())\n"
             "assert not result.signals['has_multi_step']\n"
             "assert not result.signals['has_creative']\n"

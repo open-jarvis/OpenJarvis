@@ -6,7 +6,7 @@ import textwrap
 from pathlib import Path
 from typing import List
 
-from openjarvis.skills.sources.base import ResolvedSkill, SourceResolver
+from friday_ai.skills.sources.base import ResolvedSkill, SourceResolver
 
 
 class _FakeResolver(SourceResolver):
@@ -150,7 +150,7 @@ class TestSourceResolverABC:
 
 class TestHermesResolver:
     def test_lists_skills_in_two_level_layout(self, tmp_path: Path):
-        from openjarvis.skills.sources.hermes import HermesResolver
+        from friday_ai.skills.sources.hermes import HermesResolver
 
         # Build a fake Hermes layout: skills/<category>/<skill>/SKILL.md
         skills_root = tmp_path / "skills"
@@ -187,7 +187,7 @@ class TestHermesResolver:
                 assert s.category == "github"
 
     def test_skips_description_md(self, tmp_path: Path):
-        from openjarvis.skills.sources.hermes import HermesResolver
+        from friday_ai.skills.sources.hermes import HermesResolver
 
         skills_root = tmp_path / "skills"
         category_dir = skills_root / "apple"
@@ -210,7 +210,7 @@ class TestHermesResolver:
         assert skills[0].name == "apple-notes"
 
     def test_filter_by_category(self, tmp_path: Path):
-        from openjarvis.skills.sources.hermes import HermesResolver
+        from friday_ai.skills.sources.hermes import HermesResolver
 
         skills_root = tmp_path / "skills"
         for cat in ("apple", "github"):
@@ -233,7 +233,7 @@ class TestHermesResolver:
 
 class TestOpenClawResolver:
     def test_lists_skills_in_owner_layout(self, tmp_path: Path):
-        from openjarvis.skills.sources.openclaw import OpenClawResolver
+        from friday_ai.skills.sources.openclaw import OpenClawResolver
 
         skills_root = tmp_path / "skills"
         # OpenClaw layout: skills/<owner>/<skill>/SKILL.md
@@ -258,7 +258,7 @@ class TestOpenClawResolver:
     def test_reads_meta_json_sidecar(self, tmp_path: Path):
         import json
 
-        from openjarvis.skills.sources.openclaw import OpenClawResolver
+        from friday_ai.skills.sources.openclaw import OpenClawResolver
 
         skills_root = tmp_path / "skills"
         d = skills_root / "alice" / "etherscan"
@@ -290,7 +290,7 @@ class TestOpenClawResolver:
 
 class TestGitHubResolver:
     def test_recursive_walk_finds_skill_md(self, tmp_path: Path):
-        from openjarvis.skills.sources.github import GitHubResolver
+        from friday_ai.skills.sources.github import GitHubResolver
 
         # Arbitrary nested layout
         d = tmp_path / "any" / "depth" / "my-skill"
@@ -311,7 +311,7 @@ class TestGitHubResolver:
         assert skills[0].name == "my-skill"
 
     def test_finds_lowercase_skill_md(self, tmp_path: Path):
-        from openjarvis.skills.sources.github import GitHubResolver
+        from friday_ai.skills.sources.github import GitHubResolver
 
         d = tmp_path / "my-skill"
         d.mkdir()

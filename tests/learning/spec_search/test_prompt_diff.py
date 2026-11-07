@@ -1,4 +1,4 @@
-"""Tests for openjarvis.learning.spec_search.plan.prompt_diff module."""
+"""Tests for friday_ai.learning.spec_search.plan.prompt_diff module."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ class TestChangedLineRatio:
     """Tests for changed_line_ratio()."""
 
     def test_identical_strings(self) -> None:
-        from openjarvis.learning.spec_search.plan.prompt_diff import (
+        from friday_ai.learning.spec_search.plan.prompt_diff import (
             changed_line_ratio,
         )
 
         assert changed_line_ratio("hello\nworld\n", "hello\nworld\n") == 0.0
 
     def test_completely_different(self) -> None:
-        from openjarvis.learning.spec_search.plan.prompt_diff import (
+        from friday_ai.learning.spec_search.plan.prompt_diff import (
             changed_line_ratio,
         )
 
@@ -24,7 +24,7 @@ class TestChangedLineRatio:
         assert ratio == 1.0
 
     def test_partial_change(self) -> None:
-        from openjarvis.learning.spec_search.plan.prompt_diff import (
+        from friday_ai.learning.spec_search.plan.prompt_diff import (
             changed_line_ratio,
         )
 
@@ -35,7 +35,7 @@ class TestChangedLineRatio:
         assert 0.2 <= ratio <= 0.35
 
     def test_empty_original(self) -> None:
-        from openjarvis.learning.spec_search.plan.prompt_diff import (
+        from friday_ai.learning.spec_search.plan.prompt_diff import (
             changed_line_ratio,
         )
 
@@ -44,7 +44,7 @@ class TestChangedLineRatio:
         assert ratio == 1.0
 
     def test_empty_both(self) -> None:
-        from openjarvis.learning.spec_search.plan.prompt_diff import (
+        from friday_ai.learning.spec_search.plan.prompt_diff import (
             changed_line_ratio,
         )
 
@@ -55,7 +55,7 @@ class TestApplyUnifiedDiff:
     """Tests for apply_unified_diff()."""
 
     def test_applies_simple_patch(self) -> None:
-        from openjarvis.learning.spec_search.plan.prompt_diff import (
+        from friday_ai.learning.spec_search.plan.prompt_diff import (
             apply_unified_diff,
         )
 
@@ -73,7 +73,7 @@ class TestApplyUnifiedDiff:
         assert result == "line1\nchanged_line2\nline3\n"
 
     def test_returns_none_on_bad_diff(self) -> None:
-        from openjarvis.learning.spec_search.plan.prompt_diff import (
+        from friday_ai.learning.spec_search.plan.prompt_diff import (
             apply_unified_diff,
         )
 
@@ -85,13 +85,13 @@ class TestMaybeDowngradeToReplace:
     """Tests for maybe_downgrade_to_replace()."""
 
     def test_non_patch_op_passes_through(self) -> None:
-        from openjarvis.learning.spec_search.models import (
+        from friday_ai.learning.spec_search.models import (
             Edit,
             EditOp,
             EditPillar,
             EditRiskTier,
         )
-        from openjarvis.learning.spec_search.plan.prompt_diff import (
+        from friday_ai.learning.spec_search.plan.prompt_diff import (
             maybe_downgrade_to_replace,
         )
 
@@ -109,13 +109,13 @@ class TestMaybeDowngradeToReplace:
         assert result.op == EditOp.SET_MODEL_FOR_QUERY_CLASS
 
     def test_small_diff_stays_patch(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.models import (
+        from friday_ai.learning.spec_search.models import (
             Edit,
             EditOp,
             EditPillar,
             EditRiskTier,
         )
-        from openjarvis.learning.spec_search.plan.prompt_diff import (
+        from friday_ai.learning.spec_search.plan.prompt_diff import (
             maybe_downgrade_to_replace,
         )
 
@@ -145,13 +145,13 @@ class TestMaybeDowngradeToReplace:
         assert result.op == EditOp.PATCH_SYSTEM_PROMPT
 
     def test_large_diff_downgrades_to_replace(self) -> None:
-        from openjarvis.learning.spec_search.models import (
+        from friday_ai.learning.spec_search.models import (
             Edit,
             EditOp,
             EditPillar,
             EditRiskTier,
         )
-        from openjarvis.learning.spec_search.plan.prompt_diff import (
+        from friday_ai.learning.spec_search.plan.prompt_diff import (
             maybe_downgrade_to_replace,
         )
 
@@ -185,13 +185,13 @@ class TestMaybeDowngradeToReplace:
         assert "new1" in result.payload["new_content"]
 
     def test_bad_diff_downgrades_to_replace_with_raw(self) -> None:
-        from openjarvis.learning.spec_search.models import (
+        from friday_ai.learning.spec_search.models import (
             Edit,
             EditOp,
             EditPillar,
             EditRiskTier,
         )
-        from openjarvis.learning.spec_search.plan.prompt_diff import (
+        from friday_ai.learning.spec_search.plan.prompt_diff import (
             maybe_downgrade_to_replace,
         )
 

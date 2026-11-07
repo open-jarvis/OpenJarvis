@@ -6,7 +6,7 @@ Serves the installers at::
     https://open-jarvis.github.io/OpenJarvis/install.ps1  (native Windows)
 
 so users have an HTTPS-valid, project-controlled install URL that does not
-depend on the externally-hosted ``openjarvis.ai`` domain — whose TLS config
+depend on the externally-hosted ``friday_ai.ai`` domain — whose TLS config
 broke and which the project does not control (issue #337).
 
 Single source of truth: the scripts live under ``scripts/install/`` and

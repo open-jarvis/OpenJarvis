@@ -6,7 +6,7 @@ import type { ConnectorInfo, SyncStatus, ConnectRequest, ConnectResponse } from 
 // ---------------------------------------------------------------------------
 //
 // Every call here must go through apiFetch() (not a bare fetch()) so the
-// Bearer auth header is attached when OPENJARVIS_API_KEY is set -- direct
+// Bearer auth header is attached when FRIDAY_AI_API_KEY is set -- direct
 // fetch() calls silently 401 against an authenticated server, exactly the
 // bug apiFetch was introduced to prevent elsewhere (#266). This file was
 // missed when that fix landed.

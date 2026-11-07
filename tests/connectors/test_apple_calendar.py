@@ -6,11 +6,11 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from openjarvis.connectors.apple_calendar import (
+from friday_ai.connectors.apple_calendar import (
     AppleCalendarConnector,
     _to_apple_ts,
 )
-from openjarvis.core.registry import ToolRegistry
+from friday_ai.core.registry import ToolRegistry
 
 
 def _make_calendar_db(path):
@@ -135,8 +135,8 @@ def test_recurring_master_is_not_duplicated_by_same_start_occurrence(tmp_path):
 
 
 def test_calendar_tools_are_registered_and_executable(tmp_path, monkeypatch):
-    import openjarvis.connectors.apple_calendar as calendar_module
-    from openjarvis.tools.apple_calendar import (
+    import friday_ai.connectors.apple_calendar as calendar_module
+    from friday_ai.tools.apple_calendar import (
         CalendarSearchTool,
         CalendarUpcomingTool,
     )

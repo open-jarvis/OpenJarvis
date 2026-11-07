@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openjarvis.telemetry.steady_state import (
+from friday_ai.telemetry.steady_state import (
     SteadyStateConfig,
     SteadyStateDetector,
     SteadyStateResult,

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    openjarvis_desktop::run();
+    friday_ai_desktop::run();
 }

@@ -8,10 +8,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from openjarvis.core.config import JarvisConfig, load_config
-from openjarvis.tools._paths import resolve_allowed_dirs
-from openjarvis.tools.file_read import FileReadTool
-from openjarvis.tools.file_write import FileWriteTool
+from friday_ai.core.config import FridayConfig, load_config
+from friday_ai.tools._paths import resolve_allowed_dirs
+from friday_ai.tools.file_read import FileReadTool
+from friday_ai.tools.file_write import FileWriteTool
 
 
 def test_explicit_argument_wins(tmp_path: Path) -> None:
@@ -20,7 +20,7 @@ def test_explicit_argument_wins(tmp_path: Path) -> None:
 
 def test_explicit_empty_list_does_not_load_ambient_config(monkeypatch):
     monkeypatch.setattr(
-        "openjarvis.core.config.load_config",
+        "friday_ai.core.config.load_config",
         Mock(side_effect=AssertionError("explicit policy must win")),
     )
     assert resolve_allowed_dirs([]) == []
@@ -31,9 +31,9 @@ def test_explicit_empty_list_does_not_load_ambient_config(monkeypatch):
 def test_invalid_directory_config_never_creates_an_unrestricted_tool(
     monkeypatch, tool_class, invalid
 ):
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.security.allowed_dirs = invalid
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: cfg)
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda: cfg)
     with pytest.raises(ValueError, match="allowed_dirs"):
         tool_class()
 
@@ -43,7 +43,7 @@ def test_unreadable_config_does_not_remove_directory_restrictions(
     monkeypatch, tool_class
 ):
     monkeypatch.setattr(
-        "openjarvis.core.config.load_config",
+        "friday_ai.core.config.load_config",
         Mock(side_effect=PermissionError("configuration unavailable")),
     )
     with pytest.raises(PermissionError):
@@ -53,13 +53,13 @@ def test_unreadable_config_does_not_remove_directory_restrictions(
 def test_scalar_toml_policy_is_rejected_instead_of_allowing_root(tmp_path, monkeypatch):
     config_path = tmp_path / "config.toml"
     config_path.write_text('[security]\nallowed_dirs = "/tmp/allowed"\n')
-    monkeypatch.setenv("OPENJARVIS_CONFIG", str(config_path))
+    monkeypatch.setenv("FRIDAY_AI_CONFIG", str(config_path))
     with pytest.raises(ValueError, match="allowed_dirs"):
         FileReadTool()
 
 
 def test_config_default_is_empty() -> None:
-    assert JarvisConfig().security.allowed_dirs == []
+    assert FridayConfig().security.allowed_dirs == []
 
 
 def test_config_allowed_dirs_restricts_file_read(tmp_path, monkeypatch) -> None:
@@ -69,9 +69,9 @@ def test_config_allowed_dirs_restricts_file_read(tmp_path, monkeypatch) -> None:
     outside = tmp_path / "outside.txt"
     outside.write_text("outside")
 
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.security.allowed_dirs = [str(inside)]
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda *a, **k: cfg)
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda *a, **k: cfg)
 
     tool = FileReadTool()
     assert tool.execute(path=str(inside / "a.txt")).success
@@ -81,9 +81,9 @@ def test_config_allowed_dirs_restricts_file_read(tmp_path, monkeypatch) -> None:
 def test_config_allowed_dirs_restricts_file_write(tmp_path, monkeypatch) -> None:
     inside = tmp_path / "ok"
     inside.mkdir()
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.security.allowed_dirs = [str(inside)]
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda *a, **k: cfg)
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda *a, **k: cfg)
 
     tool = FileWriteTool()
     assert tool.execute(path=str(inside / "a.txt"), content="x").success
@@ -104,7 +104,7 @@ def test_relative_path_resolves_inside_first_allowed_dir(tmp_path: Path) -> None
 def test_active_config_controls_tools_instead_of_ambient_config(
     tmp_path, monkeypatch, entry_point
 ):
-    from openjarvis.core.registry import ToolRegistry
+    from friday_ai.core.registry import ToolRegistry
 
     inside = tmp_path / "allowed"
     inside.mkdir()
@@ -116,26 +116,26 @@ def test_active_config_controls_tools_instead_of_ambient_config(
         '[tools]\nenabled = "file_read,file_write"\n'
     )
     cfg = load_config(config_path)
-    ambient = JarvisConfig()
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda *a, **kw: ambient)
+    ambient = FridayConfig()
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda *a, **kw: ambient)
     ToolRegistry.register_value("file_read", FileReadTool)
     ToolRegistry.register_value("file_write", FileWriteTool)
 
     if entry_point == "cli_sdk":
-        from openjarvis.cli.ask import _build_tools
+        from friday_ai.cli.ask import _build_tools
 
         tools = _build_tools(["file_read", "file_write"], cfg, None, "")
     elif entry_point == "system":
-        from openjarvis.system.builder import SystemBuilder
+        from friday_ai.system.builder import SystemBuilder
 
         tools = SystemBuilder(config=cfg)._resolve_tools(cfg, None, "", None)
     elif entry_point == "orchestrator":
-        from openjarvis.system.orchestrator import QueryOrchestrator
+        from friday_ai.system.orchestrator import QueryOrchestrator
 
         system = SimpleNamespace(config=cfg, memory_backend=None, engine=None, model="")
         tools = QueryOrchestrator(system)._build_tools(["file_read", "file_write"])
     else:
-        from openjarvis.mcp.server import MCPServer
+        from friday_ai.mcp.server import MCPServer
 
         tools = MCPServer(allowed_dirs=cfg.security.allowed_dirs).get_tools()
 
@@ -152,39 +152,39 @@ def test_active_config_controls_tools_instead_of_ambient_config(
 def test_invalid_active_policy_cannot_fall_back_to_valid_ambient_config(
     monkeypatch, entry_point
 ):
-    from openjarvis.core.registry import ToolRegistry
+    from friday_ai.core.registry import ToolRegistry
 
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.security.allowed_dirs = None
     cfg.tools.enabled = "file_read,file_write"
-    ambient = JarvisConfig()
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: ambient)
+    ambient = FridayConfig()
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda: ambient)
     ToolRegistry.register_value("file_read", FileReadTool)
     ToolRegistry.register_value("file_write", FileWriteTool)
     if entry_point == "cli_sdk":
-        from openjarvis.cli.ask import _build_tools
+        from friday_ai.cli.ask import _build_tools
 
         with pytest.raises(ValueError, match="allowed_dirs"):
             _build_tools(["file_read", "file_write"], cfg, None, "")
     elif entry_point == "system":
-        from openjarvis.system.builder import SystemBuilder
+        from friday_ai.system.builder import SystemBuilder
 
         with pytest.raises(ValueError, match="allowed_dirs"):
             SystemBuilder(config=cfg)._resolve_tools(cfg, None, "", None)
     else:
-        from openjarvis.system.orchestrator import QueryOrchestrator
+        from friday_ai.system.orchestrator import QueryOrchestrator
 
         system = SimpleNamespace(config=cfg, memory_backend=None, engine=None, model="")
         assert QueryOrchestrator(system)._build_tools(["file_read", "file_write"]) == []
 
 
 def test_managed_route_constructor_uses_active_policy(tmp_path, monkeypatch):
-    from openjarvis.server.agent_manager_routes import _instantiate_managed_tool
+    from friday_ai.server.agent_manager_routes import _instantiate_managed_tool
 
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.security.allowed_dirs = [str(tmp_path / "allowed")]
     state = SimpleNamespace(config=cfg, memory_backend=object())
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: JarvisConfig())
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda: FridayConfig())
     outside = tmp_path / "outside.txt"
     outside.write_text("must stay outside")
     tool = _instantiate_managed_tool(

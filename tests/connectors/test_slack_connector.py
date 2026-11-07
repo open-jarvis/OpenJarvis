@@ -12,8 +12,8 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 # ---------------------------------------------------------------------------
 # Fake API payloads
@@ -69,7 +69,7 @@ _AUTH_TEST_RESPONSE = {
 @pytest.fixture()
 def connector(tmp_path: Path):
     """SlackConnector pointing at a tmp credentials path (no file yet)."""
-    from openjarvis.connectors.slack_connector import SlackConnector  # noqa: PLC0415
+    from friday_ai.connectors.slack_connector import SlackConnector  # noqa: PLC0415
 
     creds_path = str(tmp_path / "slack.json")
     return SlackConnector(credentials_path=creds_path)
@@ -122,10 +122,10 @@ def test_auth_url(connector) -> None:
 # ---------------------------------------------------------------------------
 
 
-@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
-@patch("openjarvis.connectors.slack_connector._slack_api_conversations_list")
-@patch("openjarvis.connectors.slack_connector._slack_api_conversations_history")
-@patch("openjarvis.connectors.slack_connector._slack_api_users_list")
+@patch("friday_ai.connectors.slack_connector._slack_api_auth_test")
+@patch("friday_ai.connectors.slack_connector._slack_api_conversations_list")
+@patch("friday_ai.connectors.slack_connector._slack_api_conversations_history")
+@patch("friday_ai.connectors.slack_connector._slack_api_users_list")
 def test_sync_yields_documents(
     mock_users,
     mock_history,
@@ -208,7 +208,7 @@ def test_sync_yields_documents(
 # ---------------------------------------------------------------------------
 
 
-@patch("openjarvis.connectors.slack_connector._slack_api_with_retry")
+@patch("friday_ai.connectors.slack_connector._slack_api_with_retry")
 def test_conversations_list_requests_all_conversation_types(mock_retry) -> None:
     """``_slack_api_conversations_list`` widens ``types`` to cover IMs + MPIMs.
 
@@ -217,7 +217,7 @@ def test_conversations_list_requests_all_conversation_types(mock_retry) -> None:
     is the API request shape: ``types`` must include im + mpim so the bot
     token's DMs and group DMs come back in the listing.
     """
-    from openjarvis.connectors.slack_connector import (  # noqa: PLC0415
+    from friday_ai.connectors.slack_connector import (  # noqa: PLC0415
         _slack_api_conversations_list,
     )
 
@@ -236,11 +236,11 @@ def test_conversations_list_requests_all_conversation_types(mock_retry) -> None:
 # ---------------------------------------------------------------------------
 
 
-@patch("openjarvis.connectors.slack_connector._slack_api_with_retry")
-@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
-@patch("openjarvis.connectors.slack_connector._slack_api_conversations_list")
-@patch("openjarvis.connectors.slack_connector._slack_api_conversations_history")
-@patch("openjarvis.connectors.slack_connector._slack_api_users_list")
+@patch("friday_ai.connectors.slack_connector._slack_api_with_retry")
+@patch("friday_ai.connectors.slack_connector._slack_api_auth_test")
+@patch("friday_ai.connectors.slack_connector._slack_api_conversations_list")
+@patch("friday_ai.connectors.slack_connector._slack_api_conversations_history")
+@patch("friday_ai.connectors.slack_connector._slack_api_users_list")
 def test_sync_includes_dms_and_group_dms(
     mock_users,
     mock_history,
@@ -372,7 +372,7 @@ def test_mcp_tools(connector) -> None:
 
 def test_registry() -> None:
     """SlackConnector can be registered and retrieved via ConnectorRegistry."""
-    from openjarvis.connectors.slack_connector import SlackConnector  # noqa: PLC0415
+    from friday_ai.connectors.slack_connector import SlackConnector  # noqa: PLC0415
 
     # The registry is cleared before each test by the autouse conftest fixture,
     # so we imperatively re-register here (same pattern as test_gmail.py).
@@ -387,10 +387,10 @@ def test_registry() -> None:
 # ---------------------------------------------------------------------------
 
 
-@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
-@patch("openjarvis.connectors.slack_connector._slack_api_conversations_list")
-@patch("openjarvis.connectors.slack_connector._slack_api_conversations_history")
-@patch("openjarvis.connectors.slack_connector._slack_api_users_list")
+@patch("friday_ai.connectors.slack_connector._slack_api_auth_test")
+@patch("friday_ai.connectors.slack_connector._slack_api_conversations_list")
+@patch("friday_ai.connectors.slack_connector._slack_api_conversations_history")
+@patch("friday_ai.connectors.slack_connector._slack_api_users_list")
 def test_end_to_end_ingest_and_search(
     mock_users,
     mock_history,
@@ -406,9 +406,9 @@ def test_end_to_end_ingest_and_search(
     namespaced thread_id, channel, participants, and a workspace-qualified
     permalink all survive ingest → store → hit.
     """
-    from openjarvis.connectors.hybrid_search import HybridSearch  # noqa: PLC0415
-    from openjarvis.connectors.pipeline import IngestionPipeline  # noqa: PLC0415
-    from openjarvis.connectors.store import KnowledgeStore  # noqa: PLC0415
+    from friday_ai.connectors.hybrid_search import HybridSearch  # noqa: PLC0415
+    from friday_ai.connectors.pipeline import IngestionPipeline  # noqa: PLC0415
+    from friday_ai.connectors.store import KnowledgeStore  # noqa: PLC0415
 
     creds_path = Path(connector._credentials_path)
     creds_path.write_text(
@@ -445,7 +445,7 @@ def test_end_to_end_ingest_and_search(
     assert target.document_id == "slack:acme:C001:1710500000.000100"
 
     # And the research-loop builder reconstructs the workspace permalink.
-    from openjarvis.agents.research_loop import _hit_url  # noqa: PLC0415
+    from friday_ai.agents.research_loop import _hit_url  # noqa: PLC0415
 
     assert _hit_url(target.source, target.document_id) == (
         "https://acme.slack.com/archives/C001/p1710500000000100"
@@ -459,7 +459,7 @@ def test_end_to_end_ingest_and_search(
 
 def test_handle_callback_rejects_xoxb(connector) -> None:
     """handle_callback() refuses bot tokens before writing them to disk."""
-    from openjarvis.connectors.slack_connector import (  # noqa: PLC0415
+    from friday_ai.connectors.slack_connector import (  # noqa: PLC0415
         SlackTokenError,
     )
 
@@ -475,7 +475,7 @@ def test_handle_callback_rejects_xoxb(connector) -> None:
 
 def test_handle_callback_rejects_unknown_prefix(connector) -> None:
     """handle_callback() refuses tokens that don't match the user-token shape."""
-    from openjarvis.connectors.slack_connector import (  # noqa: PLC0415
+    from friday_ai.connectors.slack_connector import (  # noqa: PLC0415
         SlackTokenError,
     )
 
@@ -511,10 +511,10 @@ def test_sync_with_xoxb_token_surfaces_error(connector, tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
-@patch("openjarvis.connectors.slack_connector._slack_api_conversations_list")
-@patch("openjarvis.connectors.slack_connector._slack_api_conversations_history")
-@patch("openjarvis.connectors.slack_connector._slack_api_users_list")
+@patch("friday_ai.connectors.slack_connector._slack_api_auth_test")
+@patch("friday_ai.connectors.slack_connector._slack_api_conversations_list")
+@patch("friday_ai.connectors.slack_connector._slack_api_conversations_history")
+@patch("friday_ai.connectors.slack_connector._slack_api_users_list")
 def test_sync_logs_per_type_channel_counts(
     mock_users,
     mock_history,
@@ -550,7 +550,7 @@ def test_sync_logs_per_type_channel_counts(
     }
     mock_history.return_value = {"messages": [], "has_more": False}
 
-    with caplog.at_level("INFO", logger="openjarvis.connectors.slack_connector"):
+    with caplog.at_level("INFO", logger="friday_ai.connectors.slack_connector"):
         list(connector.sync())
 
     summary = " ".join(r.message for r in caplog.records)
@@ -567,7 +567,7 @@ def test_sync_logs_per_type_channel_counts(
 # ---------------------------------------------------------------------------
 
 
-@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
+@patch("friday_ai.connectors.slack_connector._slack_api_auth_test")
 def test_handle_callback_persists_after_auth_test_succeeds(
     mock_auth, connector
 ) -> None:
@@ -581,10 +581,10 @@ def test_handle_callback_persists_after_auth_test_succeeds(
     assert stored["token"] == "xoxp-valid-user-token"
 
 
-@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
+@patch("friday_ai.connectors.slack_connector._slack_api_auth_test")
 def test_handle_callback_rejects_when_auth_test_fails(mock_auth, connector) -> None:
     """A well-formed token Slack rejects (auth.test not ok) is never written."""
-    from openjarvis.connectors.slack_connector import SlackTokenError  # noqa: PLC0415
+    from friday_ai.connectors.slack_connector import SlackTokenError  # noqa: PLC0415
 
     mock_auth.return_value = {"ok": False, "error": "invalid_auth"}
 
@@ -595,10 +595,10 @@ def test_handle_callback_rejects_when_auth_test_fails(mock_auth, connector) -> N
     assert not Path(connector._credentials_path).exists()
 
 
-@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
+@patch("friday_ai.connectors.slack_connector._slack_api_auth_test")
 def test_handle_callback_skips_auth_test_for_bad_shape(mock_auth, connector) -> None:
     """Shape validation short-circuits before any network call is made."""
-    from openjarvis.connectors.slack_connector import SlackTokenError  # noqa: PLC0415
+    from friday_ai.connectors.slack_connector import SlackTokenError  # noqa: PLC0415
 
     with pytest.raises(SlackTokenError):
         connector.handle_callback("xoxb-bot-token")
@@ -609,7 +609,7 @@ def test_handle_callback_skips_auth_test_for_bad_shape(mock_auth, connector) -> 
 
 def test_handle_callback_xoxb_message_wording(connector) -> None:
     """The xoxb- rejection carries the user-facing 'can't read DMs' guidance."""
-    from openjarvis.connectors.slack_connector import SlackTokenError  # noqa: PLC0415
+    from friday_ai.connectors.slack_connector import SlackTokenError  # noqa: PLC0415
 
     with pytest.raises(SlackTokenError) as excinfo:
         connector.handle_callback("xoxb-bot-token")

@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 def test_handle_chat_uses_deep_research_agent() -> None:
     """When a DeepResearch agent is configured, route through it."""
-    from openjarvis.server.channel_bridge import ChannelBridge
-    from openjarvis.server.session_store import SessionStore
+    from friday_ai.server.channel_bridge import ChannelBridge
+    from friday_ai.server.session_store import SessionStore
 
     mock_agent = MagicMock()
     mock_agent.run.return_value = MagicMock(content="Found 3 results about Spain.")
@@ -32,8 +32,8 @@ def test_handle_chat_uses_deep_research_agent() -> None:
 
 def test_handle_chat_falls_back_to_system() -> None:
     """When no DeepResearch agent, fall back to system.ask()."""
-    from openjarvis.server.channel_bridge import ChannelBridge
-    from openjarvis.server.session_store import SessionStore
+    from friday_ai.server.channel_bridge import ChannelBridge
+    from friday_ai.server.session_store import SessionStore
 
     mock_system = MagicMock()
     mock_system.ask.return_value = {"content": "Generic response"}

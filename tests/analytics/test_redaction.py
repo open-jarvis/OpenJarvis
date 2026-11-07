@@ -1,4 +1,4 @@
-"""Tests for openjarvis.analytics.redaction.
+"""Tests for friday_ai.analytics.redaction.
 
 Two layers of guarantee are tested here:
   - Value-level: ``redact()`` drops string values that match any PII
@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.analytics.events import (
+from friday_ai.analytics.events import (
     REGISTRY,
     known_event_names,
     validate_event,
 )
-from openjarvis.analytics.redaction import (
+from friday_ai.analytics.redaction import (
     MAX_STR_LEN,
     hash_id,
     looks_like_pii,

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 class TestGRPOConfig:
     def test_default_config(self) -> None:
-        from openjarvis.core.config import GRPOConfig
+        from friday_ai.core.config import GRPOConfig
 
         cfg = GRPOConfig()
         assert cfg.model_name == "Qwen/Qwen3-1.7B"
@@ -19,7 +19,7 @@ class TestGRPOConfig:
 
 class TestDefaultRewardFn:
     def test_score_returns_float(self) -> None:
-        from openjarvis.learning.intelligence.grpo_trainer import DefaultRewardFn
+        from friday_ai.learning.intelligence.grpo_trainer import DefaultRewardFn
 
         reward = DefaultRewardFn()
         score = reward.score("prompt", "response", None)
@@ -27,7 +27,7 @@ class TestDefaultRewardFn:
         assert 0.0 <= score <= 1.0
 
     def test_score_with_ground_truth(self) -> None:
-        from openjarvis.learning.intelligence.grpo_trainer import DefaultRewardFn
+        from friday_ai.learning.intelligence.grpo_trainer import DefaultRewardFn
 
         reward = DefaultRewardFn()
         # When response matches ground truth, score should be higher
@@ -38,24 +38,24 @@ class TestDefaultRewardFn:
 
 class TestGRPOTrainer:
     def test_init(self) -> None:
-        from openjarvis.core.config import GRPOConfig
-        from openjarvis.learning.intelligence.grpo_trainer import GRPOTrainer
+        from friday_ai.core.config import GRPOConfig
+        from friday_ai.learning.intelligence.grpo_trainer import GRPOTrainer
 
         cfg = GRPOConfig()
         trainer = GRPOTrainer(cfg)
         assert trainer.config is cfg
 
     def test_train_on_prompts_empty(self) -> None:
-        from openjarvis.core.config import GRPOConfig
-        from openjarvis.learning.intelligence.grpo_trainer import GRPOTrainer
+        from friday_ai.core.config import GRPOConfig
+        from friday_ai.learning.intelligence.grpo_trainer import GRPOTrainer
 
         trainer = GRPOTrainer(GRPOConfig())
         result = trainer.train_on_prompts([])
         assert result["status"] == "skipped"
 
     def test_train_on_prompts_too_few(self) -> None:
-        from openjarvis.core.config import GRPOConfig
-        from openjarvis.learning.intelligence.grpo_trainer import GRPOTrainer
+        from friday_ai.core.config import GRPOConfig
+        from friday_ai.learning.intelligence.grpo_trainer import GRPOTrainer
 
         trainer = GRPOTrainer(GRPOConfig(min_prompts=5))
         result = trainer.train_on_prompts(["hello"])
@@ -63,8 +63,8 @@ class TestGRPOTrainer:
         assert "min_prompts" in result.get("reason", "")
 
     def test_custom_reward_fn(self) -> None:
-        from openjarvis.core.config import GRPOConfig
-        from openjarvis.learning.intelligence.grpo_trainer import GRPOTrainer
+        from friday_ai.core.config import GRPOConfig
+        from friday_ai.learning.intelligence.grpo_trainer import GRPOTrainer
 
         class MyReward:
             def score(
@@ -76,8 +76,8 @@ class TestGRPOTrainer:
         assert trainer.reward_fn.score("a", "b", None) == 0.42
 
     def test_train_delegates_to_miner(self) -> None:
-        from openjarvis.core.config import GRPOConfig
-        from openjarvis.learning.intelligence.grpo_trainer import GRPOTrainer
+        from friday_ai.core.config import GRPOConfig
+        from friday_ai.learning.intelligence.grpo_trainer import GRPOTrainer
 
         trainer = GRPOTrainer(GRPOConfig(min_prompts=1))
         mock_store = MagicMock()

@@ -1,4 +1,4 @@
-"""Tests for openjarvis.mining._install."""
+"""Tests for friday_ai.mining._install."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def test_pearl_packages_available_returns_false_when_any_one_missing(
     missing_module, monkeypatch
 ):
     """Returns False if ANY of the three packages is absent."""
-    from openjarvis.mining import _install
+    from friday_ai.mining import _install
 
     # Stub the two that should be present, leave the third missing.
     present = {"pearl_mining", "pearl_gateway", "miner_base"} - {missing_module}
@@ -30,7 +30,7 @@ def test_pearl_packages_available_returns_false_when_any_one_missing(
 
 def test_pearl_packages_available_returns_true_when_all_present():
     """When all three are importable, returns True."""
-    from openjarvis.mining import _install
+    from friday_ai.mining import _install
 
     fakes = {
         name: types.ModuleType(name)
@@ -44,7 +44,7 @@ def test_pearl_packages_available_returns_true_when_all_present():
 
 def test_install_hint_is_actionable():
     """The hint string must include the extra name and a clear next step."""
-    from openjarvis.mining._install import install_hint
+    from friday_ai.mining._install import install_hint
 
     h = install_hint()
     assert "mining-pearl-cpu" in h
@@ -53,7 +53,7 @@ def test_install_hint_is_actionable():
 
 def test_module_importable_returns_false_on_value_error(monkeypatch):
     """If find_spec raises ValueError, the helper treats the module as missing."""
-    from openjarvis.mining import _install
+    from friday_ai.mining import _install
 
     def boom(name):
         raise ValueError("simulated partially-initialised package")

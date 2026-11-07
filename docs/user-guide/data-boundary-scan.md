@@ -1,7 +1,7 @@
 # Data-boundary scan
 
-`jarvis scan --data-boundaries` reports application-level data boundaries in the
-current OpenJarvis configuration. It complements the existing host/environment
+`friday scan --data-boundaries` reports application-level data boundaries in the
+current FridayAI configuration. It complements the existing host/environment
 scan, which checks OS posture such as disk encryption, cloud-sync agents, remote
 access tools, and exposed engine ports.
 
@@ -11,10 +11,10 @@ scanner, a legal privacy assessment, a network monitor, or an OAuth-scope audit.
 ## Run the scan
 
 ```bash
-jarvis scan --data-boundaries
-jarvis scan --data-boundaries --json
-jarvis scan --data-boundaries --json --show-paths
-jarvis scan --data-boundaries --strict
+friday scan --data-boundaries
+friday scan --data-boundaries --json
+friday scan --data-boundaries --json --show-paths
+friday scan --data-boundaries --strict
 ```
 
 `--strict` exits with status code `1` when the report contains either a `fail`
@@ -24,9 +24,9 @@ conservative local-only posture.
 Without `--strict`, the command always exits `0` even when fail or warn findings
 are present. This is useful for exploratory review.
 
-On a fresh `jarvis init` configuration, common warn findings include
+On a fresh `friday init` configuration, common warn findings include
 `server.host = "0.0.0.0"` and `telemetry.enabled = true`. Running
-`jarvis scan --data-boundaries --strict` after init therefore exits `1` until
+`friday scan --data-boundaries --strict` after init therefore exits `1` until
 those defaults are tightened.
 
 Absolute paths and connector file basenames are redacted by default so JSON
@@ -63,12 +63,12 @@ The current checks cover:
 
 Configured database paths (for example `traces.db_path` or `memory.db_path`)
 are resolved from config when set, not only the default locations under the
-OpenJarvis home directory.
+FridayAI home directory.
 
 ### A2A configuration and the built-in server
 
 A2A findings describe configuration, rather than a probe of mounted network
-routes. The current `jarvis serve` application does not mount the `A2AServer`
+routes. The current `friday serve` application does not mount the `A2AServer`
 library's endpoints. Setting `[a2a] enabled = true` therefore does not add A2A
 discovery or task routes to that application.
 
@@ -176,8 +176,8 @@ users know that browser/Tauri credential storage must be reviewed separately.
 ## Configuration resolution
 
 The scan follows the same explicit configuration override used by the runtime:
-if `OPENJARVIS_CONFIG` is set, that file is audited. Otherwise the scan uses
-the default OpenJarvis config path under the resolved OpenJarvis home. If the
+if `FRIDAY_AI_CONFIG` is set, that file is audited. Otherwise the scan uses
+the default FridayAI config path under the resolved FridayAI home. If the
 home directory cannot be resolved, the command reports a `config-root-error`
 finding instead of crashing.
 

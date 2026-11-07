@@ -267,10 +267,10 @@ function isProfane(text: string): boolean {
   return false;
 }
 
-const OPTIN_KEY = 'openjarvis-desktop-optin';
-const OPTIN_NAME_KEY = 'openjarvis-desktop-display-name';
-const OPTIN_EMAIL_KEY = 'openjarvis-desktop-email';
-const OPTIN_ANONID_KEY = 'openjarvis-desktop-anon-id';
+const OPTIN_KEY = 'friday_ai-desktop-optin';
+const OPTIN_NAME_KEY = 'friday_ai-desktop-display-name';
+const OPTIN_EMAIL_KEY = 'friday_ai-desktop-email';
+const OPTIN_ANONID_KEY = 'friday_ai-desktop-anon-id';
 
 function getOrCreateAnonId(): string {
   const stored = localStorage.getItem(OPTIN_ANONID_KEY);

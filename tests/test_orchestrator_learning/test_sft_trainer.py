@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.learning.intelligence.orchestrator.sft_trainer import (
+from friday_ai.learning.intelligence.orchestrator.sft_trainer import (
     OrchestratorSFTConfig,
     OrchestratorSFTDataset,
 )
@@ -178,7 +178,7 @@ class TestSFTLabelMasking:
 class TestSFTRegistration:
     def test_registered_in_learning_registry(self):
         # Import to trigger registration
-        import openjarvis.learning.intelligence.orchestrator.sft_trainer  # noqa: F401
-        from openjarvis.core.registry import LearningRegistry
+        import friday_ai.learning.intelligence.orchestrator.sft_trainer  # noqa: F401
+        from friday_ai.core.registry import LearningRegistry
 
         assert LearningRegistry.contains("orchestrator_sft")

@@ -13,10 +13,10 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
-from openjarvis.evals.cli import main as cli_main
-from openjarvis.evals.core.runner import EvalRunner, _extract_continuous_score
-from openjarvis.evals.core.types import EvalRecord, RunConfig
-from openjarvis.evals.scorers.liveresearch import (
+from friday_ai.evals.cli import main as cli_main
+from friday_ai.evals.core.runner import EvalRunner, _extract_continuous_score
+from friday_ai.evals.core.types import EvalRecord, RunConfig
+from friday_ai.evals.scorers.liveresearch import (
     _escape_newlines_inside_strings,
     _parse_judge_response,
     _safe_json_loads,
@@ -76,7 +76,7 @@ def test_continuous_score_fields_present_in_summary(tmp_path):
     out = tmp_path / "out.jsonl"
     cfg = RunConfig(
         benchmark="test",
-        backend="jarvis-direct",
+        backend="friday-direct",
         model="test-model",
         output_path=str(out),
     )

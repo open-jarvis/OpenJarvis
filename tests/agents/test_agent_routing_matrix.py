@@ -6,12 +6,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.agents._stubs import AgentResult
-from openjarvis.agents.native_openhands import NativeOpenHandsAgent
-from openjarvis.agents.native_react import NativeReActAgent
-from openjarvis.agents.orchestrator import OrchestratorAgent
-from openjarvis.agents.simple import SimpleAgent
-from openjarvis.core.events import EventBus, EventType
+from friday_ai.agents._stubs import AgentResult
+from friday_ai.agents.native_openhands import NativeOpenHandsAgent
+from friday_ai.agents.native_react import NativeReActAgent
+from friday_ai.agents.orchestrator import OrchestratorAgent
+from friday_ai.agents.simple import SimpleAgent
+from friday_ai.core.events import EventBus, EventType
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -1,12 +1,12 @@
-site_name: OpenJarvis
+site_name: FridayAI
 site_url: https://open-jarvis.github.io/OpenJarvis/
 site_description: Personal AI, On Personal Devices
-site_author: OpenJarvis Contributors
-repo_url: https://github.com/open-jarvis/OpenJarvis
-repo_name: open-jarvis/OpenJarvis
+site_author: FridayAI Contributors
+repo_url: https://github.com/open-jarvis/FridayAI
+repo_name: open-jarvis/FridayAI
 edit_uri: edit/main/docs/
 
-copyright: Copyright &copy; 2026 OpenJarvis Contributors
+copyright: Copyright &copy; 2026 FridayAI Contributors
 
 theme:
   name: material
@@ -138,10 +138,10 @@ extra:
   algolia:
     app_id: ""       # Fill after DocSearch approval
     api_key: ""      # Search-only key
-    index_name: ""   # e.g. "openjarvis"
+    index_name: ""   # e.g. "friday_ai"
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/open-jarvis/OpenJarvis
+      link: https://github.com/open-jarvis/FridayAI
 
 nav:
   - Home: index.md

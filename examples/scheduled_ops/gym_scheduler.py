@@ -7,7 +7,7 @@ Run manually::
 
 Or register as a scheduled task::
 
-    jarvis scheduler create "Gym schedule check" --type cron --value "0 6 * * 1,3,5"
+    friday scheduler create "Gym schedule check" --type cron --value "0 6 * * 1,3,5"
 
 This script also demonstrates using the ``TaskScheduler`` API directly to
 register itself as a recurring task.
@@ -68,7 +68,7 @@ def main(
     )
 
     try:
-        from openjarvis import Jarvis
+        from friday_ai import Friday
 
         kwargs: dict[str, str | None] = {}
         if model:
@@ -76,12 +76,12 @@ def main(
         if engine_key:
             kwargs["engine_key"] = engine_key
 
-        j = Jarvis(**kwargs)  # type: ignore[arg-type]
+        j = Friday(**kwargs)  # type: ignore[arg-type]
     except Exception as exc:
         click.echo(
-            f"Error: Could not initialize Jarvis: {exc}\n\n"
+            f"Error: Could not initialize Friday: {exc}\n\n"
             "Make sure an inference engine is running (e.g. `ollama serve`) "
-            "and the openjarvis package is installed (`uv sync`).",
+            "and the friday_ai package is installed (`uv sync`).",
             err=True,
         )
         raise SystemExit(1) from exc
@@ -109,8 +109,8 @@ def main(
 def _register_task(gym: str) -> None:
     """Register this script as a recurring scheduled task."""
     try:
-        from openjarvis.scheduler import TaskScheduler
-        from openjarvis.scheduler.store import SchedulerStore
+        from friday_ai.scheduler import TaskScheduler
+        from friday_ai.scheduler.store import SchedulerStore
 
         store = SchedulerStore()
         scheduler = TaskScheduler(store)
@@ -126,7 +126,7 @@ def _register_task(gym: str) -> None:
         click.echo(f"  Next run: {task.next_run}")
         click.echo(
             "\nStart the scheduler daemon to execute tasks automatically:\n"
-            "  jarvis scheduler start"
+            "  friday scheduler start"
         )
     except Exception as exc:
         click.echo(f"Error registering task: {exc}", err=True)

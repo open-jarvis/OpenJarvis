@@ -8,16 +8,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import openjarvis.agents  # noqa: F401 -- trigger registration
-from openjarvis.agents._stubs import AgentResult
-from openjarvis.agents.claude_code import (
+import friday_ai.agents  # noqa: F401 -- trigger registration
+from friday_ai.agents._stubs import AgentResult
+from friday_ai.agents.claude_code import (
     _OUTPUT_END,
     _OUTPUT_START,
     _RUNNER_SRC,
     ClaudeCodeAgent,
 )
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.registry import AgentRegistry
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.registry import AgentRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -98,14 +98,14 @@ class TestEnsureRunner:
         agent = ClaudeCodeAgent(engine, "test-model")
 
         # _ensure_runner() resolves its destination via get_config_dir(),
-        # which checks $OPENJARVIS_HOME before ever falling back to
+        # which checks $FRIDAY_AI_HOME before ever falling back to
         # Path.home() -- so that's the env var to control here, not a
         # Path.home() patch (which get_config_dir() never even calls once
-        # OPENJARVIS_HOME is set, e.g. by conftest.py's session-wide
+        # FRIDAY_AI_HOME is set, e.g. by conftest.py's session-wide
         # isolation fixture).
         home_dir = tmp_path / "home"
         home_dir.mkdir()
-        monkeypatch.setenv("OPENJARVIS_HOME", str(home_dir))
+        monkeypatch.setenv("FRIDAY_AI_HOME", str(home_dir))
 
         def which(executable):
             return f"/usr/bin/{executable}"
@@ -143,7 +143,7 @@ class TestEnsureRunner:
         )
         installed.parent.mkdir(parents=True)
         installed.write_text('{"version":"0.3.237"}')
-        monkeypatch.setenv("OPENJARVIS_HOME", str(home_dir))
+        monkeypatch.setenv("FRIDAY_AI_HOME", str(home_dir))
 
         with (
             patch("shutil.which", side_effect=lambda name: f"/usr/bin/{name}"),
@@ -167,7 +167,7 @@ class TestEnsureRunner:
         )
         old_package.parent.mkdir(parents=True)
         old_package.write_text('{"version":"0.2.126"}')
-        monkeypatch.setenv("OPENJARVIS_HOME", str(home_dir))
+        monkeypatch.setenv("FRIDAY_AI_HOME", str(home_dir))
 
         with (
             patch("shutil.which", side_effect=lambda name: f"/usr/bin/{name}"),

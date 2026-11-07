@@ -10,7 +10,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from openjarvis.server.app import create_app  # noqa: E402
+from friday_ai.server.app import create_app  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,7 +37,7 @@ def _create_static_dir(tmp_path: pathlib.Path) -> pathlib.Path:
     static.mkdir()
     (static / "index.html").write_text("<html><body>SPA</body></html>")
     (static / "sw.js").write_text("// service worker")
-    (static / "manifest.webmanifest").write_text('{"name":"OpenJarvis"}')
+    (static / "manifest.webmanifest").write_text('{"name":"FridayAI"}')
     (static / "pwa-192x192.png").write_bytes(b"\x89PNG placeholder")
     assets = static / "assets"
     assets.mkdir()
@@ -83,7 +83,7 @@ class TestPWAServing:
         """Web manifest should be served directly."""
         resp = client_with_static.get("/manifest.webmanifest")
         assert resp.status_code == 200
-        assert "OpenJarvis" in resp.text
+        assert "FridayAI" in resp.text
 
     def test_icon_served_as_file(self, client_with_static):
         """PWA icon should be served directly."""

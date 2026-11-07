@@ -1,6 +1,6 @@
 # Channel Integrations
 
-OpenJarvis ships adapters for many messaging platforms.
+FridayAI ships adapters for many messaging platforms.
 
 ## Telegram
 
@@ -16,4 +16,4 @@ Discord needs a bot token and intents configured for message content. Add the bo
 
 ## Adding a New Channel
 
-Create a subclass of `BaseChannel` in `src/openjarvis/channels/your_channel.py`. Decorate with `@ChannelRegistry.register("name")`. Implement `connect`, `disconnect`, `send`, `status`, `list_channels`, and `on_message`.
+Create a subclass of `BaseChannel` in `src/friday_ai/channels/your_channel.py`. Decorate with `@ChannelRegistry.register("name")`. Implement `connect`, `disconnect`, `send`, `status`, `list_channels`, and `on_message`.

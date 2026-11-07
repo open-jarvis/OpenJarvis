@@ -8,12 +8,12 @@ from typing import Any, Dict, List
 
 import pytest
 
-from openjarvis.core.events import EventBus
-from openjarvis.core.types import Message, Role
-from openjarvis.engine._stubs import InferenceEngine, StreamChunk
-from openjarvis.engine.multi import MultiEngine
-from openjarvis.security.guardrails import GuardrailsEngine
-from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+from friday_ai.core.events import EventBus
+from friday_ai.core.types import Message, Role
+from friday_ai.engine._stubs import InferenceEngine, StreamChunk
+from friday_ai.engine.multi import MultiEngine
+from friday_ai.security.guardrails import GuardrailsEngine
+from friday_ai.telemetry.instrumented_engine import InstrumentedEngine
 
 # ---------------------------------------------------------------------------
 # Fake engine that yields predetermined StreamChunks via stream_full

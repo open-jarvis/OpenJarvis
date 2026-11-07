@@ -14,7 +14,7 @@ import pytest
 @pytest.fixture
 def manager():
     """Create an AgentManager with a temp database."""
-    from openjarvis.agents.manager import AgentManager
+    from friday_ai.agents.manager import AgentManager
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "agents.db"
@@ -152,7 +152,7 @@ class TestSummaryMemory:
         # Import the cap from the module so this test follows the constant
         # rather than hardcoding a number that drifts every time the cap is
         # tuned (it was 2000, then 16000 after the truncation fix).
-        from openjarvis.agents.manager import _SUMMARY_MAX
+        from friday_ai.agents.manager import _SUMMARY_MAX
 
         agent = manager.create_agent(name="test", agent_type="simple")
         long_text = "x" * (_SUMMARY_MAX + 1000)
@@ -172,7 +172,7 @@ class TestConcurrency:
 
     def test_start_tick_is_atomic_across_connections(self, tmp_path, monkeypatch):
         """Only one caller may acquire a tick when two connections race."""
-        from openjarvis.agents.manager import AgentManager
+        from friday_ai.agents.manager import AgentManager
 
         db_path = tmp_path / "agents.db"
         first = AgentManager(str(db_path))
@@ -426,7 +426,7 @@ def test_update_agent_budget_fields(tmp_path):
     """update_agent() accepts budget and stall kwargs."""
     import time
 
-    from openjarvis.agents.manager import AgentManager
+    from friday_ai.agents.manager import AgentManager
 
     mgr = AgentManager(str(tmp_path / "test.db"))
     agent = mgr.create_agent("budget-test")
@@ -459,7 +459,7 @@ def test_update_agent_budget_fields(tmp_path):
 
 def test_learning_log_crud(tmp_path):
     """AgentManager can write and read learning log entries."""
-    from openjarvis.agents.manager import AgentManager
+    from friday_ai.agents.manager import AgentManager
 
     mgr = AgentManager(str(tmp_path / "test.db"))
     agent = mgr.create_agent("learner")

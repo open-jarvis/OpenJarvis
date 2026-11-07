@@ -1,6 +1,6 @@
 """Tests for speech ABC and data types."""
 
-from openjarvis.speech._stubs import Segment, SpeechBackend, TranscriptionResult
+from friday_ai.speech._stubs import Segment, SpeechBackend, TranscriptionResult
 
 
 def test_transcription_result():

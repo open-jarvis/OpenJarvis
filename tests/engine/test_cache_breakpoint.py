@@ -2,10 +2,10 @@ from __future__ import annotations
 
 
 def test_anthropic_cache_breakpoint_added():
-    from openjarvis.engine.cloud import _annotate_anthropic_cache
+    from friday_ai.engine.cloud import _annotate_anthropic_cache
 
     messages = [
-        {"role": "system", "content": "You are Jarvis. ## Persona\nHelpful assistant."},
+        {"role": "system", "content": "You are Friday. ## Persona\nHelpful assistant."},
         {"role": "user", "content": "Hello"},
     ]
     annotated = _annotate_anthropic_cache(messages)
@@ -16,7 +16,7 @@ def test_anthropic_cache_breakpoint_added():
 
 
 def test_non_system_messages_unchanged():
-    from openjarvis.engine.cloud import _annotate_anthropic_cache
+    from friday_ai.engine.cloud import _annotate_anthropic_cache
 
     messages = [
         {"role": "user", "content": "Hello"},
@@ -28,10 +28,10 @@ def test_non_system_messages_unchanged():
 
 
 def test_already_list_content_gets_cache_control():
-    from openjarvis.engine.cloud import _annotate_anthropic_cache
+    from friday_ai.engine.cloud import _annotate_anthropic_cache
 
     messages = [
-        {"role": "system", "content": [{"type": "text", "text": "You are Jarvis."}]},
+        {"role": "system", "content": [{"type": "text", "text": "You are Friday."}]},
     ]
     annotated = _annotate_anthropic_cache(messages)
     assert annotated[0]["content"][0]["cache_control"] == {"type": "ephemeral"}

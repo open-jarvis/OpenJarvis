@@ -13,7 +13,7 @@ def skills_dir(tmp_path: Path) -> Path:
 
 
 def test_skill_create(skills_dir: Path):
-    from openjarvis.tools.skill_manage import SkillManageTool
+    from friday_ai.tools.skill_manage import SkillManageTool
 
     tool = SkillManageTool(skills_dir=skills_dir)
     result = tool.execute(
@@ -32,7 +32,7 @@ def test_skill_create(skills_dir: Path):
 
 
 def test_skill_list(skills_dir: Path):
-    from openjarvis.tools.skill_manage import SkillManageTool
+    from friday_ai.tools.skill_manage import SkillManageTool
 
     tool = SkillManageTool(skills_dir=skills_dir)
     tool.execute(
@@ -53,7 +53,7 @@ def test_skill_list(skills_dir: Path):
 
 
 def test_skill_delete(skills_dir: Path):
-    from openjarvis.tools.skill_manage import SkillManageTool
+    from friday_ai.tools.skill_manage import SkillManageTool
 
     tool = SkillManageTool(skills_dir=skills_dir)
     tool.execute(
@@ -69,7 +69,7 @@ def test_skill_delete(skills_dir: Path):
 
 
 def test_skill_load(skills_dir: Path):
-    from openjarvis.tools.skill_manage import SkillManageTool
+    from friday_ai.tools.skill_manage import SkillManageTool
 
     tool = SkillManageTool(skills_dir=skills_dir)
     tool.execute(

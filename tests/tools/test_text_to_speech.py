@@ -5,29 +5,29 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from openjarvis.core.registry import ToolRegistry
-from openjarvis.speech.tts import TTSResult
+from friday_ai.core.registry import ToolRegistry
+from friday_ai.speech.tts import TTSResult
 
 
 def test_tts_tool_registered():
-    from openjarvis.tools.text_to_speech import TextToSpeechTool
+    from friday_ai.tools.text_to_speech import TextToSpeechTool
 
     ToolRegistry.register_value("text_to_speech", TextToSpeechTool)
     assert ToolRegistry.contains("text_to_speech")
 
 
 def test_tts_tool_execute(tmp_path):
-    from openjarvis.tools.text_to_speech import TextToSpeechTool
+    from friday_ai.tools.text_to_speech import TextToSpeechTool
 
     tool = TextToSpeechTool()
     mock_result = TTSResult(
         audio=b"fake-audio-data",
         format="mp3",
-        voice_id="jarvis",
+        voice_id="friday",
         duration_seconds=2.5,
     )
 
-    with patch("openjarvis.tools.text_to_speech.TTSRegistry") as mock_registry:
+    with patch("friday_ai.tools.text_to_speech.TTSRegistry") as mock_registry:
         mock_backend_cls = MagicMock()
         mock_backend_cls.return_value.synthesize.return_value = mock_result
         mock_registry.contains.return_value = True
@@ -35,7 +35,7 @@ def test_tts_tool_execute(tmp_path):
 
         result = tool.execute(
             text="Good morning sir.",
-            voice_id="jarvis",
+            voice_id="friday",
             backend="cartesia",
             output_dir=str(tmp_path),
         )
@@ -49,7 +49,7 @@ def test_tts_tool_execute(tmp_path):
 
 
 def test_tts_tool_empty_text():
-    from openjarvis.tools.text_to_speech import TextToSpeechTool
+    from friday_ai.tools.text_to_speech import TextToSpeechTool
 
     tool = TextToSpeechTool()
     result = tool.execute(text="")
@@ -58,7 +58,7 @@ def test_tts_tool_empty_text():
 
 def _mock_backend(voice_id="af_heart", fmt="wav"):
     """A registry whose backend echoes the voice_id it was actually called with."""
-    from openjarvis.speech.tts import TTSResult
+    from friday_ai.speech.tts import TTSResult
 
     backend = MagicMock()
 
@@ -83,7 +83,7 @@ def test_tts_omits_unset_voice_id_and_speed(tmp_path):
     """Unset optional params must not be forwarded, so the backend's own
     defaults win. Forwarding voice_id="" / speed=1.0 is the #971 bug: it makes
     kokoro (which defaults voice_id to "af_heart") 404 on an empty voice."""
-    from openjarvis.tools.text_to_speech import TextToSpeechTool
+    from friday_ai.tools.text_to_speech import TextToSpeechTool
 
     tool = TextToSpeechTool()
     registry, backend = _mock_backend()
@@ -91,9 +91,9 @@ def test_tts_omits_unset_voice_id_and_speed(tmp_path):
     # Neutralize the config fallback so this test exercises the pure param path
     # regardless of any speech config on the host.
     with (
-        patch("openjarvis.tools.text_to_speech.TTSRegistry", registry),
+        patch("friday_ai.tools.text_to_speech.TTSRegistry", registry),
         patch(
-            "openjarvis.core.config.load_config",
+            "friday_ai.core.config.load_config",
             side_effect=RuntimeError("no config"),
         ),
     ):
@@ -106,12 +106,12 @@ def test_tts_omits_unset_voice_id_and_speed(tmp_path):
 
 
 def test_tts_forwards_explicit_voice_id_and_speed(tmp_path):
-    from openjarvis.tools.text_to_speech import TextToSpeechTool
+    from friday_ai.tools.text_to_speech import TextToSpeechTool
 
     tool = TextToSpeechTool()
     registry, backend = _mock_backend()
 
-    with patch("openjarvis.tools.text_to_speech.TTSRegistry", registry):
+    with patch("friday_ai.tools.text_to_speech.TTSRegistry", registry):
         tool.execute(
             text="hello",
             backend="kokoro",
@@ -127,12 +127,12 @@ def test_tts_forwards_explicit_voice_id_and_speed(tmp_path):
 
 def test_tts_forwards_zero_speed(tmp_path):
     """0 is a legitimate value, not "unset", and must be forwarded."""
-    from openjarvis.tools.text_to_speech import TextToSpeechTool
+    from friday_ai.tools.text_to_speech import TextToSpeechTool
 
     tool = TextToSpeechTool()
     registry, backend = _mock_backend()
 
-    with patch("openjarvis.tools.text_to_speech.TTSRegistry", registry):
+    with patch("friday_ai.tools.text_to_speech.TTSRegistry", registry):
         tool.execute(text="hello", backend="kokoro", speed=0, output_dir=str(tmp_path))
 
     assert backend.synthesize.call_args.kwargs["speed"] == 0.0
@@ -140,12 +140,12 @@ def test_tts_forwards_zero_speed(tmp_path):
 
 def test_tts_unique_filenames_no_overwrite(tmp_path):
     """Two calls with identical text and voice into one dir must not collide."""
-    from openjarvis.tools.text_to_speech import TextToSpeechTool
+    from friday_ai.tools.text_to_speech import TextToSpeechTool
 
     tool = TextToSpeechTool()
     registry, _ = _mock_backend()
 
-    with patch("openjarvis.tools.text_to_speech.TTSRegistry", registry):
+    with patch("friday_ai.tools.text_to_speech.TTSRegistry", registry):
         first = tool.execute(
             text="same line", backend="kokoro", output_dir=str(tmp_path)
         )

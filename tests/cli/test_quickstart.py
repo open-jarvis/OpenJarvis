@@ -1,4 +1,4 @@
-"""Tests for ``jarvis quickstart`` command."""
+"""Tests for ``friday quickstart`` command."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
+from friday_ai.cli import cli
 
 
 class TestQuickstartCommand:
@@ -28,27 +28,27 @@ class TestQuickstartCommand:
         hw.gpu = MagicMock(name="Test GPU", vram_gb=24, count=1, vendor="nvidia")
 
         with (
-            patch("openjarvis.cli.quickstart_cmd.detect_hardware", return_value=hw),
-            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
-            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
+            patch("friday_ai.cli.quickstart_cmd.detect_hardware", return_value=hw),
+            patch("friday_ai.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
+            patch("friday_ai.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
             patch(
-                "openjarvis.cli.quickstart_cmd.generate_default_toml",
+                "friday_ai.cli.quickstart_cmd.generate_default_toml",
                 return_value="[engine]\n",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd.recommend_engine",
+                "friday_ai.cli.quickstart_cmd.recommend_engine",
                 return_value="ollama",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._check_engine_health",
+                "friday_ai.cli.quickstart_cmd._check_engine_health",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._check_model_available",
+                "friday_ai.cli.quickstart_cmd._check_model_available",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._test_query",
+                "friday_ai.cli.quickstart_cmd._test_query",
                 return_value="Hello!",
             ),
         ):
@@ -70,27 +70,27 @@ class TestQuickstartCommand:
         hw.gpu = None
 
         with (
-            patch("openjarvis.cli.quickstart_cmd.detect_hardware", return_value=hw),
-            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
-            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
+            patch("friday_ai.cli.quickstart_cmd.detect_hardware", return_value=hw),
+            patch("friday_ai.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
+            patch("friday_ai.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
             patch(
-                "openjarvis.cli.quickstart_cmd.generate_default_toml",
+                "friday_ai.cli.quickstart_cmd.generate_default_toml",
                 return_value="[engine]\n",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd.recommend_engine",
+                "friday_ai.cli.quickstart_cmd.recommend_engine",
                 return_value="ollama",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._check_engine_health",
+                "friday_ai.cli.quickstart_cmd._check_engine_health",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._check_model_available",
+                "friday_ai.cli.quickstart_cmd._check_model_available",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._test_query",
+                "friday_ai.cli.quickstart_cmd._test_query",
                 return_value="Hello!",
             ),
         ):
@@ -114,26 +114,26 @@ class TestQuickstartCommand:
         hw.gpu = None
 
         with (
-            patch("openjarvis.cli.quickstart_cmd.detect_hardware", return_value=hw),
-            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
-            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
+            patch("friday_ai.cli.quickstart_cmd.detect_hardware", return_value=hw),
+            patch("friday_ai.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
+            patch("friday_ai.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
             patch(
-                "openjarvis.cli.quickstart_cmd.generate_default_toml",
+                "friday_ai.cli.quickstart_cmd.generate_default_toml",
                 return_value="[engine]\nnew = true\n",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd.recommend_engine",
+                "friday_ai.cli.quickstart_cmd.recommend_engine",
                 return_value="ollama",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._check_engine_health",
+                "friday_ai.cli.quickstart_cmd._check_engine_health",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._check_model_available",
+                "friday_ai.cli.quickstart_cmd._check_model_available",
                 return_value=True,
             ),
-            patch("openjarvis.cli.quickstart_cmd._test_query", return_value="Hello!"),
+            patch("friday_ai.cli.quickstart_cmd._test_query", return_value="Hello!"),
         ):
             runner = CliRunner()
             result = runner.invoke(cli, ["quickstart", "--force"])
@@ -151,19 +151,19 @@ class TestQuickstartCommand:
         hw.gpu = None
 
         with (
-            patch("openjarvis.cli.quickstart_cmd.detect_hardware", return_value=hw),
-            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
-            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
+            patch("friday_ai.cli.quickstart_cmd.detect_hardware", return_value=hw),
+            patch("friday_ai.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
+            patch("friday_ai.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
             patch(
-                "openjarvis.cli.quickstart_cmd.generate_default_toml",
+                "friday_ai.cli.quickstart_cmd.generate_default_toml",
                 return_value="[engine]\n",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd.recommend_engine",
+                "friday_ai.cli.quickstart_cmd.recommend_engine",
                 return_value="ollama",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._check_engine_health",
+                "friday_ai.cli.quickstart_cmd._check_engine_health",
                 return_value=False,
             ),
         ):
@@ -186,31 +186,31 @@ class TestQuickstartCommand:
         hw.gpu = MagicMock(name="Apple GPU", vram_gb=16, count=1, vendor="apple")
 
         with (
-            patch("openjarvis.cli.quickstart_cmd.detect_hardware", return_value=hw),
-            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
-            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
+            patch("friday_ai.cli.quickstart_cmd.detect_hardware", return_value=hw),
+            patch("friday_ai.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
+            patch("friday_ai.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
             patch(
-                "openjarvis.cli.quickstart_cmd.generate_default_toml",
+                "friday_ai.cli.quickstart_cmd.generate_default_toml",
                 return_value='[engine]\ndefault = "mlx"\n',
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd.recommend_engine",
+                "friday_ai.cli.quickstart_cmd.recommend_engine",
                 return_value="mlx",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._check_engine_health",
+                "friday_ai.cli.quickstart_cmd._check_engine_health",
                 return_value=False,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._discover_healthy_engines",
+                "friday_ai.cli.quickstart_cmd._discover_healthy_engines",
                 return_value=["ollama"],
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._check_model_available",
+                "friday_ai.cli.quickstart_cmd._check_model_available",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd._test_query",
+                "friday_ai.cli.quickstart_cmd._test_query",
                 return_value="Hello!",
             ),
         ):

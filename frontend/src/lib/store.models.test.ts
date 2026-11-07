@@ -18,7 +18,7 @@ const model = (id: string): ModelInfo => ({
   id,
   object: 'model',
   created: 0,
-  owned_by: 'openjarvis',
+  owned_by: 'friday_ai',
 });
 
 beforeEach(() => {

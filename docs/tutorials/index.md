@@ -1,14 +1,14 @@
 ---
 title: Tutorials
-description: Step-by-step guides for building with OpenJarvis
+description: Step-by-step guides for building with FridayAI
 ---
 
 # Tutorials
 
-Hands-on guides that walk through building real applications with OpenJarvis. Each tutorial includes a standalone script you can run immediately, a TOML recipe for configuration, and a detailed walkthrough of the concepts involved.
+Hands-on guides that walk through building real applications with FridayAI. Each tutorial includes a standalone script you can run immediately, a TOML recipe for configuration, and a detailed walkthrough of the concepts involved.
 
 !!! note "Before you begin"
-    All tutorials assume OpenJarvis is installed and an inference engine is running. If you have not completed setup yet, start with the [Quick Start guide](../getting-started/quickstart.md).
+    All tutorials assume FridayAI is installed and an inference engine is running. If you have not completed setup yet, start with the [Quick Start guide](../getting-started/quickstart.md).
 
 <div class="grid cards" markdown>
 
@@ -56,7 +56,7 @@ Hands-on guides that walk through building real applications with OpenJarvis. Ea
 
 ## What You Will Learn
 
-Each tutorial demonstrates a different combination of OpenJarvis primitives working together:
+Each tutorial demonstrates a different combination of FridayAI primitives working together:
 
 | Tutorial | Agent | Key Primitives |
 |---|---|---|

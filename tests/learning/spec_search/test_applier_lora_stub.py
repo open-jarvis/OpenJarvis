@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.learning.spec_search.execute.base import ApplyContext
-from openjarvis.learning.spec_search.models import (
+from friday_ai.learning.spec_search.execute.base import ApplyContext
+from friday_ai.learning.spec_search.models import (
     Edit,
     EditOp,
     EditPillar,
@@ -32,22 +32,22 @@ class TestLoraStubApplier:
     """Tests for LoraStubApplier."""
 
     def test_validate_returns_not_ok(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.lora_stub import (
+        from friday_ai.learning.spec_search.execute.appliers.lora_stub import (
             LoraStubApplier,
         )
 
         applier = LoraStubApplier()
-        ctx = ApplyContext(openjarvis_home=tmp_path, session_id="s1")
+        ctx = ApplyContext(friday_ai_home=tmp_path, session_id="s1")
         result = applier.validate(_make_lora_edit(), ctx)
         assert not result.ok
         assert "v2" in result.reason.lower() or "deferred" in result.reason.lower()
 
     def test_apply_raises_not_implemented(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.lora_stub import (
+        from friday_ai.learning.spec_search.execute.appliers.lora_stub import (
             LoraStubApplier,
         )
 
         applier = LoraStubApplier()
-        ctx = ApplyContext(openjarvis_home=tmp_path, session_id="s1")
+        ctx = ApplyContext(friday_ai_home=tmp_path, session_id="s1")
         with pytest.raises(NotImplementedError, match="deferred to v2"):
             applier.apply(_make_lora_edit(), ctx)

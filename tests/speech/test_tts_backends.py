@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.core.registry import TTSRegistry
-from openjarvis.speech.tts import TTSResult
+from friday_ai.core.registry import TTSRegistry
+from friday_ai.speech.tts import TTSResult
 
 # ---------------------------------------------------------------------------
 # TTSResult tests
@@ -19,7 +19,7 @@ def test_tts_result_dataclass():
         audio=b"fake-audio-bytes",
         format="mp3",
         duration_seconds=3.5,
-        voice_id="jarvis-v1",
+        voice_id="friday-v1",
     )
     assert result.audio == b"fake-audio-bytes"
     assert result.format == "mp3"
@@ -39,19 +39,19 @@ def test_tts_result_save(tmp_path):
 
 
 def test_cartesia_registered():
-    from openjarvis.speech.cartesia_tts import CartesiaTTSBackend
+    from friday_ai.speech.cartesia_tts import CartesiaTTSBackend
 
     TTSRegistry.register_value("cartesia", CartesiaTTSBackend)
     assert TTSRegistry.contains("cartesia")
 
 
 def test_cartesia_synthesize():
-    from openjarvis.speech.cartesia_tts import CartesiaTTSBackend
+    from friday_ai.speech.cartesia_tts import CartesiaTTSBackend
 
     backend = CartesiaTTSBackend(api_key="fake-key")
 
     with patch(
-        "openjarvis.speech.cartesia_tts._cartesia_synthesize",
+        "friday_ai.speech.cartesia_tts._cartesia_synthesize",
         return_value=b"fake-audio-mp3-bytes",
     ):
         result = backend.synthesize("Hello world", voice_id="test-voice")
@@ -67,7 +67,7 @@ def test_cartesia_synthesize():
 
 
 def test_kokoro_registered():
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     TTSRegistry.register_value("kokoro", KokoroTTSBackend)
     assert TTSRegistry.contains("kokoro")
@@ -76,7 +76,7 @@ def test_kokoro_registered():
 def test_kokoro_health_false_without_package():
     import importlib.util
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     # The assertion only holds when kokoro is genuinely absent. With the
     # optional `voice` extra installed, health() legitimately returns True
@@ -84,7 +84,7 @@ def test_kokoro_health_false_without_package():
     # for the package without importing it: an installed kokoro whose spaCy
     # cannot load still counts as installed.
     if importlib.util.find_spec("kokoro") is not None:
-        pytest.skip("kokoro installed (openjarvis[voice]); health() is True")
+        pytest.skip("kokoro installed (friday_ai[voice]); health() is True")
 
     backend = KokoroTTSBackend()
     # Without kokoro installed, health returns False
@@ -93,7 +93,7 @@ def test_kokoro_health_false_without_package():
 
 def test_kokoro_lang_for_voice_mandarin():
     """Mandarin voice IDs (zf_*, zm_*) map to lang_code='z'."""
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     assert KokoroTTSBackend._lang_for_voice("zf_xiaoxiao") == "z"
     assert KokoroTTSBackend._lang_for_voice("zm_yunxi") == "z"
@@ -101,7 +101,7 @@ def test_kokoro_lang_for_voice_mandarin():
 
 def test_kokoro_lang_for_voice_english_and_other_languages():
     """Voice prefix detection covers English variants and other languages."""
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     assert KokoroTTSBackend._lang_for_voice("af_heart") == "a"
     assert KokoroTTSBackend._lang_for_voice("am_adam") == "a"
@@ -116,7 +116,7 @@ def test_kokoro_lang_for_voice_unknown_falls_back_to_english():
     """Unknown prefixes fall back to American English (Kokoro's most-stocked
     language) rather than crashing — keeps backward-compat for any
     user-supplied voice ID we haven't catalogued."""
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     assert KokoroTTSBackend._lang_for_voice("") == "a"
     assert KokoroTTSBackend._lang_for_voice("xx_unknown") == "a"
@@ -125,7 +125,7 @@ def test_kokoro_lang_for_voice_unknown_falls_back_to_english():
 def test_kokoro_available_voices_includes_mandarin_and_english():
     """Voice catalog must list at least one Mandarin voice and preserve
     the original English voices for backward compatibility."""
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     voices = KokoroTTSBackend().available_voices()
     # New Mandarin coverage (the focus of this change)
@@ -144,7 +144,7 @@ def test_kokoro_missing_chinese_deps_gives_actionable_error(monkeypatch):
 
     import pytest
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     class FakeKPipeline:
         def __init__(self, lang_code, model):
@@ -174,7 +174,7 @@ def test_kokoro_pipeline_cached_per_language(monkeypatch):
     import sys
     import types
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     init_calls = []
 
@@ -212,7 +212,7 @@ def test_kokoro_pipeline_cache_is_thread_safe(monkeypatch):
     import time
     import types
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     init_calls = []
 
@@ -255,7 +255,7 @@ def test_kokoro_pipeline_cache_evicts_lru_and_cleans_up(monkeypatch):
     import sys
     import types
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     instances = {}
 
@@ -300,7 +300,7 @@ def test_kokoro_pipeline_cache_evicts_lru_and_cleans_up(monkeypatch):
 def test_kokoro_pipeline_cache_size_must_be_positive():
     import pytest
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     with pytest.raises(ValueError, match="at least 1"):
         KokoroTTSBackend(max_cached_pipelines=0)
@@ -314,7 +314,7 @@ def test_kokoro_synthesize_routes_voice_to_correct_language(monkeypatch):
 
     import numpy as np
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     init_args = []
     call_args = []
@@ -340,7 +340,7 @@ def test_kokoro_synthesize_routes_voice_to_correct_language(monkeypatch):
     monkeypatch.setitem(sys.modules, "kokoro", fake_kokoro)
 
     # ``soundfile`` is a kokoro-runtime dep; stub it so we can test the
-    # routing logic without requiring it in the OpenJarvis test env.
+    # routing logic without requiring it in the FridayAI test env.
     def _fake_sf_write(buf, _samples, _sr, format=None):  # noqa: A002
         buf.write(b"FAKE_AUDIO_BYTES")
 
@@ -365,7 +365,7 @@ def test_kokoro_reuses_model_and_honors_path_and_device(monkeypatch):
     import sys
     import types
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     model_inits = []
     model_devices = []
@@ -461,7 +461,7 @@ def test_kokoro_tolerates_unloadable_spacy_for_non_english_voices(monkeypatch):
     Control) must not take down voices whose G2P never uses it."""
     import sys
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     pipelines = []
 
@@ -483,7 +483,7 @@ def test_kokoro_tolerates_unloadable_spacy_for_non_english_voices(monkeypatch):
 def test_kokoro_degraded_import_gives_actionable_english_error(monkeypatch):
     import sys
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     _serve_kokoro_importing_spacy(monkeypatch, object)
     monkeypatch.setitem(sys.modules, "spacy", None)
@@ -497,7 +497,7 @@ def test_kokoro_restores_spacy_after_non_import_error(monkeypatch):
     import builtins
     import sys
 
-    from openjarvis.speech.kokoro_tts import _import_kokoro
+    from friday_ai.speech.kokoro_tts import _import_kokoro
 
     _serve_kokoro_importing_spacy(
         monkeypatch, object, import_error=ValueError("bad model config")
@@ -516,7 +516,7 @@ def test_kokoro_fallback_does_not_publish_spacy_to_other_threads(monkeypatch):
     import sys
     import threading
 
-    from openjarvis.speech.kokoro_tts import _import_kokoro
+    from friday_ai.speech.kokoro_tts import _import_kokoro
 
     entered = threading.Event()
     release = threading.Event()
@@ -573,7 +573,7 @@ def test_concurrent_kokoro_imports_do_not_leave_a_fake_spacy_module(monkeypatch)
     import sys
     import threading
 
-    from openjarvis.speech.kokoro_tts import _import_kokoro
+    from friday_ai.speech.kokoro_tts import _import_kokoro
 
     _serve_kokoro_importing_spacy(monkeypatch, object, block_spacy=True)
     monkeypatch.setitem(sys.modules, "spacy", None)
@@ -607,7 +607,7 @@ def test_kokoro_preserves_healthy_spacy_when_another_dependency_is_missing(
     import sys
     import types
 
-    from openjarvis.speech.kokoro_tts import _import_kokoro
+    from friday_ai.speech.kokoro_tts import _import_kokoro
 
     real_spacy = types.ModuleType("spacy")
     monkeypatch.setitem(sys.modules, "spacy", real_spacy)
@@ -623,7 +623,7 @@ def test_kokoro_health_and_pipeline_share_one_model(monkeypatch):
     import time
     import types
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     models = []
     errors = []
@@ -670,7 +670,7 @@ def test_kokoro_unloadable_spacy_stub_is_removed_if_kokoro_still_fails(
     linger in ``sys.modules`` and the backend stays unhealthy."""
     import sys
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     _serve_kokoro_importing_spacy(monkeypatch, object, missing_dep="torch")
     monkeypatch.setitem(sys.modules, "spacy", None)
@@ -683,7 +683,7 @@ def test_kokoro_missing_package_leaves_spacy_alone(monkeypatch):
     """No kokoro at all is a plain 'not installed' -- spaCy is not touched."""
     import sys
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     monkeypatch.setitem(sys.modules, "kokoro", None)
     monkeypatch.setitem(sys.modules, "spacy", None)
@@ -698,7 +698,7 @@ def test_kokoro_health_does_not_build_english_pipeline(monkeypatch):
     import sys
     import types
 
-    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+    from friday_ai.speech.kokoro_tts import KokoroTTSBackend
 
     pipelines = []
 
@@ -722,19 +722,19 @@ def test_kokoro_health_does_not_build_english_pipeline(monkeypatch):
 
 
 def test_openai_tts_registered():
-    from openjarvis.speech.openai_tts import OpenAITTSBackend
+    from friday_ai.speech.openai_tts import OpenAITTSBackend
 
     TTSRegistry.register_value("openai_tts", OpenAITTSBackend)
     assert TTSRegistry.contains("openai_tts")
 
 
 def test_openai_tts_synthesize():
-    from openjarvis.speech.openai_tts import OpenAITTSBackend
+    from friday_ai.speech.openai_tts import OpenAITTSBackend
 
     backend = OpenAITTSBackend(api_key="fake-key")
 
     with patch(
-        "openjarvis.speech.openai_tts._openai_tts_request",
+        "friday_ai.speech.openai_tts._openai_tts_request",
         return_value=b"fake-openai-audio",
     ):
         result = backend.synthesize("Hello", voice_id="nova")
@@ -749,14 +749,14 @@ def test_openai_tts_synthesize():
 
 
 def test_elevenlabs_registered():
-    from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
+    from friday_ai.speech.elevenlabs_tts import ElevenLabsTTSBackend
 
     TTSRegistry.register_value("elevenlabs", ElevenLabsTTSBackend)
     assert TTSRegistry.contains("elevenlabs")
 
 
 def test_elevenlabs_health_requires_key(monkeypatch):
-    from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
+    from friday_ai.speech.elevenlabs_tts import ElevenLabsTTSBackend
 
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
     assert ElevenLabsTTSBackend().health() is False
@@ -764,11 +764,11 @@ def test_elevenlabs_health_requires_key(monkeypatch):
 
 
 def test_elevenlabs_synthesize_mp3():
-    from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
+    from friday_ai.speech.elevenlabs_tts import ElevenLabsTTSBackend
 
     backend = ElevenLabsTTSBackend(api_key="fake-key")
     with patch(
-        "openjarvis.speech.elevenlabs_tts._elevenlabs_synthesize",
+        "friday_ai.speech.elevenlabs_tts._elevenlabs_synthesize",
         return_value=b"fake-mp3",
     ) as synth:
         result = backend.synthesize("Hello", voice_id="abc123XYZ")
@@ -783,12 +783,12 @@ def test_elevenlabs_synthesize_wav_wraps_pcm():
     import io
     import wave
 
-    from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
+    from friday_ai.speech.elevenlabs_tts import ElevenLabsTTSBackend
 
     pcm = b"\x00\x01" * 100
     backend = ElevenLabsTTSBackend(api_key="fake-key")
     with patch(
-        "openjarvis.speech.elevenlabs_tts._elevenlabs_synthesize",
+        "friday_ai.speech.elevenlabs_tts._elevenlabs_synthesize",
         return_value=pcm,
     ) as synth:
         result = backend.synthesize("Hello", output_format="wav")
@@ -806,7 +806,7 @@ def test_elevenlabs_synthesize_wav_wraps_pcm():
 def test_elevenlabs_ignores_kokoro_voice_ids(monkeypatch, kokoro_voice):
     # SpeechConfig.voice_id defaults to a Kokoro voice; it must not be sent
     # to ElevenLabs, which would return 404.
-    from openjarvis.speech.elevenlabs_tts import (
+    from friday_ai.speech.elevenlabs_tts import (
         _DEFAULT_VOICE_ID,
         ElevenLabsTTSBackend,
     )
@@ -814,7 +814,7 @@ def test_elevenlabs_ignores_kokoro_voice_ids(monkeypatch, kokoro_voice):
     monkeypatch.delenv("ELEVENLABS_VOICE_ID", raising=False)
     backend = ElevenLabsTTSBackend(api_key="fake-key")
     with patch(
-        "openjarvis.speech.elevenlabs_tts._elevenlabs_synthesize",
+        "friday_ai.speech.elevenlabs_tts._elevenlabs_synthesize",
         return_value=b"fake-mp3",
     ) as synth:
         result = backend.synthesize("Olá", voice_id=kokoro_voice)
@@ -824,12 +824,12 @@ def test_elevenlabs_ignores_kokoro_voice_ids(monkeypatch, kokoro_voice):
 
 
 def test_elevenlabs_env_voice_used_when_none_given(monkeypatch):
-    from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
+    from friday_ai.speech.elevenlabs_tts import ElevenLabsTTSBackend
 
     monkeypatch.setenv("ELEVENLABS_VOICE_ID", "envVoice123")
     backend = ElevenLabsTTSBackend(api_key="fake-key")
     with patch(
-        "openjarvis.speech.elevenlabs_tts._elevenlabs_synthesize",
+        "friday_ai.speech.elevenlabs_tts._elevenlabs_synthesize",
         return_value=b"fake-mp3",
     ) as synth:
         backend.synthesize("Hello", voice_id="bm_george")
@@ -838,9 +838,9 @@ def test_elevenlabs_env_voice_used_when_none_given(monkeypatch):
 
 
 def test_elevenlabs_speed_is_clamped():
-    from openjarvis.speech.elevenlabs_tts import _elevenlabs_synthesize
+    from friday_ai.speech.elevenlabs_tts import _elevenlabs_synthesize
 
-    with patch("openjarvis.speech.elevenlabs_tts.httpx.post") as post:
+    with patch("friday_ai.speech.elevenlabs_tts.httpx.post") as post:
         post.return_value.content = b"audio"
         _elevenlabs_synthesize("key", "Hello", voice_id="v", speed=2.0)
         _elevenlabs_synthesize("key", "Hello", voice_id="v", speed=1.0)
@@ -851,7 +851,7 @@ def test_elevenlabs_speed_is_clamped():
 
 
 def test_elevenlabs_missing_key_raises(monkeypatch):
-    from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
+    from friday_ai.speech.elevenlabs_tts import ElevenLabsTTSBackend
 
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="ELEVENLABS_API_KEY"):

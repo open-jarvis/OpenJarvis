@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def test_gateway_session_key_format():
-    from openjarvis.daemon.gateway import GatewayDaemon
+    from friday_ai.daemon.gateway import GatewayDaemon
 
     key = GatewayDaemon.session_key(
         platform="telegram", chat_type="dm", chat_id="12345", thread_id=None
@@ -11,7 +11,7 @@ def test_gateway_session_key_format():
 
 
 def test_gateway_session_key_deterministic():
-    from openjarvis.daemon.gateway import GatewayDaemon
+    from friday_ai.daemon.gateway import GatewayDaemon
 
     key1 = GatewayDaemon.session_key("discord", "group", "abc", "thread1")
     key2 = GatewayDaemon.session_key("discord", "group", "abc", "thread1")

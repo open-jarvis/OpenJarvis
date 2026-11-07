@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from openjarvis.core.types import Message, Role, ToolCall
-from openjarvis.engine._base import estimate_prompt_tokens
+from friday_ai.core.types import Message, Role, ToolCall
+from friday_ai.engine._base import estimate_prompt_tokens
 
 
 def test_estimate_prompt_tokens_handles_none_content_tool_call_turn() -> None:

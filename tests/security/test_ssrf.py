@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from openjarvis.security.ssrf import _check_ssrf_python, check_ssrf, is_private_ip
+from friday_ai.security.ssrf import _check_ssrf_python, check_ssrf, is_private_ip
 
 
 class TestIsPrivateIp:
@@ -100,7 +100,7 @@ class TestCheckSsrf:
 
     def test_allows_normal_urls(self):
         # Use Python impl so we can mock DNS resolution
-        with patch("openjarvis.security.ssrf.socket.getaddrinfo") as mock_dns:
+        with patch("friday_ai.security.ssrf.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [
                 (2, 1, 6, "", ("93.184.216.34", 0)),
             ]
@@ -108,7 +108,7 @@ class TestCheckSsrf:
         assert result is None
 
     def test_blocks_localhost_url(self):
-        with patch("openjarvis.security.ssrf.socket.getaddrinfo") as mock_dns:
+        with patch("friday_ai.security.ssrf.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [
                 (2, 1, 6, "", ("127.0.0.1", 0)),
             ]
@@ -117,7 +117,7 @@ class TestCheckSsrf:
         assert "private IP" in result
 
     def test_blocks_private_ip_url(self):
-        with patch("openjarvis.security.ssrf.socket.getaddrinfo") as mock_dns:
+        with patch("friday_ai.security.ssrf.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [
                 (2, 1, 6, "", ("192.168.1.1", 0)),
             ]
@@ -146,7 +146,7 @@ class TestCheckSsrf:
         import socket
 
         with patch(
-            "openjarvis.security.ssrf.socket.getaddrinfo",
+            "friday_ai.security.ssrf.socket.getaddrinfo",
             side_effect=socket.gaierror("Name resolution failed"),
         ):
             result = _check_ssrf_python("https://nonexistent.example.com")
@@ -156,9 +156,9 @@ class TestCheckSsrf:
         """Opt-in escape hatch for trusted, non-exposed local use only."""
         import socket
 
-        monkeypatch.setenv("OPENJARVIS_SSRF_FAIL_OPEN", "1")
+        monkeypatch.setenv("FRIDAY_AI_SSRF_FAIL_OPEN", "1")
         with patch(
-            "openjarvis.security.ssrf.socket.getaddrinfo",
+            "friday_ai.security.ssrf.socket.getaddrinfo",
             side_effect=socket.gaierror("Name resolution failed"),
         ):
             result = _check_ssrf_python("https://nonexistent.example.com")
@@ -166,7 +166,7 @@ class TestCheckSsrf:
 
     def test_blocks_dns_rebinding_to_private(self):
         """Even if hostname looks normal, block if it resolves to private IP."""
-        with patch("openjarvis.security.ssrf.socket.getaddrinfo") as mock_dns:
+        with patch("friday_ai.security.ssrf.socket.getaddrinfo") as mock_dns:
             mock_dns.return_value = [
                 (2, 1, 6, "", ("10.0.0.5", 0)),
             ]
@@ -247,22 +247,22 @@ class TestCheckSsrfPythonFallback:
     """
 
     def test_falls_back_to_python_when_rust_unavailable(self):
-        with patch("openjarvis._rust_bridge.RUST_AVAILABLE", False):
+        with patch("friday_ai._rust_bridge.RUST_AVAILABLE", False):
             result = check_ssrf("http://169.254.169.254/latest/meta-data/")
         assert result is not None
         assert "cloud metadata" in result.lower() or "Blocked host" in result
 
     def test_fallback_blocks_private_ip(self):
-        with patch("openjarvis._rust_bridge.RUST_AVAILABLE", False):
-            with patch("openjarvis.security.ssrf.socket.getaddrinfo") as mock_dns:
+        with patch("friday_ai._rust_bridge.RUST_AVAILABLE", False):
+            with patch("friday_ai.security.ssrf.socket.getaddrinfo") as mock_dns:
                 mock_dns.return_value = [(2, 1, 6, "", ("10.0.0.5", 0))]
                 result = check_ssrf("http://internal-service.local/api")
         assert result is not None
         assert "private IP" in result
 
     def test_fallback_allows_public_url_without_rust(self):
-        with patch("openjarvis._rust_bridge.RUST_AVAILABLE", False):
-            with patch("openjarvis.security.ssrf.socket.getaddrinfo") as mock_dns:
+        with patch("friday_ai._rust_bridge.RUST_AVAILABLE", False):
+            with patch("friday_ai.security.ssrf.socket.getaddrinfo") as mock_dns:
                 mock_dns.return_value = [(2, 1, 6, "", ("93.184.216.34", 0))]
                 result = check_ssrf("https://example.com")
         assert result is None

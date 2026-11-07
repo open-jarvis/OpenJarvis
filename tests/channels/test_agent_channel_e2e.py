@@ -7,7 +7,7 @@ from tests.agents.scenario_harness import ScenarioHarness
 
 def test_agent_sends_to_webchat(scenario_harness: ScenarioHarness):
     """Agent runs and completes tick with WebChatChannel available."""
-    from openjarvis.channels.webchat import WebChatChannel
+    from friday_ai.channels.webchat import WebChatChannel
 
     h = scenario_harness
     webchat = WebChatChannel()
@@ -47,7 +47,7 @@ def test_channel_failure_does_not_crash_agent(scenario_harness: ScenarioHarness)
 
 def test_agent_with_channel_binding(scenario_harness: ScenarioHarness):
     """Agent with a channel binding completes tick without error."""
-    from openjarvis.channels.webchat import WebChatChannel
+    from friday_ai.channels.webchat import WebChatChannel
 
     h = scenario_harness
     webchat = WebChatChannel()

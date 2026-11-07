@@ -3,7 +3,7 @@
 Verifies that:
 - FLOPs estimation flows from config metadata through to EvalResult and RunSummary
 - Telemetry fields (energy, power, GPU util) propagate end-to-end
-- JarvisDirectBackend propagates gpu_metrics flag
+- FridayDirectBackend propagates gpu_metrics flag
 - TauBench dataset passes telemetry flags to task env
 - Summary JSON includes telemetry_summary section
 """
@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.evals.core.types import EvalResult, RunConfig, RunSummary
+from friday_ai.evals.core.types import EvalResult, RunConfig, RunSummary
 
 # ---------------------------------------------------------------------------
 # FLOPs estimation in EvalResult
@@ -54,7 +54,7 @@ class TestRunSummaryTelemetry:
         s = RunSummary(
             benchmark="test",
             category="chat",
-            backend="jarvis-direct",
+            backend="friday-direct",
             model="test-model",
             total_samples=1,
             scored_samples=1,
@@ -78,12 +78,12 @@ class TestRunnerFlopsComputation:
 
     def test_flops_computed_from_metadata(self):
         """When param_count_b is in metadata, FLOPs are estimated."""
-        from openjarvis.evals.core.runner import EvalRunner
-        from openjarvis.evals.core.types import EvalRecord
+        from friday_ai.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.types import EvalRecord
 
         config = RunConfig(
             benchmark="test",
-            backend="jarvis-direct",
+            backend="friday-direct",
             model="test-model",
             metadata={
                 "param_count_b": 7.0,
@@ -121,12 +121,12 @@ class TestRunnerFlopsComputation:
 
     def test_flops_zero_without_metadata(self):
         """When no param_count_b in metadata, FLOPs should be 0."""
-        from openjarvis.evals.core.runner import EvalRunner
-        from openjarvis.evals.core.types import EvalRecord
+        from friday_ai.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.types import EvalRecord
 
         config = RunConfig(
             benchmark="test",
-            backend="jarvis-direct",
+            backend="friday-direct",
             model="test-model",
             metadata={},
         )
@@ -157,12 +157,12 @@ class TestRunnerFlopsComputation:
 
     def test_flops_uses_active_params_for_moe(self):
         """For MoE models, FLOPs should use active_params_b, not total."""
-        from openjarvis.evals.core.runner import EvalRunner
-        from openjarvis.evals.core.types import EvalRecord
+        from friday_ai.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.types import EvalRecord
 
         config = RunConfig(
             benchmark="test",
-            backend="jarvis-direct",
+            backend="friday-direct",
             model="test-model",
             metadata={
                 "param_count_b": 122.0,
@@ -207,12 +207,12 @@ class TestSummaryToDict:
     """Test that _summary_to_dict includes the telemetry_summary section."""
 
     def test_telemetry_summary_present(self):
-        from openjarvis.evals.core.runner import _summary_to_dict
+        from friday_ai.evals.core.runner import _summary_to_dict
 
         s = RunSummary(
             benchmark="test",
             category="chat",
-            backend="jarvis-direct",
+            backend="friday-direct",
             model="test-model",
             total_samples=10,
             scored_samples=10,
@@ -252,12 +252,12 @@ class TestSummaryToDict:
         assert ts["ipj"] == 0.016
 
     def test_flops_fields_in_summary_dict(self):
-        from openjarvis.evals.core.runner import _summary_to_dict
+        from friday_ai.evals.core.runner import _summary_to_dict
 
         s = RunSummary(
             benchmark="test",
             category="chat",
-            backend="jarvis-direct",
+            backend="friday-direct",
             model="test-model",
             total_samples=1,
             scored_samples=1,
@@ -283,11 +283,11 @@ class TestFlushResult:
     """Test that _flush_result includes estimated_flops in JSONL output."""
 
     def test_estimated_flops_in_jsonl(self, tmp_path):
-        from openjarvis.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.runner import EvalRunner
 
         config = RunConfig(
             benchmark="test",
-            backend="jarvis-direct",
+            backend="friday-direct",
             model="test-model",
         )
 
@@ -322,7 +322,7 @@ class TestResultToTraceDict:
     """Test that _result_to_trace_dict includes estimated_flops."""
 
     def test_estimated_flops_in_trace(self):
-        from openjarvis.evals.core.runner import _result_to_trace_dict
+        from friday_ai.evals.core.runner import _result_to_trace_dict
 
         result = EvalResult(
             record_id="test-1",
@@ -335,17 +335,17 @@ class TestResultToTraceDict:
 
 
 # ---------------------------------------------------------------------------
-# JarvisDirectBackend gpu_metrics propagation
+# FridayDirectBackend gpu_metrics propagation
 # ---------------------------------------------------------------------------
 
 
 class TestDirectBackendGpuMetrics:
-    """Verify JarvisDirectBackend sets gpu_metrics on config."""
+    """Verify FridayDirectBackend sets gpu_metrics on config."""
 
-    @patch("openjarvis.system.SystemBuilder")
+    @patch("friday_ai.system.SystemBuilder")
     def test_gpu_metrics_propagated(self, mock_builder_cls):
         """When gpu_metrics=True, the builder config should be updated."""
-        from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
+        from friday_ai.evals.backends.friday_direct import FridayDirectBackend
 
         mock_builder = MagicMock()
         mock_builder_cls.return_value = mock_builder
@@ -361,7 +361,7 @@ class TestDirectBackendGpuMetrics:
         mock_system = MagicMock()
         mock_builder.build.return_value = mock_system
 
-        JarvisDirectBackend(
+        FridayDirectBackend(
             engine_key="vllm",
             telemetry=True,
             gpu_metrics=True,
@@ -370,10 +370,10 @@ class TestDirectBackendGpuMetrics:
         # Verify gpu_metrics was set to True on config
         assert mock_config.telemetry.gpu_metrics is True
 
-    @patch("openjarvis.system.SystemBuilder")
+    @patch("friday_ai.system.SystemBuilder")
     def test_gpu_metrics_not_set_when_false(self, mock_builder_cls):
         """When gpu_metrics=False, the builder config should not be touched."""
-        from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
+        from friday_ai.evals.backends.friday_direct import FridayDirectBackend
 
         mock_builder = MagicMock()
         mock_builder_cls.return_value = mock_builder
@@ -388,7 +388,7 @@ class TestDirectBackendGpuMetrics:
         mock_system = MagicMock()
         mock_builder.build.return_value = mock_system
 
-        JarvisDirectBackend(
+        FridayDirectBackend(
             engine_key="vllm",
             telemetry=False,
             gpu_metrics=False,
@@ -408,7 +408,7 @@ class TestTauBenchTelemetryPassthrough:
 
     def test_set_engine_config_stores_flags(self):
         """set_engine_config should store telemetry and gpu_metrics."""
-        from openjarvis.evals.datasets.taubench import TauBenchDataset
+        from friday_ai.evals.datasets.taubench import TauBenchDataset
 
         ds = TauBenchDataset.__new__(TauBenchDataset)
         ds._domains = ["airline"]
@@ -432,11 +432,11 @@ class TestTauBenchTelemetryPassthrough:
         assert ds._telemetry is True
         assert ds._gpu_metrics is True
 
-    @patch("openjarvis.evals.execution.taubench_env.TauBenchTaskEnv")
+    @patch("friday_ai.evals.execution.taubench_env.TauBenchTaskEnv")
     def test_create_task_env_passes_flags(self, mock_env_cls):
         """create_task_env should forward telemetry flags."""
-        from openjarvis.evals.core.types import EvalRecord
-        from openjarvis.evals.datasets.taubench import TauBenchDataset
+        from friday_ai.evals.core.types import EvalRecord
+        from friday_ai.evals.datasets.taubench import TauBenchDataset
 
         ds = TauBenchDataset.__new__(TauBenchDataset)
         ds._domains = ["airline"]
@@ -482,8 +482,8 @@ class TestExpandSuiteModelMetadata:
     """Verify expand_suite passes param_count_b and active_params_b to RunConfig."""
 
     def test_metadata_includes_params(self):
-        from openjarvis.evals.core.config import expand_suite
-        from openjarvis.evals.core.types import (
+        from friday_ai.evals.core.config import expand_suite
+        from friday_ai.evals.core.types import (
             BenchmarkConfig,
             DefaultsConfig,
             EvalSuiteConfig,
@@ -536,12 +536,12 @@ class TestTelemetryEndToEnd:
 
     def test_telemetry_fields_populated(self):
         """When backend returns telemetry data, EvalResult captures it."""
-        from openjarvis.evals.core.runner import EvalRunner
-        from openjarvis.evals.core.types import EvalRecord
+        from friday_ai.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.types import EvalRecord
 
         config = RunConfig(
             benchmark="test",
-            backend="jarvis-direct",
+            backend="friday-direct",
             model="test-model",
             telemetry=True,
             gpu_metrics=True,

@@ -4,7 +4,7 @@
 
 **Goal:** Implement the v1 `cpu-pearl` mining provider — decoupled CPU mining for Apple Silicon (and any non-CUDA host where Pearl's pure-Rust miner builds), wrapping upstream `pearl_mining.mine()` and Pearl's `pearl-gateway` as subprocess.
 
-**Architecture:** New provider `CpuPearlProvider` in `src/openjarvis/mining/cpu_pearl.py`, registered as `"cpu-pearl"` via `MinerRegistry`. The provider's `start()` launches two subprocesses: (1) Pearl's `pearl-gateway` Python service (talks to user's `pearld`), and (2) a small Python miner-loop that polls gateway for `getMiningInfo`, calls `pearl_mining.mine()`, and submits via `submitPlainProof`. Reuses Spec A's `MiningProvider` ABC, `MinerRegistry`, sidecar at `~/.openjarvis/runtime/mining.json`, telemetry adapter, and CLI surface (`jarvis mine init|start|stop|status|doctor`) — all unchanged.
+**Architecture:** New provider `CpuPearlProvider` in `src/friday_ai/mining/cpu_pearl.py`, registered as `"cpu-pearl"` via `MinerRegistry`. The provider's `start()` launches two subprocesses: (1) Pearl's `pearl-gateway` Python service (talks to user's `pearld`), and (2) a small Python miner-loop that polls gateway for `getMiningInfo`, calls `pearl_mining.mine()`, and submits via `submitPlainProof`. Reuses Spec A's `MiningProvider` ABC, `MinerRegistry`, sidecar at `~/.friday_ai/runtime/mining.json`, telemetry adapter, and CLI surface (`friday mine init|start|stop|status|doctor`) — all unchanged.
 
 **Tech Stack:** Python 3.10+, `py-pearl-mining` (Rust+PyO3), `miner-base` (PyTorch), `pearl-gateway` (Python+JSON-RPC), `subprocess.Popen`, pytest with `unittest.mock`, ruff. References Pearl repo (`pearl-research-labs/pearl`) at a pinned commit/tag stored in `mining/_constants.py`.
 
@@ -15,7 +15,7 @@
 ## File structure (new files only — Spec A files unchanged)
 
 ```
-src/openjarvis/mining/
+src/friday_ai/mining/
     cpu_pearl.py             # CpuPearlProvider — implements MiningProvider ABC for CPU
     _pearl_subprocess.py     # PearlSubprocessLauncher — gateway + miner-loop subprocess management
     _install.py              # Helpers: detect upstream packages, build-from-pin fallback
@@ -36,8 +36,8 @@ docs/user-guide/
 
 # Modified files
 pyproject.toml               # Add `mining-pearl-cpu` extra
-src/openjarvis/mining/__init__.py  # Soft-import cpu_pearl
-src/openjarvis/mining/_constants.py  # Add PEARL_PINNED_REF and helper constants
+src/friday_ai/mining/__init__.py  # Soft-import cpu_pearl
+src/friday_ai/mining/_constants.py  # Add PEARL_PINNED_REF and helper constants
 ```
 
 ---
@@ -45,19 +45,19 @@ src/openjarvis/mining/_constants.py  # Add PEARL_PINNED_REF and helper constants
 ## Task 1: Bootstrap — pinned ref and constants
 
 **Files:**
-- Modify: `src/openjarvis/mining/_constants.py:1-N` (created in Spec A)
+- Modify: `src/friday_ai/mining/_constants.py:1-N` (created in Spec A)
 
 This task adds Pearl-version pinning and CPU-specific constants that the rest of the provider references. Spec A already created `_constants.py` with `PEARL_PINNED_REF` and `PEARL_REPO`; reuse those. We only add the new `cpu-pearl`-specific values.
 
 - [ ] **Step 1: Read Spec A's `_constants.py` to learn the existing shape**
 
-Run: `cat src/openjarvis/mining/_constants.py`
+Run: `cat src/friday_ai/mining/_constants.py`
 
 Expected: file contains `PEARL_REPO`, `PEARL_PINNED_REF`, `PEARL_IMAGE_TAG`. If missing, **stop and execute Spec A first.**
 
 - [ ] **Step 2: Add CPU-specific constants**
 
-Append to `src/openjarvis/mining/_constants.py`:
+Append to `src/friday_ai/mining/_constants.py`:
 
 ```python
 # ── cpu-pearl provider (v1, Apple Silicon and other non-CUDA hosts) ────────────
@@ -78,7 +78,7 @@ CPU_PEARL_DEFAULT_COLS_PATTERN = [0, 1, 8, 9, 32, 33, 40, 41]
 
 # Local clone path used by _install.py build-from-pin fallback. Only created
 # when Pearl wheels are not yet on PyPI.
-CPU_PEARL_LOCAL_CLONE_DIR = "~/.openjarvis/cache/pearl"
+CPU_PEARL_LOCAL_CLONE_DIR = "~/.friday_ai/cache/pearl"
 
 # Names of the Pearl Python packages we depend on, in install order.
 # These are the packages we install from local paths (or PyPI when published).
@@ -92,13 +92,13 @@ PEARL_CPU_PACKAGES = (
 
 - [ ] **Step 3: Run lint**
 
-Run: `uv run ruff check src/openjarvis/mining/_constants.py`
+Run: `uv run ruff check src/friday_ai/mining/_constants.py`
 Expected: no errors.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/openjarvis/mining/_constants.py
+git add src/friday_ai/mining/_constants.py
 git commit -m "feat(mining): add cpu-pearl constants (Spec B v1 task 1)"
 ```
 
@@ -156,7 +156,7 @@ git commit -m "feat(mining): add mining-pearl-cpu optional extra (Spec B v1 task
 ## Task 3: Install detection helper (`_install.py`)
 
 **Files:**
-- Create: `src/openjarvis/mining/_install.py`
+- Create: `src/friday_ai/mining/_install.py`
 - Test: `tests/mining/test_install.py`
 
 `_install.py` answers a single question: are the Pearl Python packages installed in the current environment? Used by `cpu_pearl.detect()` and `mine doctor`. Also exposes a hint string telling the user how to install if not.
@@ -166,7 +166,7 @@ git commit -m "feat(mining): add mining-pearl-cpu optional extra (Spec B v1 task
 Create `tests/mining/test_install.py`:
 
 ```python
-"""Tests for openjarvis.mining._install."""
+"""Tests for friday_ai.mining._install."""
 from __future__ import annotations
 
 import sys
@@ -176,7 +176,7 @@ import pytest
 
 
 def test_pearl_packages_available_returns_false_when_pearl_mining_missing():
-    from openjarvis.mining import _install
+    from friday_ai.mining import _install
 
     fake_modules = dict(sys.modules)
     fake_modules.pop("pearl_mining", None)
@@ -187,7 +187,7 @@ def test_pearl_packages_available_returns_false_when_pearl_mining_missing():
 
 def test_pearl_packages_available_returns_true_when_all_present():
     """When all three importable, returns True."""
-    from openjarvis.mining import _install
+    from friday_ai.mining import _install
 
     # Install three fake modules so importlib.util.find_spec returns truthy.
     import types
@@ -201,7 +201,7 @@ def test_pearl_packages_available_returns_true_when_all_present():
 
 def test_install_hint_is_actionable():
     """The hint string must include the extra name and the build-from-pin path."""
-    from openjarvis.mining._install import install_hint
+    from friday_ai.mining._install import install_hint
 
     h = install_hint()
     assert "mining-pearl-cpu" in h
@@ -211,11 +211,11 @@ def test_install_hint_is_actionable():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/mining/test_install.py -v`
-Expected: FAIL — `ImportError: cannot import name '_install' from 'openjarvis.mining'`
+Expected: FAIL — `ImportError: cannot import name '_install' from 'friday_ai.mining'`
 
 - [ ] **Step 3: Write `_install.py`**
 
-Create `src/openjarvis/mining/_install.py`:
+Create `src/friday_ai/mining/_install.py`:
 
 ```python
 """Detection and install hints for the upstream Pearl Python packages.
@@ -268,7 +268,7 @@ Expected: PASS — all three tests green.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/openjarvis/mining/_install.py tests/mining/test_install.py
+git add src/friday_ai/mining/_install.py tests/mining/test_install.py
 git commit -m "feat(mining): pearl-packages availability detection (Spec B v1 task 3)"
 ```
 
@@ -277,7 +277,7 @@ git commit -m "feat(mining): pearl-packages availability detection (Spec B v1 ta
 ## Task 4: Build-from-pin fallback in `_install.py`
 
 **Files:**
-- Modify: `src/openjarvis/mining/_install.py`
+- Modify: `src/friday_ai/mining/_install.py`
 - Modify: `tests/mining/test_install.py`
 
 Until Pearl publishes to PyPI, users have to build `py-pearl-mining` from source. This task adds a helper that does so on first `mine init`. Mocked in tests; only really invoked in a real terminal.
@@ -292,7 +292,7 @@ import subprocess
 
 def test_build_from_pin_clones_when_missing(tmp_path, monkeypatch):
     """If the local cache dir is empty, build_from_pin clones first."""
-    from openjarvis.mining import _install
+    from friday_ai.mining import _install
 
     cache_dir = tmp_path / "pearl"
     monkeypatch.setattr(_install, "_resolve_clone_dir", lambda: cache_dir)
@@ -312,7 +312,7 @@ def test_build_from_pin_clones_when_missing(tmp_path, monkeypatch):
 
 def test_build_from_pin_skips_clone_when_present(tmp_path, monkeypatch):
     """If the cache already has the .git dir, skip the clone."""
-    from openjarvis.mining import _install
+    from friday_ai.mining import _install
 
     cache_dir = tmp_path / "pearl"
     (cache_dir / ".git").mkdir(parents=True)
@@ -334,11 +334,11 @@ def test_build_from_pin_skips_clone_when_present(tmp_path, monkeypatch):
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/mining/test_install.py -v`
-Expected: FAIL — `AttributeError: module 'openjarvis.mining._install' has no attribute 'build_from_pin'`
+Expected: FAIL — `AttributeError: module 'friday_ai.mining._install' has no attribute 'build_from_pin'`
 
 - [ ] **Step 3: Implement `build_from_pin`**
 
-Append to `src/openjarvis/mining/_install.py`:
+Append to `src/friday_ai/mining/_install.py`:
 
 ```python
 import os
@@ -407,13 +407,13 @@ Expected: PASS — all five tests green.
 
 - [ ] **Step 5: Lint**
 
-Run: `uv run ruff check src/openjarvis/mining/_install.py tests/mining/test_install.py`
+Run: `uv run ruff check src/friday_ai/mining/_install.py tests/mining/test_install.py`
 Expected: no errors.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/openjarvis/mining/_install.py tests/mining/test_install.py
+git add src/friday_ai/mining/_install.py tests/mining/test_install.py
 git commit -m "feat(mining): build-from-pin fallback for Pearl wheels (Spec B v1 task 4)"
 ```
 
@@ -422,7 +422,7 @@ git commit -m "feat(mining): build-from-pin fallback for Pearl wheels (Spec B v1
 ## Task 5: `_miner_loop_main.py` — the CPU mining loop subprocess entry point
 
 **Files:**
-- Create: `src/openjarvis/mining/_miner_loop_main.py`
+- Create: `src/friday_ai/mining/_miner_loop_main.py`
 - Test: `tests/mining/test_miner_loop.py`
 
 This is the *meaty* task. The miner-loop subprocess connects to `pearl-gateway` over JSON-RPC TCP, polls `getMiningInfo`, calls `pearl_mining.mine()`, and submits via `submitPlainProof`. Single file, no class hierarchy — it's just an event loop.
@@ -432,7 +432,7 @@ This is the *meaty* task. The miner-loop subprocess connects to `pearl-gateway` 
 Create `tests/mining/test_miner_loop.py`:
 
 ```python
-"""Tests for openjarvis.mining._miner_loop_main."""
+"""Tests for friday_ai.mining._miner_loop_main."""
 from __future__ import annotations
 
 import asyncio
@@ -457,7 +457,7 @@ def fake_mining_info_response():
 
 
 def test_decode_mining_info_returns_header_and_target(fake_mining_info_response):
-    from openjarvis.mining._miner_loop_main import _decode_mining_info
+    from friday_ai.mining._miner_loop_main import _decode_mining_info
 
     header_bytes, target = _decode_mining_info(fake_mining_info_response["result"])
     assert isinstance(header_bytes, (bytes, bytearray))
@@ -467,7 +467,7 @@ def test_decode_mining_info_returns_header_and_target(fake_mining_info_response)
 
 def test_encode_plain_proof_round_trips():
     """We can encode a PlainProof to base64 and the bytes are non-empty."""
-    from openjarvis.mining._miner_loop_main import _encode_plain_proof
+    from friday_ai.mining._miner_loop_main import _encode_plain_proof
 
     fake_proof = MagicMock()
     fake_proof.serialize.return_value = b"PROOF_BYTES_DUMMY"
@@ -477,7 +477,7 @@ def test_encode_plain_proof_round_trips():
 
 def test_jsonrpc_envelope_shape():
     """The JSON-RPC envelope conforms to gateway's JSON_RPC_SCHEMA."""
-    from openjarvis.mining._miner_loop_main import _make_request
+    from friday_ai.mining._miner_loop_main import _make_request
 
     req = _make_request("getMiningInfo", {}, request_id=42)
     assert req["jsonrpc"] == "2.0"
@@ -493,13 +493,13 @@ Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Implement the helpers**
 
-Create `src/openjarvis/mining/_miner_loop_main.py`:
+Create `src/friday_ai/mining/_miner_loop_main.py`:
 
 ```python
 """CPU mining-loop subprocess entry point.
 
 Run with:
-    python -m openjarvis.mining._miner_loop_main \
+    python -m friday_ai.mining._miner_loop_main \
         --gateway-host 127.0.0.1 --gateway-port 8337 \
         --m 256 --n 128 --k 1024 --rank 32
 
@@ -522,7 +522,7 @@ import logging
 import sys
 from typing import Any
 
-logger = logging.getLogger("openjarvis.mining.miner_loop")
+logger = logging.getLogger("friday_ai.mining.miner_loop")
 
 
 def _make_request(method: str, params: dict[str, Any], request_id: int) -> dict[str, Any]:
@@ -680,13 +680,13 @@ Expected: PASS — three tests green.
 
 - [ ] **Step 5: Lint**
 
-Run: `uv run ruff check src/openjarvis/mining/_miner_loop_main.py tests/mining/test_miner_loop.py`
+Run: `uv run ruff check src/friday_ai/mining/_miner_loop_main.py tests/mining/test_miner_loop.py`
 Expected: no errors.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/openjarvis/mining/_miner_loop_main.py tests/mining/test_miner_loop.py
+git add src/friday_ai/mining/_miner_loop_main.py tests/mining/test_miner_loop.py
 git commit -m "feat(mining): cpu miner-loop subprocess entry point (Spec B v1 task 5)"
 ```
 
@@ -695,7 +695,7 @@ git commit -m "feat(mining): cpu miner-loop subprocess entry point (Spec B v1 ta
 ## Task 6: Subprocess launcher (`_pearl_subprocess.py`)
 
 **Files:**
-- Create: `src/openjarvis/mining/_pearl_subprocess.py`
+- Create: `src/friday_ai/mining/_pearl_subprocess.py`
 - Test: `tests/mining/test_pearl_subprocess.py`
 
 The launcher manages the *two* subprocesses — `pearl-gateway` and the miner-loop — as a unit. Lifecycle: `start()`, `stop()`, `is_running()`. No PID-file shenanigans here; we hold `Popen` objects in memory while the OJ process is alive.
@@ -705,7 +705,7 @@ The launcher manages the *two* subprocesses — `pearl-gateway` and the miner-lo
 Create `tests/mining/test_pearl_subprocess.py`:
 
 ```python
-"""Tests for openjarvis.mining._pearl_subprocess."""
+"""Tests for friday_ai.mining._pearl_subprocess."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -722,7 +722,7 @@ def fake_popen():
 
 
 def test_launcher_start_spawns_two_processes(fake_popen, tmp_path):
-    from openjarvis.mining._pearl_subprocess import PearlSubprocessLauncher
+    from friday_ai.mining._pearl_subprocess import PearlSubprocessLauncher
 
     with patch("subprocess.Popen", return_value=fake_popen) as mock_popen:
         launcher = PearlSubprocessLauncher(
@@ -740,7 +740,7 @@ def test_launcher_start_spawns_two_processes(fake_popen, tmp_path):
 
 
 def test_launcher_stop_terminates_both(fake_popen, tmp_path):
-    from openjarvis.mining._pearl_subprocess import PearlSubprocessLauncher
+    from friday_ai.mining._pearl_subprocess import PearlSubprocessLauncher
 
     with patch("subprocess.Popen", return_value=fake_popen):
         launcher = PearlSubprocessLauncher(
@@ -759,7 +759,7 @@ def test_launcher_stop_terminates_both(fake_popen, tmp_path):
 
 
 def test_launcher_is_running_false_when_either_exited(fake_popen, tmp_path):
-    from openjarvis.mining._pearl_subprocess import PearlSubprocessLauncher
+    from friday_ai.mining._pearl_subprocess import PearlSubprocessLauncher
 
     fake_dead = MagicMock()
     fake_dead.poll.return_value = 1  # exited
@@ -787,7 +787,7 @@ Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Implement `PearlSubprocessLauncher`**
 
-Create `src/openjarvis/mining/_pearl_subprocess.py`:
+Create `src/friday_ai/mining/_pearl_subprocess.py`:
 
 ```python
 """Subprocess launcher for the cpu-pearl provider.
@@ -795,7 +795,7 @@ Create `src/openjarvis/mining/_pearl_subprocess.py`:
 Manages two subprocesses:
 - ``pearl-gateway`` (Pearl's Python service), which talks to pearld and
   brokers shares from the miner.
-- ``openjarvis.mining._miner_loop_main`` (this repo), which polls the gateway
+- ``friday_ai.mining._miner_loop_main`` (this repo), which polls the gateway
   and runs ``pearl_mining.mine()``.
 
 Lifecycle is in-memory: while this object lives, both subprocesses live.
@@ -864,7 +864,7 @@ class PearlSubprocessLauncher:
             [
                 sys.executable,
                 "-m",
-                "openjarvis.mining._miner_loop_main",
+                "friday_ai.mining._miner_loop_main",
                 "--gateway-host",
                 self.gateway_host,
                 "--gateway-port",
@@ -942,13 +942,13 @@ Expected: PASS — three tests green.
 
 - [ ] **Step 5: Lint**
 
-Run: `uv run ruff check src/openjarvis/mining/_pearl_subprocess.py tests/mining/test_pearl_subprocess.py`
+Run: `uv run ruff check src/friday_ai/mining/_pearl_subprocess.py tests/mining/test_pearl_subprocess.py`
 Expected: no errors.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/openjarvis/mining/_pearl_subprocess.py tests/mining/test_pearl_subprocess.py
+git add src/friday_ai/mining/_pearl_subprocess.py tests/mining/test_pearl_subprocess.py
 git commit -m "feat(mining): pearl subprocess launcher (Spec B v1 task 6)"
 ```
 
@@ -957,15 +957,15 @@ git commit -m "feat(mining): pearl subprocess launcher (Spec B v1 task 6)"
 ## Task 7: Verify env var names against pearl-gateway config
 
 **Files:**
-- Modify: `src/openjarvis/mining/_pearl_subprocess.py`
+- Modify: `src/friday_ai/mining/_pearl_subprocess.py`
 
 This is a one-shot research-and-fix task to make Task 6's env names match Pearl's actual config.
 
 - [ ] **Step 1: Locate pearl-gateway config**
 
-Run: `find ~/.openjarvis/cache/pearl/miner/pearl-gateway -name config.py -path '*pearl_gateway*' 2>/dev/null || find / -name config.py -path '*pearl_gateway*' 2>/dev/null | head -3`
+Run: `find ~/.friday_ai/cache/pearl/miner/pearl-gateway -name config.py -path '*pearl_gateway*' 2>/dev/null || find / -name config.py -path '*pearl_gateway*' 2>/dev/null | head -3`
 
-Expected: `pearl-gateway/src/pearl_gateway/config.py` (path depends on where Pearl was cloned). If the file isn't on disk yet, run `python -m openjarvis.mining._install` (added in Task 4) or clone Pearl manually first.
+Expected: `pearl-gateway/src/pearl_gateway/config.py` (path depends on where Pearl was cloned). If the file isn't on disk yet, run `python -m friday_ai.mining._install` (added in Task 4) or clone Pearl manually first.
 
 - [ ] **Step 2: Read the config file**
 
@@ -977,7 +977,7 @@ Expected output: lines like `Field(default="...", env="PEARL_GATEWAY_HOST")` sho
 
 - [ ] **Step 3: Replace the env-var names in `_build_gateway_env`**
 
-Open `src/openjarvis/mining/_pearl_subprocess.py` and replace each guessed env name with the actual one. Keep the dict structure; only the keys change.
+Open `src/friday_ai/mining/_pearl_subprocess.py` and replace each guessed env name with the actual one. Keep the dict structure; only the keys change.
 
 If a name we expected is missing (e.g., pearl-gateway doesn't have a separate `*_METRICS_PORT`), drop the line rather than carry a no-op env var.
 
@@ -989,7 +989,7 @@ Expected: PASS — same three tests, no regressions (the test mocks Popen, so en
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/openjarvis/mining/_pearl_subprocess.py
+git add src/friday_ai/mining/_pearl_subprocess.py
 git commit -m "fix(mining): align env var names with pearl-gateway config (Spec B v1 task 7)"
 ```
 
@@ -998,7 +998,7 @@ git commit -m "fix(mining): align env var names with pearl-gateway config (Spec 
 ## Task 8: `CpuPearlProvider` — capability detection
 
 **Files:**
-- Create: `src/openjarvis/mining/cpu_pearl.py`
+- Create: `src/friday_ai/mining/cpu_pearl.py`
 - Test: `tests/mining/test_cpu_pearl.py`
 
 Implements the `MiningProvider.detect()` classmethod from Spec A's ABC. This is the first thing `mine doctor` and `mine init` ask. Engine-independent: returns supported on any darwin/linux host with Pearl packages installed.
@@ -1008,7 +1008,7 @@ Implements the `MiningProvider.detect()` classmethod from Spec A's ABC. This is 
 Create `tests/mining/test_cpu_pearl.py`:
 
 ```python
-"""Tests for openjarvis.mining.cpu_pearl.CpuPearlProvider."""
+"""Tests for friday_ai.mining.cpu_pearl.CpuPearlProvider."""
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -1019,7 +1019,7 @@ import pytest
 @pytest.fixture
 def darwin_apple_hw():
     """A HardwareInfo describing an Apple Silicon Mac."""
-    from openjarvis.mining._stubs import HardwareInfo, GpuInfo
+    from friday_ai.mining._stubs import HardwareInfo, GpuInfo
 
     return HardwareInfo(
         platform="darwin",
@@ -1031,7 +1031,7 @@ def darwin_apple_hw():
 @pytest.fixture
 def linux_nvidia_hw():
     """A HardwareInfo describing an H100 box."""
-    from openjarvis.mining._stubs import HardwareInfo, GpuInfo
+    from friday_ai.mining._stubs import HardwareInfo, GpuInfo
 
     return HardwareInfo(
         platform="linux",
@@ -1043,16 +1043,16 @@ def linux_nvidia_hw():
 @pytest.fixture
 def windows_hw():
     """A HardwareInfo describing a Windows host (unsupported in v1)."""
-    from openjarvis.mining._stubs import HardwareInfo
+    from friday_ai.mining._stubs import HardwareInfo
 
     return HardwareInfo(platform="win32", cpu_arch="x86_64", gpu=None)
 
 
 def test_detect_supported_on_apple_silicon(darwin_apple_hw):
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     with patch(
-        "openjarvis.mining._install.pearl_packages_available", return_value=True
+        "friday_ai.mining._install.pearl_packages_available", return_value=True
     ):
         cap = CpuPearlProvider.detect(darwin_apple_hw, engine_id="ollama", model="any")
         assert cap.supported is True
@@ -1061,10 +1061,10 @@ def test_detect_supported_on_apple_silicon(darwin_apple_hw):
 
 def test_detect_supported_on_linux_too(linux_nvidia_hw):
     """v1 cpu-pearl is engine-independent and platform-loose."""
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     with patch(
-        "openjarvis.mining._install.pearl_packages_available", return_value=True
+        "friday_ai.mining._install.pearl_packages_available", return_value=True
     ):
         cap = CpuPearlProvider.detect(
             linux_nvidia_hw, engine_id="anything", model="any"
@@ -1073,10 +1073,10 @@ def test_detect_supported_on_linux_too(linux_nvidia_hw):
 
 
 def test_detect_unsupported_on_windows(windows_hw):
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     with patch(
-        "openjarvis.mining._install.pearl_packages_available", return_value=True
+        "friday_ai.mining._install.pearl_packages_available", return_value=True
     ):
         cap = CpuPearlProvider.detect(windows_hw, engine_id="any", model="any")
         assert cap.supported is False
@@ -1084,10 +1084,10 @@ def test_detect_unsupported_on_windows(windows_hw):
 
 
 def test_detect_unsupported_when_pearl_not_installed(darwin_apple_hw):
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     with patch(
-        "openjarvis.mining._install.pearl_packages_available", return_value=False
+        "friday_ai.mining._install.pearl_packages_available", return_value=False
     ):
         cap = CpuPearlProvider.detect(darwin_apple_hw, engine_id="any", model="any")
         assert cap.supported is False
@@ -1101,7 +1101,7 @@ Expected: FAIL — `CpuPearlProvider` not found.
 
 - [ ] **Step 3: Implement the provider's `detect`**
 
-Create `src/openjarvis/mining/cpu_pearl.py`:
+Create `src/friday_ai/mining/cpu_pearl.py`:
 
 ```python
 """CPU-based Pearl mining provider (decoupled from inference).
@@ -1150,13 +1150,13 @@ Expected: PASS — four tests green.
 
 - [ ] **Step 5: Lint**
 
-Run: `uv run ruff check src/openjarvis/mining/cpu_pearl.py tests/mining/test_cpu_pearl.py`
+Run: `uv run ruff check src/friday_ai/mining/cpu_pearl.py tests/mining/test_cpu_pearl.py`
 Expected: no errors.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/openjarvis/mining/cpu_pearl.py tests/mining/test_cpu_pearl.py
+git add src/friday_ai/mining/cpu_pearl.py tests/mining/test_cpu_pearl.py
 git commit -m "feat(mining): cpu-pearl provider capability detection (Spec B v1 task 8)"
 ```
 
@@ -1165,7 +1165,7 @@ git commit -m "feat(mining): cpu-pearl provider capability detection (Spec B v1 
 ## Task 9: `CpuPearlProvider` — start/stop/is_running/stats
 
 **Files:**
-- Modify: `src/openjarvis/mining/cpu_pearl.py`
+- Modify: `src/friday_ai/mining/cpu_pearl.py`
 - Modify: `tests/mining/test_cpu_pearl.py`
 
 Wire the provider lifecycle methods to the subprocess launcher and Spec A's sidecar / telemetry adapter.
@@ -1176,11 +1176,11 @@ Append to `tests/mining/test_cpu_pearl.py`:
 
 ```python
 def test_start_writes_sidecar_and_returns_running(darwin_apple_hw, tmp_path, monkeypatch):
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
-    from openjarvis.mining._stubs import MiningConfig
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining._stubs import MiningConfig
 
     monkeypatch.setattr(
-        "openjarvis.mining.cpu_pearl._sidecar_path",
+        "friday_ai.mining.cpu_pearl._sidecar_path",
         lambda: tmp_path / "mining.json",
     )
 
@@ -1196,7 +1196,7 @@ def test_start_writes_sidecar_and_returns_running(darwin_apple_hw, tmp_path, mon
     )()
 
     with patch(
-        "openjarvis.mining.cpu_pearl.PearlSubprocessLauncher",
+        "friday_ai.mining.cpu_pearl.PearlSubprocessLauncher",
         return_value=fake_launcher,
     ):
         provider = CpuPearlProvider()
@@ -1230,7 +1230,7 @@ Expected: FAIL — `start`, `is_running` not implemented.
 
 - [ ] **Step 3: Implement lifecycle methods**
 
-Replace `src/openjarvis/mining/cpu_pearl.py` with the full implementation:
+Replace `src/friday_ai/mining/cpu_pearl.py` with the full implementation:
 
 ```python
 """CPU-based Pearl mining provider (decoupled from inference).
@@ -1259,11 +1259,11 @@ from ._stubs import HardwareInfo, MiningCapabilities, MiningConfig, MiningProvid
 
 
 def _sidecar_path() -> Path:
-    return Path(os.path.expanduser("~/.openjarvis/runtime/mining.json"))
+    return Path(os.path.expanduser("~/.friday_ai/runtime/mining.json"))
 
 
 def _log_dir() -> Path:
-    return Path(os.path.expanduser("~/.openjarvis/logs/mining"))
+    return Path(os.path.expanduser("~/.friday_ai/logs/mining"))
 
 
 class CpuPearlProvider(MiningProvider):
@@ -1382,13 +1382,13 @@ Expected: PASS — five tests green.
 
 - [ ] **Step 5: Lint**
 
-Run: `uv run ruff check src/openjarvis/mining/cpu_pearl.py`
+Run: `uv run ruff check src/friday_ai/mining/cpu_pearl.py`
 Expected: no errors.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/openjarvis/mining/cpu_pearl.py tests/mining/test_cpu_pearl.py
+git add src/friday_ai/mining/cpu_pearl.py tests/mining/test_cpu_pearl.py
 git commit -m "feat(mining): cpu-pearl provider lifecycle (Spec B v1 task 9)"
 ```
 
@@ -1397,24 +1397,24 @@ git commit -m "feat(mining): cpu-pearl provider lifecycle (Spec B v1 task 9)"
 ## Task 10: Register `CpuPearlProvider` in `MinerRegistry`
 
 **Files:**
-- Modify: `src/openjarvis/mining/__init__.py`
+- Modify: `src/friday_ai/mining/__init__.py`
 
 `MinerRegistry` exists from Spec A; we just need to call `register("cpu-pearl")` at module-load time and survive the autouse `clear_registries` fixture in `tests/conftest.py` via the `ensure_registered()` pattern.
 
 - [ ] **Step 1: Read Spec A's existing `__init__.py`**
 
-Run: `cat src/openjarvis/mining/__init__.py`
+Run: `cat src/friday_ai/mining/__init__.py`
 
 Expected: file already imports `vllm_pearl` and exposes `ensure_registered`. We mirror the same pattern for cpu_pearl.
 
 - [ ] **Step 2: Add cpu_pearl registration**
 
-Append to `src/openjarvis/mining/__init__.py` (or modify if Spec A already defined `ensure_registered`):
+Append to `src/friday_ai/mining/__init__.py` (or modify if Spec A already defined `ensure_registered`):
 
 ```python
 def _register_cpu_pearl() -> None:
     """Register CpuPearlProvider in MinerRegistry. Idempotent."""
-    from openjarvis.core.registry import MinerRegistry  # type: ignore
+    from friday_ai.core.registry import MinerRegistry  # type: ignore
 
     if MinerRegistry.contains("cpu-pearl"):
         return
@@ -1428,7 +1428,7 @@ def _register_cpu_pearl() -> None:
     MinerRegistry.register("cpu-pearl")(CpuPearlProvider)
 
 
-# Call at import time so the registry is populated as soon as openjarvis.mining
+# Call at import time so the registry is populated as soon as friday_ai.mining
 # is imported. The conftest autouse fixture clears registries between tests; we
 # rely on _register_cpu_pearl being called again from `ensure_registered`.
 _register_cpu_pearl()
@@ -1453,7 +1453,7 @@ Expected: same number of passing tests as before this task.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/openjarvis/mining/__init__.py
+git add src/friday_ai/mining/__init__.py
 git commit -m "feat(mining): register cpu-pearl provider (Spec B v1 task 10)"
 ```
 
@@ -1473,7 +1473,7 @@ Create `docs/user-guide/mining-apple-silicon.md`:
 ````markdown
 # Mining Pearl on Apple Silicon (and other CPU hosts)
 
-OpenJarvis can mine the [Pearl](https://github.com/pearl-research-labs/pearl) chain
+FridayAI can mine the [Pearl](https://github.com/pearl-research-labs/pearl) chain
 on Apple Silicon Macs (M1/M2/M3/M4) using the `cpu-pearl` provider. **This is
 v1**: decoupled CPU mining. Your existing local LLM workflow (Ollama, MLX-LM,
 llama.cpp, vLLM) is untouched; mining runs in the background as a separate
@@ -1508,7 +1508,7 @@ plugin. v3 may add a native Metal kernel. **Neither is shipped today.**
 ## Install
 
 ```bash
-# from your OpenJarvis repo
+# from your FridayAI repo
 uv sync --extra mining-pearl-cpu
 ```
 
@@ -1517,7 +1517,7 @@ will fail because none of the packages exist there. Until publication, build
 locally:
 
 ```bash
-jarvis mine init    # OJ will detect the missing wheels and offer to build
+friday mine init    # OJ will detect the missing wheels and offer to build
                     # via the build-from-pin path; takes ~3-5 minutes on
                     # first run, mostly compiling Rust
 ```
@@ -1533,19 +1533,19 @@ jarvis mine init    # OJ will detect the missing wheels and offer to build
 
 ```bash
 # start mining
-jarvis mine start
+friday mine start
 
 # check live status
-jarvis mine status
+friday mine status
 
 # capability matrix (great when something goes wrong)
-jarvis mine doctor
+friday mine doctor
 
 # stop mining
-jarvis mine stop
+friday mine stop
 
 # tail logs
-jarvis mine logs -f
+friday mine logs -f
 ```
 
 ## Reading `mine doctor`
@@ -1553,7 +1553,7 @@ jarvis mine logs -f
 Each row is one check. `✓` means the check passed; `✗` shows the actionable fix.
 
 ```
-$ jarvis mine doctor
+$ friday mine doctor
 Hardware
   GPU vendor          apple                            ✓
   Apple chip          M2 Max                           ✓
@@ -1592,14 +1592,14 @@ Session
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `mine doctor` says `Pearl Python packages not installed` | Wheels not built yet | Run `jarvis mine init` |
+| `mine doctor` says `Pearl Python packages not installed` | Wheels not built yet | Run `friday mine init` |
 | `pearl-gateway` log shows `connection refused` to `http://localhost:44107` | `pearld` not running | Start `pearld` per Pearl's README |
-| `mine status` shows `last_error: gateway metrics unreachable` | `pearl-gateway` crashed | Check `~/.openjarvis/logs/mining/pearl-gateway.log` |
+| `mine status` shows `last_error: gateway metrics unreachable` | `pearl-gateway` crashed | Check `~/.friday_ai/logs/mining/pearl-gateway.log` |
 | Build fails with `error: linker 'cc' not found` | Xcode CLT not installed | `xcode-select --install` |
 | `maturin build` complains about `tikv-jemallocator` | macOS SDK too old | Update macOS / Xcode |
 
-For anything not on this list, capture `~/.openjarvis/logs/mining/` and open
-an issue at https://github.com/open-jarvis/OpenJarvis/issues.
+For anything not on this list, capture `~/.friday_ai/logs/mining/` and open
+an issue at https://github.com/open-jarvis/FridayAI/issues.
 
 ## What changes in v2 / v3
 
@@ -1654,15 +1654,15 @@ def test_provider_runs_end_to_end_on_this_host(tmp_path, monkeypatch):
     pytest.importorskip("pearl_mining")
     pytest.importorskip("pearl_gateway")
 
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
-    from openjarvis.mining._stubs import MiningConfig
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining._stubs import MiningConfig
 
     monkeypatch.setattr(
-        "openjarvis.mining.cpu_pearl._sidecar_path",
+        "friday_ai.mining.cpu_pearl._sidecar_path",
         lambda: tmp_path / "mining.json",
     )
     monkeypatch.setattr(
-        "openjarvis.mining.cpu_pearl._log_dir",
+        "friday_ai.mining.cpu_pearl._log_dir",
         lambda: tmp_path / "logs",
     )
     monkeypatch.setenv("TEST_PEARLD_PASSWORD", "test")
@@ -1789,10 +1789,10 @@ Run through each of these against the final plan:
 
 **4. Reuses from Spec A (sanity check — these must already exist):**
 
-- `MiningProvider` ABC at `src/openjarvis/mining/_stubs.py`
-- `MinerRegistry` class at `src/openjarvis/core/registry.py`
+- `MiningProvider` ABC at `src/friday_ai/mining/_stubs.py`
+- `MinerRegistry` class at `src/friday_ai/core/registry.py`
 - `MiningConfig`, `MiningCapabilities`, `MiningStats`, `HardwareInfo` dataclasses
-- Sidecar location convention `~/.openjarvis/runtime/mining.json`
+- Sidecar location convention `~/.friday_ai/runtime/mining.json`
 - `parse_gateway_metrics` adapter
 - `mine init|start|stop|status|doctor` CLI subcommands
 

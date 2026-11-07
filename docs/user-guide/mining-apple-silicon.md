@@ -1,6 +1,6 @@
 # Mining Pearl on Apple Silicon (and other CPU hosts)
 
-OpenJarvis can mine the [Pearl](https://github.com/pearl-research-labs/pearl) chain
+FridayAI can mine the [Pearl](https://github.com/pearl-research-labs/pearl) chain
 on Apple Silicon Macs (M1/M2/M3/M4) using the `cpu-pearl` provider. **This is
 v1**: decoupled CPU mining. Your existing local LLM workflow (Ollama, MLX-LM,
 llama.cpp, vLLM) is untouched; mining runs in the background as a separate
@@ -38,7 +38,7 @@ kernel path.
 ## Install
 
 ```bash
-# from your OpenJarvis repo
+# from your FridayAI repo
 uv sync --extra mining-pearl-cpu
 ```
 
@@ -56,12 +56,12 @@ uv pip install ../miner/miner-utils ../miner/pearl-gateway ../miner/miner-base
 ## Configure
 
 Create a Pearl wallet and start a synced `pearld` separately using Pearl's
-README. Then write OpenJarvis' mining config:
+README. Then write FridayAI' mining config:
 
 ```bash
 export PEARLD_RPC_PASSWORD="rpcpass"
 
-jarvis mine init \
+friday mine init \
   --provider cpu-pearl \
   --wallet-address "<your-prl1...address>" \
   --pearld-rpc-url http://127.0.0.1:44107 \
@@ -94,11 +94,11 @@ metrics_port = 9109
 ## Run
 
 ```bash
-jarvis mine doctor        # capability matrix
-jarvis mine start         # launch gateway + miner-loop subprocesses
-jarvis mine status        # check sidecar + gateway metrics
-jarvis mine logs -n 120   # print recent logs
-jarvis mine stop          # stop mining subprocesses
+friday mine doctor        # capability matrix
+friday mine start         # launch gateway + miner-loop subprocesses
+friday mine status        # check sidecar + gateway metrics
+friday mine logs -n 120   # print recent logs
+friday mine stop          # stop mining subprocesses
 ```
 
 ## Reading `mine doctor`
@@ -106,7 +106,7 @@ jarvis mine stop          # stop mining subprocesses
 Each row is one check. `✓` means the check passed; `✗` shows the actionable fix.
 
 ```
-$ jarvis mine doctor
+$ friday mine doctor
 Hardware
   GPU vendor          apple                            ✓
   Apple chip          M2 Max                           ✓
@@ -145,14 +145,14 @@ Session
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `mine doctor` says `Pearl Python packages not installed` | Wheels not built yet | Run `jarvis mine init` |
+| `mine doctor` says `Pearl Python packages not installed` | Wheels not built yet | Run `friday mine init` |
 | `pearl-gateway` log shows `connection refused` to `http://localhost:44107` | `pearld` not running | Start `pearld` per Pearl's README |
-| `mine status` shows `last_error: gateway metrics unreachable` | `pearl-gateway` crashed | Check `~/.openjarvis/logs/mining/pearl-gateway.log` |
+| `mine status` shows `last_error: gateway metrics unreachable` | `pearl-gateway` crashed | Check `~/.friday_ai/logs/mining/pearl-gateway.log` |
 | Build fails with `error: linker 'cc' not found` | Xcode CLT not installed | `xcode-select --install` |
 | `maturin build` complains about `tikv-jemallocator` | macOS SDK too old | Update macOS / Xcode |
 
-For anything not on this list, capture `~/.openjarvis/logs/mining/` and open
-an issue at https://github.com/open-jarvis/OpenJarvis/issues.
+For anything not on this list, capture `~/.friday_ai/logs/mining/` and open
+an issue at https://github.com/open-jarvis/FridayAI/issues.
 
 ## What changes in v2 / v3
 

@@ -13,7 +13,7 @@ def user_file(tmp_path: Path) -> Path:
 
 
 def test_user_read(user_file: Path):
-    from openjarvis.tools.user_profile_manage import UserProfileManageTool
+    from friday_ai.tools.user_profile_manage import UserProfileManageTool
 
     tool = UserProfileManageTool(user_path=user_file)
     result = tool.execute(action="read")
@@ -21,7 +21,7 @@ def test_user_read(user_file: Path):
 
 
 def test_user_add(user_file: Path):
-    from openjarvis.tools.user_profile_manage import UserProfileManageTool
+    from friday_ai.tools.user_profile_manage import UserProfileManageTool
 
     tool = UserProfileManageTool(user_path=user_file)
     result = tool.execute(action="add", entry="Role: Engineer")
@@ -30,7 +30,7 @@ def test_user_add(user_file: Path):
 
 
 def test_user_update(user_file: Path):
-    from openjarvis.tools.user_profile_manage import UserProfileManageTool
+    from friday_ai.tools.user_profile_manage import UserProfileManageTool
 
     tool = UserProfileManageTool(user_path=user_file)
     result = tool.execute(action="update", entry="Name: Alice", new_entry="Name: Bob")

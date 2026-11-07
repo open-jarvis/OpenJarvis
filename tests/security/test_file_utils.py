@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.security.file_utils import secure_write_json
+from friday_ai.security.file_utils import secure_write_json
 
 
 def test_secure_write_json_is_owner_only(tmp_path: Path) -> None:
@@ -31,7 +31,7 @@ def test_secure_write_json_preserves_old_file_when_replace_fails(
 
     with (
         patch(
-            "openjarvis.security.file_utils.os.replace",
+            "friday_ai.security.file_utils.os.replace",
             side_effect=OSError("simulated replace failure"),
         ),
         pytest.raises(OSError, match="simulated replace failure"),

@@ -1,6 +1,6 @@
 import { fetchAnalyticsIdentity } from './analytics';
 
-const ANALYTICS_SEEN_KEY = 'openjarvis-analytics-choice-seen';
+const ANALYTICS_SEEN_KEY = 'friday_ai-analytics-choice-seen';
 
 interface AnalyticsInvitation {
   ready: boolean;

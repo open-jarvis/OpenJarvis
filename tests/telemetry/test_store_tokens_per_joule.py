@@ -6,9 +6,9 @@ import time
 
 import pytest
 
-from openjarvis.core.types import TelemetryRecord
-from openjarvis.telemetry.aggregator import TelemetryAggregator
-from openjarvis.telemetry.store import TelemetryStore
+from friday_ai.core.types import TelemetryRecord
+from friday_ai.telemetry.aggregator import TelemetryAggregator
+from friday_ai.telemetry.store import TelemetryStore
 
 
 class TestTokensPerJouleStorage:

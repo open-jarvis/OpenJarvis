@@ -1,4 +1,4 @@
-"""Tests for context injection integration in ``jarvis ask``."""
+"""Tests for context injection integration in ``friday ask``."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import importlib
 
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
+from friday_ai.cli import cli
 
 
 def test_ask_no_context_flag():
@@ -35,19 +35,19 @@ def test_get_memory_backend_returns_backend_even_when_empty(
     which is the kind of ambiguity that leads to silent grounding
     failures downstream.
     """
-    from openjarvis.core.config import JarvisConfig, MemoryConfig
-    from openjarvis.core.registry import MemoryRegistry
-    from openjarvis.tools.storage.sqlite import SQLiteMemory
+    from friday_ai.core.config import FridayConfig, MemoryConfig
+    from friday_ai.core.registry import MemoryRegistry
+    from friday_ai.tools.storage.sqlite import SQLiteMemory
 
     if not MemoryRegistry.contains("sqlite"):
         MemoryRegistry.register_value("sqlite", SQLiteMemory)
 
-    config = JarvisConfig()
+    config = FridayConfig()
     config.memory = MemoryConfig(
         db_path=str(tmp_path / "empty.db"),
     )
 
-    mod = importlib.import_module("openjarvis.cli.ask")
+    mod = importlib.import_module("friday_ai.cli.ask")
     result = mod._get_memory_backend(config)
     assert result is not None
     # An empty backend should still retrieve cleanly (zero hits).
@@ -61,15 +61,15 @@ def test_get_memory_backend_returns_backend_with_docs(
     monkeypatch,
 ):
     """_get_memory_backend returns a backend when docs exist."""
-    from openjarvis.core.config import JarvisConfig, MemoryConfig
-    from openjarvis.core.registry import MemoryRegistry
-    from openjarvis.tools.storage.sqlite import SQLiteMemory
+    from friday_ai.core.config import FridayConfig, MemoryConfig
+    from friday_ai.core.registry import MemoryRegistry
+    from friday_ai.tools.storage.sqlite import SQLiteMemory
 
     if not MemoryRegistry.contains("sqlite"):
         MemoryRegistry.register_value("sqlite", SQLiteMemory)
 
     db_path = str(tmp_path / "test.db")
-    config = JarvisConfig()
+    config = FridayConfig()
     config.memory = MemoryConfig(db_path=db_path)
 
     # Pre-populate with a document
@@ -77,7 +77,7 @@ def test_get_memory_backend_returns_backend_with_docs(
     backend.store("test document content")
     backend.close()
 
-    mod = importlib.import_module("openjarvis.cli.ask")
+    mod = importlib.import_module("friday_ai.cli.ask")
     result = mod._get_memory_backend(config)
     assert result is not None
     if hasattr(result, "close"):

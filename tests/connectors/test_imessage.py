@@ -12,8 +12,8 @@ from typing import List
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 # ---------------------------------------------------------------------------
 # Helper: create a fake chat.db
@@ -81,7 +81,7 @@ def fake_db(tmp_path: Path) -> Path:
 @pytest.fixture()
 def connector(fake_db: Path):
     """IMessageConnector pointing at the fake DB."""
-    from openjarvis.connectors.imessage import IMessageConnector  # noqa: PLC0415
+    from friday_ai.connectors.imessage import IMessageConnector  # noqa: PLC0415
 
     return IMessageConnector(db_path=str(fake_db))
 
@@ -103,7 +103,7 @@ def test_is_connected(connector) -> None:
 
 def test_not_connected_missing_db() -> None:
     """is_connected() returns False when the database file does not exist."""
-    from openjarvis.connectors.imessage import IMessageConnector  # noqa: PLC0415
+    from friday_ai.connectors.imessage import IMessageConnector  # noqa: PLC0415
 
     conn = IMessageConnector(db_path="/nonexistent/path/chat.db")
     assert conn.is_connected() is False
@@ -194,7 +194,7 @@ def test_mcp_tools(connector) -> None:
 
 def test_registry() -> None:
     """IMessageConnector is registered and retrievable via ConnectorRegistry."""
-    from openjarvis.connectors.imessage import IMessageConnector  # noqa: PLC0415
+    from friday_ai.connectors.imessage import IMessageConnector  # noqa: PLC0415
 
     ConnectorRegistry.register_value("imessage", IMessageConnector)
     assert ConnectorRegistry.contains("imessage")

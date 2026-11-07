@@ -17,7 +17,7 @@ This page is a copy-paste tutorial. By the end you will have:
 ## TL;DR — run it
 
 ```bash
-python examples/openjarvis/spec_search_quickstart.py
+python examples/friday_ai/spec_search_quickstart.py
 ```
 
 The script is self-contained (no API key, no Ollama) — it wires up real
@@ -74,7 +74,7 @@ Defaults `(α, β, γ, δ) = (0.5, 0.1, 0.1, 0.3)`. The efficiency
 quantities (E, L, C) are z-scored *within batch* before weighting, so
 the reward trades dimensionless deviations rather than raw joules /
 seconds / dollars (paper Appendix C.6). Implementation:
-`openjarvis.learning.spec_search.composite_reward.score_batch`.
+`friday_ai.learning.spec_search.composite_reward.score_batch`.
 
 The held-out gate evaluates the resulting spec end-to-end; it is
 unaffected by these weights.
@@ -82,12 +82,12 @@ unaffected by these weights.
 ## Configuration
 
 The prebuilt config lives at
-`configs/openjarvis/examples/spec-search-quickstart.toml`. Copy it to
-`~/.openjarvis/config.toml` (or set `OPENJARVIS_CONFIG` to it) and the
+`configs/friday_ai/examples/spec-search-quickstart.toml`. Copy it to
+`~/.friday_ai/config.toml` (or set `FRIDAY_AI_CONFIG` to it) and the
 regular loader picks it up:
 
 ```python
-from openjarvis.core.config import load_config
+from friday_ai.core.config import load_config
 cfg = load_config().learning.spec_search   # SpecSearchLearningConfig
 ```
 
@@ -134,11 +134,11 @@ swap each fake for the corresponding production component:
 | Slot | Quickstart | Production |
 |---|---|---|
 | `teacher_engine` | `FakeTeacherEngine` | `EngineRegistry.get(cfg.teacher_engine)(model=cfg.teacher_model)` — set `ANTHROPIC_API_KEY` etc. |
-| `trace_store` | `MagicMock` | `openjarvis.traces.store.TraceStore(home / "traces.db")` |
-| `student_runner` | `MagicMock` | `openjarvis.learning.spec_search.student_runner.VLLMStudentRunner(host=..., model=...)` |
-| `judge` | `MagicMock` | `openjarvis.evals.core.scorer.LLMJudgeScorer(...)` (or a deterministic scorer if your benchmark provides one) |
-| `session_store` | `MagicMock` | `openjarvis.learning.spec_search.storage.session_store.SessionStore(home / "learning" / "sessions.db")` |
-| `checkpoint_store` | `MagicMock` | `openjarvis.learning.spec_search.checkpoint.store.CheckpointStore(home / "learning" / "checkpoints")` |
+| `trace_store` | `MagicMock` | `friday_ai.traces.store.TraceStore(home / "traces.db")` |
+| `student_runner` | `MagicMock` | `friday_ai.learning.spec_search.student_runner.VLLMStudentRunner(host=..., model=...)` |
+| `judge` | `MagicMock` | `friday_ai.evals.core.scorer.LLMJudgeScorer(...)` (or a deterministic scorer if your benchmark provides one) |
+| `session_store` | `MagicMock` | `friday_ai.learning.spec_search.storage.session_store.SessionStore(home / "learning" / "sessions.db")` |
+| `checkpoint_store` | `MagicMock` | `friday_ai.learning.spec_search.checkpoint.store.CheckpointStore(home / "learning" / "checkpoints")` |
 | `scorer` | climbing-plateau fake | a real `Scorer` callable (typically a `BenchmarkGate.score` adapter) |
 
 The orchestrator only depends on the *interface* of each slot, not the
@@ -150,22 +150,22 @@ Diagnose phase can ingest records from a HuggingFace-backed external
 corpus. Three providers ship in-tree (`adp`, `toolorchestra`,
 `generalthoughts`); to add a new one:
 
-1. Create `src/openjarvis/evals/datasets/<corpus>.py` implementing
+1. Create `src/friday_ai/evals/datasets/<corpus>.py` implementing
    `DatasetProvider` (`adp.py` is a small reference). The provider's
    `load(max_samples, seed, split)` must respect `split` via
-   `apply_split` from `openjarvis.evals.core.splits`.
+   `apply_split` from `friday_ai.evals.core.splits`.
 2. Register: `@DatasetRegistry.register("<corpus>")`.
 3. Feed it to the proposer via the trace store:
 
 ```python
-from openjarvis.evals.datasets.adp import ADPDataset
-from openjarvis.learning.spec_search.external_adapter import (
+from friday_ai.evals.datasets.adp import ADPDataset
+from friday_ai.learning.spec_search.external_adapter import (
     write_external_records_as_traces,
 )
-from openjarvis.traces.store import TraceStore
+from friday_ai.traces.store import TraceStore
 
 records = list(ADPDataset().load(max_samples=200, seed=42, split="all"))
-store = TraceStore("~/.openjarvis/traces.db")
+store = TraceStore("~/.friday_ai/traces.db")
 n = write_external_records_as_traces(store, records, source_name="adp")
 # proposer can now filter on metadata["source"] == "adp"
 ```
@@ -184,10 +184,10 @@ exposure.
 
 ## Bug fix bundled with this release
 
-`src/openjarvis/evals/backends/jarvis_agent.py` previously hardcoded
+`src/friday_ai/evals/backends/friday_agent.py` previously hardcoded
 `builder.telemetry(telemetry).traces(True).build()`, ignoring the
 `telemetry` parameter. This silently caused every agent-backend
-evaluation to write to `~/.openjarvis/traces.db` regardless of caller
+evaluation to write to `~/.friday_ai/traces.db` regardless of caller
 intent. A corrupt traces.db then turned every agent eval into "database
 disk image is malformed" errors that the eval scorer dropped, producing
 fake high accuracies from a handful of successful samples.
@@ -203,12 +203,12 @@ Callers that previously expected traces to always be written should pass
 
 ## See also
 
-- `examples/openjarvis/spec_search_quickstart.py` — runnable end-to-end demo.
-- `configs/openjarvis/examples/spec-search-quickstart.toml` — prebuilt config.
-- `src/openjarvis/learning/spec_search/orchestrator.py` — `SpecSearchOrchestrator` (single session).
-- `src/openjarvis/learning/spec_search/multi_session.py` — `SpecSearchLoop` (Algorithm 1).
-- `src/openjarvis/learning/spec_search/composite_reward.py` — paper Eq. 1.
-- `src/openjarvis/learning/spec_search/gate/benchmark_gate.py` — `GateOK` predicate.
-- `src/openjarvis/learning/spec_search/external_adapter.py` — corpus → trace adapter.
+- `examples/friday_ai/spec_search_quickstart.py` — runnable end-to-end demo.
+- `configs/friday_ai/examples/spec-search-quickstart.toml` — prebuilt config.
+- `src/friday_ai/learning/spec_search/orchestrator.py` — `SpecSearchOrchestrator` (single session).
+- `src/friday_ai/learning/spec_search/multi_session.py` — `SpecSearchLoop` (Algorithm 1).
+- `src/friday_ai/learning/spec_search/composite_reward.py` — paper Eq. 1.
+- `src/friday_ai/learning/spec_search/gate/benchmark_gate.py` — `GateOK` predicate.
+- `src/friday_ai/learning/spec_search/external_adapter.py` — corpus → trace adapter.
 - `tests/learning/spec_search/test_multi_session.py`, `test_composite_reward.py` — unit tests.
 - `tests/learning/spec_search/test_orchestrator.py` — full-session test with mocks.

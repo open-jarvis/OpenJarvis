@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-pytest.importorskip("fastapi", reason="openjarvis[server] not installed")
+pytest.importorskip("fastapi", reason="friday_ai[server] not installed")
 
-from openjarvis.agents.digest_store import DigestArtifact, DigestStore
+from friday_ai.agents.digest_store import DigestArtifact, DigestStore
 
 
 @pytest.fixture()
@@ -25,7 +25,7 @@ def store(tmp_path):
             sources_used=["gmail"],
             generated_at=datetime.now(timezone.utc),
             model_used="test",
-            voice_used="jarvis",
+            voice_used="friday",
         )
     )
     # Write fake audio file
@@ -40,8 +40,8 @@ def _make_app(db_path: str):
 
     from fastapi import FastAPI
 
-    from openjarvis.agents.digest_store import DigestStore
-    from openjarvis.server.digest_routes import create_digest_router
+    from friday_ai.agents.digest_store import DigestStore
+    from friday_ai.server.digest_routes import create_digest_router
 
     # Patch get_today to fall back to get_latest — avoids timezone issues in CI
     original_get_today = DigestStore.get_today
@@ -84,7 +84,7 @@ def test_get_digest_404(tmp_path):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from openjarvis.server.digest_routes import create_digest_router
+    from friday_ai.server.digest_routes import create_digest_router
 
     app = FastAPI()
     app.include_router(create_digest_router(db_path=str(tmp_path / "empty.db")))
@@ -103,16 +103,16 @@ def test_get_history(store, tmp_path):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 1
-    assert data[0]["voice_used"] == "jarvis"
+    assert data[0]["voice_used"] == "friday"
 
 
-def test_generate_runs_entire_jarvis_lifecycle_on_one_worker(tmp_path, monkeypatch):
+def test_generate_runs_entire_friday_lifecycle_on_one_worker(tmp_path, monkeypatch):
     """Construction, ask, and cleanup all stay off the event-loop thread."""
-    from openjarvis.server import digest_routes
+    from friday_ai.server import digest_routes
 
     calls: list[tuple[str, int]] = []
 
-    class FakeJarvis:
+    class FakeFriday:
         def __init__(self):
             calls.append(("init", threading.get_ident()))
 
@@ -129,7 +129,7 @@ def test_generate_runs_entire_jarvis_lifecycle_on_one_worker(tmp_path, monkeypat
         def __exit__(self, exc_type, exc, tb):
             calls.append(("exit", threading.get_ident()))
 
-    monkeypatch.setattr("openjarvis.sdk.Jarvis", FakeJarvis)
+    monkeypatch.setattr("friday_ai.sdk.Friday", FakeFriday)
     router = digest_routes.create_digest_router(db_path=str(tmp_path / "digest.db"))
     endpoint = next(
         route.endpoint for route in router.routes if route.path.endswith("/generate")

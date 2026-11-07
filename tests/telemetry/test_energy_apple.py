@@ -87,7 +87,7 @@ class FakeReader:
 
 def _monitor_with(reader, *, allow_estimates=False, chip="Apple M1 Pro", tdp=30.0):
     """Build a monitor bypassing __init__'s hardware probe."""
-    from openjarvis.telemetry.energy_apple import AppleEnergyMonitor
+    from friday_ai.telemetry.energy_apple import AppleEnergyMonitor
 
     m = AppleEnergyMonitor.__new__(AppleEnergyMonitor)
     m._poll_interval_ms = 50
@@ -106,7 +106,7 @@ def _monitor_with(reader, *, allow_estimates=False, chip="Apple M1 Pro", tdp=30.
 
 class TestAvailable:
     def test_false_on_non_darwin(self):
-        from openjarvis.telemetry.energy_apple import AppleEnergyMonitor
+        from friday_ai.telemetry.energy_apple import AppleEnergyMonitor
 
         with patch("platform.system", return_value="Linux"):
             assert AppleEnergyMonitor.available() is False
@@ -118,7 +118,7 @@ class TestAvailable:
         The old behaviour returned True on any Apple Silicon host, which is
         how a modelled estimate came to masquerade as a measurement.
         """
-        import openjarvis.telemetry.energy_apple as mod
+        import friday_ai.telemetry.energy_apple as mod
 
         orig = mod._NATIVE_AVAILABLE
         mod._NATIVE_AVAILABLE = False
@@ -136,7 +136,7 @@ class TestAvailable:
 
     def test_false_when_backend_raises(self):
         """A backend that imports but cannot construct is not available."""
-        import openjarvis.telemetry.energy_apple as mod
+        import friday_ai.telemetry.energy_apple as mod
 
         def _boom():
             raise RuntimeError("IOReport unavailable")
@@ -368,7 +368,7 @@ class TestSnapshot:
 @pytest.mark.apple
 class TestOnRealHardware:
     def test_measures_more_energy_under_load_than_idle(self):
-        from openjarvis.telemetry.energy_apple import AppleEnergyMonitor
+        from friday_ai.telemetry.energy_apple import AppleEnergyMonitor
 
         if not AppleEnergyMonitor.available():
             pytest.skip("zeus-apple-silicon not installed")

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 class TestDSPyOptimizerConfig:
     def test_default_config(self) -> None:
-        from openjarvis.core.config import DSPyOptimizerConfig
+        from friday_ai.core.config import DSPyOptimizerConfig
 
         cfg = DSPyOptimizerConfig()
         assert cfg.optimizer == "BootstrapFewShotWithRandomSearch"
@@ -17,8 +17,8 @@ class TestDSPyOptimizerConfig:
         assert cfg.min_traces == 20
 
     def test_optimizer_init(self) -> None:
-        from openjarvis.core.config import DSPyOptimizerConfig
-        from openjarvis.learning.agents.dspy_optimizer import DSPyAgentOptimizer
+        from friday_ai.core.config import DSPyOptimizerConfig
+        from friday_ai.learning.agents.dspy_optimizer import DSPyAgentOptimizer
 
         cfg = DSPyOptimizerConfig()
         optimizer = DSPyAgentOptimizer(cfg)
@@ -27,8 +27,8 @@ class TestDSPyOptimizerConfig:
 
 class TestDSPyOptimizerTraceConversion:
     def test_too_few_traces_skipped(self) -> None:
-        from openjarvis.core.config import DSPyOptimizerConfig
-        from openjarvis.learning.agents.dspy_optimizer import DSPyAgentOptimizer
+        from friday_ai.core.config import DSPyOptimizerConfig
+        from friday_ai.learning.agents.dspy_optimizer import DSPyAgentOptimizer
 
         optimizer = DSPyAgentOptimizer(DSPyOptimizerConfig(min_traces=10))
         mock_store = MagicMock()
@@ -38,9 +38,9 @@ class TestDSPyOptimizerTraceConversion:
         assert result["status"] == "skipped"
 
     def test_optimize_returns_toml_updates(self) -> None:
-        from openjarvis.core.config import DSPyOptimizerConfig
-        from openjarvis.core.types import StepType, Trace, TraceStep
-        from openjarvis.learning.agents.dspy_optimizer import DSPyAgentOptimizer
+        from friday_ai.core.config import DSPyOptimizerConfig
+        from friday_ai.core.types import StepType, Trace, TraceStep
+        from friday_ai.learning.agents.dspy_optimizer import DSPyAgentOptimizer
 
         cfg = DSPyOptimizerConfig(min_traces=1)
         optimizer = DSPyAgentOptimizer(cfg)
@@ -75,7 +75,7 @@ class TestDSPyOptimizerTraceConversion:
         mock_store.list_traces.return_value = traces
 
         # Mock dspy so the test works without the dependency
-        import openjarvis.learning.agents.dspy_optimizer as mod
+        import friday_ai.learning.agents.dspy_optimizer as mod
 
         with patch.object(mod, "HAS_DSPY", True):
             with patch.object(
@@ -92,8 +92,8 @@ class TestDSPyOptimizerTraceConversion:
 
     def test_extracts_demos_from_compiled_chain_of_thought(self, monkeypatch) -> None:
         """DSPy stores compiled ChainOfThought demos on its inner predictor."""
-        import openjarvis.learning.agents.dspy_optimizer as mod
-        from openjarvis.core.config import DSPyOptimizerConfig
+        import friday_ai.learning.agents.dspy_optimizer as mod
+        from friday_ai.core.config import DSPyOptimizerConfig
 
         class FakeExample:
             def __init__(self, *, question: str, answer: str) -> None:

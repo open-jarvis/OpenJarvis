@@ -13,8 +13,8 @@ import pytest
 
 pytest.importorskip("fastapi")  # agent_manager_routes imports FastAPI at module load
 
-from openjarvis.core.types import Role  # noqa: E402
-from openjarvis.server.agent_manager_routes import (  # noqa: E402
+from friday_ai.core.types import Role  # noqa: E402
+from friday_ai.server.agent_manager_routes import (  # noqa: E402
     _build_managed_system_prompt,
     _instantiate_managed_tool,
     _replay_history_messages,
@@ -182,13 +182,13 @@ class TestBuildManagedSystemPrompt:
     """
 
     def _config_with_soul(self, tmp_path):
-        from openjarvis.core.config import (
+        from friday_ai.core.config import (
             MemoryFilesConfig,
             SystemPromptConfig,
         )
 
         soul = tmp_path / "SOUL.md"
-        soul.write_text("You are Jarvis, a meticulous local-first assistant.")
+        soul.write_text("You are Friday, a meticulous local-first assistant.")
         # Other persona files point at non-existent paths — only SOUL is set.
         return SimpleNamespace(
             memory_files=MemoryFilesConfig(soul_path=str(soul)),
@@ -207,7 +207,7 @@ class TestBuildManagedSystemPrompt:
         assert "You are a helpful assistant." in result
 
     def test_agent_template_is_preserved(self, tmp_path):
-        from openjarvis.core.config import MemoryFilesConfig, SystemPromptConfig
+        from friday_ai.core.config import MemoryFilesConfig, SystemPromptConfig
 
         # No persona files configured (all default paths).
         app_config = SimpleNamespace(
@@ -224,10 +224,10 @@ class TestBuildManagedSystemPrompt:
     def test_matches_cli_builder_output(self, tmp_path):
         """Parity check: the helper produces exactly what a directly-
         constructed SystemPromptBuilder produces (same path the CLI uses),
-        so streaming chat and `jarvis ask` assemble the prompt identically.
+        so streaming chat and `friday ask` assemble the prompt identically.
         """
-        from openjarvis.core.config import MemoryFilesConfig, SystemPromptConfig
-        from openjarvis.prompt.builder import SystemPromptBuilder
+        from friday_ai.core.config import MemoryFilesConfig, SystemPromptConfig
+        from friday_ai.prompt.builder import SystemPromptBuilder
 
         app_config = SimpleNamespace(
             memory_files=MemoryFilesConfig(),

@@ -8,21 +8,21 @@ from click.testing import CliRunner
 
 
 def test_mine_doctor_prints_capability_matrix(hopper_hw):
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
 
     runner = CliRunner()
     with (
-        patch("openjarvis.cli.mine_cmd._detect_hardware", return_value=hopper_hw),
+        patch("friday_ai.cli.mine_cmd._detect_hardware", return_value=hopper_hw),
         patch(
-            "openjarvis.cli.mine_cmd.check_docker_available",
+            "friday_ai.cli.mine_cmd.check_docker_available",
             return_value=(True, "running 24.0.7"),
         ),
         patch(
-            "openjarvis.cli.mine_cmd.check_disk_free",
+            "friday_ai.cli.mine_cmd.check_disk_free",
             return_value=(True, "300 GB free"),
         ),
         patch(
-            "openjarvis.cli.mine_cmd.check_pearld_reachable",
+            "friday_ai.cli.mine_cmd.check_pearld_reachable",
             return_value=(True, "block height 442107 (synced)"),
         ),
     ):
@@ -38,21 +38,21 @@ def test_mine_doctor_prints_capability_matrix(hopper_hw):
 
 
 def test_mine_doctor_flags_unsupported_hardware(ada_hw):
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
 
     runner = CliRunner()
     with (
-        patch("openjarvis.cli.mine_cmd._detect_hardware", return_value=ada_hw),
+        patch("friday_ai.cli.mine_cmd._detect_hardware", return_value=ada_hw),
         patch(
-            "openjarvis.cli.mine_cmd.check_docker_available",
+            "friday_ai.cli.mine_cmd.check_docker_available",
             return_value=(True, "ok"),
         ),
         patch(
-            "openjarvis.cli.mine_cmd.check_disk_free",
+            "friday_ai.cli.mine_cmd.check_disk_free",
             return_value=(True, "300 GB free"),
         ),
         patch(
-            "openjarvis.cli.mine_cmd.check_pearld_reachable",
+            "friday_ai.cli.mine_cmd.check_pearld_reachable",
             return_value=(False, "connection refused"),
         ),
     ):
@@ -64,7 +64,7 @@ def test_mine_doctor_flags_unsupported_hardware(ada_hw):
 
 
 def _mining_config():
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget
 
     return MiningConfig(
         provider="vllm-pearl",
@@ -74,14 +74,14 @@ def _mining_config():
 
 
 def test_mine_start_runs_provider_start():
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
 
     runner = CliRunner()
     fake_provider_class = MagicMock()
     with (
-        patch("openjarvis.cli.mine_cmd.MinerRegistry") as reg,
-        patch("openjarvis.cli.mine_cmd.load_config") as load,
-        patch("openjarvis.cli.mine_cmd.asyncio.run") as arun,
+        patch("friday_ai.cli.mine_cmd.MinerRegistry") as reg,
+        patch("friday_ai.cli.mine_cmd.load_config") as load,
+        patch("friday_ai.cli.mine_cmd.asyncio.run") as arun,
     ):
         load.return_value = MagicMock(mining=_mining_config())
         reg.get.return_value = fake_provider_class
@@ -93,14 +93,14 @@ def test_mine_start_runs_provider_start():
 
 
 def test_mine_stop_calls_provider_stop():
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
 
     runner = CliRunner()
     fake_provider_class = MagicMock()
     with (
-        patch("openjarvis.cli.mine_cmd.MinerRegistry") as reg,
-        patch("openjarvis.cli.mine_cmd.load_config") as load,
-        patch("openjarvis.cli.mine_cmd.asyncio.run") as arun,
+        patch("friday_ai.cli.mine_cmd.MinerRegistry") as reg,
+        patch("friday_ai.cli.mine_cmd.load_config") as load,
+        patch("friday_ai.cli.mine_cmd.asyncio.run") as arun,
     ):
         load.return_value = MagicMock(mining=_mining_config())
         reg.get.return_value = fake_provider_class
@@ -112,10 +112,10 @@ def test_mine_stop_calls_provider_stop():
 
 
 def test_mine_start_errors_when_no_mining_config():
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
 
     runner = CliRunner()
-    with patch("openjarvis.cli.mine_cmd.load_config") as load:
+    with patch("friday_ai.cli.mine_cmd.load_config") as load:
         load.return_value = MagicMock(mining=None)
         result = runner.invoke(mine, ["start"])
 
@@ -124,8 +124,8 @@ def test_mine_start_errors_when_no_mining_config():
 
 
 def test_mine_status_renders_stats():
-    from openjarvis.cli.mine_cmd import mine
-    from openjarvis.mining._stubs import MiningStats
+    from friday_ai.cli.mine_cmd import mine
+    from friday_ai.mining._stubs import MiningStats
 
     runner = CliRunner()
     fake_provider = MagicMock()
@@ -137,8 +137,8 @@ def test_mine_status_renders_stats():
     )
     fake_provider_class = MagicMock(return_value=fake_provider)
     with (
-        patch("openjarvis.cli.mine_cmd.MinerRegistry") as reg,
-        patch("openjarvis.cli.mine_cmd.load_config") as load,
+        patch("friday_ai.cli.mine_cmd.MinerRegistry") as reg,
+        patch("friday_ai.cli.mine_cmd.load_config") as load,
     ):
         load.return_value = MagicMock(mining=_mining_config())
         reg.get.return_value = fake_provider_class
@@ -150,11 +150,11 @@ def test_mine_status_renders_stats():
 
 
 def test_mine_attach_writes_sidecar(tmp_path, monkeypatch):
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
 
     runner = CliRunner()
     sidecar = tmp_path / "mining.json"
-    monkeypatch.setattr("openjarvis.cli.mine_cmd.SIDECAR_PATH", sidecar)
+    monkeypatch.setattr("friday_ai.cli.mine_cmd.SIDECAR_PATH", sidecar)
 
     result = runner.invoke(
         mine,
@@ -176,14 +176,14 @@ def test_mine_attach_writes_sidecar(tmp_path, monkeypatch):
 
 
 def test_mine_logs_streams_container_output():
-    from openjarvis.cli.mine_cmd import mine
+    from friday_ai.cli.mine_cmd import mine
 
     runner = CliRunner()
     fake_container = MagicMock()
     fake_container.logs.return_value = b"log line 1\nlog line 2\n"
     fake_client = MagicMock()
     fake_client.containers.get.return_value = fake_container
-    with patch("openjarvis.cli.mine_cmd._docker_from_env", return_value=fake_client):
+    with patch("friday_ai.cli.mine_cmd._docker_from_env", return_value=fake_client):
         result = runner.invoke(mine, ["logs", "--tail", "100"])
 
     assert result.exit_code == 0, result.output

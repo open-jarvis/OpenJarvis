@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.core.registry import SpeechRegistry
-from openjarvis.speech._stubs import TranscriptionResult
-from openjarvis.speech.deepgram import DeepgramSpeechBackend
+from friday_ai.core.registry import SpeechRegistry
+from friday_ai.speech._stubs import TranscriptionResult
+from friday_ai.speech.deepgram import DeepgramSpeechBackend
 
 
 @pytest.fixture(autouse=True)
@@ -33,8 +33,8 @@ def test_deepgram_transcribe():
     mock_result.metadata.duration = 1.8
     mock_client.listen.rest.v.return_value.transcribe_file.return_value = mock_result
 
-    with patch("openjarvis.speech.deepgram.DeepgramClient", return_value=mock_client):
-        from openjarvis.speech.deepgram import DeepgramSpeechBackend
+    with patch("friday_ai.speech.deepgram.DeepgramClient", return_value=mock_client):
+        from friday_ai.speech.deepgram import DeepgramSpeechBackend
 
         backend = DeepgramSpeechBackend(api_key="test-key")
         result = backend.transcribe(b"fake audio", format="wav")
@@ -44,16 +44,16 @@ def test_deepgram_transcribe():
 
 
 def test_deepgram_health():
-    with patch("openjarvis.speech.deepgram.DeepgramClient"):
-        from openjarvis.speech.deepgram import DeepgramSpeechBackend
+    with patch("friday_ai.speech.deepgram.DeepgramClient"):
+        from friday_ai.speech.deepgram import DeepgramSpeechBackend
 
         backend = DeepgramSpeechBackend(api_key="test-key")
         assert backend.health() is True
 
 
 def test_deepgram_health_no_key():
-    with patch("openjarvis.speech.deepgram.DeepgramClient"):
-        from openjarvis.speech.deepgram import DeepgramSpeechBackend
+    with patch("friday_ai.speech.deepgram.DeepgramClient"):
+        from friday_ai.speech.deepgram import DeepgramSpeechBackend
 
         backend = DeepgramSpeechBackend.__new__(DeepgramSpeechBackend)
         backend._client = None

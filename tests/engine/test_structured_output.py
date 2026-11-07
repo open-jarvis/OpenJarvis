@@ -10,11 +10,11 @@ import httpx
 import pytest
 import respx
 
-from openjarvis.core.registry import EngineRegistry
-from openjarvis.core.types import Message, Role
-from openjarvis.engine._stubs import ResponseFormat
-from openjarvis.engine.cloud import CloudEngine
-from openjarvis.engine.ollama import OllamaEngine
+from friday_ai.core.registry import EngineRegistry
+from friday_ai.core.types import Message, Role
+from friday_ai.engine._stubs import ResponseFormat
+from friday_ai.engine.cloud import CloudEngine
+from friday_ai.engine.ollama import OllamaEngine
 
 # ---------------------------------------------------------------------------
 # ResponseFormat dataclass
@@ -252,7 +252,7 @@ class TestGoogleStructuredOutput:
             {"google": mock.MagicMock(), "google.genai": mock.MagicMock()},
         ):
             with mock.patch(
-                "openjarvis.engine.cloud.genai_types", fake_genai_types, create=True
+                "friday_ai.engine.cloud.genai_types", fake_genai_types, create=True
             ):
                 # We need to actually test the config mutation. The simplest
                 # approach is to observe the config object passed to

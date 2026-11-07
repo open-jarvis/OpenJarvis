@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openjarvis.agents.rlm_repl import RLMRepl
+from friday_ai.agents.rlm_repl import RLMRepl
 
 
 class TestRLMReplBasics:

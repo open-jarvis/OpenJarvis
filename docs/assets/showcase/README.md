@@ -42,4 +42,4 @@ If you're contributing the first real entry, drop your PNG at `docs/assets/showc
 
 ## Regenerating screenshots in bulk
 
-A future enhancement (tracked as PR #3 in the showcase-tier roadmap) will add `scripts/showcase/regen_screenshots.py` — a Playwright-driven pipeline that boots a demo `jarvis serve` against a sealed config and captures fresh screenshots for every showcase entry on each release tag. Until that lands, screenshots are contributed manually by each Showcase author.
+A future enhancement (tracked as PR #3 in the showcase-tier roadmap) will add `scripts/showcase/regen_screenshots.py` — a Playwright-driven pipeline that boots a demo `friday serve` against a sealed config and captures fresh screenshots for every showcase entry on each release tag. Until that lands, screenshots are contributed manually by each Showcase author.

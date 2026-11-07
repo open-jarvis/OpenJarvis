@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.core.config import JarvisConfig, load_config
-from openjarvis.core.registry import BenchmarkRegistry
+from friday_ai.core.config import FridayConfig, load_config
+from friday_ai.core.registry import BenchmarkRegistry
 
 
 class TestBenchmarkRegistry:
@@ -30,25 +30,25 @@ class TestBenchmarkRegistry:
 
 
 class TestConfigPhase5:
-    def test_jarvis_config_loads(self):
-        cfg = JarvisConfig()
+    def test_friday_config_loads(self):
+        cfg = FridayConfig()
         assert cfg.engine is not None
         assert cfg.learning is not None
 
     def test_benchmark_registry_importable(self):
-        from openjarvis.core.registry import BenchmarkRegistry
+        from friday_ai.core.registry import BenchmarkRegistry
 
         assert BenchmarkRegistry is not None
 
     def test_registry_isolation(self):
         """BenchmarkRegistry entries don't leak into other registries."""
-        from openjarvis.core.registry import ModelRegistry
+        from friday_ai.core.registry import ModelRegistry
 
         BenchmarkRegistry.register_value("iso-test", "bench-value")
         with pytest.raises(KeyError):
             ModelRegistry.get("iso-test")
 
     def test_load_config_default(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "home"))
+        monkeypatch.setenv("FRIDAY_AI_HOME", str(tmp_path / "home"))
         cfg = load_config(tmp_path / "missing-config.toml")
-        assert isinstance(cfg, JarvisConfig)
+        assert isinstance(cfg, FridayConfig)

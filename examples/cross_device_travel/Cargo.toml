@@ -1,11 +1,11 @@
 [package]
-name = "openjarvis-cross-device-travel"
+name = "friday_ai-cross-device-travel"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.88"
 publish = false
 
-# An isolated handoff example: no changes to the OpenJarvis runtime or workspace.
+# An isolated handoff example: no changes to the FridayAI runtime or workspace.
 [workspace]
 
 [dependencies]

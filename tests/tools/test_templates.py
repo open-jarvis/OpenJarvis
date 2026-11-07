@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openjarvis.tools.templates.loader import ToolTemplate, discover_templates
+from friday_ai.tools.templates.loader import ToolTemplate, discover_templates
 
 
 class TestToolTemplate:

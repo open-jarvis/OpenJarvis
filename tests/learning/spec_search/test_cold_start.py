@@ -1,4 +1,4 @@
-"""Tests for openjarvis.learning.spec_search.gate.cold_start module."""
+"""Tests for friday_ai.learning.spec_search.gate.cold_start module."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class TestCheckReadiness:
     """Tests for check_readiness()."""
 
     def test_not_ready_with_no_traces(self) -> None:
-        from openjarvis.learning.spec_search.gate.cold_start import (
+        from friday_ai.learning.spec_search.gate.cold_start import (
             check_readiness,
         )
 
@@ -51,7 +51,7 @@ class TestCheckReadiness:
         assert "not enough traces" in result.message.lower()
 
     def test_not_ready_with_few_traces(self) -> None:
-        from openjarvis.learning.spec_search.gate.cold_start import (
+        from friday_ai.learning.spec_search.gate.cold_start import (
             check_readiness,
         )
 
@@ -60,7 +60,7 @@ class TestCheckReadiness:
         assert not result.ready
 
     def test_ready_with_enough_traces(self) -> None:
-        from openjarvis.learning.spec_search.gate.cold_start import (
+        from friday_ai.learning.spec_search.gate.cold_start import (
             check_readiness,
         )
 
@@ -73,7 +73,7 @@ class TestCheckBenchmarkReady:
     """Tests for check_benchmark_ready()."""
 
     def test_not_ready_with_no_high_feedback_traces(self) -> None:
-        from openjarvis.learning.spec_search.gate.cold_start import (
+        from friday_ai.learning.spec_search.gate.cold_start import (
             check_benchmark_ready,
         )
 
@@ -83,7 +83,7 @@ class TestCheckBenchmarkReady:
         assert "benchmark" in result.message.lower()
 
     def test_not_ready_with_few_high_feedback_traces(self) -> None:
-        from openjarvis.learning.spec_search.gate.cold_start import (
+        from friday_ai.learning.spec_search.gate.cold_start import (
             check_benchmark_ready,
         )
 
@@ -92,7 +92,7 @@ class TestCheckBenchmarkReady:
         assert not result.ready
 
     def test_ready_with_enough_high_feedback_traces(self) -> None:
-        from openjarvis.learning.spec_search.gate.cold_start import (
+        from friday_ai.learning.spec_search.gate.cold_start import (
             check_benchmark_ready,
         )
 

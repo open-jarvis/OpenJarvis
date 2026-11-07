@@ -15,8 +15,8 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-import openjarvis.evals.backends.terminalbench_native as tbn
-from openjarvis.evals.backends.terminalbench_native import (
+import friday_ai.evals.backends.terminalbench_native as tbn
+from friday_ai.evals.backends.terminalbench_native import (
     summarize_benchmark_results,
 )
 
@@ -242,8 +242,8 @@ class TestRunTerminalbenchNativeWiring:
     def _run(self, fake_tb_backend, tmp_path, trials: List[Any], **config_kwargs):
         from rich.console import Console
 
-        from openjarvis.evals.cli import _run_terminalbench_native
-        from openjarvis.evals.core.types import RunConfig
+        from friday_ai.evals.cli import _run_terminalbench_native
+        from friday_ai.evals.core.types import RunConfig
 
         fake_tb_backend.results = SimpleNamespace(results=trials)
         config = RunConfig(

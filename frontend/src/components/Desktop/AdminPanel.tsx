@@ -272,7 +272,7 @@ export function AdminPanel({ apiUrl }: { apiUrl: string }) {
     setCommandRunning(true);
     setCommandOutput(null);
     try {
-      const output = await invoke<string>('run_jarvis_command', {
+      const output = await invoke<string>('run_friday_command', {
         args: ['serve', '--port', '8000'],
       });
       setCommandOutput(output);
@@ -289,7 +289,7 @@ export function AdminPanel({ apiUrl }: { apiUrl: string }) {
     setCommandRunning(true);
     setCommandOutput(null);
     try {
-      const output = await invoke<string>('run_jarvis_command', {
+      const output = await invoke<string>('run_friday_command', {
         args: ['stop'],
       });
       setCommandOutput(output);

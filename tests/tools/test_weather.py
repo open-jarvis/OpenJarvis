@@ -11,12 +11,12 @@ from unittest.mock import Mock, patch
 import httpx
 import pytest
 
-from openjarvis.connectors import weather as weather_connector
-from openjarvis.core.registry import ConnectorRegistry, ToolRegistry
-from openjarvis.core.types import ToolCall
-from openjarvis.security.capabilities import DEFAULT_TOOL_CAPABILITIES
-from openjarvis.tools._stubs import ToolExecutor
-from openjarvis.tools.weather import WeatherTool
+from friday_ai.connectors import weather as weather_connector
+from friday_ai.core.registry import ConnectorRegistry, ToolRegistry
+from friday_ai.core.types import ToolCall
+from friday_ai.security.capabilities import DEFAULT_TOOL_CAPABILITIES
+from friday_ai.tools._stubs import ToolExecutor
+from friday_ai.tools.weather import WeatherTool
 
 
 def _config(**overrides):
@@ -65,7 +65,7 @@ def _forecast_response():
 
 
 def test_registered_and_declared_external():
-    import openjarvis.tools.weather as weather_module
+    import friday_ai.tools.weather as weather_module
 
     weather_module = importlib.reload(weather_module)
     assert ToolRegistry.contains("get_weather")
@@ -81,7 +81,7 @@ def test_registered_and_declared_external():
 
 @pytest.mark.parametrize("agent_type", ["simple", "native_react", "orchestrator"])
 def test_managed_agent_resolver_instantiates_native_weather_tool(agent_type):
-    from openjarvis.agents.tool_resolver import resolve_agent_tools
+    from friday_ai.agents.tool_resolver import resolve_agent_tools
 
     ToolRegistry.register_value("get_weather", WeatherTool)
     resolved = resolve_agent_tools(
@@ -107,7 +107,7 @@ def test_tool_executor_applies_external_boundary_guard():
         arguments='{"location":"Vienna,AT"}',
     )
     with patch(
-        "openjarvis.tools.weather.weather_connector.fetch_weather",
+        "friday_ai.tools.weather.weather_connector.fetch_weather",
         return_value=(_current_response(), None),
     ):
         result = executor.execute(call)
@@ -119,7 +119,7 @@ def test_tool_executor_applies_external_boundary_guard():
 def test_dynamic_location_units_language_and_structured_current():
     tool = WeatherTool(api_key="secret-key", config=_config())
     with patch(
-        "openjarvis.tools.weather.weather_connector.fetch_weather",
+        "friday_ai.tools.weather.weather_connector.fetch_weather",
         return_value=(_current_response(), None),
     ) as fetch:
         result = tool.execute(location=" Vienna,AT ", units="metric", language="de")
@@ -152,7 +152,7 @@ def test_dynamic_location_units_language_and_structured_current():
 def test_forecast_is_bounded_and_structured():
     tool = WeatherTool(api_key="test-key", config=_config())
     with patch(
-        "openjarvis.tools.weather.weather_connector.fetch_weather",
+        "friday_ai.tools.weather.weather_connector.fetch_weather",
         return_value=(_current_response(), _forecast_response()),
     ) as fetch:
         result = tool.execute(
@@ -193,7 +193,7 @@ def test_corrupt_connector_key_is_unconfigured_and_never_sent(
     path = tmp_path / "weather.json"
     path.write_text(json.dumps({"api_key": stored_key}), encoding="utf-8")
     connector = weather_connector.WeatherConnector(token_path=str(path))
-    monkeypatch.setattr("openjarvis.tools.weather.get_tool_credential", lambda *_: None)
+    monkeypatch.setattr("friday_ai.tools.weather.get_tool_credential", lambda *_: None)
     tool = WeatherTool(connector=connector, config=_config())
 
     assert tool.is_configured() is False
@@ -221,7 +221,7 @@ def test_corrupt_connector_key_is_unconfigured_and_never_sent(
 def test_malformed_tool_credentials_preserve_discovery_and_connector_fallback(
     tmp_path, monkeypatch, credential_toml, connector_configured
 ):
-    monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path))
+    monkeypatch.setenv("FRIDAY_AI_HOME", str(tmp_path))
     monkeypatch.delenv("OPENWEATHERMAP_API_KEY", raising=False)
     (tmp_path / "credentials.toml").write_text(credential_toml, encoding="utf-8")
     if connector_configured:
@@ -291,7 +291,7 @@ def test_config_defaults_are_used_when_arguments_are_omitted():
         ),
     )
     with patch(
-        "openjarvis.tools.weather.weather_connector.fetch_weather",
+        "friday_ai.tools.weather.weather_connector.fetch_weather",
         return_value=(_current_response(), None),
     ) as fetch:
         result = tool.execute()
@@ -307,11 +307,11 @@ def test_secure_tool_credential_precedes_connector(monkeypatch):
     connector.stored_api_key.return_value = "connector-key"
     tool = WeatherTool(connector=connector, config=_config())
     monkeypatch.setattr(
-        "openjarvis.tools.weather.get_tool_credential",
+        "friday_ai.tools.weather.get_tool_credential",
         lambda *_args, **_kwargs: "credential-key",
     )
     with patch(
-        "openjarvis.tools.weather.weather_connector.fetch_weather",
+        "friday_ai.tools.weather.weather_connector.fetch_weather",
         return_value=(_current_response(), None),
     ) as fetch:
         result = tool.execute(location="Paris,FR")
@@ -326,11 +326,11 @@ def test_existing_connector_credential_is_reused(monkeypatch):
     connector.stored_api_key.return_value = "connector-key"
     tool = WeatherTool(connector=connector, config=_config())
     monkeypatch.setattr(
-        "openjarvis.tools.weather.get_tool_credential",
+        "friday_ai.tools.weather.get_tool_credential",
         lambda *_args, **_kwargs: None,
     )
     with patch(
-        "openjarvis.tools.weather.weather_connector.fetch_weather",
+        "friday_ai.tools.weather.weather_connector.fetch_weather",
         return_value=(_current_response(), None),
     ) as fetch:
         result = tool.execute(location="Boston,US")
@@ -339,7 +339,7 @@ def test_existing_connector_credential_is_reused(monkeypatch):
     assert fetch.call_args.kwargs["api_key"] == "connector-key"
 
 
-def test_default_connector_path_honors_runtime_openjarvis_home(tmp_path, monkeypatch):
+def test_default_connector_path_honors_runtime_friday_ai_home(tmp_path, monkeypatch):
     root = tmp_path / "relocated-home"
     credential_path = root / "connectors" / "weather.json"
     credential_path.parent.mkdir(parents=True)
@@ -347,16 +347,16 @@ def test_default_connector_path_honors_runtime_openjarvis_home(tmp_path, monkeyp
         '{"api_key":"relocated-connector-key","location":"Vienna"}',
         encoding="utf-8",
     )
-    monkeypatch.setenv("OPENJARVIS_HOME", str(root))
+    monkeypatch.setenv("FRIDAY_AI_HOME", str(root))
     monkeypatch.setattr(
-        "openjarvis.tools.weather.get_tool_credential",
+        "friday_ai.tools.weather.get_tool_credential",
         lambda *_args, **_kwargs: None,
     )
     tool = WeatherTool(connector=weather_connector.WeatherConnector(), config=_config())
 
     assert tool.is_configured() is True
     with patch(
-        "openjarvis.tools.weather.weather_connector.fetch_weather",
+        "friday_ai.tools.weather.weather_connector.fetch_weather",
         return_value=(_current_response(), None),
     ) as fetch:
         result = tool.execute(location="Vienna")
@@ -370,10 +370,10 @@ def test_missing_credentials_fails_without_calling_provider(monkeypatch):
     connector.stored_api_key.return_value = None
     tool = WeatherTool(connector=connector, config=_config())
     monkeypatch.setattr(
-        "openjarvis.tools.weather.get_tool_credential",
+        "friday_ai.tools.weather.get_tool_credential",
         lambda *_args, **_kwargs: None,
     )
-    with patch("openjarvis.tools.weather.weather_connector.fetch_weather") as fetch:
+    with patch("friday_ai.tools.weather.weather_connector.fetch_weather") as fetch:
         result = tool.execute(location="Vienna")
 
     assert result.success is False
@@ -397,7 +397,7 @@ def test_missing_credentials_fails_without_calling_provider(monkeypatch):
 )
 def test_invalid_arguments_fail_before_network(params, expected):
     tool = WeatherTool(api_key="test-key", config=_config())
-    with patch("openjarvis.tools.weather.weather_connector.fetch_weather") as fetch:
+    with patch("friday_ai.tools.weather.weather_connector.fetch_weather") as fetch:
         result = tool.execute(**params)
 
     assert result.success is False
@@ -409,7 +409,7 @@ def test_provider_error_never_exposes_api_key():
     secret = "super-secret-weather-key"
     tool = WeatherTool(api_key=secret, config=_config())
     with patch(
-        "openjarvis.tools.weather.weather_connector.fetch_weather",
+        "friday_ai.tools.weather.weather_connector.fetch_weather",
         side_effect=httpx.RequestError(
             f"request failed: https://example.test/?appid={secret}"
         ),
@@ -431,7 +431,7 @@ def test_http_status_error_is_credential_safe():
         request=request,
         json={"cod": 401, "message": "Invalid API key"},
     )
-    with patch("openjarvis.connectors.weather.httpx.get", return_value=response):
+    with patch("friday_ai.connectors.weather.httpx.get", return_value=response):
         with pytest.raises(weather_connector.WeatherAPIError) as exc_info:
             weather_connector._weather_api_get(
                 "https://api.openweathermap.org/weather",
@@ -453,7 +453,7 @@ def test_http_status_provider_message_cannot_echo_credential():
         request=request,
         json={"message": f"bad appid {secret}"},
     )
-    with patch("openjarvis.connectors.weather.httpx.get", return_value=response):
+    with patch("friday_ai.connectors.weather.httpx.get", return_value=response):
         with pytest.raises(weather_connector.WeatherAPIError) as exc_info:
             weather_connector._weather_api_get(
                 "https://api.openweathermap.org/weather",
@@ -472,7 +472,7 @@ def test_request_error_is_credential_safe():
         "GET", f"https://api.openweathermap.org/weather?appid={secret}"
     )
     with patch(
-        "openjarvis.connectors.weather.httpx.get",
+        "friday_ai.connectors.weather.httpx.get",
         side_effect=httpx.ConnectError("connection failed", request=request),
     ):
         with pytest.raises(weather_connector.WeatherAPIError) as exc_info:
@@ -527,7 +527,7 @@ def test_weather_tool_handles_provider_error_after_connector_registry_repopulati
     monkeypatch,
 ):
     """Connector reloads must not stale the tool's exception identity."""
-    from openjarvis.server.connectors_router import _ensure_connectors_registered
+    from friday_ai.server.connectors_router import _ensure_connectors_registered
 
     secret = "reload-secret-weather-key"
     tool = WeatherTool(api_key=secret, config=_config())

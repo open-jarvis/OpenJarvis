@@ -15,17 +15,17 @@ def _run_uninstaller(
     tmp_path: Path,
     *args: str,
     answer: str = "",
-    openjarvis_home: Path | None = None,
+    friday_ai_home: Path | None = None,
     user_home: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    script = Path(__file__).parents[2] / "scripts" / "install" / "jarvis-uninstall.sh"
+    script = Path(__file__).parents[2] / "scripts" / "install" / "friday-uninstall.sh"
     fake_home = user_home or tmp_path / "home"
     fake_home.mkdir(parents=True, exist_ok=True)
-    data_home = openjarvis_home or fake_home / ".openjarvis"
+    data_home = friday_ai_home or fake_home / ".friday_ai"
     env = {
         **os.environ,
         "HOME": str(fake_home),
-        "OPENJARVIS_HOME": str(data_home),
+        "FRIDAY_AI_HOME": str(data_home),
         "PATH": "/usr/bin:/bin",
     }
     return subprocess.run(
@@ -40,7 +40,7 @@ def _run_uninstaller(
 
 def _populate_install(tmp_path: Path) -> tuple[Path, Path]:
     fake_home = tmp_path / "home"
-    data_home = fake_home / ".openjarvis"
+    data_home = fake_home / ".friday_ai"
     (data_home / "connectors").mkdir(parents=True)
     (data_home / ".state").mkdir()
     (data_home / ".state" / "install-state.json").write_text(
@@ -51,7 +51,7 @@ def _populate_install(tmp_path: Path) -> tuple[Path, Path]:
     (data_home / "connectors" / "oauth.json").write_text("{}", encoding="utf-8")
     shim_dir = fake_home / ".local" / "bin"
     shim_dir.mkdir(parents=True)
-    shim = shim_dir / "jarvis"
+    shim = shim_dir / "friday"
     shim.write_text("shim", encoding="utf-8")
     return data_home, shim
 
@@ -90,11 +90,11 @@ def test_unsafe_install_root_is_rejected(tmp_path: Path) -> None:
     result = _run_uninstaller(
         tmp_path,
         "--yes",
-        openjarvis_home=fake_home,
+        friday_ai_home=fake_home,
     )
 
     assert result.returncode == 2
-    assert "Refusing unsafe OPENJARVIS_HOME" in result.stderr
+    assert "Refusing unsafe FRIDAY_AI_HOME" in result.stderr
     assert fake_home.exists()
 
 
@@ -112,12 +112,12 @@ def test_home_ancestor_is_rejected_without_deleting_siblings(tmp_path: Path) -> 
     result = _run_uninstaller(
         tmp_path,
         "--yes",
-        openjarvis_home=users_root,
+        friday_ai_home=users_root,
         user_home=fake_home,
     )
 
     assert result.returncode == 2
-    assert "Refusing unsafe OPENJARVIS_HOME" in result.stderr
+    assert "Refusing unsafe FRIDAY_AI_HOME" in result.stderr
     assert sibling_data.read_text(encoding="utf-8") == "keep"
     assert fake_home.exists()
 
@@ -131,16 +131,16 @@ def test_unowned_custom_root_is_rejected_with_yes(tmp_path: Path) -> None:
     result = _run_uninstaller(
         tmp_path,
         "--yes",
-        openjarvis_home=unrelated,
+        friday_ai_home=unrelated,
     )
 
     assert result.returncode == 2
-    assert "Refusing unsafe OPENJARVIS_HOME" in result.stderr
+    assert "Refusing unsafe FRIDAY_AI_HOME" in result.stderr
     assert sentinel.read_text(encoding="utf-8") == "keep"
 
 
 def test_owned_custom_root_can_be_removed_with_yes(tmp_path: Path) -> None:
-    custom_root = tmp_path / "apps" / "openjarvis-data"
+    custom_root = tmp_path / "apps" / "friday_ai-data"
     (custom_root / ".state").mkdir(parents=True)
     (custom_root / ".state" / "install-state.json").write_text(
         '{"clone_repo": true}\n', encoding="utf-8"
@@ -150,7 +150,7 @@ def test_owned_custom_root_can_be_removed_with_yes(tmp_path: Path) -> None:
     result = _run_uninstaller(
         tmp_path,
         "--yes",
-        openjarvis_home=custom_root,
+        friday_ai_home=custom_root,
     )
 
     assert result.returncode == 0
@@ -171,7 +171,7 @@ def test_fake_or_symlinked_ownership_marker_is_rejected(tmp_path: Path) -> None:
     result = _run_uninstaller(
         tmp_path,
         "--yes",
-        openjarvis_home=custom_root,
+        friday_ai_home=custom_root,
     )
 
     assert result.returncode == 2

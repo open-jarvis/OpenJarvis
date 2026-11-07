@@ -5,11 +5,11 @@ description: Run autonomous agents on cron schedules for recurring personal task
 
 # Scheduled Personal Ops
 
-This tutorial walks through `examples/scheduled_ops/` — three scripts that run autonomous agents on cron-like schedules to handle recurring personal tasks. Together they demonstrate how to combine the `Jarvis` SDK, the scheduler CLI, and the Python `TaskScheduler` API to build a personal operations layer that runs in the background.
+This tutorial walks through `examples/scheduled_ops/` — three scripts that run autonomous agents on cron-like schedules to handle recurring personal tasks. Together they demonstrate how to combine the `Friday` SDK, the scheduler CLI, and the Python `TaskScheduler` API to build a personal operations layer that runs in the background.
 
 !!! tip "Prerequisites"
     - Python 3.10 or later
-    - OpenJarvis installed: `uv sync --extra dev` from the repository root
+    - FridayAI installed: `uv sync --extra dev` from the repository root
     - An inference engine running (Ollama with `qwen3:8b` pulled, or a cloud API key)
     - For full cron expression support, install `croniter`: `uv add croniter`
 
@@ -21,7 +21,7 @@ This tutorial walks through `examples/scheduled_ops/` — three scripts that run
 | `code_review.py` | `native_react` | `git_log`, `git_diff`, `file_read`, `think` | Monday 8:00 AM | Review the past week of commits in a repository |
 | `gym_scheduler.py` | `orchestrator` | `web_search`, `think` | MWF 6:00 AM | Check gym hours and class availability |
 
-Each script follows the same SDK pattern: create a `Jarvis` instance, call `j.ask()` with an agent and tools, print the result, and close the instance. The schedule is managed externally by the OpenJarvis scheduler daemon.
+Each script follows the same SDK pattern: create a `Friday` instance, call `j.ask()` with an agent and tools, print the result, and close the instance. The schedule is managed externally by the FridayAI scheduler daemon.
 
 ## Quick Start: Run Scripts Manually
 
@@ -49,7 +49,7 @@ uv run python examples/scheduled_ops/daily_digest.py \
 
 ```mermaid
 graph TD
-    A[jarvis scheduler start] --> B[Scheduler Daemon]
+    A[friday scheduler start] --> B[Scheduler Daemon]
     B --> C{Cron trigger fires}
     C -->|0 9 * * *| D[daily_digest.py]
     C -->|0 8 * * 1| E[code_review.py]
@@ -67,36 +67,36 @@ The scheduler daemon reads registered tasks from SQLite, fires them at the corre
 
 ## Set Up Schedules with the CLI
 
-Register each script as a recurring task using `jarvis scheduler create`:
+Register each script as a recurring task using `friday scheduler create`:
 
 ```bash title="Terminal"
 # Morning digest every day at 9 AM
-jarvis scheduler create "Run daily news digest" \
+friday scheduler create "Run daily news digest" \
     --type cron --value "0 9 * * *"
 
 # Weekly code review every Monday at 8 AM
-jarvis scheduler create "Run weekly code review" \
+friday scheduler create "Run weekly code review" \
     --type cron --value "0 8 * * 1"
 
 # Gym check on Monday, Wednesday, Friday at 6 AM
-jarvis scheduler create "Check gym schedule" \
+friday scheduler create "Check gym schedule" \
     --type cron --value "0 6 * * 1,3,5"
 ```
 
 Then start the scheduler daemon in the foreground (or as a background service):
 
 ```bash title="Terminal"
-jarvis scheduler start
+friday scheduler start
 ```
 
 List registered tasks at any time:
 
 ```bash title="Terminal"
-jarvis scheduler list
+friday scheduler list
 ```
 
 !!! note "Cron expression syntax"
-    OpenJarvis uses standard five-field cron syntax: `minute hour day-of-month month day-of-week`. Install `croniter` (`uv add croniter`) for full expression support including ranges and step values. Without it, basic `hour:minute` patterns still work.
+    FridayAI uses standard five-field cron syntax: `minute hour day-of-month month day-of-week`. Install `croniter` (`uv add croniter`) for full expression support including ranges and step values. Without it, basic `hour:minute` patterns still work.
 
 ## Configure Schedules with TOML
 
@@ -136,8 +136,8 @@ uv run python examples/scheduled_ops/gym_scheduler.py \
 The equivalent Python code:
 
 ```python title="Programmatic task registration"
-from openjarvis.scheduler import TaskScheduler
-from openjarvis.scheduler.store import SchedulerStore
+from friday_ai.scheduler import TaskScheduler
+from friday_ai.scheduler.store import SchedulerStore
 
 store = SchedulerStore()
 scheduler = TaskScheduler(store)
@@ -160,9 +160,9 @@ print(f"Next run:        {task.next_run}")
 The digest script is the simplest of the three. It builds a date-stamped prompt and passes it to an orchestrator with `web_search` and `think`:
 
 ```python title="examples/scheduled_ops/daily_digest.py" hl_lines="5 6 7 8"
-from openjarvis import Jarvis
+from friday_ai import Friday
 
-j = Jarvis()  # uses defaults from ~/.openjarvis/config.toml
+j = Friday()  # uses defaults from ~/.friday_ai/config.toml
 response = j.ask(
     f"Today is {today}. Search and summarize the top news on: {topics}",
     agent="orchestrator",
@@ -175,17 +175,17 @@ The orchestrator searches for each topic in a separate turn, uses `think` to syn
 
 ## Send Results to a Channel
 
-To route script output to Slack or any other supported channel, pipe stdout through `jarvis channel send`:
+To route script output to Slack or any other supported channel, pipe stdout through `friday channel send`:
 
 ```bash title="Terminal"
 uv run python examples/scheduled_ops/daily_digest.py \
-    --topics "AI,finance" | jarvis channel send slack
+    --topics "AI,finance" | friday channel send slack
 ```
 
 Or add channel output inside the script:
 
 ```python title="In-script channel output"
-from openjarvis.channels import ChannelRegistry
+from friday_ai.channels import ChannelRegistry
 
 channel = ChannelRegistry.create("slack", webhook_url="https://hooks.slack.com/...")
 channel.send(response)
@@ -194,11 +194,11 @@ channel.send(response)
 List all available channels:
 
 ```bash title="Terminal"
-jarvis channel list
+friday channel list
 ```
 
 !!! warning "Channel credentials"
-    Live channel output requires channel-specific credentials. Run `jarvis add slack` (or the relevant provider) to set up the MCP server and credential store, then configure environment variables in your `.env` file before starting the scheduler daemon.
+    Live channel output requires channel-specific credentials. Run `friday add slack` (or the relevant provider) to set up the MCP server and credential store, then configure environment variables in your `.env` file before starting the scheduler daemon.
 
 ## Customization Tips
 
@@ -206,7 +206,7 @@ jarvis channel list
 - **Review window**: Pass `--days 14` to `code_review.py` for a two-week review cycle instead of one week.
 - **Swap agents**: Replace `orchestrator` with `native_react` in any script to compare agent behavior on the same task.
 - **Add file output**: Append `"file_write"` to the `tools` list and update the prompt to save reports to disk instead of printing them.
-- **One-time tasks**: Use `--type once --value "2026-04-01T09:00:00"` with `jarvis scheduler create` for non-recurring tasks.
+- **One-time tasks**: Use `--type once --value "2026-04-01T09:00:00"` with `friday scheduler create` for non-recurring tasks.
 
 ## See Also
 

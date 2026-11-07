@@ -2,8 +2,8 @@
   "use strict";
 
   var SUPABASE_URL =
-    window.OPENJARVIS_SUPABASE_URL || "https://mtbtgpwzrbostweaanpr.supabase.co";
-  var SUPABASE_ANON_KEY = window.OPENJARVIS_SUPABASE_ANON_KEY || "";
+    window.FRIDAY_AI_SUPABASE_URL || "https://mtbtgpwzrbostweaanpr.supabase.co";
+  var SUPABASE_ANON_KEY = window.FRIDAY_AI_SUPABASE_ANON_KEY || "";
 
   var PAGE_SIZE = 50;
   var allRows = [];

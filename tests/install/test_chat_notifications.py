@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from openjarvis.cli._bg_state import BgStatus
-from openjarvis.cli._chat_notifications import NotificationDispatcher
+from friday_ai.cli._bg_state import BgStatus
+from friday_ai.cli._chat_notifications import NotificationDispatcher
 
 
 def test_no_notifications_when_unchanged() -> None:

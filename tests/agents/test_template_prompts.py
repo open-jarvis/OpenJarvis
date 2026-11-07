@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openjarvis.agents.manager import AgentManager
+from friday_ai.agents.manager import AgentManager
 
 
 def test_create_from_template_expands_system_prompt(tmp_path):

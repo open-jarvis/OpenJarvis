@@ -1,4 +1,4 @@
-"""Tests for ``jarvis doctor`` CLI command."""
+"""Tests for ``friday doctor`` CLI command."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
-from openjarvis.cli.doctor_cmd import (
+from friday_ai.cli import cli
+from friday_ai.cli.doctor_cmd import (
     CheckResult,
     _check_config_exists,
     _check_default_model,
@@ -18,7 +18,7 @@ from openjarvis.cli.doctor_cmd import (
     _check_speech_backend,
     _run_all_checks,
 )
-from openjarvis.core.registry import EngineRegistry
+from friday_ai.core.registry import EngineRegistry
 
 
 class TestDoctorHelp:
@@ -36,15 +36,15 @@ class TestDoctorRuns:
         mock_config.intelligence.default_model = ""
 
         with (
-            patch("openjarvis.cli.doctor_cmd.load_config", return_value=mock_config),
+            patch("friday_ai.cli.doctor_cmd.load_config", return_value=mock_config),
             patch(
-                "openjarvis.cli.doctor_cmd.DEFAULT_CONFIG_PATH",
+                "friday_ai.cli.doctor_cmd.DEFAULT_CONFIG_PATH",
                 Path("/tmp/nonexistent/config.toml"),
             ),
-            patch("openjarvis.cli.doctor_cmd._check_engines", return_value=[]),
-            patch("openjarvis.cli.doctor_cmd._check_models", return_value=[]),
+            patch("friday_ai.cli.doctor_cmd._check_engines", return_value=[]),
+            patch("friday_ai.cli.doctor_cmd._check_models", return_value=[]),
             patch(
-                "openjarvis.cli.doctor_cmd._check_speech_backend",
+                "friday_ai.cli.doctor_cmd._check_speech_backend",
                 return_value=CheckResult("Speech backend", "ok", "mock ready"),
             ),
         ):
@@ -60,15 +60,15 @@ class TestDoctorJsonOutput:
         mock_config.intelligence.default_model = ""
 
         with (
-            patch("openjarvis.cli.doctor_cmd.load_config", return_value=mock_config),
+            patch("friday_ai.cli.doctor_cmd.load_config", return_value=mock_config),
             patch(
-                "openjarvis.cli.doctor_cmd.DEFAULT_CONFIG_PATH",
+                "friday_ai.cli.doctor_cmd.DEFAULT_CONFIG_PATH",
                 Path("/tmp/nonexistent/config.toml"),
             ),
-            patch("openjarvis.cli.doctor_cmd._check_engines", return_value=[]),
-            patch("openjarvis.cli.doctor_cmd._check_models", return_value=[]),
+            patch("friday_ai.cli.doctor_cmd._check_engines", return_value=[]),
+            patch("friday_ai.cli.doctor_cmd._check_models", return_value=[]),
             patch(
-                "openjarvis.cli.doctor_cmd._check_speech_backend",
+                "friday_ai.cli.doctor_cmd._check_speech_backend",
                 return_value=CheckResult("Speech backend", "ok", "mock ready"),
             ),
         ):
@@ -96,7 +96,7 @@ class TestCheckConfigMissing:
     def test_check_config_missing(self) -> None:
         """Warning when config file does not exist."""
         with patch(
-            "openjarvis.cli.doctor_cmd.DEFAULT_CONFIG_PATH",
+            "friday_ai.cli.doctor_cmd.DEFAULT_CONFIG_PATH",
             Path("/tmp/nonexistent/config.toml"),
         ):
             result = _check_config_exists()
@@ -107,7 +107,7 @@ class TestCheckConfigMissing:
 class TestCheckEngineProbing:
     def test_check_engine_probing(self) -> None:
         """Engine health check reports reachable/unreachable engines."""
-        from openjarvis.cli.doctor_cmd import CheckResult
+        from friday_ai.cli.doctor_cmd import CheckResult
 
         mock_engine_healthy = MagicMock()
         mock_engine_healthy.health.return_value = True
@@ -160,24 +160,24 @@ class TestCheckEngineProbing:
 
         ok = CheckResult("other", "ok", "ok")
         with (
-            patch("openjarvis.cli.doctor_cmd._ensure_engines_imported"),
-            patch("openjarvis.cli.doctor_cmd._get_config", return_value=config),
-            patch("openjarvis.cli.doctor_cmd.load_config", return_value=config),
+            patch("friday_ai.cli.doctor_cmd._ensure_engines_imported"),
+            patch("friday_ai.cli.doctor_cmd._get_config", return_value=config),
+            patch("friday_ai.cli.doctor_cmd.load_config", return_value=config),
             patch(
-                "openjarvis.core.registry.EngineRegistry.keys",
+                "friday_ai.core.registry.EngineRegistry.keys",
                 return_value=["beta", "alpha"],
             ),
             patch(
-                "openjarvis.engine._discovery._make_engine",
+                "friday_ai.engine._discovery._make_engine",
                 side_effect=make_engine,
             ) as make,
-            patch("openjarvis.cli.doctor_cmd._check_python_version", return_value=ok),
-            patch("openjarvis.cli.doctor_cmd._check_config_exists", return_value=ok),
-            patch("openjarvis.cli.doctor_cmd._check_config_parses", return_value=ok),
-            patch("openjarvis.cli.doctor_cmd._check_optional_deps", return_value=[]),
-            patch("openjarvis.cli.doctor_cmd._check_speech_backend", return_value=ok),
-            patch("openjarvis.cli.doctor_cmd._check_nodejs", return_value=ok),
-            patch("openjarvis.cli.doctor_cmd._check_security_profile", return_value=ok),
+            patch("friday_ai.cli.doctor_cmd._check_python_version", return_value=ok),
+            patch("friday_ai.cli.doctor_cmd._check_config_exists", return_value=ok),
+            patch("friday_ai.cli.doctor_cmd._check_config_parses", return_value=ok),
+            patch("friday_ai.cli.doctor_cmd._check_optional_deps", return_value=[]),
+            patch("friday_ai.cli.doctor_cmd._check_speech_backend", return_value=ok),
+            patch("friday_ai.cli.doctor_cmd._check_nodejs", return_value=ok),
+            patch("friday_ai.cli.doctor_cmd._check_security_profile", return_value=ok),
         ):
             results = _run_all_checks()
 
@@ -195,7 +195,7 @@ class TestCheckDefaultModel:
         """Leaving default model empty should be treated as valid auto-routing."""
         mock_config = MagicMock()
         mock_config.intelligence.default_model = ""
-        with patch("openjarvis.cli.doctor_cmd.load_config", return_value=mock_config):
+        with patch("friday_ai.cli.doctor_cmd.load_config", return_value=mock_config):
             result = _check_default_model()
         assert result.status == "ok"
         assert "auto" in result.message.lower()
@@ -210,11 +210,11 @@ class TestCheckDefaultModel:
         mock_engine.list_models.return_value = ["mlx-community/Qwen3.5-4B-OptiQ-4bit"]
 
         with (
-            patch("openjarvis.cli.doctor_cmd.load_config", return_value=mock_config),
-            patch("openjarvis.cli.doctor_cmd._ensure_engines_imported"),
+            patch("friday_ai.cli.doctor_cmd.load_config", return_value=mock_config),
+            patch("friday_ai.cli.doctor_cmd._ensure_engines_imported"),
             patch.object(EngineRegistry, "keys", return_value=["mlx"]),
             patch(
-                "openjarvis.engine._discovery._make_engine",
+                "friday_ai.engine._discovery._make_engine",
                 return_value=mock_engine,
             ),
         ):
@@ -232,7 +232,7 @@ class TestCheckSpeechBackend:
         backend.health.return_value = True
 
         with patch(
-            "openjarvis.speech._discovery.get_speech_backend",
+            "friday_ai.speech._discovery.get_speech_backend",
             return_value=backend,
         ):
             result = _check_speech_backend()
@@ -247,7 +247,7 @@ class TestCheckSpeechBackend:
         backend.last_error.return_value = "missing cublas64_12.dll"
 
         with patch(
-            "openjarvis.speech._discovery.get_speech_backend",
+            "friday_ai.speech._discovery.get_speech_backend",
             return_value=backend,
         ):
             result = _check_speech_backend()
@@ -258,7 +258,7 @@ class TestCheckSpeechBackend:
 
     def test_check_speech_backend_missing_uses_desktop_hint(self) -> None:
         with patch(
-            "openjarvis.speech._discovery.get_speech_backend",
+            "friday_ai.speech._discovery.get_speech_backend",
             return_value=None,
         ):
             result = _check_speech_backend()

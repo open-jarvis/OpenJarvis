@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
-from openjarvis.bench._stubs import engine_info
+from friday_ai.bench._stubs import engine_info
 
 
 class _Described:

@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.core.config import (
+from friday_ai.core.config import (
     DeepResearchConfig,
     HardwareInfo,
-    JarvisConfig,
+    FridayConfig,
     generate_default_toml,
     load_config,
     validate_config_key,
@@ -17,7 +17,7 @@ from openjarvis.core.config import (
 
 
 def test_deep_research_config_defaults_to_chat_selection() -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
 
     assert isinstance(cfg.deep_research, DeepResearchConfig)
     assert cfg.deep_research.engine == ""
@@ -27,7 +27,7 @@ def test_deep_research_config_defaults_to_chat_selection() -> None:
 def test_loads_deep_research_overrides(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("FRIDAY_AI_HOME", str(tmp_path / "home"))
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         "\n".join(

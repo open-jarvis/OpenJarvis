@@ -10,14 +10,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.connectors.imap import (
+from friday_ai.connectors.imap import (
     IMAPConnector,
     _create_pinned_socket,
     resolve_imap_host,
     validate_imap_endpoint,
 )
-from openjarvis.connectors.oauth import load_tokens
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors.oauth import load_tokens
+from friday_ai.core.registry import ConnectorRegistry
 
 
 def _message(
@@ -259,7 +259,7 @@ def test_endpoint_policy_rejects_local_and_nonpublic_hosts(
     sockaddr = (address, 993, 0, 0) if family == socket.AF_INET6 else (address, 993)
     with (
         patch(
-            "openjarvis.connectors.imap.socket.getaddrinfo",
+            "friday_ai.connectors.imap.socket.getaddrinfo",
             return_value=[(family, socket.SOCK_STREAM, 6, "", sockaddr)],
         ),
         pytest.raises(ValueError, match="non-public"),
@@ -273,7 +273,7 @@ def test_endpoint_policy_rejects_mixed_public_private_dns() -> None:
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 993)),
     ]
     with (
-        patch("openjarvis.connectors.imap.socket.getaddrinfo", return_value=answers),
+        patch("friday_ai.connectors.imap.socket.getaddrinfo", return_value=answers),
         pytest.raises(ValueError, match="non-public"),
     ):
         validate_imap_endpoint("mail.example.com", 993)
@@ -291,7 +291,7 @@ def test_endpoint_policy_returns_only_checked_public_addresses() -> None:
             ("2606:2800:220:1:248:1893:25c8:1946", 993, 0, 0),
         ),
     ]
-    with patch("openjarvis.connectors.imap.socket.getaddrinfo", return_value=answers):
+    with patch("friday_ai.connectors.imap.socket.getaddrinfo", return_value=answers):
         assert validate_imap_endpoint("MAIL.Example.COM.", 993) == (
             "mail.example.com",
             ("93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"),
@@ -301,7 +301,7 @@ def test_endpoint_policy_returns_only_checked_public_addresses() -> None:
 def test_endpoint_policy_fails_closed_on_dns_error() -> None:
     with (
         patch(
-            "openjarvis.connectors.imap.socket.getaddrinfo",
+            "friday_ai.connectors.imap.socket.getaddrinfo",
             side_effect=socket.gaierror("no result"),
         ),
         pytest.raises(ValueError, match="Unable to resolve"),
@@ -312,7 +312,7 @@ def test_endpoint_policy_fails_closed_on_dns_error() -> None:
 def test_pinned_socket_connects_to_checked_ip_not_hostname() -> None:
     sentinel = object()
     with patch(
-        "openjarvis.connectors.imap.socket.create_connection",
+        "friday_ai.connectors.imap.socket.create_connection",
         return_value=sentinel,
     ) as create_connection:
         assert _create_pinned_socket("93.184.216.34", 993, 30) is sentinel
@@ -325,10 +325,10 @@ def test_starttls_is_required_before_login() -> None:
     client.starttls.return_value = ("OK", [])
     with (
         patch(
-            "openjarvis.connectors.imap.validate_imap_endpoint",
+            "friday_ai.connectors.imap.validate_imap_endpoint",
             return_value=("mail.example.com", ("93.184.216.34",)),
         ),
-        patch("openjarvis.connectors.imap._PinnedIMAP4", return_value=client),
+        patch("friday_ai.connectors.imap._PinnedIMAP4", return_value=client),
     ):
         assert conn._make_imap_client("mail.example.com", 143, "starttls") is client
     client.starttls.assert_called_once()
@@ -340,15 +340,15 @@ def test_implicit_tls_uses_checked_ip_and_original_hostname() -> None:
     context = MagicMock()
     with (
         patch(
-            "openjarvis.connectors.imap.validate_imap_endpoint",
+            "friday_ai.connectors.imap.validate_imap_endpoint",
             return_value=("mail.example.com", ("93.184.216.34",)),
         ),
         patch(
-            "openjarvis.connectors.imap.ssl.create_default_context",
+            "friday_ai.connectors.imap.ssl.create_default_context",
             return_value=context,
         ),
         patch(
-            "openjarvis.connectors.imap._PinnedIMAP4SSL",
+            "friday_ai.connectors.imap._PinnedIMAP4SSL",
             return_value=client,
         ) as pinned_tls,
     ):
@@ -506,7 +506,7 @@ def test_server_rejects_private_custom_host_without_saving_credentials(
 ) -> None:
     fastapi = pytest.importorskip("fastapi")
     testclient = pytest.importorskip("fastapi.testclient")
-    from openjarvis.server import connectors_router
+    from friday_ai.server import connectors_router
 
     class HermeticIMAPConnector(IMAPConnector):
         def __init__(self) -> None:
@@ -515,7 +515,7 @@ def test_server_rejects_private_custom_host_without_saving_credentials(
     ConnectorRegistry.register_value("imap", HermeticIMAPConnector)
     connectors_router._instances.clear()
     monkeypatch.setattr(
-        "openjarvis.connectors.imap.socket.getaddrinfo",
+        "friday_ai.connectors.imap.socket.getaddrinfo",
         lambda *args, **kwargs: [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 1993))
         ],

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.learning.spec_search.composite_reward import (
+from friday_ai.learning.spec_search.composite_reward import (
     RewardWeights,
     TrainingSample,
     score_batch,

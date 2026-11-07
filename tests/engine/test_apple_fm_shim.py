@@ -130,11 +130,11 @@ def shim(monkeypatch):
         stream_tokens=["Sure! ", "Sure! The ", "Sure! The answer."],
         token_counts=[6, 4, 17],
     )
-    sys.modules.pop("openjarvis.engine.apple_fm_shim", None)
-    mod = importlib.import_module("openjarvis.engine.apple_fm_shim")
+    sys.modules.pop("friday_ai.engine.apple_fm_shim", None)
+    mod = importlib.import_module("friday_ai.engine.apple_fm_shim")
     mod = importlib.reload(mod)
     yield mod, rec
-    sys.modules.pop("openjarvis.engine.apple_fm_shim", None)
+    sys.modules.pop("friday_ai.engine.apple_fm_shim", None)
     sys.modules.pop("apple_fm_sdk", None)
 
 
@@ -217,8 +217,8 @@ class TestAppleFmShimSdkMigration:
     def test_health_unpacks_is_available_tuple(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Darwin")
         rec = _install_stub_sdk(available=(False, "Apple Intelligence disabled"))
-        sys.modules.pop("openjarvis.engine.apple_fm_shim", None)
-        mod = importlib.import_module("openjarvis.engine.apple_fm_shim")
+        sys.modules.pop("friday_ai.engine.apple_fm_shim", None)
+        mod = importlib.import_module("friday_ai.engine.apple_fm_shim")
         mod = importlib.reload(mod)
         try:
             client = TestClient(mod.app)
@@ -228,7 +228,7 @@ class TestAppleFmShimSdkMigration:
             assert data["status"] == "unavailable"
             assert data["reason"] == "Apple Intelligence disabled"
         finally:
-            sys.modules.pop("openjarvis.engine.apple_fm_shim", None)
+            sys.modules.pop("friday_ai.engine.apple_fm_shim", None)
             sys.modules.pop("apple_fm_sdk", None)
         _ = rec
 

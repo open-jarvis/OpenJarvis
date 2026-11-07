@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openjarvis.learning.spec_search.execute.base import ApplyContext
-from openjarvis.learning.spec_search.models import (
+from friday_ai.learning.spec_search.execute.base import ApplyContext
+from friday_ai.learning.spec_search.models import (
     Edit,
     EditOp,
     EditPillar,
@@ -20,14 +20,14 @@ def _make_ctx(tmp_path: Path) -> ApplyContext:
         '[web_search]\ndescription = "Search the web"\n'
     )
     (tmp_path / "config.toml").write_text('[agent.simple]\ntools = ["web_search"]\n')
-    return ApplyContext(openjarvis_home=tmp_path, session_id="s1")
+    return ApplyContext(friday_ai_home=tmp_path, session_id="s1")
 
 
 class TestAddToolToAgentApplier:
     """Tests for AddToolToAgentApplier."""
 
     def test_apply_adds_tool(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.tools import (
+        from friday_ai.learning.spec_search.execute.appliers.tools import (
             AddToolToAgentApplier,
         )
 
@@ -48,7 +48,7 @@ class TestAddToolToAgentApplier:
         assert "calculator" in content
 
     def test_validate_ok(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.tools import (
+        from friday_ai.learning.spec_search.execute.appliers.tools import (
             AddToolToAgentApplier,
         )
 
@@ -71,7 +71,7 @@ class TestRemoveToolFromAgentApplier:
     """Tests for RemoveToolFromAgentApplier."""
 
     def test_apply_removes_tool(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.tools import (
+        from friday_ai.learning.spec_search.execute.appliers.tools import (
             RemoveToolFromAgentApplier,
         )
 
@@ -96,7 +96,7 @@ class TestEditToolDescriptionApplier:
     """Tests for EditToolDescriptionApplier."""
 
     def test_apply_updates_description(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.tools import (
+        from friday_ai.learning.spec_search.execute.appliers.tools import (
             EditToolDescriptionApplier,
         )
 
@@ -120,7 +120,7 @@ class TestEditToolDescriptionApplier:
         assert "Search the internet" in content
 
     def test_apply_adds_new_tool_section(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.tools import (
+        from friday_ai.learning.spec_search.execute.appliers.tools import (
             EditToolDescriptionApplier,
         )
 

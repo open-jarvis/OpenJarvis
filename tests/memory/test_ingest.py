@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.tools.storage.ingest import (
+from friday_ai.tools.storage.ingest import (
     detect_file_type,
     ingest_path,
     read_document,

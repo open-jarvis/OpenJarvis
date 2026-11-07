@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from openjarvis.core.types import (
+from friday_ai.core.types import (
     Conversation,
     Message,
     ModelSpec,

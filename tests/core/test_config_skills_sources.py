@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openjarvis.core.config import SkillsConfig, SkillSourceConfig, load_config
+from friday_ai.core.config import SkillsConfig, SkillSourceConfig, load_config
 
 
 class TestSkillSourceConfig:
@@ -47,7 +47,7 @@ class TestSkillsConfigWithSources:
     def test_loads_source_tables_as_config_objects(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "home"))
+        monkeypatch.setenv("FRIDAY_AI_HOME", str(tmp_path / "home"))
         toml_file = tmp_path / "config.toml"
         toml_file.write_text(
             "[[skills.sources]]\n"

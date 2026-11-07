@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 # ---------------------------------------------------------------------------
 # Sample AppleScript output
@@ -34,7 +34,7 @@ _SAMPLE_OUTPUT = (
 @pytest.fixture()
 def connector():
     """Return a fresh AppleMusicConnector."""
-    from openjarvis.connectors.apple_music import AppleMusicConnector
+    from friday_ai.connectors.apple_music import AppleMusicConnector
 
     return AppleMusicConnector()
 
@@ -46,7 +46,7 @@ def connector():
 
 def test_apple_music_registered():
     """AppleMusicConnector is discoverable via ConnectorRegistry."""
-    from openjarvis.connectors.apple_music import AppleMusicConnector
+    from friday_ai.connectors.apple_music import AppleMusicConnector
 
     ConnectorRegistry.register_value("apple_music", AppleMusicConnector)
     assert ConnectorRegistry.contains("apple_music")
@@ -68,8 +68,8 @@ def test_is_connected_on_macos(connector):
     mock_result.stdout = "Library"
 
     with (
-        patch("openjarvis.connectors.apple_music.sys") as mock_sys,
-        patch("openjarvis.connectors.apple_music.subprocess") as mock_subprocess,
+        patch("friday_ai.connectors.apple_music.sys") as mock_sys,
+        patch("friday_ai.connectors.apple_music.subprocess") as mock_subprocess,
     ):
         mock_sys.platform = "darwin"
         mock_subprocess.run.return_value = mock_result
@@ -84,7 +84,7 @@ def test_is_connected_on_macos(connector):
 
 def test_is_connected_on_linux(connector):
     """is_connected() returns False on non-macOS platforms."""
-    with patch("openjarvis.connectors.apple_music.sys") as mock_sys:
+    with patch("friday_ai.connectors.apple_music.sys") as mock_sys:
         mock_sys.platform = "linux"
         assert connector.is_connected() is False
 
@@ -101,7 +101,7 @@ def test_sync_yields_tracks(connector):
     mock_result.stdout = _SAMPLE_OUTPUT
 
     with patch(
-        "openjarvis.connectors.apple_music._run_osascript",
+        "friday_ai.connectors.apple_music._run_osascript",
         return_value=_SAMPLE_OUTPUT,
     ):
         docs: List[Document] = list(connector.sync())
@@ -136,7 +136,7 @@ def test_sync_yields_tracks(connector):
 def test_sync_filters_by_since(connector):
     """sync(since=...) skips tracks with played_date before the threshold."""
     with patch(
-        "openjarvis.connectors.apple_music._run_osascript",
+        "friday_ai.connectors.apple_music._run_osascript",
         return_value=_SAMPLE_OUTPUT,
     ):
         # The first track was played 2026-03-15; filter after that
@@ -158,7 +158,7 @@ def test_sync_filters_by_since(connector):
 def test_sync_handles_failure(connector):
     """sync() returns empty when AppleScript fails."""
     with patch(
-        "openjarvis.connectors.apple_music._run_osascript",
+        "friday_ai.connectors.apple_music._run_osascript",
         return_value=None,
     ):
         docs = list(connector.sync())

@@ -12,7 +12,7 @@ class TestTwilioValidationFailClosed:
 
     def test_missing_sdk_returns_false(self) -> None:
         pytest.importorskip("fastapi")
-        from openjarvis.server.webhook_routes import _validate_twilio_signature
+        from friday_ai.server.webhook_routes import _validate_twilio_signature
 
         with patch.dict(
             "sys.modules", {"twilio": None, "twilio.request_validator": None}
@@ -27,7 +27,7 @@ class TestTwilioValidationFailClosed:
 
     def test_empty_auth_token_returns_false(self) -> None:
         pytest.importorskip("fastapi")
-        from openjarvis.server.webhook_routes import _validate_twilio_signature
+        from friday_ai.server.webhook_routes import _validate_twilio_signature
 
         result = _validate_twilio_signature(
             auth_token="",

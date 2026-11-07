@@ -23,105 +23,105 @@ class TestDatasetInstantiation:
     """Verify each dataset class can be instantiated with correct attributes."""
 
     def test_supergpqa(self) -> None:
-        from openjarvis.evals.datasets.supergpqa import SuperGPQADataset
+        from friday_ai.evals.datasets.supergpqa import SuperGPQADataset
 
         ds = SuperGPQADataset()
         assert ds.dataset_id == "supergpqa"
         assert ds.dataset_name == "SuperGPQA"
 
     def test_gpqa(self) -> None:
-        from openjarvis.evals.datasets.gpqa import GPQADataset
+        from friday_ai.evals.datasets.gpqa import GPQADataset
 
         ds = GPQADataset()
         assert ds.dataset_id == "gpqa"
         assert ds.dataset_name == "GPQA"
 
     def test_mmlu_pro(self) -> None:
-        from openjarvis.evals.datasets.mmlu_pro import MMLUProDataset
+        from friday_ai.evals.datasets.mmlu_pro import MMLUProDataset
 
         ds = MMLUProDataset()
         assert ds.dataset_id == "mmlu-pro"
         assert ds.dataset_name == "MMLU-Pro"
 
     def test_math500(self) -> None:
-        from openjarvis.evals.datasets.math500 import MATH500Dataset
+        from friday_ai.evals.datasets.math500 import MATH500Dataset
 
         ds = MATH500Dataset()
         assert ds.dataset_id == "math500"
         assert ds.dataset_name == "MATH-500"
 
     def test_natural_reasoning(self) -> None:
-        from openjarvis.evals.datasets.natural_reasoning import NaturalReasoningDataset
+        from friday_ai.evals.datasets.natural_reasoning import NaturalReasoningDataset
 
         ds = NaturalReasoningDataset()
         assert ds.dataset_id == "natural-reasoning"
         assert ds.dataset_name == "Natural Reasoning"
 
     def test_hle(self) -> None:
-        from openjarvis.evals.datasets.hle import HLEDataset
+        from friday_ai.evals.datasets.hle import HLEDataset
 
         ds = HLEDataset()
         assert ds.dataset_id == "hle"
         assert ds.dataset_name == "HLE"
 
     def test_simpleqa(self) -> None:
-        from openjarvis.evals.datasets.simpleqa import SimpleQADataset
+        from friday_ai.evals.datasets.simpleqa import SimpleQADataset
 
         ds = SimpleQADataset()
         assert ds.dataset_id == "simpleqa"
         assert ds.dataset_name == "SimpleQA"
 
     def test_wildchat(self) -> None:
-        from openjarvis.evals.datasets.wildchat import WildChatDataset
+        from friday_ai.evals.datasets.wildchat import WildChatDataset
 
         ds = WildChatDataset()
         assert ds.dataset_id == "wildchat"
         assert ds.dataset_name == "WildChat"
 
     def test_ipw(self) -> None:
-        from openjarvis.evals.datasets.ipw_mixed import IPWDataset
+        from friday_ai.evals.datasets.ipw_mixed import IPWDataset
 
         ds = IPWDataset()
         assert ds.dataset_id == "ipw"
         assert ds.dataset_name == "IPW"
 
     def test_gaia(self) -> None:
-        from openjarvis.evals.datasets.gaia import GAIADataset
+        from friday_ai.evals.datasets.gaia import GAIADataset
 
         ds = GAIADataset()
         assert ds.dataset_id == "gaia"
         assert ds.dataset_name == "GAIA"
 
     def test_frames(self) -> None:
-        from openjarvis.evals.datasets.frames import FRAMESDataset
+        from friday_ai.evals.datasets.frames import FRAMESDataset
 
         ds = FRAMESDataset()
         assert ds.dataset_id == "frames"
         assert ds.dataset_name == "FRAMES"
 
     def test_swebench(self) -> None:
-        from openjarvis.evals.datasets.swebench import SWEBenchDataset
+        from friday_ai.evals.datasets.swebench import SWEBenchDataset
 
         ds = SWEBenchDataset()
         assert ds.dataset_id == "swebench"
         assert ds.dataset_name == "SWE-bench"
 
     def test_swefficiency(self) -> None:
-        from openjarvis.evals.datasets.swefficiency import SWEfficiencyDataset
+        from friday_ai.evals.datasets.swefficiency import SWEfficiencyDataset
 
         ds = SWEfficiencyDataset()
         assert ds.dataset_id == "swefficiency"
         assert ds.dataset_name == "SWEfficiency"
 
     def test_terminalbench(self) -> None:
-        from openjarvis.evals.datasets.terminalbench import TerminalBenchDataset
+        from friday_ai.evals.datasets.terminalbench import TerminalBenchDataset
 
         ds = TerminalBenchDataset()
         assert ds.dataset_id == "terminalbench"
         assert ds.dataset_name == "TerminalBench"
 
     def test_terminalbench_native(self) -> None:
-        from openjarvis.evals.datasets.terminalbench_native import (
+        from friday_ai.evals.datasets.terminalbench_native import (
             TerminalBenchNativeDataset,
         )
 
@@ -130,7 +130,7 @@ class TestDatasetInstantiation:
         assert ds.dataset_name == "TerminalBench Native"
 
     def test_terminalbench_v2_1(self) -> None:
-        from openjarvis.evals.datasets.terminalbench_v2_1 import (
+        from friday_ai.evals.datasets.terminalbench_v2_1 import (
             TerminalBenchV21Dataset,
         )
 
@@ -139,21 +139,21 @@ class TestDatasetInstantiation:
         assert ds.dataset_name == "TerminalBench V2.1"
 
     def test_livecodebench(self) -> None:
-        from openjarvis.evals.datasets.livecodebench import LiveCodeBenchDataset
+        from friday_ai.evals.datasets.livecodebench import LiveCodeBenchDataset
 
         ds = LiveCodeBenchDataset()
         assert ds.dataset_id == "livecodebench"
         assert ds.dataset_name == "LiveCodeBench"
 
     def test_deepresearch(self) -> None:
-        from openjarvis.evals.datasets.liveresearch import LiveResearchBenchDataset
+        from friday_ai.evals.datasets.liveresearch import LiveResearchBenchDataset
 
         ds = LiveResearchBenchDataset()
         assert ds.dataset_id == "liveresearch"
         assert ds.dataset_name == "DeepResearchBench"
 
     def test_toolcall15(self) -> None:
-        from openjarvis.evals.datasets.toolcall15 import ToolCall15Dataset
+        from friday_ai.evals.datasets.toolcall15 import ToolCall15Dataset
 
         ds = ToolCall15Dataset()
         assert ds.dataset_id == "toolcall15"
@@ -176,73 +176,73 @@ class TestScorerInstantiation:
     """Verify each scorer class can be constructed."""
 
     def test_supergpqa_scorer(self) -> None:
-        from openjarvis.evals.scorers.supergpqa_mcq import SuperGPQAScorer
+        from friday_ai.evals.scorers.supergpqa_mcq import SuperGPQAScorer
 
         s = SuperGPQAScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "supergpqa"
 
     def test_gpqa_scorer(self) -> None:
-        from openjarvis.evals.scorers.gpqa_mcq import GPQAScorer
+        from friday_ai.evals.scorers.gpqa_mcq import GPQAScorer
 
         s = GPQAScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "gpqa"
 
     def test_mmlu_pro_scorer(self) -> None:
-        from openjarvis.evals.scorers.mmlu_pro_mcq import MMLUProScorer
+        from friday_ai.evals.scorers.mmlu_pro_mcq import MMLUProScorer
 
         s = MMLUProScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "mmlu-pro"
 
     def test_reasoning_judge_scorer(self) -> None:
-        from openjarvis.evals.scorers.reasoning_judge import ReasoningJudgeScorer
+        from friday_ai.evals.scorers.reasoning_judge import ReasoningJudgeScorer
 
         s = ReasoningJudgeScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "reasoning_judge"
 
     def test_hle_scorer(self) -> None:
-        from openjarvis.evals.scorers.hle_judge import HLEScorer
+        from friday_ai.evals.scorers.hle_judge import HLEScorer
 
         s = HLEScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "hle"
 
     def test_simpleqa_scorer(self) -> None:
-        from openjarvis.evals.scorers.simpleqa_judge import SimpleQAScorer
+        from friday_ai.evals.scorers.simpleqa_judge import SimpleQAScorer
 
         s = SimpleQAScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "simpleqa"
 
     def test_wildchat_scorer(self) -> None:
-        from openjarvis.evals.scorers.wildchat_judge import WildChatScorer
+        from friday_ai.evals.scorers.wildchat_judge import WildChatScorer
 
         s = WildChatScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "wildchat"
 
     def test_ipw_mixed_scorer(self) -> None:
-        from openjarvis.evals.scorers.ipw_mixed import IPWMixedScorer
+        from friday_ai.evals.scorers.ipw_mixed import IPWMixedScorer
 
         s = IPWMixedScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "ipw"
 
     def test_gaia_scorer(self) -> None:
-        from openjarvis.evals.scorers.gaia_exact import GAIAScorer
+        from friday_ai.evals.scorers.gaia_exact import GAIAScorer
 
         s = GAIAScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "gaia"
 
     def test_frames_scorer(self) -> None:
-        from openjarvis.evals.scorers.frames_judge import FRAMESScorer
+        from friday_ai.evals.scorers.frames_judge import FRAMESScorer
 
         s = FRAMESScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "frames"
 
     def test_swebench_scorer(self) -> None:
-        from openjarvis.evals.scorers.swebench_structural import SWEBenchScorer
+        from friday_ai.evals.scorers.swebench_structural import SWEBenchScorer
 
         s = SWEBenchScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "swebench"
 
     def test_swefficiency_scorer(self) -> None:
-        from openjarvis.evals.scorers.swefficiency_structural import (
+        from friday_ai.evals.scorers.swefficiency_structural import (
             SWEfficiencyScorer,
         )
 
@@ -250,13 +250,13 @@ class TestScorerInstantiation:
         assert s.scorer_id == "swefficiency"
 
     def test_terminalbench_scorer(self) -> None:
-        from openjarvis.evals.scorers.terminalbench_judge import TerminalBenchScorer
+        from friday_ai.evals.scorers.terminalbench_judge import TerminalBenchScorer
 
         s = TerminalBenchScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "terminalbench"
 
     def test_terminalbench_native_scorer(self) -> None:
-        from openjarvis.evals.scorers.terminalbench_native_structural import (
+        from friday_ai.evals.scorers.terminalbench_native_structural import (
             TerminalBenchNativeScorer,
         )
 
@@ -264,7 +264,7 @@ class TestScorerInstantiation:
         assert s.scorer_id == "terminalbench-native"
 
     def test_terminalbench_v2_1_scorer(self) -> None:
-        from openjarvis.evals.scorers.terminalbench_v2_1 import (
+        from friday_ai.evals.scorers.terminalbench_v2_1 import (
             TerminalBenchV21Scorer,
         )
 
@@ -272,19 +272,19 @@ class TestScorerInstantiation:
         assert s.scorer_id == "terminalbench-v2.1"
 
     def test_livecodebench_scorer(self) -> None:
-        from openjarvis.evals.scorers.livecodebench import LiveCodeBenchScorer
+        from friday_ai.evals.scorers.livecodebench import LiveCodeBenchScorer
 
         s = LiveCodeBenchScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "livecodebench"
 
     def test_deepresearch_scorer(self) -> None:
-        from openjarvis.evals.scorers.liveresearch import LiveResearchBenchScorer
+        from friday_ai.evals.scorers.liveresearch import LiveResearchBenchScorer
 
         s = LiveResearchBenchScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "liveresearch"
 
     def test_toolcall15_scorer(self) -> None:
-        from openjarvis.evals.scorers.toolcall15 import ToolCall15Scorer
+        from friday_ai.evals.scorers.toolcall15 import ToolCall15Scorer
 
         s = ToolCall15Scorer(_mock_backend(), "test-model")
         assert s.scorer_id == "toolcall15"
@@ -323,7 +323,7 @@ class TestCLIFactories:
 
     @pytest.mark.parametrize("benchmark", ALL_BENCHMARKS)
     def test_build_dataset(self, benchmark: str) -> None:
-        from openjarvis.evals.cli import _build_dataset
+        from friday_ai.evals.cli import _build_dataset
 
         ds = _build_dataset(benchmark)
         assert ds is not None
@@ -333,7 +333,7 @@ class TestCLIFactories:
 
     @pytest.mark.parametrize("benchmark", ALL_BENCHMARKS)
     def test_build_scorer(self, benchmark: str) -> None:
-        from openjarvis.evals.cli import _build_scorer
+        from friday_ai.evals.cli import _build_scorer
 
         scorer = _build_scorer(benchmark, _mock_backend(), "test-model")
         assert scorer is not None
@@ -342,7 +342,7 @@ class TestCLIFactories:
     def test_build_dataset_unknown(self) -> None:
         import click
 
-        from openjarvis.evals.cli import _build_dataset
+        from friday_ai.evals.cli import _build_dataset
 
         with pytest.raises(click.ClickException, match="Unknown benchmark"):
             _build_dataset("nonexistent")
@@ -350,7 +350,7 @@ class TestCLIFactories:
     def test_build_scorer_unknown(self) -> None:
         import click
 
-        from openjarvis.evals.cli import _build_scorer
+        from friday_ai.evals.cli import _build_scorer
 
         with pytest.raises(click.ClickException, match="Unknown benchmark"):
             _build_scorer("nonexistent", _mock_backend(), "test-model")
@@ -365,13 +365,13 @@ class TestConfigBenchmarks:
     """Verify KNOWN_BENCHMARKS includes all 15 benchmarks."""
 
     def test_all_benchmarks_known(self) -> None:
-        from openjarvis.evals.core.config import KNOWN_BENCHMARKS
+        from friday_ai.evals.core.config import KNOWN_BENCHMARKS
 
         for b in ALL_BENCHMARKS:
             assert b in KNOWN_BENCHMARKS, f"{b} missing from KNOWN_BENCHMARKS"
 
     def test_benchmarks_count(self) -> None:
-        from openjarvis.evals.core.config import KNOWN_BENCHMARKS
+        from friday_ai.evals.core.config import KNOWN_BENCHMARKS
 
         assert len(KNOWN_BENCHMARKS) == 32
 
@@ -385,8 +385,8 @@ class TestStructuralScorers:
     """Test structural scorers that don't need LLM calls."""
 
     def test_swebench_empty_response(self) -> None:
-        from openjarvis.evals.core.types import EvalRecord
-        from openjarvis.evals.scorers.swebench_structural import SWEBenchScorer
+        from friday_ai.evals.core.types import EvalRecord
+        from friday_ai.evals.scorers.swebench_structural import SWEBenchScorer
 
         scorer = SWEBenchScorer(_mock_backend(), "test-model")
         record = EvalRecord(
@@ -400,8 +400,8 @@ class TestStructuralScorers:
         assert meta["reason"] == "empty_response"
 
     def test_swebench_with_diff(self) -> None:
-        from openjarvis.evals.core.types import EvalRecord
-        from openjarvis.evals.scorers.swebench_structural import SWEBenchScorer
+        from friday_ai.evals.core.types import EvalRecord
+        from friday_ai.evals.scorers.swebench_structural import SWEBenchScorer
 
         scorer = SWEBenchScorer(_mock_backend(), "test-model")
         record = EvalRecord(
@@ -417,8 +417,8 @@ class TestStructuralScorers:
         assert meta["has_diff_markers"] is True
 
     def test_terminalbench_native_no_results(self) -> None:
-        from openjarvis.evals.core.types import EvalRecord
-        from openjarvis.evals.scorers.terminalbench_native_structural import (
+        from friday_ai.evals.core.types import EvalRecord
+        from friday_ai.evals.scorers.terminalbench_native_structural import (
             TerminalBenchNativeScorer,
         )
 
@@ -434,8 +434,8 @@ class TestStructuralScorers:
         assert meta["reason"] == "no_test_results"
 
     def test_terminalbench_native_resolved(self) -> None:
-        from openjarvis.evals.core.types import EvalRecord
-        from openjarvis.evals.scorers.terminalbench_native_structural import (
+        from friday_ai.evals.core.types import EvalRecord
+        from friday_ai.evals.scorers.terminalbench_native_structural import (
             TerminalBenchNativeScorer,
         )
 

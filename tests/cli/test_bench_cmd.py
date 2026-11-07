@@ -1,4 +1,4 @@
-"""Tests for the ``jarvis bench`` CLI commands."""
+"""Tests for the ``friday bench`` CLI commands."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
+from friday_ai.cli import cli
 
 
 class TestBenchCLI:
@@ -22,7 +22,7 @@ class TestBenchCLI:
         assert "--samples" in result.output
 
     def test_run_no_engine_error(self):
-        with patch("openjarvis.cli.bench_cmd.get_engine", return_value=None):
+        with patch("friday_ai.cli.bench_cmd.get_engine", return_value=None):
             result = CliRunner().invoke(cli, ["bench", "run"])
         assert result.exit_code != 0
 
@@ -36,7 +36,7 @@ class TestBenchCLI:
         }
 
         with patch(
-            "openjarvis.cli.bench_cmd.get_engine",
+            "friday_ai.cli.bench_cmd.get_engine",
             return_value=("mock", engine),
         ):
             result = CliRunner().invoke(cli, ["bench", "run", "-n", "2"])
@@ -52,7 +52,7 @@ class TestBenchCLI:
         }
 
         with patch(
-            "openjarvis.cli.bench_cmd.get_engine",
+            "friday_ai.cli.bench_cmd.get_engine",
             return_value=("mock", engine),
         ):
             result = CliRunner().invoke(
@@ -73,7 +73,7 @@ class TestBenchCLI:
 
         out_file = tmp_path / "results.jsonl"
         with patch(
-            "openjarvis.cli.bench_cmd.get_engine",
+            "friday_ai.cli.bench_cmd.get_engine",
             return_value=("mock", engine),
         ):
             result = CliRunner().invoke(

@@ -1,0 +1,32 @@
+[package]
+name = "friday_ai-python"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "friday_ai_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+friday_ai-core = { path = "../friday_ai-core" }
+friday_ai-engine = { path = "../friday_ai-engine" }
+friday_ai-security = { path = "../friday_ai-security" }
+friday_ai-tools = { path = "../friday_ai-tools" }
+friday_ai-agents = { path = "../friday_ai-agents" }
+friday_ai-traces = { path = "../friday_ai-traces" }
+friday_ai-telemetry = { path = "../friday_ai-telemetry" }
+friday_ai-learning = { path = "../friday_ai-learning" }
+friday_ai-mcp = { path = "../friday_ai-mcp" }
+friday_ai-sessions = { path = "../friday_ai-sessions" }
+friday_ai-workflow = { path = "../friday_ai-workflow" }
+friday_ai-skills = { path = "../friday_ai-skills" }
+friday_ai-recipes = { path = "../friday_ai-recipes" }
+friday_ai-templates = { path = "../friday_ai-templates" }
+friday_ai-a2a = { path = "../friday_ai-a2a" }
+friday_ai-scheduler = { path = "../friday_ai-scheduler" }
+pyo3 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }

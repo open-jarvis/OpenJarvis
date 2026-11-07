@@ -203,7 +203,7 @@ def test_native_build_runs_under_the_pinned_workspace_toolchain(tmp_path):
     assert result.returncode == 0, result.stderr
     assert calls.read_text().splitlines() == [
         str(tmp_path / "rust"),
-        "run maturin develop -m crates/openjarvis-python/Cargo.toml --quiet",
+        "run maturin develop -m crates/friday_ai-python/Cargo.toml --quiet",
     ]
 
 

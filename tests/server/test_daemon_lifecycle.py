@@ -9,8 +9,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from openjarvis.cli import daemon_cmd
-from openjarvis.server.daemon import DaemonServer, run_server
+from friday_ai.cli import daemon_cmd
+from friday_ai.server.daemon import DaemonServer, run_server
 
 
 @pytest.fixture

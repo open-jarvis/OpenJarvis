@@ -1,4 +1,4 @@
-"""Tests for cross-platform process helpers in ``openjarvis.core.utils``."""
+"""Tests for cross-platform process helpers in ``friday_ai.core.utils``."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from openjarvis.core.utils import (
+from friday_ai.core.utils import (
     _windows_process_alive,
     process_alive,
     terminate_process,
@@ -47,19 +47,19 @@ class TestProcessAlive:
 
     def test_permission_error_is_conservatively_alive(self) -> None:
         with (
-            patch("openjarvis.core.utils.platform.system", return_value="Linux"),
-            patch("openjarvis.core.utils.os.kill", side_effect=PermissionError),
-            patch("openjarvis.core.utils._posix_process_state", return_value=None),
+            patch("friday_ai.core.utils.platform.system", return_value="Linux"),
+            patch("friday_ai.core.utils.os.kill", side_effect=PermissionError),
+            patch("friday_ai.core.utils._posix_process_state", return_value=None),
         ):
             assert process_alive(1234) is True
 
     def test_windows_path_never_calls_os_kill(self) -> None:
         with (
-            patch("openjarvis.core.utils.platform.system", return_value="Windows"),
+            patch("friday_ai.core.utils.platform.system", return_value="Windows"),
             patch(
-                "openjarvis.core.utils._windows_process_alive", return_value=True
+                "friday_ai.core.utils._windows_process_alive", return_value=True
             ) as win_alive,
-            patch("openjarvis.core.utils.os.kill") as os_kill,
+            patch("friday_ai.core.utils.os.kill") as os_kill,
         ):
             assert process_alive(4321) is True
         win_alive.assert_called_once_with(4321)
@@ -145,9 +145,9 @@ class TestTerminateProcess:
     @pytest.mark.skipif(platform.system() == "Windows", reason="POSIX-only")
     def test_posix_escalates_to_sigkill(self) -> None:
         with (
-            patch("openjarvis.core.utils.platform.system", return_value="Linux"),
-            patch("openjarvis.core.utils.process_alive", return_value=True),
-            patch("openjarvis.core.utils.os.kill") as os_kill,
+            patch("friday_ai.core.utils.platform.system", return_value="Linux"),
+            patch("friday_ai.core.utils.process_alive", return_value=True),
+            patch("friday_ai.core.utils.os.kill") as os_kill,
         ):
             terminate_process(1234, grace_seconds=0)
         assert os_kill.call_args_list == [
@@ -157,9 +157,9 @@ class TestTerminateProcess:
 
     def test_windows_graceful_taskkill(self) -> None:
         with (
-            patch("openjarvis.core.utils.platform.system", return_value="Windows"),
-            patch("openjarvis.core.utils.process_alive", side_effect=[True, False]),
-            patch("openjarvis.core.utils.subprocess.run") as run,
+            patch("friday_ai.core.utils.platform.system", return_value="Windows"),
+            patch("friday_ai.core.utils.process_alive", side_effect=[True, False]),
+            patch("friday_ai.core.utils.subprocess.run") as run,
         ):
             terminate_process(1234, grace_seconds=1)
         run.assert_called_once_with(
@@ -168,9 +168,9 @@ class TestTerminateProcess:
 
     def test_windows_escalates_to_forced_tree_kill(self) -> None:
         with (
-            patch("openjarvis.core.utils.platform.system", return_value="Windows"),
-            patch("openjarvis.core.utils.process_alive", return_value=True),
-            patch("openjarvis.core.utils.subprocess.run") as run,
+            patch("friday_ai.core.utils.platform.system", return_value="Windows"),
+            patch("friday_ai.core.utils.process_alive", return_value=True),
+            patch("friday_ai.core.utils.subprocess.run") as run,
         ):
             terminate_process(1234, grace_seconds=0)
         assert run.call_args_list == [

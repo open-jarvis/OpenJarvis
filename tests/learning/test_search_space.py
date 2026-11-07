@@ -1,12 +1,12 @@
-"""Tests for openjarvis.optimize.search_space module."""
+"""Tests for friday_ai.optimize.search_space module."""
 
 from __future__ import annotations
 
-from openjarvis.learning.optimize.search_space import (
+from friday_ai.learning.optimize.search_space import (
     DEFAULT_SEARCH_SPACE,
     build_search_space,
 )
-from openjarvis.learning.optimize.types import SearchSpace
+from friday_ai.learning.optimize.types import SearchSpace
 
 # ---------------------------------------------------------------------------
 # build_search_space

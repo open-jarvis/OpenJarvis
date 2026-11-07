@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.connectors.attachment_store import AttachmentStore
+from friday_ai.connectors.attachment_store import AttachmentStore
 
 # ---------------------------------------------------------------------------
 # Fixtures

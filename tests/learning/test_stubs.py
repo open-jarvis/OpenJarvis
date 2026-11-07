@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openjarvis.learning._stubs import RoutingContext
+from friday_ai.learning._stubs import RoutingContext
 
 
 class TestRoutingContext:

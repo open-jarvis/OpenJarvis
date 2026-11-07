@@ -7,13 +7,13 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 
 def test_oura_registered():
     """OuraConnector is discoverable via ConnectorRegistry."""
-    from openjarvis.connectors.oura import OuraConnector
+    from friday_ai.connectors.oura import OuraConnector
 
     ConnectorRegistry.register_value("oura", OuraConnector)
     assert ConnectorRegistry.contains("oura")
@@ -60,7 +60,7 @@ _ACTIVITY_RESPONSE = {
 @pytest.fixture()
 def connector(tmp_path):
     """OuraConnector with fake token file."""
-    from openjarvis.connectors.oura import OuraConnector
+    from friday_ai.connectors.oura import OuraConnector
 
     token_path = tmp_path / "oura.json"
     token_path.write_text('{"token": "fake-pat"}', encoding="utf-8")
@@ -75,7 +75,7 @@ def test_sync_yields_documents(connector):
     """Sync returns Documents for sleep, readiness, and activity."""
     with (
         patch(
-            "openjarvis.connectors.oura._oura_api_get",
+            "friday_ai.connectors.oura._oura_api_get",
             side_effect=[_SLEEP_RESPONSE, _READINESS_RESPONSE, _ACTIVITY_RESPONSE],
         ),
     ):

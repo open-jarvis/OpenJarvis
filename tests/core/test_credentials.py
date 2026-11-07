@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from openjarvis.core.credentials import (
+from friday_ai.core.credentials import (
     TOOL_CREDENTIALS,
     delete_credential,
     get_credential_status,
@@ -96,7 +96,7 @@ def test_atomic_write_failure_preserves_existing_credentials(cred_path, monkeypa
     def fail_replace(source, destination):
         raise OSError("replace blocked")
 
-    monkeypatch.setattr("openjarvis.security.file_utils.os.replace", fail_replace)
+    monkeypatch.setattr("friday_ai.security.file_utils.os.replace", fail_replace)
     with pytest.raises(OSError, match="replace blocked"):
         save_credential("web_search", "TAVILY_API_KEY", "new", path=cred_path)
 
@@ -176,13 +176,13 @@ class TestOptionalCredentials:
     """web_search runs keyless, so its keys are upgrades, not prerequisites."""
 
     def test_web_search_declares_both_search_keys(self):
-        from openjarvis.core.credentials import TOOL_CREDENTIALS
+        from friday_ai.core.credentials import TOOL_CREDENTIALS
 
         assert "TAVILY_API_KEY" in TOOL_CREDENTIALS["web_search"]
         assert "YOUDOTCOM_API_KEY" in TOOL_CREDENTIALS["web_search"]
 
     def test_search_keys_are_optional(self):
-        from openjarvis.core.credentials import is_credential_optional
+        from friday_ai.core.credentials import is_credential_optional
 
         assert is_credential_optional("web_search", "TAVILY_API_KEY") is True
         assert is_credential_optional("web_search", "YOUDOTCOM_API_KEY") is True
@@ -190,24 +190,24 @@ class TestOptionalCredentials:
         assert is_credential_optional("web_search", "FIRECRAWL_API_KEY") is True
 
     def test_other_tool_keys_stay_required(self):
-        from openjarvis.core.credentials import is_credential_optional
+        from friday_ai.core.credentials import is_credential_optional
 
         assert is_credential_optional("telegram", "TELEGRAM_BOT_TOKEN") is False
 
     def test_web_search_has_no_required_keys(self):
-        from openjarvis.core.credentials import get_required_credentials
+        from friday_ai.core.credentials import get_required_credentials
 
         assert get_required_credentials("web_search") == []
 
     def test_required_keys_unchanged_for_other_tools(self):
-        from openjarvis.core.credentials import get_required_credentials
+        from friday_ai.core.credentials import get_required_credentials
 
         assert get_required_credentials("image_generate") == ["OPENAI_API_KEY"]
 
     def test_youdotcom_key_can_be_persisted(self, tmp_path, monkeypatch):
         """Unknown keys are rejected by save_credential, so the Settings UI
         cannot store a key that is not declared."""
-        from openjarvis.core.credentials import load_credentials, save_credential
+        from friday_ai.core.credentials import load_credentials, save_credential
 
         path = tmp_path / "credentials.toml"
         monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
@@ -219,7 +219,7 @@ class TestOptionalCredentials:
     def test_serply_key_can_be_persisted(self, tmp_path, monkeypatch):
         """Same guard for the Serply key: declared, so the Settings UI can
         store it, and still not required for web_search to run."""
-        from openjarvis.core.credentials import load_credentials, save_credential
+        from friday_ai.core.credentials import load_credentials, save_credential
 
         path = tmp_path / "credentials.toml"
         monkeypatch.delenv("SERPLY_API_KEY", raising=False)
@@ -231,7 +231,7 @@ class TestOptionalCredentials:
     def test_firecrawl_key_can_be_persisted(self, tmp_path, monkeypatch):
         """Same guard for the Firecrawl key: declared, so the Settings UI can
         store it, and still not required for web_search to run."""
-        from openjarvis.core.credentials import load_credentials, save_credential
+        from friday_ai.core.credentials import load_credentials, save_credential
 
         path = tmp_path / "credentials.toml"
         monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)

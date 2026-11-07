@@ -1,10 +1,10 @@
-"""Tests for openjarvis.cli._bootstrap.detect_cloud_keys."""
+"""Tests for friday_ai.cli._bootstrap.detect_cloud_keys."""
 
 from __future__ import annotations
 
 import pytest
 
-from openjarvis.cli import _bootstrap
+from friday_ai.cli import _bootstrap
 
 ALL_KEYS = (
     "OPENROUTER_API_KEY",

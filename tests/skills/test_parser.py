@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.skills.parser import SkillParseError, SkillParser
+from friday_ai.skills.parser import SkillParseError, SkillParser
 
 
 class TestStrictRequiredFields:
@@ -155,14 +155,14 @@ class TestTolerantFieldMapping:
         )
         assert manifest.disable_model_invocation is True
 
-    def test_metadata_openjarvis_namespace_used(self):
+    def test_metadata_friday_ai_namespace_used(self):
         parser = SkillParser()
         manifest = parser.parse_frontmatter(
             {
                 "name": "test",
                 "description": "x",
                 "metadata": {
-                    "openjarvis": {
+                    "friday_ai": {
                         "version": "9.9.9",
                         "tags": ["already", "mapped"],
                     },
@@ -194,8 +194,8 @@ class TestTolerantFieldMapping:
             "weird_field": "preserved",
         }
         manifest = parser.parse_frontmatter(original)
-        # Stored under metadata.openjarvis.original_frontmatter
-        oj = manifest.metadata.get("openjarvis", {})
+        # Stored under metadata.friday_ai.original_frontmatter
+        oj = manifest.metadata.get("friday_ai", {})
         assert "original_frontmatter" in oj
         assert oj["original_frontmatter"]["weird_field"] == "preserved"
 
@@ -209,5 +209,5 @@ class TestTolerantFieldMapping:
             }
         )
         # Platforms get rendered into a compatibility string under metadata
-        oj = manifest.metadata.get("openjarvis", {})
+        oj = manifest.metadata.get("friday_ai", {})
         assert "platforms" in oj or "compatibility" in oj

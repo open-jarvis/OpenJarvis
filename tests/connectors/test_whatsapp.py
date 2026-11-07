@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from openjarvis.connectors.whatsapp import WhatsAppConnector
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors.whatsapp import WhatsAppConnector
+from friday_ai.core.registry import ConnectorRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -184,7 +184,7 @@ def test_sync_status_after_sync(tmp_path: Path) -> None:
 
 def test_registry_registration() -> None:
     """WhatsAppConnector is registered under 'whatsapp' in ConnectorRegistry."""
-    from openjarvis.connectors.whatsapp import WhatsAppConnector  # noqa: PLC0415
+    from friday_ai.connectors.whatsapp import WhatsAppConnector  # noqa: PLC0415
 
     ConnectorRegistry.register_value("whatsapp", WhatsAppConnector)
     assert ConnectorRegistry.contains("whatsapp")

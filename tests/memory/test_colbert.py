@@ -8,9 +8,9 @@ colbert = pytest.importorskip("colbert")
 
 import torch  # noqa: E402
 
-from openjarvis.core.events import EventBus, EventType  # noqa: E402
-from openjarvis.core.registry import MemoryRegistry  # noqa: E402
-from openjarvis.tools.storage.colbert_backend import ColBERTMemory  # noqa: E402
+from friday_ai.core.events import EventBus, EventType  # noqa: E402
+from friday_ai.core.registry import MemoryRegistry  # noqa: E402
+from friday_ai.tools.storage.colbert_backend import ColBERTMemory  # noqa: E402
 
 
 def _make_backend() -> ColBERTMemory:
@@ -132,7 +132,7 @@ def test_clear():
 def test_event_bus_store():
     bus = EventBus(record_history=True)
     backend = _make_backend()
-    import openjarvis.tools.storage.colbert_backend as mod
+    import friday_ai.tools.storage.colbert_backend as mod
 
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus
@@ -150,7 +150,7 @@ def test_event_bus_retrieve():
     bus = EventBus(record_history=True)
     backend = _make_backend()
     backend.store("searchable content for events")
-    import openjarvis.tools.storage.colbert_backend as mod
+    import friday_ai.tools.storage.colbert_backend as mod
 
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus

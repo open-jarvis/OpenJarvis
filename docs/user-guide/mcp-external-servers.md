@@ -1,17 +1,17 @@
 # External MCP Server Integration
 
-OpenJarvis can extend agent capabilities by connecting to external [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers. This allows agents to use tools provided by services like Home Assistant, databases, custom APIs, or any MCP-compatible server -- without writing custom tool code.
+FridayAI can extend agent capabilities by connecting to external [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers. This allows agents to use tools provided by services like Home Assistant, databases, custom APIs, or any MCP-compatible server -- without writing custom tool code.
 
 ## How It Works
 
-When OpenJarvis starts, it reads the `[tools.mcp]` section in `config.toml`. For each configured server, it:
+When FridayAI starts, it reads the `[tools.mcp]` section in `config.toml`. For each configured server, it:
 
 1. Opens a connection using the appropriate transport (Streamable HTTP or stdio).
 2. Performs the MCP initialize handshake (protocol version negotiation and `initialized` notification).
 3. Discovers available tools via `tools/list`.
 4. Wraps each discovered tool as a standard `BaseTool` so agents can call them like any built-in tool.
 
-If a server is unreachable or returns an error, OpenJarvis logs a warning and continues loading the remaining servers. One broken server does not prevent other tools from being available.
+If a server is unreachable or returns an error, FridayAI logs a warning and continues loading the remaining servers. One broken server does not prevent other tools from being available.
 
 ## Configuration
 
@@ -50,7 +50,7 @@ servers = "mcp-servers.json"
 Relative paths are resolved from the directory containing `config.toml` and
 must remain inside that directory. Absolute paths (including paths expanded
 from `~`) are also supported. A file may contain either an array of server
-objects or one server object, which OpenJarvis wraps in an array.
+objects or one server object, which FridayAI wraps in an array.
 
 Inline `servers` values are **JSON-encoded strings** containing an array of
 server objects. Each object defines one external MCP server.
@@ -100,7 +100,7 @@ enabled = true
 servers = '[{"name": "myserver", "command": "python", "args": ["-m", "my_mcp_server"]}]'
 ```
 
-OpenJarvis starts the process automatically, communicates via JSON-RPC over stdin/stdout, and terminates it on shutdown.
+FridayAI starts the process automatically, communicates via JSON-RPC over stdin/stdout, and terminates it on shutdown.
 
 ### Multiple Servers
 
@@ -143,7 +143,7 @@ Used when the `url` field is set. The transport sends JSON-RPC requests as HTTP 
 
 ### Stdio
 
-Used when the `command` field is set. OpenJarvis spawns the command as a subprocess and communicates via JSON-RPC lines on stdin/stdout.
+Used when the `command` field is set. FridayAI spawns the command as a subprocess and communicates via JSON-RPC lines on stdin/stdout.
 
 **When to use:** Local MCP servers distributed as CLI tools, development/testing, servers that require filesystem access on the same machine.
 
@@ -152,7 +152,7 @@ Used when the `command` field is set. OpenJarvis spawns the command as a subproc
 
 ## Error Handling
 
-OpenJarvis handles MCP server failures gracefully:
+FridayAI handles MCP server failures gracefully:
 
 - **Server unreachable:** A warning is logged and the server is skipped. All other servers and built-in tools continue to load normally.
 - **Timeout:** HTTP requests time out after 60 seconds. The server is skipped with a warning.
@@ -160,7 +160,7 @@ OpenJarvis handles MCP server failures gracefully:
 - **Tool discovery failure:** If `tools/list` fails on a server, the error is caught and the server is skipped.
 - **Runtime tool call failure:** If a tool call to an external MCP server fails at runtime, it returns a `ToolResult` with `success=False` and the error message.
 
-No single server failure causes OpenJarvis to crash or prevents other tools from working.
+No single server failure causes FridayAI to crash or prevents other tools from working.
 
 ## Troubleshooting
 
@@ -170,12 +170,12 @@ No single server failure causes OpenJarvis to crash or prevents other tools from
 2. Verify the inline `servers` JSON is valid, or that the configured JSON file
    exists and is readable. A common mistake is using TOML arrays instead of a
    JSON string.
-3. Check the OpenJarvis logs for warnings like `Failed to discover external MCP tools`.
+3. Check the FridayAI logs for warnings like `Failed to discover external MCP tools`.
 
 ### Connection refused / timeout
 
-1. Verify the server is running and reachable from the OpenJarvis host: `curl -v http://host:port/`.
-2. Check firewall rules between the OpenJarvis container and the MCP server.
+1. Verify the server is running and reachable from the FridayAI host: `curl -v http://host:port/`.
+2. Check firewall rules between the FridayAI container and the MCP server.
 3. For Docker deployments, ensure both containers are on the same network or use host IPs.
 
 ### Tools not appearing
@@ -187,5 +187,5 @@ No single server failure causes OpenJarvis to crash or prevents other tools from
 ### Stdio server crashes immediately
 
 1. Test the command manually: `python -m my_mcp_server` should start and wait for input on stdin.
-2. Check stderr output in the OpenJarvis logs for error messages from the subprocess.
+2. Check stderr output in the FridayAI logs for error messages from the subprocess.
 3. Ensure all dependencies for the MCP server are installed in the same environment.

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openjarvis.learning.spec_search.execute.base import ApplyContext
-from openjarvis.learning.spec_search.models import (
+from friday_ai.learning.spec_search.execute.base import ApplyContext
+from friday_ai.learning.spec_search.models import (
     Edit,
     EditOp,
     EditPillar,
@@ -22,7 +22,7 @@ def _make_ctx(tmp_path: Path) -> ApplyContext:
         'math = "qwen2.5-coder:3b"\n'
         'code = "qwen2.5-coder:7b"\n'
     )
-    return ApplyContext(openjarvis_home=tmp_path, session_id="s1")
+    return ApplyContext(friday_ai_home=tmp_path, session_id="s1")
 
 
 def _make_routing_edit(
@@ -62,7 +62,7 @@ class TestSetModelForQueryClassApplier:
     """Tests for SetModelForQueryClassApplier."""
 
     def test_validate_ok(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.intelligence import (
+        from friday_ai.learning.spec_search.execute.appliers.intelligence import (
             SetModelForQueryClassApplier,
         )
 
@@ -72,7 +72,7 @@ class TestSetModelForQueryClassApplier:
         assert result.ok
 
     def test_apply_updates_config(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.intelligence import (
+        from friday_ai.learning.spec_search.execute.appliers.intelligence import (
             SetModelForQueryClassApplier,
         )
 
@@ -83,7 +83,7 @@ class TestSetModelForQueryClassApplier:
         assert "qwen2.5-coder:14b" in content
 
     def test_apply_adds_new_query_class(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.intelligence import (
+        from friday_ai.learning.spec_search.execute.appliers.intelligence import (
             SetModelForQueryClassApplier,
         )
 
@@ -100,7 +100,7 @@ class TestSetModelParamApplier:
     """Tests for SetModelParamApplier."""
 
     def test_validate_ok(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.intelligence import (
+        from friday_ai.learning.spec_search.execute.appliers.intelligence import (
             SetModelParamApplier,
         )
 
@@ -110,7 +110,7 @@ class TestSetModelParamApplier:
         assert result.ok
 
     def test_apply_writes_param(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.execute.appliers.intelligence import (
+        from friday_ai.learning.spec_search.execute.appliers.intelligence import (
             SetModelParamApplier,
         )
 

@@ -1,11 +1,11 @@
 # Scheduled Personal Ops
 
-This tutorial demonstrates how to use OpenJarvis to run **autonomous scheduled agents** that perform recurring personal tasks on a cron-like schedule.
+This tutorial demonstrates how to use FridayAI to run **autonomous scheduled agents** that perform recurring personal tasks on a cron-like schedule.
 
 ## What This Demonstrates
 
-- Using the `Jarvis` SDK with different agent types (`orchestrator`, `native_react`) and tool sets
-- Configuring recurring schedules via TOML and the `jarvis scheduler` CLI
+- Using the `Friday` SDK with different agent types (`orchestrator`, `native_react`) and tool sets
+- Configuring recurring schedules via TOML and the `friday scheduler` CLI
 - Integrating with the `TaskScheduler` Python API for programmatic task registration
 - Graceful error handling when an inference engine is not available
 
@@ -41,26 +41,26 @@ uv run python examples/scheduled_ops/daily_digest.py \
 
 ### 2. Set up schedules using the CLI
 
-Register each script as a recurring task with `jarvis scheduler create`:
+Register each script as a recurring task with `friday scheduler create`:
 
 ```bash
 # Morning digest every day at 9 AM
-jarvis scheduler create "Run daily news digest" \
+friday scheduler create "Run daily news digest" \
     --type cron --value "0 9 * * *"
 
 # Weekly code review every Monday at 8 AM
-jarvis scheduler create "Run weekly code review" \
+friday scheduler create "Run weekly code review" \
     --type cron --value "0 8 * * 1"
 
 # Gym check on MWF at 6 AM
-jarvis scheduler create "Check gym schedule" \
+friday scheduler create "Check gym schedule" \
     --type cron --value "0 6 * * 1,3,5"
 ```
 
 Then start the scheduler daemon:
 
 ```bash
-jarvis scheduler start
+friday scheduler start
 ```
 
 ### 3. Use the TOML configuration
@@ -88,8 +88,8 @@ uv run python examples/scheduled_ops/gym_scheduler.py --register --gym "Planet F
 This uses `TaskScheduler` and `SchedulerStore` directly:
 
 ```python
-from openjarvis.scheduler import TaskScheduler
-from openjarvis.scheduler.store import SchedulerStore
+from friday_ai.scheduler import TaskScheduler
+from friday_ai.scheduler.store import SchedulerStore
 
 store = SchedulerStore()
 scheduler = TaskScheduler(store)
@@ -109,15 +109,15 @@ To send results to a Slack channel (or any other supported channel), pipe the ou
 
 ```bash
 # Pipe output to a channel
-uv run python examples/scheduled_ops/daily_digest.py | jarvis channel send slack
+uv run python examples/scheduled_ops/daily_digest.py | friday channel send slack
 
 # Or add channel output inside the script:
-# from openjarvis.channels import ChannelRegistry
+# from friday_ai.channels import ChannelRegistry
 # channel = ChannelRegistry.create("slack", webhook_url="https://hooks.slack.com/...")
 # channel.send(response)
 ```
 
-See `jarvis channel list` for all available channels.
+See `friday channel list` for all available channels.
 
 ## Customization Tips
 
@@ -125,5 +125,5 @@ See `jarvis channel list` for all available channels.
 - **Review window**: Use `--days 14` with `code_review.py` for a two-week review cycle.
 - **Different agents**: Swap `orchestrator` for `native_react` (or vice versa) in the scripts to compare agent behavior.
 - **Add tools**: Extend the `tools` list in any script (e.g., add `"calculator"` or `"file_write"` for saving reports to disk).
-- **Model selection**: Use `--model` to target a specific model, or let OpenJarvis auto-select from what is available.
+- **Model selection**: Use `--model` to target a specific model, or let FridayAI auto-select from what is available.
 - **Cron expressions**: Standard five-field cron syntax is supported. Install `croniter` for full expression parsing; without it, basic hour/minute patterns still work.

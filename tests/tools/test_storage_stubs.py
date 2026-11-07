@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
+from friday_ai.tools.storage._stubs import MemoryBackend, RetrievalResult
 
 
 class _DummyStorage(MemoryBackend):
@@ -67,20 +67,20 @@ class TestStorageStubs:
 
     def test_backward_compat_import(self) -> None:
         """Memory imports should still work via shim."""
-        from openjarvis.tools.storage._stubs import MemoryBackend as MB
-        from openjarvis.tools.storage._stubs import RetrievalResult as RR
+        from friday_ai.tools.storage._stubs import MemoryBackend as MB
+        from friday_ai.tools.storage._stubs import RetrievalResult as RR
 
         assert MB is MemoryBackend
         assert RR is RetrievalResult
 
     def test_canonical_import(self) -> None:
         """Canonical import from tools.storage should work."""
-        from openjarvis.tools.storage._stubs import MemoryBackend as MB
+        from friday_ai.tools.storage._stubs import MemoryBackend as MB
 
         assert MB is MemoryBackend
 
     def test_sqlite_backward_compat(self) -> None:
         """SQLiteMemory should be importable from the canonical location."""
-        from openjarvis.tools.storage.sqlite import SQLiteMemory as S1
+        from friday_ai.tools.storage.sqlite import SQLiteMemory as S1
 
         assert S1 is not None

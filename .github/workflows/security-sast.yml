@@ -23,7 +23,7 @@ jobs:
       # Existing intentional shell execution is annotated at the call sites.
       # -lll -iii gates only HIGH severity and HIGH confidence findings.
       - name: Reject high/high findings
-        run: bandit -r src/openjarvis -lll -iii -f screen
+        run: bandit -r src/friday_ai -lll -iii -f screen
 
   pip-audit:
     name: pip-audit (${{ matrix.profile }}, Linux/Python 3.12)
@@ -97,4 +97,4 @@ jobs:
       - uses: actions/checkout@v7
       - name: Run Semgrep (audit ruleset)
         continue-on-error: true
-        run: semgrep --config=p/python --config=p/security-audit --error --skip-unknown-extensions src/openjarvis
+        run: semgrep --config=p/python --config=p/security-audit --error --skip-unknown-extensions src/friday_ai

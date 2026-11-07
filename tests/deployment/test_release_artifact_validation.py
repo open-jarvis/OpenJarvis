@@ -42,8 +42,8 @@ def run_validation(tmp_path):
 def distributions(tmp_path: Path) -> tuple[Path, Path]:
     dist = tmp_path / "dist"
     dist.mkdir()
-    wheel = dist / "openjarvis-1.0.4-py3-none-any.whl"
-    sdist = dist / "openjarvis-1.0.4.tar.gz"
+    wheel = dist / "friday_ai-1.0.4-py3-none-any.whl"
+    sdist = dist / "friday_ai-1.0.4.tar.gz"
     wheel.write_bytes(b"wheel")
     sdist.write_bytes(b"sdist")
     return wheel, sdist

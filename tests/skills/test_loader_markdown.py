@@ -5,7 +5,7 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from openjarvis.skills.loader import load_skill_directory, load_skill_markdown
+from friday_ai.skills.loader import load_skill_directory, load_skill_markdown
 
 
 class TestLoadSkillMarkdown:
@@ -135,7 +135,7 @@ class TestLoadSkillDirectory:
 class TestParserDelegation:
     def test_load_skill_markdown_uses_parser_for_validation(self, tmp_path: Path):
         """SKILL.md loading goes through SkillParser, gaining strict validation."""
-        from openjarvis.skills.loader import load_skill_markdown
+        from friday_ai.skills.loader import load_skill_markdown
 
         md = tmp_path / "SKILL.md"
         md.write_text("---\nname: my-skill\ndescription: x\n---\nBody")
@@ -146,7 +146,7 @@ class TestParserDelegation:
 
     def test_load_skill_markdown_handles_legacy_top_level_fields(self, tmp_path: Path):
         """Legacy SKILL.md with top-level tags/version/etc. still works."""
-        from openjarvis.skills.loader import load_skill_markdown
+        from friday_ai.skills.loader import load_skill_markdown
 
         md = tmp_path / "SKILL.md"
         md.write_text(
@@ -168,8 +168,8 @@ class TestParserDelegation:
 class TestLoadSkillDirectorySourcePromotion:
     def test_dot_source_file_promoted_to_metadata(self, tmp_path: Path):
         """A .source file in the skill directory promotes its source field
-        into manifest.metadata.openjarvis.source."""
-        from openjarvis.skills.loader import load_skill_directory
+        into manifest.metadata.friday_ai.source."""
+        from friday_ai.skills.loader import load_skill_directory
 
         skill_dir = tmp_path / "imported-skill"
         skill_dir.mkdir()
@@ -186,12 +186,12 @@ class TestLoadSkillDirectorySourcePromotion:
             "scripts_imported = false\n"
         )
         manifest = load_skill_directory(skill_dir)
-        oj = manifest.metadata.get("openjarvis", {})
+        oj = manifest.metadata.get("friday_ai", {})
         assert oj.get("source") == "hermes"
 
     def test_no_dot_source_file_no_metadata(self, tmp_path: Path):
-        """When no .source file is present, metadata.openjarvis.source is unset."""
-        from openjarvis.skills.loader import load_skill_directory
+        """When no .source file is present, metadata.friday_ai.source is unset."""
+        from friday_ai.skills.loader import load_skill_directory
 
         skill_dir = tmp_path / "user-skill"
         skill_dir.mkdir()
@@ -199,12 +199,12 @@ class TestLoadSkillDirectorySourcePromotion:
             "---\nname: user-skill\ndescription: x\n---\nBody"
         )
         manifest = load_skill_directory(skill_dir)
-        oj = manifest.metadata.get("openjarvis", {})
+        oj = manifest.metadata.get("friday_ai", {})
         assert "source" not in oj
 
     def test_malformed_dot_source_does_not_crash(self, tmp_path: Path):
         """A malformed .source file is ignored, not crashed on."""
-        from openjarvis.skills.loader import load_skill_directory
+        from friday_ai.skills.loader import load_skill_directory
 
         skill_dir = tmp_path / "bad"
         skill_dir.mkdir()

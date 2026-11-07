@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 _SAMPLE_EXPORT_XML = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -43,7 +43,7 @@ totalDistance="5.2" totalEnergyBurned="300"/>
 
 def test_apple_health_registered():
     """AppleHealthConnector is discoverable via ConnectorRegistry."""
-    from openjarvis.connectors.apple_health import AppleHealthConnector
+    from friday_ai.connectors.apple_health import AppleHealthConnector
 
     ConnectorRegistry.register_value("apple_health", AppleHealthConnector)
     assert ConnectorRegistry.contains("apple_health")
@@ -55,7 +55,7 @@ def test_apple_health_registered():
 
 def test_not_connected_no_files(tmp_path):
     """is_connected() returns False when neither data source exists."""
-    from openjarvis.connectors.apple_health import AppleHealthConnector
+    from friday_ai.connectors.apple_health import AppleHealthConnector
 
     connector = AppleHealthConnector(
         export_path=str(tmp_path / "nope.xml"),
@@ -66,7 +66,7 @@ def test_not_connected_no_files(tmp_path):
 
 def test_connected_with_export(tmp_path):
     """is_connected() returns True when the export XML exists."""
-    from openjarvis.connectors.apple_health import AppleHealthConnector
+    from friday_ai.connectors.apple_health import AppleHealthConnector
 
     export_file = tmp_path / "export.xml"
     export_file.write_text(_SAMPLE_EXPORT_XML, encoding="utf-8")
@@ -80,7 +80,7 @@ def test_connected_with_export(tmp_path):
 
 def test_sync_export_xml(tmp_path):
     """Sync from export XML yields correct Documents for each data type."""
-    from openjarvis.connectors.apple_health import AppleHealthConnector
+    from friday_ai.connectors.apple_health import AppleHealthConnector
 
     export_file = tmp_path / "export.xml"
     export_file.write_text(_SAMPLE_EXPORT_XML, encoding="utf-8")
@@ -136,7 +136,7 @@ def test_sync_export_xml(tmp_path):
 
 def test_sync_with_since_filter(tmp_path):
     """Only records after the ``since`` date are included."""
-    from openjarvis.connectors.apple_health import AppleHealthConnector
+    from friday_ai.connectors.apple_health import AppleHealthConnector
 
     export_file = tmp_path / "export.xml"
     export_file.write_text(_SAMPLE_EXPORT_XML, encoding="utf-8")
@@ -152,7 +152,7 @@ def test_sync_with_since_filter(tmp_path):
 
 def test_disconnect_is_noop(tmp_path):
     """disconnect() does not raise for a local connector."""
-    from openjarvis.connectors.apple_health import AppleHealthConnector
+    from friday_ai.connectors.apple_health import AppleHealthConnector
 
     connector = AppleHealthConnector(
         export_path=str(tmp_path / "nope.xml"),

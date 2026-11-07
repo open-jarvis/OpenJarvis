@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openjarvis.evals.scorers._checklist import (
+from friday_ai.evals.scorers._checklist import (
     ChecklistScorer,
     contains_key_phrases,
     normalize_str,

@@ -188,7 +188,7 @@ The file policy does not publish events or use the event bus. It is a pure funct
 
 The database is written in append-only mode. There is no built-in rotation or truncation — manage retention externally by deleting old entries with SQLite tooling or by using a path-per-session audit log.
 
-The default path is `~/.openjarvis/audit.db`, configurable via `security.audit_log_path` in `config.toml`.
+The default path is `~/.friday_ai/audit.db`, configurable via `security.audit_log_path` in `config.toml`.
 
 ---
 
@@ -207,5 +207,5 @@ The default path is `~/.openjarvis/audit.db`, configurable via `security.audit_l
 ## See Also
 
 - [User Guide: Security](../user-guide/security.md) — how to configure and use the security system
-- [API Reference: Security](../api-reference/openjarvis/security/index.md) — complete class and function signatures
+- [API Reference: Security](../api-reference/friday_ai/security/index.md) — complete class and function signatures
 - [Architecture: Query Flow](query-flow.md) — where security sits in the overall request lifecycle

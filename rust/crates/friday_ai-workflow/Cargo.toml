@@ -1,0 +1,10 @@
+[package]
+name = "friday_ai-workflow"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+friday_ai-core = { path = "../friday_ai-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }

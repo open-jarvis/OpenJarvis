@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.connectors.store import KnowledgeStore
+from friday_ai.connectors.store import KnowledgeStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -415,7 +415,7 @@ def test_retrieve_non_string_source_does_not_drop_filter(ks: KnowledgeStore) -> 
 
 def test_memory_store_event_emitted(tmp_path: Path) -> None:
     """MEMORY_STORE event is published on store()."""
-    from openjarvis.core.events import EventType, get_event_bus, reset_event_bus
+    from friday_ai.core.events import EventType, get_event_bus, reset_event_bus
 
     reset_event_bus()
     bus = get_event_bus(record_history=True)
@@ -429,7 +429,7 @@ def test_memory_store_event_emitted(tmp_path: Path) -> None:
 
 def test_memory_retrieve_event_emitted(tmp_path: Path) -> None:
     """MEMORY_RETRIEVE event is published on retrieve()."""
-    from openjarvis.core.events import EventType, get_event_bus, reset_event_bus
+    from friday_ai.core.events import EventType, get_event_bus, reset_event_bus
 
     reset_event_bus()
     bus = get_event_bus(record_history=True)

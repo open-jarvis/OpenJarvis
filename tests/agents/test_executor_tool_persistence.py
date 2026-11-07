@@ -6,11 +6,11 @@ import json
 
 import pytest
 
-from openjarvis.agents._stubs import AgentResult
-from openjarvis.agents.executor import AgentExecutor, _tool_calls_for_storage
-from openjarvis.agents.manager import AgentManager
-from openjarvis.core.events import EventBus
-from openjarvis.core.types import ToolResult
+from friday_ai.agents._stubs import AgentResult
+from friday_ai.agents.executor import AgentExecutor, _tool_calls_for_storage
+from friday_ai.agents.manager import AgentManager
+from friday_ai.core.events import EventBus
+from friday_ai.core.types import ToolResult
 
 
 def test_tool_results_are_serialized_for_managed_messages() -> None:

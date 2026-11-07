@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.security.ssrf import _check_ssrf_python
+from friday_ai.security.ssrf import _check_ssrf_python
 
 
 class TestSSRFDisguisedForms:
@@ -35,5 +35,5 @@ class TestSSRFDisguisedForms:
         assert result is not None  # blocked, not silently allowed
 
     def test_fail_open_override(self, monkeypatch):
-        monkeypatch.setenv("OPENJARVIS_SSRF_FAIL_OPEN", "1")
+        monkeypatch.setenv("FRIDAY_AI_SSRF_FAIL_OPEN", "1")
         assert _check_ssrf_python("http://another-nonexistent-zzz.invalid/") is None

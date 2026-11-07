@@ -1,0 +1,20 @@
+[package]
+name = "friday_ai-agents"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+friday_ai-core = { path = "../friday_ai-core" }
+friday_ai-engine = { path = "../friday_ai-engine" }
+friday_ai-tools = { path = "../friday_ai-tools" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+regex = { workspace = true }
+sha2 = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+rig-core = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }

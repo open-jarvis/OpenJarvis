@@ -1,6 +1,6 @@
 # Channels & Connectors
 
-OpenJarvis has two types of integrations:
+FridayAI has two types of integrations:
 
 - **Data connectors** — read-only access to your personal data (Gmail, iMessage, Google Drive, etc.) so your agent can search and research across them
 - **Messaging channels** — ways to talk TO your agent from your phone or other platforms (iMessage/SMS, Slack)
@@ -18,7 +18,7 @@ OpenJarvis has two types of integrations:
 1. **Create a SendBlue account:** [sendblue.com](https://www.sendblue.com/) — free tier available
 2. **Get your API credentials:** Dashboard → API Keys → copy **API Key ID** and **API Secret Key**
 3. **Note your SendBlue phone number** — this is the number people text to reach your agent
-4. **Connect in OpenJarvis:**
+4. **Connect in FridayAI:**
    - Desktop/Browser: Agents → your agent → **Messaging** tab → iMessage/SMS → enter API Key ID, API Secret Key, and phone number
    - The agent will send an "ack" message and a test to verify it works
 5. **Set up the webhook** so incoming texts reach your agent:
@@ -63,14 +63,14 @@ The fastest way is to use the App Manifest — paste this JSON to configure ever
 
 ```json
 {
-    "display_information": { "name": "OpenJarvis" },
+    "display_information": { "name": "FridayAI" },
     "features": {
         "app_home": {
             "home_tab_enabled": true,
             "messages_tab_enabled": true,
             "messages_tab_read_only_enabled": false
         },
-        "bot_user": { "display_name": "OpenJarvis", "always_online": true }
+        "bot_user": { "display_name": "FridayAI", "always_online": true }
     },
     "oauth_config": {
         "scopes": {
@@ -91,13 +91,13 @@ The fastest way is to use the App Manifest — paste this JSON to configure ever
 3. Click **Create** → **Install to Workspace** → **Allow**
 4. Copy the **Bot User OAuth Token** (`xoxb-...`) from **OAuth & Permissions**
 5. Go to **Basic Information** → **App-Level Tokens** → **Generate Token** → add `connections:write` scope → copy the token (`xapp-...`)
-6. **Connect in OpenJarvis:**
+6. **Connect in FridayAI:**
    - Desktop/Browser: Agents → your agent → **Messaging** tab → Slack → paste both tokens
    - CLI: tokens are stored when you bind the channel
 
 ### How it works
 
-- You DM @OpenJarvis in Slack → Socket Mode receives the event in real-time
+- You DM @FridayAI in Slack → Socket Mode receives the event in real-time
 - Agent replies "Message received! Working on it now..." in a **thread** under your message
 - Agent researches (15-60s) → response appears in the same thread
 - If processing takes >60s: "Still working! Will reply ASAP" in the thread
@@ -116,7 +116,7 @@ The fastest way is to use the App Manifest — paste this JSON to configure ever
 | "Sending messages to this app has been turned off" | App Home → enable Messages Tab → "Allow users to send messages" |
 | Bot doesn't respond | Check Socket Mode is enabled + `message.im` event is subscribed + app was reinstalled |
 | "missing_scope" error | Add the scope → reinstall the app |
-| Bot not visible in Slack | Click "+" next to Direct Messages → search "OpenJarvis" |
+| Bot not visible in Slack | Click "+" next to Direct Messages → search "FridayAI" |
 | Event Subscriptions won't save | Use the App Manifest method (avoids Request URL requirement) |
 
 ---
@@ -137,9 +137,9 @@ The fastest way is to use the App Manifest — paste this JSON to configure ever
    - Select "Mail" as the app
    - Copy the 16-character password (e.g. `qpde kebj evhy zljc`)
 
-3. **Connect in OpenJarvis:**
+3. **Connect in FridayAI:**
    - Desktop/Browser: Agents → your agent → Channels tab → Gmail → Reconnect
-   - CLI: `uv run jarvis connect gmail_imap`
+   - CLI: `uv run friday connect gmail_imap`
    - Enter your email address and the app password
 
 ### Troubleshooting
@@ -181,7 +181,7 @@ The fastest way is to use the App Manifest — paste this JSON to configure ever
    - Click your OAuth Client → Authorized redirect URIs
    - Add: `http://localhost:8789/callback`
 
-6. **Connect in OpenJarvis:**
+6. **Connect in FridayAI:**
    - Desktop/Browser: Agents → Channels tab → Google Drive → paste Client ID and Client Secret
    - Your browser will open Google's consent page → grant read-only access
    - You'll see "Authorization successful!" → Drive data starts syncing
@@ -239,7 +239,7 @@ Same as Google Drive — use the same Google Cloud project and OAuth client.
 
 ## Slack
 
-Slack serves two purposes in OpenJarvis:
+Slack serves two purposes in FridayAI:
 
 - **Data source** — indexes channel messages, DMs, and threads so your agent can search them
 - **Messaging channel** — lets you DM your agent directly in Slack
@@ -256,14 +256,14 @@ We recommend creating **one Slack app** that handles both. The App Manifest belo
 
    ```json
    {
-       "display_information": { "name": "OpenJarvis" },
+       "display_information": { "name": "FridayAI" },
        "features": {
            "app_home": {
                "home_tab_enabled": true,
                "messages_tab_enabled": true,
                "messages_tab_read_only_enabled": false
            },
-           "bot_user": { "display_name": "OpenJarvis", "always_online": true }
+           "bot_user": { "display_name": "FridayAI", "always_online": true }
        },
        "oauth_config": {
            "scopes": {
@@ -298,7 +298,7 @@ We recommend creating **one Slack app** that handles both. The App Manifest belo
 
 8. **(Optional) Set the app icon:**
    - Go to Basic Information → Display Information
-   - Upload the [OpenJarvis icon](https://github.com/open-jarvis/OpenJarvis/blob/main/assets/openjarvis-slack-icon.jpg)
+   - Upload the [FridayAI icon](https://github.com/open-jarvis/FridayAI/blob/main/assets/friday_ai-slack-icon.jpg)
 
 ### Required Bot Token Scopes (reference)
 
@@ -320,11 +320,11 @@ We recommend creating **one Slack app** that handles both. The App Manifest belo
 
 **App-Level Token scope:** `connections:write` (required for Socket Mode / DMs)
 
-### Connecting in OpenJarvis
+### Connecting in FridayAI
 
 **As a data source** (read channel messages):
 - Desktop/Browser: Data Sources → Slack → paste the bot token (`xoxb-...`)
-- CLI: `uv run jarvis connect slack`
+- CLI: `uv run friday connect slack`
 
 **As a messaging channel** (DM your agent):
 - Desktop/Browser: Data Sources → Messaging Channels → Slack → Set Up
@@ -332,15 +332,15 @@ We recommend creating **one Slack app** that handles both. The App Manifest belo
 - Or: Agents → select agent → Messaging Channels → Slack → Set Up
 
 **DM your agent:**
-- In Slack, find **OpenJarvis** under Apps (or Direct Messages)
-- If you don't see it: click "+" next to Direct Messages → search "OpenJarvis"
+- In Slack, find **FridayAI** under Apps (or Direct Messages)
+- If you don't see it: click "+" next to Direct Messages → search "FridayAI"
 - Send a message → the agent responds in a thread
 
 ### Important Notes
 
 - **Reinstall after scope changes:** Every time you add new scopes or change event subscriptions, you MUST reinstall the app.
 - **App-Level Token vs Bot Token:** The Bot Token (`xoxb-`) is for API calls. The App Token (`xapp-`) is for Socket Mode. You need both for DMs to work.
-- **Channel visibility:** The bot can only read channels it's been added to. Invite it with `/invite @OpenJarvis` in each channel you want indexed.
+- **Channel visibility:** The bot can only read channels it's been added to. Invite it with `/invite @FridayAI` in each channel you want indexed.
 - **Thread replies:** If you reply in a thread, the bot sees it. New top-level messages also work.
 
 ### Troubleshooting
@@ -352,7 +352,7 @@ We recommend creating **one Slack app** that handles both. The App Manifest belo
 | Bot doesn't respond to DMs | Make sure Socket Mode is enabled, `message.im` event is subscribed, and the app was reinstalled after changes |
 | "missing_scope" error | Add the missing scope in OAuth & Permissions → Reinstall the app |
 | Bot not visible in Slack | Go to Install App → Reinstall to Workspace |
-| No messages found (data source) | The bot can only see channels it's been added to. Invite it: `/invite @OpenJarvis` in the channel |
+| No messages found (data source) | The bot can only see channels it's been added to. Invite it: `/invite @FridayAI` in the channel |
 | Socket Mode connects but no events received | Verify `message.im` is in the manifest's `bot_events`, reinstall the app |
 
 ---
@@ -366,7 +366,7 @@ We recommend creating **one Slack app** that handles both. The App Manifest belo
 1. **Create an internal integration:**
    [Open Notion Integrations →](https://www.notion.so/profile/integrations)
    - Click "New integration"
-   - Name it (e.g. "OpenJarvis")
+   - Name it (e.g. "FridayAI")
    - Select your workspace
    - Copy the **Internal Integration Secret** (starts with `ntn_`)
 
@@ -375,9 +375,9 @@ We recommend creating **one Slack app** that handles both. The App Manifest belo
    - Click "..." (top right) → "Connections" → find your integration → click it
    - Repeat for each page or database
 
-3. **Connect in OpenJarvis:**
+3. **Connect in FridayAI:**
    - Desktop/Browser: Agents → Channels tab → Notion → paste the token
-   - CLI: `uv run jarvis connect notion`
+   - CLI: `uv run friday connect notion`
 
 ### Troubleshooting
 
@@ -397,9 +397,9 @@ We recommend creating **one Slack app** that handles both. The App Manifest belo
 
 1. **Open the Granola desktop app** → Settings → API
 2. **Copy your API key** (starts with `grn_`)
-3. **Connect in OpenJarvis:**
+3. **Connect in FridayAI:**
    - Desktop/Browser: Agents → Channels tab → Granola → paste the key
-   - CLI: `uv run jarvis connect granola`
+   - CLI: `uv run friday connect granola`
 
 ### Troubleshooting
 
@@ -418,11 +418,11 @@ We recommend creating **one Slack app** that handles both. The App Manifest belo
 
 1. **Grant Full Disk Access** to your terminal app:
    - Open System Settings → Privacy & Security → Full Disk Access
-   - Enable access for Terminal, iTerm, Warp, or the OpenJarvis desktop app
+   - Enable access for Terminal, iTerm, Warp, or the FridayAI desktop app
 
 2. Apple Notes is detected automatically when Full Disk Access is granted
 
-OpenJarvis searches an indexed snapshot rather than querying Notes.app live.
+FridayAI searches an indexed snapshot rather than querying Notes.app live.
 After creating notes, open **Data Sources** and click **Re-sync** on Apple Notes
 before searching for the new content.
 
@@ -468,9 +468,9 @@ Same as Apple Notes — requires Full Disk Access.
    - Go to Security → Advanced security options → App passwords
    - Create a new app password
 
-3. **Connect in OpenJarvis:**
+3. **Connect in FridayAI:**
    - Desktop/Browser: Agents → Channels tab → Outlook → enter email + app password
-   - CLI: `uv run jarvis connect outlook`
+   - CLI: `uv run friday connect outlook`
 
 ### Troubleshooting
 
@@ -489,9 +489,9 @@ Same as Apple Notes — requires Full Disk Access.
 ### Setup
 
 1. Find your Obsidian vault folder (the folder containing the `.obsidian` directory)
-2. **Connect in OpenJarvis:**
+2. **Connect in FridayAI:**
    - Desktop/Browser: Agents → Channels tab → Obsidian → paste the vault path
-   - CLI: `uv run jarvis connect obsidian --path /path/to/vault`
+   - CLI: `uv run friday connect obsidian --path /path/to/vault`
 
 ### Troubleshooting
 
@@ -519,9 +519,9 @@ Same as Apple Notes — requires Full Disk Access.
 3. **Generate an access token:**
    - Go to Settings tab → "Generated access token" → Generate
 
-4. **Connect in OpenJarvis:**
+4. **Connect in FridayAI:**
    - Desktop/Browser: Agents → Channels tab → Dropbox → paste the token
-   - CLI: `uv run jarvis connect dropbox`
+   - CLI: `uv run friday connect dropbox`
 
 ### Troubleshooting
 
@@ -538,16 +538,16 @@ Same as Apple Notes — requires Full Disk Access.
 
 | Issue | Solution |
 |-------|----------|
-| "Connected — no data synced yet" | The connector authenticated but hasn't synced. Try running `uv run jarvis deep-research-setup --skip-chat` to trigger a sync. |
+| "Connected — no data synced yet" | The connector authenticated but hasn't synced. Try running `uv run friday deep-research-setup --skip-chat` to trigger a sync. |
 | Data seems stale | Connectors sync on demand. Run the setup command or click "Reconnect" to re-sync. |
-| Want to reset a connector | Click "Reconnect" in the Channels tab, or delete the credential file at `~/.openjarvis/connectors/{connector}.json` |
+| Want to reset a connector | Click "Reconnect" in the Channels tab, or delete the credential file at `~/.friday_ai/connectors/{connector}.json` |
 
 ### Where credentials are stored
 
-All credentials are saved locally at `~/.openjarvis/connectors/` with file permissions `0600` (owner-only read/write). No credentials are sent to any server — everything stays on your device.
+All credentials are saved locally at `~/.friday_ai/connectors/` with file permissions `0600` (owner-only read/write). No credentials are sent to any server — everything stays on your device.
 
 ```
-~/.openjarvis/connectors/
+~/.friday_ai/connectors/
 ├── gmail_imap.json    # Gmail email + app password
 ├── gdrive.json        # Google Drive OAuth tokens
 ├── gcalendar.json     # Google Calendar OAuth tokens

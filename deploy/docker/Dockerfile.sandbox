@@ -37,13 +37,13 @@ COPY . .
 # Install the project itself without re-resolving dependencies.
 RUN uv pip install --system --no-deps . && \
     maturin build --release \
-        --manifest-path rust/crates/openjarvis-python/Cargo.toml \
+        --manifest-path rust/crates/friday_ai-python/Cargo.toml \
         --interpreter python3 \
-        --out /tmp/openjarvis-rust-wheel && \
-    uv pip install --system --no-deps /tmp/openjarvis-rust-wheel/*.whl && \
-    python3 -c "import openjarvis_rust; print('openjarvis_rust ok')" && \
+        --out /tmp/friday_ai-rust-wheel && \
+    uv pip install --system --no-deps /tmp/friday_ai-rust-wheel/*.whl && \
+    python3 -c "import friday_ai_rust; print('friday_ai_rust ok')" && \
     python3 -m pip uninstall -y maturin && \
-    rm -rf /tmp/openjarvis-rust-wheel rust/target
+    rm -rf /tmp/friday_ai-rust-wheel rust/target
 
 FROM python:3.12.13-slim-bookworm@sha256:76d4b7b6305788c6b4c6a19d6a22a3921bf802e9af4d5e1e5bd771208dba74bf
 
@@ -65,6 +65,6 @@ RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && 
 
 WORKDIR /app
 
-LABEL openjarvis-sandbox=true
+LABEL friday_ai-sandbox=true
 
-ENTRYPOINT ["python", "-m", "openjarvis.sandbox.entrypoint"]
+ENTRYPOINT ["python", "-m", "friday_ai.sandbox.entrypoint"]

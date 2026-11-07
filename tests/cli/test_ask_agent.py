@@ -1,4 +1,4 @@
-"""Tests for ``jarvis ask --agent`` CLI integration."""
+"""Tests for ``friday ask --agent`` CLI integration."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
-from openjarvis.cli import cli
-from openjarvis.core.types import Role, StepType, ToolCall, ToolResult
-from openjarvis.tools._stubs import BaseTool, ToolSpec
+from friday_ai.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
+from friday_ai.cli import cli
+from friday_ai.core.types import Role, StepType, ToolCall, ToolResult
+from friday_ai.tools._stubs import BaseTool, ToolSpec
 
-_ask_mod = importlib.import_module("openjarvis.cli.ask")
+_ask_mod = importlib.import_module("friday_ai.cli.ask")
 
 
 def _mock_engine(content="Hello from engine"):
@@ -34,9 +34,9 @@ def _mock_engine(content="Hello from engine"):
 
 def _register_agents():
     """Re-register agents after registry clear."""
-    from openjarvis.agents.orchestrator import OrchestratorAgent
-    from openjarvis.agents.simple import SimpleAgent
-    from openjarvis.core.registry import AgentRegistry
+    from friday_ai.agents.orchestrator import OrchestratorAgent
+    from friday_ai.agents.simple import SimpleAgent
+    from friday_ai.core.registry import AgentRegistry
 
     for name, cls in [
         ("simple", SimpleAgent),
@@ -48,12 +48,12 @@ def _register_agents():
 
 def _register_tools():
     """Re-register tools after registry clear."""
-    from openjarvis.core.registry import ToolRegistry
-    from openjarvis.tools.calculator import CalculatorTool
-    from openjarvis.tools.file_read import FileReadTool
-    from openjarvis.tools.llm_tool import LLMTool
-    from openjarvis.tools.retrieval import RetrievalTool
-    from openjarvis.tools.think import ThinkTool
+    from friday_ai.core.registry import ToolRegistry
+    from friday_ai.tools.calculator import CalculatorTool
+    from friday_ai.tools.file_read import FileReadTool
+    from friday_ai.tools.llm_tool import LLMTool
+    from friday_ai.tools.retrieval import RetrievalTool
+    from friday_ai.tools.think import ThinkTool
 
     for name, cls in [
         ("calculator", CalculatorTool),
@@ -107,11 +107,11 @@ class _EngineSetup:
 
 @pytest.fixture
 def agent_setup():
-    from openjarvis.core.config import JarvisConfig
-    from openjarvis.core.registry import AgentRegistry, ToolRegistry
+    from friday_ai.core.config import FridayConfig
+    from friday_ai.core.registry import AgentRegistry, ToolRegistry
 
     engine = _mock_engine("unused")
-    config = JarvisConfig()
+    config = FridayConfig()
     config.intelligence.default_model = "test-model"
     config.agent.max_turns = 3
     config.traces.enabled = False
@@ -153,9 +153,9 @@ def mock_setup():
         patch.object(_ask_mod, "register_builtin_models"),
         patch.object(_ask_mod, "merge_discovered_models"),
     ):
-        from openjarvis.core.config import JarvisConfig
+        from friday_ai.core.config import FridayConfig
 
-        config = JarvisConfig()
+        config = FridayConfig()
         config.traces.enabled = False
         mock_cfg.return_value = config
         mock_ge.return_value = ("mock", engine)
@@ -218,8 +218,8 @@ class TestAskAgentOption:
     def test_no_agent_flag_falls_back_to_config_default_agent(self, runner, mock_setup):
         """When --agent is omitted, ``config.agent.default_agent`` is used.
 
-        The default ``JarvisConfig`` sets ``default_agent = "simple"``, so
-        ``jarvis ask "..."`` should route through SimpleAgent rather than
+        The default ``FridayConfig`` sets ``default_agent = "simple"``, so
+        ``friday ask "..."`` should route through SimpleAgent rather than
         the direct-to-engine path. Without this fallback, persona settings
         (``default_system_prompt`` and SOUL.md/MEMORY.md/USER.md) would be
         silently bypassed.
@@ -239,9 +239,9 @@ class TestAskAgentOption:
     ):
         """When config's ``default_agent`` is blank and --agent is omitted,
         the original direct-to-engine path is preserved."""
-        from openjarvis.core.config import JarvisConfig
+        from friday_ai.core.config import FridayConfig
 
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         cfg.traces.enabled = False
         cfg.agent.default_agent = ""
         monkeypatch.setattr(_ask_mod, "load_config", lambda *a, **kw: cfg)
@@ -297,8 +297,8 @@ class TestAskSkillsAndTraces:
         runner,
         tmp_path,
     ):
-        from openjarvis.core.config import JarvisConfig
-        from openjarvis.traces.store import TraceStore
+        from friday_ai.core.config import FridayConfig
+        from friday_ai.traces.store import TraceStore
 
         skill_dir = tmp_path / "skills" / "hermes" / "llm-wiki"
         skill_dir.mkdir(parents=True)
@@ -316,7 +316,7 @@ class TestAskSkillsAndTraces:
             encoding="utf-8",
         )
 
-        config = JarvisConfig()
+        config = FridayConfig()
         config.intelligence.default_model = "test-model"
         config.agent.context_from_memory = False
         config.security.enabled = False
@@ -399,47 +399,47 @@ class TestAskSkillsAndTraces:
 
 class TestBuildTools:
     def test_build_calculator(self, mock_setup):
-        from openjarvis.cli.ask import _build_tools
-        from openjarvis.core.config import JarvisConfig
+        from friday_ai.cli.ask import _build_tools
+        from friday_ai.core.config import FridayConfig
 
         _register_tools()
-        config = JarvisConfig()
+        config = FridayConfig()
         tools = _build_tools(["calculator"], config, mock_setup, "test-model")
         assert len(tools) == 1
         assert tools[0].tool_id == "calculator"
 
     def test_build_think(self, mock_setup):
-        from openjarvis.cli.ask import _build_tools
-        from openjarvis.core.config import JarvisConfig
+        from friday_ai.cli.ask import _build_tools
+        from friday_ai.core.config import FridayConfig
 
         _register_tools()
-        config = JarvisConfig()
+        config = FridayConfig()
         tools = _build_tools(["think"], config, mock_setup, "test-model")
         assert len(tools) == 1
         assert tools[0].tool_id == "think"
 
     def test_build_unknown_tool_skipped(self, mock_setup):
-        from openjarvis.cli.ask import _build_tools
-        from openjarvis.core.config import JarvisConfig
+        from friday_ai.cli.ask import _build_tools
+        from friday_ai.core.config import FridayConfig
 
-        config = JarvisConfig()
+        config = FridayConfig()
         tools = _build_tools(["nonexistent"], config, mock_setup, "test-model")
         assert len(tools) == 0
 
     def test_build_empty_names(self, mock_setup):
-        from openjarvis.cli.ask import _build_tools
-        from openjarvis.core.config import JarvisConfig
+        from friday_ai.cli.ask import _build_tools
+        from friday_ai.core.config import FridayConfig
 
-        config = JarvisConfig()
+        config = FridayConfig()
         tools = _build_tools(["", " "], config, mock_setup, "test-model")
         assert len(tools) == 0
 
     def test_build_multiple_tools(self, mock_setup):
-        from openjarvis.cli.ask import _build_tools
-        from openjarvis.core.config import JarvisConfig
+        from friday_ai.cli.ask import _build_tools
+        from friday_ai.core.config import FridayConfig
 
         _register_tools()
-        config = JarvisConfig()
+        config = FridayConfig()
         tools = _build_tools(["calculator", "think"], config, mock_setup, "test-model")
         assert len(tools) == 2
 
@@ -456,17 +456,17 @@ class TestPersonaFilesReachModel:
         self, runner, monkeypatch, tmp_path
     ):
         """SOUL.md content must appear in the system message sent to the engine."""
-        from openjarvis.core.config import JarvisConfig
+        from friday_ai.core.config import FridayConfig
 
         # Write a SOUL.md with a unique sentinel string we can grep for
         soul = tmp_path / "SOUL.md"
-        soul.write_text("PERSONA_SENTINEL_zh_jarvis", encoding="utf-8")
+        soul.write_text("PERSONA_SENTINEL_zh_friday", encoding="utf-8")
         memory = tmp_path / "MEMORY.md"
         memory.write_text("MEMORY_SENTINEL", encoding="utf-8")
         user = tmp_path / "USER.md"
         user.write_text("USER_SENTINEL", encoding="utf-8")
 
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         cfg.traces.enabled = False
         cfg.memory_files.soul_path = str(soul)
         cfg.memory_files.memory_path = str(memory)
@@ -503,7 +503,7 @@ class TestPersonaFilesReachModel:
         assert system_messages, f"No SYSTEM message in {messages!r}"
         joined = "\n".join(m.content for m in system_messages)
         assert "BASELINE_TEMPLATE" in joined
-        assert "PERSONA_SENTINEL_zh_jarvis" in joined
+        assert "PERSONA_SENTINEL_zh_friday" in joined
         assert "MEMORY_SENTINEL" in joined
         assert "USER_SENTINEL" in joined
 
@@ -511,12 +511,12 @@ class TestPersonaFilesReachModel:
         self, runner, monkeypatch, tmp_path
     ):
         """Orchestrator explicitly accepts and applies persona wiring."""
-        from openjarvis.core.config import JarvisConfig
+        from friday_ai.core.config import FridayConfig
 
         soul = tmp_path / "SOUL.md"
         soul.write_text("ORCH_PERSONA_SENTINEL", encoding="utf-8")
 
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         cfg.memory_files.soul_path = str(soul)
         cfg.agent.context_from_memory = False
 

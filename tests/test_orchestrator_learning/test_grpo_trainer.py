@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from openjarvis.learning.intelligence.orchestrator.grpo_trainer import (
+from friday_ai.learning.intelligence.orchestrator.grpo_trainer import (
     OrchestratorGRPOConfig,
 )
-from openjarvis.learning.intelligence.orchestrator.types import Episode
+from friday_ai.learning.intelligence.orchestrator.types import Episode
 
 
 class TestOrchestratorGRPOConfig:
@@ -74,7 +74,7 @@ class TestGroupAdvantageNormalization:
 
 class TestRewardIntegration:
     def test_episode_reward(self):
-        from openjarvis.learning.intelligence.orchestrator.reward import (
+        from friday_ai.learning.intelligence.orchestrator.reward import (
             MultiObjectiveReward,
             Normalizers,
             RewardWeights,
@@ -97,7 +97,7 @@ class TestRewardIntegration:
 
 class TestGRPORegistration:
     def test_registered_in_learning_registry(self):
-        import openjarvis.learning.intelligence.orchestrator.grpo_trainer  # noqa: F401
-        from openjarvis.core.registry import LearningRegistry
+        import friday_ai.learning.intelligence.orchestrator.grpo_trainer  # noqa: F401
+        from friday_ai.core.registry import LearningRegistry
 
         assert LearningRegistry.contains("orchestrator_grpo")

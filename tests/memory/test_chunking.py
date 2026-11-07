@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.tools.storage.chunking import ChunkConfig, chunk_text
+from friday_ai.tools.storage.chunking import ChunkConfig, chunk_text
 
 
 def test_empty_string_returns_empty():

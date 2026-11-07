@@ -1,21 +1,21 @@
 # CLI Reference
 
-OpenJarvis provides a command-line interface through the `jarvis` command. Built on [Click](https://click.palletsprojects.com/), it offers subcommands for querying models, managing memory, running benchmarks, and serving an OpenAI-compatible API.
+FridayAI provides a command-line interface through the `friday` command. Built on [Click](https://click.palletsprojects.com/), it offers subcommands for querying models, managing memory, running benchmarks, and serving an OpenAI-compatible API.
 
 ## Global Options
 
 ```bash
-jarvis --version   # Print the OpenJarvis version
-jarvis --help      # Show top-level help with all subcommands
+friday --version   # Print the FridayAI version
+friday --help      # Show top-level help with all subcommands
 ```
 
-## `jarvis init`
+## `friday init`
 
-Detect local hardware (CPU, GPU, RAM) and generate a configuration file at `~/.openjarvis/config.toml`.
+Detect local hardware (CPU, GPU, RAM) and generate a configuration file at `~/.friday_ai/config.toml`.
 
 ```bash
-jarvis init           # Interactive — refuses to overwrite existing config
-jarvis init --force   # Overwrite existing config without prompting
+friday init           # Interactive — refuses to overwrite existing config
+friday init --force   # Overwrite existing config without prompting
 ```
 
 | Option    | Description                                   |
@@ -45,12 +45,12 @@ Config written successfully.
 
 ---
 
-## `jarvis ask`
+## `friday ask`
 
 Send a query to the inference engine (directly or through an agent) and print the response.
 
 ```bash
-jarvis ask "What is the capital of France?"
+friday ask "What is the capital of France?"
 ```
 
 ### Options
@@ -74,45 +74,45 @@ jarvis ask "What is the capital of France?"
 **Agent mode** is the default for text queries. When `--agent` is omitted, the CLI uses `agent.default_agent` from configuration, which defaults to `simple`. `SimpleAgent` makes a single inference call without a tool loop, while applying the configured system prompt and persona files (`SOUL.md`, `MEMORY.md`, and `USER.md`).
 
 ```bash
-jarvis ask "Explain quantum computing"
+friday ask "Explain quantum computing"
 ```
 
 Use `--agent` to select an agent explicitly. Agents such as `orchestrator` can use tools and manage multi-turn interactions:
 
 ```bash
-jarvis ask --agent orchestrator "What is 2+2?"
-jarvis ask --agent orchestrator --tools calculator,think "Calculate sqrt(144) + 3^2"
-jarvis ask --agent simple "Hello"
+friday ask --agent orchestrator "What is 2+2?"
+friday ask --agent orchestrator --tools calculator,think "Calculate sqrt(144) + 3^2"
+friday ask --agent simple "Hello"
 ```
 
 **Direct mode** sends the query straight to the inference engine with optional memory context, bypassing the agent's system prompt and persona handling. Pass an empty agent name to select it:
 
 ```bash
-jarvis ask --agent "" "Explain quantum computing"
+friday ask --agent "" "Explain quantum computing"
 ```
 
-To make direct mode the default, set `default_agent = ""` in the `[agent]` section of `~/.openjarvis/config.toml`.
+To make direct mode the default, set `default_agent = ""` in the `[agent]` section of `~/.friday_ai/config.toml`.
 
 ### Usage Examples
 
 ```bash
 # Basic query
-jarvis ask "What is machine learning?"
+friday ask "What is machine learning?"
 
 # Specify a model
-jarvis ask -m qwen3:8b "Summarize this concept"
+friday ask -m qwen3:8b "Summarize this concept"
 
 # Use the orchestrator agent with tools
-jarvis ask --agent orchestrator --tools calculator "What is 15% of 340?"
+friday ask --agent orchestrator --tools calculator "What is 15% of 340?"
 
 # Get JSON output
-jarvis ask --json "Hello"
+friday ask --json "Hello"
 
 # Disable memory context injection
-jarvis ask --no-context "Tell me about Python"
+friday ask --no-context "Tell me about Python"
 
 # Set maximum token generation
-jarvis ask --max-tokens 2048 "Write a detailed essay about AI"
+friday ask --max-tokens 2048 "Write a detailed essay about AI"
 ```
 
 ### Vision Input
@@ -123,13 +123,13 @@ the current screen with `-S`/`--screen`:
 
 ```bash
 # Ask about a local image
-jarvis ask -i screenshot.png "What is shown in this image?"
+friday ask -i screenshot.png "What is shown in this image?"
 
 # Send multiple images (the flag is repeatable)
-jarvis ask -i chart-a.png -i chart-b.png "Compare these two charts"
+friday ask -i chart-a.png -i chart-b.png "Compare these two charts"
 
 # Capture the current screen and ask about it
-jarvis ask --screen "Summarize what's on my screen"
+friday ask --screen "Summarize what's on my screen"
 ```
 
 Vision runs in **direct mode** only. When `--agent` is omitted, image and screen
@@ -138,14 +138,14 @@ If you explicitly select an agent, the image is
 ignored and a note is printed — re-run with `--agent ""` to force direct mode.
 
 The Ollama context window can be tuned for large images or long prompts with
-the `JARVIS_NUM_CTX` environment variable (default `16384`):
+the `FRIDAY_NUM_CTX` environment variable (default `16384`):
 
 ```bash
-JARVIS_NUM_CTX=8192 jarvis ask --screen "What's on my screen?"
+FRIDAY_NUM_CTX=8192 friday ask --screen "What's on my screen?"
 ```
 
 !!! note "Keep vision on-device"
-    Images are sensitive. OpenJarvis prints a privacy warning before sending
+    Images are sensitive. FridayAI prints a privacy warning before sending
     an image to a non-local engine, so a screenshot never leaves your machine
     unnoticed. Use a local engine (e.g. `ollama` with `gemma3:4b`) to keep
     vision fully local.
@@ -183,16 +183,16 @@ When using `--json` in **agent mode**, the output includes:
 
 ---
 
-## `jarvis model`
+## `friday model`
 
 Manage and inspect language models available on running engines.
 
-### `jarvis model list`
+### `friday model list`
 
 List all models available from running inference engines, displayed as a Rich table with model parameters, context length, and VRAM requirements.
 
 ```bash
-jarvis model list
+friday model list
 ```
 
 **Example output:**
@@ -207,12 +207,12 @@ jarvis model list
 └─────────┴────────────────┴────────┴─────────┴──────┘
 ```
 
-### `jarvis model info <model>`
+### `friday model info <model>`
 
 Show detailed information about a specific model.
 
 ```bash
-jarvis model info qwen3:8b
+friday model info qwen3:8b
 ```
 
 **Example output:**
@@ -231,12 +231,12 @@ jarvis model info qwen3:8b
 └───────────────────────────────────────────┘
 ```
 
-### `jarvis model pull <model>`
+### `friday model pull <model>`
 
 Download a model via Ollama. Shows a progress bar during download.
 
 ```bash
-jarvis model pull qwen3:8b
+friday model pull qwen3:8b
 ```
 
 !!! note
@@ -244,28 +244,28 @@ jarvis model pull qwen3:8b
 
 ---
 
-## `jarvis pearl`
+## `friday pearl`
 
-Access Pearl's native node, wallet, and RPC tools from the OpenJarvis CLI.
+Access Pearl's native node, wallet, and RPC tools from the FridayAI CLI.
 
 ```bash
-jarvis pearl doctor
-jarvis pearl node -- <pearld args>
-jarvis pearl wallet -- <oyster args>
-jarvis pearl ctl -- <prlctl args>
-jarvis pearl address
+friday pearl doctor
+friday pearl node -- <pearld args>
+friday pearl wallet -- <oyster args>
+friday pearl ctl -- <prlctl args>
+friday pearl address
 ```
 
-All Pearl wrapper commands use the `jarvis pearl <command>` shape. The
+All Pearl wrapper commands use the `friday pearl <command>` shape. The
 pass-through commands map to Pearl's native binaries:
 
-| OpenJarvis command | Pearl binary | Use |
+| FridayAI command | Pearl binary | Use |
 |--------------------|--------------|-----|
-| `jarvis pearl doctor` | n/a | Check whether `pearld`, `oyster`, and `prlctl` are discoverable |
-| `jarvis pearl node` | `pearld` | Run the Pearl full node |
-| `jarvis pearl wallet` | `oyster` | Run the Oyster wallet daemon |
-| `jarvis pearl ctl` | `prlctl` | Query Pearl node or wallet RPC |
-| `jarvis pearl address` | `prlctl --wallet getnewaddress` | Generate a wallet address from Oyster |
+| `friday pearl doctor` | n/a | Check whether `pearld`, `oyster`, and `prlctl` are discoverable |
+| `friday pearl node` | `pearld` | Run the Pearl full node |
+| `friday pearl wallet` | `oyster` | Run the Oyster wallet daemon |
+| `friday pearl ctl` | `prlctl` | Query Pearl node or wallet RPC |
+| `friday pearl address` | `prlctl --wallet getnewaddress` | Generate a wallet address from Oyster |
 
 Use `PEARL_HOME=/path/to/pearl` or `--pearl-home /path/to/pearl` if Pearl's
 `bin/` directory is not on `PATH`. See the [Pearl CLI guide](pearl.md) for
@@ -273,19 +273,19 @@ examples.
 
 ---
 
-## `jarvis memory`
+## `friday memory`
 
 Manage the document memory store for retrieval-augmented generation.
 
-### `jarvis memory index <path>`
+### `friday memory index <path>`
 
 Index documents from a file or directory into the memory store.
 
 ```bash
-jarvis memory index ./docs/
-jarvis memory index ./notes.md
-jarvis memory index ./data/ --chunk-size 256 --chunk-overlap 32
-jarvis memory index ./docs/ --backend sqlite
+friday memory index ./docs/
+friday memory index ./notes.md
+friday memory index ./data/ --chunk-size 256 --chunk-overlap 32
+friday memory index ./docs/ --backend sqlite
 ```
 
 | Option                      | Type   | Default | Description                          |
@@ -296,14 +296,14 @@ jarvis memory index ./docs/ --backend sqlite
 
 The ingestion pipeline supports text, markdown, code files, and PDF (with `pdfplumber` installed). Binary files and hidden directories are automatically skipped.
 
-### `jarvis memory search <query>`
+### `friday memory search <query>`
 
 Search the memory store for relevant document chunks.
 
 ```bash
-jarvis memory search "machine learning basics"
-jarvis memory search -k 10 "neural networks"
-jarvis memory search --backend faiss "embeddings"
+friday memory search "machine learning basics"
+friday memory search -k 10 "neural networks"
+friday memory search --backend faiss "embeddings"
 ```
 
 | Option             | Type   | Default | Description                          |
@@ -313,13 +313,13 @@ jarvis memory search --backend faiss "embeddings"
 
 Results are displayed in a table with rank, score, source file, and a content preview.
 
-### `jarvis memory stats`
+### `friday memory stats`
 
 Show memory store statistics including document count and database size.
 
 ```bash
-jarvis memory stats
-jarvis memory stats --backend sqlite
+friday memory stats
+friday memory stats --backend sqlite
 ```
 
 | Option             | Type   | Default | Description                          |
@@ -328,32 +328,32 @@ jarvis memory stats --backend sqlite
 
 ---
 
-## `jarvis telemetry`
+## `friday telemetry`
 
 Query and manage inference telemetry data stored in SQLite.
 
-### `jarvis telemetry stats`
+### `friday telemetry stats`
 
 Show aggregated telemetry statistics including total calls, tokens, cost, and latency, broken down by model and engine.
 
 ```bash
-jarvis telemetry stats
-jarvis telemetry stats -n 5    # Show top 5 models
+friday telemetry stats
+friday telemetry stats -n 5    # Show top 5 models
 ```
 
 | Option          | Type | Default | Description                   |
 |-----------------|------|---------|-------------------------------|
 | `-n`, `--top`   | int  | `10`    | Number of top models to show  |
 
-### `jarvis telemetry export`
+### `friday telemetry export`
 
 Export raw telemetry records in JSON or CSV format.
 
 ```bash
-jarvis telemetry export                          # JSON to stdout
-jarvis telemetry export --format csv             # CSV to stdout
-jarvis telemetry export --format json -o data.json  # JSON to file
-jarvis telemetry export -f csv -o metrics.csv    # CSV to file
+friday telemetry export                          # JSON to stdout
+friday telemetry export --format csv             # CSV to stdout
+friday telemetry export --format json -o data.json  # JSON to file
+friday telemetry export -f csv -o metrics.csv    # CSV to file
 ```
 
 | Option                | Type   | Default  | Description                     |
@@ -361,13 +361,13 @@ jarvis telemetry export -f csv -o metrics.csv    # CSV to file
 | `-f`, `--format`      | choice | `json`   | Output format: `json` or `csv`  |
 | `-o`, `--output`      | path   | stdout   | Output file path                |
 
-### `jarvis telemetry clear`
+### `friday telemetry clear`
 
 Delete all telemetry records from the database.
 
 ```bash
-jarvis telemetry clear         # Interactive confirmation
-jarvis telemetry clear --yes   # Skip confirmation
+friday telemetry clear         # Interactive confirmation
+friday telemetry clear --yes   # Skip confirmation
 ```
 
 | Option         | Type | Default | Description                   |
@@ -379,21 +379,21 @@ jarvis telemetry clear --yes   # Skip confirmation
 
 ---
 
-## `jarvis bench`
+## `friday bench`
 
 Run inference benchmarks against a running engine.
 
-### `jarvis bench run`
+### `friday bench run`
 
 Execute benchmarks and report results.
 
 ```bash
-jarvis bench run                               # Run all benchmarks, 10 samples
-jarvis bench run -n 20                         # 20 samples per benchmark
-jarvis bench run -b latency                    # Only the latency benchmark
-jarvis bench run -b throughput -n 50 --json    # Throughput, 50 samples, JSON output
-jarvis bench run -o results.jsonl              # Write JSONL results to file
-jarvis bench run -m qwen3:8b -e ollama         # Specific model and engine
+friday bench run                               # Run all benchmarks, 10 samples
+friday bench run -n 20                         # 20 samples per benchmark
+friday bench run -b latency                    # Only the latency benchmark
+friday bench run -b throughput -n 50 --json    # Throughput, 50 samples, JSON output
+friday bench run -o results.jsonl              # Write JSONL results to file
+friday bench run -m qwen3:8b -e ollama         # Specific model and engine
 ```
 
 | Option                     | Type   | Default | Description                              |
@@ -412,25 +412,25 @@ Available benchmarks:
 
 ---
 
-## `jarvis channel`
+## `friday channel`
 
 Manage messaging channels for multi-platform communication. Channels connect directly to platform APIs (Telegram, Discord, Slack, etc.) -- no gateway required.
 
-### `jarvis channel list`
+### `friday channel list`
 
 List registered channel backends and their connection status.
 
 ```bash
-jarvis channel list
+friday channel list
 ```
 
-### `jarvis channel send`
+### `friday channel send`
 
 Send a message to a specific channel.
 
 ```bash
-jarvis channel send slack "Hello from Jarvis!"
-jarvis channel send discord "Build complete"
+friday channel send slack "Hello from Friday!"
+friday channel send discord "Build complete"
 ```
 
 | Argument    | Type   | Description                          |
@@ -438,12 +438,12 @@ jarvis channel send discord "Build complete"
 | `TARGET`    | string | Channel name to send to              |
 | `MESSAGE`   | string | Message content                      |
 
-### `jarvis channel status`
+### `friday channel status`
 
 Show connection status for configured channels.
 
 ```bash
-jarvis channel status
+friday channel status
 ```
 
 !!! note "Channel Dependencies"
@@ -451,16 +451,16 @@ jarvis channel status
 
 ---
 
-## `jarvis serve`
+## `friday serve`
 
 Start an OpenAI-compatible API server.
 
 ```bash
-jarvis serve                                 # Default host/port from config
-jarvis serve --port 8000                     # Custom port
-jarvis serve --host 0.0.0.0 --port 9000      # Bind to all interfaces
-jarvis serve --model qwen3:8b                # Specify default model
-jarvis serve --agent orchestrator            # Route requests through an agent
+friday serve                                 # Default host/port from config
+friday serve --port 8000                     # Custom port
+friday serve --host 0.0.0.0 --port 9000      # Bind to all interfaces
+friday serve --model qwen3:8b                # Specify default model
+friday serve --agent orchestrator            # Route requests through an agent
 ```
 
 | Option                   | Type   | Default | Description                              |
@@ -512,10 +512,10 @@ When an agent is configured (e.g., `--agent orchestrator`), non-streaming reques
 
 LLM-guided spec search (the frontier-driven harness-learning subsystem)
 is exposed as a Python library only — there is currently no top-level
-`jarvis` subcommand for it. Construct a `SpecSearchOrchestrator`
-directly from `openjarvis.learning.spec_search.orchestrator` and call
+`friday` subcommand for it. Construct a `SpecSearchOrchestrator`
+directly from `friday_ai.learning.spec_search.orchestrator` and call
 `.run(trigger)` with a trigger from
-`openjarvis.learning.spec_search.triggers`. See
+`friday_ai.learning.spec_search.triggers`. See
 [`docs/user-guide/llm-guided-spec-search.md`](llm-guided-spec-search.md)
 for the architecture and the building blocks
 (`splits.py`, external corpora, `external_adapter`).

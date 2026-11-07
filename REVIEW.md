@@ -1,6 +1,6 @@
-# OpenJarvis PR Review Instructions
+# FridayAI PR Review Instructions
 
-You are reviewing pull requests for OpenJarvis, a local-first personal AI agent framework built with Python, Rust (PyO3), and TypeScript.
+You are reviewing pull requests for FridayAI, a local-first personal AI agent framework built with Python, Rust (PyO3), and TypeScript.
 
 ## Review Checklist
 
@@ -16,9 +16,9 @@ Does the code actually implement what the PR title and description claim? If the
 Check for logic errors, edge cases, and off-by-one errors. Pay particular attention to:
 - **Rust-Python bridge (PyO3) boundaries** — type conversions, error propagation, GIL handling
 - **Async/await patterns** — missing awaits, unclosed resources, blocking calls in async contexts
-- **Registry pattern compliance** — new components (engines, tools, agents, channels) must register via `ToolRegistry`, `EngineRegistry`, `AgentRegistry`, `ChannelRegistry`, etc. in `src/openjarvis/core/registry.py`
+- **Registry pattern compliance** — new components (engines, tools, agents, channels) must register via `ToolRegistry`, `EngineRegistry`, `AgentRegistry`, `ChannelRegistry`, etc. in `src/friday_ai/core/registry.py`
 - **Mining provider compliance** — new mining providers must register via `MinerRegistry` and expose an idempotent `ensure_registered()` for the autouse-clear test convention
-- **Event bus integration** — new lifecycle events should use `EventBus` from `src/openjarvis/core/events.py`
+- **Event bus integration** — new lifecycle events should use `EventBus` from `src/friday_ai/core/events.py`
 
 ### 4. Testing
 Does the PR include tests for new code paths? Are existing tests expected to still pass? New tools, engines, agents, and channels should have corresponding test files in `tests/` mirroring the `src/` structure.

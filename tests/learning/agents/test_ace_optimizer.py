@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 class TestACEOptimizerConfig:
     def test_default_config(self) -> None:
-        from openjarvis.core.config import ACEOptimizerConfig
+        from friday_ai.core.config import ACEOptimizerConfig
 
         cfg = ACEOptimizerConfig()
         assert cfg.api_provider == "openai"
@@ -18,8 +18,8 @@ class TestACEOptimizerConfig:
         assert cfg.min_traces == 20
 
     def test_optimizer_init(self) -> None:
-        from openjarvis.core.config import ACEOptimizerConfig
-        from openjarvis.learning.agents.ace_optimizer import ACEAgentOptimizer
+        from friday_ai.core.config import ACEOptimizerConfig
+        from friday_ai.learning.agents.ace_optimizer import ACEAgentOptimizer
 
         cfg = ACEOptimizerConfig()
         optimizer = ACEAgentOptimizer(cfg)
@@ -28,20 +28,20 @@ class TestACEOptimizerConfig:
 
 class TestTraceDataProcessor:
     def test_answer_is_correct_substring_match(self) -> None:
-        from openjarvis.learning.agents.ace_optimizer import _TraceDataProcessor
+        from friday_ai.learning.agents.ace_optimizer import _TraceDataProcessor
 
         assert _TraceDataProcessor.answer_is_correct("the answer is 42", "42")
         assert _TraceDataProcessor.answer_is_correct("FORTY-TWO is right", "forty-two")
         assert not _TraceDataProcessor.answer_is_correct("twelve", "42")
 
     def test_empty_ground_truth_is_never_correct(self) -> None:
-        from openjarvis.learning.agents.ace_optimizer import _TraceDataProcessor
+        from friday_ai.learning.agents.ace_optimizer import _TraceDataProcessor
 
         assert not _TraceDataProcessor.answer_is_correct("anything", "")
         assert not _TraceDataProcessor.answer_is_correct("", "")
 
     def test_evaluate_accuracy_mean_of_correctness(self) -> None:
-        from openjarvis.learning.agents.ace_optimizer import _TraceDataProcessor
+        from friday_ai.learning.agents.ace_optimizer import _TraceDataProcessor
 
         preds = ["the answer is 1", "wrong", "the answer is 3"]
         truths = ["1", "2", "3"]
@@ -49,14 +49,14 @@ class TestTraceDataProcessor:
         assert _TraceDataProcessor.evaluate_accuracy(preds, truths) == 2 / 3
 
     def test_evaluate_accuracy_empty_returns_zero(self) -> None:
-        from openjarvis.learning.agents.ace_optimizer import _TraceDataProcessor
+        from friday_ai.learning.agents.ace_optimizer import _TraceDataProcessor
 
         assert _TraceDataProcessor.evaluate_accuracy([], []) == 0.0
 
 
 class TestSplitSamples:
     def test_70_15_15_split(self) -> None:
-        from openjarvis.learning.agents.ace_optimizer import _split_samples
+        from friday_ai.learning.agents.ace_optimizer import _split_samples
 
         samples = [{"i": i} for i in range(100)]
         train, val, test = _split_samples(samples)
@@ -65,7 +65,7 @@ class TestSplitSamples:
         assert len(test) == 15
 
     def test_split_is_order_preserving(self) -> None:
-        from openjarvis.learning.agents.ace_optimizer import _split_samples
+        from friday_ai.learning.agents.ace_optimizer import _split_samples
 
         samples = [{"i": i} for i in range(20)]
         train, val, test = _split_samples(samples)
@@ -76,7 +76,7 @@ class TestSplitSamples:
 
 class TestTracesToSamples:
     def test_drops_empty_query_or_result(self) -> None:
-        from openjarvis.learning.agents.ace_optimizer import _traces_to_samples
+        from friday_ai.learning.agents.ace_optimizer import _traces_to_samples
 
         traces = [
             MagicMock(query="What is 2+2?", result="4"),
@@ -100,8 +100,8 @@ class TestACEOptimizerOptimize:
         return store
 
     def test_too_few_traces_skipped(self) -> None:
-        from openjarvis.core.config import ACEOptimizerConfig
-        from openjarvis.learning.agents.ace_optimizer import ACEAgentOptimizer
+        from friday_ai.core.config import ACEOptimizerConfig
+        from friday_ai.learning.agents.ace_optimizer import ACEAgentOptimizer
 
         cfg = ACEOptimizerConfig(min_traces=20)
         result = ACEAgentOptimizer(cfg).optimize(self._store_with(5))
@@ -109,8 +109,8 @@ class TestACEOptimizerOptimize:
         assert "5 traces" in result["reason"]
 
     def test_missing_ace_dep_returns_error(self) -> None:
-        from openjarvis.core.config import ACEOptimizerConfig
-        from openjarvis.learning.agents import ace_optimizer
+        from friday_ai.core.config import ACEOptimizerConfig
+        from friday_ai.learning.agents import ace_optimizer
 
         with patch.object(ace_optimizer, "HAS_ACE", False):
             cfg = ACEOptimizerConfig(min_traces=5)
@@ -120,8 +120,8 @@ class TestACEOptimizerOptimize:
 
     def test_filters_to_usable_samples(self) -> None:
         """If filtering trims samples below min_traces, skip cleanly."""
-        from openjarvis.core.config import ACEOptimizerConfig
-        from openjarvis.learning.agents import ace_optimizer
+        from friday_ai.core.config import ACEOptimizerConfig
+        from friday_ai.learning.agents import ace_optimizer
 
         # 20 traces but only 3 have both query+result populated
         store = MagicMock()
@@ -136,8 +136,8 @@ class TestACEOptimizerOptimize:
         assert "3 usable samples" in result["reason"]
 
     def test_successful_run_returns_playbook_metadata(self, tmp_path: Path) -> None:
-        from openjarvis.core.config import ACEOptimizerConfig
-        from openjarvis.learning.agents import ace_optimizer
+        from friday_ai.core.config import ACEOptimizerConfig
+        from friday_ai.learning.agents import ace_optimizer
 
         # Stub ACE: a class whose .run() writes final_playbook.txt.
         playbook_text = "## STRATEGIES\n[str-00001] helpful=5 :: be concise"
@@ -171,8 +171,8 @@ class TestACEOptimizerOptimize:
         self, tmp_path: Path
     ) -> None:
         """ACE returns but doesn't write final_playbook.txt → surface error."""
-        from openjarvis.core.config import ACEOptimizerConfig
-        from openjarvis.learning.agents import ace_optimizer
+        from friday_ai.core.config import ACEOptimizerConfig
+        from friday_ai.learning.agents import ace_optimizer
 
         class _SilentACE:
             def __init__(self, **kwargs):
@@ -195,8 +195,8 @@ class TestACEOptimizerOptimize:
         assert "without writing" in result["reason"]
 
     def test_ace_raises_returns_error(self, tmp_path: Path) -> None:
-        from openjarvis.core.config import ACEOptimizerConfig
-        from openjarvis.learning.agents import ace_optimizer
+        from friday_ai.core.config import ACEOptimizerConfig
+        from friday_ai.learning.agents import ace_optimizer
 
         class _BoomACE:
             def __init__(self, **kwargs):

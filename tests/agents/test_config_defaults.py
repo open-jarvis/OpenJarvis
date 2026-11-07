@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from openjarvis.agents._stubs import AgentResult, BaseAgent, ToolUsingAgent
+from friday_ai.agents._stubs import AgentResult, BaseAgent, ToolUsingAgent
 
 
 class _TestAgent(BaseAgent):
@@ -39,7 +39,7 @@ class TestBaseAgentConfigResolution:
     def test_none_temperature_reads_config(self):
         """When temperature is not passed, it should come from config."""
         engine = MagicMock()
-        with patch("openjarvis.agents._stubs.load_config") as mock_cfg:
+        with patch("friday_ai.agents._stubs.load_config") as mock_cfg:
             mock_cfg.return_value.intelligence.temperature = 0.2
             mock_cfg.return_value.intelligence.max_tokens = 512
             agent = _TestAgent(engine, "m")
@@ -48,7 +48,7 @@ class TestBaseAgentConfigResolution:
     def test_none_max_tokens_reads_config(self):
         """When max_tokens is not passed, it should come from config."""
         engine = MagicMock()
-        with patch("openjarvis.agents._stubs.load_config") as mock_cfg:
+        with patch("friday_ai.agents._stubs.load_config") as mock_cfg:
             mock_cfg.return_value.intelligence.temperature = 0.7
             mock_cfg.return_value.intelligence.max_tokens = 512
             agent = _TestAgent(engine, "m")
@@ -69,7 +69,7 @@ class TestBaseAgentConfigResolution:
     def test_partial_override_temperature_only(self):
         """Providing only temperature still reads max_tokens from config."""
         engine = MagicMock()
-        with patch("openjarvis.agents._stubs.load_config") as mock_cfg:
+        with patch("friday_ai.agents._stubs.load_config") as mock_cfg:
             mock_cfg.return_value.intelligence.temperature = 0.2
             mock_cfg.return_value.intelligence.max_tokens = 512
             agent = _TestAgent(engine, "m", temperature=0.9)
@@ -80,7 +80,7 @@ class TestBaseAgentConfigResolution:
         """When config loading fails, fall back to class defaults then 0.7/1024."""
         engine = MagicMock()
         with patch(
-            "openjarvis.agents._stubs.load_config",
+            "friday_ai.agents._stubs.load_config",
             side_effect=Exception("boom"),
         ):
             agent = _TestAgent(engine, "m")
@@ -94,7 +94,7 @@ class TestToolUsingAgentConfigResolution:
     def test_none_max_turns_reads_config(self):
         """When max_turns is not passed, it should come from config."""
         engine = MagicMock()
-        with patch("openjarvis.agents._stubs.load_config") as mock_cfg:
+        with patch("friday_ai.agents._stubs.load_config") as mock_cfg:
             mock_cfg.return_value.intelligence.temperature = 0.7
             mock_cfg.return_value.intelligence.max_tokens = 1024
             mock_cfg.return_value.agent.max_turns = 15
@@ -110,7 +110,7 @@ class TestToolUsingAgentConfigResolution:
     def test_temperature_and_max_tokens_forwarded_to_base(self):
         """ToolUsingAgent also resolves temperature/max_tokens from config."""
         engine = MagicMock()
-        with patch("openjarvis.agents._stubs.load_config") as mock_cfg:
+        with patch("friday_ai.agents._stubs.load_config") as mock_cfg:
             mock_cfg.return_value.intelligence.temperature = 0.1
             mock_cfg.return_value.intelligence.max_tokens = 256
             mock_cfg.return_value.agent.max_turns = 10
@@ -122,7 +122,7 @@ class TestToolUsingAgentConfigResolution:
         """When config loading fails, max_turns falls back to class default then 10."""
         engine = MagicMock()
         with patch(
-            "openjarvis.agents._stubs.load_config",
+            "friday_ai.agents._stubs.load_config",
             side_effect=Exception("boom"),
         ):
             agent = _TestToolAgent(engine, "m")
@@ -136,7 +136,7 @@ class TestClassLevelDefaults:
         """Agent class defaults are used when config is unavailable."""
         engine = MagicMock()
         with patch(
-            "openjarvis.agents._stubs.load_config",
+            "friday_ai.agents._stubs.load_config",
             side_effect=Exception("boom"),
         ):
             agent = _TestToolAgentWithDefaults(engine, "m")
@@ -147,7 +147,7 @@ class TestClassLevelDefaults:
     def test_config_overrides_class_default(self):
         """User config takes precedence over class-level defaults."""
         engine = MagicMock()
-        with patch("openjarvis.agents._stubs.load_config") as mock_cfg:
+        with patch("friday_ai.agents._stubs.load_config") as mock_cfg:
             mock_cfg.return_value.intelligence.temperature = 0.5
             mock_cfg.return_value.intelligence.max_tokens = 2048
             mock_cfg.return_value.agent.max_turns = 12

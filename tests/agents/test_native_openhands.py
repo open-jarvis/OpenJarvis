@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from openjarvis.agents._stubs import AgentContext
-from openjarvis.agents.native_openhands import NativeOpenHandsAgent
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.registry import AgentRegistry
-from openjarvis.core.types import Conversation, Message, Role, ToolCall, ToolResult
-from openjarvis.tools._stubs import BaseTool, ToolSpec
+from friday_ai.agents._stubs import AgentContext
+from friday_ai.agents.native_openhands import NativeOpenHandsAgent
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.registry import AgentRegistry
+from friday_ai.core.types import Conversation, Message, Role, ToolCall, ToolResult
+from friday_ai.tools._stubs import BaseTool, ToolSpec
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -579,8 +579,8 @@ class TestUrlExpansion:
     ):
         import httpx
 
-        from openjarvis.core.events import EventBus, EventType
-        from openjarvis.security.capabilities import CapabilityPolicy
+        from friday_ai.core.events import EventBus, EventType
+        from friday_ai.security.capabilities import CapabilityPolicy
 
         class _RecordingLimiter:
             def __init__(self):

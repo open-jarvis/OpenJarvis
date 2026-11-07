@@ -12,7 +12,7 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
-from openjarvis.speech._stubs import TranscriptionResult  # noqa: E402
+from friday_ai.speech._stubs import TranscriptionResult  # noqa: E402
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def mock_speech_backend():
 def app_with_speech(mock_speech_backend):
     from fastapi import FastAPI
 
-    from openjarvis.server.api_routes import speech_router
+    from friday_ai.server.api_routes import speech_router
 
     app = FastAPI()
     app.state.speech_backend = mock_speech_backend
@@ -70,7 +70,7 @@ def test_transcribe_endpoint_offloads_backend_work(client, mock_speech_backend):
     )
 
     with patch(
-        "openjarvis.server.api_routes.asyncio.to_thread",
+        "friday_ai.server.api_routes.asyncio.to_thread",
         new_callable=AsyncMock,
     ) as mock_to_thread:
         mock_to_thread.return_value = expected
@@ -130,7 +130,7 @@ def test_health_no_backend():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from openjarvis.server.api_routes import speech_router
+    from friday_ai.server.api_routes import speech_router
 
     app = FastAPI()
     app.state.speech_backend = None
@@ -150,7 +150,7 @@ def test_health_no_backend():
 
 @pytest.fixture
 def mock_tts_backend():
-    from openjarvis.speech.tts import TTSResult
+    from friday_ai.speech.tts import TTSResult
 
     backend = MagicMock()
     backend.backend_id = "mock_tts"
@@ -168,7 +168,7 @@ def mock_tts_backend():
 def _tts_app(backend, *, config=None):
     from fastapi import FastAPI
 
-    from openjarvis.server.api_routes import speech_router
+    from friday_ai.server.api_routes import speech_router
 
     app = FastAPI()
     app.include_router(speech_router)
@@ -182,7 +182,7 @@ def _tts_app(backend, *, config=None):
 def _unresolved_tts_app():
     from fastapi import FastAPI
 
-    from openjarvis.server.api_routes import speech_router
+    from friday_ai.server.api_routes import speech_router
 
     app = FastAPI()
     app.include_router(speech_router)
@@ -230,7 +230,7 @@ def test_synthesize_rejects_empty_text(mock_tts_backend):
 
 
 def test_synthesize_rejects_oversized_text(mock_tts_backend):
-    from openjarvis.server.api_routes import _MAX_TTS_CHARS
+    from friday_ai.server.api_routes import _MAX_TTS_CHARS
 
     client = _tts_app(mock_tts_backend)
 
@@ -261,13 +261,13 @@ def test_synthesize_surfaces_backend_failure(mock_tts_backend):
 
 
 def test_synthesize_offloads_backend_work(mock_tts_backend):
-    from openjarvis.speech.tts import TTSResult
+    from friday_ai.speech.tts import TTSResult
 
     client = _tts_app(mock_tts_backend)
     expected = TTSResult(audio=b"RIFFoffloaded", format="wav", sample_rate=22050)
 
     with patch(
-        "openjarvis.server.api_routes.asyncio.to_thread",
+        "friday_ai.server.api_routes.asyncio.to_thread",
         new_callable=AsyncMock,
         return_value=expected,
     ) as to_thread:
@@ -300,7 +300,7 @@ def test_tts_health_retries_after_unavailable(mock_tts_backend):
     client = TestClient(app)
 
     with patch(
-        "openjarvis.speech._tts_discovery.get_tts_backend",
+        "friday_ai.speech._tts_discovery.get_tts_backend",
         side_effect=[None, mock_tts_backend],
     ) as discover:
         assert client.get("/v1/speech/tts/health").json()["available"] is False
@@ -319,7 +319,7 @@ async def test_concurrent_tts_health_requests_share_resolution(mock_tts_backend)
         return mock_tts_backend
 
     with patch(
-        "openjarvis.speech._tts_discovery.get_tts_backend", side_effect=discover
+        "friday_ai.speech._tts_discovery.get_tts_backend", side_effect=discover
     ) as mock_discover:
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
@@ -344,7 +344,7 @@ async def test_concurrent_unavailable_probes_share_attempt_then_retry(mock_tts_b
         return None if attempts == 1 else mock_tts_backend
 
     with patch(
-        "openjarvis.speech._tts_discovery.get_tts_backend", side_effect=discover
+        "friday_ai.speech._tts_discovery.get_tts_backend", side_effect=discover
     ):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
@@ -362,7 +362,7 @@ async def test_concurrent_unavailable_probes_share_attempt_then_retry(mock_tts_b
 def test_invalid_synthesis_does_not_load_tts_backend():
     client = TestClient(_unresolved_tts_app())
 
-    with patch("openjarvis.speech._tts_discovery.get_tts_backend") as discover:
+    with patch("friday_ai.speech._tts_discovery.get_tts_backend") as discover:
         response = client.post("/v1/speech/synthesize", json={"text": "  "})
 
     assert response.status_code == 400

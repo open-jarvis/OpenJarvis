@@ -45,7 +45,7 @@ def _make_fake_pynvml(device_count: int = 1, power_mw: int = 300_000):
 
 def _snap(power=300, util=80, mem=12, temp=65, dev=0):
     """Shorthand to build a GpuSnapshot."""
-    from openjarvis.telemetry.gpu_monitor import GpuSnapshot
+    from friday_ai.telemetry.gpu_monitor import GpuSnapshot
 
     return GpuSnapshot(
         power_watts=power,
@@ -63,7 +63,7 @@ def _snap(power=300, util=80, mem=12, temp=65, dev=0):
 
 class TestGpuHardwareSpec:
     def test_lookup_exact_key(self):
-        from openjarvis.telemetry.gpu_monitor import lookup_gpu_spec
+        from friday_ai.telemetry.gpu_monitor import lookup_gpu_spec
 
         spec = lookup_gpu_spec("A100-SXM")
         assert spec is not None
@@ -72,26 +72,26 @@ class TestGpuHardwareSpec:
         assert spec.tdp_watts == 400
 
     def test_lookup_substring_match(self):
-        from openjarvis.telemetry.gpu_monitor import lookup_gpu_spec
+        from friday_ai.telemetry.gpu_monitor import lookup_gpu_spec
 
         spec = lookup_gpu_spec("NVIDIA H100-SXM 80GB")
         assert spec is not None
         assert spec.tflops_fp16 == 990
 
     def test_lookup_case_insensitive(self):
-        from openjarvis.telemetry.gpu_monitor import lookup_gpu_spec
+        from friday_ai.telemetry.gpu_monitor import lookup_gpu_spec
 
         spec = lookup_gpu_spec("nvidia rtx 4090")
         assert spec is not None
         assert spec.tflops_fp16 == 165
 
     def test_lookup_unknown_returns_none(self):
-        from openjarvis.telemetry.gpu_monitor import lookup_gpu_spec
+        from friday_ai.telemetry.gpu_monitor import lookup_gpu_spec
 
         assert lookup_gpu_spec("SOME-UNKNOWN-GPU-9999") is None
 
     def test_all_specs_present(self):
-        from openjarvis.telemetry.gpu_monitor import GPU_SPECS
+        from friday_ai.telemetry.gpu_monitor import GPU_SPECS
 
         expected = {
             "B200-SXM",
@@ -118,7 +118,7 @@ class TestGpuHardwareSpec:
         assert set(GPU_SPECS.keys()) == expected
 
     def test_spec_is_frozen(self):
-        from openjarvis.telemetry.gpu_monitor import GPU_SPECS
+        from friday_ai.telemetry.gpu_monitor import GPU_SPECS
 
         spec = GPU_SPECS["A100-SXM"]
         with pytest.raises(AttributeError):
@@ -133,7 +133,7 @@ class TestGpuHardwareSpec:
 class TestEnergyIntegration:
     def test_constant_power(self):
         """Constant 300W for 10 seconds = 3000 J."""
-        from openjarvis.telemetry.gpu_monitor import GpuMonitor
+        from friday_ai.telemetry.gpu_monitor import GpuMonitor
 
         snapshots = [[_snap(power=300)] for _ in range(11)]
         timestamps = [float(i) for i in range(11)]
@@ -146,7 +146,7 @@ class TestEnergyIntegration:
 
     def test_linear_ramp(self):
         """Linear ramp 0W..400W over 4s => 800 J (trapezoidal)."""
-        from openjarvis.telemetry.gpu_monitor import GpuMonitor
+        from friday_ai.telemetry.gpu_monitor import GpuMonitor
 
         snapshots = [
             [_snap(power=100.0 * i, util=50, mem=8, temp=60)] for i in range(5)
@@ -159,7 +159,7 @@ class TestEnergyIntegration:
 
     def test_empty_snapshots(self):
         """No snapshots yields zeroed sample."""
-        from openjarvis.telemetry.gpu_monitor import GpuMonitor
+        from friday_ai.telemetry.gpu_monitor import GpuMonitor
 
         sample = GpuMonitor._aggregate([], [], wall_duration=5.0)
         assert sample.energy_joules == 0.0
@@ -168,7 +168,7 @@ class TestEnergyIntegration:
 
     def test_single_snapshot(self):
         """One snapshot: energy is zero (no interval)."""
-        from openjarvis.telemetry.gpu_monitor import GpuMonitor
+        from friday_ai.telemetry.gpu_monitor import GpuMonitor
 
         snapshots = [[_snap(power=250, util=90, mem=16, temp=70)]]
         timestamps = [0.0]
@@ -185,7 +185,7 @@ class TestEnergyIntegration:
 
 class TestGpuSampleAggregation:
     def test_peak_values(self):
-        from openjarvis.telemetry.gpu_monitor import GpuMonitor
+        from friday_ai.telemetry.gpu_monitor import GpuMonitor
 
         snapshots = [
             [_snap(power=200, util=60, mem=10, temp=55)],
@@ -200,7 +200,7 @@ class TestGpuSampleAggregation:
         assert sample.peak_temperature_c == pytest.approx(80.0)
 
     def test_mean_values(self):
-        from openjarvis.telemetry.gpu_monitor import GpuMonitor
+        from friday_ai.telemetry.gpu_monitor import GpuMonitor
 
         snapshots = [
             [_snap(power=100, util=40, mem=8, temp=50)],
@@ -223,7 +223,7 @@ class TestGpuSampleAggregation:
 class TestMultiGpu:
     def test_multi_device_power_sum(self):
         """Power summed across devices; util/temp averaged."""
-        from openjarvis.telemetry.gpu_monitor import GpuMonitor
+        from friday_ai.telemetry.gpu_monitor import GpuMonitor
 
         tick = [
             _snap(power=200, util=80, mem=10, temp=60, dev=0),
@@ -240,7 +240,7 @@ class TestMultiGpu:
 
     def test_multi_device_varying_power(self):
         """Multi-GPU with varying power over time."""
-        from openjarvis.telemetry.gpu_monitor import GpuMonitor
+        from friday_ai.telemetry.gpu_monitor import GpuMonitor
 
         snapshots = [
             [
@@ -269,7 +269,7 @@ class TestContextManager:
         """sample() starts/stops polling and populates result."""
         fake_pynvml = _make_fake_pynvml(device_count=1, power_mw=300_000)
 
-        import openjarvis.telemetry.gpu_monitor as mod
+        import friday_ai.telemetry.gpu_monitor as mod
 
         orig_avail = mod._PYNVML_AVAILABLE
         orig_pynvml = getattr(mod, "pynvml", None)
@@ -292,7 +292,7 @@ class TestContextManager:
 
     def test_sample_no_gpu(self):
         """sample() yields empty GpuSample when no GPU."""
-        from openjarvis.telemetry.gpu_monitor import GpuMonitor
+        from friday_ai.telemetry.gpu_monitor import GpuMonitor
 
         monitor = GpuMonitor.__new__(GpuMonitor)
         monitor._poll_interval_s = 0.05
@@ -314,7 +314,7 @@ class TestContextManager:
 class TestAvailable:
     def test_available_false_when_pynvml_missing(self):
         """available() returns False when pynvml not importable."""
-        import openjarvis.telemetry.gpu_monitor as mod
+        import friday_ai.telemetry.gpu_monitor as mod
 
         orig = mod._PYNVML_AVAILABLE
         mod._PYNVML_AVAILABLE = False
@@ -327,7 +327,7 @@ class TestAvailable:
         """available() returns True when pynvml can init."""
         fake_pynvml = _make_fake_pynvml()
         with patch.dict(sys.modules, {"pynvml": fake_pynvml}):
-            import openjarvis.telemetry.gpu_monitor as mod
+            import friday_ai.telemetry.gpu_monitor as mod
 
             orig = mod._PYNVML_AVAILABLE
             mod._PYNVML_AVAILABLE = True
@@ -344,7 +344,7 @@ class TestAvailable:
         fake_pynvml = _make_fake_pynvml()
         fake_pynvml.nvmlInit.side_effect = RuntimeError("no driver")
         with patch.dict(sys.modules, {"pynvml": fake_pynvml}):
-            import openjarvis.telemetry.gpu_monitor as mod
+            import friday_ai.telemetry.gpu_monitor as mod
 
             orig = mod._PYNVML_AVAILABLE
             mod._PYNVML_AVAILABLE = True
@@ -362,7 +362,7 @@ class TestAvailable:
 
 class TestDataclasses:
     def test_gpu_snapshot_defaults(self):
-        from openjarvis.telemetry.gpu_monitor import GpuSnapshot
+        from friday_ai.telemetry.gpu_monitor import GpuSnapshot
 
         s = GpuSnapshot(
             power_watts=300,
@@ -373,7 +373,7 @@ class TestDataclasses:
         assert s.device_id == 0
 
     def test_gpu_sample_defaults(self):
-        from openjarvis.telemetry.gpu_monitor import GpuSample
+        from friday_ai.telemetry.gpu_monitor import GpuSample
 
         s = GpuSample()
         assert s.energy_joules == 0.0

@@ -1,6 +1,6 @@
 # Channels
 
-The channels module lets OpenJarvis send and receive messages through external messaging platforms. Each platform has a dedicated channel implementation that connects directly to the platform's API -- there is no intermediate gateway.
+The channels module lets FridayAI send and receive messages through external messaging platforms. Each platform has a dedicated channel implementation that connects directly to the platform's API -- there is no intermediate gateway.
 
 !!! note "Channels are disabled by default"
     The `[channel]` config section defaults to `enabled = false`. You must set `enabled = true` and configure platform-specific credentials before channel features become active.
@@ -60,7 +60,7 @@ graph LR
 ### Connecting
 
 ```python title="connect.py"
-from openjarvis.channels.telegram import TelegramChannel
+from friday_ai.channels.telegram import TelegramChannel
 
 channel = TelegramChannel(
     bot_token="YOUR_BOT_TOKEN",  # (1)!
@@ -75,7 +75,7 @@ print(channel.status())  # ChannelStatus.CONNECTED
 ### Sending Messages
 
 ```python title="send_message.py"
-from openjarvis.channels.telegram import TelegramChannel
+from friday_ai.channels.telegram import TelegramChannel
 
 channel = TelegramChannel()
 channel.connect()
@@ -100,8 +100,8 @@ channel.disconnect()
 Register handler callbacks before calling `connect()`. Each handler receives a `ChannelMessage` and can optionally return a reply string.
 
 ```python title="receive_messages.py"
-from openjarvis.channels._stubs import ChannelMessage
-from openjarvis.channels.discord_channel import DiscordChannel
+from friday_ai.channels._stubs import ChannelMessage
+from friday_ai.channels.discord_channel import DiscordChannel
 
 channel = DiscordChannel()
 
@@ -125,7 +125,7 @@ channel.connect()                    # (2)!
 ### Listing Available Channels
 
 ```python title="list_channels.py"
-from openjarvis.channels.slack import SlackChannel
+from friday_ai.channels.slack import SlackChannel
 
 channel = SlackChannel()
 channel.connect()
@@ -164,8 +164,8 @@ Every incoming message is delivered to handlers as a `ChannelMessage` dataclass.
 Pass an `EventBus` to publish channel events to the rest of the system:
 
 ```python title="channel_events.py"
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.channels.telegram import TelegramChannel
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.channels.telegram import TelegramChannel
 
 bus = EventBus()
 
@@ -194,32 +194,32 @@ channel.connect()
 
 ## CLI Commands
 
-The `jarvis channel` subcommand group provides quick access to channel operations.
+The `friday channel` subcommand group provides quick access to channel operations.
 
 ### List Channels
 
 ```bash
-jarvis channel list
+friday channel list
 ```
 
 ### Send a Message
 
 ```bash
 # Send to a channel by name
-jarvis channel send telegram "Build completed successfully"
+friday channel send telegram "Build completed successfully"
 ```
 
 ### Show Status
 
 ```bash
-jarvis channel status
+friday channel status
 ```
 
 ---
 
 ## API Server Endpoints
 
-When `jarvis serve` is running, three channel endpoints are available. Channels must be configured and enabled in `[channel]` for these endpoints to return data.
+When `friday serve` is running, three channel endpoints are available. Channels must be configured and enabled in `[channel]` for these endpoints to return data.
 
 ### `GET /v1/channels`
 
@@ -275,9 +275,9 @@ Possible values: `connected`, `disconnected`, `connecting`, `error`, `not_config
 
 ## Configuration
 
-Channel settings live in the `[channel]` section of `~/.openjarvis/config.toml`. Each platform has its own nested sub-section.
+Channel settings live in the `[channel]` section of `~/.friday_ai/config.toml`. Each platform has its own nested sub-section.
 
-```toml title="~/.openjarvis/config.toml"
+```toml title="~/.friday_ai/config.toml"
 [channel]
 enabled = true
 default_channel = ""
@@ -312,9 +312,9 @@ This example connects a Telegram channel, registers a handler that echoes messag
 
 ```python title="full_example.py"
 import time
-from openjarvis.channels._stubs import ChannelMessage
-from openjarvis.channels.telegram import TelegramChannel
-from openjarvis.core.events import EventBus
+from friday_ai.channels._stubs import ChannelMessage
+from friday_ai.channels.telegram import TelegramChannel
+from friday_ai.core.events import EventBus
 
 bus = EventBus()
 channel = TelegramChannel(
@@ -339,7 +339,7 @@ print(f"Available channels: {channels}")
 
 # Send a message
 if channels:
-    channel.send(channels[0], "Hello from OpenJarvis!")
+    channel.send(channels[0], "Hello from FridayAI!")
 
 # Wait for incoming messages
 time.sleep(10)
@@ -357,12 +357,12 @@ print(f"Total messages received: {len(received_messages)}")
 ### How It Works
 
 ```
-Your phone  ──text──▶  SendBlue  ──webhook──▶  ngrok tunnel  ──▶  OpenJarvis
+Your phone  ──text──▶  SendBlue  ──webhook──▶  ngrok tunnel  ──▶  FridayAI
                                                                        │
 Your phone  ◀──iMessage──  SendBlue  ◀──API call──  DeepResearch agent ◀┘
 ```
 
-When someone texts the SendBlue number, SendBlue POSTs the message to your webhook. OpenJarvis sends an immediate "Message received!" acknowledgment, runs the DeepResearch agent, and sends the response back via iMessage.
+When someone texts the SendBlue number, SendBlue POSTs the message to your webhook. FridayAI sends an immediate "Message received!" acknowledgment, runs the DeepResearch agent, and sends the response back via iMessage.
 
 ### Setup (Browser UI)
 
@@ -378,7 +378,7 @@ The easiest way is through the Agents UI:
 
 ### Tunnel Setup (Required)
 
-Since OpenJarvis runs locally, you need a tunnel so SendBlue can reach your webhook:
+Since FridayAI runs locally, you need a tunnel so SendBlue can reach your webhook:
 
 ```bash
 # Install ngrok (one time)
@@ -416,7 +416,7 @@ To get a dedicated number, upgrade to a paid SendBlue plan.
 ### Programmatic Setup
 
 ```python title="sendblue_setup.py"
-from openjarvis.channels.sendblue import SendBlueChannel
+from friday_ai.channels.sendblue import SendBlueChannel
 
 channel = SendBlueChannel(
     api_key_id="YOUR_API_KEY_ID",         # or SENDBLUE_API_KEY_ID env var
@@ -426,7 +426,7 @@ channel = SendBlueChannel(
 channel.connect()
 
 # Send a message
-ok = channel.send("+15551234567", "Hello from OpenJarvis!")
+ok = channel.send("+15551234567", "Hello from FridayAI!")
 ```
 
 ### Webhook Endpoint
@@ -450,7 +450,7 @@ The server exposes `POST /webhooks/sendblue` which:
 
 ### Configuration
 
-```toml title="~/.openjarvis/config.toml"
+```toml title="~/.friday_ai/config.toml"
 [channel.sendblue]
 api_key_id = "YOUR_API_KEY_ID"
 api_secret_key = "YOUR_API_SECRET_KEY"
@@ -466,15 +466,15 @@ export SENDBLUE_API_SECRET_KEY="your_secret"
 export SENDBLUE_FROM_NUMBER="+16452468235"
 
 # Check channel status
-jarvis channel status --channel-type sendblue
+friday channel status --channel-type sendblue
 
 # Send a message
-jarvis channel send sendblue "+15551234567" "Hello from Jarvis!"
+friday channel send sendblue "+15551234567" "Hello from Friday!"
 ```
 
 ### Server Restart Behavior
 
-SendBlue bindings are **automatically restored on server restart**. When `jarvis serve` starts:
+SendBlue bindings are **automatically restored on server restart**. When `friday serve` starts:
 
 1. The server checks the database for existing SendBlue channel bindings
 2. Re-creates the `SendBlueChannel` instance with stored credentials
@@ -530,7 +530,7 @@ If `ready` is `false`, the Messaging tab shows a "Disconnected" badge with a "Re
 `WhatsAppBaileysChannel` is registered as `"whatsapp_baileys"` in `ChannelRegistry` and provides **bidirectional WhatsApp messaging** using the Baileys protocol. It spawns a Node.js bridge subprocess that handles QR-code authentication, incoming message forwarding, and outbound message delivery.
 
 !!! warning "Node.js 22+ required"
-    The Baileys bridge is a compiled Node.js application bundled inside the package. It is auto-installed to `~/.openjarvis/whatsapp_baileys_bridge/` on first `connect()` call. If `node` is not found on `PATH`, `connect()` logs an error and sets the channel to `ChannelStatus.ERROR`.
+    The Baileys bridge is a compiled Node.js application bundled inside the package. It is auto-installed to `~/.friday_ai/whatsapp_baileys_bridge/` on first `connect()` call. If `node` is not found on `PATH`, `connect()` logs an error and sets the channel to `ChannelStatus.ERROR`.
 
 !!! note "WhatsApp account required"
     WhatsApp does not offer an official API for personal accounts. Baileys operates on the WhatsApp Web protocol. You must scan a QR code with your WhatsApp mobile app to authenticate on first use.
@@ -538,10 +538,10 @@ If `ready` is `false`, the Messaging tab shows a "Disconnected" badge with a "Re
 ### Connecting
 
 ```python title="whatsapp_connect.py"
-from openjarvis.channels.whatsapp_baileys import WhatsAppBaileysChannel
+from friday_ai.channels.whatsapp_baileys import WhatsAppBaileysChannel
 
 channel = WhatsAppBaileysChannel(
-    assistant_name="Jarvis",           # (1)!
+    assistant_name="Friday",           # (1)!
     assistant_has_own_number=False,    # (2)!
 )
 channel.connect()  # spawns the Node.js bridge subprocess
@@ -550,13 +550,13 @@ channel.connect()  # spawns the Node.js bridge subprocess
 1. Display name used in conversation context.
 2. Set `True` if the assistant has a dedicated WhatsApp number and should not filter its own messages.
 
-On first connection, the bridge will print a QR code to the terminal. Scan it with the WhatsApp app on your phone to authenticate. Authentication state is saved to `~/.openjarvis/whatsapp_baileys_bridge/auth/` and reused on subsequent connections.
+On first connection, the bridge will print a QR code to the terminal. Scan it with the WhatsApp app on your phone to authenticate. Authentication state is saved to `~/.friday_ai/whatsapp_baileys_bridge/auth/` and reused on subsequent connections.
 
 ### Receiving Messages
 
 ```python title="whatsapp_receive.py"
-from openjarvis.channels._stubs import ChannelMessage
-from openjarvis.channels.whatsapp_baileys import WhatsAppBaileysChannel
+from friday_ai.channels._stubs import ChannelMessage
+from friday_ai.channels.whatsapp_baileys import WhatsAppBaileysChannel
 
 channel = WhatsAppBaileysChannel()
 
@@ -582,7 +582,7 @@ Messages are addressed by WhatsApp **JID** (Jabber ID) -- the canonical identifi
 
 ok = channel.send(
     "15551234567@s.whatsapp.net",      # JID of the recipient
-    "Hello from OpenJarvis!",
+    "Hello from FridayAI!",
 )
 
 if not ok:
@@ -600,8 +600,8 @@ channel.disconnect()
 
 | Parameter                  | Type       | Default     | Description                                            |
 |----------------------------|------------|-------------|--------------------------------------------------------|
-| `auth_dir`                 | `str`      | `~/.openjarvis/whatsapp_baileys_bridge/auth` | Baileys auth state directory |
-| `assistant_name`           | `str`      | `"Jarvis"`  | Display name for the assistant                         |
+| `auth_dir`                 | `str`      | `~/.friday_ai/whatsapp_baileys_bridge/auth` | Baileys auth state directory |
+| `assistant_name`           | `str`      | `"Friday"`  | Display name for the assistant                         |
 | `assistant_has_own_number` | `bool`     | `False`     | Whether the assistant has a dedicated WhatsApp number  |
 | `bus`                      | `EventBus` | `None`      | Event bus for publishing channel events                |
 
@@ -629,10 +629,10 @@ When a `bus` is provided, `WhatsAppBaileysChannel` publishes the same events as 
 
 WhatsApp Baileys channel settings live in the `[channel.whatsapp_baileys]` subsection:
 
-```toml title="~/.openjarvis/config.toml"
+```toml title="~/.friday_ai/config.toml"
 [channel.whatsapp_baileys]
-auth_dir = "/home/user/.openjarvis/whatsapp_baileys_bridge/auth"
-assistant_name = "Jarvis"
+auth_dir = "/home/user/.friday_ai/whatsapp_baileys_bridge/auth"
+assistant_name = "Friday"
 assistant_has_own_number = false
 ```
 
@@ -641,6 +641,6 @@ assistant_has_own_number = false
 ## See Also
 
 - [Architecture: Channels](../architecture/channels.md) -- listener loop internals and channel design
-- [API Reference: Channels](../api-reference/openjarvis/channels/index.md) -- full class and type signatures
+- [API Reference: Channels](../api-reference/friday_ai/channels/index.md) -- full class and type signatures
 - [Getting Started: Configuration](../getting-started/configuration.md) -- full config reference
 - [User Guide: Agents](agents.md) -- agent system documentation

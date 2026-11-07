@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from openjarvis.core.types import StepType, Trace, TraceStep
+from friday_ai.core.types import StepType, Trace, TraceStep
 
 
 class TestTraceStep:

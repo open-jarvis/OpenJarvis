@@ -1,6 +1,6 @@
 # Docker Deployment
 
-OpenJarvis provides Docker images for both CPU-only and GPU-accelerated deployments, along with a Docker Compose configuration that bundles the API server with an Ollama inference backend.
+FridayAI provides Docker images for both CPU-only and GPU-accelerated deployments, along with a Docker Compose configuration that bundles the API server with an Ollama inference backend.
 
 ## Quick Start
 
@@ -10,7 +10,7 @@ refuses to start on a non-loopback address without one. Set it first:
 ```bash
 cd deploy/docker
 cp .env.example .env
-echo "OPENJARVIS_API_KEY=$(jarvis auth generate-key)" > .env   # or paste your own
+echo "FRIDAY_AI_API_KEY=$(friday auth generate-key)" > .env   # or paste your own
 ```
 
 Then start both the API server and an Ollama backend with Docker Compose:
@@ -19,7 +19,7 @@ Then start both the API server and an Ollama backend with Docker Compose:
 docker compose up -d
 ```
 
-`docker compose` reads `OPENJARVIS_API_KEY` from `.env` (or your shell
+`docker compose` reads `FRIDAY_AI_API_KEY` from `.env` (or your shell
 environment) and fails fast if it is unset. Clients must then send
 `Authorization: Bearer <key>` on `/v1/*` and `/api/*` requests.
 
@@ -27,7 +27,7 @@ This brings up two services:
 
 | Service  | Port  | Description                        |
 |----------|-------|------------------------------------|
-| `jarvis` | 8000  | OpenJarvis API server              |
+| `friday` | 8000  | FridayAI API server              |
 | `ollama` | 11434 | Ollama inference engine            |
 
 Verify the server is running:
@@ -50,7 +50,7 @@ The default `Dockerfile` uses a multi-stage build based on `python:3.12-slim` to
 
 **Build stages:**
 
-1. **Builder stage** -- installs `uv` and the `openjarvis[server]` package (which includes FastAPI, uvicorn, and all server dependencies) from the project source.
+1. **Builder stage** -- installs `uv` and the `friday_ai[server]` package (which includes FastAPI, uvicorn, and all server dependencies) from the project source.
 2. **Runtime stage** -- copies only the installed Python packages and application code from the builder, keeping the final image small.
 
 ```dockerfile
@@ -71,20 +71,20 @@ WORKDIR /app
 
 EXPOSE 8000
 
-ENTRYPOINT ["jarvis"]
+ENTRYPOINT ["friday"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 Build it manually:
 
 ```bash
-docker build -t openjarvis:latest .
+docker build -t friday_ai:latest .
 ```
 
 Run it standalone:
 
 ```bash
-docker run -d -p 8000:8000 openjarvis:latest
+docker run -d -p 8000:8000 friday_ai:latest
 ```
 
 ### GPU Image (`Dockerfile.gpu`)
@@ -117,20 +117,20 @@ WORKDIR /app
 
 EXPOSE 8000
 
-ENTRYPOINT ["jarvis"]
+ENTRYPOINT ["friday"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 Build the GPU image:
 
 ```bash
-docker build -f Dockerfile.gpu -t openjarvis:gpu .
+docker build -f Dockerfile.gpu -t friday_ai:gpu .
 ```
 
 Run with GPU access (requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)):
 
 ```bash
-docker run -d --gpus all -p 8000:8000 openjarvis:gpu
+docker run -d --gpus all -p 8000:8000 friday_ai:gpu
 ```
 
 !!! note "NVIDIA Container Toolkit required"
@@ -138,21 +138,21 @@ docker run -d --gpus all -p 8000:8000 openjarvis:gpu
 
 ## Docker Compose Configuration
 
-The `docker-compose.yml` defines a complete deployment with the OpenJarvis API server and an Ollama backend:
+The `docker-compose.yml` defines a complete deployment with the FridayAI API server and an Ollama backend:
 
 ```yaml
 version: "3.9"
 
 services:
-  jarvis:
+  friday:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
     environment:
-      - OPENJARVIS_ENGINE_DEFAULT=ollama
-      - OPENJARVIS_OLLAMA_HOST=http://ollama:11434
+      - FRIDAY_AI_ENGINE_DEFAULT=ollama
+      - FRIDAY_AI_OLLAMA_HOST=http://ollama:11434
     depends_on:
       - ollama
     restart: unless-stopped
@@ -171,12 +171,12 @@ volumes:
 
 ### Environment Variables
 
-The `jarvis` service is configured through environment variables:
+The `friday` service is configured through environment variables:
 
 | Variable                      | Description                                             | Default                    |
 |-------------------------------|---------------------------------------------------------|----------------------------|
-| `OPENJARVIS_ENGINE_DEFAULT`   | Inference engine backend to use                         | `ollama`                   |
-| `OPENJARVIS_OLLAMA_HOST`      | URL of the Ollama server (uses Docker service name)     | `http://ollama:11434`      |
+| `FRIDAY_AI_ENGINE_DEFAULT`   | Inference engine backend to use                         | `ollama`                   |
+| `FRIDAY_AI_OLLAMA_HOST`      | URL of the Ollama server (uses Docker service name)     | `http://ollama:11434`      |
 
 ### Volumes
 
@@ -184,27 +184,27 @@ The `ollama-models` named volume persists downloaded models across container res
 
 ### Service Dependencies
 
-The `jarvis` service declares `depends_on: ollama`, ensuring the Ollama container starts before the API server. Both services use `restart: unless-stopped` to automatically recover from crashes.
+The `friday` service declares `depends_on: ollama`, ensuring the Ollama container starts before the API server. Both services use `restart: unless-stopped` to automatically recover from crashes.
 
 ## Custom Configuration
 
 ### Mounting a Configuration File
 
-To use a custom `config.toml`, mount it into the container at the expected path (`~/.openjarvis/config.toml`, which is `/root/.openjarvis/config.toml` in the container):
+To use a custom `config.toml`, mount it into the container at the expected path (`~/.friday_ai/config.toml`, which is `/root/.friday_ai/config.toml` in the container):
 
 ```yaml
 services:
-  jarvis:
+  friday:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - ./my-config.toml:/root/.openjarvis/config.toml:ro
+      - ./my-config.toml:/root/.friday_ai/config.toml:ro
     environment:
-      - OPENJARVIS_ENGINE_DEFAULT=ollama
-      - OPENJARVIS_OLLAMA_HOST=http://ollama:11434
+      - FRIDAY_AI_ENGINE_DEFAULT=ollama
+      - FRIDAY_AI_OLLAMA_HOST=http://ollama:11434
     depends_on:
       - ollama
     restart: unless-stopped
@@ -212,18 +212,18 @@ services:
 
 ### Persisting Data
 
-To persist telemetry data, memory databases, and trace records across container restarts, mount the entire OpenJarvis data directory:
+To persist telemetry data, memory databases, and trace records across container restarts, mount the entire FridayAI data directory:
 
 ```yaml
 services:
-  jarvis:
+  friday:
     # ... other config ...
     volumes:
-      - openjarvis-data:/root/.openjarvis
+      - friday_ai-data:/root/.friday_ai
 
 volumes:
   ollama-models:
-  openjarvis-data:
+  friday_ai-data:
 ```
 
 This preserves:
@@ -239,7 +239,7 @@ To use the GPU Dockerfile in your Compose setup, change the `dockerfile` field a
 
 ```yaml
 services:
-  jarvis:
+  friday:
     build:
       context: .
       dockerfile: Dockerfile.gpu
@@ -253,8 +253,8 @@ services:
               count: all
               capabilities: [gpu]
     environment:
-      - OPENJARVIS_ENGINE_DEFAULT=ollama
-      - OPENJARVIS_OLLAMA_HOST=http://ollama:11434
+      - FRIDAY_AI_ENGINE_DEFAULT=ollama
+      - FRIDAY_AI_OLLAMA_HOST=http://ollama:11434
     depends_on:
       - ollama
     restart: unless-stopped
@@ -284,7 +284,7 @@ You can integrate this into your Docker Compose healthcheck:
 
 ```yaml
 services:
-  jarvis:
+  friday:
     # ... other config ...
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -307,10 +307,10 @@ RUN pip install --no-cache-dir uv && \
 
 ### Overriding the Default Command
 
-The entrypoint is `jarvis` and the default command is `serve --host 0.0.0.0 --port 8000`. Override the command to change server options:
+The entrypoint is `friday` and the default command is `serve --host 0.0.0.0 --port 8000`. Override the command to change server options:
 
 ```bash
-docker run -d -p 9000:9000 openjarvis:latest \
+docker run -d -p 9000:9000 friday_ai:latest \
   serve --host 0.0.0.0 --port 9000 --engine ollama --model qwen3:8b
 ```
 
@@ -318,14 +318,14 @@ Or in Docker Compose:
 
 ```yaml
 services:
-  jarvis:
+  friday:
     build: .
     command: ["serve", "--host", "0.0.0.0", "--port", "9000", "--model", "qwen3:8b"]
     ports:
       - "9000:9000"
 ```
 
-### Available CLI Options for `jarvis serve`
+### Available CLI Options for `friday serve`
 
 | Option               | Description                                         |
 |----------------------|-----------------------------------------------------|

@@ -5,10 +5,10 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict, List, Optional
 
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.registry import MemoryRegistry
-from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
-from openjarvis.tools.storage.hybrid import (
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.registry import MemoryRegistry
+from friday_ai.tools.storage._stubs import MemoryBackend, RetrievalResult
+from friday_ai.tools.storage.hybrid import (
     HybridMemory,
     reciprocal_rank_fusion,
 )
@@ -194,7 +194,7 @@ def test_clear_both():
 def test_event_bus_store():
     bus = EventBus(record_history=True)
     hybrid = _make_hybrid()
-    import openjarvis.tools.storage.hybrid as mod
+    import friday_ai.tools.storage.hybrid as mod
 
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus
@@ -211,7 +211,7 @@ def test_event_bus_retrieve():
     bus = EventBus(record_history=True)
     hybrid = _make_hybrid()
     hybrid.store("retrievable content here")
-    import openjarvis.tools.storage.hybrid as mod
+    import friday_ai.tools.storage.hybrid as mod
 
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus

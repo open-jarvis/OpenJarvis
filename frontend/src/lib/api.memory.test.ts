@@ -28,13 +28,13 @@ afterEach(() => {
 describe('getMemoryStats', () => {
   it('shows the server detail and HTTP status for a backend failure', async () => {
     fetchMock.mockResolvedValue(new Response(
-      JSON.stringify({ detail: 'openjarvis_rust is missing from the serving environment' }),
+      JSON.stringify({ detail: 'friday_ai_rust is missing from the serving environment' }),
       { status: 503, headers: { 'Content-Type': 'application/json' } },
     ));
     const { getMemoryStats } = await import('./api');
 
     await expect(getMemoryStats()).rejects.toThrow(
-      'openjarvis_rust is missing from the serving environment (HTTP 503)',
+      'friday_ai_rust is missing from the serving environment (HTTP 503)',
     );
   });
 
@@ -46,7 +46,7 @@ describe('getMemoryStats', () => {
   });
 
   it('retries successfully against the updated API URL after a connection failure', async () => {
-    localStorage.setItem('openjarvis-settings', JSON.stringify({ apiUrl: 'http://localhost:8000' }));
+    localStorage.setItem('friday_ai-settings', JSON.stringify({ apiUrl: 'http://localhost:8000' }));
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     fetchMock.mockResolvedValueOnce(new Response(
       JSON.stringify({ backend: 'sqlite', entries: 3 }),
@@ -55,7 +55,7 @@ describe('getMemoryStats', () => {
     const { getMemoryStats } = await import('./api');
 
     await expect(getMemoryStats()).rejects.toThrow(/Check the server status and API URL/);
-    localStorage.setItem('openjarvis-settings', JSON.stringify({ apiUrl: 'http://localhost:8010' }));
+    localStorage.setItem('friday_ai-settings', JSON.stringify({ apiUrl: 'http://localhost:8010' }));
     await expect(getMemoryStats()).resolves.toEqual({ backend: 'sqlite', entries: 3 });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       'http://localhost:8000/v1/memory/stats',

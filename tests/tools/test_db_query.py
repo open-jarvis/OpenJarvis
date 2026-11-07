@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from openjarvis.tools.db_query import DatabaseQueryTool
+from friday_ai.tools.db_query import DatabaseQueryTool
 
 
 class TestDatabaseQueryTool:

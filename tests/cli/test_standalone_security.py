@@ -9,8 +9,8 @@ from unittest.mock import MagicMock
 
 from click.testing import CliRunner
 
-from openjarvis.core.config import JarvisConfig
-from openjarvis.security import SecurityContext
+from friday_ai.core.config import FridayConfig
+from friday_ai.security import SecurityContext
 
 
 def _security(raw_engine, wrapped_engine, policy, limiter):
@@ -24,7 +24,7 @@ def _security(raw_engine, wrapped_engine, policy, limiter):
 
 
 def test_deep_research_setup_chat_wires_security(monkeypatch):
-    from openjarvis.cli.deep_research_setup_cmd import _launch_chat
+    from friday_ai.cli.deep_research_setup_cmd import _launch_chat
 
     raw_engine = MagicMock(name="raw-engine")
     wrapped_engine = MagicMock(name="wrapped-engine")
@@ -42,10 +42,10 @@ def test_deep_research_setup_chat_wires_security(monkeypatch):
         def run(self, text):
             return SimpleNamespace(content="done")
 
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: JarvisConfig())
-    monkeypatch.setattr("openjarvis.engine.ollama.OllamaEngine", lambda: raw_engine)
-    monkeypatch.setattr("openjarvis.security.setup_security", setup)
-    monkeypatch.setattr("openjarvis.agents.deep_research.DeepResearchAgent", _Agent)
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda: FridayConfig())
+    monkeypatch.setattr("friday_ai.engine.ollama.OllamaEngine", lambda: raw_engine)
+    monkeypatch.setattr("friday_ai.security.setup_security", setup)
+    monkeypatch.setattr("friday_ai.agents.deep_research.DeepResearchAgent", _Agent)
     console = MagicMock()
     console.input.return_value = "/quit"
 
@@ -59,7 +59,7 @@ def test_deep_research_setup_chat_wires_security(monkeypatch):
 
 
 def test_imessage_foreground_wires_security(monkeypatch):
-    from openjarvis.cli.channels_cmd import imessage_start
+    from friday_ai.cli.channels_cmd import imessage_start
 
     raw_engine = MagicMock(name="raw-engine")
     wrapped_engine = MagicMock(name="wrapped-engine")
@@ -76,12 +76,12 @@ def test_imessage_foreground_wires_security(monkeypatch):
         def run(self, text):
             return SimpleNamespace(content="done")
 
-    monkeypatch.setattr("openjarvis.channels.imessage_daemon.is_running", lambda: False)
-    monkeypatch.setattr("openjarvis.channels.imessage_daemon.run_daemon", run_daemon)
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: JarvisConfig())
-    monkeypatch.setattr("openjarvis.engine.ollama.OllamaEngine", lambda: raw_engine)
-    monkeypatch.setattr("openjarvis.security.setup_security", setup)
-    monkeypatch.setattr("openjarvis.agents.deep_research.DeepResearchAgent", _Agent)
+    monkeypatch.setattr("friday_ai.channels.imessage_daemon.is_running", lambda: False)
+    monkeypatch.setattr("friday_ai.channels.imessage_daemon.run_daemon", run_daemon)
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda: FridayConfig())
+    monkeypatch.setattr("friday_ai.engine.ollama.OllamaEngine", lambda: raw_engine)
+    monkeypatch.setattr("friday_ai.security.setup_security", setup)
+    monkeypatch.setattr("friday_ai.agents.deep_research.DeepResearchAgent", _Agent)
 
     result = CliRunner().invoke(
         imessage_start,
@@ -98,7 +98,7 @@ def test_imessage_foreground_wires_security(monkeypatch):
 
 
 def test_slack_daemon_wires_security(monkeypatch, tmp_path):
-    from openjarvis.channels import slack_daemon
+    from friday_ai.channels import slack_daemon
 
     handlers = {}
 
@@ -148,12 +148,12 @@ def test_slack_daemon_wires_security(monkeypatch, tmp_path):
 
     monkeypatch.setattr(slack_daemon, "_PID_FILE", str(tmp_path / "slack.pid"))
     monkeypatch.setattr(slack_daemon.signal, "signal", MagicMock())
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: JarvisConfig())
-    monkeypatch.setattr("openjarvis.engine.ollama.OllamaEngine", lambda: raw_engine)
-    monkeypatch.setattr("openjarvis.security.setup_security", setup)
-    monkeypatch.setattr("openjarvis.agents.deep_research.DeepResearchAgent", _Agent)
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda: FridayConfig())
+    monkeypatch.setattr("friday_ai.engine.ollama.OllamaEngine", lambda: raw_engine)
+    monkeypatch.setattr("friday_ai.security.setup_security", setup)
+    monkeypatch.setattr("friday_ai.agents.deep_research.DeepResearchAgent", _Agent)
     monkeypatch.setattr(
-        "openjarvis.server.agent_manager_routes._build_deep_research_tools",
+        "friday_ai.server.agent_manager_routes._build_deep_research_tools",
         lambda **kwargs: [],
     )
 

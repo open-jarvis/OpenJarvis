@@ -5,8 +5,8 @@ from __future__ import annotations
 import threading
 import time
 
-from openjarvis.security.audit import AuditLogger
-from openjarvis.security.types import (
+from friday_ai.security.audit import AuditLogger
+from friday_ai.security.types import (
     ScanFinding,
     SecurityEvent,
     SecurityEventType,

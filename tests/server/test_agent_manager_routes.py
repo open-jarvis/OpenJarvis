@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from openjarvis.agents.manager import AgentManager
+from friday_ai.agents.manager import AgentManager
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ class TestAgentManagerRoutes:
     def client(self, manager):
         from fastapi import FastAPI
 
-        from openjarvis.server.agent_manager_routes import create_agent_manager_router
+        from friday_ai.server.agent_manager_routes import create_agent_manager_router
 
         app = FastAPI()
         routers = create_agent_manager_router(manager)
@@ -292,7 +292,7 @@ class TestAgentManagerRoutes:
     def test_remote_tick_facade_carries_policy_and_limiter(
         self, manager, client, monkeypatch, route_kind
     ):
-        from openjarvis.agents import executor as executor_module
+        from friday_ai.agents import executor as executor_module
 
         captured = []
 
@@ -315,7 +315,7 @@ class TestAgentManagerRoutes:
         client.app.state.config = None
         monkeypatch.setattr(executor_module, "AgentExecutor", _CapturingExecutor)
         monkeypatch.setattr(
-            "openjarvis.server.agent_manager_routes._start_managed_worker",
+            "friday_ai.server.agent_manager_routes._start_managed_worker",
             lambda state, target, **kwargs: target(),
         )
         agent = manager.create_agent(name=f"remote-{route_kind}", agent_type="simple")
@@ -336,7 +336,7 @@ class TestAgentManagerRoutes:
 
 def test_run_agent_concurrent_returns_409(tmp_path):
     """Rapid Run Now clicks should not spawn multiple ticks."""
-    from openjarvis.agents.manager import AgentManager
+    from friday_ai.agents.manager import AgentManager
 
     mgr = AgentManager(db_path=str(tmp_path / "test.db"))
     agent = mgr.create_agent("Test", config={"schedule_type": "manual"})
@@ -363,7 +363,7 @@ class TestAgentManagerStreaming:
     @pytest.fixture
     def _mock_engine(self):
         """Create a mock engine with a working stream_full() method."""
-        from openjarvis.engine._stubs import StreamChunk
+        from friday_ai.engine._stubs import StreamChunk
 
         engine = MagicMock()
         engine.engine_id = "mock"
@@ -390,7 +390,7 @@ class TestAgentManagerStreaming:
     def stream_client(self, manager, _mock_engine):
         from fastapi import FastAPI
 
-        from openjarvis.server.agent_manager_routes import create_agent_manager_router
+        from friday_ai.server.agent_manager_routes import create_agent_manager_router
 
         app = FastAPI()
         app.state.engine = _mock_engine
@@ -514,7 +514,7 @@ class TestAgentManagerStreaming:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient as TC
 
-        from openjarvis.server.agent_manager_routes import create_agent_manager_router
+        from friday_ai.server.agent_manager_routes import create_agent_manager_router
 
         app = FastAPI()
         app.state.engine = error_engine
@@ -541,8 +541,8 @@ class TestAgentManagerStreaming:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from openjarvis.engine._stubs import StreamChunk
-        from openjarvis.server.agent_manager_routes import (
+        from friday_ai.engine._stubs import StreamChunk
+        from friday_ai.server.agent_manager_routes import (
             create_agent_manager_router,
         )
 
@@ -570,7 +570,7 @@ class TestAgentManagerStreaming:
                 yield StreamChunk(content=f"response-{call}")
                 yield StreamChunk(finish_reason="stop")
 
-        monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "runtime"))
+        monkeypatch.setenv("FRIDAY_AI_HOME", str(tmp_path / "runtime"))
         engine = SlowEngine()
         app = FastAPI()
         app.state.engine = engine
@@ -608,7 +608,7 @@ class TestAgentManagerStreaming:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient as TC
 
-        from openjarvis.server.agent_manager_routes import (
+        from friday_ai.server.agent_manager_routes import (
             create_agent_manager_router,
         )
 
@@ -621,7 +621,7 @@ class TestAgentManagerStreaming:
 
         agent = manager.create_agent(name="stream-init-error", agent_type="simple")
         with patch(
-            "openjarvis.server.agent_manager_routes._stream_managed_agent",
+            "friday_ai.server.agent_manager_routes._stream_managed_agent",
             new=AsyncMock(side_effect=RuntimeError("stream setup failed")),
         ):
             resp = client.post(
@@ -646,11 +646,11 @@ class TestResolveToolSpecs:
         import importlib
         import sys
 
-        from openjarvis.core.registry import ToolRegistry
+        from friday_ai.core.registry import ToolRegistry
 
         for mod_name in list(sys.modules):
             if (
-                mod_name.startswith("openjarvis.tools.")
+                mod_name.startswith("friday_ai.tools.")
                 and not mod_name.endswith("_stubs")
                 and not mod_name.endswith("agent_tools")
             ):
@@ -661,7 +661,7 @@ class TestResolveToolSpecs:
         yield ToolRegistry
 
     def test_string_names_resolve_to_openai_specs(self, _registered_tools):
-        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+        from friday_ai.server.agent_manager_routes import _resolve_tool_specs
 
         specs = _resolve_tool_specs(["file_read", "think"])
         assert len(specs) == 2
@@ -674,14 +674,14 @@ class TestResolveToolSpecs:
             assert "parameters" in s["function"]
 
     def test_unknown_names_dropped(self, _registered_tools):
-        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+        from friday_ai.server.agent_manager_routes import _resolve_tool_specs
 
         specs = _resolve_tool_specs(["file_read", "nonexistent_tool_xyz"])
         assert len(specs) == 1
         assert specs[0]["function"]["name"] == "file_read"
 
     def test_dict_entries_passed_through(self, _registered_tools):
-        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+        from friday_ai.server.agent_manager_routes import _resolve_tool_specs
 
         full_spec = {
             "type": "function",
@@ -696,7 +696,7 @@ class TestResolveToolSpecs:
         assert specs[0] is full_spec
 
     def test_empty_and_none_return_empty_list(self):
-        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+        from friday_ai.server.agent_manager_routes import _resolve_tool_specs
 
         assert _resolve_tool_specs(None) == []
         assert _resolve_tool_specs([]) == []
@@ -726,12 +726,12 @@ class TestLightweightSystemEngineResolution:
             captured["key"] = key
             return ("resolved", MagicMock())
 
-        monkeypatch.setattr("openjarvis.engine._discovery.get_engine", fake_get_engine)
+        monkeypatch.setattr("friday_ai.engine._discovery.get_engine", fake_get_engine)
         return captured
 
     def test_resolves_preferred_engine_over_default(self, monkeypatch):
         pytest.importorskip("fastapi")
-        from openjarvis.server import agent_manager_routes as amr
+        from friday_ai.server import agent_manager_routes as amr
 
         captured = self._capture_get_engine(monkeypatch)
         amr._make_lightweight_system(
@@ -741,7 +741,7 @@ class TestLightweightSystemEngineResolution:
 
     def test_falls_back_to_engine_default_without_preference(self, monkeypatch):
         pytest.importorskip("fastapi")
-        from openjarvis.server import agent_manager_routes as amr
+        from friday_ai.server import agent_manager_routes as amr
 
         captured = self._capture_get_engine(monkeypatch)
         amr._make_lightweight_system(
@@ -751,9 +751,9 @@ class TestLightweightSystemEngineResolution:
 
     def test_instrumented_engine_uses_runtime_event_bus(self, monkeypatch):
         pytest.importorskip("fastapi")
-        from openjarvis.core.events import EventBus
-        from openjarvis.server import agent_manager_routes as amr
-        from openjarvis.telemetry import instrumented_engine
+        from friday_ai.core.events import EventBus
+        from friday_ai.server import agent_manager_routes as amr
+        from friday_ai.telemetry import instrumented_engine
 
         resolved_engine = MagicMock()
         wrapped_engine = MagicMock()
@@ -766,7 +766,7 @@ class TestLightweightSystemEngineResolution:
             knowledge_db_path=None,
         )
         monkeypatch.setattr(
-            "openjarvis.engine._discovery.get_engine",
+            "friday_ai.engine._discovery.get_engine",
             MagicMock(return_value=("resolved", resolved_engine)),
         )
         instrumented = MagicMock(return_value=wrapped_engine)
@@ -787,7 +787,7 @@ class TestLightweightSystemEngineResolution:
         monkeypatch,
     ):
         pytest.importorskip("fastapi")
-        from openjarvis.server import agent_manager_routes as amr
+        from friday_ai.server import agent_manager_routes as amr
 
         backend = object()
         resolver = MagicMock(return_value=backend)
@@ -817,7 +817,7 @@ class TestLightweightSystemEngineResolution:
         assert runtime._owns_memory_backend is True
 
     def test_lightweight_system_carries_runtime_policy_and_limiter(self):
-        from openjarvis.server import agent_manager_routes as amr
+        from friday_ai.server import agent_manager_routes as amr
 
         policy = object()
         limiter = object()
@@ -842,7 +842,7 @@ class TestLightweightSystemEngineResolution:
 
     def test_memory_backend_lazy_init_is_synchronized(self, monkeypatch):
         pytest.importorskip("fastapi")
-        from openjarvis.server import agent_manager_routes as amr
+        from friday_ai.server import agent_manager_routes as amr
 
         backend = object()
         resolver_calls = 0

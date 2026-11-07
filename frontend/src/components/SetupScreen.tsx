@@ -174,7 +174,7 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
             <Cpu size={32} />
           </div>
           <h1 className="text-2xl font-bold mb-1" style={{ color: 'var(--color-text)' }}>
-            OpenJarvis
+            FridayAI
           </h1>
           <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             {!statusChecked

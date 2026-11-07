@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openjarvis.evals.core.config import load_eval_config
+from friday_ai.evals.core.config import load_eval_config
 
 
 def _write_config(tmp_path: Path, split_value: str | None) -> Path:
@@ -24,7 +24,7 @@ engine = "noop"
 
 [[benchmarks]]
 name = "gaia"
-backend = "jarvis-agent"
+backend = "friday-agent"
 {split_line}
 max_samples = 10
 """
@@ -63,7 +63,7 @@ def test_split_plumbs_to_agent_eval_config(tmp_path: Path):
     p = _write_config(tmp_path, "test")
     cfg = load_eval_config(p)
     # Pull out one expanded RunConfig (model x benchmark product)
-    from openjarvis.evals.core.config import expand_suite
+    from friday_ai.evals.core.config import expand_suite
 
     run_cfgs = list(expand_suite(cfg))
     assert len(run_cfgs) >= 1

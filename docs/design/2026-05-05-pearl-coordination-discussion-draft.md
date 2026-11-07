@@ -1,7 +1,7 @@
 # Pearl coordination thread — draft
 
 **For:** Posting on `pearl-research-labs/pearl` GitHub Discussions (Category: General / Q&A).
-**By:** OpenJarvis team (Stanford Hazy Research); contact: [user fills in].
+**By:** FridayAI team (Stanford Hazy Research); contact: [user fills in].
 **Status:** Draft — review and edit before posting.
 
 ---
@@ -12,7 +12,7 @@
 
 ## Suggested body
 
-Hi Pearl team — we're [OpenJarvis](https://github.com/open-jarvis/OpenJarvis), a local-first personal AI agent framework from Stanford Hazy Research. We're working on a `mining` subsystem that lets OJ users mine Pearl through the agent framework. The first integration is the `vllm-miner`-on-H100/H200 path, which is straightforward. The second is Apple Silicon, where the situation is more interesting and we'd like to confirm a few things before we ship.
+Hi Pearl team — we're [FridayAI](https://github.com/open-jarvis/FridayAI), a local-first personal AI agent framework from Stanford Hazy Research. We're working on a `mining` subsystem that lets OJ users mine Pearl through the agent framework. The first integration is the `vllm-miner`-on-H100/H200 path, which is straightforward. The second is Apple Silicon, where the situation is more interesting and we'd like to confirm a few things before we ship.
 
 We have a v1 architecture that ships **today** using only your published Python packages (`py-pearl-mining`, `miner-base`, `pearl-gateway`) without any new code in your tree, plus an aspirational v2/v3 path that does involve potentially upstream contributions. Three asks below, plus a heads-up.
 
@@ -66,13 +66,13 @@ If you're already building Apple Silicon support internally (or have someone pla
 
 ### Logistics
 
-- License compatibility: Pearl is ISC; OpenJarvis is Apache-2.0. We don't see any conflict for either consumption (v1) or contribution (v3), but please flag if you do.
+- License compatibility: Pearl is ISC; FridayAI is Apache-2.0. We don't see any conflict for either consumption (v1) or contribution (v3), but please flag if you do.
 - CLA: do you require one for upstream contributions? Not blocking v1 — just want to know for v3.
 - Preferred coordination channel: this Discussion thread, a Discord, an email? We're happy to use whatever works for you.
 
 Thanks for building this — Proof-of-Useful-Work via matmul is genuinely interesting and we're excited to bring more (slower!) hardware to the network.
 
-— [user name], on behalf of OpenJarvis
+— [user name], on behalf of FridayAI
 
 ---
 

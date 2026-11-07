@@ -7,18 +7,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.channels._stubs import ChannelStatus
-from openjarvis.channels.line_channel import LineChannel
-from openjarvis.channels.mastodon_channel import MastodonChannel
-from openjarvis.channels.messenger_channel import MessengerChannel
-from openjarvis.channels.nostr_channel import NostrChannel
-from openjarvis.channels.reddit_channel import RedditChannel
-from openjarvis.channels.rocketchat_channel import RocketChatChannel
-from openjarvis.channels.twitch_channel import TwitchChannel
-from openjarvis.channels.viber_channel import ViberChannel
-from openjarvis.channels.xmpp_channel import XMPPChannel
-from openjarvis.channels.zulip_channel import ZulipChannel
-from openjarvis.core.registry import ChannelRegistry
+from friday_ai.channels._stubs import ChannelStatus
+from friday_ai.channels.line_channel import LineChannel
+from friday_ai.channels.mastodon_channel import MastodonChannel
+from friday_ai.channels.messenger_channel import MessengerChannel
+from friday_ai.channels.nostr_channel import NostrChannel
+from friday_ai.channels.reddit_channel import RedditChannel
+from friday_ai.channels.rocketchat_channel import RocketChatChannel
+from friday_ai.channels.twitch_channel import TwitchChannel
+from friday_ai.channels.viber_channel import ViberChannel
+from friday_ai.channels.xmpp_channel import XMPPChannel
+from friday_ai.channels.zulip_channel import ZulipChannel
+from friday_ai.core.registry import ChannelRegistry
 
 # (class, registry key, library module name, pip package name)
 CHANNELS = [

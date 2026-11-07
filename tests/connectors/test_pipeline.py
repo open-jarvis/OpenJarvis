@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.connectors.pipeline import IngestionPipeline
-from openjarvis.connectors.store import KnowledgeStore
+from friday_ai.connectors._stubs import Document
+from friday_ai.connectors.pipeline import IngestionPipeline
+from friday_ai.connectors.store import KnowledgeStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -473,12 +473,12 @@ def test_reingest_edited_document_replaces_stale_chunks(
     """
     doc_id = "obsidian:notes/setup.md"
     IngestionPipeline(store).ingest(
-        [_make_doc(doc_id=doc_id, content="Use jarvis connect obsidian --path.")]
+        [_make_doc(doc_id=doc_id, content="Use friday connect obsidian --path.")]
     )
     assert store.count() == 1
 
     n = IngestionPipeline(store).ingest(
-        [_make_doc(doc_id=doc_id, content="Use jarvis deep-research-setup instead.")]
+        [_make_doc(doc_id=doc_id, content="Use friday deep-research-setup instead.")]
     )
 
     assert n == 1

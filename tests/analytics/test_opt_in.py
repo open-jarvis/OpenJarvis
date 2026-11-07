@@ -9,9 +9,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from openjarvis.analytics.client import AnalyticsClient
-from openjarvis.core.config import AnalyticsConfig, JarvisConfig, load_config
-from openjarvis.server import analytics_routes
+from friday_ai.analytics.client import AnalyticsClient
+from friday_ai.core.config import AnalyticsConfig, FridayConfig, load_config
+from friday_ai.server import analytics_routes
 
 
 def test_missing_analytics_section_defaults_off(tmp_path: Path) -> None:
@@ -38,7 +38,7 @@ def test_disabled_client_never_creates_id_or_initialises_sdk(
 def test_identity_gates_frontend_and_id_creation(
     tmp_path, monkeypatch, enabled
 ) -> None:
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.analytics.enabled = enabled
     cfg.analytics.anon_id_path = str(tmp_path / "anon_id")
     monkeypatch.setattr(analytics_routes, "load_config", lambda: cfg)

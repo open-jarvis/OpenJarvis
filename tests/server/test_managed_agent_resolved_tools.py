@@ -10,10 +10,10 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from openjarvis.core.registry import ToolRegistry  # noqa: E402
-from openjarvis.core.types import Role, ToolResult  # noqa: E402
-from openjarvis.engine._stubs import StreamChunk  # noqa: E402
-from openjarvis.tools._stubs import BaseTool, ToolSpec  # noqa: E402
+from friday_ai.core.registry import ToolRegistry  # noqa: E402
+from friday_ai.core.types import Role, ToolResult  # noqa: E402
+from friday_ai.engine._stubs import StreamChunk  # noqa: E402
+from friday_ai.tools._stubs import BaseTool, ToolSpec  # noqa: E402
 
 
 class _StatefulConfiguredTool(BaseTool):
@@ -120,14 +120,14 @@ class _FinalOnlyEngine:
 
 @pytest.mark.asyncio
 async def test_sse_file_tools_keep_application_directory_policy(tmp_path, monkeypatch):
-    from openjarvis.core.config import JarvisConfig
-    from openjarvis.server.agent_manager_routes import _stream_managed_agent
-    from openjarvis.tools.file_read import FileReadTool
+    from friday_ai.core.config import FridayConfig
+    from friday_ai.server.agent_manager_routes import _stream_managed_agent
+    from friday_ai.tools.file_read import FileReadTool
 
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.security.allowed_dirs = [str(tmp_path / "allowed")]
     cfg.tools.storage.enabled = False
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: JarvisConfig())
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda: FridayConfig())
     ToolRegistry.register_value("file_read", FileReadTool)
     outside = tmp_path / "outside.txt"
     outside.write_text("OUTSIDE_DIRECTORY_SENTINEL")
@@ -183,7 +183,7 @@ class _SyntheticHttpSink(BaseTool):
 async def test_sse_advertises_and_executes_the_same_resolved_tool_instance() -> None:
     """The schema and dispatch map must come from one first-wins toolkit."""
 
-    from openjarvis.server.agent_manager_routes import _stream_managed_agent
+    from friday_ai.server.agent_manager_routes import _stream_managed_agent
 
     _StatefulConfiguredTool.instances.clear()
     ToolRegistry.register_value("stateful_probe", _StatefulConfiguredTool)
@@ -262,7 +262,7 @@ async def test_sse_advertises_and_executes_the_same_resolved_tool_instance() -> 
 async def test_sse_mcp_opt_out_skips_discovery(monkeypatch) -> None:
     """Opting out skips request-local discovery and hides MCP specs."""
 
-    from openjarvis.server import agent_manager_routes as routes
+    from friday_ai.server import agent_manager_routes as routes
 
     discovery = MagicMock(side_effect=AssertionError("MCP discovery must not run"))
     monkeypatch.setattr(routes, "_get_mcp_tools", discovery)
@@ -298,7 +298,7 @@ async def test_sse_mcp_opt_out_skips_discovery(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_sse_rehydrates_taint_from_replayed_tool_history() -> None:
-    from openjarvis.server.agent_manager_routes import _stream_managed_agent
+    from friday_ai.server.agent_manager_routes import _stream_managed_agent
 
     secret = "token=synthetic-secret-value"
     _SyntheticHttpSink.calls.clear()
@@ -370,8 +370,8 @@ async def test_sse_memory_tools_resolve_backend_when_context_injection_is_off(
 ) -> None:
     """Prompt context opt-out must not disable explicit memory tools."""
 
-    from openjarvis.server import agent_manager_routes as routes
-    from openjarvis.tools.storage_tools import MemoryStoreTool
+    from friday_ai.server import agent_manager_routes as routes
+    from friday_ai.tools.storage_tools import MemoryStoreTool
 
     if not ToolRegistry.contains("memory_store"):
         ToolRegistry.register_value("memory_store", MemoryStoreTool)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.tools.approval_store import (
+from friday_ai.tools.approval_store import (
     STATUS_APPROVED,
     STATUS_DENIED,
     STATUS_PENDING,
@@ -31,7 +31,7 @@ except ImportError:
 @pytest.fixture
 def approval_store(tmp_path):
     """A fresh ApprovalStore backed by a temp DB, injected into the routes module."""
-    import openjarvis.server.approval_routes as ar
+    import friday_ai.server.approval_routes as ar
 
     store = ApprovalStore(db_path=str(tmp_path / "approvals.db"))
     original = ar._store
@@ -44,7 +44,7 @@ def approval_store(tmp_path):
 @pytest.fixture
 def client(approval_store):  # noqa: ARG001 — triggers store injection as a side-effect
     """TestClient with the approval router mounted on a minimal FastAPI app."""
-    from openjarvis.server.approval_routes import router
+    from friday_ai.server.approval_routes import router
 
     app = FastAPI()
     app.include_router(router)

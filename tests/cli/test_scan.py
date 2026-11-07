@@ -1,4 +1,4 @@
-"""Tests for ``jarvis scan`` privacy scanner CLI command."""
+"""Tests for ``friday scan`` privacy scanner CLI command."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sys
 from subprocess import CompletedProcess
 from unittest.mock import MagicMock, patch
 
-from openjarvis.cli.scan_cmd import PrivacyScanner, ScanResult
+from friday_ai.cli.scan_cmd import PrivacyScanner, ScanResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -446,11 +446,11 @@ class TestJsonOutput:
     def test_json_output_structure(self) -> None:
         from click.testing import CliRunner
 
-        from openjarvis.cli.scan_cmd import scan
+        from friday_ai.cli.scan_cmd import scan
 
         runner = CliRunner()
         with patch(
-            "openjarvis.cli.scan_cmd.PrivacyScanner.run_all",
+            "friday_ai.cli.scan_cmd.PrivacyScanner.run_all",
             return_value=[
                 ScanResult("Test", "ok", "all good", "all"),
             ],

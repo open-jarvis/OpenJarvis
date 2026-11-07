@@ -41,7 +41,7 @@ export async function saveCloudKey(keyName: string, keyValue: string): Promise<v
 
 // Cached API base URL fetched from the Tauri backend at startup.
 // This avoids hardcoding the port — the Rust backend is the single
-// source of truth for JARVIS_PORT.
+// source of truth for FRIDAY_PORT.
 let _tauriApiBase: string | null = null;
 
 /** Pre-fetch the API base URL from the Tauri backend (call once at init). */
@@ -59,7 +59,7 @@ const DESKTOP_API_FALLBACK = 'http://127.0.0.1:8000';
 
 const getSettingsApiUrl = (): string => {
   try {
-    const raw = localStorage.getItem('openjarvis-settings');
+    const raw = localStorage.getItem('friday_ai-settings');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed.apiUrl) return parsed.apiUrl.replace(/\/+$/, '');
@@ -76,21 +76,21 @@ export const getBase = (): string => {
   return '';
 };
 
-// Resolve the local server API key (OPENJARVIS_API_KEY). When `jarvis serve`
+// Resolve the local server API key (FRIDAY_AI_API_KEY). When `friday serve`
 // is started with a key, AuthMiddleware 401s every /v1 and /api request that
 // lacks a Bearer token — so the frontend must send it (#266). Sourced from the
 // same settings blob as the API URL, with an optional build-time env override.
 // Returns '' when unset, so a keyless local server keeps working unchanged.
 export const getApiKey = (): string => {
   try {
-    const raw = localStorage.getItem('openjarvis-settings');
+    const raw = localStorage.getItem('friday_ai-settings');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed.apiKey) return String(parsed.apiKey);
     }
   } catch {}
-  if (import.meta.env.VITE_OPENJARVIS_API_KEY) {
-    return import.meta.env.VITE_OPENJARVIS_API_KEY as string;
+  if (import.meta.env.VITE_FRIDAY_AI_API_KEY) {
+    return import.meta.env.VITE_FRIDAY_AI_API_KEY as string;
   }
   return '';
 };
@@ -1069,7 +1069,7 @@ export interface MemoryStats {
 
 export interface MemoryConfig {
   backend: string;
-  // Set by the server when the native `openjarvis_rust` extension is missing,
+  // Set by the server when the native `friday_ai_rust` extension is missing,
   // so the UI can show the real cause instead of a healthy-looking config.
   available?: boolean;
   detail?: string | null;
@@ -1081,7 +1081,7 @@ export interface MemoryConfig {
 
 /**
  * Extract the server's `detail` message from a failed JSON response so the UI
- * surfaces the real cause (e.g. "openjarvis_rust extension is not installed")
+ * surfaces the real cause (e.g. "friday_ai_rust extension is not installed")
  * instead of a blanket fallback string (#502).
  */
 async function memoryErrorDetail(res: Response, fallback: string): Promise<string> {
@@ -1099,7 +1099,7 @@ export async function getMemoryStats(): Promise<MemoryStats> {
   try {
     res = await apiFetch(`/v1/memory/stats`);
   } catch {
-    throw new Error('Could not reach the OpenJarvis API. Check the server status and API URL, then retry.');
+    throw new Error('Could not reach the FridayAI API. Check the server status and API URL, then retry.');
   }
   if (!res.ok) {
     const detail = await memoryErrorDetail(res, 'Memory status request failed');

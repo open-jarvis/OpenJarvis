@@ -9,9 +9,9 @@ import threading
 import time
 from pathlib import Path
 
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import ToolCall, ToolResult
-from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.types import ToolCall, ToolResult
+from friday_ai.tools._stubs import BaseTool, ToolExecutor, ToolSpec
 
 
 class SlowTool(BaseTool):
@@ -154,7 +154,7 @@ class TestToolTimeout:
         workers = [
             thread
             for thread in threading.enumerate()
-            if thread.name.startswith("openjarvis-tool-")
+            if thread.name.startswith("friday_ai-tool-")
         ]
         assert len(workers) <= 8
         assert all(not result.success for result in results)
@@ -166,8 +166,8 @@ class TestToolTimeout:
         env = {**os.environ, "PYTHONPATH": str(source_root)}
         script = """
 import threading
-from openjarvis.core.types import ToolCall, ToolResult
-from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+from friday_ai.core.types import ToolCall, ToolResult
+from friday_ai.tools._stubs import BaseTool, ToolExecutor, ToolSpec
 
 block = threading.Event()
 class BlockingTool(BaseTool):

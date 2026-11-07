@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.core.config import GpuInfo, HardwareInfo
+from friday_ai.core.config import GpuInfo, HardwareInfo
 
 
 @pytest.fixture

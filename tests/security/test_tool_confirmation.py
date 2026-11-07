@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from openjarvis.core.types import ToolCall, ToolResult
-from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+from friday_ai.core.types import ToolCall, ToolResult
+from friday_ai.tools._stubs import BaseTool, ToolExecutor, ToolSpec
 
 # ---------------------------------------------------------------------------
 # Test tool helpers
