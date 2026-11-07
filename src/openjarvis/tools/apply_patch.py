@@ -30,15 +30,15 @@ class _Hunk:
     lines: List[str] = field(default_factory=list)
 
 
-def _parse_patch(patch_text: str) -> tuple[Optional[str], List[_Hunk]]:
-    """Parse a unified diff string into a target path and list of hunks.
+def _parse_patch(patch_text: str) -> tuple[Optional[str], List[_Hunk], bool]:
+    """Parse a unified diff string into a target path, list of hunks, and creation flag.
 
     Returns
     -------
-    (path, hunks)
+    (path, hunks, is_creation)
         *path* is extracted from the ``+++ b/...`` header if present, or
         ``None`` if no header is found.  *hunks* is a list of ``_Hunk``
-        objects.
+        objects.  *is_creation* indicates whether this patch creates a new file.
 
     Raises
     ------
@@ -49,23 +49,29 @@ def _parse_patch(patch_text: str) -> tuple[Optional[str], List[_Hunk]]:
     target_path: Optional[str] = None
     hunks: List[_Hunk] = []
     current_hunk: Optional[_Hunk] = None
+    is_dev_null_source = False
 
     for raw_line in lines:
         line = raw_line.rstrip("\n\r")
 
-        # Detect target path from +++ header
-        if line.startswith("+++ "):
-            path_part = line[4:].strip()
-            # Strip leading b/ prefix (git-style)
-            if path_part.startswith("b/"):
-                path_part = path_part[2:]
-            # Ignore /dev/null (file creation from nothing)
-            if path_part != "/dev/null":
-                target_path = path_part
+        # Check source path from --- header
+        if line.startswith("--- "):
+            source_part = line[4:].strip().split("\t")[0].strip()
+            if source_part.startswith(("a/", "b/")):
+                source_part = source_part[2:]
+            if source_part in ("/dev/null", "dev/null"):
+                is_dev_null_source = True
             continue
 
-        # Skip --- header lines
-        if line.startswith("--- "):
+        # Detect target path from +++ header
+        if line.startswith("+++ "):
+            path_part = line[4:].strip().split("\t")[0].strip()
+            # Strip leading b/ or a/ prefix (git-style)
+            if path_part.startswith(("b/", "a/")):
+                path_part = path_part[2:]
+            # Ignore /dev/null (file deletion)
+            if path_part not in ("/dev/null", "dev/null"):
+                target_path = path_part
             continue
 
         # Hunk header
@@ -95,10 +101,12 @@ def _parse_patch(patch_text: str) -> tuple[Optional[str], List[_Hunk]]:
     if not hunks:
         raise ValueError("No hunks found in patch")
 
-    return target_path, hunks
+    is_creation = is_dev_null_source or bool(hunks and hunks[0].old_start == 0)
+
+    return target_path, hunks, is_creation
 
 
-def _apply_hunks(original: str, hunks: List[_Hunk]) -> str:
+def _apply_hunks(original: str, hunks: List[_Hunk], eol: Optional[str] = None) -> str:
     """Apply parsed hunks to the original file content.
 
     Raises
@@ -106,6 +114,9 @@ def _apply_hunks(original: str, hunks: List[_Hunk]) -> str:
     ValueError
         If a context or removal line does not match the original file.
     """
+    if eol is None:
+        eol = "\r\n" if "\r\n" in original else "\n"
+
     orig_lines = original.splitlines(keepends=True)
     # Normalise: ensure every line ends with newline for matching purposes
     # (we'll reconstruct exactly later)
@@ -115,8 +126,10 @@ def _apply_hunks(original: str, hunks: List[_Hunk]) -> str:
     offset = 0
 
     for hunk_idx, hunk in enumerate(hunks):
-        # Position in orig_lines (0-indexed)
-        pos = hunk.old_start - 1 + offset
+        # Position in orig_lines (0-indexed).
+        # In unified diffs for new or empty files, old_start=0 represents
+        # the beginning of the file (index 0). Non-empty files use 1-indexed numbers.
+        pos = (0 if hunk.old_start == 0 else hunk.old_start - 1) + offset
         new_lines: List[str] = []
         check_pos = pos
 
@@ -162,7 +175,7 @@ def _apply_hunks(original: str, hunks: List[_Hunk]) -> str:
 
             elif tag == "+":
                 # Addition
-                new_lines.append(content + "\n")
+                new_lines.append(content + eol)
 
         # Splice the new lines into orig_lines
         consumed = check_pos - pos
@@ -230,7 +243,7 @@ class ApplyPatchTool(BaseTool):
 
         # Parse the patch
         try:
-            header_path, hunks = _parse_patch(patch_text)
+            header_path, hunks, is_creation = _parse_patch(patch_text)
         except ValueError as exc:
             return ToolResult(
                 tool_name="apply_patch",
@@ -263,33 +276,43 @@ class ApplyPatchTool(BaseTool):
             )
 
         # Check file exists
-        if not path.exists():
-            return ToolResult(
-                tool_name="apply_patch",
-                content=f"File not found: {target}",
-                success=False,
-            )
+        file_existed = path.exists()
+        if not file_existed:
+            if not is_creation:
+                return ToolResult(
+                    tool_name="apply_patch",
+                    content=f"File not found: {target}",
+                    success=False,
+                )
+            original = ""
+        else:
+            if not path.is_file():
+                return ToolResult(
+                    tool_name="apply_patch",
+                    content=f"Not a file: {target}",
+                    success=False,
+                )
 
-        if not path.is_file():
-            return ToolResult(
-                tool_name="apply_patch",
-                content=f"Not a file: {target}",
-                success=False,
-            )
+            # Read original content
+            try:
+                with open(path, "r", encoding="utf-8", newline="") as f:
+                    original = f.read()
+            except (OSError, UnicodeDecodeError) as exc:
+                return ToolResult(
+                    tool_name="apply_patch",
+                    content=f"Cannot read file: {exc}",
+                    success=False,
+                )
 
-        # Read original content
-        try:
-            original = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            return ToolResult(
-                tool_name="apply_patch",
-                content=f"Cannot read file: {exc}",
-                success=False,
-            )
+        # Detect newline convention
+        if original:
+            eol = "\r\n" if "\r\n" in original else "\n"
+        else:
+            eol = "\r\n" if "\r\n" in patch_text else "\n"
 
         # Apply hunks
         try:
-            patched = _apply_hunks(original, hunks)
+            patched = _apply_hunks(original, hunks, eol=eol)
         except ValueError as exc:
             return ToolResult(
                 tool_name="apply_patch",
@@ -297,10 +320,10 @@ class ApplyPatchTool(BaseTool):
                 success=False,
             )
 
-        # Backup
+        # Backup (only if file existed previously)
         backup = params.get("backup", True)
         backup_path: Optional[str] = None
-        if backup:
+        if backup and file_existed:
             bak = Path(str(path) + ".bak")
             try:
                 shutil.copy2(str(path), str(bak))
@@ -312,9 +335,20 @@ class ApplyPatchTool(BaseTool):
                     success=False,
                 )
 
+        # Ensure parent directory exists for new file creation or nested path
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return ToolResult(
+                tool_name="apply_patch",
+                content=f"Cannot create directories: {exc}",
+                success=False,
+            )
+
         # Write patched content
         try:
-            path.write_text(patched, encoding="utf-8")
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(patched)
         except OSError as exc:
             return ToolResult(
                 tool_name="apply_patch",
