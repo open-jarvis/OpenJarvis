@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from io import StringIO
 from types import SimpleNamespace
 from unittest import mock
@@ -18,7 +19,16 @@ from openjarvis.agents._stubs import (
     BaseAgent,
     ToolUsingAgent,
 )
-from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, record_voice, speak
+from openjarvis.cli._voice_chat import (
+    VOICE_EXIT,
+    VOICE_STYLE_PROMPT,
+    VOICE_TYPED,
+    VoiceSession,
+    read_voice_input,
+    record_voice,
+    speak,
+    voice_style_prompt,
+)
 from openjarvis.cli.chat_cmd import _read_input, chat
 from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import Event, EventBus, EventType
@@ -26,6 +36,40 @@ from openjarvis.core.registry import AgentRegistry, ToolRegistry
 from openjarvis.core.types import Role, ToolCall, ToolResult
 from openjarvis.memory.store import LocalFactStore
 from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+
+@pytest.fixture(autouse=True)
+def _no_real_voice_models(monkeypatch):
+    """Voice tests must never load models, open the mic or hit the network.
+
+    ``--voice`` preloads the turn detector, STT and TTS in a background
+    thread, and the turn detector downloads Smart Turn on first use; the
+    legacy RMS recorder (patched per test) stands in for the mic.
+    """
+    monkeypatch.setattr(VoiceSession, "preload", lambda self: None)
+    monkeypatch.setattr(
+        "openjarvis.speech.turn_detection.load_turn_models",
+        lambda turn_model_path="": (None, None),
+    )
+
+
+@contextmanager
+def _chat_cli(config, engine):
+    """Run ``chat`` against a mock engine with no picker or runtime panel."""
+    with (
+        patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+        patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+        patch("openjarvis.intelligence.register_builtin_models"),
+        patch(
+            "openjarvis.cli._model_switch.tty_wants_model_picker",
+            return_value=False,
+        ),
+        patch(
+            "openjarvis.cli._runtime_panel.tty_wants_runtime_panel",
+            return_value=False,
+        ),
+    ):
+        yield
 
 
 class _SimpleChatAgent(BaseAgent):
@@ -142,6 +186,136 @@ class TestChatCommand:
         assert result.exception is None
         assert "Goodbye!" in result.output
 
+    @pytest.mark.parametrize(
+        ("args", "config_hands_free"),
+        [(["--hands-free"], False), (["--voice"], True)],
+    )
+    def test_hands_free_listens_again_without_enter(
+        self, args, config_hands_free
+    ) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(text="bonjour")
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        config.speech.hands_free = config_hands_free
+        AgentRegistry.register_value("simple_chat_agent", _SimpleChatAgent)
+
+        with (
+            _chat_cli(config, engine),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                side_effect=[b"wav", KeyboardInterrupt],
+            ) as record,
+            patch("openjarvis.cli.chat_cmd.speak") as spoken,
+            patch("openjarvis.cli._voice_chat._echo_guard") as echo_guard,
+        ):
+            result = CliRunner().invoke(
+                chat,
+                [*args, "--agent", "simple_chat_agent", "--model", "test-model"],
+                input="",
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Hands-free" in result.output
+        assert record.call_count == 2  # second listen opened without Enter
+        spoken.assert_called_once()
+        assert spoken.call_args.args[0] == "simple ok"
+        echo_guard.assert_called()
+        assert "Goodbye!" in result.output
+
+    def test_no_hands_free_flag_overrides_config(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        config.speech.hands_free = True
+
+        with (
+            _chat_cli(config, engine),
+            patch("openjarvis.speech.voice_io.record_until_silence") as record,
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--voice", "--no-hands-free", "--model", "test-model"],
+                input="/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Hands-free" not in result.output
+        record.assert_not_called()
+
+    def test_hands_free_key_press_switches_to_typing(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            _chat_cli(config, engine),
+            patch("openjarvis.cli._voice_chat._keyboard_pending", return_value=True),
+            patch("openjarvis.speech.voice_io.record_until_silence") as record,
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--hands-free", "--model", "test-model"],
+                input="/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Goodbye!" in result.output
+        record.assert_not_called()
+
+    @pytest.mark.parametrize("voice", [True, False])
+    def test_spoken_style_reaches_the_agent_prompt_only_in_voice_mode(
+        self, voice
+    ) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            _chat_cli(config, engine),
+            patch(
+                "openjarvis.cli.chat_cmd.voice_style_prompt",
+                return_value="SPOKEN STYLE",
+            ),
+            patch("openjarvis.prompt.builder.SystemPromptBuilder") as builder,
+        ):
+            result = CliRunner().invoke(
+                chat,
+                [*(["--voice"] if voice else []), "--model", "test-model"],
+                input="/quit\n",
+            )
+
+        assert result.exit_code == 0
+        templates = [c.kwargs["agent_template"] for c in builder.call_args_list]
+        assert templates
+        assert all(("SPOKEN STYLE" in t) is voice for t in templates)
+        assert all(t.startswith(config.agent.default_system_prompt) for t in templates)
+
+
+class TestVoiceStylePrompt:
+    def test_built_in_text_by_default(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr("openjarvis.core.paths.get_config_dir", lambda: tmp_path)
+        assert voice_style_prompt() == VOICE_STYLE_PROMPT
+
+    def test_voice_md_overrides_built_in_text(self, monkeypatch, tmp_path) -> None:
+        (tmp_path / "VOICE.md").write_text("  Réponds en une phrase.\n", "utf-8")
+        monkeypatch.setattr("openjarvis.core.paths.get_config_dir", lambda: tmp_path)
+        assert voice_style_prompt() == "Réponds en une phrase."
+
+    def test_empty_voice_md_falls_back(self, monkeypatch, tmp_path) -> None:
+        (tmp_path / "VOICE.md").write_text("\n", "utf-8")
+        monkeypatch.setattr("openjarvis.core.paths.get_config_dir", lambda: tmp_path)
+        assert voice_style_prompt() == VOICE_STYLE_PROMPT
+
 
 class TestReadInput:
     """Test the _read_input helper function."""
@@ -172,7 +346,10 @@ class TestVoiceInput:
             assert record_voice(console) is VOICE_EXIT
 
         record.assert_not_called()
-        assert "OpenJarvis[speech]" in str(console.print.call_args)
+        # Rendered through Rich: the brackets must survive markup parsing.
+        rendered = StringIO()
+        Console(file=rendered, width=200).print(*console.print.call_args.args)
+        assert "pip install 'OpenJarvis[speech]'" in rendered.getvalue()
 
     def test_stt_backend_is_cached_for_the_chat_session(self) -> None:
         backend = MagicMock()
@@ -340,6 +517,239 @@ class TestVoiceInput:
         backend.health.assert_called_once()
         assert backend.synthesize.call_count == 2
         assert play.call_count == 2
+
+
+class TestTurnCapture:
+    """record_voice / read_voice_input around the end-of-turn detector."""
+
+    @staticmethod
+    def _session_with(backend):
+        session = VoiceSession(JarvisConfig())
+        session._stt_backend = backend
+        session._stt_resolved = True
+        return session
+
+    def test_silence_is_never_sent_to_speech_to_text(self) -> None:
+        backend = MagicMock()
+        console = MagicMock()
+        with patch("openjarvis.speech.voice_io.record_until_silence", return_value=b""):
+            assert record_voice(console, self._session_with(backend)) is None
+        backend.transcribe.assert_not_called()
+        assert "Nothing heard" in str(console.print.call_args_list)
+
+    def test_hands_free_silence_is_quiet(self) -> None:
+        console = MagicMock()
+        with patch("openjarvis.speech.voice_io.record_until_silence", return_value=b""):
+            result = record_voice(
+                console, self._session_with(MagicMock()), hands_free=True, quiet=True
+            )
+        assert result is None
+        console.print.assert_not_called()
+
+    def test_key_press_while_listening_returns_typed_sentinel(self) -> None:
+        with patch(
+            "openjarvis.speech.voice_io.record_until_silence", return_value=None
+        ) as record:
+            result = record_voice(
+                MagicMock(), self._session_with(MagicMock()), should_stop=lambda: True
+            )
+        assert result is VOICE_TYPED
+        assert record.call_args.kwargs["require_speech"] is True
+
+    def test_ctrl_c_during_transcription_ends_the_session(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.side_effect = KeyboardInterrupt
+        with patch(
+            "openjarvis.speech.voice_io.record_until_silence", return_value=b"wav"
+        ):
+            assert record_voice(MagicMock(), self._session_with(backend)) is (
+                VOICE_EXIT
+            )
+
+    @pytest.mark.parametrize(("hands_free", "timeout"), [(True, None), (False, 5.0)])
+    def test_turn_detector_is_used_when_available(
+        self, monkeypatch, hands_free, timeout
+    ) -> None:
+        from openjarvis.speech import turn_detection
+
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(text="salut")
+        listen = MagicMock(return_value=b"wav")
+        monkeypatch.setattr(
+            turn_detection, "load_turn_models", lambda path="": (object(), None)
+        )
+        monkeypatch.setattr(turn_detection, "listen_for_turn", listen)
+        with patch("openjarvis.speech.voice_io.record_until_silence") as legacy:
+            result = record_voice(
+                MagicMock(), self._session_with(backend), hands_free=hands_free
+            )
+        assert result == "salut"
+        legacy.assert_not_called()
+        params = listen.call_args.kwargs["params"]
+        assert params.start_timeout_secs == timeout
+        assert params.vad_stop_secs == 0.5  # [speech] turn_pause_secs default
+
+    def test_turn_detector_typed_maps_to_voice_typed(self, monkeypatch) -> None:
+        from openjarvis.speech import turn_detection
+
+        monkeypatch.setattr(
+            turn_detection, "load_turn_models", lambda path="": (object(), None)
+        )
+        monkeypatch.setattr(
+            turn_detection,
+            "listen_for_turn",
+            lambda **kwargs: turn_detection.TYPED,
+        )
+        result = record_voice(MagicMock(), self._session_with(MagicMock()))
+        assert result is VOICE_TYPED
+
+    def test_hands_free_reads_keys_typed_during_the_reply(self) -> None:
+        with (
+            patch("openjarvis.cli._voice_chat._keyboard_pending", return_value=True),
+            patch("builtins.input", return_value="  bonjour  "),
+            patch("openjarvis.cli._voice_chat.record_voice") as record,
+        ):
+            result = read_voice_input(MagicMock(), MagicMock(), hands_free=True)
+        assert result == "bonjour"
+        record.assert_not_called()
+
+    @pytest.mark.parametrize("announce", [True, False])
+    def test_echo_guard_only_after_a_spoken_reply(self, announce) -> None:
+        with (
+            patch("openjarvis.cli._voice_chat._keyboard_pending", return_value=False),
+            patch("openjarvis.cli._voice_chat._echo_guard") as sleep,
+            patch("openjarvis.cli._voice_chat.record_voice", return_value="ok") as rec,
+        ):
+            result = read_voice_input(
+                MagicMock(), MagicMock(), hands_free=True, announce=announce
+            )
+        assert result == "ok"
+        assert sleep.called is announce
+        assert rec.call_args.kwargs["quiet"] is (not announce)
+
+    def test_typed_empty_line_goes_back_to_listening(self) -> None:
+        console = MagicMock()
+        with (
+            patch("openjarvis.cli._voice_chat._keyboard_pending", return_value=True),
+            patch("builtins.input", return_value="   "),
+        ):
+            assert read_voice_input(console, MagicMock(), hands_free=True) is None
+        # The loop re-listens quietly after None, so the mic reopening must
+        # be announced here.
+        assert "Listening" in str(console.print.call_args)
+
+    def test_ctrl_c_while_stt_loads_ends_the_session_cleanly(self) -> None:
+        session = MagicMock()
+        session.stt_ready = False
+        session.get_stt_backend.side_effect = KeyboardInterrupt
+        assert record_voice(MagicMock(), session) is VOICE_EXIT
+
+    def test_waiting_for_a_busy_backend_lock_stays_interruptible(self) -> None:
+        import _thread
+        import threading
+        import time
+
+        from openjarvis.cli._voice_chat import _locked
+
+        lock = threading.Lock()
+        lock.acquire()  # a preload thread holding the lock for a long time
+        timer = threading.Timer(0.3, _thread.interrupt_main)
+        timer.start()
+        start = time.monotonic()
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                with _locked(lock):
+                    pass
+        finally:
+            timer.cancel()
+            lock.release()
+        assert time.monotonic() - start < 2.0
+
+    def test_ctrl_c_while_reading_voice_input_says_goodbye(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        with (
+            _chat_cli(config, engine),
+            patch(
+                "openjarvis.cli.chat_cmd.read_voice_input",
+                side_effect=KeyboardInterrupt,
+            ),
+        ):
+            result = CliRunner().invoke(chat, ["--voice", "--model", "test-model"])
+        assert result.exit_code == 0
+        assert "Goodbye!" in result.output
+
+
+class TestVoiceSettings:
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), -1, 0, "0,5"])
+    def test_invalid_turn_pause_falls_back_to_default(self, value) -> None:
+        config = JarvisConfig()
+        config.speech.turn_pause_secs = value
+        assert VoiceSession(config).get_turn_pause_secs() == 0.5
+
+    def test_quoted_false_hands_free_keeps_push_to_talk(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        config.speech.hands_free = "false"
+        with (
+            _chat_cli(config, engine),
+            patch("openjarvis.speech.voice_io.record_until_silence") as record,
+        ):
+            result = CliRunner().invoke(
+                chat, ["--voice", "--model", "test-model"], input="/quit\n"
+            )
+        assert result.exit_code == 0
+        assert "Hands-free" not in result.output
+        record.assert_not_called()
+
+    def test_voice_md_in_another_encoding_falls_back(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        (tmp_path / "VOICE.md").write_bytes("Réponds bref.".encode("cp1252"))
+        monkeypatch.setattr("openjarvis.core.paths.get_config_dir", lambda: tmp_path)
+        assert voice_style_prompt() == VOICE_STYLE_PROMPT
+
+    def test_voice_md_bom_is_stripped(self, monkeypatch, tmp_path) -> None:
+        (tmp_path / "VOICE.md").write_bytes("Réponds bref.".encode("utf-8-sig"))
+        monkeypatch.setattr("openjarvis.core.paths.get_config_dir", lambda: tmp_path)
+        assert voice_style_prompt() == "Réponds bref."
+
+    def test_spoken_style_extends_a_custom_system_prompt(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.return_value = {"content": "ok"}
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        with (
+            _chat_cli(config, engine),
+            patch(
+                "openjarvis.cli.chat_cmd.voice_style_prompt",
+                return_value="SPOKEN STYLE",
+            ),
+            patch("openjarvis.cli.chat_cmd.speak"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                [
+                    "--voice",
+                    "--agent",
+                    "none",
+                    "--system",
+                    "Tu es un pirate.",
+                    "--model",
+                    "test-model",
+                ],
+                input="salut\n/quit\n",
+            )
+        assert result.exit_code == 0, result.output
+        system = engine.generate.call_args.args[0][0]
+        assert system.role == Role.SYSTEM
+        assert system.content.startswith("Tu es un pirate.")
+        assert "SPOKEN STYLE" in system.content
 
 
 class TestChatAgents:
