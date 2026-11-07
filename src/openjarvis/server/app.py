@@ -129,6 +129,28 @@ def _restore_sendblue_bindings(app: FastAPI) -> None:
         logger.debug("SendBlue binding restore skipped: %s", exc)
 
 
+def _restore_telegram_bindings(app: FastAPI) -> None:
+    """Restore the first configured Telegram binding on server startup."""
+    try:
+        mgr = getattr(app.state, "agent_manager", None)
+        if mgr is None:
+            return
+        from openjarvis.server.agent_manager_routes import _start_telegram_binding
+
+        for agent in mgr.list_agents():
+            bindings = mgr.list_channel_bindings(agent.get("id", ""))
+            binding = next(
+                (b for b in bindings if b.get("channel_type") == "telegram"),
+                None,
+            )
+            if binding is not None:
+                _start_telegram_binding(app, binding)
+                logger.info("Restored Telegram channel binding")
+                return
+    except Exception as exc:
+        logger.debug("Telegram binding restore skipped: %s", exc)
+
+
 # No-cache headers applied to static file responses
 _NO_CACHE_HEADERS = {
     "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -486,6 +508,7 @@ def create_app(
 
     # Restore SendBlue channel bindings from database on startup
     _restore_sendblue_bindings(app)
+    _restore_telegram_bindings(app)
 
     # Add security headers middleware
     try:

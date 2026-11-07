@@ -85,6 +85,8 @@ def get_provider(model: str) -> str | None:
         return "atlascloud"
     if any(model.startswith(org) for org in _LOCAL_HF_ORGS):
         return None  # local model, never route to cloud
+    if "/" in model and ":" in model:
+        return None
     if "/" in model:  # openrouter format: "meta-llama/llama-3-8b"
         return "openrouter"
     return None
