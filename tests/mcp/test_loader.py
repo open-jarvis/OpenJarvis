@@ -280,3 +280,85 @@ class TestLoaderFailureIsolation:
             "Failed to discover MCP tools" in message and "handshake failed" in message
             for message in messages
         )
+
+
+class TestLoaderServersFile:
+    """``servers`` may name a JSON file, as documented and as SystemBuilder does."""
+
+    _SERVER = {"name": "ha", "url": "https://ha.example/api/mcp", "token": "t"}
+
+    def _write(self, path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_relative_file_resolved_against_config_dir(self, _mock_mcp_stack, tmp_path):
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        self._write(tmp_path / "mcp-servers.json", [self._SERVER])
+        cfg = _make_mcp_cfg(servers="mcp-servers.json")
+
+        load_mcp_tools_from_config(cfg, config_dir=tmp_path)
+
+        _mock_mcp_stack["http"].assert_called_once_with(
+            url="https://ha.example/api/mcp", token="t"
+        )
+
+    def test_absolute_file_path(self, _mock_mcp_stack, tmp_path):
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        path = self._write(tmp_path / "elsewhere" / "servers.json", [self._SERVER])
+        cfg = _make_mcp_cfg(servers=str(path))
+
+        load_mcp_tools_from_config(cfg, config_dir=tmp_path / "config")
+
+        _mock_mcp_stack["http"].assert_called_once()
+
+    def test_single_server_object_in_file_is_wrapped(self, _mock_mcp_stack, tmp_path):
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        self._write(tmp_path / "one.json", self._SERVER)
+        cfg = _make_mcp_cfg(servers="one.json")
+
+        load_mcp_tools_from_config(cfg, config_dir=tmp_path)
+
+        _mock_mcp_stack["http"].assert_called_once()
+
+    def test_default_config_dir_is_the_openjarvis_home(
+        self, _mock_mcp_stack, tmp_path, monkeypatch
+    ):
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path))
+        self._write(tmp_path / "mcp-servers.json", [self._SERVER])
+        cfg = _make_mcp_cfg(servers="mcp-servers.json")
+
+        load_mcp_tools_from_config(cfg)
+
+        _mock_mcp_stack["http"].assert_called_once()
+
+    def test_missing_file_logs_warning_returns_empty(
+        self, _mock_mcp_stack, tmp_path, caplog
+    ):
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        cfg = _make_mcp_cfg(servers="missing.json")
+        with caplog.at_level("WARNING"):
+            tools, clients = load_mcp_tools_from_config(cfg, config_dir=tmp_path)
+
+        assert (tools, clients) == ([], [])
+        assert any("parse MCP servers config" in r.message for r in caplog.records)
+        _mock_mcp_stack["http"].assert_not_called()
+
+    def test_relative_path_cannot_escape_config_dir(
+        self, _mock_mcp_stack, tmp_path, caplog
+    ):
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        self._write(tmp_path / "outside.json", [self._SERVER])
+        cfg = _make_mcp_cfg(servers="../outside.json")
+        with caplog.at_level("WARNING"):
+            tools, _ = load_mcp_tools_from_config(cfg, config_dir=tmp_path / "config")
+
+        assert tools == []
+        _mock_mcp_stack["http"].assert_not_called()

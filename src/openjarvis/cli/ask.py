@@ -410,6 +410,7 @@ def _run_agent(
     mcp_tools, mcp_clients = load_mcp_tools_from_config(
         config.tools.mcp,
         allowed_names=set(tool_names) if tool_names else None,
+        config_dir=config._config_dir,
     )
     if mcp_tools:
         # Dedup against registry tools by spec.name — first occurrence wins
