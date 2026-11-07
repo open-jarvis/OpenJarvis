@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections import deque
 from dataclasses import dataclass
 from typing import Optional
 
 from openjarvis.core.events import EventBus, EventType
+
+# Collapses running counters in verdict reasons so repeats share one cycle key.
+_DIGITS = re.compile(r"\d+")
 
 
 @dataclass(slots=True)
@@ -85,7 +89,11 @@ class LoopGuard:
 
         # Wrap with warn-before-block logic
         if verdict.blocked and self._config.warn_before_block:
-            cycle_key = verdict.reason
+            # The key must be stable across repeats of the same loop. Reasons
+            # embed running counters ("repeated 4 times", "5 calls made"), so
+            # keying on the raw text made every blocked call look like a new
+            # cycle: it was warned about forever and never actually blocked.
+            cycle_key = f"{tool_name}|{_DIGITS.sub('#', verdict.reason)}"
             if cycle_key not in self._warned_cycles:
                 self._warned_cycles.add(cycle_key)
                 return LoopVerdict(blocked=False, warned=True, reason=verdict.reason)

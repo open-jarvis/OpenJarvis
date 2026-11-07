@@ -269,3 +269,43 @@ class TestCheckSsrfPythonFallback:
 
 
 __all__ = ["TestCheckSsrf", "TestCheckSsrfPythonFallback", "TestIsPrivateIp"]
+
+
+class TestReservedRanges:
+    """Ranges that are not routable public space but were missing from the
+    block list. Notably 100.64.0.0/10 holds Alibaba's metadata service, which
+    _BLOCKED_HOSTS only catches when written as a literal."""
+
+    def test_cgnat_range_is_private(self):
+        for ip in ("100.64.0.1", "100.100.100.200", "100.127.255.255"):
+            assert is_private_ip(ip) is True, ip
+        assert is_private_ip("100.63.255.255") is False
+        assert is_private_ip("100.128.0.1") is False
+
+    def test_other_reserved_ranges_are_private(self):
+        for ip in ("198.18.0.1", "198.19.255.255", "192.0.0.192", "240.0.0.1"):
+            assert is_private_ip(ip) is True, ip
+        assert is_private_ip("198.20.0.1") is False
+
+    def test_nat64_uses_embedded_ipv4(self):
+        assert is_private_ip("64:ff9b::7f00:1") is True  # 127.0.0.1
+        assert is_private_ip("64:ff9b::a00:1") is True  # 10.0.0.1
+        assert is_private_ip("64:ff9b::808:808") is False  # 8.8.8.8
+
+    def test_6to4_uses_embedded_ipv4(self):
+        assert is_private_ip("2002:7f00:1::1") is True  # 127.0.0.1
+        assert is_private_ip("2002:a9fe:a9fe::1") is True  # 169.254.169.254
+        assert is_private_ip("2002:808:808::1") is False  # 8.8.8.8
+
+    def test_hostname_resolving_to_cgnat_metadata_is_blocked(self):
+        # A name that resolves to 100.100.100.200 never matches the literal
+        # host blocklist; only the CIDR check can stop it.
+        fake = [(2, 1, 6, "", ("100.100.100.200", 0))]
+        with patch("openjarvis.security.ssrf.socket.getaddrinfo", return_value=fake):
+            result = _check_ssrf_python("http://metadata.example.test/")
+        assert result is not None
+        assert "private IP" in result
+
+    def test_nat64_literal_url_blocked(self):
+        result = _check_ssrf_python("http://[64:ff9b::7f00:1]/")
+        assert result is not None
