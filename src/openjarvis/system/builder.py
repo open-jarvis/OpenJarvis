@@ -506,30 +506,22 @@ class SystemBuilder:
         else:
             tools = []
 
-        if config.tools.mcp.enabled and config.tools.mcp.servers:
-            try:
-                from openjarvis.core.config import resolve_mcp_servers
+        from openjarvis.mcp.loader import resolve_effective_mcp_servers
 
-                server_list = resolve_mcp_servers(
-                    config.tools.mcp.servers,
-                    config._config_dir,
+        for server_cfg in resolve_effective_mcp_servers(config):
+            try:
+                external_tools = self._discover_external_mcp(server_cfg)
+                self._mcp_tools.extend(external_tools)
+                if tool_names:
+                    external_tools = [
+                        t for t in external_tools if t.spec.name in tool_names
+                    ]
+                tools.extend(external_tools)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to discover external MCP tools: %s",
+                    exc,
                 )
-                for server_cfg in server_list:
-                    try:
-                        external_tools = self._discover_external_mcp(server_cfg)
-                        self._mcp_tools.extend(external_tools)
-                        if tool_names:
-                            external_tools = [
-                                t for t in external_tools if t.spec.name in tool_names
-                            ]
-                        tools.extend(external_tools)
-                    except Exception as exc:
-                        logger.warning(
-                            "Failed to discover external MCP tools: %s",
-                            exc,
-                        )
-            except (OSError, UnicodeError, ValueError, TypeError) as exc:
-                logger.warning("Failed to parse MCP server config: %s", exc)
 
         return tools
 
@@ -688,23 +680,15 @@ class SystemBuilder:
         import json
 
         from openjarvis.mcp.client import MCPClient
-        from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
+        from openjarvis.mcp.loader import build_transport
         from openjarvis.tools.mcp_adapter import MCPToolProvider
 
         cfg = json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
         name = cfg.get("name", "<unnamed>")
-        url = cfg.get("url")
-        # Bearer token from config — needed by authenticated MCP servers
-        # like Home Assistant. None / empty string skips the header. #461.
-        token = cfg.get("token")
-        command = cfg.get("command", "")
-        args = cfg.get("args", [])
-
-        if url:
-            transport = StreamableHTTPTransport(url=url, token=token)
-        elif command:
-            transport = StdioTransport(command=[command] + args)
-        else:
+        # Bearer token (or custom auth header) from config — needed by
+        # authenticated MCP servers. None / empty string skips it. #461.
+        transport = build_transport(cfg)
+        if transport is None:
             logger.warning(
                 "MCP server '%s' has neither 'url' nor 'command' — skipping",
                 name,
