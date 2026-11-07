@@ -19,6 +19,18 @@ BUILT="$STATE_DIR/extension-built"
 FAILED="$STATE_DIR/extension-failed"
 MANIFEST="$SRC_DIR/rust/crates/openjarvis-python/Cargo.toml"
 
+# The venv the `jarvis` wrapper actually runs from. The installer creates it
+# at $OPENJARVIS_HOME/.venv; a contributor checkout (`uv sync`) has it at
+# $SRC_DIR/.venv instead. Plain `uv run` inside $SRC_DIR always picks the
+# latter (creating it if missing), so on an installer layout the extension
+# used to land in a venv nothing serves from while the import check below
+# passed against that same wrong venv (#502 reopened).
+VENV_DIR="${OPENJARVIS_VENV:-$OPENJARVIS_HOME/.venv}"
+if [[ ! -d "$VENV_DIR" ]]; then
+    VENV_DIR="$SRC_DIR/.venv"
+fi
+export VIRTUAL_ENV="$VENV_DIR"
+
 mkdir -p "$STATE_DIR"
 
 if [[ ! -f "$MANIFEST" ]]; then
@@ -27,17 +39,20 @@ if [[ ! -f "$MANIFEST" ]]; then
 fi
 
 cd "$SRC_DIR"
-if uv run maturin develop -m "$MANIFEST" >>"$LOG" 2>&1; then
+# `uv tool run` keeps maturin out of the serving venv; `maturin develop`
+# installs into $VIRTUAL_ENV, and `--uv` lets it do so in a venv that has
+# no pip (uv-created venvs do not ship one).
+if uv tool run maturin develop --uv -m "$MANIFEST" >>"$LOG" 2>&1; then
     # Verify the extension actually imports from THIS venv before declaring
     # success. `maturin develop` can report success while installing the .so
     # into a different venv than the one that runs the server, which leaves
     # memory silently broken at runtime (#502). Only the import check below
     # proves the serving venv can load it.
-    if ! uv run python -c "import openjarvis_rust" >>"$LOG" 2>&1; then
+    if ! uv run --active --no-sync python -c "import openjarvis_rust" >>"$LOG" 2>&1; then
         rc=$?
         {
             echo "build-extension.sh: maturin succeeded but 'import openjarvis_rust'"
-            echo "failed in the serving venv ($SRC_DIR/.venv) — the extension was"
+            echo "failed in the serving venv ($VENV_DIR) — the extension was"
             echo "not installed where the server runs. (exit=$rc)"
             tail -n 50 "$LOG" 2>/dev/null || true
         } > "$FAILED"
