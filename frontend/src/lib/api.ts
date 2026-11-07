@@ -453,7 +453,17 @@ export interface ManagedAgentConfig extends Record<string, unknown> {
   schedule_value?: string | number;
 }
 
+export interface AgentTeam {
+  communicate_with?: string[];
+  lead_agent_id?: string | null;
+  id: string;
+  name: string;
+  created_at: number;
+}
+
 export interface ManagedAgent {
+  team_scoped?: boolean;
+  team_id?: string | null;
   id: string;
   name: string;
   agent_type: string;
@@ -516,10 +526,10 @@ export interface PersistedToolCall {
 export interface AgentMessage {
   id: string;
   agent_id: string;
-  direction: 'user_to_agent' | 'agent_to_user';
+  direction: 'user_to_agent' | 'agent_to_user' | 'agent_to_agent';
   content: string;
   mode: 'immediate' | 'queued';
-  status: 'pending' | 'delivered' | 'responded';
+  status: 'pending' | 'delivered' | 'responded' | 'blocked';
   created_at: number;
   tool_calls?: PersistedToolCall[] | null;
 }
@@ -541,6 +551,7 @@ export async function createManagedAgent(body: {
   name: string;
   agent_type?: string;
   template_id?: string;
+  team_id?: string | null;
   config?: Record<string, unknown>;
 }): Promise<ManagedAgent> {
   const res = await apiFetch(`/v1/managed-agents`, {
@@ -554,7 +565,7 @@ export async function createManagedAgent(body: {
 
 export async function updateManagedAgent(
   agentId: string,
-  body: Partial<{ name: string; agent_type: string; config: Record<string, unknown> }>,
+  body: Partial<{ name: string; agent_type: string; config: Record<string, unknown>; team_id: string | null }>,
 ): Promise<ManagedAgent> {
   const res = await apiFetch(`/v1/managed-agents/${agentId}`, {
     method: 'PATCH',
@@ -1226,3 +1237,182 @@ export async function setInferenceSource(
 export const stageInferenceSource = (
   src: InferenceSource & { apiKey?: string },
 ): Promise<void> => setInferenceSource(src, { pending: true });
+
+
+async function agentTeamRequest(path = '', method = 'GET', name?: string): Promise<any> {
+  const res = await apiFetch(`/v1/managed-agents/teams${path}`, {
+    method,
+    ...(name === undefined ? {} : {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(typeof error.detail === 'string' ? error.detail : 'Could not update teams. Please try again.');
+  }
+  return res.json();
+}
+
+export async function fetchAgentTeams(): Promise<AgentTeam[]> {
+  return (await agentTeamRequest()).teams;
+}
+
+export async function createAgentTeam(name: string): Promise<AgentTeam> {
+  return agentTeamRequest('', 'POST', name);
+}
+
+export async function renameAgentTeam(id: string, name: string): Promise<AgentTeam> {
+  return agentTeamRequest(`/${encodeURIComponent(id)}`, 'PATCH', name);
+}
+
+export async function deleteAgentTeam(id: string): Promise<void> {
+  await agentTeamRequest(`/${encodeURIComponent(id)}`, 'DELETE');
+}
+
+export interface TeamConnection {
+  id: string;
+  team_id: string;
+  name: string;
+  provider: string;
+  url: string;
+  auth_type: 'bearer' | 'none' | 'header';
+  settings?: { header_name?: string; agent_ids?: string[]; verified_at?: number | null; last_error?: string | null; tools?: { name: string; description: string }[] };
+  status: 'configured' | 'needs_authentication' | 'verified' | 'error';
+}
+
+export async function updateAgentTeamPolicy(id: string, communicateWith: string[]): Promise<AgentTeam> {
+  const res = await apiFetch(`/v1/managed-agents/teams/${encodeURIComponent(id)}/policy`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ communicate_with: communicateWith }),
+  });
+  if (!res.ok) throw new Error('Could not save team communication settings.');
+  return res.json();
+}
+
+export async function fetchTeamConnections(teamId: string): Promise<TeamConnection[]> {
+  const res = await apiFetch(`/v1/managed-agents/teams/${encodeURIComponent(teamId)}/connections`);
+  if (!res.ok) throw new Error('Could not load team connections.');
+  return (await res.json()).connections;
+}
+
+export async function createTeamConnection(teamId: string, connection: {
+  name: string; provider: string; url: string; auth_type: 'bearer' | 'none' | 'header'; token: string;
+  settings?: { header_name?: string; agent_ids?: string[] };
+}): Promise<TeamConnection> {
+  const res = await apiFetch(`/v1/managed-agents/teams/${encodeURIComponent(teamId)}/connections`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(connection),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not save connection.');
+  }
+  return res.json();
+}
+
+export async function deleteTeamConnection(teamId: string, connectionId: string): Promise<void> {
+  const res = await apiFetch(`/v1/managed-agents/teams/${encodeURIComponent(teamId)}/connections/${encodeURIComponent(connectionId)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Could not remove connection.');
+}
+
+// ---------------------------------------------------------------------------
+// Team requests (orchestrator) and handoffs
+// ---------------------------------------------------------------------------
+
+async function teamJson<T>(path: string, init: RequestInit = {}, fallback = 'تعذّر تنفيذ الطلب.'): Promise<T> {
+  const res = await apiFetch(`/v1/managed-agents${path}`, init);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data.detail === 'string' ? data.detail : fallback);
+  }
+  return res.json();
+}
+
+const jsonInit = (method: string, body: unknown): RequestInit => ({
+  method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
+
+export interface TeamHandoff {
+  id: string;
+  campaign_id: string;
+  kind: 'request' | 'task' | 'report';
+  source_agent_id: string | null;
+  target_agent_id: string;
+  source_name?: string;
+  target_name?: string;
+  title: string;
+  content: string;
+  files: string[];
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'waiting_paused' | 'cancelled';
+  status_reason: string;
+  attempts: number;
+  created_at: number;
+  updated_at: number;
+  result?: string | null;
+}
+
+export interface TeamCampaign {
+  id: string;
+  team_id: string;
+  title: string;
+  brief: string;
+  status: string;
+  display_status: string;
+  status_reason: string;
+  lead_agent_id: string;
+  options: { contact?: string; logo?: string };
+  max_runs: number;
+  runs_used: number;
+  open_handoffs: number;
+  attention_count: number;
+  created_at: number;
+  updated_at: number;
+  handoffs?: TeamHandoff[];
+  files?: { path: string; size: number; modified_at: number }[];
+}
+
+export async function setTeamLead(teamId: string, agentId: string | null): Promise<AgentTeam> {
+  return teamJson(`/teams/${encodeURIComponent(teamId)}/lead`, jsonInit('PUT', { agent_id: agentId }));
+}
+
+export async function fetchTeamCampaigns(teamId: string): Promise<TeamCampaign[]> {
+  return (await teamJson<{ campaigns: TeamCampaign[] }>(`/teams/${encodeURIComponent(teamId)}/campaigns`)).campaigns;
+}
+
+export async function createTeamCampaign(teamId: string, form: FormData): Promise<TeamCampaign> {
+  return teamJson(`/teams/${encodeURIComponent(teamId)}/campaigns`, { method: 'POST', body: form });
+}
+
+export async function fetchTeamCampaign(campaignId: string): Promise<TeamCampaign> {
+  return teamJson(`/campaigns/${encodeURIComponent(campaignId)}`);
+}
+
+export async function sendTeamFollowUp(campaignId: string, content: string): Promise<TeamCampaign> {
+  return teamJson(`/campaigns/${encodeURIComponent(campaignId)}/messages`, jsonInit('POST', { content, files: [] }));
+}
+
+export async function cancelTeamCampaign(campaignId: string): Promise<TeamCampaign> {
+  return teamJson(`/campaigns/${encodeURIComponent(campaignId)}/cancel`, { method: 'POST' });
+}
+
+export async function setTeamCampaignMaxRuns(campaignId: string, maxRuns: number): Promise<TeamCampaign> {
+  return teamJson(`/campaigns/${encodeURIComponent(campaignId)}/max-runs`, jsonInit('PUT', { max_runs: maxRuns }));
+}
+
+export async function retryTeamHandoff(handoffId: string): Promise<TeamCampaign> {
+  return teamJson(`/handoffs/${encodeURIComponent(handoffId)}/retry`, { method: 'POST' });
+}
+
+export async function fetchCampaignFileBlob(campaignId: string, path: string): Promise<Blob> {
+  const res = await apiFetch(`/v1/managed-agents/campaigns/${encodeURIComponent(campaignId)}/file?path=${encodeURIComponent(path)}`);
+  if (!res.ok) throw new Error('تعذّر تحميل الملف.');
+  return res.blob();
+}
+
+export async function verifyTeamConnection(teamId: string, connectionId: string): Promise<TeamConnection> {
+  return teamJson(`/teams/${encodeURIComponent(teamId)}/connections/${encodeURIComponent(connectionId)}/verify`, { method: 'POST' }, 'Verification failed.');
+}
+
+export async function setTeamConnectionAccess(teamId: string, connectionId: string, agentIds: string[]): Promise<TeamConnection> {
+  return teamJson(`/teams/${encodeURIComponent(teamId)}/connections/${encodeURIComponent(connectionId)}/access`, jsonInit('PUT', { agent_ids: agentIds }), 'تعذّر حفظ الصلاحيات.');
+}

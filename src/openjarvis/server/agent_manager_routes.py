@@ -25,7 +25,7 @@ from openjarvis.server.model_capabilities import is_embed_only_model
 try:
     from fastapi import APIRouter, HTTPException, Request
     from fastapi.responses import StreamingResponse
-    from pydantic import BaseModel
+    from pydantic import BaseModel, SecretStr
 except ImportError:
     raise ImportError("fastapi and pydantic are required for server routes")
 
@@ -84,9 +84,53 @@ class CreateAgentRequest(BaseModel):
     agent_type: str = "monitor_operative"
     config: Optional[Dict[str, Any]] = None
     template_id: Optional[str] = None
+    team_id: Optional[str] = None
+
+
+class TeamPolicyRequest(BaseModel):
+    communicate_with: List[str]
+
+
+class TeamConnectionRequest(BaseModel):
+    name: str
+    provider: str
+    url: str = ""
+    auth_type: str = "bearer"
+    token: SecretStr = SecretStr("")
+    settings: Dict[str, Any] = {}
+
+
+class TeamRequest(BaseModel):
+    name: str
+
+
+class TeamKnowledgeRequest(BaseModel):
+    title: str = ""
+    content: str
+
+
+async def _parse_secret_body(request: Request, model: Any) -> Any:
+    """Validate a body that carries credentials without echoing it on error.
+
+    FastAPI's default 422 response includes the rejected input, which for a
+    connection request is the whole body, token included.
+    """
+    from pydantic import ValidationError
+
+    try:
+        return model.model_validate(await request.json())
+    except ValidationError as exc:
+        detail = [
+            {"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]}
+            for e in exc.errors(include_url=False, include_input=False)
+        ]
+        raise HTTPException(status_code=422, detail=detail) from None
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid JSON body") from None
 
 
 class UpdateAgentRequest(BaseModel):
+    team_id: Optional[str] = None
     name: Optional[str] = None
     agent_type: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
@@ -491,7 +535,9 @@ _SAMPLER_PARAM_KEYS = (
 )
 
 
-def _build_managed_system_prompt(system_prompt: str, app_config: Any) -> str:
+def _build_managed_system_prompt(
+    system_prompt: str, app_config: Any, memory_files_config: Any = None
+) -> str:
     """Build the streaming managed-agent system prompt via SystemPromptBuilder.
 
     Routes the agent's own ``system_prompt`` through the same builder the
@@ -505,7 +551,8 @@ def _build_managed_system_prompt(system_prompt: str, app_config: Any) -> str:
 
     builder = SystemPromptBuilder(
         agent_template=system_prompt or "",
-        memory_files_config=getattr(app_config, "memory_files", None),
+        memory_files_config=memory_files_config
+        or getattr(app_config, "memory_files", None),
         system_prompt_config=getattr(app_config, "system_prompt", None),
     )
     return builder.build()
@@ -924,7 +971,17 @@ async def _stream_managed_agent(
 
         app_config = load_config()
 
-    final_system_prompt = _build_managed_system_prompt(system_prompt or "", app_config)
+    from openjarvis.agents.team_data import agent_memory_files_config
+
+    # Team agents read their team's MEMORY.md, never the global one.
+    live_record = manager.get_agent(agent_record["id"])
+    if not isinstance(live_record, dict):
+        live_record = agent_record
+    final_system_prompt = _build_managed_system_prompt(
+        system_prompt or "",
+        app_config,
+        agent_memory_files_config(manager, live_record, app_config),
+    )
 
     if final_system_prompt and final_system_prompt.strip():
         llm_messages.append(
@@ -936,7 +993,12 @@ async def _stream_managed_agent(
     agent_type = agent_record.get("agent_type", "")
     mcp_adapters: Dict[str, Any] = {}
     mcp_clients: list[Any] = []
-    if app_state is not None and config.get("mcp_tools", True) is not False:
+    if (
+        app_state is not None
+        and config.get("mcp_tools", True) is not False
+        and not agent_record.get("team_id")
+        and not agent_record.get("team_scoped")
+    ):
         try:
             _, mcp_adapters = _get_mcp_tools(app_state)
             mcp_clients = list(getattr(app_state, "_mcp_clients", []))
@@ -961,6 +1023,7 @@ async def _stream_managed_agent(
         mcp_clients=mcp_clients,
         knowledge_db_path=getattr(app_state, "knowledge_db_path", None),
         app_config=app_config,
+        manager=manager,
     )
 
     # Load prior conversation context (DESC order, reverse for chronological).
@@ -1644,19 +1707,154 @@ def create_agent_manager_router(
     # ── Agent lifecycle ──────────────────────────────────────
 
     @agents_router.get("")
-    async def list_agents():
-        return {"agents": manager.list_agents()}
+    async def list_agents(team_id: Optional[str] = None):
+        return {"agents": manager.list_agents(team_id=team_id)}
+
+    @agents_router.get("/teams")
+    async def list_teams():
+        return {"teams": manager.list_teams()}
+
+    @agents_router.post("/teams", status_code=201)
+    async def create_team(req: TeamRequest):
+        try:
+            return manager.create_team(req.name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @agents_router.patch("/teams/{team_id}")
+    async def rename_team(team_id: str, req: TeamRequest):
+        try:
+            return manager.rename_team(team_id, req.name)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Team not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @agents_router.delete("/teams/{team_id}")
+    async def delete_team(team_id: str):
+        try:
+            manager.delete_team(team_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Team not found") from exc
+        return {"status": "deleted"}
+
+    @agents_router.put("/teams/{team_id}/policy")
+    async def update_team_policy(team_id: str, req: TeamPolicyRequest):
+        try:
+            return manager.update_team_policy(
+                team_id, communicate_with=req.communicate_with
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Team not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @agents_router.get("/teams/{team_id}/connections")
+    async def team_connections(team_id: str):
+        if manager.get_team(team_id) is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        return {"connections": manager.list_team_connections(team_id)}
+
+    @agents_router.post("/teams/{team_id}/connections", status_code=201)
+    async def create_team_connection(team_id: str, request: Request):
+        import sqlite3
+
+        req = await _parse_secret_body(request, TeamConnectionRequest)
+        try:
+            return manager.create_team_connection(
+                team_id,
+                name=req.name,
+                provider=req.provider,
+                url=req.url,
+                auth_type=req.auth_type,
+                token=req.token.get_secret_value(),
+                settings=req.settings,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Team not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(
+                status_code=409, detail="Connection name already exists"
+            ) from exc
+
+    @agents_router.get("/teams/{team_id}/knowledge")
+    async def team_knowledge(team_id: str):
+        from openjarvis.agents.team_data import team_data_dir
+        from openjarvis.connectors.store import KnowledgeStore
+
+        if manager.get_team(team_id) is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        path = team_data_dir(manager, team_id) / "knowledge.db"
+        if not path.exists():
+            return {"chunks": 0}
+        store = KnowledgeStore(db_path=path)
+        try:
+            return {"chunks": store.count()}
+        finally:
+            store.close()
+
+    @agents_router.post("/teams/{team_id}/knowledge", status_code=201)
+    async def ingest_team_knowledge(team_id: str, req: TeamKnowledgeRequest):
+        """Add text to this team's own knowledge store (not the global one)."""
+        import uuid
+
+        from openjarvis.agents.team_data import ensure_team_data_dir
+        from openjarvis.connectors.store import KnowledgeStore
+        from openjarvis.server.upload_router import _chunk_text
+
+        if manager.get_team(team_id) is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        text = req.content.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Content is empty")
+        path = ensure_team_data_dir(manager, team_id) / "knowledge.db"
+        store = KnowledgeStore(db_path=path)
+        doc_id = str(uuid.uuid4())
+        try:
+            chunks = _chunk_text(text)
+            for idx, chunk in enumerate(chunks):
+                store.store(
+                    chunk,
+                    source="team_upload",
+                    doc_type="paste",
+                    doc_id=doc_id,
+                    title=req.title or "Pasted text",
+                    chunk_index=idx,
+                )
+        finally:
+            store.close()
+        return {"chunks_added": len(chunks), "doc_id": doc_id}
+
+    from openjarvis.server.team_campaign_routes import register_campaign_routes
+
+    register_campaign_routes(agents_router, manager)
+
+    @agents_router.delete("/teams/{team_id}/connections/{connection_id}")
+    async def delete_team_connection(team_id: str, connection_id: str):
+        try:
+            manager.delete_team_connection(team_id, connection_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Connection not found") from exc
+        return {"status": "deleted"}
 
     @agents_router.post("")
     async def create_agent(req: CreateAgentRequest, request: Request):
-        if req.template_id:
-            agent = manager.create_from_template(
-                req.template_id, req.name, overrides=req.config
-            )
-        else:
-            agent = manager.create_agent(
-                name=req.name, agent_type=req.agent_type, config=req.config
-            )
+        try:
+            if req.template_id:
+                agent = manager.create_from_template(
+                    req.template_id, req.name, overrides=req.config, team_id=req.team_id
+                )
+            else:
+                agent = manager.create_agent(
+                    name=req.name,
+                    agent_type=req.agent_type,
+                    config=req.config,
+                    team_id=req.team_id,
+                )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         # Register with scheduler if cron/interval
         scheduler = getattr(request.app.state, "agent_scheduler", None)
@@ -1684,7 +1882,13 @@ def create_agent_manager_router(
             kwargs["agent_type"] = req.agent_type
         if req.config is not None:
             kwargs["config"] = req.config
-        return manager.update_agent(agent_id, **kwargs)
+        # Explicit null clears membership; omission leaves it unchanged.
+        if "team_id" in req.model_fields_set:
+            kwargs["team_id"] = req.team_id
+        try:
+            return manager.update_agent(agent_id, **kwargs)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @agents_router.delete("/{agent_id}")
     async def delete_agent(agent_id: str):
@@ -2323,7 +2527,12 @@ def create_agent_manager_router(
 
     @templates_router.post("/{template_id}/instantiate")
     async def instantiate_template(template_id: str, req: CreateAgentRequest):
-        return manager.create_from_template(template_id, req.name, overrides=req.config)
+        try:
+            return manager.create_from_template(
+                template_id, req.name, overrides=req.config, team_id=req.team_id
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ── Global agent endpoints ───────────────────────────────
 
