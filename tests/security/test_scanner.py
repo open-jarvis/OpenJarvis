@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import openjarvis.security.scanner as scanner_module
 from openjarvis.security.scanner import PIIScanner, SecretScanner
 from openjarvis.security.types import ThreatLevel
 
@@ -11,6 +12,43 @@ from openjarvis.security.types import ThreatLevel
 
 
 class TestSecretScanner:
+    def test_python_fallback_without_rust(self, monkeypatch) -> None:
+        monkeypatch.setattr(scanner_module._rust_bridge, "RUST_AVAILABLE", False)
+
+        scanner = SecretScanner()
+        text = "my key is sk-abc123def456ghi789jkl012"
+
+        result = scanner.scan(text)
+
+        assert not result.clean
+        assert result.findings[0].pattern_name == "openai_key"
+        assert scanner.redact(text) == "my key is [REDACTED:openai_key]"
+
+    def test_python_fallback_after_native_scan_failure(
+        self, monkeypatch, caplog
+    ) -> None:
+        class BrokenNativeScanner:
+            def scan(self, text: str) -> str:
+                raise RuntimeError("native scanner failed")
+
+        class FakeRustModule:
+            SecretScanner = BrokenNativeScanner
+
+        monkeypatch.setattr(scanner_module._rust_bridge, "RUST_AVAILABLE", True)
+        monkeypatch.setattr(
+            scanner_module._rust_bridge,
+            "get_rust_module",
+            lambda: FakeRustModule,
+        )
+
+        scanner = SecretScanner()
+        result = scanner.scan("key sk-abc123def456ghi789jkl012")
+
+        assert not result.clean
+        assert result.findings[0].pattern_name == "openai_key"
+        assert scanner._rust_impl is None
+        assert "using Python fallback" in caplog.text
+
     def test_secret_scanner_openai_key(self) -> None:
         scanner = SecretScanner()
         result = scanner.scan("my key is sk-abc123def456ghi789jkl012")
@@ -94,12 +132,34 @@ class TestSecretScanner:
 
 
 class TestPIIScanner:
+    def test_python_fallback_without_rust(self, monkeypatch) -> None:
+        monkeypatch.setattr(scanner_module._rust_bridge, "RUST_AVAILABLE", False)
+
+        scanner = PIIScanner()
+        text = "email user@example.com from 8.8.8.8"
+
+        result = scanner.scan(text)
+
+        assert {finding.pattern_name for finding in result.findings} == {
+            "email",
+            "ipv4_address",
+        }
+        assert scanner.redact(text) == (
+            "email [REDACTED:email] from [REDACTED:ipv4_address]"
+        )
+
     def test_pii_scanner_email(self) -> None:
         scanner = PIIScanner()
         result = scanner.scan("contact me at user@example.com please")
         assert not result.clean
         assert any(f.pattern_name == "email" for f in result.findings)
         assert any(f.threat_level == ThreatLevel.MEDIUM for f in result.findings)
+
+    def test_pii_scanner_email_starts_at_full_local_part(self) -> None:
+        scanner = PIIScanner()
+        result = scanner.scan("contact first.last+tag@example.com")
+        email = next(f for f in result.findings if f.pattern_name == "email")
+        assert email.matched_text == "first.last+tag@example.com"
 
     def test_pii_scanner_ssn(self) -> None:
         scanner = PIIScanner()
@@ -167,6 +227,12 @@ class TestPIIScanner:
         scanner = PIIScanner()
         assert scanner.scan("version 999.1.1.1").clean
         assert scanner.scan("build 1.2.3.4.5").clean
+
+    def test_pii_scanner_ipv4_rejects_unicode_digits(self) -> None:
+        scanner = PIIScanner()
+        text = "not an IPv4 address: ١.٢.٣.٤"
+        assert scanner.scan(text).clean
+        assert scanner.redact(text) == text
 
 
 # ---------------------------------------------------------------------------
