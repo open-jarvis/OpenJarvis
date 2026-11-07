@@ -314,12 +314,38 @@ def serve(
     resolved_tools: list = []
     managed_mcp_tools: list = []
     mcp_clients: list = []
+    # Tools from servers added on the MCP page. They are chosen there, per
+    # tool, so `[tools] enabled` in config.toml does not filter them out.
+    gui_mcp_names: set[str] = set()
     try:
-        from openjarvis.mcp.loader import load_mcp_tools_from_config
+        from openjarvis.mcp.loader import (
+            load_mcp_tools_from_config,
+            resolve_effective_mcp_servers,
+        )
 
-        managed_mcp_tools, mcp_clients = load_mcp_tools_from_config(config.tools.mcp)
+        servers = resolve_effective_mcp_servers(config)
+        gui_servers = [s for s in servers if s.get("source") == "gui"]
+        config_servers = [s for s in servers if s.get("source") != "gui"]
+        config_mcp, config_clients = load_mcp_tools_from_config(
+            config.tools.mcp, servers=config_servers
+        )
+        gui_mcp, gui_clients = load_mcp_tools_from_config(
+            config.tools.mcp, servers=gui_servers
+        )
+        managed_mcp_tools = config_mcp + gui_mcp
+        mcp_clients = config_clients + gui_clients
+        gui_mcp_names = {t.spec.name for t in gui_mcp}
     except Exception as exc:
         logger.warning("Managed-agent MCP tools failed to load: %s", exc)
+
+    def _allowed_mcp(allowed: set[str], configured: bool) -> list:
+        if not configured:
+            return managed_mcp_tools
+        return [
+            tool
+            for tool in managed_mcp_tools
+            if tool.spec.name in allowed or tool.spec.name in gui_mcp_names
+        ]
 
     if agent_key:
         try:
@@ -359,13 +385,7 @@ def serve(
 
                     # MCP server tools from config.tools.mcp.servers
                     # (#461 — these were silently dropped).
-                    mcp_tools = managed_mcp_tools
-                    if tools_configured:
-                        mcp_tools = [
-                            tool
-                            for tool in managed_mcp_tools
-                            if tool.spec.name in allowed
-                        ]
+                    mcp_tools = _allowed_mcp(allowed, tools_configured)
                     if mcp_tools:
                         existing = {t.spec.name for t in tools}
                         for t in mcp_tools:
@@ -488,13 +508,7 @@ def serve(
 
                         # Reuse the process-owned MCP pool so channels do not
                         # open a second transport to every configured server.
-                        _ch_mcp_tools = managed_mcp_tools
-                        if _tools_configured:
-                            _ch_mcp_tools = [
-                                tool
-                                for tool in managed_mcp_tools
-                                if tool.spec.name in _allowed
-                            ]
+                        _ch_mcp_tools = _allowed_mcp(_allowed, _tools_configured)
                         if _ch_mcp_tools:
                             _existing = {t.spec.name for t in _channel_tools}
                             for t in _ch_mcp_tools:

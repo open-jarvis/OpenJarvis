@@ -405,11 +405,15 @@ def _run_agent(
     # MCP tools from config.tools.mcp.servers. Loaded regardless of
     # tool_names — if the caller passed --tools, the loader filters MCP
     # tools to those names; otherwise every MCP tool is included.
-    from openjarvis.mcp.loader import load_mcp_tools_from_config
+    from openjarvis.mcp.loader import (
+        load_mcp_tools_from_config,
+        resolve_effective_mcp_servers,
+    )
 
     mcp_tools, mcp_clients = load_mcp_tools_from_config(
         config.tools.mcp,
         allowed_names=set(tool_names) if tool_names else None,
+        servers=resolve_effective_mcp_servers(config),
     )
     if mcp_tools:
         # Dedup against registry tools by spec.name — first occurrence wins
