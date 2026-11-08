@@ -9,46 +9,49 @@
 set -euo pipefail
 
 OPENJARVIS_HOME="${OPENJARVIS_HOME:-$HOME/.openjarvis}"
-# Self-heal PATH for cargo: install-rust.sh installs to ~/.cargo/bin, but
-# its export doesn't propagate to subsequent subprocess invocations.
-export PATH="$HOME/.cargo/bin:$PATH"
+# Self-heal PATH for cargo and uv: install-rust.sh installs to ~/.cargo/bin
+# and install.sh installs uv to ~/.local/bin, but neither export propagates
+# to subsequent subprocess invocations.
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 SRC_DIR="$OPENJARVIS_HOME/src"
+# The venv the runtime actually uses. jarvis-wrapper.sh execs
+# "$OPENJARVIS_HOME/.venv/bin/jarvis", so this — not a venv that `uv run`
+# happens to resolve from the cwd — is where the extension has to land.
+VENV_DIR="$OPENJARVIS_HOME/.venv"
 STATE_DIR="$OPENJARVIS_HOME/.state"
 LOG="$STATE_DIR/extension-build.log"
 BUILT="$STATE_DIR/extension-built"
 FAILED="$STATE_DIR/extension-failed"
 MANIFEST="$SRC_DIR/rust/crates/openjarvis-python/Cargo.toml"
 
-# The venv the `jarvis` wrapper actually runs from. The installer creates it
-# at $OPENJARVIS_HOME/.venv; a contributor checkout (`uv sync`) has it at
-# $SRC_DIR/.venv instead. Plain `uv run` inside $SRC_DIR always picks the
-# latter (creating it if missing), so on an installer layout the extension
-# used to land in a venv nothing serves from while the import check below
-# passed against that same wrong venv (#502 reopened).
-VENV_DIR="${OPENJARVIS_VENV:-$OPENJARVIS_HOME/.venv}"
-if [[ ! -d "$VENV_DIR" ]]; then
-    VENV_DIR="$SRC_DIR/.venv"
-fi
-export VIRTUAL_ENV="$VENV_DIR"
-
 mkdir -p "$STATE_DIR"
 
 if [[ ! -f "$MANIFEST" ]]; then
     echo "build-extension.sh: manifest not found at $MANIFEST" > "$FAILED"
+    rm -f "$BUILT"
+    exit 1
+fi
+
+if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+    echo "build-extension.sh: runtime venv not found at $VENV_DIR" > "$FAILED"
+    rm -f "$BUILT"
     exit 1
 fi
 
 cd "$SRC_DIR"
-# `uv tool run` keeps maturin out of the serving venv; `maturin develop`
-# installs into $VIRTUAL_ENV, and `--uv` lets it do so in a venv that has
-# no pip (uv-created venvs do not ship one).
-if uv tool run maturin develop --uv -m "$MANIFEST" >>"$LOG" 2>&1; then
+# `uv run` resolves its environment from the cwd, which creates and targets
+# $SRC_DIR/.venv — a venv nothing runs from. Point maturin at the runtime
+# venv explicitly instead. `--uv` is required because that venv is a uv venv
+# with no pip; without it maturin fails with "Failed to find pip".
+if VIRTUAL_ENV="$VENV_DIR" uvx maturin develop --uv -m "$MANIFEST" >>"$LOG" 2>&1; then
     # Verify the extension actually imports from THIS venv before declaring
     # success. `maturin develop` can report success while installing the .so
     # into a different venv than the one that runs the server, which leaves
     # memory silently broken at runtime (#502). Only the import check below
     # proves the serving venv can load it.
-    if ! uv run --active --no-sync python -c "import openjarvis_rust" >>"$LOG" 2>&1; then
+    if "$VENV_DIR/bin/python" -c "import openjarvis_rust" >>"$LOG" 2>&1; then
+        :
+    else
         rc=$?
         {
             echo "build-extension.sh: maturin succeeded but 'import openjarvis_rust'"

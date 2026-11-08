@@ -32,6 +32,22 @@ def _no_ambient_firecrawl_key(monkeypatch):
 
 
 class TestWebSearchTool:
+    @pytest.fixture
+    def duckduckgo_results(self, monkeypatch):
+        """Keep fallback tests independent of network access and DDG limits."""
+        client = MagicMock()
+        client.text.return_value = [
+            {
+                "title": "Offline fallback result",
+                "href": "https://example.com/fallback",
+                "body": "A deterministic search result.",
+            }
+        ]
+        module = MagicMock()
+        module.DDGS.return_value = client
+        monkeypatch.setitem(sys.modules, "ddgs", module)
+        return client
+
     def test_spec_name_and_category(self):
         tool = WebSearchTool(api_key="test-key")
         assert tool.spec.name == "web_search"
@@ -137,7 +153,7 @@ class TestWebSearchTool:
         assert "Result 2" in result.content
         assert result.metadata["num_results"] == 2
 
-    def test_execute_tavily_error(self, monkeypatch):
+    def test_execute_tavily_error(self, monkeypatch, duckduckgo_results):
         """When Tavily errors (any error), falls back to DuckDuckGo."""
         import builtins
         from typing import Any
@@ -164,6 +180,8 @@ class TestWebSearchTool:
         result = tool.execute(query="test query")
         assert result.success is True
         assert result.metadata["engine"] == "duckduckgo"
+        assert "Offline fallback result" in result.content
+        duckduckgo_results.text.assert_called_once_with("test query", max_results=5)
 
     def test_execute_duckduckgo_fallback_format(self, monkeypatch):
         """DuckDuckGo fallback returns properly formatted results."""
@@ -231,7 +249,7 @@ class TestWebSearchTool:
         assert fn["function"]["name"] == "web_search"
         assert "query" in fn["function"]["parameters"]["properties"]
 
-    def test_execute_import_error(self, monkeypatch):
+    def test_execute_import_error(self, monkeypatch, duckduckgo_results):
         """When tavily-python not installed, falls back to DuckDuckGo."""
         monkeypatch.delitem(sys.modules, "tavily", raising=False)
         import builtins
@@ -249,6 +267,8 @@ class TestWebSearchTool:
         result = tool.execute(query="test query")
         assert result.success is True
         assert result.metadata["engine"] == "duckduckgo"
+        assert "Offline fallback result" in result.content
+        duckduckgo_results.text.assert_called_once_with("test query", max_results=5)
 
     def test_empty_results(self, monkeypatch):
         import builtins

@@ -9,6 +9,7 @@
 #   ./download-ollama.sh aarch64-apple-darwin
 #   ./download-ollama.sh universal-apple-darwin
 #   ./download-ollama.sh x86_64-unknown-linux-gnu
+#   ./download-ollama.sh aarch64-pc-windows-msvc
 #
 # Ollama distributes platform binaries as archives (.tgz / .tar.zst).
 # This script downloads, extracts the `ollama` CLI binary, renames it
@@ -42,7 +43,12 @@ else
             esac
             ;;
         MINGW*|MSYS*|CYGWIN*|Windows_NT)
-            TARGET="x86_64-pc-windows-msvc"
+            # Git Bash can report x86_64 when running under emulation on ARM.
+            case "${PROCESSOR_ARCHITEW6432:-${PROCESSOR_ARCHITECTURE:-$ARCH}}" in
+                ARM64|arm64|aarch64) TARGET="aarch64-pc-windows-msvc" ;;
+                AMD64|amd64|x86_64) TARGET="x86_64-pc-windows-msvc" ;;
+                *) echo "Unsupported Windows arch: $ARCH"; exit 1 ;;
+            esac
             ;;
         *)
             echo "Unsupported OS: $OS"; exit 1 ;;
@@ -57,8 +63,10 @@ case "$TARGET" in
     *windows*) SUFFIX=".exe" ;;
 esac
 OUT_FILE="$BINARIES_DIR/ollama-${TARGET}${SUFFIX}"
+RUNTIME_DIR="$BINARIES_DIR/ollama-runtime-${TARGET}"
 
-if [ -f "$OUT_FILE" ]; then
+# ARM64 inference also needs the archive's DLLs and lib/ollama runners.
+if [ -f "$OUT_FILE" ] && { [ "$TARGET" != "aarch64-pc-windows-msvc" ] || [ -d "$RUNTIME_DIR/lib/ollama" ]; }; then
     echo "Already exists: $OUT_FILE"
     echo "Delete it first to re-download."
     exit 0
@@ -84,41 +92,45 @@ case "$TARGET" in
         ASSET_URL="${RELEASE_URL}/ollama-windows-amd64.zip"
         ARCHIVE_TYPE="zip"
         ;;
+    aarch64-pc-windows-msvc)
+        ASSET_URL="${RELEASE_URL}/ollama-windows-arm64.zip"
+        ARCHIVE_TYPE="zip"
+        ;;
     *)
         echo "No Ollama binary mapping for target: $TARGET"
         exit 1
         ;;
 esac
 
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
+OLLAMA_TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$OLLAMA_TMP_DIR"' EXIT
 
 echo "Downloading: $ASSET_URL"
-ARCHIVE_FILE="$TMPDIR/ollama-archive"
+ARCHIVE_FILE="$OLLAMA_TMP_DIR/ollama-archive"
 curl -fSL --progress-bar "$ASSET_URL" -o "$ARCHIVE_FILE"
 
 echo "Extracting..."
 case "$ARCHIVE_TYPE" in
     tgz)
-        tar xzf "$ARCHIVE_FILE" -C "$TMPDIR"
+        tar xzf "$ARCHIVE_FILE" -C "$OLLAMA_TMP_DIR"
         ;;
     zst)
         if command -v zstd &>/dev/null; then
-            zstd -d "$ARCHIVE_FILE" -o "$TMPDIR/ollama.tar" --quiet
-            tar xf "$TMPDIR/ollama.tar" -C "$TMPDIR"
+            zstd -d "$ARCHIVE_FILE" -o "$OLLAMA_TMP_DIR/ollama.tar" --quiet
+            tar xf "$OLLAMA_TMP_DIR/ollama.tar" -C "$OLLAMA_TMP_DIR"
         else
             echo "zstd not found. Install with: brew install zstd (macOS) or apt install zstd (Linux)"
             exit 1
         fi
         ;;
     zip)
-        unzip -q "$ARCHIVE_FILE" -d "$TMPDIR"
+        unzip -q "$ARCHIVE_FILE" -d "$OLLAMA_TMP_DIR"
         ;;
 esac
 
 # Find the ollama binary in the extracted contents
 OLLAMA_BIN=""
-for candidate in "$TMPDIR/bin/ollama" "$TMPDIR/ollama" "$TMPDIR/ollama.exe"; do
+for candidate in "$OLLAMA_TMP_DIR/bin/ollama" "$OLLAMA_TMP_DIR/ollama" "$OLLAMA_TMP_DIR/ollama.exe"; do
     if [ -f "$candidate" ]; then
         OLLAMA_BIN="$candidate"
         break
@@ -127,7 +139,7 @@ done
 
 if [ -z "$OLLAMA_BIN" ]; then
     echo "Could not find ollama binary in archive. Contents:"
-    find "$TMPDIR" -type f | head -20
+    find "$OLLAMA_TMP_DIR" -type f | head -20
     exit 1
 fi
 
@@ -137,6 +149,23 @@ if [ "$TARGET" = "universal-apple-darwin" ]; then
         echo "Ollama's darwin archive does not contain a universal arm64+x86_64 binary"
         exit 1
     fi
+fi
+
+if [ "$TARGET" = "aarch64-pc-windows-msvc" ]; then
+    if [ ! -d "$OLLAMA_TMP_DIR/lib/ollama" ]; then
+        echo "Windows Ollama archive is missing its lib/ollama inference runtime"
+        exit 1
+    fi
+    # Preserve the release layout beside the renamed sidecar. The release
+    # config maps this directory beside the installed ollama.exe.
+    rm -rf "$RUNTIME_DIR"
+    mkdir -p "$RUNTIME_DIR"
+    for resource in "$OLLAMA_TMP_DIR"/*; do
+        case "$(basename "$resource")" in
+            ollama.exe|ollama-archive) continue ;;
+        esac
+        cp -R "$resource" "$RUNTIME_DIR/"
+    done
 fi
 
 cp "$OLLAMA_BIN" "$OUT_FILE"

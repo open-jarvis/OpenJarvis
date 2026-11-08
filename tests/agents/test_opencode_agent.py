@@ -8,6 +8,10 @@ message shape captured from a live `opencode serve` session.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
+
+import httpx
+import pytest
 
 from openjarvis.agents.opencode import (
     OpenCodeAgent,
@@ -265,3 +269,232 @@ class TestRunParsing:
         assert res.tool_results[0].tool_name == "write"
         assert res.tool_results[0].success is True
         assert "Wrote file" in res.tool_results[0].content
+
+
+V2_SPIKE_RESPONSE = {
+    "id": "msg_assistant_1",
+    "time": {"created": 1, "completed": 2},
+    "type": "assistant",
+    "agent": "build",
+    "finish": "stop",
+    "tokens": {"input": 10, "output": 25},
+    "model": {"id": "local-model", "providerID": "openjarvis"},
+    "content": [
+        {"type": "text", "text": "Hello from OpenCode V2."},
+        {
+            "type": "tool",
+            "name": "write",
+            "id": "call_v2_1",
+            "state": {
+                "status": "completed",
+                "content": [{"type": "text", "text": "V2 file written successfully."}],
+            },
+        },
+    ],
+}
+
+
+class _FakeStatusResp:
+    def __init__(self, data: Any, status_code: int = 200):
+        self._d = data
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            request = httpx.Request("POST", "http://localhost")
+            response = httpx.Response(self.status_code, request=request)
+            raise httpx.HTTPStatusError(
+                "Mock error", request=request, response=response
+            )
+
+    def json(self):
+        return self._d
+
+
+class _FakeV2Client:
+    def __init__(self, v1_status: int = 404):
+        self._v1_status = v1_status
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def post(self, path: str, json: Any = None):
+        self.calls.append(("POST", path, json))
+        if path == "/session":
+            if self._v1_status == 404:
+                return _FakeStatusResp({"detail": "Not Found"}, status_code=404)
+            return _FakeStatusResp({"id": "ses_v1"}, status_code=self._v1_status)
+        if path == "/api/session":
+            return _FakeStatusResp({"data": {"id": "ses_v2"}})
+        if path == "/api/session/ses_v2/prompt":
+            return _FakeStatusResp(
+                {
+                    "data": {
+                        "id": "msg_user_1",
+                        "sessionID": "ses_v2",
+                        "type": "user",
+                        "time": {"created": 0},
+                        "payload": {"text": json["text"]},
+                        "delivery": "queue",
+                    }
+                }
+            )
+        if "/wait" in path:
+            return _FakeStatusResp({}, status_code=204)
+        if path.endswith("/message"):
+            return _FakeStatusResp(SPIKE_RESPONSE)
+        return _FakeStatusResp({})
+
+    def get(self, path: str, **kw):
+        self.calls.append(("GET", path, kw))
+        if path == "/api/session/ses_v2/message":
+            return _FakeStatusResp(
+                {
+                    "data": [
+                        V2_SPIKE_RESPONSE,
+                        {
+                            "id": "msg_idle_1",
+                            "time": {"created": 3},
+                            "type": "idle",
+                            "outcome": "succeeded",
+                        },
+                    ],
+                }
+            )
+        if path == "/session/ses_v1/message":
+            return _FakeStatusResp(TURN_MESSAGES)
+        return _FakeStatusResp({})
+
+    def delete(self, path: str, **kw):
+        self.calls.append(("DELETE", path, kw))
+        return _FakeStatusResp({}, status_code=204)
+
+
+class TestApiVersionConfiguration:
+    def test_default_api_version_is_auto(self, tmp_path):
+        agent = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "m",
+            workspace=str(tmp_path),
+        )
+        assert agent._api_version == "auto"
+        assert agent._resolved_api_version is None
+
+    def test_explicit_v1_and_v2(self, tmp_path):
+        agent_v1 = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "m",
+            workspace=str(tmp_path),
+            api_version="v1",
+        )
+        assert agent_v1._api_version == "v1"
+        assert agent_v1._resolved_api_version == "v1"
+
+        agent_v2 = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "m",
+            workspace=str(tmp_path),
+            api_version="v2",
+        )
+        assert agent_v2._api_version == "v2"
+        assert agent_v2._resolved_api_version == "v2"
+
+    def test_invalid_api_version_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Invalid api_version"):
+            OpenCodeAgent(
+                SimpleNamespace(_host="http://h:1"),
+                "m",
+                workspace=str(tmp_path),
+                api_version="v3",
+            )
+
+
+class TestV2AndAutoDetection:
+    def test_v2_explicit_flow(self, monkeypatch, tmp_path):
+        client = _FakeV2Client()
+        agent = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "local-model",
+            workspace=str(tmp_path),
+            api_version="v2",
+        )
+        monkeypatch.setattr(agent, "_ensure_server", lambda: "http://127.0.0.1:7654")
+        agent._base = "http://127.0.0.1:7654"
+        monkeypatch.setattr(agent, "_client", lambda: client)
+
+        res = agent.run("Write a test")
+        assert res.content == "Hello from OpenCode V2."
+        assert res.metadata["finish"] == "stop"
+        assert res.metadata["model_id"] == "local-model"
+        assert res.metadata["api_version"] == "v2"
+        assert len(res.tool_results) == 1
+        assert res.tool_results[0].tool_name == "write"
+        assert res.tool_results[0].success is True
+        assert "V2 file written" in res.tool_results[0].content
+
+        paths = [call[1] for call in client.calls]
+        assert "/api/session" in paths
+        assert "/api/session/ses_v2/prompt" in paths
+        assert "/api/session/ses_v2/message" in paths
+        assert "/session" not in paths
+
+    def test_auto_detection_falls_back_to_v2_on_404(self, monkeypatch, tmp_path):
+        client = _FakeV2Client(v1_status=404)
+        agent = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "local-model",
+            workspace=str(tmp_path),
+            api_version="auto",
+        )
+        monkeypatch.setattr(agent, "_ensure_server", lambda: "http://127.0.0.1:7654")
+        agent._base = "http://127.0.0.1:7654"
+        monkeypatch.setattr(agent, "_client", lambda: client)
+
+        res = agent.run("Write a test")
+        assert res.content == "Hello from OpenCode V2."
+        assert agent._resolved_api_version == "v2"
+
+        client.calls.clear()
+        res2 = agent.run("Second turn")
+        assert res2.content == "Hello from OpenCode V2."
+        paths = [call[1] for call in client.calls]
+        assert "/session" not in paths
+
+    def test_auto_detection_stays_v1_when_200(self, monkeypatch, tmp_path):
+        client = _FakeV2Client(v1_status=200)
+        agent = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "local-model",
+            workspace=str(tmp_path),
+            api_version="auto",
+        )
+        monkeypatch.setattr(agent, "_ensure_server", lambda: "http://127.0.0.1:7654")
+        agent._base = "http://127.0.0.1:7654"
+        monkeypatch.setattr(agent, "_client", lambda: client)
+
+        res = agent.run("Write a test")
+        assert res.content == "Hello from the local model."
+        assert agent._resolved_api_version == "v1"
+
+    def test_close_cleans_up_v2_session(self, monkeypatch, tmp_path):
+        client = _FakeV2Client()
+        agent = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "local-model",
+            workspace=str(tmp_path),
+            api_version="v2",
+        )
+        monkeypatch.setattr(agent, "_ensure_server", lambda: "http://127.0.0.1:7654")
+        agent._base = "http://127.0.0.1:7654"
+        monkeypatch.setattr(agent, "_client", lambda: client)
+
+        agent.run("Run task")
+        agent.close()
+
+        delete_calls = [call for call in client.calls if call[0] == "DELETE"]
+        assert len(delete_calls) == 1
+        assert delete_calls[0][1] == "/api/session/ses_v2"

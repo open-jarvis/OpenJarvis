@@ -29,6 +29,11 @@ the Tauri wiring is in
 [`frontend/src-tauri/tauri.conf.json`](../frontend/src-tauri/tauri.conf.json)
 under `plugins.updater`.
 
+Windows ARM64 releases use an NSIS `arm64-setup.exe` installer, with a separate
+`windows-aarch64` updater entry. Windows x64 keeps its `windows-x86_64` entry.
+Release verification requires both entries and their matching signature assets,
+so an ARM64 app cannot be offered an x64 package by the release manifest.
+
 ## How releases reach the update endpoint
 
 The `Desktop Build & Release` GitHub Action

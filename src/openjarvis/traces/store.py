@@ -64,6 +64,33 @@ CREATE TRIGGER IF NOT EXISTS traces_fts_ai AFTER INSERT ON traces BEGIN
 END;
 """
 
+# The delete/update halves of the FTS5 external-content sync pair. Without
+# them a row removed from `traces` keeps its index entry: the stored strings
+# are not retained (external content), but the full inverted index is, so
+# every token of the deleted query and result stays matchable and present in
+# the file, and reads through the index start failing with "missing row N
+# from content table". Nothing in-tree deletes traces today, but there is no
+# retention either, so operators prune by hand — and that is the path that
+# breaks.
+_FTS_SYNC_DELETE = """\
+CREATE TRIGGER IF NOT EXISTS traces_fts_ad AFTER DELETE ON traces BEGIN
+    INSERT INTO traces_fts(traces_fts, rowid, trace_id, query, result, agent)
+    VALUES ('delete', old.rowid, old.trace_id, old.query, old.result, old.agent);
+END;
+"""
+
+# Currently defensive: the only UPDATE in this module touches `feedback`,
+# which is not indexed. It matters the moment anything updates an indexed
+# column, and costs nothing until then.
+_FTS_SYNC_UPDATE = """\
+CREATE TRIGGER IF NOT EXISTS traces_fts_au AFTER UPDATE ON traces BEGIN
+    INSERT INTO traces_fts(traces_fts, rowid, trace_id, query, result, agent)
+    VALUES ('delete', old.rowid, old.trace_id, old.query, old.result, old.agent);
+    INSERT INTO traces_fts(rowid, trace_id, query, result, agent)
+    VALUES (new.rowid, new.trace_id, new.query, new.result, new.agent);
+END;
+"""
+
 _INSERT_TRACE = """\
 INSERT INTO traces (
     trace_id, query, agent, model, engine, result,
@@ -116,6 +143,19 @@ class TraceStore:
         self._conn.execute(_CREATE_STEPS)
         self._conn.execute(_CREATE_FTS)
         self._conn.execute(_FTS_SYNC_INSERT)
+        # Databases created before the delete/update triggers existed carry an
+        # index with entries for rows that may already be gone. Detect that
+        # case once — by the absence of the delete trigger — and rebuild, so a
+        # stale index does not outlive the fix.
+        needs_fts_rebuild = (
+            self._conn.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type='trigger' AND name='traces_fts_ad'"
+            ).fetchone()
+            is None
+        )
+        self._conn.execute(_FTS_SYNC_DELETE)
+        self._conn.execute(_FTS_SYNC_UPDATE)
         # Migrate: add messages column if missing (pre-existing databases)
         try:
             self._conn.execute(
@@ -123,6 +163,8 @@ class TraceStore:
             )
         except sqlite3.OperationalError:
             pass  # Column already exists
+        if needs_fts_rebuild:
+            self._conn.execute("INSERT INTO traces_fts(traces_fts) VALUES('rebuild')")
         self._conn.commit()
 
     @_db_locked

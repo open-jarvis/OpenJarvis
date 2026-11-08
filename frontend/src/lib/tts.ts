@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { synthesizeSpeech, fetchTtsHealth } from './api';
+import { toSpeakableText } from './message-text';
 
 export type TtsState = 'idle' | 'loading' | 'speaking';
 
@@ -98,7 +99,7 @@ export const useTtsStore = create<TtsStore>((set, get) => ({
   markAutoSpoken: (id: string) => set({ autoSpokenId: id }),
 
   speak: async (id: string, text: string) => {
-    const trimmed = text.trim();
+    const trimmed = toSpeakableText(text);
     if (!trimmed) return;
 
     // Bump before teardown so a synthesis still in flight is both aborted and

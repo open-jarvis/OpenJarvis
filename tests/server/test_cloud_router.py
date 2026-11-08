@@ -1,4 +1,4 @@
-"""Regression tests for OpenRouter model ID normalization."""
+"""Regression tests for cloud provider detection and model ID normalization."""
 
 from __future__ import annotations
 
@@ -6,6 +6,31 @@ import pytest
 
 from openjarvis.core.types import Message
 from openjarvis.server import cloud_router
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["gpt-oss", "gpt-oss:20b", "gpt-oss:120b", "gpt-oss-20b", "gpt-oss-120b"],
+)
+def test_gpt_oss_is_local(model):
+    assert cloud_router.get_provider(model) is None
+    assert not cloud_router.is_cloud_model(model)
+
+
+@pytest.mark.parametrize(
+    "model,provider",
+    [
+        ("gpt-4o", "openai"),
+        ("claude-sonnet-4-20250514", "anthropic"),
+        ("gemini-2.5-pro", "google"),
+        ("openai/gpt-oss-20b", "openrouter"),
+        ("openrouter/openai/gpt-oss-120b", "openrouter"),
+        ("atlascloud/openai/gpt-oss-120b", "atlascloud"),
+    ],
+)
+def test_cloud_models_keep_their_provider(model, provider):
+    assert cloud_router.get_provider(model) == provider
+    assert cloud_router.is_cloud_model(model)
 
 
 def test_get_provider_detects_bare_openrouter_id():

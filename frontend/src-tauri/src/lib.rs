@@ -8,8 +8,12 @@ use tokio::sync::Mutex;
 
 const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8000;
+#[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
 const DESKTOP_UV_SYNC_COMMAND: &str =
     "uv sync --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
+#[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+const DESKTOP_UV_SYNC_COMMAND: &str =
+    "uv sync --python cpython-3.12-windows-x86_64-none --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
 
 /// Small, fast model used when startup needs a default Ollama tag.
 const STARTUP_MODEL: &str = "qwen3.5:4b";
@@ -188,6 +192,20 @@ fn home_dir() -> String {
 /// macOS .app bundles don't inherit the shell PATH, so we probe manually.
 fn resolve_bin(name: &str) -> String {
     let home = home_dir();
+
+    // Tauri installs the Windows ARM64 sidecar beside the desktop executable.
+    // Prefer the bundled runtime over an unrelated Ollama install on PATH.
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    if name == "ollama" {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let sidecar = dir.join("ollama.exe");
+                if sidecar.is_file() {
+                    return sidecar.to_string_lossy().into_owned();
+                }
+            }
+        }
+    }
 
     #[cfg(not(target_os = "windows"))]
     let candidates = vec![
@@ -884,9 +902,36 @@ fn format_uv_sync_spawn_error(root: &std::path::Path, uv_bin: &str, err: &str) -
 }
 
 fn rust_toolchain_install_hint() -> &'static str {
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    return "The desktop app needs Rust and Visual Studio Build Tools with the x64 C++ workload \
+            for its x64 Python backend. Install Rust from https://rustup.rs, run \
+            `rustup target add --toolchain stable x86_64-pc-windows-msvc`, then relaunch.";
+    #[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
     "The desktop app needs the Rust toolchain to build `openjarvis_rust`. \
      Install Rust from https://rustup.rs. On Windows, also install Visual Studio \
      Build Tools with the C++ workload, then relaunch."
+}
+
+/// Windows ARM64 runs the current Python dependency stack under x64 emulation:
+/// the locked numpy/pyarrow and speech wheels do not support win_arm64.
+/// The Tauri shell and bundled Ollama remain native ARM64 processes.
+#[cfg_attr(
+    not(all(target_os = "windows", target_arch = "aarch64")),
+    allow(unused_variables)
+)]
+fn prepare_backend_python(cmd: &mut tokio::process::Command) {
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    {
+        cmd.env("UV_PYTHON", "cpython-3.12-windows-x86_64-none");
+        // The PyO3 module must match the interpreter, not the desktop shell.
+        cmd.env("CARGO_BUILD_TARGET", "x86_64-pc-windows-msvc");
+        // Use the same stable compiler where the x64 target was installed,
+        // rather than selecting a separate toolchain through the MSRV pin.
+        cmd.env("RUSTUP_TOOLCHAIN", "stable");
+        // PyO3 cannot infer the target interpreter's ABI across host arches.
+        cmd.env("PYO3_CROSS_PYTHON_VERSION", "3.12");
+        cmd.env("PYO3_CROSS_PYTHON_IMPLEMENTATION", "CPython");
+    }
 }
 
 fn looks_like_rust_extension_build_error(stderr: &str) -> bool {
@@ -956,6 +1001,7 @@ async fn verify_openjarvis_rust_extension(
         .stderr(std::process::Stdio::piped())
         .current_dir(root);
     prepare_subprocess_for_appimage(&mut cmd);
+    prepare_backend_python(&mut cmd);
     add_cargo_bin_to_path(&mut cmd);
     cmd.kill_on_drop(true);
 
@@ -1499,6 +1545,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         .current_dir(root);
     // Avoid LD_LIBRARY_PATH leak when running inside an AppImage (#455).
     prepare_subprocess_for_appimage(&mut sync_cmd);
+    prepare_backend_python(&mut sync_cmd);
     add_cargo_bin_to_path(&mut sync_cmd);
     sync_cmd.kill_on_drop(true);
     let sync_output = sync_cmd.output().await;
@@ -1562,6 +1609,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     // do this BEFORE cmd.env() calls below so our explicit cloud-key env
     // additions aren't accidentally stripped.
     prepare_subprocess_for_appimage(&mut cmd);
+    prepare_backend_python(&mut cmd);
 
     // Inject cloud API keys from secure desktop storage.
     for (key, value) in cloud_keys_for_inference(&cfg) {

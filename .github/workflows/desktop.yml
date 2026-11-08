@@ -9,6 +9,9 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'rust/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
       - '.github/workflows/desktop.yml'
   workflow_dispatch:
     inputs:
@@ -27,6 +30,95 @@ permissions:
   contents: write
 
 jobs:
+  # Build an unsigned test installer on PRs; this job never publishes releases
+  # or uses signing credentials. Exercise the existing x64 backend on ARM too.
+  test-windows-arm64:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-11-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Use the reviewed npm toolchain
+        run: npm install --global npm@11.19.0
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            frontend/src-tauri -> target
+            rust -> target
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Verify existing backend on Windows ARM64
+        shell: bash
+        env:
+          UV_PYTHON: cpython-3.12-windows-x86_64-none
+          CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+          RUSTUP_TOOLCHAIN: stable
+          PYO3_CROSS_PYTHON_VERSION: '3.12'
+          PYO3_CROSS_PYTHON_IMPLEMENTATION: CPython
+        run: |
+          uv sync --locked --extra dev --extra desktop --extra inference-cloud --extra inference-google --group desktop-native
+          uv run python -c "import sysconfig, openjarvis_rust; assert sysconfig.get_platform() == 'win-amd64'; print('x64 backend and Rust extension import OK')"
+          uv run jarvis --version
+          uv run pytest tests/hardware/test_hardware_profiles.py tests/core/test_utils.py -q
+
+      - name: Download ARM64 Ollama and stage test bundle
+        shell: bash
+        run: |
+          frontend/src-tauri/scripts/download-ollama.sh aarch64-pc-windows-msvc
+          node <<'NODE'
+          const { writeFileSync } = require('node:fs');
+          writeFileSync('frontend/src-tauri/tauri.arm64-test.conf.json', JSON.stringify({
+            bundle: {
+              targets: ['nsis'],
+              externalBin: ['binaries/ollama'],
+              resources: { 'binaries/ollama-runtime-aarch64-pc-windows-msvc/': './' },
+            },
+          }));
+          NODE
+
+      - name: Build ARM64 test installer
+        working-directory: frontend
+        run: npx tauri build --target aarch64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.arm64-test.conf.json
+
+      - name: Verify native ARM64 executables
+        shell: bash
+        run: |
+          node frontend/src-tauri/scripts/verify-arm64-pe.mjs \
+            frontend/src-tauri/target/aarch64-pc-windows-msvc/release/openjarvis-desktop.exe \
+            frontend/src-tauri/binaries/ollama-aarch64-pc-windows-msvc.exe \
+            frontend/src-tauri/binaries/ollama-runtime-aarch64-pc-windows-msvc/lib/ollama/llama-server.exe
+          frontend/src-tauri/binaries/ollama-aarch64-pc-windows-msvc.exe --version
+          frontend/src-tauri/binaries/ollama-runtime-aarch64-pc-windows-msvc/lib/ollama/llama-server.exe --version
+
+      - name: Upload ARM64 test installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-arm64-test-installer
+          path: frontend/src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/**/*.exe
+          if-no-files-found: error
+
   validate:
     runs-on: ubuntu-22.04
 
@@ -136,6 +228,12 @@ jobs:
             args: '--target universal-apple-darwin'
           - platform: windows-latest
             args: ''
+            target: x86_64-pc-windows-msvc
+            updater-platform: windows-x86_64
+          - platform: windows-11-arm
+            args: '--target aarch64-pc-windows-msvc --bundles nsis'
+            target: aarch64-pc-windows-msvc
+            updater-platform: windows-aarch64
 
     runs-on: ${{ matrix.platform }}
 
@@ -282,6 +380,8 @@ jobs:
 
       - name: Download Ollama sidecar
         shell: bash
+        env:
+          OLLAMA_TARGET: ${{ matrix.target }}
         run: |
           cd frontend/src-tauri/scripts && chmod +x download-ollama.sh
           if [[ "${{ matrix.platform }}" == "macos-14" ]]; then
@@ -302,7 +402,7 @@ jobs:
               fi
             done
           else
-            ./download-ollama.sh
+            ./download-ollama.sh "$OLLAMA_TARGET"
           fi
 
       - name: Determine release info
@@ -382,6 +482,7 @@ jobs:
         shell: bash
         env:
           TAURI_VERSION: ${{ steps.release-info.outputs.tauri_version }}
+          OLLAMA_TARGET: ${{ matrix.target }}
         run: |
           # The CLI and tauri-action both read --config. An environment-only
           # TAURI_CONFIG override leaves the action's version at tauri.conf.json.
@@ -391,13 +492,17 @@ jobs:
           assert.match(process.env.TAURI_VERSION,
             /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/,
             'Tauri release version must be SemVer');
-          writeFileSync('frontend/src-tauri/tauri.release.conf.json', JSON.stringify({
+          const config = {
             version: process.env.TAURI_VERSION,
             bundle: {
               createUpdaterArtifacts: true,
               externalBin: ['binaries/ollama'],
             },
-          }));
+          };
+          if (process.env.OLLAMA_TARGET === 'aarch64-pc-windows-msvc') {
+            config.bundle.resources = { 'binaries/ollama-runtime-aarch64-pc-windows-msvc/': './' };
+          }
+          writeFileSync('frontend/src-tauri/tauri.release.conf.json', JSON.stringify(config));
           NODE
 
       - name: Configure Apple signing
@@ -456,6 +561,7 @@ jobs:
           EXPECTED_VERSION: ${{ steps.release-info.outputs.tauri_version }}
           BUILT_VERSION: ${{ steps.tauri-build.outputs.appVersion }}
           ARTIFACT_PATHS: ${{ steps.tauri-build.outputs.artifactPaths }}
+          EXPECTED_UPDATER_PLATFORM: ${{ matrix.updater-platform }}
         run: |
           node <<'NODE'
           const assert = require('node:assert/strict');
@@ -474,11 +580,21 @@ jobs:
           assert.ok(existsSync('latest.json'), 'tauri-action did not generate latest.json');
           const latest = JSON.parse(readFileSync('latest.json', 'utf8'));
           assert.equal(latest.version, expected, 'latest.json version');
-          const prefix = { Linux: 'linux-', macOS: 'darwin-', Windows: 'windows-' }[process.env.RUNNER_OS];
+          const prefix = process.env.EXPECTED_UPDATER_PLATFORM ||
+            { Linux: 'linux-', macOS: 'darwin-' }[process.env.RUNNER_OS];
           assert.ok(Object.entries(latest.platforms || {}).some(([platform, entry]) =>
             platform.startsWith(prefix) && entry.signature?.trim() && entry.url),
             `No signed ${process.env.RUNNER_OS} updater in latest.json`);
           NODE
+
+      - name: Verify native ARM64 release executables
+        if: matrix.platform == 'windows-11-arm'
+        shell: bash
+        run: |
+          node frontend/src-tauri/scripts/verify-arm64-pe.mjs \
+            frontend/src-tauri/target/aarch64-pc-windows-msvc/release/openjarvis-desktop.exe \
+            frontend/src-tauri/binaries/ollama-aarch64-pc-windows-msvc.exe \
+            frontend/src-tauri/binaries/ollama-runtime-aarch64-pc-windows-msvc/lib/ollama/llama-server.exe
 
   verify-release:
     needs: [build-and-release]
@@ -515,7 +631,7 @@ jobs:
           const assetsByUrl = new Map(assets.map(asset => [asset.url, asset]));
           const assetsByName = new Map(assets.map(asset => [asset.name, asset]));
           assert.equal(latest.version, process.env.EXPECTED_VERSION);
-          for (const platform of ['darwin-aarch64', 'darwin-x86_64', 'linux-x86_64', 'windows-x86_64']) {
+          for (const platform of ['darwin-aarch64', 'darwin-x86_64', 'linux-x86_64', 'windows-x86_64', 'windows-aarch64']) {
             const entry = latest.platforms?.[platform];
             assert.ok(entry?.signature?.trim() && entry?.url, `Missing signed updater for ${platform}`);
             const asset = assetsByUrl.get(entry.url);
