@@ -1,7 +1,7 @@
-from openjarvis.agents._stubs import AgentResult
-from openjarvis.agents.executor import AgentExecutor
-from openjarvis.agents.manager import AgentManager
-from openjarvis.core.events import EventBus, EventType
+from friday_ai.agents._stubs import AgentResult
+from friday_ai.agents.executor import AgentExecutor
+from friday_ai.agents.manager import AgentManager
+from friday_ai.core.events import EventBus, EventType
 
 
 def test_budget_exceeded_sets_status(tmp_path):

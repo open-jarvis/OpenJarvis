@@ -16,12 +16,12 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from openjarvis.agents.deep_research import DeepResearchAgent
-from openjarvis.connectors._stubs import Document
-from openjarvis.connectors.pipeline import IngestionPipeline
-from openjarvis.connectors.retriever import TwoStageRetriever
-from openjarvis.connectors.store import KnowledgeStore
-from openjarvis.tools.knowledge_search import KnowledgeSearchTool
+from friday_ai.agents.deep_research import DeepResearchAgent
+from friday_ai.connectors._stubs import Document
+from friday_ai.connectors.pipeline import IngestionPipeline
+from friday_ai.connectors.retriever import TwoStageRetriever
+from friday_ai.connectors.store import KnowledgeStore
+from friday_ai.tools.knowledge_search import KnowledgeSearchTool
 
 # ---------------------------------------------------------------------------
 # Helpers

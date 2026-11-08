@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.core.registry import SpeechRegistry
-from openjarvis.speech.faster_whisper import FasterWhisperBackend
+from friday_ai.core.registry import SpeechRegistry
+from friday_ai.speech.faster_whisper import FasterWhisperBackend
 
 
 @pytest.fixture(autouse=True)
@@ -22,7 +22,7 @@ def test_faster_whisper_backend_registers():
 
 def test_faster_whisper_transcribe():
     """Transcribe returns a TranscriptionResult."""
-    from openjarvis.speech._stubs import TranscriptionResult
+    from friday_ai.speech._stubs import TranscriptionResult
 
     mock_model = MagicMock()
     mock_segment = MagicMock()
@@ -39,10 +39,10 @@ def test_faster_whisper_transcribe():
     mock_model.transcribe.return_value = ([mock_segment], mock_info)
 
     with patch(
-        "openjarvis.speech.faster_whisper.WhisperModel",
+        "friday_ai.speech.faster_whisper.WhisperModel",
         return_value=mock_model,
     ):
-        from openjarvis.speech.faster_whisper import FasterWhisperBackend
+        from friday_ai.speech.faster_whisper import FasterWhisperBackend
 
         backend = FasterWhisperBackend(model_size="base", device="cpu")
         result = backend.transcribe(b"fake audio bytes")
@@ -80,7 +80,7 @@ def test_faster_whisper_transcribe_temp_file_reopenable_and_removed():
     mock_model.transcribe.side_effect = fake_transcribe
 
     with patch(
-        "openjarvis.speech.faster_whisper.WhisperModel",
+        "friday_ai.speech.faster_whisper.WhisperModel",
         return_value=mock_model,
     ):
         backend = FasterWhisperBackend(model_size="base", device="cpu")
@@ -104,7 +104,7 @@ def test_faster_whisper_transcribe_removes_temp_file_on_error():
     mock_model.transcribe.side_effect = fake_transcribe
 
     with patch(
-        "openjarvis.speech.faster_whisper.WhisperModel",
+        "friday_ai.speech.faster_whisper.WhisperModel",
         return_value=mock_model,
     ):
         backend = FasterWhisperBackend(model_size="base", device="cpu")
@@ -121,11 +121,11 @@ def test_faster_whisper_falls_back_from_unsupported_float16():
 
     with (
         patch(
-            "openjarvis.speech.faster_whisper.WhisperModel",
+            "friday_ai.speech.faster_whisper.WhisperModel",
             return_value=mock_model,
         ) as mock_whisper,
         patch(
-            "openjarvis.speech.faster_whisper.ctranslate2",
+            "friday_ai.speech.faster_whisper.ctranslate2",
             MagicMock(
                 get_supported_compute_types=MagicMock(return_value={"float32", "int8"})
             ),
@@ -142,7 +142,7 @@ def test_faster_whisper_falls_back_from_unsupported_float16():
 
 
 def test_faster_whisper_missing_dependency_hint_uses_desktop_extra():
-    with patch("openjarvis.speech.faster_whisper.WhisperModel", new=None):
+    with patch("friday_ai.speech.faster_whisper.WhisperModel", new=None):
         backend = FasterWhisperBackend()
 
         with pytest.raises(ImportError) as excinfo:
@@ -155,7 +155,7 @@ def test_faster_whisper_missing_dependency_hint_uses_desktop_extra():
 def test_faster_whisper_health_no_model():
     """Health returns False before model is loaded."""
     with patch(
-        "openjarvis.speech.faster_whisper.WhisperModel",
+        "friday_ai.speech.faster_whisper.WhisperModel",
         new=None,
     ):
         backend = FasterWhisperBackend()
@@ -165,7 +165,7 @@ def test_faster_whisper_health_no_model():
 
 def test_faster_whisper_health_captures_load_error():
     with patch(
-        "openjarvis.speech.faster_whisper.WhisperModel",
+        "friday_ai.speech.faster_whisper.WhisperModel",
         side_effect=RuntimeError("missing cublas64_12.dll"),
     ):
         backend = FasterWhisperBackend()
@@ -175,8 +175,8 @@ def test_faster_whisper_health_captures_load_error():
 
 def test_faster_whisper_supported_formats():
     """Backend supports standard audio formats."""
-    with patch("openjarvis.speech.faster_whisper.WhisperModel"):
-        from openjarvis.speech.faster_whisper import FasterWhisperBackend
+    with patch("friday_ai.speech.faster_whisper.WhisperModel"):
+        from friday_ai.speech.faster_whisper import FasterWhisperBackend
 
         backend = FasterWhisperBackend.__new__(FasterWhisperBackend)
         formats = backend.supported_formats()

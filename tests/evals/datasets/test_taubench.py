@@ -9,7 +9,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from openjarvis.evals.datasets import taubench
+from friday_ai.evals.datasets import taubench
 
 
 def _mock_direct_url(monkeypatch, direct_url):
@@ -55,7 +55,7 @@ def test_ensure_tau2_requires_explicit_pinned_install(monkeypatch):
     "direct_url",
     [
         # Editable install left behind by the previous runtime installer.
-        '{"url": "file:///home/user/.openjarvis/cache/tau2-bench", '
+        '{"url": "file:///home/user/.friday_ai/cache/tau2-bench", '
         '"dir_info": {"editable": true}}',
         # A git install from an arbitrary upstream revision.
         '{"url": "https://github.com/sierra-research/tau2-bench.git", '

@@ -20,7 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Route queries to the cheapest capable model "
-            "using OpenJarvis learning/routing."
+            "using FridayAI learning/routing."
         ),
     )
     parser.add_argument(
@@ -61,25 +61,25 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        from openjarvis import Jarvis
-        from openjarvis.learning.routing.router import (
+        from friday_ai import Friday
+        from friday_ai.learning.routing.router import (
             HeuristicRouter,
             build_routing_context,
         )
     except ImportError:
         print(
-            "Error: openjarvis is not installed. "
+            "Error: friday_ai is not installed. "
             "Install it with:  uv sync --extra dev",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    # Initialize Jarvis to discover available models
+    # Initialize Friday to discover available models
     try:
-        j = Jarvis(engine_key=args.engine)
+        j = Friday(engine_key=args.engine)
     except Exception as exc:
         print(
-            f"Error: could not initialize Jarvis -- {exc}\n\n"
+            f"Error: could not initialize Friday -- {exc}\n\n"
             "Make sure your engine is running. For Ollama:\n"
             "  ollama serve\n"
             "  ollama pull qwen3:8b\n\n"
@@ -111,7 +111,7 @@ def main() -> None:
 
     # Select the model using the chosen strategy
     if args.strategy == "bandit":
-        from openjarvis.learning.routing.learned_router import LearnedRouterPolicy
+        from friday_ai.learning.routing.learned_router import LearnedRouterPolicy
 
         router = LearnedRouterPolicy()
         selected_model = router.select_model(context)

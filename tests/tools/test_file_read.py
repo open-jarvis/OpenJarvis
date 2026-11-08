@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.tools.file_read import FileReadTool
+from friday_ai.tools.file_read import FileReadTool
 
 
 class TestFileReadTool:

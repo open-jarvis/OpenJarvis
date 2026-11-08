@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.tools.file_write import FileWriteTool
+from friday_ai.tools.file_write import FileWriteTool
 
 
 class TestFileWriteTool:

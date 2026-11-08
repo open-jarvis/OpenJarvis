@@ -7,10 +7,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.channels._stubs import ChannelStatus
-from openjarvis.channels.irc_channel import IRCChannel
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.registry import ChannelRegistry
+from friday_ai.channels._stubs import ChannelStatus
+from friday_ai.channels.irc_channel import IRCChannel
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.registry import ChannelRegistry
 from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
@@ -26,7 +26,7 @@ TestCommonChannel = make_common_channel_tests(
     "irc",
     constructor_kwargs={
         "server": "irc.example.com",
-        "nick": "jarvis",
+        "nick": "friday",
         "password": "pass123",
     },
 )
@@ -42,9 +42,9 @@ class TestInit:
         assert ch._status == ChannelStatus.DISCONNECTED
 
     def test_constructor_params(self):
-        ch = IRCChannel(server="irc.example.com", nick="jarvis", password="pass123")
+        ch = IRCChannel(server="irc.example.com", nick="friday", password="pass123")
         assert ch._server == "irc.example.com"
-        assert ch._nick == "jarvis"
+        assert ch._nick == "friday"
         assert ch._password == "pass123"
 
     def test_env_var_fallback(self):
@@ -84,7 +84,7 @@ class TestInit:
 
 class TestSend:
     def test_send_success(self):
-        ch = IRCChannel(server="irc.example.com", nick="jarvis", password="pass123")
+        ch = IRCChannel(server="irc.example.com", nick="friday", password="pass123")
 
         mock_sock = MagicMock()
         with patch("socket.socket", return_value=mock_sock):
@@ -94,7 +94,7 @@ class TestSend:
             mock_sock.sendall.assert_called()
 
     def test_send_failure_exception(self):
-        ch = IRCChannel(server="irc.example.com", nick="jarvis", password="pass123")
+        ch = IRCChannel(server="irc.example.com", nick="friday", password="pass123")
 
         mock_sock = MagicMock()
         mock_sock.connect.side_effect = ConnectionError("refused")
@@ -111,7 +111,7 @@ class TestSend:
         bus = EventBus(record_history=True)
         ch = IRCChannel(
             server="irc.example.com",
-            nick="jarvis",
+            nick="friday",
             password="pass123",
             bus=bus,
         )

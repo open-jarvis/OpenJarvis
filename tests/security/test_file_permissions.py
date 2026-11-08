@@ -12,7 +12,7 @@ class TestSecureMkdir:
     """secure_mkdir should create directories with 0o700."""
 
     def test_creates_directory_with_700(self) -> None:
-        from openjarvis.security.file_utils import secure_mkdir
+        from friday_ai.security.file_utils import secure_mkdir
 
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "secure_dir"
@@ -22,7 +22,7 @@ class TestSecureMkdir:
             assert mode == 0o700
 
     def test_creates_parent_directories(self) -> None:
-        from openjarvis.security.file_utils import secure_mkdir
+        from friday_ai.security.file_utils import secure_mkdir
 
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "a" / "b" / "c"
@@ -30,7 +30,7 @@ class TestSecureMkdir:
             assert result.is_dir()
 
     def test_existing_directory_gets_permission_fix(self) -> None:
-        from openjarvis.security.file_utils import secure_mkdir
+        from friday_ai.security.file_utils import secure_mkdir
 
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "existing"
@@ -44,7 +44,7 @@ class TestSecureCreate:
     """secure_create should create files with 0o600."""
 
     def test_creates_file_with_600(self) -> None:
-        from openjarvis.security.file_utils import secure_create
+        from friday_ai.security.file_utils import secure_create
 
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "secure_file.db"
@@ -54,7 +54,7 @@ class TestSecureCreate:
             assert mode == 0o600
 
     def test_existing_file_gets_permission_fix(self) -> None:
-        from openjarvis.security.file_utils import secure_create
+        from friday_ai.security.file_utils import secure_create
 
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "existing.db"
@@ -65,7 +65,7 @@ class TestSecureCreate:
             assert mode == 0o600
 
     def test_creates_parent_directory_with_700(self) -> None:
-        from openjarvis.security.file_utils import secure_create
+        from friday_ai.security.file_utils import secure_create
 
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "sub" / "file.db"

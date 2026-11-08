@@ -13,8 +13,8 @@ from typing import List
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 # ---------------------------------------------------------------------------
 # Helper: create a fake AddressBook database
@@ -235,7 +235,7 @@ def fake_db(tmp_path: Path) -> Path:
 @pytest.fixture()
 def connector(fake_db: Path):
     """AppleContactsConnector pointing at the fake DB."""
-    from openjarvis.connectors.apple_contacts import AppleContactsConnector
+    from friday_ai.connectors.apple_contacts import AppleContactsConnector
 
     return AppleContactsConnector(db_path=str(fake_db))
 
@@ -257,7 +257,7 @@ def test_is_connected(connector) -> None:
 
 def test_not_connected_missing_db() -> None:
     """is_connected() returns False when the database file does not exist."""
-    from openjarvis.connectors.apple_contacts import AppleContactsConnector
+    from friday_ai.connectors.apple_contacts import AppleContactsConnector
 
     conn = AppleContactsConnector(db_path="/nonexistent/path/AddressBook.db")
     assert conn.is_connected() is False
@@ -425,7 +425,7 @@ def test_mcp_tools(connector) -> None:
 
 def test_registry() -> None:
     """AppleContactsConnector is registered and retrievable."""
-    from openjarvis.connectors.apple_contacts import AppleContactsConnector
+    from friday_ai.connectors.apple_contacts import AppleContactsConnector
 
     ConnectorRegistry.register_value("apple_contacts", AppleContactsConnector)
     assert ConnectorRegistry.contains("apple_contacts")
@@ -440,7 +440,7 @@ def test_registry() -> None:
 
 def test_sync_empty_db(tmp_path: Path) -> None:
     """sync() yields nothing when the database has no contacts."""
-    from openjarvis.connectors.apple_contacts import AppleContactsConnector
+    from friday_ai.connectors.apple_contacts import AppleContactsConnector
 
     db_path = tmp_path / "Empty.abcddb"
     conn = sqlite3.connect(str(db_path))
@@ -494,7 +494,7 @@ def test_sync_empty_db(tmp_path: Path) -> None:
 
 def test_sync_missing_db() -> None:
     """sync() yields nothing when the database file doesn't exist."""
-    from openjarvis.connectors.apple_contacts import AppleContactsConnector
+    from friday_ai.connectors.apple_contacts import AppleContactsConnector
 
     c = AppleContactsConnector(db_path="/nonexistent/AddressBook.db")
     docs = list(c.sync())
@@ -566,7 +566,7 @@ def _create_minimal_db(db_path: Path, contacts: list[tuple]) -> None:
 
 def test_sync_reads_source_databases(tmp_path: Path) -> None:
     """sync() reads contacts from Sources/<UUID>/ databases."""
-    from openjarvis.connectors.apple_contacts import AppleContactsConnector
+    from friday_ai.connectors.apple_contacts import AppleContactsConnector
 
     # Main DB with 1 contact
     main_db = tmp_path / "AddressBook-v22.abcddb"
@@ -600,7 +600,7 @@ def test_sync_reads_source_databases(tmp_path: Path) -> None:
 
 def test_sync_deduplicates_across_sources(tmp_path: Path) -> None:
     """sync() deduplicates contacts that appear in multiple databases."""
-    from openjarvis.connectors.apple_contacts import AppleContactsConnector
+    from friday_ai.connectors.apple_contacts import AppleContactsConnector
 
     # Main DB with Alice
     main_db = tmp_path / "AddressBook-v22.abcddb"

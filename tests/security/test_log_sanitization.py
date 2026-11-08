@@ -12,7 +12,7 @@ class TestSanitizingFormatter:
     """SanitizingFormatter should redact secrets in log messages."""
 
     def test_redacts_openai_key(self) -> None:
-        from openjarvis.cli.log_config import SanitizingFormatter
+        from friday_ai.cli.log_config import SanitizingFormatter
 
         fmt = SanitizingFormatter("%(message)s")
         record = logging.LogRecord(
@@ -29,7 +29,7 @@ class TestSanitizingFormatter:
         assert "[REDACTED" in result
 
     def test_redacts_aws_key(self) -> None:
-        from openjarvis.cli.log_config import SanitizingFormatter
+        from friday_ai.cli.log_config import SanitizingFormatter
 
         fmt = SanitizingFormatter("%(message)s")
         record = logging.LogRecord(
@@ -45,7 +45,7 @@ class TestSanitizingFormatter:
         assert "AKIAIOSFODNN7EXAMPLE" not in result
 
     def test_clean_message_unchanged(self) -> None:
-        from openjarvis.cli.log_config import SanitizingFormatter
+        from friday_ai.cli.log_config import SanitizingFormatter
 
         fmt = SanitizingFormatter("%(message)s")
         record = logging.LogRecord(
@@ -61,7 +61,7 @@ class TestSanitizingFormatter:
         assert result == "Server started on port 8000"
 
     def test_redacts_slack_token(self) -> None:
-        from openjarvis.cli.log_config import SanitizingFormatter
+        from friday_ai.cli.log_config import SanitizingFormatter
 
         fmt = SanitizingFormatter("%(message)s")
         record = logging.LogRecord(
@@ -81,7 +81,7 @@ class TestScopedCredentialAccess:
     """get_tool_credential should return values without polluting os.environ."""
 
     def test_returns_credential_value(self) -> None:
-        from openjarvis.core.credentials import get_tool_credential
+        from friday_ai.core.credentials import get_tool_credential
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
             f.write('[slack]\nSLACK_BOT_TOKEN = "xoxb-test-token"\n')
@@ -92,7 +92,7 @@ class TestScopedCredentialAccess:
         os.unlink(f.name)
 
     def test_returns_none_for_missing(self) -> None:
-        from openjarvis.core.credentials import get_tool_credential
+        from friday_ai.core.credentials import get_tool_credential
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
             f.write("[slack]\n")
@@ -102,7 +102,7 @@ class TestScopedCredentialAccess:
         os.unlink(f.name)
 
     def test_returns_none_for_missing_file(self) -> None:
-        from openjarvis.core.credentials import get_tool_credential
+        from friday_ai.core.credentials import get_tool_credential
 
         result = get_tool_credential(
             "slack", "SLACK_BOT_TOKEN", path=Path("/nonexistent/file.toml")

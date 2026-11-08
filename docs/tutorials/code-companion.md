@@ -9,7 +9,7 @@ This tutorial walks through `examples/code_companion/` — three developer-focus
 
 !!! tip "Prerequisites"
     - Python 3.10 or later
-    - OpenJarvis installed: `uv sync --extra dev` from the repository root
+    - FridayAI installed: `uv sync --extra dev` from the repository root
     - An inference engine running — Ollama locally or a cloud API key in `.env`
     - For `reviewer.py` and `code_review.py`: a git repository with at least two branches or commits
 
@@ -44,9 +44,9 @@ This loop lets the agent adaptively explore the codebase. For example, the revie
 All three scripts follow the same structure. Understanding this pattern lets you adapt it to any code intelligence task:
 
 ```python title="Core SDK pattern" hl_lines="4 5 6"
-from openjarvis import Jarvis
+from friday_ai import Friday
 
-j = Jarvis(model="qwen3:8b", engine_key="ollama")  # (1)!
+j = Friday(model="qwen3:8b", engine_key="ollama")  # (1)!
 try:
     response = j.ask(
         prompt,                      # (2)!
@@ -58,10 +58,10 @@ finally:
     j.close()  # (5)!
 ```
 
-1. Both `model` and `engine_key` are optional. Omitting them uses auto-detected defaults from `~/.openjarvis/config.toml`.
+1. Both `model` and `engine_key` are optional. Omitting them uses auto-detected defaults from `~/.friday_ai/config.toml`.
 2. The prompt describes the task in detail, including what tools to use, what steps to follow, and what the output structure should look like.
 3. `"native_react"` selects the `NativeReActAgent`. The alias `"react"` also works.
-4. The tool list is passed directly. Any registered tool name is valid — run `jarvis agent info native_react` to see all available tools.
+4. The tool list is passed directly. Any registered tool name is valid — run `friday agent info native_react` to see all available tools.
 5. Always call `j.close()` to release engine resources. A `try/finally` block ensures cleanup even if the agent raises an exception.
 
 ## Code Review
@@ -137,11 +137,11 @@ The `test_gen.py` script reads a Python module, reasons about its public interfa
 ```bash title="Terminal"
 # Generate pytest tests for a module
 python examples/code_companion/test_gen.py \
-    --module src/openjarvis/tools/calculator.py
+    --module src/friday_ai/tools/calculator.py
 
 # Use unittest and specify the output file
 python examples/code_companion/test_gen.py \
-    --module src/openjarvis/tools/calculator.py \
+    --module src/friday_ai/tools/calculator.py \
     --framework unittest \
     --output tests/test_calculator_generated.py
 ```

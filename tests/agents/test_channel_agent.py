@@ -6,9 +6,9 @@ import time
 from typing import Any, Dict, List
 from unittest.mock import MagicMock
 
-from openjarvis.agents._stubs import AgentResult
-from openjarvis.agents.channel_agent import ChannelAgent, classify_query
-from openjarvis.channels._stubs import (
+from friday_ai.agents._stubs import AgentResult
+from friday_ai.agents.channel_agent import ChannelAgent, classify_query
+from friday_ai.channels._stubs import (
     BaseChannel,
     ChannelHandler,
     ChannelMessage,
@@ -168,11 +168,11 @@ class TestChannelAgent:
 
         assert len(channel._sent) == 1
         sent_content = channel._sent[0]["content"]
-        assert "openjarvis://research/" not in sent_content
+        assert "friday_ai://research/" not in sent_content
         assert "Here is your answer." in sent_content
 
     def test_deep_query_sends_preview_and_escalation_link(self):
-        """Deep query → preview truncated to 300 chars + openjarvis:// link."""
+        """Deep query → preview truncated to 300 chars + friday_ai:// link."""
         channel = FakeChannel()
         agent = _make_agent("Deep analysis result.")
         ca = ChannelAgent(channel, agent)
@@ -183,7 +183,7 @@ class TestChannelAgent:
 
         assert len(channel._sent) == 1
         sent_content = channel._sent[0]["content"]
-        assert "openjarvis://research/" in sent_content
+        assert "friday_ai://research/" in sent_content
         assert "Full report ready" in sent_content
 
     def test_agent_error_sends_friendly_message(self):
@@ -254,7 +254,7 @@ class TestChannelAgent:
 
         assert len(channel._sent) == 1
         sent_content = channel._sent[0]["content"]
-        assert "openjarvis://research/" in sent_content
+        assert "friday_ai://research/" in sent_content
 
     def test_reply_uses_conversation_id_as_destination_not_channel_type(self):
         """Regression for #459 — Discord (and every per-adapter native API)

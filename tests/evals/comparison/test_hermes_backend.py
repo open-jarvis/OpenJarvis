@@ -1,4 +1,4 @@
-"""Tests for openjarvis.evals.backends.external.hermes_agent.HermesBackend."""
+"""Tests for friday_ai.evals.backends.external.hermes_agent.HermesBackend."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.evals.backends.external._subprocess_runner import SubprocessResult
-from openjarvis.evals.backends.external.hermes_agent import HermesBackend
-from openjarvis.evals.comparison.third_party import (
+from friday_ai.evals.backends.external._subprocess_runner import SubprocessResult
+from friday_ai.evals.backends.external.hermes_agent import HermesBackend
+from friday_ai.evals.comparison.third_party import (
     CommitDriftError,
     ThirdPartyConfig,
     ThirdPartyEntry,
@@ -24,7 +24,7 @@ def _fake_third_party(tmp_path: Path) -> ThirdPartyConfig:
                 path=tmp_path,
                 pinned_commit="abc123",
                 runner_script=(
-                    "src/openjarvis/evals/backends/external/_runners/hermes_runner.py"
+                    "src/friday_ai/evals/backends/external/_runners/hermes_runner.py"
                 ),
                 python_executable="",
             )
@@ -39,14 +39,14 @@ class TestHermesBackend:
         cfg = _fake_third_party(tmp_path)
         with (
             patch(
-                "openjarvis.evals.backends.external.hermes_agent.load_third_party_config",
+                "friday_ai.evals.backends.external.hermes_agent.load_third_party_config",
                 return_value=cfg,
             ),
             patch(
-                "openjarvis.evals.backends.external.hermes_agent.verify_commit_pin",
+                "friday_ai.evals.backends.external.hermes_agent.verify_commit_pin",
             ),
             patch(
-                "openjarvis.evals.backends.external.hermes_agent.run_one_shot",
+                "friday_ai.evals.backends.external.hermes_agent.run_one_shot",
             ) as mock_run,
         ):
             mock_run.return_value = SubprocessResult(
@@ -90,14 +90,14 @@ class TestHermesBackend:
         cfg = _fake_third_party(tmp_path)
         with (
             patch(
-                "openjarvis.evals.backends.external.hermes_agent.load_third_party_config",
+                "friday_ai.evals.backends.external.hermes_agent.load_third_party_config",
                 return_value=cfg,
             ),
             patch(
-                "openjarvis.evals.backends.external.hermes_agent.verify_commit_pin",
+                "friday_ai.evals.backends.external.hermes_agent.verify_commit_pin",
             ),
             patch(
-                "openjarvis.evals.backends.external.hermes_agent.run_one_shot",
+                "friday_ai.evals.backends.external.hermes_agent.run_one_shot",
             ) as mock_run,
         ):
             mock_run.return_value = SubprocessResult(
@@ -143,14 +143,14 @@ class TestHermesBackend:
         cfg = _fake_third_party(tmp_path)
         with (
             patch(
-                "openjarvis.evals.backends.external.hermes_agent.load_third_party_config",
+                "friday_ai.evals.backends.external.hermes_agent.load_third_party_config",
                 return_value=cfg,
             ),
             patch(
-                "openjarvis.evals.backends.external.hermes_agent.verify_commit_pin",
+                "friday_ai.evals.backends.external.hermes_agent.verify_commit_pin",
             ),
             patch(
-                "openjarvis.evals.backends.external.hermes_agent.run_one_shot",
+                "friday_ai.evals.backends.external.hermes_agent.run_one_shot",
             ) as mock_run,
         ):
             mock_run.return_value = SubprocessResult(
@@ -179,11 +179,11 @@ class TestHermesBackend:
         cfg = _fake_third_party(tmp_path)
         with (
             patch(
-                "openjarvis.evals.backends.external.hermes_agent.load_third_party_config",
+                "friday_ai.evals.backends.external.hermes_agent.load_third_party_config",
                 return_value=cfg,
             ),
             patch(
-                "openjarvis.evals.backends.external.hermes_agent.verify_commit_pin",
+                "friday_ai.evals.backends.external.hermes_agent.verify_commit_pin",
                 side_effect=CommitDriftError("drift!"),
             ),
         ):

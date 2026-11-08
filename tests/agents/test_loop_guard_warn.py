@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig, LoopVerdict
+from friday_ai.agents.loop_guard import LoopGuard, LoopGuardConfig, LoopVerdict
 
 
 def test_warn_before_block_first_cycle_warns():

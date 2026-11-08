@@ -1,6 +1,6 @@
 # Telemetry
 
-OpenJarvis offers **optional external usage analytics** so the team can
+FridayAI offers **optional external usage analytics** so the team can
 see where the product breaks, what features people actually use, and
 how to make it better. This page documents exactly what is and isn't
 collected, where the data goes, and how to enable or disable it.
@@ -8,7 +8,7 @@ collected, where the data goes, and how to enable or disable it.
 ## TL;DR
 
 - **Off until you choose to share.** In an interactive Bash installation or
-  `jarvis init`, the dedicated prompt says: **Press Enter or Y to consent,
+  `friday init`, the dedicated prompt says: **Press Enter or Y to consent,
   or N to decline**. Enter at that prompt enables sharing; EOF, cancellation,
   or an unattended run does not.
 - **Installation ID** — one random UUID links install and usage events.
@@ -32,15 +32,15 @@ For unattended installs, consent explicitly with `--analytics` or decline with
 ```bash
 curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash -s -- --analytics
 # Or: ... | bash -s -- --no-analytics
-jarvis init --analytics
-# Or: jarvis init --no-analytics
+friday init --analytics
+# Or: friday init --no-analytics
 ```
 
 To change your choice later:
 
 ```bash
-jarvis config set analytics.enabled false
-# To enable: jarvis config set analytics.enabled true
+friday config set analytics.enabled false
+# To enable: friday config set analytics.enabled true
 ```
 
 Restart the server and reload the frontend after changing the setting.
@@ -97,7 +97,7 @@ does not delete previously submitted entries from Supabase.
 
 The canonical, authoritative list with every property name and its
 type validator lives in
-[`src/openjarvis/analytics/events.py`](../src/openjarvis/analytics/events.py).
+[`src/friday_ai/analytics/events.py`](../src/friday_ai/analytics/events.py).
 That file is the only place new events can be added — PR review is
 the gate.
 
@@ -122,8 +122,8 @@ Backend events use a property allowlist and value-level redaction:
 
 Two independent filters run before backend event properties are sent:
 
-1. [`src/openjarvis/analytics/redaction.py`](../src/openjarvis/analytics/redaction.py) — value-level pattern matching (20+ regexes for PII).
-2. [`src/openjarvis/analytics/events.py`](../src/openjarvis/analytics/events.py) — structural allowlist (event name + property name + type validator).
+1. [`src/friday_ai/analytics/redaction.py`](../src/friday_ai/analytics/redaction.py) — value-level pattern matching (20+ regexes for PII).
+2. [`src/friday_ai/analytics/events.py`](../src/friday_ai/analytics/events.py) — structural allowlist (event name + property name + type validator).
 
 Any failure at either layer → the event or property is silently
 dropped. Tests covering the patterns: [`tests/analytics/test_redaction.py`](../tests/analytics/test_redaction.py).
@@ -136,13 +136,13 @@ recording are disabled. Installer beacons use fixed fields assembled separately.
 ## Where the data goes
 
 - The default runtime and Bash installer endpoint is
-  `https://34.231.106.201.sslip.io`, configured for the OpenJarvis team's
+  `https://34.231.106.201.sslip.io`, configured for the FridayAI team's
   PostHog project.
 - Runtime deployments can override `[analytics] host`; installer deployments
-  can override `OPENJARVIS_ANALYTICS_HOST`. A configured endpoint alone does
+  can override `FRIDAY_AI_ANALYTICS_HOST`. A configured endpoint alone does
   not establish its hosting provider or server logging settings.
 - **Never** sold, shared with advertisers, or used for anything other
-  than improving OpenJarvis.
+  than improving FridayAI.
 
 ## Retention
 
@@ -154,32 +154,32 @@ recording are disabled. Installer beacons use fixed fields assembled separately.
 ## How identity works
 
 A single UUID v4 is generated when sharing is first enabled and stored at
-`~/.openjarvis/anon_id`. The install script, backend, and frontend all
+`~/.friday_ai/anon_id`. The install script, backend, and frontend all
 read the same file so events across the lifecycle can be linked to the
 same installation.
 
-Delete the file (`rm ~/.openjarvis/anon_id`) and a fresh UUID will be
+Delete the file (`rm ~/.friday_ai/anon_id`) and a fresh UUID will be
 generated next time analytics are enabled. Events associated with the
 previous UUID remain on the receiving service until deleted there.
 
 ## For researchers and contributors
 
-- **Adding an event**: edit `src/openjarvis/analytics/events.py`,
+- **Adding an event**: edit `src/friday_ai/analytics/events.py`,
   declare the spec, then update this page. PR review enforces both.
-- **Adding a PII pattern**: edit `src/openjarvis/analytics/redaction.py`
+- **Adding a PII pattern**: edit `src/friday_ai/analytics/redaction.py`
   and add a test case in `tests/analytics/test_redaction.py`.
 - **Inspecting what your install sends**: run with
-  `OPENJARVIS_LOG_LEVEL=DEBUG` and grep for `Analytics`. You'll see
+  `FRIDAY_AI_LOG_LEVEL=DEBUG` and grep for `Analytics`. You'll see
   every event name and (redacted) property dict before it ships.
 
 ## Related
 
 - Local telemetry (FLOPs, energy, latency stored in
-  `~/.openjarvis/telemetry.db`) is a **separate** subsystem documented
-  in [`src/openjarvis/telemetry/`](../src/openjarvis/telemetry/). It
+  `~/.friday_ai/telemetry.db`) is a **separate** subsystem documented
+  in [`src/friday_ai/telemetry/`](../src/friday_ai/telemetry/). It
   never leaves the machine and is controlled by `[telemetry]` (not
   `[analytics]`) in `config.toml`.
 - The leaderboard / contest opt-in (`OptInModal.tsx`) is a separate,
   voluntary feature that publicly shares your energy and savings on
-  the OpenJarvis leaderboard. It is **not** the same as analytics and
+  the FridayAI leaderboard. It is **not** the same as analytics and
   requires explicit opt-in with a display name and email.

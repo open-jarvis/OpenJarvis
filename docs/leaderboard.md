@@ -5,10 +5,10 @@ hide:
 
 # Savings Leaderboard
 
-See how the OpenJarvis community saves money, energy, and compute by running AI locally instead of using cloud providers.
+See how the FridayAI community saves money, energy, and compute by running AI locally instead of using cloud providers.
 
 !!! info "Win a Mac Mini!"
-    Opt in to share your savings from the OpenJarvis browser app or desktop app for a chance to win a Mac Mini. Your data is fully anonymous — no email, no IP, no hardware info.
+    Opt in to share your savings from the FridayAI browser app or desktop app for a chance to win a Mac Mini. Your data is fully anonymous — no email, no IP, no hardware info.
 
 <div id="leaderboard-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:24px 0;">
   <div class="lb-stat-card">

@@ -4,15 +4,15 @@
 |---|---|
 | **Date** | 2026-05-05 |
 | **Status** | Design — Phase 0 investigation complete; v1 scope reduced (see §1.5) |
-| **Owner** | OpenJarvis team (parallel-agent friendly) |
+| **Owner** | FridayAI team (parallel-agent friendly) |
 | **Companion spec** | [Spec A — vLLM-Pearl mining integration (v1)](2026-05-05-vllm-pearl-mining-integration-design.md) |
-| **Repos referenced** | `OpenJarvis`, `pearl-research-labs/pearl`, possibly upstream `ml-explore/mlx`, `ggerganov/llama.cpp` |
+| **Repos referenced** | `FridayAI`, `pearl-research-labs/pearl`, possibly upstream `ml-explore/mlx`, `ggerganov/llama.cpp` |
 
 > **For agents picking this up cold:** read §1 ("Cold-start brief") first, then **§1.5 ("Phase 0 findings")** which substantially simplifies v1 scope. The original Phase 1–4 GPU-kernel plan in §5–§8 is preserved as the v2/v3 path; v1 ships using upstream Pearl's PyTorch reference and pure-Rust miner.
 
 ## 1. Cold-start brief
 
-**One-paragraph problem statement.** OpenJarvis is adding a `mining` subsystem (Spec A) that lets users mine the Pearl PoUW blockchain through their local LLM inference. Pearl's reference miner is CUDA-only and bound to NVIDIA Hopper (`sm_90a`, H100/H200) — most OpenJarvis users on Apple Silicon are locked out at the protocol level. **This spec is the plan to unblock them.** The OJ-side integration work is small (a new `MiningProvider` implementation that drops into the existing `MinerRegistry` from Spec A); the substantial work is a Metal port of Pearl's `NoisyGEMM` kernel and a matching plugin into an Apple-native inference backend (MLX or llama.cpp Metal). The Pearl validation path is plonky2-STARK-based and **already hardware-neutral** — see §3 for the evidence — so a correct Metal implementation produces blocks Pearl validators accept without any consensus changes.
+**One-paragraph problem statement.** FridayAI is adding a `mining` subsystem (Spec A) that lets users mine the Pearl PoUW blockchain through their local LLM inference. Pearl's reference miner is CUDA-only and bound to NVIDIA Hopper (`sm_90a`, H100/H200) — most FridayAI users on Apple Silicon are locked out at the protocol level. **This spec is the plan to unblock them.** The OJ-side integration work is small (a new `MiningProvider` implementation that drops into the existing `MinerRegistry` from Spec A); the substantial work is a Metal port of Pearl's `NoisyGEMM` kernel and a matching plugin into an Apple-native inference backend (MLX or llama.cpp Metal). The Pearl validation path is plonky2-STARK-based and **already hardware-neutral** — see §3 for the evidence — so a correct Metal implementation produces blocks Pearl validators accept without any consensus changes.
 
 **Three things to know before doing any work.**
 
@@ -270,7 +270,7 @@ pearl/miner/pearl-gemm-metal/
     tests/
 ```
 
-If upstream contribution is blocked (Phase 0 outcome), fork with attribution into `OpenJarvis/vendor/pearl-gemm-metal/` and document the divergence policy in this spec.
+If upstream contribution is blocked (Phase 0 outcome), fork with attribution into `FridayAI/vendor/pearl-gemm-metal/` and document the divergence policy in this spec.
 
 #### 6.1.4 Testing
 
@@ -308,7 +308,7 @@ This is fine. Mac mining is a feature for Apple Silicon owners who want to parti
 #### 6.2.2 Path: MLX (alternate)
 
 - Define `mlx.NoisyLinear` as a subclass of `mlx.nn.Linear` that calls Phase 1's kernels via a custom Metal op binding.
-- Provide a model-loading shim: `from openjarvis.mining import patch_mlx_for_pearl; patch_mlx_for_pearl()` that monkey-patches `mlx.nn.Linear` instances at load time. Less elegant; works.
+- Provide a model-loading shim: `from friday_ai.mining import patch_mlx_for_pearl; patch_mlx_for_pearl()` that monkey-patches `mlx.nn.Linear` instances at load time. Less elegant; works.
 
 #### 6.2.3 Inference-quality regression tests
 
@@ -317,7 +317,7 @@ The plugin is correctness-critical: a noised model that doesn't fully denoise pr
 - Load a small reference model (e.g., a 1-3B parameter Pearl-blessed model if one exists for testing, otherwise the smallest model the protocol accepts).
 - Run a fixed prompt set through both noised+denoised and standard paths.
 - Assert outputs are bit-exact or within fp16 tolerance.
-- Run OJ's existing eval framework (`src/openjarvis/evals/`) on a small benchmark (e.g., an MMLU subset registered as a Pearl-mining-mode dataset). Assert no degradation > the tolerance budget. Falling back to `lm-eval-harness` is acceptable if OJ's eval surface for Mac is incomplete at the time.
+- Run OJ's existing eval framework (`src/friday_ai/evals/`) on a small benchmark (e.g., an MMLU subset registered as a Pearl-mining-mode dataset). Assert no degradation > the tolerance budget. Falling back to `lm-eval-harness` is acceptable if OJ's eval surface for Mac is incomplete at the time.
 
 #### 6.2.4 Exit criteria
 
@@ -326,14 +326,14 @@ The plugin is correctness-critical: a noised model that doesn't fully denoise pr
 - [ ] Mining shares are submitted to a Pearl testnet during inference
 - [ ] At least one block found on testnet from a Mac
 
-## 7. Phase 3 — OpenJarvis provider integration
+## 7. Phase 3 — FridayAI provider integration
 
 Where the OJ-side work is small. Inherits the entire `MiningProvider` ABC, registry, sidecar, config schema, telemetry adapter, and v2 seams from Spec A unchanged.
 
 ### 7.1 New files
 
 ```
-src/openjarvis/mining/
+src/friday_ai/mining/
     llamacpp_pearl_metal.py    # OR mlx_pearl.py — depending on Phase 2 path
                                 # @MinerRegistry.register("llamacpp-pearl-metal")
                                 # implements MiningProvider ABC from Spec A §4.4
@@ -353,7 +353,7 @@ mining-pearl-metal = [
 ### 7.3 Capability detection
 
 ```python
-# src/openjarvis/mining/llamacpp_pearl_metal.py
+# src/friday_ai/mining/llamacpp_pearl_metal.py
 class LlamaCppPearlMetalProvider(MiningProvider):
     provider_id = "llamacpp-pearl-metal"
 
@@ -401,10 +401,10 @@ The Pearl `pearl-gateway` process is currently only documented as part of the Do
 ### 7.6 Exit criteria
 
 - [ ] `LlamaCppPearlMetalProvider` registered, detection matrix correct on M1/M2/M3/M4
-- [ ] `jarvis mine init` runs to completion on Apple Silicon
-- [ ] `jarvis mine start` launches subprocess + Pearl gateway on Mac
-- [ ] `jarvis mine status` returns valid `MiningStats` from a real Mac mining session
-- [ ] `jarvis mine doctor` produces honest, actionable output for Mac users
+- [ ] `friday mine init` runs to completion on Apple Silicon
+- [ ] `friday mine start` launches subprocess + Pearl gateway on Mac
+- [ ] `friday mine status` returns valid `MiningStats` from a real Mac mining session
+- [ ] `friday mine doctor` produces honest, actionable output for Mac users
 
 ## 8. Phase 4 — Verification & bringup
 
@@ -420,8 +420,8 @@ The Pearl `pearl-gateway` process is currently only documented as part of the Do
 
 For each chip in the matrix, run:
 
-1. `jarvis mine init` end-to-end
-2. `jarvis mine start` and run for ≥4 h continuous
+1. `friday mine init` end-to-end
+2. `friday mine start` and run for ≥4 h continuous
 3. Capture and publish: shares submitted, shares accepted, block-find time distribution, GPU temp, system load impact on normal use
 4. Run a parallel `lm-eval-harness` on the mining endpoint to assert inference quality is unaffected
 
@@ -471,10 +471,10 @@ Phase 0 answered most of these from the upstream code (annotations below). The r
 3. **(Answered — yes)** Does `py-pearl-mining` already expose enough of NoisyGEMM in Python that Phase 0-B becomes a thin wrapper? **Yes.** `pearl_mining.mine` runs the entire mining algorithm in pure Rust. Additionally, `miner-base.NoisyGemm` provides a PyTorch reference of the production NoisyGEMM. Phase 0-B's "build a reference oracle" deliverable is now a *thin OJ-side wrapper* that calls upstream — see §13 and `tools/pearl-reference-oracle/` (created in this session).
 4. **(Answered — likely yes; empirically verified for `py-pearl-mining`)** Is `pearl-gateway` cross-platform? Its `pyproject.toml` requires Python ≥ 3.10 and depends on `aiohttp`, `bitcoin-utils`, `blake3`, `numpy`, `prometheus-client`, `pybase64`, `pydantic`, `pyyaml`, `torch==2.11.0`, `py-pearl-mining` — all install on macOS arm64. Empirical install of the workspace was not run in this session; **action item for v1 implementation**: `uv sync` the workspace on macOS-15 and capture the build output.
 5. **(Open — coordination)** Does Pearl gate any difficulty / consensus parameters on hardware introspection? Code review found none. Confirm in Phase 0-A discussion.
-6. **(Open — measurement)** Minimum acceptable hashrate floor for `jarvis mine init` on Apple Silicon. The `MiningCapabilities.estimated_hashrate` field in Spec A §4.4 exists for this. v1 will populate from a calibration run during `mine init`. The *floor* is a policy decision, not a technical one — defer to user-research / community feedback once v1 ships.
+6. **(Open — measurement)** Minimum acceptable hashrate floor for `friday mine init` on Apple Silicon. The `MiningCapabilities.estimated_hashrate` field in Spec A §4.4 exists for this. v1 will populate from a calibration run during `mine init`. The *floor* is a policy decision, not a technical one — defer to user-research / community feedback once v1 ships.
 7. **(Open — coordination)** Upstream contribution / CLA / LICENSE. Pearl is ISC; OJ is Apache-2.0; both are permissive and combine cleanly. **CLA TBD via Phase 0-A discussion**, but for v1 this is moot — OJ contributes no code into Pearl's tree, only consumes their published Python packages.
 8. **(Answered — yes)** Apple Silicon CI on GitHub Actions: `macos-14` / `macos-15` runners are arm64 and can install `py-pearl-mining` via the wheel build verified in §1.5.4. OJ's CI can run mining unit tests. Mining the *real* network in CI is still out of scope.
-9. **(Answered — `"llamacpp"`)** OJ's llama.cpp engine_id is `"llamacpp"` (single token, no hyphen). Confirmed at `src/openjarvis/engine/openai_compat_engines.py:9` and `src/openjarvis/engine/_discovery.py:18`. Update §7.3 capability detection to use this key. *(For v1 in §13, this only matters if we add an "informational" mining-aware hint to the existing llamacpp engine — v1 does not require any plugin into the engine.)*
+9. **(Answered — `"llamacpp"`)** OJ's llama.cpp engine_id is `"llamacpp"` (single token, no hyphen). Confirmed at `src/friday_ai/engine/openai_compat_engines.py:9` and `src/friday_ai/engine/_discovery.py:18`. Update §7.3 capability detection to use this key. *(For v1 in §13, this only matters if we add an "informational" mining-aware hint to the existing llamacpp engine — v1 does not require any plugin into the engine.)*
 10. **(Open — measurement, but de-risked)** plonky2 STARK proving latency on Apple Silicon CPU. Spec A §1 already notes proving is seconds-to-minutes of CPU per block (cross-platform, runs unchanged). For v1 the hashrate is so low that block-find latency is dominated by the search, not the proof. Empirical measurement still needed for v2/v3.
 11. **(New — v1 specific)** Does `bitcoin-utils>=0.7.0` (a `pearl-gateway` dependency) have C extensions that need Apple-specific build flags? Likely pure-Python; verify during the v1 install workstream.
 12. **(New — v1 specific)** Will `torch==2.11.0` (the version `miner-base` and `pearl-gateway` pin) install cleanly on macOS arm64? PyTorch generally has arm64 macOS wheels. Verify during v1 install.
@@ -532,9 +532,9 @@ This section defines the v1 design that ships in weeks rather than months. v1 is
 ### 13.1 Architecture
 
 ```
-                      OpenJarvis user (Apple Silicon)
+                      FridayAI user (Apple Silicon)
                      ┌────────────────────────────────┐
-                     │  jarvis mine start              │
+                     │  friday mine start              │
                      │      ↓                          │
                      │  CpuPearlProvider (this spec)   │
                      │      ↓ subprocess.Popen         │
@@ -566,11 +566,11 @@ This is the *same* control flow vllm-miner runs — just without coupling the ma
 ### 13.2 Module layout in OJ
 
 ```
-src/openjarvis/mining/
+src/friday_ai/mining/
     cpu_pearl.py             # @MinerRegistry.register("cpu-pearl") — v1 provider
     _pearl_subprocess.py     # PearlSubprocessLauncher — gateway + miner subprocesses
                              # Reused for future Apple-MPS / Metal providers
-src/openjarvis/cli/
+src/friday_ai/cli/
     # mine_cmd.py is unchanged; cpu-pearl participates via the provider ABC
 
 tests/mining/test_cpu_pearl.py
@@ -594,7 +594,7 @@ When Pearl publishes these as PyPI wheels, the install is `uv sync --extra minin
 ### 13.4 Capability detection
 
 ```python
-# src/openjarvis/mining/cpu_pearl.py
+# src/friday_ai/mining/cpu_pearl.py
 class CpuPearlProvider(MiningProvider):
     provider_id = "cpu-pearl"
 
@@ -650,7 +650,7 @@ The `m / n / k / rank` shape can be tuned per Phase 0-A measurement (or per chip
 ### 13.7 Doctor surface (Apple Silicon)
 
 ```
-$ jarvis mine doctor
+$ friday mine doctor
 Hardware
   GPU vendor          apple                            ✓
   Apple chip          M2 Max                           ✓
@@ -687,8 +687,8 @@ Each row maps to a check function in `mining/_discovery.py`. The "est. share/h" 
 ### 13.9 v1 exit criteria
 
 - [ ] `mining-pearl-cpu` extra installs cleanly on macOS arm64 (M1, M2, M3, M4 — at minimum the chip the spec author owns)
-- [ ] `jarvis mine init` completes successfully on macOS arm64
-- [ ] `jarvis mine start` launches gateway + miner subprocesses; sidecar valid; `mine status` reports live data
+- [ ] `friday mine init` completes successfully on macOS arm64
+- [ ] `friday mine start` launches gateway + miner subprocesses; sidecar valid; `mine status` reports live data
 - [ ] `mine doctor` produces honest, actionable output for Mac users
 - [ ] At least one block found on Pearl testnet from at least one Apple Silicon variant
 - [ ] User-facing doc `docs/user-guide/mining-apple-silicon.md` ships, including the honest hashrate caveat

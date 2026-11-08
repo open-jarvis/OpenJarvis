@@ -1,6 +1,6 @@
 # Query Flow
 
-This page traces the end-to-end journey of a user query through the OpenJarvis system, from the moment it enters the CLI or SDK to the final response and telemetry recording.
+This page traces the end-to-end journey of a user query through the FridayAI system, from the moment it enters the CLI or SDK to the final response and telemetry recording.
 
 ---
 
@@ -19,9 +19,9 @@ sequenceDiagram
     participant TEL as Telemetry
     participant TRC as Trace Collector
 
-    User->>CLI: jarvis ask "query" / j.ask("query")
+    User->>CLI: friday ask "query" / j.ask("query")
     CLI->>CFG: load_config()
-    CFG-->>CLI: JarvisConfig (hardware, engine defaults)
+    CFG-->>CLI: FridayConfig (hardware, engine defaults)
 
     CLI->>CFG: get_engine(config)
     CFG-->>CLI: (engine_key, engine_instance)
@@ -70,7 +70,7 @@ sequenceDiagram
 
 ## Direct Mode vs Agent Mode
 
-OpenJarvis supports two query processing paths, selected by the `--agent` CLI flag or the `agent` parameter in the SDK.
+FridayAI supports two query processing paths, selected by the `--agent` CLI flag or the `agent` parameter in the SDK.
 
 The CLI and SDK have different defaults:
 
@@ -83,16 +83,16 @@ In direct mode, the query goes straight to the inference engine with optional me
 
 ```bash
 # CLI
-jarvis ask --agent "" "What is the capital of France?"
+friday ask --agent "" "What is the capital of France?"
 ```
 
 ```python
 # SDK (direct mode is the default)
-j = Jarvis()
+j = Friday()
 response = j.ask("What is the capital of France?")
 ```
 
-Direct mode bypasses the agent's system prompt and persona handling. In the CLI, set `default_agent = ""` in the `[agent]` section of `~/.openjarvis/config.toml` to make this the default for text queries.
+Direct mode bypasses the agent's system prompt and persona handling. In the CLI, set `default_agent = ""` in the `[agent]` section of `~/.friday_ai/config.toml` to make this the default for text queries.
 
 ### Agent Mode
 
@@ -100,8 +100,8 @@ In agent mode, the query is handled by a named agent. The CLI's default `SimpleA
 
 ```bash
 # CLI
-jarvis ask "Hello"  # Uses SimpleAgent with the default configuration
-jarvis ask --agent orchestrator --tools calculator,think "What is 2^10 + 3^5?"
+friday ask "Hello"  # Uses SimpleAgent with the default configuration
+friday ask --agent orchestrator --tools calculator,think "What is 2^10 + 3^5?"
 ```
 
 ```python
@@ -118,7 +118,7 @@ response = j.ask("What is 2^10 + 3^5?", agent="orchestrator", tools=["calculator
 The journey begins with loading the system configuration:
 
 ```python
-config = load_config()  # Reads ~/.openjarvis/config.toml
+config = load_config()  # Reads ~/.friday_ai/config.toml
 ```
 
 This step:
@@ -126,7 +126,7 @@ This step:
 - Detects system hardware (GPU vendor/model, CPU, RAM)
 - Recommends the best inference engine for the detected hardware
 - Overlays any user overrides from the TOML file
-- Returns a `JarvisConfig` dataclass with all settings
+- Returns a `FridayConfig` dataclass with all settings
 
 ### Step 2: Engine Discovery
 
@@ -161,8 +161,8 @@ for ek, model_ids in all_models.items():
 If no model was explicitly specified, the router policy selects one:
 
 ```python
-from openjarvis.learning import ensure_registered
-from openjarvis.learning.router import build_routing_context
+from friday_ai.learning import ensure_registered
+from friday_ai.learning.router import build_routing_context
 ensure_registered()  # Ensure learning policies are registered
 
 policy_key = router_policy or config.learning.routing.policy
@@ -256,7 +256,7 @@ class TelemetryRecord:
     metadata: Dict[str, Any]
 ```
 
-The `TelemetryStore` subscribes to `TELEMETRY_RECORD` events on the EventBus and writes records to `~/.openjarvis/telemetry.db`.
+The `TelemetryStore` subscribes to `TELEMETRY_RECORD` events on the EventBus and writes records to `~/.friday_ai/telemetry.db`.
 
 ### Step 9: Trace Recording
 
@@ -299,12 +299,12 @@ TRACE_COMPLETE      {trace: Trace(...)}
 
 ## SDK Query Flow
 
-The `Jarvis` class in `sdk.py` provides the same query flow through a Python API:
+The `Friday` class in `sdk.py` provides the same query flow through a Python API:
 
 ```python
-from openjarvis import Jarvis
+from friday_ai import Friday
 
-j = Jarvis(model="qwen3:8b", engine_key="ollama")
+j = Friday(model="qwen3:8b", engine_key="ollama")
 
 # Direct mode
 response = j.ask("Hello")

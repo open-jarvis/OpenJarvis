@@ -1,6 +1,6 @@
 """Tests for the doc_qa dataset."""
 
-from openjarvis.evals.datasets.doc_qa import DocQADataset
+from friday_ai.evals.datasets.doc_qa import DocQADataset
 
 
 def test_dataset_loads():

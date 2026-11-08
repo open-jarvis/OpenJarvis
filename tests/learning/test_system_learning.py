@@ -4,28 +4,28 @@
 class TestSystemLearningIntegration:
     def test_learning_orchestrator_not_created_when_disabled(self):
         """Default config has training_enabled=False, so no orchestrator."""
-        from openjarvis.core.config import JarvisConfig
-        from openjarvis.system import SystemBuilder
+        from friday_ai.core.config import FridayConfig
+        from friday_ai.system import SystemBuilder
 
-        config = JarvisConfig()
+        config = FridayConfig()
         assert config.learning.training_enabled is False
         result = SystemBuilder._setup_learning_orchestrator(config)
         assert result is None
 
     def test_learning_orchestrator_created_when_enabled(self):
         """When training_enabled=True, orchestrator is created."""
-        from openjarvis.core.config import JarvisConfig
-        from openjarvis.learning.learning_orchestrator import LearningOrchestrator
-        from openjarvis.system import SystemBuilder
+        from friday_ai.core.config import FridayConfig
+        from friday_ai.learning.learning_orchestrator import LearningOrchestrator
+        from friday_ai.system import SystemBuilder
 
-        config = JarvisConfig()
+        config = FridayConfig()
         config.learning.training_enabled = True
         result = SystemBuilder._setup_learning_orchestrator(config)
         assert isinstance(result, LearningOrchestrator)
 
     def test_config_has_training_fields(self):
         """LearningConfig has the training pipeline fields."""
-        from openjarvis.core.config import LearningConfig
+        from friday_ai.core.config import LearningConfig
 
         config = LearningConfig()
         assert config.training_enabled is False
@@ -37,7 +37,7 @@ class TestSystemLearningIntegration:
 
     def test_training_components_exported(self):
         """Learning package exports all training components."""
-        from openjarvis.learning import (
+        from friday_ai.learning import (
             AgentConfigEvolver,
             LearningOrchestrator,
             LoRATrainer,

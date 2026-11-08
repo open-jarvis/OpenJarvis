@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.core.config import MemoryFilesConfig, SystemPromptConfig
+from friday_ai.core.config import MemoryFilesConfig, SystemPromptConfig
 
 
 @pytest.fixture
@@ -19,10 +19,10 @@ def memory_dir(tmp_path: Path) -> Path:
 
 
 def test_build_frozen_prefix(memory_dir: Path):
-    from openjarvis.prompt.builder import SystemPromptBuilder
+    from friday_ai.prompt.builder import SystemPromptBuilder
 
     builder = SystemPromptBuilder(
-        agent_template="You are Jarvis.",
+        agent_template="You are Friday.",
         memory_files_config=MemoryFilesConfig(
             soul_path=str(memory_dir / "SOUL.md"),
             memory_path=str(memory_dir / "MEMORY.md"),
@@ -31,7 +31,7 @@ def test_build_frozen_prefix(memory_dir: Path):
         system_prompt_config=SystemPromptConfig(),
     )
     prompt = builder.build()
-    assert "Jarvis" in prompt
+    assert "Friday" in prompt
     assert "helpful research assistant" in prompt
     assert "concise answers" in prompt
     assert "Alice" in prompt
@@ -41,20 +41,20 @@ def test_config_prefix_prepended(memory_dir: Path):
     """Regression for #401: a configured system_prompt.prefix leads the
     assembled prompt, ahead of the agent template, and is exposed as a
     'prefix' section."""
-    from openjarvis.prompt.builder import SystemPromptBuilder
+    from friday_ai.prompt.builder import SystemPromptBuilder
 
     builder = SystemPromptBuilder(
-        agent_template="You are Jarvis.",
+        agent_template="You are Friday.",
         memory_files_config=MemoryFilesConfig(
             soul_path=str(memory_dir / "SOUL.md"),
             memory_path=str(memory_dir / "MEMORY.md"),
             user_path=str(memory_dir / "USER.md"),
         ),
-        system_prompt_config=SystemPromptConfig(prefix="ALWAYS ANSWER AS JARVIS."),
+        system_prompt_config=SystemPromptConfig(prefix="ALWAYS ANSWER AS FRIDAY."),
     )
     prompt = builder.build()
-    assert prompt.startswith("ALWAYS ANSWER AS JARVIS.")
-    assert "You are Jarvis." in prompt
+    assert prompt.startswith("ALWAYS ANSWER AS FRIDAY.")
+    assert "You are Friday." in prompt
     # Prefix is visible in the inspection API too (#457), as a frozen section.
     section_names = [s.name for s in builder.sections()]
     assert section_names[0] == "prefix"
@@ -64,11 +64,11 @@ def test_config_prefix_prepended(memory_dir: Path):
 def test_empty_prefix_leaves_prompt_unchanged(memory_dir: Path):
     """Backward compatibility: the default empty prefix adds no section and
     leaves build() output identical to having no prefix configured."""
-    from openjarvis.prompt.builder import SystemPromptBuilder
+    from friday_ai.prompt.builder import SystemPromptBuilder
 
     def _make(prefix: str) -> SystemPromptBuilder:
         return SystemPromptBuilder(
-            agent_template="You are Jarvis.",
+            agent_template="You are Friday.",
             memory_files_config=MemoryFilesConfig(
                 soul_path=str(memory_dir / "SOUL.md"),
                 memory_path=str(memory_dir / "MEMORY.md"),
@@ -85,10 +85,10 @@ def test_empty_prefix_leaves_prompt_unchanged(memory_dir: Path):
 
 
 def test_frozen_prefix_stability(memory_dir: Path):
-    from openjarvis.prompt.builder import SystemPromptBuilder
+    from friday_ai.prompt.builder import SystemPromptBuilder
 
     builder = SystemPromptBuilder(
-        agent_template="You are Jarvis.",
+        agent_template="You are Friday.",
         memory_files_config=MemoryFilesConfig(
             soul_path=str(memory_dir / "SOUL.md"),
             memory_path=str(memory_dir / "MEMORY.md"),
@@ -103,11 +103,11 @@ def test_frozen_prefix_stability(memory_dir: Path):
 
 
 def test_char_limit_truncation(memory_dir: Path):
-    from openjarvis.prompt.builder import SystemPromptBuilder
+    from friday_ai.prompt.builder import SystemPromptBuilder
 
     (memory_dir / "SOUL.md").write_text("x" * 10000)
     builder = SystemPromptBuilder(
-        agent_template="You are Jarvis.",
+        agent_template="You are Friday.",
         memory_files_config=MemoryFilesConfig(
             soul_path=str(memory_dir / "SOUL.md"),
             memory_path=str(memory_dir / "MEMORY.md"),
@@ -121,11 +121,11 @@ def test_char_limit_truncation(memory_dir: Path):
 
 
 def test_skill_index_in_prompt(memory_dir: Path):
-    from openjarvis.prompt.builder import SystemPromptBuilder
+    from friday_ai.prompt.builder import SystemPromptBuilder
 
     skills = [("api_health_check", "Check API health across all endpoints")]
     builder = SystemPromptBuilder(
-        agent_template="You are Jarvis.",
+        agent_template="You are Friday.",
         memory_files_config=MemoryFilesConfig(
             soul_path=str(memory_dir / "SOUL.md"),
             memory_path=str(memory_dir / "MEMORY.md"),
@@ -140,10 +140,10 @@ def test_skill_index_in_prompt(memory_dir: Path):
 
 
 def test_dynamic_section_appended(memory_dir: Path):
-    from openjarvis.prompt.builder import SystemPromptBuilder
+    from friday_ai.prompt.builder import SystemPromptBuilder
 
     builder = SystemPromptBuilder(
-        agent_template="You are Jarvis.",
+        agent_template="You are Friday.",
         memory_files_config=MemoryFilesConfig(
             soul_path=str(memory_dir / "SOUL.md"),
             memory_path=str(memory_dir / "MEMORY.md"),
@@ -157,10 +157,10 @@ def test_dynamic_section_appended(memory_dir: Path):
 
 
 def test_sections_expose_prompt_metadata(memory_dir: Path):
-    from openjarvis.prompt.builder import SystemPromptBuilder
+    from friday_ai.prompt.builder import SystemPromptBuilder
 
     builder = SystemPromptBuilder(
-        agent_template="You are Jarvis.",
+        agent_template="You are Friday.",
         memory_files_config=MemoryFilesConfig(
             soul_path=str(memory_dir / "SOUL.md"),
             memory_path=str(memory_dir / "MEMORY.md"),
@@ -188,10 +188,10 @@ def test_sections_expose_prompt_metadata(memory_dir: Path):
 
 
 def test_sections_keep_frozen_file_content_stable(memory_dir: Path):
-    from openjarvis.prompt.builder import SystemPromptBuilder
+    from friday_ai.prompt.builder import SystemPromptBuilder
 
     builder = SystemPromptBuilder(
-        agent_template="You are Jarvis.",
+        agent_template="You are Friday.",
         memory_files_config=MemoryFilesConfig(
             soul_path=str(memory_dir / "SOUL.md"),
             memory_path=str(memory_dir / "MEMORY.md"),
@@ -208,10 +208,10 @@ def test_sections_keep_frozen_file_content_stable(memory_dir: Path):
 
 
 def test_missing_files_handled(tmp_path: Path):
-    from openjarvis.prompt.builder import SystemPromptBuilder
+    from friday_ai.prompt.builder import SystemPromptBuilder
 
     builder = SystemPromptBuilder(
-        agent_template="You are Jarvis.",
+        agent_template="You are Friday.",
         memory_files_config=MemoryFilesConfig(
             soul_path=str(tmp_path / "missing_soul.md"),
             memory_path=str(tmp_path / "missing_memory.md"),
@@ -220,4 +220,4 @@ def test_missing_files_handled(tmp_path: Path):
         system_prompt_config=SystemPromptConfig(),
     )
     prompt = builder.build()
-    assert "Jarvis" in prompt
+    assert "Friday" in prompt

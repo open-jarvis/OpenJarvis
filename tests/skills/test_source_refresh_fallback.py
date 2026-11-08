@@ -8,11 +8,11 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
-from openjarvis.core.config import JarvisConfig, SkillSourceConfig
-from openjarvis.skills.sources.github import GitHubResolver
-from openjarvis.skills.sources.hermes import HermesResolver
-from openjarvis.skills.sources.openclaw import OpenClawResolver
+from friday_ai.cli import cli
+from friday_ai.core.config import FridayConfig, SkillSourceConfig
+from friday_ai.skills.sources.github import GitHubResolver
+from friday_ai.skills.sources.hermes import HermesResolver
+from friday_ai.skills.sources.openclaw import OpenClawResolver
 
 
 @pytest.fixture(params=["hermes", "openclaw", "github"])
@@ -81,10 +81,10 @@ def test_install_uses_cached_skill_and_displays_warning(
     resolver, tmp_path, monkeypatch
 ):
     cached_skill(resolver)
-    monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "installed"))
+    monkeypatch.setenv("FRIDAY_AI_HOME", str(tmp_path / "installed"))
     with (
         patch("subprocess.run", side_effect=failed_pull),
-        patch("openjarvis.cli.skill_cmd._get_resolver", return_value=resolver),
+        patch("friday_ai.cli.skill_cmd._get_resolver", return_value=resolver),
     ):
         result = CliRunner().invoke(
             cli, ["skill", "install", f"{resolver.name}:cached"]
@@ -99,10 +99,10 @@ def test_install_uses_cached_skill_and_displays_warning(
 
 def test_cache_cannot_satisfy_missing_skill(resolver, tmp_path, monkeypatch):
     cached_skill(resolver)
-    monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "installed"))
+    monkeypatch.setenv("FRIDAY_AI_HOME", str(tmp_path / "installed"))
     with (
         patch("subprocess.run", side_effect=failed_pull),
-        patch("openjarvis.cli.skill_cmd._get_resolver", return_value=resolver),
+        patch("friday_ai.cli.skill_cmd._get_resolver", return_value=resolver),
     ):
         result = CliRunner().invoke(
             cli, ["skill", "install", f"{resolver.name}:missing"]
@@ -113,12 +113,12 @@ def test_cache_cannot_satisfy_missing_skill(resolver, tmp_path, monkeypatch):
 
 def test_update_does_not_claim_refresh_succeeded(resolver):
     cached_skill(resolver)
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.skills.sources = [SkillSourceConfig(source=resolver.name)]
     with (
         patch("subprocess.run", side_effect=failed_pull),
-        patch("openjarvis.cli.skill_cmd._get_resolver", return_value=resolver),
-        patch("openjarvis.cli.skill_cmd.load_config", return_value=cfg),
+        patch("friday_ai.cli.skill_cmd._get_resolver", return_value=resolver),
+        patch("friday_ai.cli.skill_cmd.load_config", return_value=cfg),
     ):
         result = CliRunner().invoke(cli, ["skill", "update"])
     assert "may be stale" in result.output

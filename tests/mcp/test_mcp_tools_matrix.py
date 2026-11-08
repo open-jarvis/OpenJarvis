@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.mcp.client import MCPClient
-from openjarvis.mcp.server import MCPServer
-from openjarvis.mcp.transport import InProcessTransport
-from openjarvis.tools.calculator import CalculatorTool
-from openjarvis.tools.think import ThinkTool
+from friday_ai.mcp.client import MCPClient
+from friday_ai.mcp.server import MCPServer
+from friday_ai.mcp.transport import InProcessTransport
+from friday_ai.tools.calculator import CalculatorTool
+from friday_ai.tools.think import ThinkTool
 
 # Tool configs: (tool_class, call_arguments, expected_substring)
 _TOOL_CONFIGS = {

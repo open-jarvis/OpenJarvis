@@ -1,4 +1,4 @@
-"""Tests for `jarvis digest` CLI command."""
+"""Tests for `friday digest` CLI command."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from openjarvis.agents.digest_store import DigestArtifact, DigestStore
+from friday_ai.agents.digest_store import DigestArtifact, DigestStore
 
 
 def test_digest_command_exists():
     """The digest command is registered on the CLI."""
-    from openjarvis.cli import cli
+    from friday_ai.cli import cli
 
     runner = CliRunner()
     result = runner.invoke(cli, ["digest", "--help"])
@@ -21,7 +21,7 @@ def test_digest_command_exists():
 
 
 def test_digest_displays_cached(tmp_path):
-    from openjarvis.cli import cli
+    from friday_ai.cli import cli
 
     db_path = str(tmp_path / "digest.db")
     store = DigestStore(db_path=db_path)
@@ -33,7 +33,7 @@ def test_digest_displays_cached(tmp_path):
             sources_used=["gmail"],
             generated_at=datetime.now(tz=__import__("datetime").timezone.utc),
             model_used="test",
-            voice_used="jarvis",
+            voice_used="friday",
         )
     )
     store.close()
@@ -45,7 +45,7 @@ def test_digest_displays_cached(tmp_path):
 
 
 def test_digest_no_cache(tmp_path):
-    from openjarvis.cli import cli
+    from friday_ai.cli import cli
 
     db_path = str(tmp_path / "empty.db")
     runner = CliRunner()

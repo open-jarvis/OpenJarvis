@@ -11,10 +11,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.channels._stubs import ChannelStatus
-from openjarvis.channels.telegram import TelegramChannel
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.registry import ChannelRegistry
+from friday_ai.channels._stubs import ChannelStatus
+from friday_ai.channels.telegram import TelegramChannel
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.registry import ChannelRegistry
 from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
@@ -38,8 +38,8 @@ def test_configured_allowlist_gates_handlers_and_events(
     tmp_path, monkeypatch, allowlist, accepted
 ):
     """Follow TOML -> builder -> adapter -> inbound dispatch without a bot API."""
-    from openjarvis.core.config import load_config
-    from openjarvis.system.builder import SystemBuilder
+    from friday_ai.core.config import load_config
+    from friday_ai.system.builder import SystemBuilder
 
     config_path = tmp_path / "config.toml"
     config_path.write_text(
@@ -512,7 +512,7 @@ class TestDisconnectStopsRealListener:
                 },
             ),
             patch(
-                "openjarvis.channels.telegram.asyncio.new_event_loop",
+                "friday_ai.channels.telegram.asyncio.new_event_loop",
                 side_effect=make_event_loop,
             ),
         ):
@@ -660,7 +660,7 @@ class TestAllowedChatIds:
 
     def _invoke_handle_msg(self, ch: TelegramChannel, chat_id: str, text: str = "hi"):
         """Simulate _poll_loop dispatching a message without starting a thread."""
-        from openjarvis.channels._stubs import ChannelMessage
+        from friday_ai.channels._stubs import ChannelMessage
 
         cm = ChannelMessage(
             channel="telegram",
@@ -727,7 +727,7 @@ class TestChannelAgentWiring:
         received = []
         ch.on_message(lambda cm: received.append(cm))
 
-        from openjarvis.channels._stubs import ChannelMessage
+        from friday_ai.channels._stubs import ChannelMessage
 
         cm = ChannelMessage(
             channel="telegram",
@@ -750,7 +750,7 @@ class TestChannelAgentWiring:
         ch.on_message(lambda cm: calls_a.append(cm))
         ch.on_message(lambda cm: calls_b.append(cm))
 
-        from openjarvis.channels._stubs import ChannelMessage
+        from friday_ai.channels._stubs import ChannelMessage
 
         cm = ChannelMessage(
             channel="telegram",

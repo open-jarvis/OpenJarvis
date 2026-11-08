@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.core.config import (
+from friday_ai.core.config import (
     GpuInfo,
     _detect_amd_gpu,
     _detect_apple_gpu,
@@ -25,9 +25,9 @@ from openjarvis.core.config import (
 class TestDetectHardware:
     """Tests for the top-level detect_hardware() function."""
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/nvidia-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         return_value="NVIDIA A100-SXM4-80GB, 81920, 1",
     )
     def test_detect_nvidia_gpu(self, mock_run, mock_which):
@@ -38,9 +38,9 @@ class TestDetectHardware:
         assert gpu.vram_gb == 80.0
         assert gpu.count == 1
 
-    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
+    @patch("friday_ai.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         side_effect=[
             "AMD Instinct MI300X",  # --showproductname
             "GPU[0] : vram Total Memory (B): 206158430208",  # --showmeminfo vram
@@ -53,9 +53,9 @@ class TestDetectHardware:
         assert gpu.vendor == "amd"
         assert "MI300X" in gpu.name
 
-    @patch("openjarvis.core.config.platform.system", return_value="Darwin")
+    @patch("friday_ai.core.config.platform.system", return_value="Darwin")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         return_value=(
             "Graphics/Displays:\n"
             "    Apple M4 Max:\n"
@@ -70,8 +70,8 @@ class TestDetectHardware:
         assert gpu.vendor == "apple"
         assert "M4 Max" in gpu.name
 
-    @patch("openjarvis.core.config.shutil.which", return_value=None)
-    @patch("openjarvis.core.config.platform.system", return_value="Linux")
+    @patch("friday_ai.core.config.shutil.which", return_value=None)
+    @patch("friday_ai.core.config.platform.system", return_value="Linux")
     def test_detect_no_gpu(self, mock_system, mock_which):
         """All GPU detection methods return None when no GPU is present."""
         assert _detect_nvidia_gpu() is None

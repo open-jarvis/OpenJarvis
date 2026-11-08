@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Regression: every call in connectors-api.ts must go through apiFetch()
 // (not a bare fetch()) so the Bearer auth header is attached when
-// OPENJARVIS_API_KEY is set. Direct fetch() calls silently 401 against an
+// FRIDAY_AI_API_KEY is set. Direct fetch() calls silently 401 against an
 // authenticated server -- the same bug class #266 fixed in api.ts, which
 // this file was missed by. Confirmed live: with a real server + API key
 // configured, /v1/connectors 401'd from the browser while every other
 // endpoint (which already went through apiFetch) worked.
 
-const SETTINGS_KEY = 'openjarvis-settings';
+const SETTINGS_KEY = 'friday_ai-settings';
 const fetchMock = vi.fn<typeof fetch>();
 
 // Minimal in-memory localStorage stub so the helpers can run under node

@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from openjarvis.core.types import Message, Role
+from friday_ai.core.types import Message, Role
 
 # ---------------------------------------------------------------------------
 # Pure helpers — no SDK needed
@@ -32,7 +32,7 @@ from openjarvis.core.types import Message, Role
 
 class TestSnapshotAccumulator:
     def test_cumulative_snapshots_become_deltas(self):
-        from openjarvis.engine._apple_fm_support import snapshot_deltas
+        from friday_ai.engine._apple_fm_support import snapshot_deltas
 
         # The SDK re-sends everything generated so far on each iteration.
         snapshots = ["The", "The capital", "The capital is Paris."]
@@ -43,7 +43,7 @@ class TestSnapshotAccumulator:
         ]
 
     def test_naive_concatenation_would_have_duplicated(self):
-        from openjarvis.engine._apple_fm_support import SnapshotAccumulator
+        from friday_ai.engine._apple_fm_support import SnapshotAccumulator
 
         acc = SnapshotAccumulator()
         for snap in ["a", "ab", "abc"]:
@@ -53,25 +53,25 @@ class TestSnapshotAccumulator:
         assert acc.text == "abc"
 
     def test_repeated_snapshot_yields_nothing(self):
-        from openjarvis.engine._apple_fm_support import snapshot_deltas
+        from friday_ai.engine._apple_fm_support import snapshot_deltas
 
         assert snapshot_deltas(["ab", "ab", "abc"]) == ["ab", "c"]
 
     def test_revised_snapshot_is_reported_whole(self):
         """Guided generation can revise rather than extend."""
-        from openjarvis.engine._apple_fm_support import snapshot_deltas
+        from friday_ai.engine._apple_fm_support import snapshot_deltas
 
         assert snapshot_deltas(["hello wor", "goodbye"]) == ["hello wor", "goodbye"]
 
 
 class TestModelLabels:
     def test_known_labels_normalize(self):
-        from openjarvis.engine._apple_fm_support import validate_model_label
+        from friday_ai.engine._apple_fm_support import validate_model_label
 
         assert validate_model_label("  AFM-3-Core  ") == "afm-3-core"
 
     def test_unknown_label_names_the_alternatives(self):
-        from openjarvis.engine._apple_fm_support import validate_model_label
+        from friday_ai.engine._apple_fm_support import validate_model_label
 
         with pytest.raises(ValueError, match="afm-3-core-advanced"):
             validate_model_label("afm-4")
@@ -79,23 +79,23 @@ class TestModelLabels:
 
 class TestOptionsAndSampling:
     def test_max_tokens_maps_to_sdk_name(self):
-        from openjarvis.engine._apple_fm_support import build_options_kwargs
+        from friday_ai.engine._apple_fm_support import build_options_kwargs
 
         kwargs = build_options_kwargs({"max_tokens": "128", "temperature": "0.5"})
         assert kwargs == {"maximum_response_tokens": 128, "temperature": 0.5}
 
     def test_unset_values_defer_to_the_sdk(self):
-        from openjarvis.engine._apple_fm_support import build_options_kwargs
+        from friday_ai.engine._apple_fm_support import build_options_kwargs
 
         assert build_options_kwargs({}) == {}
 
     def test_sampling_defaults_to_greedy_for_reproducibility(self):
-        from openjarvis.engine._apple_fm_support import parse_sampling_spec
+        from friday_ai.engine._apple_fm_support import parse_sampling_spec
 
         assert parse_sampling_spec({}) == ("greedy", {})
 
     def test_random_sampling_carries_its_fields(self):
-        from openjarvis.engine._apple_fm_support import parse_sampling_spec
+        from friday_ai.engine._apple_fm_support import parse_sampling_spec
 
         mode, kwargs = parse_sampling_spec(
             {"sampling": "random", "seed": "7", "top": 3}
@@ -104,7 +104,7 @@ class TestOptionsAndSampling:
         assert kwargs == {"seed": 7, "top": 3}
 
     def test_unknown_sampling_mode_rejected(self):
-        from openjarvis.engine._apple_fm_support import parse_sampling_spec
+        from friday_ai.engine._apple_fm_support import parse_sampling_spec
 
         with pytest.raises(ValueError, match="greedy"):
             parse_sampling_spec({"sampling": "beam"})
@@ -237,8 +237,8 @@ def _load_engine_module():
     module must be re-imported (not just fetched from the registry) for the
     ``@EngineRegistry.register`` decorator to run again.
     """
-    sys.modules.pop("openjarvis.engine.apple_fm", None)
-    return importlib.import_module("openjarvis.engine.apple_fm")
+    sys.modules.pop("friday_ai.engine.apple_fm", None)
+    return importlib.import_module("friday_ai.engine.apple_fm")
 
 
 @pytest.fixture
@@ -252,7 +252,7 @@ def engine_mod():
         return mod, rec
 
     yield _make
-    sys.modules.pop("openjarvis.engine.apple_fm", None)
+    sys.modules.pop("friday_ai.engine.apple_fm", None)
     sys.modules.pop("apple_fm_sdk", None)
 
 
@@ -270,7 +270,7 @@ def _engine(mod, **kwargs):
 
 class TestRegistration:
     def test_registers_under_afm(self, engine_mod):
-        from openjarvis.core.registry import EngineRegistry
+        from friday_ai.core.registry import EngineRegistry
 
         mod, _ = engine_mod()
         assert EngineRegistry.get("afm") is mod.AppleFMEngine
@@ -417,7 +417,7 @@ class TestGenerate:
 
 class TestErrorMapping:
     def test_context_overflow_becomes_a_context_length_error(self, engine_mod):
-        from openjarvis.engine._base import (
+        from friday_ai.engine._base import (
             EngineContextLengthError,
             looks_like_context_length_error,
         )
@@ -438,7 +438,7 @@ class TestErrorMapping:
         assert "4096" in str(exc.value)
 
     def test_context_error_does_not_repeat_the_sdk_reason(self, engine_mod):
-        from openjarvis.engine._base import EngineContextLengthError
+        from friday_ai.engine._base import EngineContextLengthError
 
         mod, _ = engine_mod(raise_on_stream="ExceededContextWindowSizeError")
         eng = _engine(mod)
@@ -520,7 +520,7 @@ class TestPrepare:
         assert rec["stream_calls"][0]["options"].maximum_response_tokens == 4
 
     def test_unavailable_model_raises_connection_error(self, engine_mod):
-        from openjarvis.engine._base import EngineConnectionError
+        from friday_ai.engine._base import EngineConnectionError
 
         mod, _ = engine_mod(
             available=(False, types.SimpleNamespace(name="APPLE_INTELLIGENCE_OFF"))
@@ -562,9 +562,9 @@ class TestDescribe:
 class TestOnRealHardware:
     def test_generates_with_real_token_counts(self):
         sys.modules.pop("apple_fm_sdk", None)
-        sys.modules.pop("openjarvis.engine.apple_fm", None)
+        sys.modules.pop("friday_ai.engine.apple_fm", None)
         pytest.importorskip("apple_fm_sdk")
-        mod = importlib.import_module("openjarvis.engine.apple_fm")
+        mod = importlib.import_module("friday_ai.engine.apple_fm")
 
         eng = mod.AppleFMEngine(instructions="Answer in one word.")
         if not eng.health():
@@ -593,7 +593,7 @@ class TestAfmIsTreatedAsLocal:
     """
 
     def test_data_boundary_audit_classifies_afm_as_local(self):
-        from openjarvis.security.data_boundary_audit import (
+        from friday_ai.security.data_boundary_audit import (
             LOCAL_ENGINE_KEYS,
             _target_is_cloud,
         )
@@ -602,9 +602,9 @@ class TestAfmIsTreatedAsLocal:
         assert _target_is_cloud("afm", "afm-3-core") is False
 
     def test_image_privacy_guard_does_not_warn_for_afm(self):
-        """`jarvis ask -i photo.png --engine afm` must not claim the image
+        """`friday ask -i photo.png --engine afm` must not claim the image
         leaves the machine."""
-        from openjarvis.cli.ask import LOCAL_ENGINES
+        from friday_ai.cli.ask import LOCAL_ENGINES
 
         assert "afm" in LOCAL_ENGINES
         assert "openai" not in LOCAL_ENGINES

@@ -1,4 +1,4 @@
-"""Tests for openjarvis.learning.spec_search.diagnose.teacher_agent module.
+"""Tests for friday_ai.learning.spec_search.diagnose.teacher_agent module.
 
 All tests use a mocked CloudEngine — no live API calls.
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
-from openjarvis.learning.spec_search.diagnose.types import DiagnosticTool
+from friday_ai.learning.spec_search.diagnose.types import DiagnosticTool
 
 
 def _make_tool(
@@ -44,7 +44,7 @@ class TestTeacherAgentNoTools:
     """Teacher responds without using any tools."""
 
     def test_returns_content_from_single_turn(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.teacher_agent import (
+        from friday_ai.learning.spec_search.diagnose.teacher_agent import (
             TeacherAgent,
         )
 
@@ -67,7 +67,7 @@ class TestTeacherAgentNoTools:
         assert result.total_cost_usd > 0
 
     def test_tracks_cost(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.teacher_agent import (
+        from friday_ai.learning.spec_search.diagnose.teacher_agent import (
             TeacherAgent,
         )
 
@@ -91,7 +91,7 @@ class TestTeacherAgentWithTools:
     """Teacher uses tools in a multi-turn loop."""
 
     def test_executes_tool_call_and_continues(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.teacher_agent import (
+        from friday_ai.learning.spec_search.diagnose.teacher_agent import (
             TeacherAgent,
         )
 
@@ -129,7 +129,7 @@ class TestTeacherAgentWithTools:
         assert result.tool_call_records[0].tool == "test_tool"
 
     def test_stops_at_max_turns(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.teacher_agent import (
+        from friday_ai.learning.spec_search.diagnose.teacher_agent import (
             TeacherAgent,
         )
 
@@ -159,7 +159,7 @@ class TestTeacherAgentWithTools:
         assert result.turns == 3
 
     def test_stops_at_max_cost(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.teacher_agent import (
+        from friday_ai.learning.spec_search.diagnose.teacher_agent import (
             TeacherAgent,
         )
 
@@ -192,7 +192,7 @@ class TestTeacherAgentWithTools:
         assert result.turns < 100
 
     def test_multiple_tool_calls_in_one_turn(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.teacher_agent import (
+        from friday_ai.learning.spec_search.diagnose.teacher_agent import (
             TeacherAgent,
         )
 
@@ -227,7 +227,7 @@ class TestTeacherAgentResult:
     """Tests for TeacherAgentResult structure."""
 
     def test_result_has_all_fields(self) -> None:
-        from openjarvis.learning.spec_search.diagnose.teacher_agent import (
+        from friday_ai.learning.spec_search.diagnose.teacher_agent import (
             TeacherAgent,
         )
 

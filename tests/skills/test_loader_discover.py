@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from openjarvis.skills.loader import discover_skills
+from friday_ai.skills.loader import discover_skills
 
 
 def _write_valid_toml_skill(directory: Path, name: str) -> None:

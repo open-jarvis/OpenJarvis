@@ -1,4 +1,4 @@
-"""Tests for openjarvis.mining.cpu_pearl.CpuPearlProvider."""
+"""Tests for friday_ai.mining.cpu_pearl.CpuPearlProvider."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-_AVAIL = "openjarvis.mining._install.pearl_packages_available"
+_AVAIL = "friday_ai.mining._install.pearl_packages_available"
 
 
 @pytest.fixture
 def darwin_apple_hw():
     """A HardwareInfo describing an Apple Silicon Mac."""
-    from openjarvis.core.config import GpuInfo, HardwareInfo
+    from friday_ai.core.config import GpuInfo, HardwareInfo
 
     return HardwareInfo(
         platform="darwin",
@@ -28,7 +28,7 @@ def darwin_apple_hw():
 @pytest.fixture
 def linux_nvidia_hw():
     """A HardwareInfo describing an H100 box."""
-    from openjarvis.core.config import GpuInfo, HardwareInfo
+    from friday_ai.core.config import GpuInfo, HardwareInfo
 
     return HardwareInfo(
         platform="linux",
@@ -48,7 +48,7 @@ def linux_nvidia_hw():
 @pytest.fixture
 def windows_hw():
     """A HardwareInfo describing a Windows host (unsupported in v1)."""
-    from openjarvis.core.config import HardwareInfo
+    from friday_ai.core.config import HardwareInfo
 
     return HardwareInfo(
         platform="win32", cpu_brand="x86_64", cpu_count=16, ram_gb=64.0, gpu=None
@@ -56,7 +56,7 @@ def windows_hw():
 
 
 def test_detect_supported_on_apple_silicon_when_packages_present(darwin_apple_hw):
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     with patch(_AVAIL, return_value=True):
         cap = CpuPearlProvider.detect(darwin_apple_hw, engine_id="ollama", model="any")
@@ -66,7 +66,7 @@ def test_detect_supported_on_apple_silicon_when_packages_present(darwin_apple_hw
 
 def test_detect_supported_on_linux_too(linux_nvidia_hw):
     """v1 cpu-pearl is engine-independent and works on linux too."""
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     with patch(_AVAIL, return_value=True):
         cap = CpuPearlProvider.detect(
@@ -76,7 +76,7 @@ def test_detect_supported_on_linux_too(linux_nvidia_hw):
 
 
 def test_detect_unsupported_on_windows(windows_hw):
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     with patch(_AVAIL, return_value=True):
         cap = CpuPearlProvider.detect(windows_hw, engine_id="any", model="any")
@@ -85,7 +85,7 @@ def test_detect_unsupported_on_windows(windows_hw):
 
 
 def test_detect_unsupported_when_pearl_not_installed(darwin_apple_hw):
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     with patch(_AVAIL, return_value=False):
         cap = CpuPearlProvider.detect(darwin_apple_hw, engine_id="any", model="any")
@@ -95,7 +95,7 @@ def test_detect_unsupported_when_pearl_not_installed(darwin_apple_hw):
 
 def test_detect_engine_independent(darwin_apple_hw):
     """v1 detect() does NOT inspect engine_id — supported regardless of engine."""
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     with patch(_AVAIL, return_value=True):
         for engine in ("ollama", "llamacpp", "vllm", "mlx", "anthropic-cloud", ""):
@@ -113,7 +113,7 @@ def test_detect_engine_independent(darwin_apple_hw):
 @pytest.fixture
 def cpu_pearl_config():
     """A minimal MiningConfig for cpu-pearl."""
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget
 
     return MiningConfig(
         provider="cpu-pearl",
@@ -138,19 +138,19 @@ def cpu_pearl_config():
 
 def test_start_writes_sidecar_and_is_running(cpu_pearl_config, tmp_path, monkeypatch):
     """After start(), is_running() returns True and sidecar JSON is on disk."""
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     sidecar = tmp_path / "mining.json"
     log_dir = tmp_path / "logs"
-    monkeypatch.setattr("openjarvis.mining.cpu_pearl._sidecar_path", lambda: sidecar)
-    monkeypatch.setattr("openjarvis.mining.cpu_pearl._log_dir", lambda: log_dir)
+    monkeypatch.setattr("friday_ai.mining.cpu_pearl._sidecar_path", lambda: sidecar)
+    monkeypatch.setattr("friday_ai.mining.cpu_pearl._log_dir", lambda: log_dir)
     monkeypatch.setenv("TEST_PEARLD_PASSWORD", "secret")
 
     fake_launcher = MagicMock()
     fake_launcher.is_running.return_value = True
     fake_launcher.pids.return_value = (11111, 22222)
 
-    _target = "openjarvis.mining.cpu_pearl.PearlSubprocessLauncher"
+    _target = "friday_ai.mining.cpu_pearl.PearlSubprocessLauncher"
     with patch(_target, return_value=fake_launcher):
         provider = CpuPearlProvider()
         asyncio.run(provider.start(cpu_pearl_config))
@@ -168,19 +168,19 @@ def test_start_writes_sidecar_and_is_running(cpu_pearl_config, tmp_path, monkeyp
 
 def test_stop_terminates_and_removes_sidecar(cpu_pearl_config, tmp_path, monkeypatch):
     """After stop(), is_running() returns False, sidecar is removed."""
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     sidecar = tmp_path / "mining.json"
     log_dir = tmp_path / "logs"
-    monkeypatch.setattr("openjarvis.mining.cpu_pearl._sidecar_path", lambda: sidecar)
-    monkeypatch.setattr("openjarvis.mining.cpu_pearl._log_dir", lambda: log_dir)
+    monkeypatch.setattr("friday_ai.mining.cpu_pearl._sidecar_path", lambda: sidecar)
+    monkeypatch.setattr("friday_ai.mining.cpu_pearl._log_dir", lambda: log_dir)
     monkeypatch.setenv("TEST_PEARLD_PASSWORD", "secret")
 
     fake_launcher = MagicMock()
     fake_launcher.is_running.side_effect = [True, False]
     fake_launcher.pids.return_value = (11111, 22222)
 
-    _target = "openjarvis.mining.cpu_pearl.PearlSubprocessLauncher"
+    _target = "friday_ai.mining.cpu_pearl.PearlSubprocessLauncher"
     with patch(_target, return_value=fake_launcher):
         provider = CpuPearlProvider()
         asyncio.run(provider.start(cpu_pearl_config))
@@ -192,7 +192,7 @@ def test_stop_terminates_and_removes_sidecar(cpu_pearl_config, tmp_path, monkeyp
 
 def test_stats_returns_zero_stats_when_not_running():
     """stats() before start() returns a MiningStats with provider_id and zeros."""
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     provider = CpuPearlProvider()
     stats = provider.stats()
@@ -203,7 +203,7 @@ def test_stats_returns_zero_stats_when_not_running():
 
 def test_parse_gateway_metrics_extracts_counters():
     """The Prometheus parser extracts the metric names we expect."""
-    from openjarvis.mining.cpu_pearl import _parse_gateway_metrics
+    from friday_ai.mining.cpu_pearl import _parse_gateway_metrics
 
     sample = """\
 # HELP pearl_gateway_shares_submitted_total Total shares submitted.
@@ -236,13 +236,13 @@ def test_provider_runs_end_to_end_on_this_host(tmp_path, monkeypatch):
     pytest.importorskip("pearl_mining")
     pytest.importorskip("pearl_gateway")
 
-    from openjarvis.mining._stubs import MiningConfig, SoloTarget
-    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+    from friday_ai.mining._stubs import MiningConfig, SoloTarget
+    from friday_ai.mining.cpu_pearl import CpuPearlProvider
 
     sidecar = tmp_path / "mining.json"
     log_dir = tmp_path / "logs"
-    monkeypatch.setattr("openjarvis.mining.cpu_pearl._sidecar_path", lambda: sidecar)
-    monkeypatch.setattr("openjarvis.mining.cpu_pearl._log_dir", lambda: log_dir)
+    monkeypatch.setattr("friday_ai.mining.cpu_pearl._sidecar_path", lambda: sidecar)
+    monkeypatch.setattr("friday_ai.mining.cpu_pearl._log_dir", lambda: log_dir)
     monkeypatch.setenv("TEST_PEARLD_PASSWORD", "test")
 
     cfg = MiningConfig(

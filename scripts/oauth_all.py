@@ -18,9 +18,9 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
-from openjarvis.core import open_browser
+from friday_ai.core import open_browser
 
-CONFIG_DIR = Path.home() / ".openjarvis" / "connectors"
+CONFIG_DIR = Path.home() / ".friday_ai" / "connectors"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 CALLBACK_PORT = 8789
@@ -46,28 +46,28 @@ def _load_creds(filename: str) -> Dict[str, str]:
 
 _google = _load_creds("google.json")
 GOOGLE_CLIENT_ID = (
-    os.environ.get("OPENJARVIS_GOOGLE_CLIENT_ID", "") or _google["client_id"]
+    os.environ.get("FRIDAY_AI_GOOGLE_CLIENT_ID", "") or _google["client_id"]
 )
 GOOGLE_CLIENT_SECRET = (
-    os.environ.get("OPENJARVIS_GOOGLE_CLIENT_SECRET", "")
+    os.environ.get("FRIDAY_AI_GOOGLE_CLIENT_SECRET", "")
     or _google["client_secret"]
 )
 
 _strava = _load_creds("strava.json")
 STRAVA_CLIENT_ID = (
-    os.environ.get("OPENJARVIS_STRAVA_CLIENT_ID", "") or _strava["client_id"]
+    os.environ.get("FRIDAY_AI_STRAVA_CLIENT_ID", "") or _strava["client_id"]
 )
 STRAVA_CLIENT_SECRET = (
-    os.environ.get("OPENJARVIS_STRAVA_CLIENT_SECRET", "")
+    os.environ.get("FRIDAY_AI_STRAVA_CLIENT_SECRET", "")
     or _strava["client_secret"]
 )
 
 _spotify = _load_creds("spotify.json")
 SPOTIFY_CLIENT_ID = (
-    os.environ.get("OPENJARVIS_SPOTIFY_CLIENT_ID", "") or _spotify["client_id"]
+    os.environ.get("FRIDAY_AI_SPOTIFY_CLIENT_ID", "") or _spotify["client_id"]
 )
 SPOTIFY_CLIENT_SECRET = (
-    os.environ.get("OPENJARVIS_SPOTIFY_CLIENT_SECRET", "")
+    os.environ.get("FRIDAY_AI_SPOTIFY_CLIENT_SECRET", "")
     or _spotify["client_secret"]
 )
 
@@ -339,7 +339,7 @@ def do_spotify() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run OAuth flows for OpenJarvis connectors"
+        description="Run OAuth flows for FridayAI connectors"
     )
     parser.add_argument("--google", action="store_true", help="Only Google")
     parser.add_argument("--strava", action="store_true", help="Only Strava")

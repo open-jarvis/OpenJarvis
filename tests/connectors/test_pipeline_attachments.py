@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.connectors._stubs import Attachment, Document
-from openjarvis.connectors.attachment_store import AttachmentStore
-from openjarvis.connectors.pipeline import IngestionPipeline
-from openjarvis.connectors.store import KnowledgeStore
+from friday_ai.connectors._stubs import Attachment, Document
+from friday_ai.connectors.attachment_store import AttachmentStore
+from friday_ai.connectors.pipeline import IngestionPipeline
+from friday_ai.connectors.store import KnowledgeStore
 
 # ---------------------------------------------------------------------------
 # Helpers

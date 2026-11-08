@@ -47,7 +47,7 @@ class TestAvailable:
         fake_amdsmi = _make_fake_amdsmi(device_count=1)
 
         with patch.dict(sys.modules, {"amdsmi": fake_amdsmi}):
-            import openjarvis.telemetry.energy_amd as mod
+            import friday_ai.telemetry.energy_amd as mod
 
             orig = mod._AMDSMI_AVAILABLE
             mod._AMDSMI_AVAILABLE = True
@@ -60,7 +60,7 @@ class TestAvailable:
                 mod._AMDSMI_AVAILABLE = orig
 
     def test_available_false_when_amdsmi_not_importable(self):
-        import openjarvis.telemetry.energy_amd as mod
+        import friday_ai.telemetry.energy_amd as mod
 
         assert_available_false_when_lib_missing(
             mod, mod.AmdEnergyMonitor, "_AMDSMI_AVAILABLE"
@@ -77,7 +77,7 @@ class TestEnergyMethod:
         fake_amdsmi = _make_fake_amdsmi(device_count=1)
 
         with patch.dict(sys.modules, {"amdsmi": fake_amdsmi}):
-            import openjarvis.telemetry.energy_amd as mod
+            import friday_ai.telemetry.energy_amd as mod
 
             orig = mod._AMDSMI_AVAILABLE
             mod._AMDSMI_AVAILABLE = True
@@ -115,7 +115,7 @@ class TestSampleCounterDelta:
         fake_amdsmi.amdsmi_get_energy_count.side_effect = get_energy
 
         with patch.dict(sys.modules, {"amdsmi": fake_amdsmi}):
-            import openjarvis.telemetry.energy_amd as mod
+            import friday_ai.telemetry.energy_amd as mod
 
             orig = mod._AMDSMI_AVAILABLE
             mod._AMDSMI_AVAILABLE = True
@@ -147,7 +147,7 @@ class TestSampleCounterDelta:
 class TestSampleNoDevices:
     def test_no_devices_empty_result(self):
         """When no AMD GPUs present, sample yields empty result."""
-        from openjarvis.telemetry.energy_amd import AmdEnergyMonitor
+        from friday_ai.telemetry.energy_amd import AmdEnergyMonitor
 
         monitor = AmdEnergyMonitor.__new__(AmdEnergyMonitor)
         monitor._poll_interval_ms = 50
@@ -172,7 +172,7 @@ class TestClose:
         fake_amdsmi = _make_fake_amdsmi(device_count=1)
 
         with patch.dict(sys.modules, {"amdsmi": fake_amdsmi}):
-            import openjarvis.telemetry.energy_amd as mod
+            import friday_ai.telemetry.energy_amd as mod
 
             orig = mod._AMDSMI_AVAILABLE
             mod._AMDSMI_AVAILABLE = True

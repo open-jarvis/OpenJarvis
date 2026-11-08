@@ -19,14 +19,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
 
-from openjarvis.agents.channel_agent import ChannelAgent
-from openjarvis.agents.deep_research import DeepResearchAgent
-from openjarvis.channels._stubs import BaseChannel, ChannelMessage, ChannelStatus
-from openjarvis.connectors._stubs import Document
-from openjarvis.connectors.pipeline import IngestionPipeline
-from openjarvis.connectors.retriever import TwoStageRetriever
-from openjarvis.connectors.store import KnowledgeStore
-from openjarvis.tools.knowledge_search import KnowledgeSearchTool
+from friday_ai.agents.channel_agent import ChannelAgent
+from friday_ai.agents.deep_research import DeepResearchAgent
+from friday_ai.channels._stubs import BaseChannel, ChannelMessage, ChannelStatus
+from friday_ai.connectors._stubs import Document
+from friday_ai.connectors.pipeline import IngestionPipeline
+from friday_ai.connectors.retriever import TwoStageRetriever
+from friday_ai.connectors.store import KnowledgeStore
+from friday_ai.tools.knowledge_search import KnowledgeSearchTool
 
 # ---------------------------------------------------------------------------
 # FakeChannel helper
@@ -160,7 +160,7 @@ def _build_store_and_tool(
 
 def test_quick_query_inline_response(tmp_path: Path) -> None:
     """Quick query 'When is my next meeting?' receives an inline response
-    containing calendar info and NO openjarvis:// link.
+    containing calendar info and NO friday_ai:// link.
     """
     # 1. Build populated store and search tool
     _store, ks_tool = _build_store_and_tool(tmp_path)
@@ -194,7 +194,7 @@ def test_quick_query_inline_response(tmp_path: Path) -> None:
     sent_content: str = channel._sent[0]["content"]
 
     # Response sent inline (no escalation link)
-    assert "openjarvis://" not in sent_content, (
+    assert "friday_ai://" not in sent_content, (
         f"Quick query must NOT produce an escalation link, but got:\n{sent_content}"
     )
 
@@ -279,6 +279,6 @@ def test_deep_query_escalation_link(tmp_path: Path) -> None:
     sent_content: str = channel._sent[0]["content"]
 
     # Response contains the escalation link
-    assert "openjarvis://" in sent_content, (
+    assert "friday_ai://" in sent_content, (
         f"Deep query must produce an escalation link, but got:\n{sent_content}"
     )

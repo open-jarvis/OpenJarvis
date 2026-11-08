@@ -6,13 +6,13 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
-      - "src/openjarvis/**"
+      - "src/friday_ai/**"
   pull_request:
     branches: [main]
     paths:
       - "docs/**"
       - "mkdocs.yml"
-      - "src/openjarvis/**"
+      - "src/friday_ai/**"
   workflow_dispatch:
 
 permissions:
@@ -47,15 +47,15 @@ jobs:
       # and JSON-encoded into a JS string literal to avoid any injection.
       - name: Inject leaderboard Supabase anon key
         env:
-          OPENJARVIS_LEADERBOARD_ANON: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          FRIDAY_AI_LEADERBOARD_ANON: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib
 
-          key = os.environ.get("OPENJARVIS_LEADERBOARD_ANON", "")
+          key = os.environ.get("FRIDAY_AI_LEADERBOARD_ANON", "")
           pathlib.Path("docs/javascripts/leaderboard-config.js").write_text(
               "// Generated at docs-build time from the VITE_SUPABASE_ANON_KEY secret.\n"
-              "window.OPENJARVIS_SUPABASE_ANON_KEY = " + json.dumps(key) + ";\n",
+              "window.FRIDAY_AI_SUPABASE_ANON_KEY = " + json.dumps(key) + ";\n",
               encoding="utf-8",
           )
           print("leaderboard anon key:", "set" if key else "empty (leaderboard disabled)")

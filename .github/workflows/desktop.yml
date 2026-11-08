@@ -79,8 +79,8 @@ jobs:
           PYO3_CROSS_PYTHON_IMPLEMENTATION: CPython
         run: |
           uv sync --locked --extra dev --extra desktop --extra inference-cloud --extra inference-google --group desktop-native
-          uv run python -c "import sysconfig, openjarvis_rust; assert sysconfig.get_platform() == 'win-amd64'; print('x64 backend and Rust extension import OK')"
-          uv run jarvis --version
+          uv run python -c "import sysconfig, friday_ai_rust; assert sysconfig.get_platform() == 'win-amd64'; print('x64 backend and Rust extension import OK')"
+          uv run friday --version
           uv run pytest tests/hardware/test_hardware_profiles.py tests/core/test_utils.py -q
 
       - name: Download ARM64 Ollama and stage test bundle
@@ -106,7 +106,7 @@ jobs:
         shell: bash
         run: |
           node frontend/src-tauri/scripts/verify-arm64-pe.mjs \
-            frontend/src-tauri/target/aarch64-pc-windows-msvc/release/openjarvis-desktop.exe \
+            frontend/src-tauri/target/aarch64-pc-windows-msvc/release/friday_ai-desktop.exe \
             frontend/src-tauri/binaries/ollama-aarch64-pc-windows-msvc.exe \
             frontend/src-tauri/binaries/ollama-runtime-aarch64-pc-windows-msvc/lib/ollama/llama-server.exe
           frontend/src-tauri/binaries/ollama-aarch64-pc-windows-msvc.exe --version
@@ -592,7 +592,7 @@ jobs:
         shell: bash
         run: |
           node frontend/src-tauri/scripts/verify-arm64-pe.mjs \
-            frontend/src-tauri/target/aarch64-pc-windows-msvc/release/openjarvis-desktop.exe \
+            frontend/src-tauri/target/aarch64-pc-windows-msvc/release/friday_ai-desktop.exe \
             frontend/src-tauri/binaries/ollama-aarch64-pc-windows-msvc.exe \
             frontend/src-tauri/binaries/ollama-runtime-aarch64-pc-windows-msvc/lib/ollama/llama-server.exe
 

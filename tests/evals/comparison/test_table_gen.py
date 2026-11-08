@@ -1,4 +1,4 @@
-"""Tests for openjarvis.evals.comparison.table_gen."""
+"""Tests for friday_ai.evals.comparison.table_gen."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 
 pl = pytest.importorskip("polars")
 
-from openjarvis.evals.comparison.table_gen import (  # noqa: E402
+from friday_ai.evals.comparison.table_gen import (  # noqa: E402
     MixedCommitError,
     ResultsFrame,
     load_results,
@@ -91,11 +91,11 @@ class TestLoadResults:
 
 class TestRenderBooktabs:
     def test_emits_valid_tabular(self) -> None:
-        from openjarvis.evals.comparison.table_gen import _render_booktabs
+        from friday_ai.evals.comparison.table_gen import _render_booktabs
 
         df = pl.DataFrame(
             {
-                "row": ["hermes", "openjarvis"],
+                "row": ["hermes", "friday_ai"],
                 "col1": [0.42, 0.55],
                 "col2": [0.30, 0.40],
             }
@@ -108,17 +108,17 @@ class TestRenderBooktabs:
         )
         assert "\\begin{tabular}" in fragment
         assert "\\end{tabular}" in fragment
-        assert "hermes" in fragment and "openjarvis" in fragment
+        assert "hermes" in fragment and "friday_ai" in fragment
         assert "0.42" in fragment
         assert "\\documentclass{standalone}" in standalone
         assert fragment in standalone
 
     def test_missing_cell_renders_em_dash(self) -> None:
-        from openjarvis.evals.comparison.table_gen import _render_booktabs
+        from friday_ai.evals.comparison.table_gen import _render_booktabs
 
         df = pl.DataFrame(
             {
-                "row": ["hermes", "openjarvis"],
+                "row": ["hermes", "friday_ai"],
                 "col1": [None, 0.55],
             },
             schema={"row": pl.Utf8, "col1": pl.Float64},
@@ -134,7 +134,7 @@ class TestRenderBooktabs:
 
 class TestT1Builder:
     def test_t1_builds_from_synthetic_results(self) -> None:
-        from openjarvis.evals.comparison.table_gen import (
+        from friday_ai.evals.comparison.table_gen import (
             ResultsFrame,
             _build_t1,
         )
@@ -143,9 +143,9 @@ class TestT1Builder:
             {
                 "framework": [
                     "hermes",
-                    "openjarvis",
+                    "friday_ai",
                     "openclaw",
-                    "openjarvis-distilled",
+                    "friday_ai-distilled",
                 ],
                 "framework_commit": ["a", "b", "c", "b"],
                 "model": ["qwen-9b"] * 4,
@@ -161,12 +161,12 @@ class TestT1Builder:
         fragment, standalone = _build_t1(frame)
         assert "\\begin{tabular}" in fragment
         assert "0.22" in fragment or "22.00" in fragment
-        assert "openjarvis-distilled" in fragment.lower() or "OJ-distilled" in fragment
+        assert "friday_ai-distilled" in fragment.lower() or "OJ-distilled" in fragment
 
 
 class TestT2Builder:
     def test_t2_emits_efficiency_table(self) -> None:
-        from openjarvis.evals.comparison.table_gen import (
+        from friday_ai.evals.comparison.table_gen import (
             ResultsFrame,
             _build_t2,
         )
@@ -174,9 +174,9 @@ class TestT2Builder:
         rows = []
         for fwk, model in [
             ("hermes", "qwen-9b"),
-            ("openjarvis", "qwen-9b"),
+            ("friday_ai", "qwen-9b"),
             ("hermes", "claude-opus-46"),
-            ("openjarvis", "claude-opus-46"),
+            ("friday_ai", "claude-opus-46"),
         ]:
             for metric, mean in [
                 ("latency_seconds", 5.0),
@@ -213,11 +213,11 @@ class TestT3to7Builders:
         ["_build_t3", "_build_t4", "_build_t5", "_build_t6", "_build_t7"],
     )
     def test_builder_emits_tabular(self, builder_name: str) -> None:
-        import openjarvis.evals.comparison.table_gen as m
+        import friday_ai.evals.comparison.table_gen as m
 
         builder = getattr(m, builder_name)
         rows = []
-        for fwk in ["hermes", "openjarvis"]:
+        for fwk in ["hermes", "friday_ai"]:
             for bench in ["gaia", "pinchbench"]:
                 for metric in [
                     "accuracy",
@@ -248,7 +248,7 @@ class TestT3to7Builders:
 
 class TestTableBuilderRegistry:
     def test_registry_has_all_seven(self) -> None:
-        from openjarvis.evals.comparison.table_gen import _TABLE_BUILDERS
+        from friday_ai.evals.comparison.table_gen import _TABLE_BUILDERS
 
         assert set(_TABLE_BUILDERS.keys()) == {
             "T1",
@@ -265,7 +265,7 @@ class TestTableGenCLI:
     def test_cli_writes_fragment_and_preview(self, tmp_path: Path) -> None:
         from click.testing import CliRunner
 
-        from openjarvis.evals.comparison.table_gen import main
+        from friday_ai.evals.comparison.table_gen import main
 
         results_dir = tmp_path / "results"
         results_dir.mkdir()

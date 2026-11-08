@@ -1,4 +1,4 @@
-"""Tests for openjarvis.evals.comparison.third_party."""
+"""Tests for friday_ai.evals.comparison.third_party."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.evals.comparison.third_party import (
+from friday_ai.evals.comparison.third_party import (
     ThirdPartyConfig,
     ThirdPartyEntry,
     ThirdPartyNotFoundError,
@@ -72,7 +72,7 @@ class TestLoadThirdPartyConfig:
 class TestVerifyCommitPin:
     def test_matching_commit_passes(self, tmp_path: Path) -> None:
         """No exception when HEAD matches pinned commit."""
-        from openjarvis.evals.comparison.third_party import verify_commit_pin
+        from friday_ai.evals.comparison.third_party import verify_commit_pin
 
         entry = ThirdPartyEntry(
             name="hermes",
@@ -86,7 +86,7 @@ class TestVerifyCommitPin:
             verify_commit_pin(entry)  # should not raise
 
     def test_mismatched_commit_raises(self, tmp_path: Path) -> None:
-        from openjarvis.evals.comparison.third_party import (
+        from friday_ai.evals.comparison.third_party import (
             CommitDriftError,
             verify_commit_pin,
         )
@@ -106,7 +106,7 @@ class TestVerifyCommitPin:
     def test_drift_override_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from openjarvis.evals.comparison.third_party import verify_commit_pin
+        from friday_ai.evals.comparison.third_party import verify_commit_pin
 
         entry = ThirdPartyEntry(
             name="hermes",
@@ -114,7 +114,7 @@ class TestVerifyCommitPin:
             pinned_commit="abc123",
             runner_script="x",
         )
-        monkeypatch.setenv("JARVIS_ALLOW_COMMIT_DRIFT", "1")
+        monkeypatch.setenv("FRIDAY_ALLOW_COMMIT_DRIFT", "1")
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.stdout = "deadbeef\n"
             mock_run.return_value.returncode = 0
@@ -124,7 +124,7 @@ class TestVerifyCommitPin:
 
 class TestVerifyCommitPinPathHandling:
     def test_empty_path_raises_with_env_var_hint(self) -> None:
-        from openjarvis.evals.comparison.third_party import (
+        from friday_ai.evals.comparison.third_party import (
             ThirdPartyNotFoundError,
             verify_commit_pin,
         )

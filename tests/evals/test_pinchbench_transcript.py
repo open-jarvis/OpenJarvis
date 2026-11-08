@@ -1,7 +1,7 @@
 """Tests for TurnTrace tool_calls field and PinchBench transcript translation."""
 
-from openjarvis.evals.core.event_recorder import AgentEvent, EventType
-from openjarvis.evals.core.trace import TurnTrace
+from friday_ai.evals.core.event_recorder import AgentEvent, EventType
+from friday_ai.evals.core.trace import TurnTrace
 
 
 def test_turn_trace_tool_calls_default_empty():
@@ -40,7 +40,7 @@ def _make_event(etype, **metadata):
 
 def test_events_to_transcript_tool_call_pair():
     """TOOL_CALL_START + END produces assistant toolCall + toolResult messages."""
-    from openjarvis.evals.scorers.pinchbench import events_to_transcript
+    from friday_ai.evals.scorers.pinchbench import events_to_transcript
 
     events = [
         _make_event(
@@ -60,8 +60,8 @@ def test_events_to_transcript_tool_call_pair():
 
 
 def test_events_to_transcript_tool_name_mapping():
-    """OpenJarvis tool names are mapped to PinchBench-expected names."""
-    from openjarvis.evals.scorers.pinchbench import events_to_transcript
+    """FridayAI tool names are mapped to PinchBench-expected names."""
+    from friday_ai.evals.scorers.pinchbench import events_to_transcript
 
     events = [
         _make_event(
@@ -77,14 +77,14 @@ def test_events_to_transcript_tool_name_mapping():
 
 def test_events_to_transcript_empty():
     """Empty events produce empty transcript."""
-    from openjarvis.evals.scorers.pinchbench import events_to_transcript
+    from friday_ai.evals.scorers.pinchbench import events_to_transcript
 
     assert events_to_transcript([]) == []
 
 
 def test_events_to_transcript_ignores_non_tool_events():
     """Non-tool events are skipped."""
-    from openjarvis.evals.scorers.pinchbench import events_to_transcript
+    from friday_ai.evals.scorers.pinchbench import events_to_transcript
 
     events = [
         _make_event(EventType.LM_INFERENCE_START),

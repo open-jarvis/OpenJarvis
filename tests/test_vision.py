@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import openjarvis.engine.ollama as ollama_mod
-from openjarvis.core.types import Message, Role
-from openjarvis.engine._base import messages_to_dicts
+import friday_ai.engine.ollama as ollama_mod
+from friday_ai.core.types import Message, Role
+from friday_ai.engine._base import messages_to_dicts
 
 
 def test_message_defaults_to_no_images() -> None:
@@ -41,20 +41,20 @@ def test_messages_to_dicts_empty_images_treated_as_text() -> None:
 
 
 def test_default_num_ctx_default_and_override(monkeypatch) -> None:
-    monkeypatch.delenv("JARVIS_NUM_CTX", raising=False)
+    monkeypatch.delenv("FRIDAY_NUM_CTX", raising=False)
     assert ollama_mod._default_num_ctx() == 16384
 
-    monkeypatch.setenv("JARVIS_NUM_CTX", "8000")
+    monkeypatch.setenv("FRIDAY_NUM_CTX", "8000")
     assert ollama_mod._default_num_ctx() == 8000
 
     # A non-integer override must fall back to the safe default, not crash.
-    monkeypatch.setenv("JARVIS_NUM_CTX", "not-an-int")
+    monkeypatch.setenv("FRIDAY_NUM_CTX", "not-an-int")
     assert ollama_mod._default_num_ctx() == 16384
 
 
 def test_guardrails_preserves_images_when_sanitizing() -> None:
     """A flagged message gets rewritten; its image must survive the rewrite."""
-    from openjarvis.security.guardrails import GuardrailsEngine
+    from friday_ai.security.guardrails import GuardrailsEngine
 
     class _RecordingEngine:
         """Captures the messages the guardrail forwards to the real engine."""

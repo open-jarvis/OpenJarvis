@@ -7,12 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.agents._stubs import AgentContext
-from openjarvis.agents.native_react import NativeReActAgent
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.registry import AgentRegistry
-from openjarvis.core.types import Conversation, Message, Role, ToolResult
-from openjarvis.tools._stubs import BaseTool, ToolSpec
+from friday_ai.agents._stubs import AgentContext
+from friday_ai.agents.native_react import NativeReActAgent
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.registry import AgentRegistry
+from friday_ai.core.types import Conversation, Message, Role, ToolResult
+from friday_ai.tools._stubs import BaseTool, ToolSpec
 
 # ---------------------------------------------------------------------------
 # Helpers

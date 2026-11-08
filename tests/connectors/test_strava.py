@@ -8,11 +8,11 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.core.registry import ConnectorRegistry
 
 
 def test_strava_registered():
-    from openjarvis.connectors.strava import StravaConnector
+    from friday_ai.connectors.strava import StravaConnector
 
     ConnectorRegistry.register_value("strava", StravaConnector)
     assert ConnectorRegistry.contains("strava")
@@ -51,7 +51,7 @@ _ACTIVITIES_RESPONSE = [
 
 @pytest.fixture()
 def connector(tmp_path):
-    from openjarvis.connectors.strava import StravaConnector
+    from friday_ai.connectors.strava import StravaConnector
 
     token_path = tmp_path / "strava.json"
     token_path.write_text(
@@ -63,7 +63,7 @@ def connector(tmp_path):
 
 def test_sync_yields_activities(connector):
     with patch(
-        "openjarvis.connectors.strava._strava_api_get",
+        "friday_ai.connectors.strava._strava_api_get",
         return_value=_ACTIVITIES_RESPONSE,
     ):
         docs = list(connector.sync(since=datetime(2026, 4, 1)))
@@ -88,7 +88,7 @@ def test_client_registration_file_is_not_connected(
     tmp_path: Path,
     contents: str,
 ) -> None:
-    from openjarvis.connectors.strava import StravaConnector
+    from friday_ai.connectors.strava import StravaConnector
 
     token_path = tmp_path / "strava.json"
     token_path.write_text(contents, encoding="utf-8")

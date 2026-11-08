@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from openjarvis.core.registry import ModelRegistry
-from openjarvis.core.types import ModelSpec
-from openjarvis.intelligence.model_catalog import (
+from friday_ai.core.registry import ModelRegistry
+from friday_ai.core.types import ModelSpec
+from friday_ai.intelligence.model_catalog import (
     BUILTIN_MODELS,
     merge_discovered_models,
     register_builtin_models,

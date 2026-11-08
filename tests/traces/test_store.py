@@ -5,9 +5,9 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import StepType, Trace, TraceStep
-from openjarvis.traces.store import TraceStore
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.types import StepType, Trace, TraceStep
+from friday_ai.traces.store import TraceStore
 
 
 def _make_trace(
@@ -66,10 +66,10 @@ class TestTraceStore:
         monkeypatch.setenv("HOME", str(home))
         monkeypatch.chdir(cwd)
 
-        store = TraceStore("~/.openjarvis/traces.db")
+        store = TraceStore("~/.friday_ai/traces.db")
         store.close()
 
-        assert (home / ".openjarvis" / "traces.db").exists()
+        assert (home / ".friday_ai" / "traces.db").exists()
         assert not (cwd / "~").exists()
 
     def test_save_and_get(self, tmp_path: Path) -> None:

@@ -3,7 +3,7 @@
 The task scheduler lets you run agent queries automatically on a schedule -- once at a future time, on a recurring interval, or via a cron expression. Scheduled tasks are persisted in SQLite so they survive process restarts, and execution is handled by a background daemon thread that polls for due tasks every 60 seconds.
 
 !!! note "Optional component"
-    The scheduler is a standalone module (`openjarvis.scheduler`). It is not wired into the default `Jarvis` / `JarvisSystem` startup. You enable it explicitly via `SystemBuilder` or by starting the CLI daemon with `jarvis scheduler start`.
+    The scheduler is a standalone module (`friday_ai.scheduler`). It is not wired into the default `Friday` / `FridaySystem` startup. You enable it explicitly via `SystemBuilder` or by starting the CLI daemon with `friday scheduler start`.
 
 ---
 
@@ -22,12 +22,12 @@ The task scheduler lets you run agent queries automatically on a schedule -- onc
 
 ## CLI Commands
 
-The `jarvis scheduler` subcommand group manages tasks and the daemon from the terminal.
+The `friday scheduler` subcommand group manages tasks and the daemon from the terminal.
 
 ### Start the daemon
 
 ```bash
-jarvis scheduler start
+friday scheduler start
 ```
 
 Starts the background polling daemon. The daemon runs in the foreground until interrupted (++ctrl+c++). In production, run it under systemd or launchd (see [Deployment](../deployment/systemd.md)).
@@ -36,13 +36,13 @@ Starts the background polling daemon. The daemon runs in the foreground until in
 
 ```bash
 # Run once at a specific time
-jarvis scheduler create \
+friday scheduler create \
   --prompt "Generate the weekly summary report" \
   --type once \
   --value "2026-03-01T09:00:00Z"
 
 # Run every hour
-jarvis scheduler create \
+friday scheduler create \
   --prompt "Check for new emails and summarize" \
   --type interval \
   --value "3600" \
@@ -50,7 +50,7 @@ jarvis scheduler create \
   --tools retrieval,think
 
 # Run on a cron schedule
-jarvis scheduler create \
+friday scheduler create \
   --prompt "Summarize overnight logs" \
   --type cron \
   --value "0 8 * * 1-5"
@@ -60,13 +60,13 @@ jarvis scheduler create \
 
 ```bash
 # All tasks
-jarvis scheduler list
+friday scheduler list
 
 # Active tasks only
-jarvis scheduler list --status active
+friday scheduler list --status active
 
 # Paused tasks
-jarvis scheduler list --status paused
+friday scheduler list --status paused
 ```
 
 Example output:
@@ -81,24 +81,24 @@ b7c2e56f1a3d    orchestr  interval   3600           active   2026-02-25T14:05:00
 
 ```bash
 # Pause a running task
-jarvis scheduler pause a3f9b12c4d8e
+friday scheduler pause a3f9b12c4d8e
 
 # Resume -- next_run is recomputed from the current time
-jarvis scheduler resume a3f9b12c4d8e
+friday scheduler resume a3f9b12c4d8e
 ```
 
 ### Cancel a task
 
 ```bash
 # Permanently cancel (status -> "cancelled", next_run cleared)
-jarvis scheduler cancel a3f9b12c4d8e
+friday scheduler cancel a3f9b12c4d8e
 ```
 
 ### View run logs
 
 ```bash
 # Last 10 executions for a task
-jarvis scheduler logs a3f9b12c4d8e
+friday scheduler logs a3f9b12c4d8e
 ```
 
 Example output:
@@ -115,19 +115,19 @@ Run 2: started=2026-02-24T08:00:00Z finished=2026-02-24T08:00:05Z success=True
 ## Python API
 
 ```python title="scheduler_example.py"
-from openjarvis.scheduler.store import SchedulerStore
-from openjarvis.scheduler.scheduler import TaskScheduler
+from friday_ai.scheduler.store import SchedulerStore
+from friday_ai.scheduler.scheduler import TaskScheduler
 
 # Set up storage
-store = SchedulerStore(db_path="~/.openjarvis/scheduler.db")  # (1)!
+store = SchedulerStore(db_path="~/.friday_ai/scheduler.db")  # (1)!
 
-# Wire in a JarvisSystem for task execution
-from openjarvis import Jarvis
-jarvis = Jarvis()
+# Wire in a FridaySystem for task execution
+from friday_ai import Friday
+friday = Friday()
 
 scheduler = TaskScheduler(
     store=store,
-    system=jarvis,         # (2)!
+    system=friday,         # (2)!
     poll_interval=60,      # (3)!
 )
 
@@ -155,13 +155,13 @@ scheduler.start()   # (4)!
 # ... application runs ...
 
 scheduler.stop()
-jarvis.close()
+friday.close()
 ```
 
 1. SQLite database storing all task state and run logs.
 2. The scheduler calls `system.ask(task.prompt, agent=task.agent, tools=...)` when a task is due. Pass `system=None` for a dry-run mode that logs what it would execute without calling the agent.
 3. Seconds between polling cycles. Lower values increase responsiveness at the cost of more SQLite reads.
-4. Starts a daemon thread named `"jarvis-scheduler"`. Daemon threads exit automatically when the main process exits.
+4. Starts a daemon thread named `"friday-scheduler"`. Daemon threads exit automatically when the main process exits.
 
 ---
 
@@ -191,15 +191,15 @@ The five scheduler MCP tools (`schedule_task`, `list_scheduled_tasks`, `pause_sc
 
 ```bash
 # Let the orchestrator schedule its own follow-up
-jarvis ask --agent orchestrator \
+friday ask --agent orchestrator \
   --tools schedule_task,list_scheduled_tasks \
   "Research transformer architectures and schedule a daily summary at 8am"
 ```
 
 ```python
-from openjarvis import Jarvis
+from friday_ai import Friday
 
-j = Jarvis()
+j = Friday()
 response = j.ask(
     "Schedule a weekly digest of research papers every Monday at 9am",
     agent="orchestrator",
@@ -214,12 +214,12 @@ See [Scheduler Tools](tools.md#scheduler-tools) for full parameter reference.
 
 ## Configuration
 
-Scheduler settings live in the `[scheduler]` section of `~/.openjarvis/config.toml`.
+Scheduler settings live in the `[scheduler]` section of `~/.friday_ai/config.toml`.
 
-```toml title="~/.openjarvis/config.toml"
+```toml title="~/.friday_ai/config.toml"
 [scheduler]
 enabled = false
-db_path = "~/.openjarvis/scheduler.db"
+db_path = "~/.friday_ai/scheduler.db"
 poll_interval = 60
 default_agent = "simple"
 ```
@@ -227,7 +227,7 @@ default_agent = "simple"
 | Key              | Type   | Default                          | Description                                |
 |------------------|--------|----------------------------------|--------------------------------------------|
 | `enabled`        | `bool` | `false`                          | Start the scheduler daemon automatically   |
-| `db_path`        | `str`  | `~/.openjarvis/scheduler.db`     | SQLite database path                       |
+| `db_path`        | `str`  | `~/.friday_ai/scheduler.db`     | SQLite database path                       |
 | `poll_interval`  | `int`  | `60`                             | Seconds between polling cycles             |
 | `default_agent`  | `str`  | `"simple"`                       | Default agent for tasks that omit `agent`  |
 

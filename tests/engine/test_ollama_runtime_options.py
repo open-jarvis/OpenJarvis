@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openjarvis.engine.ollama import _ollama_request_options
+from friday_ai.engine.ollama import _ollama_request_options
 
 
 def test_with_explicit_runtime_kwargs() -> None:
@@ -16,7 +16,7 @@ def test_with_explicit_runtime_kwargs() -> None:
 
 
 def test_default_num_ctx_when_omitted(monkeypatch) -> None:  # noqa: ANN001
-    monkeypatch.setenv("JARVIS_NUM_CTX", "24576")
+    monkeypatch.setenv("FRIDAY_NUM_CTX", "24576")
     opts = _ollama_request_options(
         temperature=0.7,
         max_tokens=1024,

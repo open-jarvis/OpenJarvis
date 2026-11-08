@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from openjarvis.security.rate_limiter import (
+from friday_ai.security.rate_limiter import (
     RateLimitConfig,
     RateLimiter,
     TokenBucket,

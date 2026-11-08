@@ -1,6 +1,6 @@
 """Tests for the security_scanner dataset."""
 
-from openjarvis.evals.datasets.security_scanner import SecurityScannerDataset
+from friday_ai.evals.datasets.security_scanner import SecurityScannerDataset
 
 
 def test_dataset_loads():

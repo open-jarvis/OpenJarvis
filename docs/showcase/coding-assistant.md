@@ -6,20 +6,20 @@ description: Review a pull request on a transatlantic flight, no internet requir
 # 🛠️ Offline Code Reviewer — code review on an airplane
 
 <figure markdown>
-  ![Jarvis reviewing a diff with no internet connection](../assets/showcase/coding-assistant.png){ .showcase-screenshot loading=lazy }
-  <figcaption>Airplane mode in the menu bar. Jarvis reading a `git diff`, the surrounding files, and producing a code review at gate-level Wi-Fi (i.e., none).</figcaption>
+  ![Friday reviewing a diff with no internet connection](../assets/showcase/coding-assistant.png){ .showcase-screenshot loading=lazy }
+  <figcaption>Airplane mode in the menu bar. Friday reading a `git diff`, the surrounding files, and producing a code review at gate-level Wi-Fi (i.e., none).</figcaption>
 </figure>
 
-Earlier this month I was on a flight from SFO to FRA — eleven hours, no usable Wi-Fi. I had a teammate's pull request open in VS Code. I asked Jarvis to review it. It read the diff, read the three files the diff touched, read the project's `CLAUDE.md` for conventions, and produced a review with five comments — two of which caught real bugs.
+Earlier this month I was on a flight from SFO to FRA — eleven hours, no usable Wi-Fi. I had a teammate's pull request open in VS Code. I asked Friday to review it. It read the diff, read the three files the diff touched, read the project's `CLAUDE.md` for conventions, and produced a review with five comments — two of which caught real bugs.
 
 The review took about 40 seconds on the laptop's built-in GPU. No API call. No "you're offline" error. By the time we landed I'd dropped the comments into GitHub and the PR was merging.
 
 The same setup handles:
 
 - **Code review** — diff + context files + conventions, structured comments.
-- **Debugging** — paste a traceback, Jarvis reads the stack, opens the relevant files, suggests fixes.
+- **Debugging** — paste a traceback, Friday reads the stack, opens the relevant files, suggests fixes.
 - **Test generation** — point at a function, get back a `pytest` file with edge cases.
-- **Documentation** — generate docstrings that actually match the code, because Jarvis has the file open.
+- **Documentation** — generate docstrings that actually match the code, because Friday has the file open.
 
 ## Why it's nice
 

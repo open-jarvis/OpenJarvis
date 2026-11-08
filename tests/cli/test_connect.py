@@ -1,4 +1,4 @@
-"""Tests for ``jarvis connect`` CLI command."""
+"""Tests for ``friday connect`` CLI command."""
 
 from __future__ import annotations
 
@@ -6,20 +6,20 @@ from unittest import mock
 
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
+from friday_ai.cli import cli
 
 
 def test_connect_list_no_connectors() -> None:
     """--list with an empty registry shows a 'no connectors' message."""
     runner = CliRunner()
     with mock.patch(
-        "openjarvis.cli.connect_cmd.connect.__wrapped__"
+        "friday_ai.cli.connect_cmd.connect.__wrapped__"
         if hasattr(cli, "__wrapped__")
-        else "openjarvis.core.registry.ConnectorRegistry.items",
+        else "friday_ai.core.registry.ConnectorRegistry.items",
         return_value=(),
     ):
         with mock.patch(
-            "openjarvis.core.registry.ConnectorRegistry.items",
+            "friday_ai.core.registry.ConnectorRegistry.items",
             return_value=(),
         ):
             result = runner.invoke(cli, ["connect", "--list"])
@@ -40,7 +40,7 @@ def test_connect_list_with_connector(tmp_path: object) -> None:
     mock_cls.return_value = mock_instance
 
     with mock.patch(
-        "openjarvis.core.registry.ConnectorRegistry.items",
+        "friday_ai.core.registry.ConnectorRegistry.items",
         return_value=(("obsidian", mock_cls),),
     ):
         result = runner.invoke(cli, ["connect", "--list"])
@@ -70,11 +70,11 @@ def test_connect_specific_source(tmp_path: object) -> None:
 
     with (
         mock.patch(
-            "openjarvis.core.registry.ConnectorRegistry.contains",
+            "friday_ai.core.registry.ConnectorRegistry.contains",
             return_value=True,
         ),
         mock.patch(
-            "openjarvis.core.registry.ConnectorRegistry.get",
+            "friday_ai.core.registry.ConnectorRegistry.get",
             return_value=mock_cls,
         ),
     ):
@@ -96,11 +96,11 @@ def test_connect_disconnect() -> None:
 
     with (
         mock.patch(
-            "openjarvis.core.registry.ConnectorRegistry.contains",
+            "friday_ai.core.registry.ConnectorRegistry.contains",
             return_value=True,
         ),
         mock.patch(
-            "openjarvis.core.registry.ConnectorRegistry.get",
+            "friday_ai.core.registry.ConnectorRegistry.get",
             return_value=mock_cls,
         ),
     ):

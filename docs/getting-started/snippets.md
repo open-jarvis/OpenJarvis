@@ -1,18 +1,18 @@
 ---
 title: Code Snippets
-description: Copy-paste patterns for common OpenJarvis tasks
+description: Copy-paste patterns for common FridayAI tasks
 ---
 
 # Code Snippets
 
-Ready-to-use patterns for the most common OpenJarvis tasks. Each snippet is self-contained and copy-pasteable.
+Ready-to-use patterns for the most common FridayAI tasks. Each snippet is self-contained and copy-pasteable.
 
 ## Ask a Question (3 lines)
 
 ```python
-from openjarvis import Jarvis
+from friday_ai import Friday
 
-with Jarvis() as j:
+with Friday() as j:
     print(j.ask("What is the capital of France?"))
 ```
 
@@ -20,10 +20,10 @@ with Jarvis() as j:
 
 ```python
 import asyncio
-from openjarvis import Jarvis
+from friday_ai import Friday
 
 async def main():
-    with Jarvis() as j:
+    with Friday() as j:
         async for token in j.ask_stream("Tell me a story"):
             print(token, end="", flush=True)
 
@@ -33,9 +33,9 @@ asyncio.run(main())
 ## Agent with Tools (5 lines)
 
 ```python
-from openjarvis import Jarvis
+from friday_ai import Friday
 
-with Jarvis() as j:
+with Friday() as j:
     result = j.ask_full(
         "Search the web for the latest Python release",
         agent="orchestrator",
@@ -47,9 +47,9 @@ with Jarvis() as j:
 ## Memory: Index + Search (6 lines)
 
 ```python
-from openjarvis import Jarvis
+from friday_ai import Friday
 
-with Jarvis() as j:
+with Friday() as j:
     j.memory.index("./docs/", chunk_size=512)
     results = j.memory.search("deployment options")
     for r in results:
@@ -68,12 +68,12 @@ tools = ["web_search", "think", "file_read"]
 prompt = "Research the given topic and write a summary."
 ```
 
-Run with: `jarvis compose run research_assistant "quantum computing advances"`
+Run with: `friday compose run research_assistant "quantum computing advances"`
 
 ## API Server (1 command)
 
 ```bash
-jarvis serve --port 8000 --engine ollama --model qwen3:8b
+friday serve --port 8000 --engine ollama --model qwen3:8b
 ```
 
 Any OpenAI-compatible client works against this endpoint.
@@ -81,16 +81,16 @@ Any OpenAI-compatible client works against this endpoint.
 ## Docker Deployment (2 commands)
 
 ```bash
-docker build -t openjarvis .
-docker run -p 8000:8000 openjarvis serve --host 0.0.0.0
+docker build -t friday_ai .
+docker run -p 8000:8000 friday_ai serve --host 0.0.0.0
 ```
 
 ## Custom Tool (10 lines)
 
 ```python
-from openjarvis.core.registry import ToolRegistry
-from openjarvis.core.types import ToolResult
-from openjarvis.tools._stubs import BaseTool, ToolSpec
+from friday_ai.core.registry import ToolRegistry
+from friday_ai.core.types import ToolResult
+from friday_ai.tools._stubs import BaseTool, ToolSpec
 
 @ToolRegistry.register("my_tool")
 class MyTool(BaseTool):
@@ -108,9 +108,9 @@ class MyTool(BaseTool):
 ## Multi-Model Routing (5 lines)
 
 ```python
-from openjarvis import Jarvis
+from friday_ai import Friday
 
-j = Jarvis()
+j = Friday()
 # Router automatically selects the best model per query
 simple = j.ask("What is 2+2?")            # routes to fast/cheap model
 complex = j.ask("Analyze this research paper...")  # routes to capable model
@@ -120,9 +120,9 @@ j.close()
 ## Human-in-the-Loop Confirmation (6 lines)
 
 ```python
-from openjarvis import Jarvis
+from friday_ai import Friday
 
-with Jarvis() as j:
+with Friday() as j:
     result = j.ask_full(
         "Delete old log files in /tmp",
         agent="orchestrator",

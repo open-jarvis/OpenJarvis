@@ -5,7 +5,7 @@ chosen topics and produces a concise, structured summary.
 
 ## Requirements
 
-- OpenJarvis installed (`git clone https://github.com/open-jarvis/OpenJarvis.git && cd OpenJarvis && uv sync` or `uv sync --extra dev`)
+- FridayAI installed (`git clone https://github.com/open-jarvis/FridayAI.git && cd FridayAI && uv sync` or `uv sync --extra dev`)
 - An inference engine running (Ollama, cloud API, vLLM, etc.)
 
 ## Usage
@@ -19,7 +19,7 @@ python examples/daily_digest/daily_digest.py --topics "finance,crypto" \
 
 ## How It Works
 
-The script creates a `Jarvis` instance configured with the `orchestrator` agent
+The script creates a `Friday` instance configured with the `orchestrator` agent
 and two tools:
 
 - **web_search** -- searches the web for current news on each topic

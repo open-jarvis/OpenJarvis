@@ -23,9 +23,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.channels._stubs import ChannelMessage
-from openjarvis.channels.twitter_channel import TwitterChannel
-from openjarvis.tools.http_request import HttpRequestTool
+from friday_ai.channels._stubs import ChannelMessage
+from friday_ai.channels.twitter_channel import TwitterChannel
+from friday_ai.tools.http_request import HttpRequestTool
 
 # Add examples dir to path so we can import the bot module
 _EXAMPLES_DIR = os.path.join(
@@ -106,7 +106,7 @@ class TestClassifyMentionDispatch:
     def test_valid_labels_pass_through(self, llm_label, expected):
         j = MagicMock()
         j.ask.return_value = llm_label
-        assert _classify_mention("some tweet", jarvis=j) == expected
+        assert _classify_mention("some tweet", friday=j) == expected
 
     def test_defaults_to_question_if_model_returns_other(self):
         """OTHER was removed from the label set — if the model still
@@ -115,39 +115,39 @@ class TestClassifyMentionDispatch:
         deferral, never a write-path."""
         j = MagicMock()
         j.ask.return_value = "OTHER"
-        assert _classify_mention("hahaha", jarvis=j) == "QUESTION"
+        assert _classify_mention("hahaha", friday=j) == "QUESTION"
 
     def test_defaults_to_question_on_llm_exception(self):
         """Transient model failures must not stop the bot — default to
         QUESTION so the reply goes through retrieval + deferral."""
         j = MagicMock()
         j.ask.side_effect = RuntimeError("model unavailable")
-        assert _classify_mention("this is broken", jarvis=j) == "QUESTION"
+        assert _classify_mention("this is broken", friday=j) == "QUESTION"
 
     def test_defaults_to_question_on_invalid_label(self):
         j = MagicMock()
         j.ask.return_value = "MAYBE_BUG"
-        assert _classify_mention("any plans for outlook?", jarvis=j) == "QUESTION"
+        assert _classify_mention("any plans for outlook?", friday=j) == "QUESTION"
 
     def test_defaults_to_question_on_empty_response(self):
         j = MagicMock()
         j.ask.return_value = ""
-        assert _classify_mention("a tweet", jarvis=j) == "QUESTION"
+        assert _classify_mention("a tweet", friday=j) == "QUESTION"
 
     def test_spam_from_llm_is_respected(self):
-        """Mixed-signal spam ("love OpenJarvis, buy my crypto") — the
+        """Mixed-signal spam ("love FridayAI, buy my crypto") — the
         model catches the promotion and the dispatcher returns SPAM."""
         j = MagicMock()
         j.ask.return_value = "SPAM"
         result = _classify_mention(
-            "love OpenJarvis, check my project at bit.ly/x",
-            jarvis=j,
+            "love FridayAI, check my project at bit.ly/x",
+            friday=j,
         )
         assert result == "SPAM"
 
 
 # =========================================================================
-# 1c. Prompt-injection detector (unit, mocked Jarvis)
+# 1c. Prompt-injection detector (unit, mocked Friday)
 # =========================================================================
 
 
@@ -297,7 +297,7 @@ class TestPromptBuilders:
 
     def test_bug_prompt_contains_github_url(self):
         prompt = _build_bug_prompt("bob", "456", "crash on startup")
-        assert "api.github.com/repos/open-jarvis/OpenJarvis/issues" in prompt
+        assert "api.github.com/repos/open-jarvis/FridayAI/issues" in prompt
         assert "http_request" in prompt
         assert "channel_send" in prompt
         assert "bob" in prompt
@@ -306,7 +306,7 @@ class TestPromptBuilders:
 
     def test_feature_prompt_contains_github_url(self):
         prompt = _build_feature_prompt("carol", "789", "add dark mode")
-        assert "api.github.com/repos/open-jarvis/OpenJarvis/issues" in prompt
+        assert "api.github.com/repos/open-jarvis/FridayAI/issues" in prompt
         assert "enhancement" in prompt
         assert "carol" in prompt
         assert "789" in prompt
@@ -364,7 +364,7 @@ class TestMentionPolling:
                 {
                     "id": "111",
                     "author_id": "alice",
-                    "text": "@OpenJarvisAI how do I install?",
+                    "text": "@FridayAIAI how do I install?",
                     "conversation_id": "111",
                 },
             ],
@@ -398,7 +398,7 @@ class TestMentionPolling:
         msg = handler.call_args[0][0]
         assert isinstance(msg, ChannelMessage)
         assert msg.sender == "alice"
-        assert msg.content == "@OpenJarvisAI how do I install?"
+        assert msg.content == "@FridayAIAI how do I install?"
         assert msg.message_id == "111"
 
     def test_poll_tracks_since_id(self):
@@ -481,17 +481,17 @@ class TestEnvVarExpansion:
         with (
             patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_test123"}),
             patch(
-                "openjarvis._rust_bridge.get_rust_module",
+                "friday_ai._rust_bridge.get_rust_module",
                 return_value=mock_rust,
             ),
-            patch("openjarvis.tools.http_request.check_ssrf", return_value=None),
+            patch("friday_ai.tools.http_request.check_ssrf", return_value=None),
             patch(
-                "openjarvis.tools.http_request.httpx.request",
+                "friday_ai.tools.http_request.httpx.request",
                 return_value=mock_resp,
             ) as mock_req,
         ):
             result = tool.execute(
-                url="https://api.github.com/repos/open-jarvis/OpenJarvis/issues",
+                url="https://api.github.com/repos/open-jarvis/FridayAI/issues",
                 method="POST",
                 headers={
                     "Authorization": "Bearer $GITHUB_TOKEN",
@@ -523,12 +523,12 @@ class TestEnvVarExpansion:
         with (
             patch.dict(os.environ, env, clear=True),
             patch(
-                "openjarvis._rust_bridge.get_rust_module",
+                "friday_ai._rust_bridge.get_rust_module",
                 return_value=mock_rust,
             ),
-            patch("openjarvis.tools.http_request.check_ssrf", return_value=None),
+            patch("friday_ai.tools.http_request.check_ssrf", return_value=None),
             patch(
-                "openjarvis.tools.http_request.httpx.request",
+                "friday_ai.tools.http_request.httpx.request",
                 return_value=mock_resp,
             ) as mock_req,
         ):
@@ -558,12 +558,12 @@ class TestEnvVarExpansion:
 
         with (
             patch(
-                "openjarvis._rust_bridge.get_rust_module",
+                "friday_ai._rust_bridge.get_rust_module",
                 return_value=mock_rust,
             ),
-            patch("openjarvis.tools.http_request.check_ssrf", return_value=None),
+            patch("friday_ai.tools.http_request.check_ssrf", return_value=None),
             patch(
-                "openjarvis.tools.http_request.httpx.request",
+                "friday_ai.tools.http_request.httpx.request",
                 return_value=mock_resp,
             ) as mock_req,
         ):
@@ -578,15 +578,15 @@ class TestEnvVarExpansion:
 
 
 # =========================================================================
-# 5. Full reactive e2e flow (mock Jarvis + TwitterChannel)
+# 5. Full reactive e2e flow (mock Friday + TwitterChannel)
 # =========================================================================
 
 
 class TestFullE2EFlow:
     """Test the full flow: mention arrives → classify → prompt → agent → tool calls."""
 
-    def _make_mock_jarvis(self, responses=None):
-        """Create a mock Jarvis instance that returns canned responses."""
+    def _make_mock_friday(self, responses=None):
+        """Create a mock Friday instance that returns canned responses."""
         j = MagicMock()
         if responses:
             j.ask.side_effect = responses
@@ -602,7 +602,7 @@ class TestFullE2EFlow:
         picks between grounded/deferral prompts. The only tool the agent
         needs for a QUESTION is ``channel_send``.
         """
-        j = self._make_mock_jarvis(["check the docs at open-jarvis.github.io"])
+        j = self._make_mock_friday(["check the docs at open-jarvis.github.io"])
         tweet = DEMO_TWEETS[0]
         # mention_type is determined by _classify_mention in production; the
         # classifier itself is exercised in TestClassifyMentionDispatch. Flow
@@ -629,7 +629,7 @@ class TestFullE2EFlow:
 
     def test_bug_report_flow(self):
         """Bug mention → http_request (GitHub issue) + channel_send."""
-        j = self._make_mock_jarvis(["opened an issue for this"])
+        j = self._make_mock_friday(["opened an issue for this"])
         tweet = DEMO_TWEETS[1]
         mention_type = "BUG_REPORT"
         assert mention_type == "BUG_REPORT"
@@ -650,7 +650,7 @@ class TestFullE2EFlow:
 
     def test_feature_request_flow(self):
         """Feature mention → http_request (GitHub issue) + channel_send."""
-        j = self._make_mock_jarvis(
+        j = self._make_mock_friday(
             ["love this idea — opened an issue to track it"],
         )
         tweet = DEMO_TWEETS[2]
@@ -675,7 +675,7 @@ class TestFullE2EFlow:
 
     def test_praise_flow(self):
         """Praise mention → channel_send only."""
-        j = self._make_mock_jarvis(["thanks, glad you like it!"])
+        j = self._make_mock_friday(["thanks, glad you like it!"])
         tweet = DEMO_TWEETS[3]
         mention_type = "PRAISE"
         assert mention_type == "PRAISE"
@@ -687,8 +687,8 @@ class TestFullE2EFlow:
         assert call_kwargs[1]["tools"] == ["channel_send"]
 
     def test_spam_is_ignored(self):
-        """Spam mentions should be skipped — no Jarvis.ask call."""
-        j = self._make_mock_jarvis()
+        """Spam mentions should be skipped — no Friday.ask call."""
+        j = self._make_mock_friday()
         tweet = DEMO_TWEETS[4]  # noqa: F841  (retained for parity with siblings)
         mention_type = "SPAM"
         assert mention_type == "SPAM"
@@ -702,7 +702,7 @@ class TestFullE2EFlow:
         """Verify tool selection for each demo tweet type.
 
         Post LLM-classifier refactor: classification is tested in
-        TestClassifyMentionDispatch against a mocked jarvis. This test
+        TestClassifyMentionDispatch against a mocked friday. This test
         takes the type as a given (paired with the tweet) and verifies
         the routing layer picks the right tools.
         """
@@ -786,22 +786,22 @@ class TestGitHubIssueCreation:
         mock_resp.text = json.dumps(
             {
                 "number": 42,
-                "html_url": "https://github.com/open-jarvis/OpenJarvis/issues/42",
+                "html_url": "https://github.com/open-jarvis/FridayAI/issues/42",
             }
         )
         mock_resp.headers = {"content-type": "application/json"}
 
         with (
             patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_testtoken123"}),
-            patch("openjarvis._rust_bridge.get_rust_module", return_value=mock_rust),
-            patch("openjarvis.tools.http_request.check_ssrf", return_value=None),
+            patch("friday_ai._rust_bridge.get_rust_module", return_value=mock_rust),
+            patch("friday_ai.tools.http_request.check_ssrf", return_value=None),
             patch(
-                "openjarvis.tools.http_request.httpx.request",
+                "friday_ai.tools.http_request.httpx.request",
                 return_value=mock_resp,
             ) as mock_req,
         ):
             result = tool.execute(
-                url="https://api.github.com/repos/open-jarvis/OpenJarvis/issues",
+                url="https://api.github.com/repos/open-jarvis/FridayAI/issues",
                 method="POST",
                 headers={
                     "Authorization": "Bearer $GITHUB_TOKEN",
@@ -847,15 +847,15 @@ class TestGitHubIssueCreation:
 
         with (
             patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_testtoken123"}),
-            patch("openjarvis._rust_bridge.get_rust_module", return_value=mock_rust),
-            patch("openjarvis.tools.http_request.check_ssrf", return_value=None),
+            patch("friday_ai._rust_bridge.get_rust_module", return_value=mock_rust),
+            patch("friday_ai.tools.http_request.check_ssrf", return_value=None),
             patch(
-                "openjarvis.tools.http_request.httpx.request",
+                "friday_ai.tools.http_request.httpx.request",
                 return_value=mock_resp,
             ) as mock_req,
         ):
             result = tool.execute(
-                url="https://api.github.com/repos/open-jarvis/OpenJarvis/issues",
+                url="https://api.github.com/repos/open-jarvis/FridayAI/issues",
                 method="POST",
                 headers={
                     "Authorization": "Bearer $GITHUB_TOKEN",

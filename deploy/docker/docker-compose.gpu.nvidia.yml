@@ -2,7 +2,7 @@
 #   docker compose -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.gpu.nvidia.yml up
 
 services:
-  jarvis:
+  friday:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.gpu

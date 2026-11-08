@@ -16,7 +16,7 @@ def _make_docker_mock():
 
 class TestDockerCodeInterpreterTool:
     def test_spec(self):
-        from openjarvis.tools.code_interpreter_docker import (
+        from friday_ai.tools.code_interpreter_docker import (
             DockerCodeInterpreterTool,
         )
 
@@ -28,7 +28,7 @@ class TestDockerCodeInterpreterTool:
         assert spec.metadata["structured_allow_object_text"] is True
 
     def test_empty_code(self):
-        from openjarvis.tools.code_interpreter_docker import (
+        from friday_ai.tools.code_interpreter_docker import (
             DockerCodeInterpreterTool,
         )
 
@@ -38,7 +38,7 @@ class TestDockerCodeInterpreterTool:
         assert "No code" in result.content
 
     def test_successful_execution(self):
-        from openjarvis.tools.code_interpreter_docker import (
+        from friday_ai.tools.code_interpreter_docker import (
             DockerCodeInterpreterTool,
         )
 
@@ -61,7 +61,7 @@ class TestDockerCodeInterpreterTool:
         mock_container.remove.assert_called_once_with(force=True)
 
     def test_execution_error(self):
-        from openjarvis.tools.code_interpreter_docker import (
+        from friday_ai.tools.code_interpreter_docker import (
             DockerCodeInterpreterTool,
         )
 
@@ -83,7 +83,7 @@ class TestDockerCodeInterpreterTool:
         assert "NameError" in result.content
 
     def test_container_resource_limits(self):
-        from openjarvis.tools.code_interpreter_docker import (
+        from friday_ai.tools.code_interpreter_docker import (
             DockerCodeInterpreterTool,
         )
 
@@ -112,7 +112,7 @@ class TestDockerCodeInterpreterTool:
         assert call_kwargs[1]["read_only"] is True
 
     def test_output_truncation(self):
-        from openjarvis.tools.code_interpreter_docker import (
+        from friday_ai.tools.code_interpreter_docker import (
             DockerCodeInterpreterTool,
         )
 
@@ -132,7 +132,7 @@ class TestDockerCodeInterpreterTool:
         assert "truncated" in result.content
 
     def test_container_cleanup_on_error(self):
-        from openjarvis.tools.code_interpreter_docker import (
+        from friday_ai.tools.code_interpreter_docker import (
             DockerCodeInterpreterTool,
         )
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from openjarvis.evals.core.event_recorder import AgentEvent, EventRecorder, EventType
+from friday_ai.evals.core.event_recorder import AgentEvent, EventRecorder, EventType
 
 
 class TestEventType:

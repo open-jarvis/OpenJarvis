@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-import openjarvis.agents.opencode as opencode
+import friday_ai.agents.opencode as opencode
 
 
 def _assistant(number: int, text: str, **changes) -> dict:
@@ -27,7 +27,7 @@ def _assistant(number: int, text: str, **changes) -> dict:
         "time": {"created": number, "completed": number + 0.5},
         "type": "assistant",
         "agent": "build",
-        "model": {"providerID": "openjarvis", "id": "local-model"},
+        "model": {"providerID": "friday_ai", "id": "local-model"},
         "content": [{"type": "text", "text": text}],
         "finish": "stop",
         **changes,
@@ -90,7 +90,7 @@ class _ProtocolServer:
             )
         if path == "/api/session" and request.method == "POST":
             assert set(body) == {"title", "agent", "model"}
-            assert body["model"] == {"providerID": "openjarvis", "id": "local-model"}
+            assert body["model"] == {"providerID": "friday_ai", "id": "local-model"}
             self.session_count += 1
             return httpx.Response(
                 200, json={"data": {"id": f"ses_{self.session_count}"}}
@@ -189,7 +189,7 @@ def test_v1_model_payload_and_reply_remain_compatible(protocol_agent):
         if r.method == "POST" and r.url.path.endswith("/message")
     )
     assert json.loads(prompt.content)["model"] == {
-        "providerID": "openjarvis",
+        "providerID": "friday_ai",
         "modelID": "local-model",
     }
     assert not any("/wait" in r.url.path for r in server.calls)

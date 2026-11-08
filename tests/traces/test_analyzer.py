@@ -5,9 +5,9 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from openjarvis.core.types import StepType, Trace, TraceStep
-from openjarvis.traces.analyzer import TraceAnalyzer
-from openjarvis.traces.store import TraceStore
+from friday_ai.core.types import StepType, Trace, TraceStep
+from friday_ai.traces.analyzer import TraceAnalyzer
+from friday_ai.traces.store import TraceStore
 
 
 def _make_trace(

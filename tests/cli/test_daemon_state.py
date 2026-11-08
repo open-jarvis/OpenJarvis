@@ -1,7 +1,7 @@
 """Daemon address bookkeeping.
 
 `status` and `restart` used to read `config.server.{host,port}` rather than the
-address the daemon actually bound to, so `jarvis start --port N` was reported
+address the daemon actually bound to, so `friday start --port N` was reported
 (and restarted) on the config default instead of N.
 """
 
@@ -13,7 +13,7 @@ import threading
 import pytest
 from click.testing import CliRunner
 
-from openjarvis.cli import daemon_cmd
+from friday_ai.cli import daemon_cmd
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def test_bound_address_prefers_recorded_over_config(state_dir):
 
 
 def test_bound_address_falls_back_to_config(state_dir):
-    from openjarvis.core.config import load_config
+    from friday_ai.core.config import load_config
 
     config = load_config()
     host, port = daemon_cmd._bound_address()

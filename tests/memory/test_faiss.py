@@ -8,14 +8,14 @@ faiss = pytest.importorskip("faiss")
 
 import numpy as np  # noqa: E402
 
-from openjarvis.core.events import (  # noqa: E402
+from friday_ai.core.events import (  # noqa: E402
     EventBus,
     EventType,
 )
-from openjarvis.core.registry import MemoryRegistry  # noqa: E402
-from openjarvis.tools.storage._stubs import RetrievalResult  # noqa: E402
-from openjarvis.tools.storage.embeddings import Embedder  # noqa: E402
-from openjarvis.tools.storage.faiss_backend import (  # noqa: E402
+from friday_ai.core.registry import MemoryRegistry  # noqa: E402
+from friday_ai.tools.storage._stubs import RetrievalResult  # noqa: E402
+from friday_ai.tools.storage.embeddings import Embedder  # noqa: E402
+from friday_ai.tools.storage.faiss_backend import (  # noqa: E402
     FAISSMemory,
 )
 
@@ -164,7 +164,7 @@ def test_event_bus_store():
     bus = EventBus(record_history=True)
     backend = _make_backend()
 
-    import openjarvis.tools.storage.faiss_backend as mod
+    import friday_ai.tools.storage.faiss_backend as mod
 
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus
@@ -184,7 +184,7 @@ def test_event_bus_retrieve():
     backend = _make_backend()
     backend.store("searchable content for events")
 
-    import openjarvis.tools.storage.faiss_backend as mod
+    import friday_ai.tools.storage.faiss_backend as mod
 
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus

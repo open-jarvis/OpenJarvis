@@ -14,17 +14,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
-from openjarvis.core.config import JarvisConfig
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import Message, Role, TelemetryRecord
-from openjarvis.telemetry.aggregator import AggregatedStats, TelemetryAggregator
-from openjarvis.telemetry.energy_monitor import BASIS_GPU, EnergySample
-from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
-from openjarvis.telemetry.store import TelemetryStore
+from friday_ai.cli import cli
+from friday_ai.core.config import FridayConfig
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.types import Message, Role, TelemetryRecord
+from friday_ai.telemetry.aggregator import AggregatedStats, TelemetryAggregator
+from friday_ai.telemetry.energy_monitor import BASIS_GPU, EnergySample
+from friday_ai.telemetry.instrumented_engine import InstrumentedEngine
+from friday_ai.telemetry.store import TelemetryStore
 
-_ask_mod = importlib.import_module("openjarvis.cli.ask")
-_bench_mod = importlib.import_module("openjarvis.cli.bench_cmd")
+_ask_mod = importlib.import_module("friday_ai.cli.ask")
+_bench_mod = importlib.import_module("friday_ai.cli.bench_cmd")
 
 
 # ---------------------------------------------------------------------------
@@ -96,14 +96,14 @@ def _mock_energy_monitor():
 
 
 def _energy_config(tmp_path, gpu_metrics=True):
-    """Build a JarvisConfig with energy monitoring enabled."""
-    cfg = JarvisConfig()
+    """Build a FridayConfig with energy monitoring enabled."""
+    cfg = FridayConfig()
     cfg.telemetry.enabled = True
     cfg.telemetry.gpu_metrics = gpu_metrics
     cfg.telemetry.energy_vendor = ""
     cfg.telemetry.db_path = str(tmp_path / "telemetry.db")
     # These tests exercise engine-level instrumentation, not agent dispatch.
-    # `jarvis ask` (no --agent) now falls back to ``agent.default_agent``
+    # `friday ask` (no --agent) now falls back to ``agent.default_agent``
     # which defaults to "simple", and conftest clears the registry per test.
     # Opt out explicitly so the CLI uses direct-engine mode here.
     cfg.agent.default_agent = ""
@@ -203,7 +203,7 @@ class TestCliAskWiring:
         )
         mock_monitor = _mock_energy_monitor()
         with patch(
-            "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+            "friday_ai.telemetry.energy_monitor.create_energy_monitor",
             return_value=mock_monitor,
         ):
             result = CliRunner().invoke(cli, ["ask", "Hello"])
@@ -259,7 +259,7 @@ class TestCliAskWiring:
         )
         mock_monitor = _mock_energy_monitor()
         with patch(
-            "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+            "friday_ai.telemetry.energy_monitor.create_energy_monitor",
             return_value=mock_monitor,
         ):
             CliRunner().invoke(cli, ["ask", "Hello"])
@@ -290,8 +290,8 @@ class TestCliAskWiring:
         )
 
         # Register a trivial agent that calls engine.generate
-        from openjarvis.agents._stubs import AgentResult
-        from openjarvis.core.registry import AgentRegistry
+        from friday_ai.agents._stubs import AgentResult
+        from friday_ai.core.registry import AgentRegistry
 
         class _TestAgent:
             agent_id = "test-wiring-agent"
@@ -336,22 +336,22 @@ class TestSdkWiring:
 
     def test_engine_wrapped_in_ensure_engine(self):
         """_ensure_engine wraps with InstrumentedEngine."""
-        from openjarvis.sdk import Jarvis
+        from friday_ai.sdk import Friday
 
         engine = _mock_engine()
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         with patch(
-            "openjarvis.sdk.get_engine",
+            "friday_ai.sdk.get_engine",
             return_value=("mock", engine),
         ):
-            j = Jarvis(config=cfg, model="test-model")
+            j = Friday(config=cfg, model="test-model")
             j._ensure_engine()
             assert isinstance(j._engine, InstrumentedEngine)
             j.close()
 
     def test_energy_monitor_stored(self, tmp_path):
-        """Energy monitor is created and stored on Jarvis instance."""
-        from openjarvis.sdk import Jarvis
+        """Energy monitor is created and stored on Friday instance."""
+        from friday_ai.sdk import Friday
 
         engine = _mock_engine()
         cfg = _energy_config(tmp_path, gpu_metrics=True)
@@ -359,15 +359,15 @@ class TestSdkWiring:
 
         with (
             patch(
-                "openjarvis.sdk.get_engine",
+                "friday_ai.sdk.get_engine",
                 return_value=("mock", engine),
             ),
             patch(
-                "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+                "friday_ai.telemetry.energy_monitor.create_energy_monitor",
                 return_value=mock_monitor,
             ),
         ):
-            j = Jarvis(config=cfg, model="test-model")
+            j = Friday(config=cfg, model="test-model")
             j._ensure_engine()
             assert j._energy_monitor is mock_monitor
             j.close()
@@ -375,24 +375,24 @@ class TestSdkWiring:
 
     def test_no_energy_monitor_when_gpu_metrics_off(self):
         """No energy monitor when gpu_metrics=False."""
-        from openjarvis.sdk import Jarvis
+        from friday_ai.sdk import Friday
 
         engine = _mock_engine()
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         cfg.telemetry.gpu_metrics = False
 
         with patch(
-            "openjarvis.sdk.get_engine",
+            "friday_ai.sdk.get_engine",
             return_value=("mock", engine),
         ):
-            j = Jarvis(config=cfg, model="test-model")
+            j = Friday(config=cfg, model="test-model")
             j._ensure_engine()
             assert j._energy_monitor is None
             j.close()
 
     def test_ask_full_records_energy(self, tmp_path):
         """ask_full records energy via InstrumentedEngine."""
-        from openjarvis.sdk import Jarvis
+        from friday_ai.sdk import Friday
 
         engine = _mock_engine()
         cfg = _energy_config(tmp_path, gpu_metrics=True)
@@ -400,15 +400,15 @@ class TestSdkWiring:
 
         with (
             patch(
-                "openjarvis.sdk.get_engine",
+                "friday_ai.sdk.get_engine",
                 return_value=("mock", engine),
             ),
             patch(
-                "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+                "friday_ai.telemetry.energy_monitor.create_energy_monitor",
                 return_value=mock_monitor,
             ),
         ):
-            j = Jarvis(config=cfg, model="test-model")
+            j = Friday(config=cfg, model="test-model")
             result = j.ask_full("Hello")
             assert result["content"] == "Test response"
             j.close()
@@ -423,24 +423,24 @@ class TestSdkWiring:
 
     def test_close_cleans_up_energy_monitor(self):
         """close() releases the energy monitor."""
-        from openjarvis.sdk import Jarvis
+        from friday_ai.sdk import Friday
 
         engine = _mock_engine()
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         cfg.telemetry.gpu_metrics = True
         mock_monitor = _mock_energy_monitor()
 
         with (
             patch(
-                "openjarvis.sdk.get_engine",
+                "friday_ai.sdk.get_engine",
                 return_value=("mock", engine),
             ),
             patch(
-                "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+                "friday_ai.telemetry.energy_monitor.create_energy_monitor",
                 return_value=mock_monitor,
             ),
         ):
-            j = Jarvis(config=cfg, model="test-model")
+            j = Friday(config=cfg, model="test-model")
             j._ensure_engine()
             j.close()
             mock_monitor.close.assert_called_once()
@@ -448,24 +448,24 @@ class TestSdkWiring:
 
     def test_double_close_safe(self):
         """Double close doesn't crash."""
-        from openjarvis.sdk import Jarvis
+        from friday_ai.sdk import Friday
 
         engine = _mock_engine()
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         cfg.telemetry.gpu_metrics = True
         mock_monitor = _mock_energy_monitor()
 
         with (
             patch(
-                "openjarvis.sdk.get_engine",
+                "friday_ai.sdk.get_engine",
                 return_value=("mock", engine),
             ),
             patch(
-                "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+                "friday_ai.telemetry.energy_monitor.create_energy_monitor",
                 return_value=mock_monitor,
             ),
         ):
-            j = Jarvis(config=cfg, model="test-model")
+            j = Friday(config=cfg, model="test-model")
             j._ensure_engine()
             j.close()
             j.close()  # should not raise
@@ -595,21 +595,21 @@ class TestBenchWiring:
             },
         }
 
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         cfg.telemetry.gpu_metrics = True
         mock_monitor = _mock_energy_monitor()
 
         with (
             patch(
-                "openjarvis.cli.bench_cmd.get_engine",
+                "friday_ai.cli.bench_cmd.get_engine",
                 return_value=("mock", engine),
             ),
             patch(
-                "openjarvis.cli.bench_cmd.load_config",
+                "friday_ai.cli.bench_cmd.load_config",
                 return_value=cfg,
             ),
             patch(
-                "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+                "friday_ai.telemetry.energy_monitor.create_energy_monitor",
                 return_value=mock_monitor,
             ) as mock_create,
         ):
@@ -636,16 +636,16 @@ class TestBenchWiring:
             },
         }
 
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         cfg.telemetry.gpu_metrics = False
 
         with (
             patch(
-                "openjarvis.cli.bench_cmd.get_engine",
+                "friday_ai.cli.bench_cmd.get_engine",
                 return_value=("mock", engine),
             ),
             patch(
-                "openjarvis.cli.bench_cmd.load_config",
+                "friday_ai.cli.bench_cmd.load_config",
                 return_value=cfg,
             ),
         ):
@@ -670,16 +670,16 @@ class TestBenchWiring:
             },
         }
 
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         cfg.telemetry.gpu_metrics = False
 
         with (
             patch(
-                "openjarvis.cli.bench_cmd.get_engine",
+                "friday_ai.cli.bench_cmd.get_engine",
                 return_value=("mock", engine),
             ),
             patch(
-                "openjarvis.cli.bench_cmd.load_config",
+                "friday_ai.cli.bench_cmd.load_config",
                 return_value=cfg,
             ),
         ):
@@ -719,7 +719,7 @@ def _patch_telemetry_config(tmp_path: Path):
     cfg = mock.MagicMock()
     cfg.telemetry.db_path = str(db_path)
     return mock.patch(
-        "openjarvis.cli.telemetry_cmd.load_config",
+        "friday_ai.cli.telemetry_cmd.load_config",
         return_value=cfg,
     ), db_path
 
@@ -968,7 +968,7 @@ class TestEndToEndPipeline:
 
         mock_monitor = _mock_energy_monitor()
         with patch(
-            "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+            "friday_ai.telemetry.energy_monitor.create_energy_monitor",
             return_value=mock_monitor,
         ):
             CliRunner().invoke(cli, ["ask", "Hello"])
@@ -977,7 +977,7 @@ class TestEndToEndPipeline:
         telem_cfg = mock.MagicMock()
         telem_cfg.telemetry.db_path = cfg.telemetry.db_path
         with mock.patch(
-            "openjarvis.cli.telemetry_cmd.load_config",
+            "friday_ai.cli.telemetry_cmd.load_config",
             return_value=telem_cfg,
         ):
             result = CliRunner().invoke(
@@ -1017,7 +1017,7 @@ class TestEndToEndPipeline:
 
         mock_monitor = _mock_energy_monitor()
         with patch(
-            "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+            "friday_ai.telemetry.energy_monitor.create_energy_monitor",
             return_value=mock_monitor,
         ):
             CliRunner().invoke(cli, ["ask", "Hello"])
@@ -1026,7 +1026,7 @@ class TestEndToEndPipeline:
         telem_cfg = mock.MagicMock()
         telem_cfg.telemetry.db_path = cfg.telemetry.db_path
         with mock.patch(
-            "openjarvis.cli.telemetry_cmd.load_config",
+            "friday_ai.cli.telemetry_cmd.load_config",
             return_value=telem_cfg,
         ):
             result = CliRunner().invoke(

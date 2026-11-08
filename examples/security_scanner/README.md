@@ -5,7 +5,7 @@ and dependency issues using an AI-powered ReAct agent.
 
 ## Requirements
 
-- OpenJarvis installed (`git clone https://github.com/open-jarvis/OpenJarvis.git && cd OpenJarvis && uv sync` or `uv sync --extra dev`)
+- FridayAI installed (`git clone https://github.com/open-jarvis/FridayAI.git && cd FridayAI && uv sync` or `uv sync --extra dev`)
 - An inference engine running (Ollama, cloud API, vLLM, etc.)
 
 ## Usage
@@ -19,7 +19,7 @@ python examples/security_scanner/security_scanner.py --path /home/user/app \
 
 ## How It Works
 
-The script creates a `Jarvis` instance configured with the `native_react` agent
+The script creates a `Friday` instance configured with the `native_react` agent
 and four tools:
 
 - **shell_exec** -- runs shell commands to explore the project tree and search

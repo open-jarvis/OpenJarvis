@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from openjarvis.mcp.protocol import (
+from friday_ai.mcp.protocol import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,

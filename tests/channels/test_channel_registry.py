@@ -6,8 +6,8 @@ from typing import List
 
 import pytest
 
-from openjarvis.channels._stubs import BaseChannel, ChannelHandler, ChannelStatus
-from openjarvis.core.registry import ChannelRegistry
+from friday_ai.channels._stubs import BaseChannel, ChannelHandler, ChannelStatus
+from friday_ai.core.registry import ChannelRegistry
 
 
 class TestChannelRegistry:

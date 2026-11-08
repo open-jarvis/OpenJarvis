@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
-from openjarvis.core.registry import ConnectorRegistry
+from friday_ai.connectors._stubs import Document
+from friday_ai.core.registry import ConnectorRegistry
 
 
 def test_weather_registered():
     """WeatherConnector is discoverable via ConnectorRegistry."""
-    from openjarvis.connectors.weather import WeatherConnector
+    from friday_ai.connectors.weather import WeatherConnector
 
     ConnectorRegistry.register_value("weather", WeatherConnector)
     assert ConnectorRegistry.contains("weather")
@@ -47,7 +47,7 @@ _FORECAST_RESPONSE = {
 @pytest.fixture()
 def connector(tmp_path):
     """WeatherConnector with fake config file."""
-    from openjarvis.connectors.weather import WeatherConnector
+    from friday_ai.connectors.weather import WeatherConnector
 
     config_path = tmp_path / "weather.json"
     config_path.write_text(
@@ -62,7 +62,7 @@ def test_is_connected(connector):
 
 
 def test_is_connected_no_file(tmp_path):
-    from openjarvis.connectors.weather import WeatherConnector
+    from friday_ai.connectors.weather import WeatherConnector
 
     c = WeatherConnector(token_path=str(tmp_path / "missing.json"))
     assert c.is_connected() is False
@@ -71,7 +71,7 @@ def test_is_connected_no_file(tmp_path):
 def test_sync_yields_two_documents(connector):
     """Sync returns one current weather and one forecast Document."""
     with patch(
-        "openjarvis.connectors.weather._weather_api_get",
+        "friday_ai.connectors.weather._weather_api_get",
         side_effect=[_CURRENT_RESPONSE, _FORECAST_RESPONSE],
     ):
         docs = list(connector.sync())

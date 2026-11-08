@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from openjarvis.agents._stubs import AgentResult
-from openjarvis.agents.executor import AgentExecutor
-from openjarvis.agents.manager import AgentManager
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.traces.store import TraceStore
+from friday_ai.agents._stubs import AgentResult
+from friday_ai.agents.executor import AgentExecutor
+from friday_ai.agents.manager import AgentManager
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.traces.store import TraceStore
 
 
 def test_executor_records_trace(tmp_path):
@@ -58,7 +58,7 @@ def test_executor_records_trace(tmp_path):
 
 def test_executor_records_error_trace(tmp_path):
     """execute_tick records an error trace on failure."""
-    from openjarvis.agents.errors import FatalError
+    from friday_ai.agents.errors import FatalError
 
     mgr = AgentManager(str(tmp_path / "agents.db"))
     trace_store = TraceStore(str(tmp_path / "traces.db"))

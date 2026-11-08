@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from openjarvis.core.config import JarvisConfig, load_config
-from openjarvis.security.data_boundary_audit import (
+from friday_ai.core.config import FridayConfig, load_config
+from friday_ai.security.data_boundary_audit import (
     API_KEY_ENV_VARS,
     BROWSER_TOOLS,
     CHANNEL_OUTBOUND_TOOLS,
@@ -117,10 +117,10 @@ def _ids(report):
 def _low_noise_config():
     """Baseline config with no warn/fail findings under an empty scan root.
 
-    JarvisConfig defaults include absolute store paths under the real
-    OPENJARVIS_HOME; clear those so tests only see artifacts under tmp_path.
+    FridayConfig defaults include absolute store paths under the real
+    FRIDAY_AI_HOME; clear those so tests only see artifacts under tmp_path.
     """
-    config = JarvisConfig()
+    config = FridayConfig()
     config.analytics.enabled = False
     config.traces.enabled = False
     config.telemetry.enabled = False
@@ -149,7 +149,7 @@ def _low_noise_config():
     config.engine.default = "ollama"
     config.deep_research.engine = ""
     config.deep_research.model = ""
-    # Avoid scanning the developer's real ~/.openjarvis store files.
+    # Avoid scanning the developer's real ~/.friday_ai store files.
     config.traces.db_path = ""
     config.telemetry.db_path = ""
     config.security.audit_log_path = ""
@@ -169,7 +169,7 @@ def _low_noise_config():
 
 def test_missing_config_does_not_report_dataclass_defaults(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    config = JarvisConfig()
+    config = FridayConfig()
 
     report = build_data_boundary_report(config, tmp_path, config_loaded=False)
 
@@ -180,7 +180,7 @@ def test_missing_config_does_not_report_dataclass_defaults(tmp_path, monkeypatch
 
 
 def test_config_error_returns_fail_finding_without_crashing(tmp_path):
-    config = JarvisConfig()
+    config = FridayConfig()
 
     report = build_data_boundary_report(
         config,
@@ -356,7 +356,7 @@ def test_firecrawl_web_search_data_path_includes_url_lookups(tmp_path, monkeypat
     config.tools.enabled = "web_search"
     for key in ("TAVILY_API_KEY", "YOUDOTCOM_API_KEY", "SERPLY_API_KEY"):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+    monkeypatch.delenv("FRIDAY_AI_WEB_SEARCH_ENGINE", raising=False)
     monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
 
     report = build_data_boundary_report(config, tmp_path)
@@ -635,16 +635,16 @@ def test_config_root_error_returns_fail_without_local_store_scan(tmp_path):
         config,
         None,
         root_error=(
-            "ConfigurationError: bad OPENJARVIS_HOME at /Users/alice/private/openjarvis"
+            "ConfigurationError: bad FRIDAY_AI_HOME at /Users/alice/private/friday_ai"
         ),
     )
 
     findings = {finding.id: finding for finding in report.findings}
     assert findings["config-root-error"].status == "fail"
-    assert "bad OPENJARVIS_HOME" not in findings["config-root-error"].evidence
-    assert "/Users/alice/private/openjarvis" not in str(report.to_dict())
+    assert "bad FRIDAY_AI_HOME" not in findings["config-root-error"].evidence
+    assert "/Users/alice/private/friday_ai" not in str(report.to_dict())
     assert "path details were redacted" in findings["config-root-error"].evidence
-    assert report.root == "<unresolved-openjarvis-home>"
+    assert report.root == "<unresolved-friday_ai-home>"
 
 
 def test_group_or_other_readable_local_store_warns(tmp_path):
@@ -1229,7 +1229,7 @@ def test_knowledge_db_posix_permissions_checked(tmp_path):
 
 
 def test_browser_resolver_tools_are_all_classified():
-    from openjarvis.agents.tool_resolver import BROWSER_SUB_TOOLS
+    from friday_ai.agents.tool_resolver import BROWSER_SUB_TOOLS
 
     assert set(BROWSER_SUB_TOOLS) <= BROWSER_TOOLS
 
@@ -1441,40 +1441,40 @@ class TestWebSearchDestination:
             "SERPLY_PROXY_LOCATION",
             "FIRECRAWL_API_KEY",
             "FIRECRAWL_API_URL",
-            "OPENJARVIS_WEB_SEARCH_ENGINE",
+            "FRIDAY_AI_WEB_SEARCH_ENGINE",
         ):
             monkeypatch.delenv(key, raising=False)
 
     def test_keyless_youcom_is_named(self, monkeypatch):
-        from openjarvis.security.data_boundary_audit import _web_search_destination
+        from friday_ai.security.data_boundary_audit import _web_search_destination
 
         self._clear(monkeypatch)
         assert "You.com" in _web_search_destination()
         assert "keyless" in _web_search_destination()
 
     def test_keyed_youcom_is_named(self, monkeypatch):
-        from openjarvis.security.data_boundary_audit import _web_search_destination
+        from friday_ai.security.data_boundary_audit import _web_search_destination
 
         self._clear(monkeypatch)
         monkeypatch.setenv("YOUDOTCOM_API_KEY", "ydc-key")
         assert "keyed" in _web_search_destination()
 
     def test_tavily_is_named(self, monkeypatch):
-        from openjarvis.security.data_boundary_audit import _web_search_destination
+        from friday_ai.security.data_boundary_audit import _web_search_destination
 
         self._clear(monkeypatch)
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-key")
         assert "Tavily" in _web_search_destination()
 
     def test_duckduckgo_is_named(self, monkeypatch):
-        from openjarvis.security.data_boundary_audit import _web_search_destination
+        from friday_ai.security.data_boundary_audit import _web_search_destination
 
         self._clear(monkeypatch)
-        monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", "duckduckgo")
+        monkeypatch.setenv("FRIDAY_AI_WEB_SEARCH_ENGINE", "duckduckgo")
         assert "DuckDuckGo" in _web_search_destination()
 
     def test_serply_is_named(self, monkeypatch):
-        from openjarvis.security.data_boundary_audit import _web_search_destination
+        from friday_ai.security.data_boundary_audit import _web_search_destination
 
         self._clear(monkeypatch)
         monkeypatch.setenv("SERPLY_API_KEY", "srp-key")
@@ -1483,7 +1483,7 @@ class TestWebSearchDestination:
     def test_serply_region_is_named_when_configured(self, monkeypatch):
         """The proxy region decides which country's Google answers the query,
         so the audit has to disclose it and not just the vendor."""
-        from openjarvis.security.data_boundary_audit import _web_search_destination
+        from friday_ai.security.data_boundary_audit import _web_search_destination
 
         self._clear(monkeypatch)
         monkeypatch.setenv("SERPLY_API_KEY", "srp-key")
@@ -1491,15 +1491,15 @@ class TestWebSearchDestination:
         assert "region DE" in _web_search_destination()
 
     def test_firecrawl_is_named(self, monkeypatch):
-        from openjarvis.security.data_boundary_audit import _web_search_destination
+        from friday_ai.security.data_boundary_audit import _web_search_destination
 
         self._clear(monkeypatch)
         monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
         assert _web_search_destination() == "Firecrawl search API"
 
     def test_blank_firecrawl_configuration_matches_runtime(self, monkeypatch):
-        from openjarvis.security.data_boundary_audit import _web_search_destination
-        from openjarvis.tools.web_search import WebSearchTool
+        from friday_ai.security.data_boundary_audit import _web_search_destination
+        from friday_ai.tools.web_search import WebSearchTool
 
         self._clear(monkeypatch)
         monkeypatch.setenv("FIRECRAWL_API_KEY", " \n")
@@ -1510,7 +1510,7 @@ class TestWebSearchDestination:
     def test_firecrawl_self_hosted_names_only_the_host(self, monkeypatch):
         """A self-hosted instance keeps queries off the hosted API, so the
         audit says so, without echoing a URL that may carry credentials."""
-        from openjarvis.security.data_boundary_audit import _web_search_destination
+        from friday_ai.security.data_boundary_audit import _web_search_destination
 
         self._clear(monkeypatch)
         monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
@@ -1521,7 +1521,7 @@ class TestWebSearchDestination:
         assert "pw" not in destination
 
     def test_keyless_self_hosted_firecrawl_is_named(self, monkeypatch):
-        from openjarvis.security.data_boundary_audit import _web_search_destination
+        from friday_ai.security.data_boundary_audit import _web_search_destination
 
         self._clear(monkeypatch)
         monkeypatch.setenv("FIRECRAWL_API_URL", "http://localhost:3002")
@@ -1530,8 +1530,8 @@ class TestWebSearchDestination:
     def test_matches_the_tool_resolution(self, monkeypatch):
         """Guard against the audit's copy of the precedence rule drifting from
         WebSearchTool._resolve_engine, which is the source of truth."""
-        from openjarvis.security.data_boundary_audit import _web_search_destination
-        from openjarvis.tools.web_search import WebSearchTool
+        from friday_ai.security.data_boundary_audit import _web_search_destination
+        from friday_ai.tools.web_search import WebSearchTool
 
         labels = {
             "youcom": "You.com",
@@ -1563,7 +1563,7 @@ class TestWebSearchDestination:
                     if is_set:
                         monkeypatch.setenv(name, value)
                 if engine:
-                    monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", engine)
+                    monkeypatch.setenv("FRIDAY_AI_WEB_SEARCH_ENGINE", engine)
                 resolved = WebSearchTool()._resolve_engine()
                 set_vars = [name for (name, _), is_set in zip(keys, present) if is_set]
                 assert labels[resolved] in _web_search_destination(), (

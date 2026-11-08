@@ -6,7 +6,7 @@ import struct
 import sys
 from types import SimpleNamespace
 
-from openjarvis.speech.voice_io import record_until_silence
+from friday_ai.speech.voice_io import record_until_silence
 
 
 class _FakeStream:

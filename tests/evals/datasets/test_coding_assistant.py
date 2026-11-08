@@ -1,6 +1,6 @@
 """Tests for the coding_assistant dataset."""
 
-from openjarvis.evals.datasets.coding_assistant import CodingAssistantDataset
+from friday_ai.evals.datasets.coding_assistant import CodingAssistantDataset
 
 
 def test_dataset_loads():

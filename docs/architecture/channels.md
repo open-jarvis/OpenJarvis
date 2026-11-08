@@ -1,6 +1,6 @@
 # Channels Architecture
 
-The channels module provides a transport-agnostic messaging layer for receiving and sending messages through external platforms. The design follows the same registry-plus-ABC pattern used throughout OpenJarvis: a `BaseChannel` interface defines the contract, and concrete implementations for each platform (Telegram, Discord, Slack, WhatsApp, etc.) are registered for runtime discovery.
+The channels module provides a transport-agnostic messaging layer for receiving and sending messages through external platforms. The design follows the same registry-plus-ABC pattern used throughout FridayAI: a `BaseChannel` interface defines the contract, and concrete implementations for each platform (Telegram, Discord, Slack, WhatsApp, etc.) are registered for runtime discovery.
 
 ---
 
@@ -141,7 +141,7 @@ ChannelHandler = Callable[[ChannelMessage], Optional[str]]
 
 ## Threading Model
 
-Channel implementations use Python's `threading` module rather than asyncio. This is a deliberate choice: OpenJarvis's core inference path is synchronous, and daemon threads are simpler to compose with synchronous code than coroutines.
+Channel implementations use Python's `threading` module rather than asyncio. This is a deliberate choice: FridayAI's core inference path is synchronous, and daemon threads are simpler to compose with synchronous code than coroutines.
 
 | Component | Thread | Notes |
 |-----------|--------|-------|
@@ -158,15 +158,15 @@ Channel implementations use Python's `threading` module rather than asyncio. Thi
 
 To add a new channel backend:
 
-1. Create a new file in `src/openjarvis/channels/`.
+1. Create a new file in `src/friday_ai/channels/`.
 2. Subclass `BaseChannel` and implement all six abstract methods.
 3. Set `channel_id` as a class attribute.
 4. Decorate with `@ChannelRegistry.register("name")`.
 5. Add the module name to `_CHANNEL_MODULES` in `channels/__init__.py`.
 
 ```python
-from openjarvis.channels._stubs import BaseChannel, ChannelMessage, ChannelStatus
-from openjarvis.core.registry import ChannelRegistry
+from friday_ai.channels._stubs import BaseChannel, ChannelMessage, ChannelStatus
+from friday_ai.core.registry import ChannelRegistry
 
 @ChannelRegistry.register("my_platform")
 class MyPlatformChannel(BaseChannel):
@@ -187,6 +187,6 @@ After registration, the backend is discoverable via `ChannelRegistry.get("my_pla
 ## See Also
 
 - [User Guide: Channels](../user-guide/channels.md) -- how to use channels in practice
-- [API Reference: Channels](../api-reference/openjarvis/channels/index.md) -- complete class and type signatures
+- [API Reference: Channels](../api-reference/friday_ai/channels/index.md) -- complete class and type signatures
 - [Architecture: Overview](overview.md) -- where channels fit in the overall system
 - [Architecture: Design Principles](design-principles.md) -- registry pattern and ABC conventions

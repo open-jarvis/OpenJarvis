@@ -1,11 +1,11 @@
 ---
 title: Contributing a Showcase Entry
-description: How to add your setup to the OpenJarvis Showcase
+description: How to add your setup to the FridayAI Showcase
 ---
 
 # Contributing a Showcase Entry
 
-The Showcase exists for one reason: to help a confused, curious, *non-technical* reader figure out whether OpenJarvis is worth their weekend. That goal sets every editorial choice on this page.
+The Showcase exists for one reason: to help a confused, curious, *non-technical* reader figure out whether FridayAI is worth their weekend. That goal sets every editorial choice on this page.
 
 ## The format
 
@@ -39,7 +39,7 @@ calendar, your inbox, your code. Specific verbs and proper nouns.>
 
 → **[Tutorial: <name>](../tutorials/<file>.md)** is the closest match.
 
-→ **[Recipe: <name>](https://github.com/open-jarvis/OpenJarvis/tree/main/src/openjarvis/recipes/data)** if you want the exact config.
+→ **[Recipe: <name>](https://github.com/open-jarvis/FridayAI/tree/main/src/friday_ai/recipes/data)** if you want the exact config.
 
 → **[<one more related doc>](../<path>.md)** if the reader is going deeper.
 ```
@@ -51,7 +51,7 @@ These are guardrails, not rules. Break them if you have a reason.
 ### Lead with the outcome, not the technology
 
 ❌ "Multi-channel routing with MCP-backed memory and an orchestrator agent."<br>
-✅ "Jarvis answers my Discord messages while I sleep."
+✅ "Friday answers my Discord messages while I sleep."
 
 The reader doesn't know what an "orchestrator agent" is yet. They know what a Discord message is.
 
@@ -97,7 +97,7 @@ If there isn't a relevant tutorial yet, link to the closest [User Guide](../user
 
 ## Where this goes after merge
 
-Hannah and the docs team post merged showcase entries to **`#config-showcase`** in [the OpenJarvis Discord](https://discord.gg/openjarvis). You'll get tagged in the post — you don't have to do it yourself.
+Hannah and the docs team post merged showcase entries to **`#config-showcase`** in [the FridayAI Discord](https://discord.gg/friday_ai). You'll get tagged in the post — you don't have to do it yourself.
 
 ## Questions, drafts, half-finished ideas
 

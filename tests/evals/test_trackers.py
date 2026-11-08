@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.evals.core.tracker import ResultTracker
-from openjarvis.evals.core.types import EvalResult, RunConfig, RunSummary
+from friday_ai.evals.core.tracker import ResultTracker
+from friday_ai.evals.core.types import EvalResult, RunConfig, RunSummary
 
 # ---------------------------------------------------------------------------
 # Test double
@@ -61,7 +61,7 @@ class CrashingTracker(ResultTracker):
 
 
 def _make_config(**overrides) -> RunConfig:
-    defaults = dict(benchmark="test", backend="jarvis-direct", model="test-model")
+    defaults = dict(benchmark="test", backend="friday-direct", model="test-model")
     defaults.update(overrides)
     return RunConfig(**defaults)
 
@@ -70,7 +70,7 @@ def _make_summary(**overrides) -> RunSummary:
     defaults = dict(
         benchmark="test",
         category="chat",
-        backend="jarvis-direct",
+        backend="friday-direct",
         model="test-model",
         total_samples=10,
         scored_samples=10,
@@ -100,7 +100,7 @@ class TestRecordingTrackerIntegration:
 
     def test_tracker_lifecycle(self, tmp_path):
         """RecordingTracker receives start, result, summary, end calls."""
-        from openjarvis.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.runner import EvalRunner
 
         # Minimal stubs
         dataset = MagicMock(spec=["load", "iter_records"])
@@ -144,7 +144,7 @@ class TestRecordingTrackerIntegration:
 
     def test_crashing_tracker_does_not_abort(self, tmp_path):
         """A tracker that raises exceptions must not prevent JSONL output."""
-        from openjarvis.evals.core.runner import EvalRunner
+        from friday_ai.evals.core.runner import EvalRunner
 
         dataset = MagicMock(spec=["load", "iter_records"])
         record = MagicMock()
@@ -192,7 +192,7 @@ class TestWandbTracker:
     def test_import_error_when_wandb_missing(self):
         """WandbTracker raises ImportError when wandb is not installed."""
         with patch.dict(sys.modules, {"wandb": None}):
-            import openjarvis.evals.trackers.wandb_tracker as wt_mod
+            import friday_ai.evals.trackers.wandb_tracker as wt_mod
 
             original = wt_mod.wandb
             wt_mod.wandb = None
@@ -204,7 +204,7 @@ class TestWandbTracker:
 
     def test_on_result_calls_wandb_log(self):
         """on_result calls wandb.log with sample/ prefixed keys."""
-        import openjarvis.evals.trackers.wandb_tracker as wt_mod
+        import friday_ai.evals.trackers.wandb_tracker as wt_mod
 
         mock_wandb = MagicMock()
         mock_run = MagicMock()
@@ -233,7 +233,7 @@ class TestWandbTracker:
 
     def test_on_summary_updates_run_summary(self):
         """on_summary calls wandb.run.summary.update with flat dict."""
-        import openjarvis.evals.trackers.wandb_tracker as wt_mod
+        import friday_ai.evals.trackers.wandb_tracker as wt_mod
 
         mock_wandb = MagicMock()
         mock_run = MagicMock()
@@ -260,7 +260,7 @@ class TestWandbTracker:
 
     def test_reinit_true_for_suite_mode(self):
         """wandb.init is called with reinit=True."""
-        import openjarvis.evals.trackers.wandb_tracker as wt_mod
+        import friday_ai.evals.trackers.wandb_tracker as wt_mod
 
         mock_wandb = MagicMock()
         mock_run = MagicMock()
@@ -292,7 +292,7 @@ class TestSheetsTracker:
 
     def test_import_error_when_gspread_missing(self):
         """SheetsTracker raises ImportError when gspread not installed."""
-        import openjarvis.evals.trackers.sheets_tracker as st_mod
+        import friday_ai.evals.trackers.sheets_tracker as st_mod
 
         original = st_mod.gspread
         st_mod.gspread = None
@@ -304,7 +304,7 @@ class TestSheetsTracker:
 
     def test_on_result_is_noop(self):
         """on_result does nothing (no API calls for individual samples)."""
-        import openjarvis.evals.trackers.sheets_tracker as st_mod
+        import friday_ai.evals.trackers.sheets_tracker as st_mod
 
         mock_gspread = MagicMock()
         original = st_mod.gspread
@@ -325,7 +325,7 @@ class TestSheetsTracker:
 
     def test_build_row_matches_columns(self):
         """_build_row returns a list matching SHEET_COLUMNS length."""
-        import openjarvis.evals.trackers.sheets_tracker as st_mod
+        import friday_ai.evals.trackers.sheets_tracker as st_mod
 
         mock_gspread = MagicMock()
         original = st_mod.gspread

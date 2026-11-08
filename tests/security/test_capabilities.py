@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.core.types import ToolCall, ToolResult
-from openjarvis.security.capabilities import (
+from friday_ai.core.types import ToolCall, ToolResult
+from friday_ai.security.capabilities import (
     DEFAULT_TOOL_CAPABILITIES,
     Capability,
     CapabilityPolicy,
     canonical_tool_capabilities,
 )
-from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+from friday_ai.tools._stubs import BaseTool, ToolExecutor, ToolSpec
 
 
 class TestCapability:
@@ -180,7 +180,7 @@ class TestCapabilityPolicy:
         assert "code:execute" in DEFAULT_TOOL_CAPABILITIES.get("code_interpreter", [])
 
     def test_every_registered_builtin_has_an_explicit_inventory_entry(self):
-        root = Path(__file__).parents[2] / "src" / "openjarvis"
+        root = Path(__file__).parents[2] / "src" / "friday_ai"
         registered: set[str] = set()
         for path in [
             *(root / "tools").rglob("*.py"),
@@ -207,7 +207,7 @@ class TestCapabilityPolicy:
         assert registered == set(DEFAULT_TOOL_CAPABILITIES)
 
     def test_real_repl_cannot_execute_under_default_deny(self):
-        from openjarvis.tools.repl import ReplTool
+        from friday_ai.tools.repl import ReplTool
 
         tool = ReplTool()
         executor = ToolExecutor(
@@ -237,7 +237,7 @@ class TestCapabilityPolicy:
             def execute(self, **params):
                 return ToolResult(tool_name="future_builtin", content="ran")
 
-        FutureBuiltin.__module__ = "openjarvis.tools.future"
+        FutureBuiltin.__module__ = "friday_ai.tools.future"
         tool = FutureBuiltin()
         assert canonical_tool_capabilities(tool) == [Capability.SYSTEM_ADMIN]
 
@@ -252,7 +252,7 @@ class TestCapabilityPolicy:
     def test_mcp_adapter_cannot_spoof_reviewed_safe_builtin_name(self):
         from unittest.mock import MagicMock
 
-        from openjarvis.tools.mcp_adapter import MCPToolAdapter
+        from friday_ai.tools.mcp_adapter import MCPToolAdapter
 
         client = MagicMock()
         client.call_tool.return_value = {
@@ -274,8 +274,8 @@ class TestCapabilityPolicy:
         client.call_tool.assert_not_called()
 
     def test_reviewed_safe_floor_is_pinned_to_real_builtin_classes(self):
-        from openjarvis.tools.calculator import CalculatorTool
-        from openjarvis.tools.think import ThinkTool
+        from friday_ai.tools.calculator import CalculatorTool
+        from friday_ai.tools.think import ThinkTool
 
         assert canonical_tool_capabilities(CalculatorTool()) == []
         assert canonical_tool_capabilities(ThinkTool()) == []

@@ -22,7 +22,7 @@ SLACK_CHANNEL = os.environ.get("SLACK_PREVIEW_CHANNEL", "")
 INTERVAL_MINUTES = 30
 
 TOPICS = [
-    # Narrative — opinionated takes that happen to be about OpenJarvis
+    # Narrative — opinionated takes that happen to be about FridayAI
     "mainframe personal computer computing shift efficiency",
     "Intelligence Per Watt study local models queries latency",
     "personal data cloud APIs privacy terms of service",
@@ -42,16 +42,16 @@ TOPICS = [
 FACTS = [
     "In the 70s and 80s computing moved from mainframes to personal computers. Not because PCs were more powerful, but because they became efficient enough for what people actually needed. AI is reaching a similar moment.",
     "In our Intelligence Per Watt study, we found that local language models can accurately service 88.7 percent of single-turn chat and reasoning queries at interactive latencies, with intelligence efficiency improving 5.3 times from 2023 to 2025.",
-    "In nearly all personal AI projects today, the local component is a thin orchestration layer, while the brain lives in someone else data center. Your most personal data routes through cloud APIs, with their latency, their cost, and their terms of service. We built OpenJarvis to fix this.",
-    "OpenJarvis is structured around five composable primitives: Intelligence, Engine, Agents, Tools and Memory, and Learning. Each primitive can be benchmarked, substituted, and optimized independently.",
-    "OpenJarvis includes hardware-agnostic telemetry that profiles energy consumption across NVIDIA GPUs, AMD GPUs, and Apple Silicon. Energy and dollar cost are first-class design constraints alongside accuracy.",
+    "In nearly all personal AI projects today, the local component is a thin orchestration layer, while the brain lives in someone else data center. Your most personal data routes through cloud APIs, with their latency, their cost, and their terms of service. We built FridayAI to fix this.",
+    "FridayAI is structured around five composable primitives: Intelligence, Engine, Agents, Tools and Memory, and Learning. Each primitive can be benchmarked, substituted, and optimized independently.",
+    "FridayAI includes hardware-agnostic telemetry that profiles energy consumption across NVIDIA GPUs, AMD GPUs, and Apple Silicon. Energy and dollar cost are first-class design constraints alongside accuracy.",
     "The learning loop uses personal traces to synthesize training data, refine agent behavior, and improve model selection over time. Four optimization layers: model weights, LM prompts, agentic logic, inference engine.",
-    "OpenJarvis is open source under Apache 2.0, built at Stanford at Hazy Research and the Scaling Intelligence Lab at SAIL. Because the tools for studying and building local-first AI should be available to everyone.",
-    "OpenJarvis supports 27 channel integrations including Slack, Discord, Telegram, WhatsApp. Adding a new channel is one file implementing BaseChannel with connect, send, and disconnect.",
-    "OpenJarvis supports multiple inference engines: Ollama, vLLM, SGLang, llama.cpp. jarvis init picks the right one for your hardware.",
-    "Install OpenJarvis by running git clone https://github.com/open-jarvis/OpenJarvis.git then cd OpenJarvis then uv sync. Use jarvis init to auto-detect hardware and configure the engine.",
-    "OpenJarvis memory and RAG supports four backends: SQLite FTS5 for keyword search, FAISS for vector similarity, ColBERT for token-level matching, and BM25 for probabilistic retrieval.",
-    "OpenJarvis ships with nine example projects: deep_research, code_companion, messaging_hub, scheduled_ops, browser_assistant, security_scanner, daily_digest, doc_qa, and multi_model_router.",
+    "FridayAI is open source under Apache 2.0, built at Stanford at Hazy Research and the Scaling Intelligence Lab at SAIL. Because the tools for studying and building local-first AI should be available to everyone.",
+    "FridayAI supports 27 channel integrations including Slack, Discord, Telegram, WhatsApp. Adding a new channel is one file implementing BaseChannel with connect, send, and disconnect.",
+    "FridayAI supports multiple inference engines: Ollama, vLLM, SGLang, llama.cpp. friday init picks the right one for your hardware.",
+    "Install FridayAI by running git clone https://github.com/open-jarvis/FridayAI.git then cd FridayAI then uv sync. Use friday init to auto-detect hardware and configure the engine.",
+    "FridayAI memory and RAG supports four backends: SQLite FTS5 for keyword search, FAISS for vector similarity, ColBERT for token-level matching, and BM25 for probabilistic retrieval.",
+    "FridayAI ships with nine example projects: deep_research, code_companion, messaging_hub, scheduled_ops, browser_assistant, security_scanner, daily_digest, doc_qa, and multi_model_router.",
 ]
 
 
@@ -72,18 +72,18 @@ def slack_send(text: str, thread_ts: str = "") -> str:
 
 
 def main() -> None:
-    from openjarvis import Jarvis
-    from openjarvis.core.events import EventType
+    from friday_ai import Friday
+    from friday_ai.core.events import EventType
 
     print("Starting overnight Slack preview...")
     print(f"Posting to #{SLACK_CHANNEL} every ~{INTERVAL_MINUTES} min")
     print()
 
-    j = Jarvis(model="qwen3:32b", engine_key="ollama")
+    j = Friday(model="qwen3:32b", engine_key="ollama")
     j._config.agent.max_turns = 5
 
     # Clean and index
-    db_path = os.path.expanduser("~/.openjarvis/memory.db")
+    db_path = os.path.expanduser("~/.friday_ai/memory.db")
     if os.path.exists(db_path):
         os.remove(db_path)
 
@@ -110,7 +110,7 @@ def main() -> None:
 
     # Post parent message
     parent_ts = slack_send(
-        "*OpenJarvis Twitter Bot — Overnight Preview*\n"
+        "*FridayAI Twitter Bot — Overnight Preview*\n"
         f"Generating a tweet every ~{INTERVAL_MINUTES} min. "
         "Check this thread in the morning.",
     )
@@ -136,7 +136,7 @@ def main() -> None:
 
         tool_log.clear()
         r = j.ask_full(
-            "You are @OpenJarvisAI — a researcher/dev who believes local-first "
+            "You are @FridayAIAI — a researcher/dev who believes local-first "
             "AI is the future. Write one tweet. all lowercase, <=280 chars.\n\n"
             f'1. memory_search: "{topic}"\n'
             "2. Write a tweet that makes someone stop scrolling. Lead with "
@@ -149,7 +149,7 @@ def main() -> None:
             '- "88.7% of queries run fine on local hardware. why is '
             'everyone still paying per API call?"\n'
             '- "your most personal data routes through someone else\'s '
-            'server. we built openjarvis to fix that"\n'
+            'server. we built friday_ai to fix that"\n'
             '- "in the 70s computing moved from mainframes to pcs. not '
             'because pcs were more powerful — because they got efficient '
             'enough. ai is at that moment right now"\n'
@@ -158,7 +158,7 @@ def main() -> None:
             '- "four rag backends, swap with one config change. been '
             'testing colbert on our docs and the retrieval quality jump is real"\n\n'
             "Only real facts. No invented stats. "
-            "Link: https://github.com/open-jarvis/OpenJarvis",
+            "Link: https://github.com/open-jarvis/FridayAI",
             agent="orchestrator",
             tools=["think", "memory_search", "channel_send"],
             temperature=0.7,

@@ -6,7 +6,7 @@ setup:
 	uv sync --extra dev --extra framework-comparison --extra server
 
 build:
-	uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
+	uv run maturin develop --manifest-path rust/crates/friday_ai-python/Cargo.toml
 
 test: build
 	uv run pytest tests/ -n auto -q --tb=short -m "not live and not cloud and not hub"

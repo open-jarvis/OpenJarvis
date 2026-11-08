@@ -1,18 +1,18 @@
-"""Tests for openjarvis.learning.spec_search.triggers module."""
+"""Tests for friday_ai.learning.spec_search.triggers module."""
 
 from __future__ import annotations
 
 
 class TestOnDemandTrigger:
     def test_constructs(self) -> None:
-        from openjarvis.learning.spec_search.triggers import OnDemandTrigger
+        from friday_ai.learning.spec_search.triggers import OnDemandTrigger
 
         t = OnDemandTrigger()
         assert t.kind.value == "on_demand"
         assert t.metadata == {}
 
     def test_metadata(self) -> None:
-        from openjarvis.learning.spec_search.triggers import OnDemandTrigger
+        from friday_ai.learning.spec_search.triggers import OnDemandTrigger
 
         t = OnDemandTrigger(metadata={"source": "cli"})
         assert t.metadata["source"] == "cli"
@@ -20,7 +20,7 @@ class TestOnDemandTrigger:
 
 class TestUserFlagTrigger:
     def test_constructs_with_trace_id(self) -> None:
-        from openjarvis.learning.spec_search.triggers import UserFlagTrigger
+        from friday_ai.learning.spec_search.triggers import UserFlagTrigger
 
         t = UserFlagTrigger(trace_id="trace-001")
         assert t.kind.value == "user_flag"
@@ -30,7 +30,7 @@ class TestUserFlagTrigger:
 
 class TestScheduledTrigger:
     def test_constructs(self) -> None:
-        from openjarvis.learning.spec_search.triggers import ScheduledTrigger
+        from friday_ai.learning.spec_search.triggers import ScheduledTrigger
 
         t = ScheduledTrigger(cron="0 3 * * *", new_trace_count=25)
         assert t.kind.value == "scheduled"
@@ -40,7 +40,7 @@ class TestScheduledTrigger:
 
 class TestClusterTrigger:
     def test_constructs(self) -> None:
-        from openjarvis.learning.spec_search.triggers import ClusterTrigger
+        from friday_ai.learning.spec_search.triggers import ClusterTrigger
 
         t = ClusterTrigger(
             cluster_description="math failures",

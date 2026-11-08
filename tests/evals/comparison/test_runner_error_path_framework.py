@@ -2,7 +2,7 @@
 
 Regression test for the bug where _process_one()'s exception fallback
 constructed EvalResult without ``framework=``, causing the dataclass
-default of ``"openjarvis"`` to silently mislabel data from foreign
+default of ``"friday_ai"`` to silently mislabel data from foreign
 backends (hermes, openclaw) when a task errored before reaching the
 happy-path EvalResult construction.
 """
@@ -12,10 +12,10 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from openjarvis.evals.core.dataset import DatasetProvider
-from openjarvis.evals.core.runner import EvalRunner
-from openjarvis.evals.core.scorer import Scorer
-from openjarvis.evals.core.types import EvalRecord, RunConfig
+from friday_ai.evals.core.dataset import DatasetProvider
+from friday_ai.evals.core.runner import EvalRunner
+from friday_ai.evals.core.scorer import Scorer
+from friday_ai.evals.core.types import EvalRecord, RunConfig
 
 
 class _FailingBackend:
@@ -124,7 +124,7 @@ class _NoopScorer(Scorer):
 class TestErrorPathFrameworkPropagation:
     def test_failed_task_keeps_backend_framework_name(self, tmp_path: Any) -> None:
         """When the backend raises, EvalResult.framework should still be the
-        backend's framework_name, not the dataclass default 'openjarvis'."""
+        backend's framework_name, not the dataclass default 'friday_ai'."""
         cfg = RunConfig(
             benchmark="mock",
             backend="hermes",
@@ -145,7 +145,7 @@ class TestErrorPathFrameworkPropagation:
         assert len(results) == 1
         result = results[0]
         # The KEY assertion: framework must come from backend.framework_name,
-        # NOT from the EvalResult dataclass default of "openjarvis".
+        # NOT from the EvalResult dataclass default of "friday_ai".
         assert result.framework == "hermes", (
             f"Expected framework='hermes' (from backend.framework_name), "
             f"got {result.framework!r}"
@@ -155,7 +155,7 @@ class TestErrorPathFrameworkPropagation:
 
     def test_default_framework_when_backend_missing_attr(self, tmp_path: Any) -> None:
         """Backends that don't override framework_name should still produce
-        a sensible default (the ABC's "openjarvis"), via getattr fallback."""
+        a sensible default (the ABC's "friday_ai"), via getattr fallback."""
 
         class _BackendWithoutFrameworkName:
             backend_id = "legacy"
@@ -188,8 +188,8 @@ class TestErrorPathFrameworkPropagation:
         results = runner.results
         assert len(results) == 1
         # getattr() defensive fallback in the runner kicks in; result keeps
-        # the conservative "openjarvis" tag rather than crashing.
-        assert results[0].framework == "openjarvis"
+        # the conservative "friday_ai" tag rather than crashing.
+        assert results[0].framework == "friday_ai"
         assert results[0].error is not None
 
 

@@ -1,4 +1,4 @@
-"""Tests for bare ``jarvis`` routing with model picker."""
+"""Tests for bare ``friday`` routing with model picker."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.cli._first_run import check_and_route
-from openjarvis.cli.chat_cmd import chat as chat_cmd
-from openjarvis.cli.init_cmd import init as init_cmd
-from openjarvis.core import config as _cfg
+from friday_ai.cli._first_run import check_and_route
+from friday_ai.cli.chat_cmd import chat as chat_cmd
+from friday_ai.cli.init_cmd import init as init_cmd
+from friday_ai.core import config as _cfg
 
 
 @pytest.fixture()
@@ -32,7 +32,7 @@ def test_check_and_route_enables_picker_on_tty(config_path) -> None:
 def test_check_and_route_skips_picker_with_env(
     config_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("JARVIS_SKIP_MODEL_PICK", "1")
+    monkeypatch.setenv("FRIDAY_SKIP_MODEL_PICK", "1")
     ctx = MagicMock()
     ctx.invoked_subcommand = None
     ctx.obj = {}
@@ -49,4 +49,4 @@ def test_check_and_route_runs_init_without_config(
     ctx = MagicMock()
     ctx.invoked_subcommand = None
     check_and_route(ctx)
-    ctx.invoke.assert_called_once_with(init_cmd, from_bare_jarvis=True)
+    ctx.invoke.assert_called_once_with(init_cmd, from_bare_friday=True)

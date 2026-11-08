@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ fetchIdentity: vi.fn() }));
 vi.mock('./analytics', () => ({ fetchAnalyticsIdentity: mocks.fetchIdentity }));
 import { offerAnalyticsChoice } from './analytics-invitation';
 
-const seenKey = 'openjarvis-analytics-choice-seen';
+const seenKey = 'friday_ai-analytics-choice-seen';
 let stored: Map<string, string>;
 
 beforeEach(() => {

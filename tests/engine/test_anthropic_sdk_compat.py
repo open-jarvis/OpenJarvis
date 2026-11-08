@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from openjarvis.core.types import Message, Role
-from openjarvis.engine.cloud import CloudEngine
+from friday_ai.core.types import Message, Role
+from friday_ai.engine.cloud import CloudEngine
 
 
 @pytest.mark.asyncio

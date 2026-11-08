@@ -10,9 +10,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-pytest.importorskip("fastapi", reason="openjarvis[server] not installed")
+pytest.importorskip("fastapi", reason="friday_ai[server] not installed")
 
-from openjarvis.channels._stubs import ChannelStatus  # noqa: E402
+from friday_ai.channels._stubs import ChannelStatus  # noqa: E402
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def mock_bridge():
 @pytest.fixture
 def app_with_bridge(mock_engine, mock_bridge):
     """FastAPI app with channel bridge configured."""
-    from openjarvis.server.app import create_app
+    from friday_ai.server.app import create_app
 
     return create_app(
         mock_engine,
@@ -56,7 +56,7 @@ def app_with_bridge(mock_engine, mock_bridge):
 @pytest.fixture
 def app_without_bridge(mock_engine):
     """FastAPI app without channel bridge."""
-    from openjarvis.server.app import create_app
+    from friday_ai.server.app import create_app
 
     return create_app(mock_engine, "test-model")
 
@@ -97,7 +97,7 @@ class TestChannelSend:
     def test_send_success(self, client_with_bridge, mock_bridge):
         resp = client_with_bridge.post(
             "/v1/channels/send",
-            json={"channel": "slack", "content": "Hello from Jarvis"},
+            json={"channel": "slack", "content": "Hello from Friday"},
         )
         assert resp.status_code == 200
         data = resp.json()

@@ -3,11 +3,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-REGISTRY_PATH = "openjarvis.core.registry.AgentRegistry.get"
+REGISTRY_PATH = "friday_ai.core.registry.AgentRegistry.get"
 
 
 def test_run_ephemeral_creates_and_runs_agent():
-    from openjarvis.agents.executor import AgentExecutor
+    from friday_ai.agents.executor import AgentExecutor
 
     manager = MagicMock()
     executor = AgentExecutor(manager=manager, event_bus=MagicMock())
@@ -27,7 +27,7 @@ def test_run_ephemeral_creates_and_runs_agent():
 
 
 def test_run_ephemeral_passes_input():
-    from openjarvis.agents.executor import AgentExecutor
+    from friday_ai.agents.executor import AgentExecutor
 
     manager = MagicMock()
     executor = AgentExecutor(manager=manager, event_bus=MagicMock())
@@ -47,13 +47,13 @@ def test_run_ephemeral_passes_input():
 
 
 def test_run_ephemeral_resolves_tools_and_preserves_security():
-    from openjarvis.agents.executor import AgentExecutor
-    from openjarvis.agents.simple import SimpleAgent
-    from openjarvis.core.events import EventBus
-    from openjarvis.core.registry import AgentRegistry, ToolRegistry
-    from openjarvis.core.types import ToolResult
-    from openjarvis.security.capabilities import CapabilityPolicy
-    from openjarvis.tools._stubs import BaseTool, ToolSpec
+    from friday_ai.agents.executor import AgentExecutor
+    from friday_ai.agents.simple import SimpleAgent
+    from friday_ai.core.events import EventBus
+    from friday_ai.core.registry import AgentRegistry, ToolRegistry
+    from friday_ai.core.types import ToolResult
+    from friday_ai.security.capabilities import CapabilityPolicy
+    from friday_ai.tools._stubs import BaseTool, ToolSpec
 
     class _FlushProbe(BaseTool):
         calls = 0

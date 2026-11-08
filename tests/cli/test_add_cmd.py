@@ -1,4 +1,4 @@
-"""Tests for the ``jarvis add`` CLI command."""
+"""Tests for the ``friday add`` CLI command."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest import mock
 
 from click.testing import CliRunner
 
-from openjarvis.cli.add_cmd import _MCP_TEMPLATES, add
+from friday_ai.cli.add_cmd import _MCP_TEMPLATES, add
 
 
 class TestAddCmd:
@@ -27,7 +27,7 @@ class TestAddCmd:
 
     def test_add_known_server(self, tmp_path: Path) -> None:
         mcp_dir = tmp_path / "mcp"
-        with mock.patch("openjarvis.cli.add_cmd._MCP_CONFIG_DIR", mcp_dir):
+        with mock.patch("friday_ai.cli.add_cmd._MCP_CONFIG_DIR", mcp_dir):
             result = CliRunner().invoke(add, ["filesystem"])
             assert result.exit_code == 0
             assert "Added MCP server: filesystem" in result.output
@@ -40,7 +40,7 @@ class TestAddCmd:
 
     def test_add_with_key(self, tmp_path: Path) -> None:
         mcp_dir = tmp_path / "mcp"
-        with mock.patch("openjarvis.cli.add_cmd._MCP_CONFIG_DIR", mcp_dir):
+        with mock.patch("friday_ai.cli.add_cmd._MCP_CONFIG_DIR", mcp_dir):
             result = CliRunner().invoke(
                 add,
                 ["github", "--key", "test_token"],

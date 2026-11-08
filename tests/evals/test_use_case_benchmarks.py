@@ -24,14 +24,14 @@ import pytest
 
 class TestEmailTriageDataset:
     def test_instantiation(self) -> None:
-        from openjarvis.evals.datasets.email_triage import EmailTriageDataset
+        from friday_ai.evals.datasets.email_triage import EmailTriageDataset
 
         ds = EmailTriageDataset()
         assert ds.dataset_id == "email_triage"
         assert ds.dataset_name == "Email Triage"
 
     def test_load(self) -> None:
-        from openjarvis.evals.datasets.email_triage import EmailTriageDataset
+        from friday_ai.evals.datasets.email_triage import EmailTriageDataset
 
         ds = EmailTriageDataset()
         ds.load(max_samples=5, seed=42)
@@ -45,7 +45,7 @@ class TestEmailTriageDataset:
         assert "category" in r.metadata
 
     def test_load_all(self) -> None:
-        from openjarvis.evals.datasets.email_triage import EmailTriageDataset
+        from friday_ai.evals.datasets.email_triage import EmailTriageDataset
 
         ds = EmailTriageDataset()
         ds.load()
@@ -54,14 +54,14 @@ class TestEmailTriageDataset:
 
 class TestMorningBriefDataset:
     def test_instantiation(self) -> None:
-        from openjarvis.evals.datasets.morning_brief import MorningBriefDataset
+        from friday_ai.evals.datasets.morning_brief import MorningBriefDataset
 
         ds = MorningBriefDataset()
         assert ds.dataset_id == "morning_brief"
         assert ds.dataset_name == "Morning Brief"
 
     def test_load(self) -> None:
-        from openjarvis.evals.datasets.morning_brief import MorningBriefDataset
+        from friday_ai.evals.datasets.morning_brief import MorningBriefDataset
 
         ds = MorningBriefDataset()
         ds.load(max_samples=5, seed=42)
@@ -72,7 +72,7 @@ class TestMorningBriefDataset:
         assert r.reference  # key_priorities not empty
 
     def test_load_all(self) -> None:
-        from openjarvis.evals.datasets.morning_brief import MorningBriefDataset
+        from friday_ai.evals.datasets.morning_brief import MorningBriefDataset
 
         ds = MorningBriefDataset()
         ds.load()
@@ -81,14 +81,14 @@ class TestMorningBriefDataset:
 
 class TestResearchMiningDataset:
     def test_instantiation(self) -> None:
-        from openjarvis.evals.datasets.research_mining import ResearchMiningDataset
+        from friday_ai.evals.datasets.research_mining import ResearchMiningDataset
 
         ds = ResearchMiningDataset()
         assert ds.dataset_id == "research_mining"
         assert ds.dataset_name == "Research Mining"
 
     def test_load(self) -> None:
-        from openjarvis.evals.datasets.research_mining import ResearchMiningDataset
+        from friday_ai.evals.datasets.research_mining import ResearchMiningDataset
 
         ds = ResearchMiningDataset()
         ds.load(max_samples=5, seed=42)
@@ -99,7 +99,7 @@ class TestResearchMiningDataset:
         assert "domain" in r.metadata
 
     def test_load_all(self) -> None:
-        from openjarvis.evals.datasets.research_mining import ResearchMiningDataset
+        from friday_ai.evals.datasets.research_mining import ResearchMiningDataset
 
         ds = ResearchMiningDataset()
         ds.load()
@@ -108,14 +108,14 @@ class TestResearchMiningDataset:
 
 class TestKnowledgeBaseDataset:
     def test_instantiation(self) -> None:
-        from openjarvis.evals.datasets.knowledge_base import KnowledgeBaseDataset
+        from friday_ai.evals.datasets.knowledge_base import KnowledgeBaseDataset
 
         ds = KnowledgeBaseDataset()
         assert ds.dataset_id == "knowledge_base"
         assert ds.dataset_name == "Knowledge Base"
 
     def test_load(self) -> None:
-        from openjarvis.evals.datasets.knowledge_base import KnowledgeBaseDataset
+        from friday_ai.evals.datasets.knowledge_base import KnowledgeBaseDataset
 
         ds = KnowledgeBaseDataset()
         ds.load(max_samples=5, seed=42)
@@ -126,7 +126,7 @@ class TestKnowledgeBaseDataset:
         assert r.reference  # answer not empty
 
     def test_load_all(self) -> None:
-        from openjarvis.evals.datasets.knowledge_base import KnowledgeBaseDataset
+        from friday_ai.evals.datasets.knowledge_base import KnowledgeBaseDataset
 
         ds = KnowledgeBaseDataset()
         ds.load()
@@ -135,14 +135,14 @@ class TestKnowledgeBaseDataset:
 
 class TestCodingTaskDataset:
     def test_instantiation(self) -> None:
-        from openjarvis.evals.datasets.coding_task import CodingTaskDataset
+        from friday_ai.evals.datasets.coding_task import CodingTaskDataset
 
         ds = CodingTaskDataset()
         assert ds.dataset_id == "coding_task"
         assert ds.dataset_name == "Coding Task"
 
     def test_load(self) -> None:
-        from openjarvis.evals.datasets.coding_task import CodingTaskDataset
+        from friday_ai.evals.datasets.coding_task import CodingTaskDataset
 
         ds = CodingTaskDataset()
         ds.load(max_samples=5, seed=42)
@@ -154,7 +154,7 @@ class TestCodingTaskDataset:
         assert "signature" in r.metadata
 
     def test_load_all(self) -> None:
-        from openjarvis.evals.datasets.coding_task import CodingTaskDataset
+        from friday_ai.evals.datasets.coding_task import CodingTaskDataset
 
         ds = CodingTaskDataset()
         ds.load()
@@ -171,31 +171,31 @@ class TestScorerInstantiation:
         return MagicMock()
 
     def test_email_triage_scorer(self) -> None:
-        from openjarvis.evals.scorers.email_triage import EmailTriageScorer
+        from friday_ai.evals.scorers.email_triage import EmailTriageScorer
 
         scorer = EmailTriageScorer(self._mock_backend(), "gpt-5-mini")
         assert scorer.scorer_id == "email_triage"
 
     def test_morning_brief_scorer(self) -> None:
-        from openjarvis.evals.scorers.morning_brief import MorningBriefScorer
+        from friday_ai.evals.scorers.morning_brief import MorningBriefScorer
 
         scorer = MorningBriefScorer(self._mock_backend(), "gpt-5-mini")
         assert scorer.scorer_id == "morning_brief"
 
     def test_research_mining_scorer(self) -> None:
-        from openjarvis.evals.scorers.research_mining import ResearchMiningScorer
+        from friday_ai.evals.scorers.research_mining import ResearchMiningScorer
 
         scorer = ResearchMiningScorer(self._mock_backend(), "gpt-5-mini")
         assert scorer.scorer_id == "research_mining"
 
     def test_knowledge_base_scorer(self) -> None:
-        from openjarvis.evals.scorers.knowledge_base import KnowledgeBaseScorer
+        from friday_ai.evals.scorers.knowledge_base import KnowledgeBaseScorer
 
         scorer = KnowledgeBaseScorer(self._mock_backend(), "gpt-5-mini")
         assert scorer.scorer_id == "knowledge_base"
 
     def test_coding_task_scorer(self) -> None:
-        from openjarvis.evals.scorers.coding_task import CodingTaskScorer
+        from friday_ai.evals.scorers.coding_task import CodingTaskScorer
 
         scorer = CodingTaskScorer(self._mock_backend(), "gpt-5-mini")
         assert scorer.scorer_id == "coding_task"
@@ -210,8 +210,8 @@ class TestCodingTaskScoring:
     """Test the coding task scorer with actual code execution."""
 
     def test_correct_answer(self) -> None:
-        from openjarvis.evals.core.types import EvalRecord
-        from openjarvis.evals.scorers.coding_task import CodingTaskScorer
+        from friday_ai.evals.core.types import EvalRecord
+        from friday_ai.evals.scorers.coding_task import CodingTaskScorer
 
         scorer = CodingTaskScorer()
         record = EvalRecord(
@@ -235,8 +235,8 @@ class TestCodingTaskScoring:
         assert meta["pass_rate"] == 1.0
 
     def test_incorrect_answer(self) -> None:
-        from openjarvis.evals.core.types import EvalRecord
-        from openjarvis.evals.scorers.coding_task import CodingTaskScorer
+        from friday_ai.evals.core.types import EvalRecord
+        from friday_ai.evals.scorers.coding_task import CodingTaskScorer
 
         scorer = CodingTaskScorer()
         record = EvalRecord(
@@ -254,8 +254,8 @@ class TestCodingTaskScoring:
         assert is_correct is False
 
     def test_empty_answer(self) -> None:
-        from openjarvis.evals.core.types import EvalRecord
-        from openjarvis.evals.scorers.coding_task import CodingTaskScorer
+        from friday_ai.evals.core.types import EvalRecord
+        from friday_ai.evals.scorers.coding_task import CodingTaskScorer
 
         scorer = CodingTaskScorer()
         record = EvalRecord(
@@ -274,8 +274,8 @@ class TestEmailTriageScoring:
     """Test exact-match path of email triage scorer."""
 
     def test_exact_match(self) -> None:
-        from openjarvis.evals.core.types import EvalRecord
-        from openjarvis.evals.scorers.email_triage import EmailTriageScorer
+        from friday_ai.evals.core.types import EvalRecord
+        from friday_ai.evals.scorers.email_triage import EmailTriageScorer
 
         scorer = EmailTriageScorer(MagicMock(), "gpt-5-mini")
         record = EvalRecord(
@@ -310,7 +310,7 @@ class TestCLIFactories:
         ],
     )
     def test_build_dataset(self, benchmark: str) -> None:
-        from openjarvis.evals.cli import _build_dataset
+        from friday_ai.evals.cli import _build_dataset
 
         ds = _build_dataset(benchmark)
         assert ds.dataset_id == benchmark
@@ -326,7 +326,7 @@ class TestCLIFactories:
         ],
     )
     def test_build_scorer(self, benchmark: str) -> None:
-        from openjarvis.evals.cli import _build_scorer
+        from friday_ai.evals.cli import _build_scorer
 
         scorer = _build_scorer(benchmark, MagicMock(), "gpt-5-mini")
         assert scorer.scorer_id == benchmark
@@ -341,7 +341,7 @@ class TestCostCalculator:
     """Test the cost calculator module."""
 
     def test_estimate_monthly_cost(self) -> None:
-        from openjarvis.server.cost_calculator import estimate_monthly_cost
+        from friday_ai.server.cost_calculator import estimate_monthly_cost
 
         est = estimate_monthly_cost(
             calls_per_month=1000,
@@ -354,7 +354,7 @@ class TestCostCalculator:
         assert est.total_calls_per_month == 1000
 
     def test_estimate_scenario(self) -> None:
-        from openjarvis.server.cost_calculator import estimate_scenario
+        from friday_ai.server.cost_calculator import estimate_scenario
 
         estimates = estimate_scenario("daily_briefing")
         assert len(estimates) == 3  # 3 cloud providers
@@ -362,19 +362,19 @@ class TestCostCalculator:
             assert est.monthly_cost > 0
 
     def test_estimate_all_scenarios(self) -> None:
-        from openjarvis.server.cost_calculator import estimate_all_scenarios
+        from friday_ai.server.cost_calculator import estimate_all_scenarios
 
         all_est = estimate_all_scenarios()
         assert len(all_est) == 5  # 5 scenarios
 
     def test_unknown_provider(self) -> None:
-        from openjarvis.server.cost_calculator import estimate_monthly_cost
+        from friday_ai.server.cost_calculator import estimate_monthly_cost
 
         with pytest.raises(ValueError, match="Unknown provider"):
             estimate_monthly_cost(100, 100, 100, "nonexistent")
 
     def test_unknown_scenario(self) -> None:
-        from openjarvis.server.cost_calculator import estimate_scenario
+        from friday_ai.server.cost_calculator import estimate_scenario
 
         with pytest.raises(ValueError, match="Unknown scenario"):
             estimate_scenario("nonexistent")
@@ -389,7 +389,7 @@ class TestSavings:
     """Test the savings computation module."""
 
     def test_compute_savings_basic(self) -> None:
-        from openjarvis.server.savings import compute_savings
+        from friday_ai.server.savings import compute_savings
 
         summary = compute_savings(1000, 500, total_calls=10)
         assert summary.total_calls == 10
@@ -402,7 +402,7 @@ class TestSavings:
     def test_compute_savings_with_session(self) -> None:
         import time
 
-        from openjarvis.server.savings import compute_savings
+        from friday_ai.server.savings import compute_savings
 
         start = time.time() - 3600  # 1 hour ago
         summary = compute_savings(
@@ -415,7 +415,7 @@ class TestSavings:
         assert summary.monthly_projection  # not empty
 
     def test_savings_to_dict(self) -> None:
-        from openjarvis.server.savings import compute_savings, savings_to_dict
+        from friday_ai.server.savings import compute_savings, savings_to_dict
 
         summary = compute_savings(1000, 500, total_calls=5)
         d = savings_to_dict(summary)
@@ -436,7 +436,7 @@ class TestSavings:
         tested without depending on the (now intentionally conservative)
         fallback behaviour.
         """
-        from openjarvis.server.savings import compute_savings
+        from friday_ai.server.savings import compute_savings
 
         s1 = compute_savings(1000, 0, prompt_tokens_evaluated=1000)
         s10 = compute_savings(10000, 0, prompt_tokens_evaluated=10000)
@@ -455,7 +455,7 @@ class TestSavings:
         savings.py means an unset `prompt_tokens_evaluated` produces 0
         FLOPs and would make this test pass trivially with 0 == 0.
         """
-        from openjarvis.server.savings import CLOUD_PRICING, compute_savings
+        from friday_ai.server.savings import CLOUD_PRICING, compute_savings
 
         summary = compute_savings(10000, 0, prompt_tokens_evaluated=10000)
         for p in summary.per_provider:
@@ -476,7 +476,7 @@ class TestSavings:
 
     def test_energy_not_zero(self) -> None:
         """Energy must be positive for non-zero token counts."""
-        from openjarvis.server.savings import compute_savings
+        from friday_ai.server.savings import compute_savings
 
         summary = compute_savings(500, 500)
         for p in summary.per_provider:

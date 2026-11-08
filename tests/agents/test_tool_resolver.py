@@ -6,12 +6,12 @@ from collections import Counter
 
 import pytest
 
-from openjarvis.agents import tool_resolver
-from openjarvis.connectors.store import KnowledgeStore
-from openjarvis.core.registry import ToolRegistry
-from openjarvis.core.types import ToolResult
-from openjarvis.tools import description_loader
-from openjarvis.tools._stubs import BaseTool, ToolSpec
+from friday_ai.agents import tool_resolver
+from friday_ai.connectors.store import KnowledgeStore
+from friday_ai.core.registry import ToolRegistry
+from friday_ai.core.types import ToolResult
+from friday_ai.tools import description_loader
+from friday_ai.tools._stubs import BaseTool, ToolSpec
 
 
 class _AlphaTool(BaseTool):
@@ -157,12 +157,12 @@ def test_configured_tools_normalize_lists_and_comma_separated_strings(
 def test_managed_file_tools_use_application_policy(
     tmp_path, monkeypatch, custom_spec, invalid_policy
 ):
-    from openjarvis.core.config import JarvisConfig
-    from openjarvis.tools.file_read import FileReadTool
+    from friday_ai.core.config import FridayConfig
+    from friday_ai.tools.file_read import FileReadTool
 
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.security.allowed_dirs = None if invalid_policy else [str(tmp_path / "allowed")]
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: JarvisConfig())
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda: FridayConfig())
     ToolRegistry.register_value("file_read", FileReadTool)
     entry = (
         {"type": "function", "function": {"name": "file_read"}}

@@ -1,4 +1,4 @@
-"""Verify that importing openjarvis.tools registers all built-in tools."""
+"""Verify that importing friday_ai.tools registers all built-in tools."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import importlib
 import subprocess
 import sys
 
-from openjarvis.core.registry import ToolRegistry
+from friday_ai.core.registry import ToolRegistry
 
 # Every tool name that should be registered after importing the package.
 EXPECTED_TOOLS = {
@@ -106,19 +106,19 @@ EXPECTED_TOOLS = {
 
 
 def _reload_tool_modules() -> None:
-    """Reload all openjarvis.tools.* submodules to re-trigger @register decorators.
+    """Reload all friday_ai.tools.* submodules to re-trigger @register decorators.
 
     The autouse ``_clean_registries`` fixture clears all registries before each
-    test.  A plain ``import openjarvis.tools`` won't re-register because the
+    test.  A plain ``import friday_ai.tools`` won't re-register because the
     submodules are already cached in ``sys.modules``.  We ensure the package is
     imported, then reload the individual submodules so their class-level
     ``@ToolRegistry.register`` decorators execute again.
     """
-    import openjarvis.tools  # noqa: F401
+    import friday_ai.tools  # noqa: F401
 
     for mod_name in list(sys.modules):
         if (
-            mod_name.startswith("openjarvis.tools.")
+            mod_name.startswith("friday_ai.tools.")
             and not mod_name.endswith("_stubs")
             and not mod_name.endswith("agent_tools")
         ):
@@ -145,8 +145,8 @@ def test_package_import_registers_deep_research_tools():
             sys.executable,
             "-c",
             (
-                "import openjarvis.tools; "
-                "from openjarvis.core.registry import ToolRegistry; "
+                "import friday_ai.tools; "
+                "from friday_ai.core.registry import ToolRegistry; "
                 "expected = {'knowledge_sql', 'scan_chunks'}; "
                 "missing = expected - set(ToolRegistry.keys()); "
                 "assert not missing, f'Missing tools: {sorted(missing)}'"
@@ -167,8 +167,8 @@ def test_calendar_tools_register_when_connector_is_imported_first():
             sys.executable,
             "-c",
             (
-                "import openjarvis.connectors.apple_calendar; "
-                "from openjarvis.core.registry import ToolRegistry; "
+                "import friday_ai.connectors.apple_calendar; "
+                "from friday_ai.core.registry import ToolRegistry; "
                 "expected = {'calendar_upcoming', 'calendar_search'}; "
                 "missing = expected - set(ToolRegistry.keys()); "
                 "assert not missing, f'Missing tools: {sorted(missing)}'"
@@ -189,8 +189,8 @@ def test_package_import_registers_knowledge_browser_and_proactive_tools():
             sys.executable,
             "-c",
             (
-                "import openjarvis.tools; "
-                "from openjarvis.core.registry import ToolRegistry; "
+                "import friday_ai.tools; "
+                "from friday_ai.core.registry import ToolRegistry; "
                 "expected = {"
                 "'knowledge_search', 'browser_navigate', 'browser_axtree', "
                 "'check_permission', 'queue_action'"

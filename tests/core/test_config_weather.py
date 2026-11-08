@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openjarvis.core.config import load_config
+from friday_ai.core.config import load_config
 
 
 def test_weather_tool_config_loads_from_nested_toml(tmp_path):

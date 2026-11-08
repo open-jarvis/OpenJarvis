@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.core.config import (
+from friday_ai.core.config import (
     GpuInfo,
     HardwareInfo,
     _detect_apple_gpu,
@@ -24,9 +24,9 @@ pytestmark = pytest.mark.apple
 class TestAppleDetection:
     """Tests for _detect_apple_gpu() against system_profiler outputs."""
 
-    @patch("openjarvis.core.config.platform.system", return_value="Darwin")
+    @patch("friday_ai.core.config.platform.system", return_value="Darwin")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         return_value=(
             "Graphics/Displays:\n"
             "\n"
@@ -44,14 +44,14 @@ class TestAppleDetection:
         assert gpu.vendor == "apple"
         assert "M4 Max" in gpu.name
 
-    @patch("openjarvis.core.config.platform.system", return_value="Linux")
+    @patch("friday_ai.core.config.platform.system", return_value="Linux")
     def test_non_darwin_returns_none(self, mock_system):
         """On non-Darwin platforms, Apple GPU detection returns None."""
         assert _detect_apple_gpu() is None
 
-    @patch("openjarvis.core.config.platform.system", return_value="Darwin")
+    @patch("friday_ai.core.config.platform.system", return_value="Darwin")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         return_value=(
             "Graphics/Displays:\n"
             "\n"
@@ -65,9 +65,9 @@ class TestAppleDetection:
         """system_profiler output without 'Apple' returns None."""
         assert _detect_apple_gpu() is None
 
-    @patch("openjarvis.core.config.platform.system", return_value="Darwin")
+    @patch("friday_ai.core.config.platform.system", return_value="Darwin")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         return_value=(
             "Graphics/Displays:\n"
             "\n"
@@ -84,9 +84,9 @@ class TestAppleDetection:
         assert gpu is not None
         assert gpu.name == "Apple M2 Ultra"
 
-    @patch("openjarvis.core.config.platform.system", return_value="Darwin")
+    @patch("friday_ai.core.config.platform.system", return_value="Darwin")
     @patch(
-        "openjarvis.core.config._run_cmd",
+        "friday_ai.core.config._run_cmd",
         return_value=("Graphics/Displays:\n    Apple Silicon\n      Type: GPU\n"),
     )
     def test_apple_no_chipset_line_falls_back(self, mock_run, mock_system):
@@ -96,8 +96,8 @@ class TestAppleDetection:
         assert gpu.vendor == "apple"
         assert gpu.name == "Apple Silicon"
 
-    @patch("openjarvis.core.config.platform.system", return_value="Darwin")
-    @patch("openjarvis.core.config._run_cmd", return_value="")
+    @patch("friday_ai.core.config.platform.system", return_value="Darwin")
+    @patch("friday_ai.core.config._run_cmd", return_value="")
     def test_empty_profiler_output(self, mock_run, mock_system):
         """Empty system_profiler output returns None (no 'Apple' substring)."""
         assert _detect_apple_gpu() is None

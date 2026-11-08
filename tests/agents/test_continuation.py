@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from openjarvis.agents._stubs import AgentResult, BaseAgent
+from friday_ai.agents._stubs import AgentResult, BaseAgent
 
 
 class MockEngine:

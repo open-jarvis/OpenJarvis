@@ -1,0 +1,13 @@
+[package]
+name = "friday_ai-mcp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+friday_ai-core = { path = "../friday_ai-core" }
+friday_ai-tools = { path = "../friday_ai-tools" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }

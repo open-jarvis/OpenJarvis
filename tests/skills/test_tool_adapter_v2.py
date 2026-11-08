@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from openjarvis.core.types import ToolResult
-from openjarvis.skills.executor import SkillExecutor
-from openjarvis.skills.tool_adapter import SkillTool
-from openjarvis.skills.types import SkillManifest, SkillStep
-from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+from friday_ai.core.types import ToolResult
+from friday_ai.skills.executor import SkillExecutor
+from friday_ai.skills.tool_adapter import SkillTool
+from friday_ai.skills.types import SkillManifest, SkillStep
+from friday_ai.tools._stubs import BaseTool, ToolExecutor, ToolSpec
 
 
 class EchoTool(BaseTool):

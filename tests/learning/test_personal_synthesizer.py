@@ -8,16 +8,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.core.types import Trace
-from openjarvis.evals.core.types import EvalRecord
-from openjarvis.learning.optimize.personal.dataset import PersonalBenchmarkDataset
-from openjarvis.learning.optimize.personal.scorer import PersonalBenchmarkScorer
-from openjarvis.learning.optimize.personal.synthesizer import (
+from friday_ai.core.types import Trace
+from friday_ai.evals.core.types import EvalRecord
+from friday_ai.learning.optimize.personal.dataset import PersonalBenchmarkDataset
+from friday_ai.learning.optimize.personal.scorer import PersonalBenchmarkScorer
+from friday_ai.learning.optimize.personal.synthesizer import (
     PersonalBenchmark,
     PersonalBenchmarkSample,
     PersonalBenchmarkSynthesizer,
 )
-from openjarvis.traces.store import TraceStore
+from friday_ai.traces.store import TraceStore
 
 # ---------------------------------------------------------------------------
 # Helpers

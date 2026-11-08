@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from openjarvis.server.session_store import SessionStore
+from friday_ai.server.session_store import SessionStore
 
 
 @pytest.fixture

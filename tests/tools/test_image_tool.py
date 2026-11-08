@@ -6,7 +6,7 @@ import builtins
 import sys
 from unittest.mock import MagicMock
 
-from openjarvis.tools.image_tool import ImageGenerateTool
+from friday_ai.tools.image_tool import ImageGenerateTool
 
 
 class TestImageGenerateTool:

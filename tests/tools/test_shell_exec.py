@@ -16,8 +16,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.core import get_python_executable
-from openjarvis.tools.shell_exec import ShellExecTool
+from friday_ai.core import get_python_executable
+from friday_ai.tools.shell_exec import ShellExecTool
 
 
 def _rust_output(stdout: str = "", stderr: str = "", code: int = 0) -> str:
@@ -41,10 +41,10 @@ def _make_mock_rust(side_effect=None, return_value=None):
 
 class TestShellExecTool:
     def test_registered_via_tools_package_import(self):
-        import openjarvis.tools as tools_pkg
-        from openjarvis.core.registry import ToolRegistry
+        import friday_ai.tools as tools_pkg
+        from friday_ai.core.registry import ToolRegistry
 
-        sys.modules.pop("openjarvis.tools.shell_exec", None)
+        sys.modules.pop("friday_ai.tools.shell_exec", None)
         importlib.reload(tools_pkg)
 
         assert ToolRegistry.contains("shell_exec")
@@ -77,7 +77,7 @@ class TestShellExecTool:
         )
         tool = ShellExecTool()
         with patch(
-            "openjarvis._rust_bridge.get_rust_module",
+            "friday_ai._rust_bridge.get_rust_module",
             return_value=mock_mod,
         ):
             result = tool.execute(command="echo hello")
@@ -91,7 +91,7 @@ class TestShellExecTool:
         )
         tool = ShellExecTool()
         with patch(
-            "openjarvis._rust_bridge.get_rust_module",
+            "friday_ai._rust_bridge.get_rust_module",
             return_value=mock_mod,
         ):
             result = tool.execute(command="echo error_msg >&2")
@@ -116,7 +116,7 @@ class TestShellExecTool:
         )
         tool = ShellExecTool()
         with patch(
-            "openjarvis._rust_bridge.get_rust_module",
+            "friday_ai._rust_bridge.get_rust_module",
             return_value=mock_mod,
         ):
             result = tool.execute(command="echo ok", timeout=999)
@@ -129,7 +129,7 @@ class TestShellExecTool:
         )
         tool = ShellExecTool()
         with patch(
-            "openjarvis._rust_bridge.get_rust_module",
+            "friday_ai._rust_bridge.get_rust_module",
             return_value=mock_mod,
         ):
             result = tool.execute(command="pwd", working_dir=str(tmp_path))
@@ -154,7 +154,7 @@ class TestShellExecTool:
     @pytest.mark.skip(reason="Rust backend inherits parent env — no env isolation")
     def test_env_clearing(self):
         """Verify that arbitrary env vars are NOT passed through."""
-        marker = "OPENJARVIS_TEST_SECRET_12345"
+        marker = "FRIDAY_AI_TEST_SECRET_12345"
         os.environ[marker] = "leaked"
         try:
             tool = ShellExecTool()
@@ -169,7 +169,7 @@ class TestShellExecTool:
     )
     def test_env_passthrough(self):
         """Verify that explicitly listed env vars ARE passed through."""
-        marker = "OPENJARVIS_TEST_PASSTHROUGH_67890"
+        marker = "FRIDAY_AI_TEST_PASSTHROUGH_67890"
         os.environ[marker] = "allowed_value"
         try:
             tool = ShellExecTool()
@@ -188,7 +188,7 @@ class TestShellExecTool:
         )
         tool = ShellExecTool()
         with patch(
-            "openjarvis._rust_bridge.get_rust_module",
+            "friday_ai._rust_bridge.get_rust_module",
             return_value=mock_mod,
         ):
             result = tool.execute(command="echo ok")
@@ -205,7 +205,7 @@ class TestShellExecTool:
         )
         tool = ShellExecTool()
         with patch(
-            "openjarvis._rust_bridge.get_rust_module",
+            "friday_ai._rust_bridge.get_rust_module",
             return_value=mock_mod,
         ):
             result = tool.execute(command="exit 42")
@@ -233,7 +233,7 @@ class TestShellExecTool:
         )
         tool = ShellExecTool()
         with patch(
-            "openjarvis._rust_bridge.get_rust_module",
+            "friday_ai._rust_bridge.get_rust_module",
             return_value=mock_mod,
         ):
             result = tool.execute(command="true")
@@ -259,7 +259,7 @@ class TestShellExecTool:
         )
         tool = ShellExecTool()
         with patch(
-            "openjarvis._rust_bridge.get_rust_module",
+            "friday_ai._rust_bridge.get_rust_module",
             return_value=mock_mod,
         ):
             result = tool.execute(command="echo ok")
@@ -272,7 +272,7 @@ class TestShellExecTool:
         )
         tool = ShellExecTool()
         with patch(
-            "openjarvis._rust_bridge.get_rust_module",
+            "friday_ai._rust_bridge.get_rust_module",
             return_value=mock_mod,
         ):
             result = tool.execute(command="/nonexistent_binary")
@@ -292,7 +292,7 @@ class TestSanitizedEnvWindowsKeys:
     """
 
     def test_base_env_keys_include_windows_essentials(self):
-        from openjarvis.tools.shell_exec import _WINDOWS_ENV_KEYS
+        from friday_ai.tools.shell_exec import _WINDOWS_ENV_KEYS
 
         for key in (
             "SystemRoot",
@@ -308,7 +308,7 @@ class TestSanitizedEnvWindowsKeys:
             assert key in _WINDOWS_ENV_KEYS, f"{key} missing from Windows keys"
 
     def test_windows_keys_are_only_enabled_on_windows(self):
-        from openjarvis.tools.shell_exec import _BASE_ENV_KEYS, _WINDOWS_ENV_KEYS
+        from friday_ai.tools.shell_exec import _BASE_ENV_KEYS, _WINDOWS_ENV_KEYS
 
         if os.name == "nt":
             assert set(_WINDOWS_ENV_KEYS) <= set(_BASE_ENV_KEYS)
@@ -333,7 +333,7 @@ class TestSanitizedEnvWindowsKeys:
         tool = ShellExecTool()
         with (
             patch(
-                "openjarvis._rust_bridge.get_rust_module",
+                "friday_ai._rust_bridge.get_rust_module",
                 side_effect=ImportError("no rust module"),
             ),
             patch("subprocess.run", side_effect=_fake_run),
@@ -366,7 +366,7 @@ class TestSanitizedEnvWindowsKeys:
         command = subprocess.list2cmdline([sys.executable, "-c", probe])
 
         with patch(
-            "openjarvis._rust_bridge.get_rust_module",
+            "friday_ai._rust_bridge.get_rust_module",
             side_effect=ImportError("force Python fallback"),
         ):
             result = ShellExecTool().execute(command=command)

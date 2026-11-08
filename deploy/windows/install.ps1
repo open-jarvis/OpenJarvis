@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    OpenJarvis native Windows installer.
+    FridayAI native Windows installer.
 
 .DESCRIPTION
     Phase-1 of the native-Windows-support RFC (#298). Mirrors the
@@ -14,14 +14,14 @@
          see #432).
       3. Check git on PATH.
       4. Install uv (https://astral.sh/uv) if absent.
-      5. Clone the OpenJarvis repository to $env:LOCALAPPDATA\OpenJarvis
-         (override with $env:OPENJARVIS_HOME).
+      5. Clone the FridayAI repository to $env:LOCALAPPDATA\FridayAI
+         (override with $env:FRIDAY_AI_HOME).
       5b. Check for MSVC build tools and explain how to install them if absent - the mandatory
-         openjarvis-rust extension is compiled from source in step 6.
+         friday_ai-rust extension is compiled from source in step 6.
       6. Run `uv sync --extra desktop --group desktop-native` so the FastAPI
          server, speech backend, and native extension are importable.
       7. Optionally register the scheduled-task service (see
-         deploy/windows/jarvis-service.ps1).
+         deploy/windows/friday-service.ps1).
 
     Usage (one-liner):
       irm https://open-jarvis.github.io/OpenJarvis/install.ps1 | iex
@@ -38,14 +38,14 @@
     Under `irm | iex` the param block is unreachable (Invoke-Expression
     can't pass named args into a piped script string), so the same knobs
     are honored via env vars when the corresponding flag is absent:
-      $env:OPENJARVIS_SKIP_SERVICE = '1'
-      $env:OPENJARVIS_SERVICE      = '1'
-      $env:OPENJARVIS_FORCE        = '1'
+      $env:FRIDAY_AI_SKIP_SERVICE = '1'
+      $env:FRIDAY_AI_SERVICE      = '1'
+      $env:FRIDAY_AI_FORCE        = '1'
 
 .NOTES
     Loopback default: the scheduled-task service binds 127.0.0.1, so no
     API key is needed. To expose on the LAN, edit the registered task to
-    pass `--host 0.0.0.0` AND set $env:OPENJARVIS_API_KEY (an
+    pass `--host 0.0.0.0` AND set $env:FRIDAY_AI_API_KEY (an
     unauthenticated 0.0.0.0 server refuses to start). See
     deploy/windows/README.md.
 #>
@@ -62,9 +62,9 @@ $ErrorActionPreference = 'Stop'
 # Env-var fallback for the `irm | iex` path, where the param block is
 # unreachable (see header comment). Any explicit -switch wins; env vars
 # only fill in the gaps.
-if (-not $SkipService -and $env:OPENJARVIS_SKIP_SERVICE) { $SkipService = $true }
-if (-not $Service     -and $env:OPENJARVIS_SERVICE)      { $Service     = $true }
-if (-not $Force       -and $env:OPENJARVIS_FORCE)        { $Force       = $true }
+if (-not $SkipService -and $env:FRIDAY_AI_SKIP_SERVICE) { $SkipService = $true }
+if (-not $Service     -and $env:FRIDAY_AI_SERVICE)      { $Service     = $true }
+if (-not $Force       -and $env:FRIDAY_AI_FORCE)        { $Force       = $true }
 
 # ---------------------------------------------------------------------------
 # Output helpers - coloured but plain enough for Constrained Language Mode.
@@ -206,7 +206,7 @@ $pyMajor = [int]$verMatch.Groups[1].Value
 $pyMinor = [int]$verMatch.Groups[2].Value
 if ($pyMajor -ne 3 -or $pyMinor -lt 10 -or $pyMinor -gt 13) {
     Write-Fail @"
-Found Python $pyMajor.$pyMinor at $pythonExe, but OpenJarvis requires
+Found Python $pyMajor.$pyMinor at $pythonExe, but FridayAI requires
 3.10 - 3.13. Python 3.14 has no numpy Windows wheels yet (#432, will
 re-open once numpy ships cp314).
 "@
@@ -268,10 +268,10 @@ Write-Ok "uv ($uvExe)"
 # 5. Clone the repo
 # ---------------------------------------------------------------------------
 
-$installRoot = if ($env:OPENJARVIS_HOME) {
-    $env:OPENJARVIS_HOME
+$installRoot = if ($env:FRIDAY_AI_HOME) {
+    $env:FRIDAY_AI_HOME
 } else {
-    Join-Path $env:LOCALAPPDATA 'OpenJarvis'
+    Join-Path $env:LOCALAPPDATA 'FridayAI'
 }
 $srcDir = Join-Path $installRoot 'src'
 
@@ -281,10 +281,10 @@ if (-not (Test-Path $installRoot)) {
     New-Item -ItemType Directory -Path $installRoot | Out-Null
 }
 
-$repoUrl = if ($env:OPENJARVIS_REPO_URL) {
-    $env:OPENJARVIS_REPO_URL
+$repoUrl = if ($env:FRIDAY_AI_REPO_URL) {
+    $env:FRIDAY_AI_REPO_URL
 } else {
-    'https://github.com/open-jarvis/OpenJarvis.git'
+    'https://github.com/open-jarvis/FridayAI.git'
 }
 
 if (Test-Path (Join-Path $srcDir '.git')) {
@@ -312,9 +312,9 @@ if (Test-Path (Join-Path $srcDir '.git')) {
 # 5b. MSVC build tools - required by the mandatory Rust extension
 # ---------------------------------------------------------------------------
 
-# `--group desktop-native` builds openjarvis-rust from source via maturin
+# `--group desktop-native` builds friday_ai-rust from source via maturin
 # (pyproject.toml pins it to a local path; it is not published to PyPI), and
-# src/openjarvis/_rust_bridge.py raises a hard ImportError when the module is
+# src/friday_ai/_rust_bridge.py raises a hard ImportError when the module is
 # missing - there is no pure-Python fallback. maturin will bootstrap a Rust
 # toolchain into a temp dir if cargo is absent, which is why this failure is
 # so confusing: cargo appears to run fine and then every build script dies at
@@ -355,7 +355,7 @@ if (Test-MsvcLinker) {
     Write-Fail @"
 MSVC build tools not found.
 
-The next step compiles the mandatory openjarvis-rust extension, which
+The next step compiles the mandatory friday_ai-rust extension, which
 needs the MSVC linker (link.exe). Without it every cargo build script
 fails with "error: linker ``link.exe`` not found".
 
@@ -465,7 +465,7 @@ if (-not $ollamaReady) {
 
 $modelPullOk = $false
 if ($ollamaReady) {
-    Write-Info "Pulling qwen3.5:2b (~1.5 GB) so 'jarvis' works on first run..."
+    Write-Info "Pulling qwen3.5:2b (~1.5 GB) so 'friday' works on first run..."
     & $ollamaExe pull 'qwen3.5:2b'
     if ($LASTEXITCODE -eq 0) {
         $modelPullOk = $true
@@ -478,18 +478,18 @@ if ($ollamaReady) {
 }
 
 # ---------------------------------------------------------------------------
-# 9. jarvis.cmd shim - so bare `jarvis` works in any new PowerShell
+# 9. friday.cmd shim - so bare `friday` works in any new PowerShell
 # ---------------------------------------------------------------------------
 
 $binDir = Join-Path $installRoot 'bin'
-$shimPath = Join-Path $binDir 'jarvis.cmd'
+$shimPath = Join-Path $binDir 'friday.cmd'
 
 if (-not (Test-Path $binDir)) {
     New-Item -ItemType Directory -Path $binDir | Out-Null
 }
 
 # %~dp0 in a .cmd file resolves to the directory containing the script,
-# so the shim is self-locating - moving %LOCALAPPDATA%\OpenJarvis won't
+# so the shim is self-locating - moving %LOCALAPPDATA%\FridayAI won't
 # break it as long as the user moves the whole tree. `uv` is resolved
 # from PATH at runtime (astral installer adds it to User PATH); avoids
 # pinning to the install-time uv.exe path which can shift on uv updates.
@@ -497,16 +497,16 @@ $shimContent = @"
 @echo off
 setlocal
 set "SRC=%~dp0..\src"
-uv run --project "%SRC%" jarvis %*
+uv run --project "%SRC%" friday %*
 "@
 Set-Content -Path $shimPath -Value $shimContent -Encoding ASCII
 
-# Add %LOCALAPPDATA%\OpenJarvis\bin to User PATH if it isn't already
+# Add %LOCALAPPDATA%\FridayAI\bin to User PATH if it isn't already
 # there. The current process won't see it until restart - handled in the
 # final banner.
 #
 # Compare against the EXPANDED form: a previous install may have written
-# the entry as `%LOCALAPPDATA%\OpenJarvis\bin` (unexpanded) into User
+# the entry as `%LOCALAPPDATA%\FridayAI\bin` (unexpanded) into User
 # PATH, and a literal `-ieq` against the expanded `$binDir` would miss
 # it and append a duplicate every re-run.
 $userPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
@@ -523,13 +523,13 @@ if (-not $pathOnUser) {
     [System.Environment]::SetEnvironmentVariable('Path', $newUserPath, 'User')
     $pathNeedsRefresh = $true
 }
-Write-Ok "jarvis shim installed at $shimPath"
+Write-Ok "friday shim installed at $shimPath"
 
 # ---------------------------------------------------------------------------
 # 10. Optional: register the scheduled-task service
 # ---------------------------------------------------------------------------
 
-$serviceScript = Join-Path $srcDir 'deploy\windows\jarvis-service.ps1'
+$serviceScript = Join-Path $srcDir 'deploy\windows\friday-service.ps1'
 $shouldInstallService = $false
 
 # Pre-check admin if the user wants the service - Register-ScheduledTask
@@ -563,7 +563,7 @@ if ($Service) {
     $isInteractive = [Environment]::UserInteractive `
         -and -not [System.Console]::IsInputRedirected
     if ($isInteractive) {
-        $reply = Read-Host "Register OpenJarvis as a Windows scheduled task (auto-start at logon, loopback only)? [y/N]"
+        $reply = Read-Host "Register FridayAI as a Windows scheduled task (auto-start at logon, loopback only)? [y/N]"
         $shouldInstallService = ($reply -match '^[yY]')
     } else {
         Write-Warn2 "Non-interactive install - skipping scheduled-task setup."
@@ -581,7 +581,7 @@ if ($shouldInstallService) {
     if ($LASTEXITCODE -ne 0) {
         Write-Fail "Scheduled task setup failed."
     }
-    Write-Ok "Scheduled task 'OpenJarvis' registered (loopback default)."
+    Write-Ok "Scheduled task 'FridayAI' registered (loopback default)."
 }
 
 # ---------------------------------------------------------------------------
@@ -590,7 +590,7 @@ if ($shouldInstallService) {
 
 Write-Host ""
 Write-Host "  +----------------------------------+" -ForegroundColor Green
-Write-Host "  |   OpenJarvis install complete    |" -ForegroundColor Green
+Write-Host "  |   FridayAI install complete    |" -ForegroundColor Green
 Write-Host "  +----------------------------------+" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Repo:    $srcDir"
@@ -598,12 +598,12 @@ Write-Host "  Repo:    $srcDir"
 # Tell the truth about what the user can run next, given (a) whether the
 # starter model finished pulling and (b) whether the User-PATH update
 # needs a fresh PowerShell to take effect.
-$nextCmd = if ($modelPullOk) { 'jarvis' } else { 'jarvis doctor' }
+$nextCmd = if ($modelPullOk) { 'friday' } else { 'friday doctor' }
 
 if ($pathNeedsRefresh) {
     Write-Host ""
     Write-Host "  Run it:  open a NEW PowerShell, then: $nextCmd" -ForegroundColor Yellow
-    Write-Host "           (the jarvis shim was added to your User PATH; the"
+    Write-Host "           (the friday shim was added to your User PATH; the"
     Write-Host "            current PowerShell won't see it until restart)"
 } else {
     Write-Host "  Run it:  $nextCmd"
@@ -613,12 +613,12 @@ if (-not $modelPullOk) {
     Write-Host ""
     Write-Host "  NOTE: the qwen3.5:2b model didn't finish downloading." -ForegroundColor Yellow
     Write-Host "        Chat will fail until the bg-orchestrator finishes the retry."
-    Write-Host "        'jarvis doctor' shows progress."
+    Write-Host "        'friday doctor' shows progress."
 }
 
 if ($shouldInstallService) {
     Write-Host ""
-    Write-Host "  Service: schtasks /Query /TN OpenJarvis     (status)"
+    Write-Host "  Service: schtasks /Query /TN FridayAI     (status)"
     Write-Host "           powershell -File `"$serviceScript`" uninstall    (remove)"
 }
 Write-Host ""

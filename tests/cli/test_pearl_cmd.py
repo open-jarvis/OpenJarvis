@@ -1,4 +1,4 @@
-"""Tests for the ``jarvis pearl`` CLI wrappers."""
+"""Tests for the ``friday pearl`` CLI wrappers."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import subprocess
 
 from click.testing import CliRunner
 
-from openjarvis.cli import cli
+from friday_ai.cli import cli
 
 
 def test_pearl_help_lists_wrappers() -> None:
@@ -23,7 +23,7 @@ def test_pearl_doctor_reports_discovered_binaries(monkeypatch) -> None:
     def fake_resolve(name: str, pearl_home: str | None = None) -> str | None:
         return f"/opt/pearl/bin/{name}" if name != "oyster" else None
 
-    monkeypatch.setattr("openjarvis.cli.pearl_cmd._resolve_binary", fake_resolve)
+    monkeypatch.setattr("friday_ai.cli.pearl_cmd._resolve_binary", fake_resolve)
 
     result = CliRunner().invoke(cli, ["pearl", "doctor"])
 
@@ -43,7 +43,7 @@ def test_pearl_node_passes_args_to_pearld(monkeypatch) -> None:
         calls.append((name, args, pearl_home))
         return 7
 
-    monkeypatch.setattr("openjarvis.cli.pearl_cmd._run", fake_run)
+    monkeypatch.setattr("friday_ai.cli.pearl_cmd._run", fake_run)
 
     result = CliRunner().invoke(
         cli,
@@ -63,7 +63,7 @@ def test_pearl_ctl_passes_args_to_prlctl(monkeypatch) -> None:
         calls.append((name, args, pearl_home))
         return 0
 
-    monkeypatch.setattr("openjarvis.cli.pearl_cmd._run", fake_run)
+    monkeypatch.setattr("friday_ai.cli.pearl_cmd._run", fake_run)
 
     result = CliRunner().invoke(
         cli,
@@ -90,7 +90,7 @@ def test_pearl_address_uses_wallet_rpc(monkeypatch) -> None:
             stderr="",
         )
 
-    monkeypatch.setattr("openjarvis.cli.pearl_cmd._run_capture", fake_capture)
+    monkeypatch.setattr("friday_ai.cli.pearl_cmd._run_capture", fake_capture)
 
     result = CliRunner().invoke(
         cli,

@@ -1,4 +1,4 @@
-"""Tests for openjarvis.optimize.optimizer module."""
+"""Tests for friday_ai.optimize.optimizer module."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore[no-redef]
 
-from openjarvis.evals.core.types import RunSummary
-from openjarvis.learning.optimize.optimizer import OptimizationEngine
-from openjarvis.learning.optimize.store import OptimizationStore
-from openjarvis.learning.optimize.types import (
+from friday_ai.evals.core.types import RunSummary
+from friday_ai.learning.optimize.optimizer import OptimizationEngine
+from friday_ai.learning.optimize.store import OptimizationStore
+from friday_ai.learning.optimize.types import (
     OptimizationRun,
     SearchDimension,
     SearchSpace,
@@ -47,7 +47,7 @@ def _sample_summary(accuracy: float = 0.8) -> RunSummary:
     return RunSummary(
         benchmark="test",
         category="reasoning",
-        backend="jarvis-direct",
+        backend="friday-direct",
         model="test-model",
         total_samples=50,
         scored_samples=50,
@@ -619,7 +619,7 @@ class TestLoadOptimizeConfig:
     """Tests for load_optimize_config."""
 
     def test_loads_toml_file(self, tmp_path) -> None:
-        from openjarvis.learning.optimize.config import load_optimize_config
+        from friday_ai.learning.optimize.config import load_optimize_config
 
         toml_content = b"""
 [optimize]
@@ -644,7 +644,7 @@ engine = "ollama"
         assert config["optimize"]["fixed"]["engine"] == "ollama"
 
     def test_file_not_found(self, tmp_path) -> None:
-        from openjarvis.learning.optimize.config import load_optimize_config
+        from friday_ai.learning.optimize.config import load_optimize_config
 
         try:
             load_optimize_config(tmp_path / "nonexistent.toml")
@@ -653,7 +653,7 @@ engine = "ollama"
             pass
 
     def test_loads_string_path(self, tmp_path) -> None:
-        from openjarvis.learning.optimize.config import load_optimize_config
+        from friday_ai.learning.optimize.config import load_optimize_config
 
         path = tmp_path / "test.toml"
         path.write_bytes(b"[optimize]\nmax_trials = 5\n")

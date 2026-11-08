@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — OpenJarvis curl-pipe-bash installer.
+# install.sh — FridayAI curl-pipe-bash installer.
 #
 # Usage:
 #   curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
@@ -12,9 +12,9 @@
 #   --no-analytics         Decline analytics without an interactive prompt
 #
 # Environment overrides:
-#   OPENJARVIS_HOME        Install dir (default: $HOME/.openjarvis)
-#   OPENJARVIS_REPO_URL    git repo URL (default: https://github.com/open-jarvis/OpenJarvis.git)
-#   OPENJARVIS_FORCE_WSL   Set 1 to force WSL detection (testing)
+#   FRIDAY_AI_HOME        Install dir (default: $HOME/.friday_ai)
+#   FRIDAY_AI_REPO_URL    git repo URL (default: https://github.com/open-jarvis/FridayAI.git)
+#   FRIDAY_AI_FORCE_WSL   Set 1 to force WSL detection (testing)
 
 set -euo pipefail
 
@@ -43,7 +43,7 @@ done
 # ---- non-WSL Windows refusal ----
 # Running the installer in Git Bash / MSYS2 / Cygwin on native Windows
 # (i.e. NOT inside WSL2) gets the user into a confusing failure state:
-# uv/git tooling installs to Windows paths the rest of OpenJarvis can't
+# uv/git tooling installs to Windows paths the rest of FridayAI can't
 # reach, and Ollama integration silently breaks. The supported Windows
 # path is WSL2. Bail early with a clear next step rather than letting
 # users discover this 3 minutes into a doomed install.
@@ -52,7 +52,7 @@ case "$(uname -s 2>/dev/null)" in
         cat >&2 <<'EOF'
 install.sh: native Windows (Git Bash / MSYS2 / Cygwin) is not supported.
 
-OpenJarvis runs on Windows via WSL2. Two paths:
+FridayAI runs on Windows via WSL2. Two paths:
 
   1. WSL2 (recommended for the CLI). One-time setup in an admin PowerShell:
 
@@ -63,7 +63,7 @@ OpenJarvis runs on Windows via WSL2. Two paths:
        curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
 
   2. Desktop app — download the .exe from the Releases page:
-     https://github.com/open-jarvis/OpenJarvis/releases
+     https://github.com/open-jarvis/FridayAI/releases
 
 See the WSL2 install guide for the full walkthrough:
   https://open-jarvis.github.io/OpenJarvis/getting-started/wsl2/
@@ -77,7 +77,7 @@ if [[ "$(id -u)" -eq 0 ]]; then
     cat >&2 <<'EOF'
 install.sh: don't run as root.
 
-OpenJarvis installs to $HOME/.openjarvis, not /usr/local. Re-run as your
+FridayAI installs to $HOME/.friday_ai, not /usr/local. Re-run as your
 regular user (without sudo).
 EOF
     exit 1
@@ -221,27 +221,27 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 # ---- env ----
-# OpenJarvis keeps ALL of its state (install tree + runtime data, configs,
+# FridayAI keeps ALL of its state (install tree + runtime data, configs,
 # databases, caches, logs) under a single root so it never clutters $HOME
-# beyond one directory. Relocate it by exporting OPENJARVIS_HOME before
+# beyond one directory. Relocate it by exporting FRIDAY_AI_HOME before
 # running the installer, e.g.:
-#     OPENJARVIS_HOME=~/apps/openjarvis curl ... | bash
-# The Python runtime honors the same override (and, when OPENJARVIS_HOME is
-# unset, $XDG_DATA_HOME/openjarvis if XDG_DATA_HOME is set). With nothing set
-# the root is ~/.openjarvis, so existing installs are untouched.
-OPENJARVIS_HOME="${OPENJARVIS_HOME:-$HOME/.openjarvis}"
-OPENJARVIS_REPO_URL="${OPENJARVIS_REPO_URL:-https://github.com/open-jarvis/OpenJarvis.git}"
-SRC_DIR="$OPENJARVIS_HOME/src"
-VENV_DIR="$OPENJARVIS_HOME/.venv"
-STATE_DIR="$OPENJARVIS_HOME/.state"
-SCRIPTS_DIR="$OPENJARVIS_HOME/.scripts"
+#     FRIDAY_AI_HOME=~/apps/friday_ai curl ... | bash
+# The Python runtime honors the same override (and, when FRIDAY_AI_HOME is
+# unset, $XDG_DATA_HOME/friday_ai if XDG_DATA_HOME is set). With nothing set
+# the root is ~/.friday_ai, so existing installs are untouched.
+FRIDAY_AI_HOME="${FRIDAY_AI_HOME:-$HOME/.friday_ai}"
+FRIDAY_AI_REPO_URL="${FRIDAY_AI_REPO_URL:-https://github.com/open-jarvis/FridayAI.git}"
+SRC_DIR="$FRIDAY_AI_HOME/src"
+VENV_DIR="$FRIDAY_AI_HOME/.venv"
+STATE_DIR="$FRIDAY_AI_HOME/.state"
+SCRIPTS_DIR="$FRIDAY_AI_HOME/.scripts"
 STATE_FILE="$STATE_DIR/install-state.json"
 
-mkdir -p "$OPENJARVIS_HOME" "$STATE_DIR" "$SCRIPTS_DIR"
+mkdir -p "$FRIDAY_AI_HOME" "$STATE_DIR" "$SCRIPTS_DIR"
 
 # ---- WSL detection ----
 WSL=0
-if [[ "${OPENJARVIS_FORCE_WSL:-0}" == "1" ]]; then
+if [[ "${FRIDAY_AI_FORCE_WSL:-0}" == "1" ]]; then
     WSL=1
 elif [[ -f /proc/sys/kernel/osrelease ]] && grep -qi "microsoft" /proc/sys/kernel/osrelease 2>/dev/null; then
     WSL=1
@@ -250,13 +250,13 @@ fi
 # ---- analytics consent and install beacons ----
 #
 # Posts a small JSON event to PostHog at each install stage so the
-# OpenJarvis team can see where users drop off during install.
+# FridayAI team can see where users drop off during install.
 # Install payloads contain OS, arch, elapsed time, stage name, and a
 # random installation ID. Beacons are disabled until consent is given.
 #
-ANALYTICS_HOST="${OPENJARVIS_ANALYTICS_HOST:-https://34.231.106.201.sslip.io}"
-ANALYTICS_KEY="${OPENJARVIS_ANALYTICS_KEY:-phc_ysKu72QaxzYNmDpHFcesD2ZZAe68zkdWJEKoYYkc5e3n}"
-ANON_ID_FILE="$OPENJARVIS_HOME/anon_id"
+ANALYTICS_HOST="${FRIDAY_AI_ANALYTICS_HOST:-https://34.231.106.201.sslip.io}"
+ANALYTICS_KEY="${FRIDAY_AI_ANALYTICS_KEY:-phc_ysKu72QaxzYNmDpHFcesD2ZZAe68zkdWJEKoYYkc5e3n}"
+ANON_ID_FILE="$FRIDAY_AI_HOME/anon_id"
 INSTALL_START_EPOCH="$(date +%s)"
 CURRENT_STAGE=""
 
@@ -278,14 +278,14 @@ choose_analytics() {
 
     cat >&3 <<'EOF'
 
-Help improve OpenJarvis by sharing optional install and usage statistics.
+Help improve FridayAI by sharing optional install and usage statistics.
 Data includes installation and feature usage, timings, token counts, error
 categories, environment metadata, and a random installation ID.
-Recipient: the OpenJarvis team's PostHog analytics endpoint.
+Recipient: the FridayAI team's PostHog analytics endpoint.
 Privacy details: https://open-jarvis.github.io/OpenJarvis/telemetry/
-You can disable sharing later: jarvis config set analytics.enabled false
+You can disable sharing later: friday config set analytics.enabled false
 (then restart the server and reload the app).
-Declining does not change OpenJarvis functionality.
+Declining does not change FridayAI functionality.
 EOF
     printf 'Analytics destination: %s\n' "$ANALYTICS_HOST" >&3
     local answer
@@ -310,7 +310,7 @@ EOF
 
 persist_analytics_choice() {
     # Always run, including when the installer skips write_config on a
-    # rerun. Use the installed TOML editor directly: an older jarvis CLI
+    # rerun. Use the installed TOML editor directly: an older friday CLI
     # rejects the new choice_recorded key before it can save the choice.
     local enabled=false
     if analytics_enabled; then
@@ -324,9 +324,9 @@ from pathlib import Path
 
 import tomlkit
 
-from openjarvis.core.config import DEFAULT_CONFIG_PATH
+from friday_ai.core.config import DEFAULT_CONFIG_PATH
 
-path = Path(os.environ.get("OPENJARVIS_CONFIG") or DEFAULT_CONFIG_PATH).expanduser().resolve()
+path = Path(os.environ.get("FRIDAY_AI_CONFIG") or DEFAULT_CONFIG_PATH).expanduser().resolve()
 path.parent.mkdir(parents=True, exist_ok=True)
 doc = tomlkit.parse(path.read_text(encoding="utf-8")) if path.exists() else tomlkit.document()
 if "analytics" not in doc:
@@ -544,10 +544,10 @@ clone_repo() {
     fi
     # Keep commit/tag history for hatch-vcs. Local sources may themselves be
     # shallow and cannot safely serve a partial clone's lazy object fetches.
-    if [[ "$OPENJARVIS_REPO_URL" == file://* || -e "$OPENJARVIS_REPO_URL" ]]; then
-        git clone "$OPENJARVIS_REPO_URL" "$SRC_DIR"
+    if [[ "$FRIDAY_AI_REPO_URL" == file://* || -e "$FRIDAY_AI_REPO_URL" ]]; then
+        git clone "$FRIDAY_AI_REPO_URL" "$SRC_DIR"
     else
-        git clone --filter=blob:none "$OPENJARVIS_REPO_URL" "$SRC_DIR"
+        git clone --filter=blob:none "$FRIDAY_AI_REPO_URL" "$SRC_DIR"
     fi
 }
 
@@ -696,19 +696,19 @@ pull_default_model() {
 }
 
 write_config() {
-    "$VENV_DIR/bin/jarvis" _bootstrap --write-config \
+    "$VENV_DIR/bin/friday" _bootstrap --write-config \
         --engine ollama --model qwen3.5:2b \
         --prefer-cloud-when-available
 }
 
 install_symlinks() {
     mkdir -p "$HOME/.local/bin"
-    ln -sf "$SCRIPTS_DIR/jarvis-wrapper.sh" "$HOME/.local/bin/jarvis"
-    ln -sf "$SCRIPTS_DIR/jarvis-uninstall.sh" "$HOME/.local/bin/jarvis-uninstall"
+    ln -sf "$SCRIPTS_DIR/friday-wrapper.sh" "$HOME/.local/bin/friday"
+    ln -sf "$SCRIPTS_DIR/friday-uninstall.sh" "$HOME/.local/bin/friday-uninstall"
 }
 
 # Tracks whether the user needs to source ~/.bashrc / ~/.zshrc / open a
-# new terminal before `jarvis` will resolve. Set only when ensure_path
+# new terminal before `friday` will resolve. Set only when ensure_path
 # actually modified the user's rc file.
 PATH_MODIFIED=0
 
@@ -722,7 +722,7 @@ ensure_path() {
     else
         rc="$HOME/.bashrc"
     fi
-    if grep -q "OpenJarvis" "$rc" 2>/dev/null; then
+    if grep -q "FridayAI" "$rc" 2>/dev/null; then
         # rc already has our PATH line from a prior install; just remind.
         PATH_MODIFIED=1
         PATH_MODIFIED_RC="$rc"
@@ -730,7 +730,7 @@ ensure_path() {
     fi
     {
         echo ''
-        echo '# OpenJarvis'
+        echo '# FridayAI'
         echo 'export PATH="$HOME/.local/bin:$PATH"'
     } >> "$rc"
     PATH_MODIFIED=1
@@ -744,7 +744,7 @@ detach_bg_orchestrator() {
     fi
     local models
     models=$("$VENV_DIR/bin/python" - <<'PYEOF' 2>/dev/null || true
-from openjarvis.core.config import detect_hardware, recommend_model
+from friday_ai.core.config import detect_hardware, recommend_model
 hw = detect_hardware()
 tier = recommend_model(hw, "ollama")
 TIERS = ["qwen3.5:2b", "qwen3.5:4b", "qwen3.5:9b", "qwen3.5:27b"]
@@ -765,8 +765,8 @@ PYEOF
 }
 
 # ---- run ----
-echo "OpenJarvis installer"
-echo "  install dir: $OPENJARVIS_HOME"
+echo "FridayAI installer"
+echo "  install dir: $FRIDAY_AI_HOME"
 echo "  WSL2:        $WSL"
 echo
 
@@ -774,10 +774,10 @@ choose_analytics
 beacon "install_started"
 
 step install_uv         "Install uv"            install_uv
-step clone_repo         "Clone OpenJarvis repo" clone_repo
+step clone_repo         "Clone FridayAI repo" clone_repo
 step copy_scripts       "Copy install scripts"  copy_scripts
 step create_venv        "Create venv"           create_venv
-step editable_install   "Install OpenJarvis"    editable_install
+step editable_install   "Install FridayAI"    editable_install
 step install_ollama     "Install Ollama"        install_ollama
 step start_ollama       "Start Ollama daemon"   start_ollama
 step pull_default_model "Pull qwen3.5:2b"       pull_default_model
@@ -801,16 +801,16 @@ echo
 # the foreground model pull actually succeeded and (b) whether the PATH
 # update needs a shell refresh. The four combinations:
 #
-#   PATH ok + model ok   -> "type jarvis"
-#   PATH new + model ok  -> "source rc && jarvis  (or open new terminal)"
-#   PATH ok + model bad  -> "model still downloading; jarvis doctor"
-#   PATH new + model bad -> "source rc && jarvis doctor; chat works once download finishes"
+#   PATH ok + model ok   -> "type friday"
+#   PATH new + model ok  -> "source rc && friday  (or open new terminal)"
+#   PATH ok + model bad  -> "model still downloading; friday doctor"
+#   PATH new + model bad -> "source rc && friday doctor; chat works once download finishes"
 #
-# `jarvis` and `jarvis doctor` need PATH equally, so the source/restart
+# `friday` and `friday doctor` need PATH equally, so the source/restart
 # guidance goes first when PATH was modified.
-NEXT_CMD="jarvis"
+NEXT_CMD="friday"
 if [[ "$MODEL_PULL_OK" -ne 1 ]]; then
-    NEXT_CMD="jarvis doctor"
+    NEXT_CMD="friday doctor"
 fi
 
 if [[ "$PATH_MODIFIED" -eq 1 ]]; then
@@ -832,7 +832,7 @@ fi
 
 if [[ "$MODEL_PULL_OK" -ne 1 ]]; then
     cat <<EOF
-NOTE: the qwen3.5:2b model didn't finish downloading. 'jarvis doctor'
+NOTE: the qwen3.5:2b model didn't finish downloading. 'friday doctor'
 shows the retry progress; chat will work once the download completes
 in the background.
 
@@ -843,5 +843,5 @@ cat <<EOF
 Background work continues silently:
   - Rust toolchain + maturin extension build
   - Bigger model downloads
-  Run 'jarvis doctor' to check status anytime.
+  Run 'friday doctor' to check status anytime.
 EOF

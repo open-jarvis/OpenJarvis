@@ -1,11 +1,11 @@
 # Code Companion
 
-A set of developer-focused scripts that use OpenJarvis tool-using agents
+A set of developer-focused scripts that use FridayAI tool-using agents
 to automate common coding tasks: code review, debugging, and test generation.
 
 ## What This Demonstrates
 
-Each script wires up a `Jarvis` instance with the `native_react` (ReAct) agent
+Each script wires up a `Friday` instance with the `native_react` (ReAct) agent
 and a curated set of tools. The ReAct loop lets the agent reason step by step
 -- reading files, running commands, and thinking -- before producing a final
 structured answer. This is the same pattern you can adapt for any code
@@ -19,7 +19,7 @@ intelligence workflow.
 
 ## Prerequisites
 
-1. **Install OpenJarvis** (from the repo root):
+1. **Install FridayAI** (from the repo root):
 
    ```bash
    uv sync --extra dev
@@ -75,14 +75,14 @@ python examples/code_companion/debugger.py \
 Generate pytest tests for a module:
 
 ```bash
-python examples/code_companion/test_gen.py --module src/openjarvis/tools/calculator.py
+python examples/code_companion/test_gen.py --module src/friday_ai/tools/calculator.py
 ```
 
 Use unittest instead, and write to a specific file:
 
 ```bash
 python examples/code_companion/test_gen.py \
-    --module src/openjarvis/tools/calculator.py \
+    --module src/friday_ai/tools/calculator.py \
     --framework unittest \
     --output tests/test_calculator_generated.py
 ```
@@ -119,8 +119,8 @@ python examples/code_companion/debugger.py --model claude-sonnet-4-20250514 --en
 
 To change which tools an agent can use, edit the `tools` list in the script.
 Available tools include `calculator`, `web_search`, `shell_exec`, `code_interpreter`,
-`memory_store`, `memory_search`, and more. Run `uv run jarvis eval list` or
-inspect `src/openjarvis/tools/` for the full registry.
+`memory_store`, `memory_search`, and more. Run `uv run friday eval list` or
+inspect `src/friday_ai/tools/` for the full registry.
 
 ### Prompts
 
@@ -133,9 +133,9 @@ to match your team's conventions.
 All three scripts follow the same core pattern:
 
 ```python
-from openjarvis import Jarvis
+from friday_ai import Friday
 
-j = Jarvis(model="qwen3:8b", engine_key="ollama")
+j = Friday(model="qwen3:8b", engine_key="ollama")
 try:
     response = j.ask(
         "Your task description here...",

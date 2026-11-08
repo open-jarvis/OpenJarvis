@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.evals.core.trace import QueryTrace, TurnTrace
+from friday_ai.evals.core.trace import QueryTrace, TurnTrace
 
 
 class TestTurnTrace:

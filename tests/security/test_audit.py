@@ -6,9 +6,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.security.audit import AuditLogger
-from openjarvis.security.types import (
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.security.audit import AuditLogger
+from friday_ai.security.types import (
     ScanFinding,
     SecurityEvent,
     SecurityEventType,

@@ -9,16 +9,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.agents._stubs import AgentResult
-from openjarvis.agents.executor import AgentExecutor
-from openjarvis.agents.manager import AgentManager
-from openjarvis.agents.tool_resolver import ResolvedAgentTools
-from openjarvis.connectors.store import KnowledgeStore
-from openjarvis.core.config import MemoryFilesConfig, SystemPromptConfig
-from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.registry import AgentRegistry, ToolRegistry
-from openjarvis.core.types import Role, ToolResult
-from openjarvis.tools._stubs import BaseTool, ToolSpec
+from friday_ai.agents._stubs import AgentResult
+from friday_ai.agents.executor import AgentExecutor
+from friday_ai.agents.manager import AgentManager
+from friday_ai.agents.tool_resolver import ResolvedAgentTools
+from friday_ai.connectors.store import KnowledgeStore
+from friday_ai.core.config import MemoryFilesConfig, SystemPromptConfig
+from friday_ai.core.events import EventBus, EventType
+from friday_ai.core.registry import AgentRegistry, ToolRegistry
+from friday_ai.core.types import Role, ToolResult
+from friday_ai.tools._stubs import BaseTool, ToolSpec
 from tests.agents.fake_engine import FakeEngine
 from tests.agents.scenario_harness import FakeSystem
 
@@ -106,8 +106,8 @@ class _PrivilegedExecutorProbeTool(BaseTool):
 
 def _register_agent():
     """Re-register MonitorOperativeAgent (cleared by autouse fixture)."""
-    from openjarvis.agents.monitor_operative import MonitorOperativeAgent
-    from openjarvis.core.registry import AgentRegistry
+    from friday_ai.agents.monitor_operative import MonitorOperativeAgent
+    from friday_ai.core.registry import AgentRegistry
 
     if not AgentRegistry.contains("monitor_operative"):
         AgentRegistry.register("monitor_operative")(MonitorOperativeAgent)
@@ -176,12 +176,12 @@ def test_executor_handles_missing_tools(tmp_path):
 def test_executor_file_tools_keep_application_directory_policy(
     tmp_path, monkeypatch, mode, invalid_policy
 ):
-    from openjarvis.core.config import JarvisConfig
-    from openjarvis.tools.file_read import FileReadTool
+    from friday_ai.core.config import FridayConfig
+    from friday_ai.tools.file_read import FileReadTool
 
-    cfg = JarvisConfig()
+    cfg = FridayConfig()
     cfg.security.allowed_dirs = None if invalid_policy else [str(tmp_path / "allowed")]
-    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: JarvisConfig())
+    monkeypatch.setattr("friday_ai.core.config.load_config", lambda: FridayConfig())
     ToolRegistry.register_value("file_read", FileReadTool)
     AgentRegistry.register_value("monitor_operative", _CapturingToolAgent)
     _CapturingToolAgent.captured_tools = []
@@ -384,7 +384,7 @@ def test_executor_enforces_managed_agent_capability_denial(tmp_path):
 def test_simple_agent_uses_global_mcp_tools_without_native_tool_config(tmp_path):
     """Fallback-compatible simple agents preserve SSE/global-MCP parity."""
 
-    from openjarvis.agents.simple import SimpleAgent
+    from friday_ai.agents.simple import SimpleAgent
 
     AgentRegistry.register_value("simple", SimpleAgent)
     _ExecutorProbeTool.calls = 0
@@ -439,7 +439,7 @@ def test_simple_agent_uses_global_mcp_tools_without_native_tool_config(tmp_path)
 def test_simple_agent_without_tools_keeps_its_custom_system_prompt(tmp_path):
     """Signature filtering must not discard prompt-builder state on retry."""
 
-    from openjarvis.agents.simple import SimpleAgent
+    from friday_ai.agents.simple import SimpleAgent
 
     AgentRegistry.register_value("simple", SimpleAgent)
     engine = FakeEngine([{"content": "custom prompt response"}])
@@ -618,7 +618,7 @@ def test_executor_mcp_opt_out_does_not_call_lazy_provider(tmp_path):
 def test_executor_preserves_custom_dict_tool_schema(tmp_path):
     """Executor-based agents see the same custom schema advertised by SSE."""
 
-    from openjarvis.tools.think import ThinkTool
+    from friday_ai.tools.think import ThinkTool
 
     AgentRegistry.register_value("capturing", _CapturingToolAgent)
     ToolRegistry.register_value("think", ThinkTool)
@@ -676,7 +676,7 @@ def test_executor_closes_resolver_resources_when_pre_run_setup_fails(
     def _resolve(*args, **kwargs):
         return ResolvedAgentTools(owned_resources=[resource])
 
-    monkeypatch.setattr("openjarvis.agents.executor.resolve_agent_tools", _resolve)
+    monkeypatch.setattr("friday_ai.agents.executor.resolve_agent_tools", _resolve)
     system = SimpleNamespace(
         engine=FakeEngine([{"content": "unused"}]),
         model="test-model",

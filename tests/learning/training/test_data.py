@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any, List
 
-from openjarvis.core.types import StepType, Trace, TraceStep
-from openjarvis.learning.training.data import TrainingDataMiner
+from friday_ai.core.types import StepType, Trace, TraceStep
+from friday_ai.learning.training.data import TrainingDataMiner
 
 # ---------------------------------------------------------------------------
 # Helpers

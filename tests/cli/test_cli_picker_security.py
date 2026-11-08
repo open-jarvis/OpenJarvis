@@ -6,20 +6,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.cli._model_switch import (
+from friday_ai.cli._model_switch import (
     MAX_MODEL_ID_LEN,
     interactive_pick_model,
     resolve_chat_cli_model,
     sanitize_model_id,
     tty_wants_model_picker,
 )
-from openjarvis.cli._runtime_panel import (
+from friday_ai.cli._runtime_panel import (
     MAX_NUM_CTX,
     ChatRuntimeOptions,
     _parse_int,
     tty_wants_runtime_panel,
 )
-from openjarvis.core.config import JarvisConfig
+from friday_ai.core.config import FridayConfig
 
 
 class TestSanitizeModelId:
@@ -62,7 +62,7 @@ class TestRuntimePanelSecurity:
         assert opts.to_engine_kwargs(engine_name="ollama")["num_gpu"] == 999
 
     def test_extreme_num_gpu_capped(self) -> None:
-        from openjarvis.cli._runtime_panel import MAX_NUM_GPU_LAYERS
+        from friday_ai.cli._runtime_panel import MAX_NUM_GPU_LAYERS
 
         opts = ChatRuntimeOptions(num_gpu=10**9)
         assert (
@@ -89,7 +89,7 @@ class TestModelPickerSecurity:
         assert picked == "safe-model:latest"
 
     def test_resolve_sanitizes_explicit_cli_model(self) -> None:
-        cfg = JarvisConfig()
+        cfg = FridayConfig()
         eng = MagicMock()
         eng.list_models.return_value = []
         model = resolve_chat_cli_model(
@@ -133,17 +133,17 @@ class TestTtyGates:
     def test_skip_env_disables_runtime_panel(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("JARVIS_SKIP_RUNTIME_PANEL", "1")
+        monkeypatch.setenv("FRIDAY_SKIP_RUNTIME_PANEL", "1")
         with patch("sys.stdin.isatty", return_value=True):
             assert tty_wants_runtime_panel(False) is False
 
 
 class TestAgentEngineOptionsIsolation:
     def test_engine_options_merge_does_not_leak_extra_keys(self) -> None:
-        from openjarvis.agents._stubs import _ALLOWED_ENGINE_OPTION_KEYS
-        from openjarvis.agents.simple import SimpleAgent
-        from openjarvis.core.registry import AgentRegistry
-        from openjarvis.core.types import Message, Role
+        from friday_ai.agents._stubs import _ALLOWED_ENGINE_OPTION_KEYS
+        from friday_ai.agents.simple import SimpleAgent
+        from friday_ai.core.registry import AgentRegistry
+        from friday_ai.core.types import Message, Role
 
         engine = MagicMock()
         engine.generate.return_value = {"content": "x"}

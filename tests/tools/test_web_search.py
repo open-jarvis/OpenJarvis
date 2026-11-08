@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.core.registry import ToolRegistry
-from openjarvis.tools.web_search import WebSearchTool
+from friday_ai.core.registry import ToolRegistry
+from friday_ai.tools.web_search import WebSearchTool
 
 
 @pytest.fixture(autouse=True)
@@ -422,7 +422,7 @@ class TestUrlNormalization:
 class TestUrlFetching:
     def _mock_ssrf(self, monkeypatch):
         """Stub out the SSRF check (requires Rust backend)."""
-        import openjarvis.tools.web_search as _ws
+        import friday_ai.tools.web_search as _ws
 
         monkeypatch.setattr(_ws, "check_ssrf", lambda url: None)
 
@@ -486,7 +486,7 @@ class TestUrlFetching:
 class TestFetchRedirectSession:
     @pytest.fixture(autouse=True)
     def _guard(self, monkeypatch):
-        import openjarvis.tools.web_search as web_search
+        import friday_ai.tools.web_search as web_search
 
         guard = MagicMock(return_value=None)
         monkeypatch.setattr(web_search, "check_ssrf", guard)
@@ -612,7 +612,7 @@ class TestFetchRedirectSession:
 class TestExecuteWithUrl:
     def _mock_ssrf(self, monkeypatch):
         """Stub out the SSRF check (requires Rust backend)."""
-        import openjarvis.tools.web_search as _ws
+        import friday_ai.tools.web_search as _ws
 
         monkeypatch.setattr(_ws, "check_ssrf", lambda url: None)
 
@@ -651,7 +651,7 @@ class TestExecuteWithUrl:
 
     def test_execute_url_ssrf_blocked(self, monkeypatch):
         """SSRF check rejects unsafe URLs before any HTTP request."""
-        import openjarvis.tools.web_search as _ws
+        import friday_ai.tools.web_search as _ws
 
         monkeypatch.setattr(
             _ws,
@@ -684,7 +684,7 @@ class TestExecuteWithUrl:
         """Every URL redirect hop must be checked for SSRF."""
         import httpx
 
-        import openjarvis.tools.web_search as _ws
+        import friday_ai.tools.web_search as _ws
 
         requests = []
 
@@ -729,7 +729,7 @@ class TestExecuteWithUrl:
         """Public relative redirects still work when checked hop by hop."""
         import httpx
 
-        import openjarvis.tools.web_search as _ws
+        import friday_ai.tools.web_search as _ws
 
         requests = []
 
@@ -782,27 +782,27 @@ class TestEngineSelection:
         """Existing installs are unchanged: a Tavily key still means Tavily."""
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
         monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
-        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.delenv("FRIDAY_AI_WEB_SEARCH_ENGINE", raising=False)
         assert WebSearchTool()._resolve_engine() == "tavily"
 
     def test_auto_uses_youcom_without_any_key(self, monkeypatch):
         """The zero-config path is API-backed rather than the DDG scrape."""
         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
         monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
-        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.delenv("FRIDAY_AI_WEB_SEARCH_ENGINE", raising=False)
         assert WebSearchTool()._resolve_engine() == "youcom"
 
     def test_auto_prefers_serply_over_the_keyless_tier(self, monkeypatch):
         """A Serply key only ever wins over having no key at all."""
         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
         monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
-        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.delenv("FRIDAY_AI_WEB_SEARCH_ENGINE", raising=False)
         monkeypatch.setenv("SERPLY_API_KEY", "srp-x")
         assert WebSearchTool()._resolve_engine() == "serply"
 
     def test_serply_never_displaces_an_existing_keyed_engine(self, monkeypatch):
         """Adding a Serply key must not change where an install already goes."""
-        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.delenv("FRIDAY_AI_WEB_SEARCH_ENGINE", raising=False)
         monkeypatch.setenv("SERPLY_API_KEY", "srp-x")
 
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
@@ -816,13 +816,13 @@ class TestEngineSelection:
         """A Firecrawl key only ever wins over having no key at all."""
         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
         monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
-        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.delenv("FRIDAY_AI_WEB_SEARCH_ENGINE", raising=False)
         monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
         assert WebSearchTool()._resolve_engine() == "firecrawl"
 
     def test_firecrawl_never_displaces_an_existing_keyed_engine(self, monkeypatch):
         """Adding a Firecrawl key must not change where an install already goes."""
-        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.delenv("FRIDAY_AI_WEB_SEARCH_ENGINE", raising=False)
         monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
 
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
@@ -841,7 +841,7 @@ class TestEngineSelection:
         FIRECRAWL_API_URL away from the hosted API is enough to opt in."""
         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
         monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
-        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.delenv("FRIDAY_AI_WEB_SEARCH_ENGINE", raising=False)
         monkeypatch.setenv("FIRECRAWL_API_URL", "http://localhost:3002")
         assert WebSearchTool()._resolve_engine() == "firecrawl"
 
@@ -852,13 +852,13 @@ class TestEngineSelection:
 
     def test_engine_read_from_environment(self, monkeypatch):
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
-        monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", "youcom")
+        monkeypatch.setenv("FRIDAY_AI_WEB_SEARCH_ENGINE", "youcom")
         assert WebSearchTool()._resolve_engine() == "youcom"
 
     def test_unknown_engine_falls_back_to_auto(self, monkeypatch, caplog):
         """A typo in the env must not break tool loading."""
         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-        monkeypatch.setenv("OPENJARVIS_WEB_SEARCH_ENGINE", "yuo.com")
+        monkeypatch.setenv("FRIDAY_AI_WEB_SEARCH_ENGINE", "yuo.com")
         with caplog.at_level("WARNING"):
             tool = WebSearchTool()
         assert tool._resolve_engine() == "youcom"
@@ -867,7 +867,7 @@ class TestEngineSelection:
     def test_spec_reports_engine_and_optional_keys(self, monkeypatch):
         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
         monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
-        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.delenv("FRIDAY_AI_WEB_SEARCH_ENGINE", raising=False)
         spec = WebSearchTool().spec
         assert spec.metadata["engine"] == "youcom"
         assert "YOUDOTCOM_API_KEY" in spec.metadata["optional_api_keys"]
@@ -957,14 +957,14 @@ class TestYouComSearch:
 
     def test_sends_attribution_user_agent(self, monkeypatch):
         """Keyless traffic carries no key, so the User-Agent is the only
-        signal identifying OpenJarvis to You.com."""
+        signal identifying FridayAI to You.com."""
         monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
         calls = self._mock_get(monkeypatch)
 
         WebSearchTool(engine="youcom").execute(query="test query")
 
         assert (
-            "youdotcom-integration/open-jarvis-openjarvis"
+            "youdotcom-integration/friday-ai-friday_ai"
             in (calls["headers"]["User-Agent"])
         )
 
@@ -1246,7 +1246,7 @@ class TestFirecrawlSearch:
         assert result.success is True
         assert calls["url"] == "https://api.firecrawl.dev/v2/search"
         assert calls["headers"]["Authorization"] == "Bearer fc-test"
-        assert calls["json"]["origin"] == "openjarvis"
+        assert calls["json"]["origin"] == "friday_ai"
         assert result.metadata["engine"] == "firecrawl"
 
     def test_pasted_key_whitespace_is_trimmed(self, monkeypatch):
@@ -1277,7 +1277,7 @@ class TestFirecrawlSearch:
         WebSearchTool(engine="firecrawl", max_results=3).execute(
             query="q", max_results=7
         )
-        assert calls["json"] == {"query": "q", "limit": 7, "origin": "openjarvis"}
+        assert calls["json"] == {"query": "q", "limit": 7, "origin": "friday_ai"}
 
     def test_self_hosted_api_url(self, monkeypatch):
         """FIRECRAWL_API_URL points search at a self-hosted instance."""
@@ -1391,7 +1391,7 @@ class TestFirecrawlSearch:
 
 class TestFirecrawlScrapeExtraction:
     def _mock_ssrf(self, monkeypatch):
-        import openjarvis.tools.web_search as _ws
+        import friday_ai.tools.web_search as _ws
 
         monkeypatch.setattr(_ws, "check_ssrf", lambda url: None)
 
@@ -1425,7 +1425,7 @@ class TestFirecrawlScrapeExtraction:
             "onlyMainContent": True,
             "parsers": [{"type": "pdf", "maxPages": 3}],
             "timeout": 45000,
-            "origin": "openjarvis",
+            "origin": "friday_ai",
         }
 
     def test_scrape_output_is_truncated_like_the_local_fetch(self, monkeypatch):
@@ -1501,7 +1501,7 @@ class TestFirecrawlScrapeExtraction:
     def test_url_branch_ssrf_blocked_before_scrape_call(self, monkeypatch):
         """The scrape upgrade must not become an SSRF bypass."""
         monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
-        import openjarvis.tools.web_search as _ws
+        import friday_ai.tools.web_search as _ws
 
         monkeypatch.setattr(_ws, "check_ssrf", lambda url: "private IP blocked")
         import httpx
@@ -1549,7 +1549,7 @@ class TestFirecrawlCredentialSafety:
             data = {"web": []} if mode == "search" else {"markdown": "Page text"}
             return httpx.Response(200, json={"success": True, "data": data})
 
-        monkeypatch.setattr("openjarvis.tools.web_search.check_ssrf", lambda url: None)
+        monkeypatch.setattr("friday_ai.tools.web_search.check_ssrf", lambda url: None)
         query = "https://example.test/article" if mode == "scrape" else "test query"
         with httpx.Client(
             transport=httpx.MockTransport(respond), trust_env=False
@@ -1608,7 +1608,7 @@ class TestFirecrawlCredentialSafety:
         )
         monkeypatch.setattr(tool, "_duckduckgo_search", lambda *a: "Search fallback")
         monkeypatch.setattr(tool, "_fetch_url", lambda *a: "Local fallback")
-        monkeypatch.setattr("openjarvis.tools.web_search.check_ssrf", lambda url: None)
+        monkeypatch.setattr("friday_ai.tools.web_search.check_ssrf", lambda url: None)
         query = "https://example.test/article" if mode == "scrape" else "test query"
 
         with caplog.at_level("WARNING"):
@@ -1704,7 +1704,7 @@ class TestFallbackVisibility:
 
 class TestYouComContentsExtraction:
     def _mock_ssrf(self, monkeypatch):
-        import openjarvis.tools.web_search as _ws
+        import friday_ai.tools.web_search as _ws
 
         monkeypatch.setattr(_ws, "check_ssrf", lambda url: None)
 
@@ -1773,7 +1773,7 @@ class TestYouComContentsExtraction:
     def test_url_branch_ssrf_blocked_before_contents_call(self, monkeypatch):
         """The Contents upgrade must not become an SSRF bypass."""
         monkeypatch.setenv("YOUDOTCOM_API_KEY", "ydc-key")
-        import openjarvis.tools.web_search as _ws
+        import friday_ai.tools.web_search as _ws
 
         monkeypatch.setattr(_ws, "check_ssrf", lambda url: "private IP blocked")
         import httpx

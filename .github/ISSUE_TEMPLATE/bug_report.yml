@@ -19,7 +19,7 @@ body:
       label: Steps to Reproduce
       description: Steps to reproduce the behavior.
       placeholder: |
-        1. Run `jarvis ask "..."`
+        1. Run `friday ask "..."`
         2. See error...
     validations:
       required: true

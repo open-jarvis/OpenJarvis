@@ -10,7 +10,7 @@ from unittest import mock
 
 from click.testing import CliRunner
 
-from openjarvis.cli import gui_cmd
+from friday_ai.cli import gui_cmd
 
 
 def test_gui_custom_ports_use_project_root_and_same_origin_proxy(
@@ -56,7 +56,7 @@ def test_gui_custom_ports_use_project_root_and_same_origin_proxy(
             "run",
             "--extra",
             "desktop",
-            "jarvis",
+            "friday",
             "start",
             "--port",
             "8123",
@@ -77,7 +77,7 @@ def test_gui_custom_ports_use_project_root_and_same_origin_proxy(
         "--strictPort",
     ]
     assert kwargs["cwd"] == frontend
-    assert kwargs["env"]["OPENJARVIS_VITE_PROXY_TARGET"] == "http://127.0.0.1:8123"
+    assert kwargs["env"]["FRIDAY_AI_VITE_PROXY_TARGET"] == "http://127.0.0.1:8123"
     assert kwargs["env"]["VITE_API_URL"] == ""
     wait_for_port.assert_called_once_with(
         process, "127.0.0.1", 5180, on_poll=owner_type.return_value.refresh

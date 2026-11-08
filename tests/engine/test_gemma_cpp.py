@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.core.config import EngineConfig, GemmaCppEngineConfig
-from openjarvis.core.types import Message, Role
+from friday_ai.core.config import EngineConfig, GemmaCppEngineConfig
+from friday_ai.core.types import Message, Role
 
 
 class TestGemmaCppEngineConfig:
@@ -28,7 +28,7 @@ class TestGemmaCppEngineConfig:
 class TestMessagesToPrompt:
     def _make_engine(self):
         """Create engine with no paths (won't load model, just test formatting)."""
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         return GemmaCppEngine()
 
@@ -94,7 +94,7 @@ class TestMessagesToPrompt:
 
 class TestGemmaCppLifecycle:
     def _make_engine(self, **kwargs):
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         defaults = {
             "model_path": "/fake/model.sbs",
@@ -104,7 +104,7 @@ class TestGemmaCppLifecycle:
         defaults.update(kwargs)
         return GemmaCppEngine(**defaults)
 
-    @patch("openjarvis.engine.gemma_cpp._import_pygemma")
+    @patch("friday_ai.engine.gemma_cpp._import_pygemma")
     def test_prepare_loads_model(self, mock_import) -> None:
         mock_gemma_cls = MagicMock()
         mock_import.return_value = mock_gemma_cls
@@ -115,7 +115,7 @@ class TestGemmaCppLifecycle:
             "/fake/tokenizer.spm", "/fake/model.sbs", "2b-it"
         )
 
-    @patch("openjarvis.engine.gemma_cpp._import_pygemma")
+    @patch("friday_ai.engine.gemma_cpp._import_pygemma")
     def test_prepare_idempotent(self, mock_import) -> None:
         mock_gemma_cls = MagicMock()
         mock_import.return_value = mock_gemma_cls
@@ -125,7 +125,7 @@ class TestGemmaCppLifecycle:
         # Only loaded once
         assert mock_gemma_cls.call_count == 1
 
-    @patch("openjarvis.engine.gemma_cpp._import_pygemma")
+    @patch("friday_ai.engine.gemma_cpp._import_pygemma")
     def test_close_unloads_model(self, mock_import) -> None:
         mock_gemma_cls = MagicMock()
         mock_import.return_value = mock_gemma_cls
@@ -135,7 +135,7 @@ class TestGemmaCppLifecycle:
         engine.close()
         assert engine._gemma is None
 
-    @patch("openjarvis.engine.gemma_cpp._import_pygemma")
+    @patch("friday_ai.engine.gemma_cpp._import_pygemma")
     def test_generate_returns_dict(self, mock_import) -> None:
         mock_gemma_cls = MagicMock()
         mock_gemma_instance = MagicMock()
@@ -156,7 +156,7 @@ class TestGemmaCppLifecycle:
         assert result["model"] == "2b-it"
         assert result["finish_reason"] == "stop"
 
-    @patch("openjarvis.engine.gemma_cpp._import_pygemma")
+    @patch("friday_ai.engine.gemma_cpp._import_pygemma")
     def test_generate_warns_on_model_mismatch(self, mock_import) -> None:
         mock_gemma_cls = MagicMock()
         mock_gemma_instance = MagicMock()
@@ -165,7 +165,7 @@ class TestGemmaCppLifecycle:
         mock_import.return_value = mock_gemma_cls
 
         engine = self._make_engine(model_type="2b-it")
-        from openjarvis.engine import gemma_cpp as gc_mod
+        from friday_ai.engine import gemma_cpp as gc_mod
 
         with patch.object(gc_mod.logger, "warning") as mock_warn:
             engine.generate(
@@ -174,7 +174,7 @@ class TestGemmaCppLifecycle:
             )
             mock_warn.assert_called_once()
 
-    @patch("openjarvis.engine.gemma_cpp._import_pygemma")
+    @patch("friday_ai.engine.gemma_cpp._import_pygemma")
     def test_generate_wraps_runtime_error(self, mock_import) -> None:
         mock_gemma_cls = MagicMock()
         mock_gemma_instance = MagicMock()
@@ -191,7 +191,7 @@ class TestGemmaCppLifecycle:
 
 
 class TestGemmaCppStream:
-    @patch("openjarvis.engine.gemma_cpp._import_pygemma")
+    @patch("friday_ai.engine.gemma_cpp._import_pygemma")
     @pytest.mark.asyncio
     async def test_stream_yields_content(self, mock_import) -> None:
         mock_gemma_cls = MagicMock()
@@ -200,7 +200,7 @@ class TestGemmaCppStream:
         mock_gemma_cls.return_value = mock_gemma_instance
         mock_import.return_value = mock_gemma_cls
 
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         engine = GemmaCppEngine(
             model_path="/fake/model.sbs",
@@ -223,18 +223,18 @@ class TestGemmaCppHealth:
         tokenizer_file = tmp_path / "tokenizer.spm"
         model_file.write_text("fake")
         tokenizer_file.write_text("fake")
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         engine = GemmaCppEngine(
             model_path=str(model_file),
             tokenizer_path=str(tokenizer_file),
             model_type="2b-it",
         )
-        with patch("openjarvis.engine.gemma_cpp._import_pygemma"):
+        with patch("friday_ai.engine.gemma_cpp._import_pygemma"):
             assert engine.health() is True
 
     def test_health_false_when_files_missing(self) -> None:
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         engine = GemmaCppEngine(
             model_path="/nonexistent/model.sbs",
@@ -244,7 +244,7 @@ class TestGemmaCppHealth:
         assert engine.health() is False
 
     def test_health_false_when_unconfigured(self) -> None:
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         engine = GemmaCppEngine()
         assert engine.health() is False
@@ -254,7 +254,7 @@ class TestGemmaCppHealth:
         tokenizer_file = tmp_path / "tokenizer.spm"
         model_file.write_text("fake")
         tokenizer_file.write_text("fake")
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         engine = GemmaCppEngine(
             model_path=str(model_file),
@@ -262,7 +262,7 @@ class TestGemmaCppHealth:
             model_type="2b-it",
         )
         with patch(
-            "openjarvis.engine.gemma_cpp._import_pygemma",
+            "friday_ai.engine.gemma_cpp._import_pygemma",
             side_effect=ImportError("no pygemma"),
         ):
             assert engine.health() is False
@@ -274,7 +274,7 @@ class TestGemmaCppListModels:
         tokenizer_file = tmp_path / "tokenizer.spm"
         model_file.write_text("fake")
         tokenizer_file.write_text("fake")
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         engine = GemmaCppEngine(
             model_path=str(model_file),
@@ -284,13 +284,13 @@ class TestGemmaCppListModels:
         assert engine.list_models() == ["2b-it"]
 
     def test_list_models_unconfigured(self) -> None:
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         engine = GemmaCppEngine()
         assert engine.list_models() == []
 
     def test_list_models_files_missing(self) -> None:
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         engine = GemmaCppEngine(
             model_path="/nonexistent/model.sbs",
@@ -302,14 +302,14 @@ class TestGemmaCppListModels:
 
 class TestGemmaCppConfigResolution:
     def test_explicit_args_take_priority(self) -> None:
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         with patch.dict(os.environ, {"GEMMA_CPP_MODEL_PATH": "/env/model"}):
             engine = GemmaCppEngine(model_path="/explicit/model")
         assert engine._model_path == "/explicit/model"
 
     def test_env_vars_fallback(self) -> None:
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         env = {
             "GEMMA_CPP_MODEL_PATH": "/env/model.sbs",
@@ -325,7 +325,7 @@ class TestGemmaCppConfigResolution:
         assert engine._num_threads == 8
 
     def test_defaults_when_nothing_set(self) -> None:
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         with patch.dict(os.environ, {}, clear=True):
             engine = GemmaCppEngine()
@@ -337,19 +337,19 @@ class TestGemmaCppConfigResolution:
 
 class TestGemmaCppDiscovery:
     def test_host_map_contains_gemma_cpp(self) -> None:
-        from openjarvis.engine._discovery import _HOST_MAP
+        from friday_ai.engine._discovery import _HOST_MAP
 
         assert "gemma_cpp" in _HOST_MAP
         assert _HOST_MAP["gemma_cpp"] is None
 
     def test_make_engine_passes_config(self) -> None:
-        from openjarvis.core.config import GemmaCppEngineConfig, JarvisConfig
-        from openjarvis.core.registry import EngineRegistry
-        from openjarvis.engine._discovery import _make_engine
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.core.config import GemmaCppEngineConfig, FridayConfig
+        from friday_ai.core.registry import EngineRegistry
+        from friday_ai.engine._discovery import _make_engine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         EngineRegistry.register_value("gemma_cpp", GemmaCppEngine)
-        config = JarvisConfig()
+        config = FridayConfig()
         config.engine.gemma_cpp = GemmaCppEngineConfig(
             model_path="/cfg/model.sbs",
             tokenizer_path="/cfg/tokenizer.spm",
@@ -363,8 +363,8 @@ class TestGemmaCppDiscovery:
         assert engine._num_threads == 4
 
     def test_registry_contains_gemma_cpp(self) -> None:
-        from openjarvis.core.registry import EngineRegistry
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.core.registry import EngineRegistry
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         EngineRegistry.register_value("gemma_cpp", GemmaCppEngine)
         assert EngineRegistry.contains("gemma_cpp")
@@ -379,7 +379,7 @@ class TestGemmaCppLive:
     """
 
     def _make_engine(self):
-        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        from friday_ai.engine.gemma_cpp import GemmaCppEngine
 
         return GemmaCppEngine()
 

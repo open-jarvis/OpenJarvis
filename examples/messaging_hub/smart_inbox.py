@@ -91,10 +91,10 @@ def _print_table(results: list[dict[str, str]]) -> None:
 def _run_demo(model: str, engine_key: str) -> None:
     """Process sample messages through the agent for classification."""
     try:
-        from openjarvis import Jarvis
+        from friday_ai import Friday
     except ImportError:
         click.echo(
-            "Error: openjarvis is not installed. "
+            "Error: friday_ai is not installed. "
             "Install it with:  uv sync --extra dev",
             err=True,
         )
@@ -108,10 +108,10 @@ def _run_demo(model: str, engine_key: str) -> None:
     click.echo(f"Processing {len(DEMO_MESSAGES)} messages...\n")
 
     try:
-        j = Jarvis(model=model, engine_key=engine_key)
+        j = Friday(model=model, engine_key=engine_key)
     except Exception as exc:
         click.echo(
-            f"Error: could not initialize Jarvis — {exc}\n\n"
+            f"Error: could not initialize Friday — {exc}\n\n"
             "Make sure your engine is running. For Ollama:\n"
             "  ollama serve\n"
             "  ollama pull qwen3:8b\n\n"
@@ -181,7 +181,7 @@ def _run_channel(channel: str, model: str, engine_key: str) -> None:
     setup_help = {
         "slack": (
             "To set up Slack:\n"
-            "  1. Run: jarvis add slack\n"
+            "  1. Run: friday add slack\n"
             "  2. Set SLACK_BOT_TOKEN and SLACK_APP_TOKEN in your .env\n"
             "  3. Invite the bot to your target channel\n"
         ),
@@ -196,7 +196,7 @@ def _run_channel(channel: str, model: str, engine_key: str) -> None:
     help_text = setup_help.get(
         channel,
         f"Channel '{channel}' requires appropriate credentials.\n"
-        f"Run: jarvis channel list   to see available channels.\n",
+        f"Run: friday channel list   to see available channels.\n",
     )
 
     click.echo(help_text)
@@ -207,10 +207,10 @@ def _run_channel(channel: str, model: str, engine_key: str) -> None:
 
     # Demonstrate how the channel integration would work
     click.echo("Example integration code:\n")
-    click.echo("  from openjarvis import Jarvis")
-    click.echo(f'  j = Jarvis(model="{model}", engine_key="{engine_key}")')
+    click.echo("  from friday_ai import Friday")
+    click.echo(f'  j = Friday(model="{model}", engine_key="{engine_key}")')
     click.echo("  # Listen for incoming messages on the channel")
-    click.echo(f'  # See: jarvis channel status  (to verify "{channel}" is connected)')
+    click.echo(f'  # See: friday channel status  (to verify "{channel}" is connected)')
     click.echo('  response = j.ask(message, agent="orchestrator",')
     click.echo('                   tools=["think", "memory_store", "memory_search"])')
     click.echo()

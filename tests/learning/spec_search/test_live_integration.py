@@ -6,7 +6,7 @@ with ``pytest -m "not cloud"``.
 
 Requires:
 - ANTHROPIC_API_KEY environment variable set
-- TraceStore at ~/.openjarvis/traces.db with some traces
+- TraceStore at ~/.friday_ai/traces.db with some traces
 """
 
 from __future__ import annotations
@@ -30,18 +30,18 @@ def anthropic_key():
 
 @pytest.fixture
 def cloud_engine(anthropic_key):
-    from openjarvis.engine.cloud import CloudEngine
+    from friday_ai.engine.cloud import CloudEngine
 
     return CloudEngine()
 
 
 @pytest.fixture
 def real_trace_store():
-    from openjarvis.traces.store import TraceStore
+    from friday_ai.traces.store import TraceStore
 
-    db_path = Path.home() / ".openjarvis" / "traces.db"
+    db_path = Path.home() / ".friday_ai" / "traces.db"
     if not db_path.exists():
-        pytest.skip("No traces.db found at ~/.openjarvis/")
+        pytest.skip("No traces.db found at ~/.friday_ai/")
     store = TraceStore(db_path)
     if store.count() < 5:
         pytest.skip("Need at least 5 traces for live test")
@@ -52,7 +52,7 @@ class TestCloudEngineDirectCall:
     """Verify CloudEngine works with real API."""
 
     def test_generate_produces_content(self, cloud_engine) -> None:
-        from openjarvis.core.types import Message, Role
+        from friday_ai.core.types import Message, Role
 
         result = cloud_engine.generate(
             messages=[
@@ -73,7 +73,7 @@ class TestTeacherAgentLive:
     """Test TeacherAgent with a real CloudEngine."""
 
     def test_teacher_agent_single_turn(self, cloud_engine) -> None:
-        from openjarvis.learning.spec_search.diagnose.teacher_agent import (
+        from friday_ai.learning.spec_search.diagnose.teacher_agent import (
             TeacherAgent,
         )
 
@@ -101,7 +101,7 @@ class TestDiagnosisRunnerLive:
     def test_diagnosis_produces_output(
         self, cloud_engine, real_trace_store, tmp_path
     ) -> None:
-        from openjarvis.learning.spec_search.diagnose.runner import (
+        from friday_ai.learning.spec_search.diagnose.runner import (
             DiagnosisRunner,
         )
 
@@ -124,7 +124,7 @@ class TestDiagnosisRunnerLive:
             session_id="live-test-001",
             config={
                 "config_path": config_dir / "config.toml",
-                "openjarvis_home": config_dir,
+                "friday_ai_home": config_dir,
             },
             max_turns=5,  # Keep it cheap
             max_cost_usd=1.0,
@@ -157,7 +157,7 @@ class TestColdStartLive:
         """With 373 traces but 0 feedback, the orchestrator should handle
         this gracefully — either by running (traces > 20) or by giving
         a clear message about what's missing."""
-        from openjarvis.learning.spec_search.gate.cold_start import (
+        from friday_ai.learning.spec_search.gate.cold_start import (
             check_benchmark_ready,
             check_readiness,
         )

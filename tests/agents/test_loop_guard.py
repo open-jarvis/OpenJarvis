@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from openjarvis.core.events import EventBus, EventType
+from friday_ai.core.events import EventBus, EventType
 
 
 class TestLoopGuard:
     def _make_guard(self, **kwargs):
-        from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig
+        from friday_ai.agents.loop_guard import LoopGuard, LoopGuardConfig
 
         kwargs.setdefault("warn_before_block", False)
         config = LoopGuardConfig(**kwargs)
@@ -69,7 +69,7 @@ class TestLoopGuard:
         assert not v.blocked
 
     def test_context_compression_no_overflow(self):
-        from openjarvis.core.types import Message, Role
+        from friday_ai.core.types import Message, Role
 
         guard, _ = self._make_guard(max_context_messages=100)
         messages = [Message(role=Role.USER, content=f"msg {i}") for i in range(10)]
@@ -77,7 +77,7 @@ class TestLoopGuard:
         assert len(result) == 10
 
     def test_context_compression_with_overflow(self):
-        from openjarvis.core.types import Message, Role
+        from friday_ai.core.types import Message, Role
 
         guard, _ = self._make_guard(max_context_messages=10)
         messages = (
@@ -95,7 +95,7 @@ class TestLoopGuard:
 
     def test_context_compression_stage4_uses_current_state(self):
         """Stage 4 should derive from compressed state."""
-        from openjarvis.core.types import Message, Role
+        from friday_ai.core.types import Message, Role
 
         guard, _ = self._make_guard(max_context_messages=5)
         messages = (
@@ -123,7 +123,7 @@ class TestLoopGuard:
         assert not v.blocked
 
     def test_disabled_loop_guard(self):
-        from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig
+        from friday_ai.agents.loop_guard import LoopGuard, LoopGuardConfig
 
         config = LoopGuardConfig(enabled=False)
         guard = LoopGuard(config)

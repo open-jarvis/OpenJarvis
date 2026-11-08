@@ -6,12 +6,12 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from openjarvis.cli.doctor_cmd import doctor
+from friday_ai.cli.doctor_cmd import doctor
 
 
-def test_doctor_shows_bg_section_when_state_present(tmp_openjarvis_home: Path) -> None:
-    (tmp_openjarvis_home / ".state" / "extension-built").write_text("")
-    (tmp_openjarvis_home / ".state" / "models" / "qwen3.5:9b.ready").write_text("")
+def test_doctor_shows_bg_section_when_state_present(tmp_friday_ai_home: Path) -> None:
+    (tmp_friday_ai_home / ".state" / "extension-built").write_text("")
+    (tmp_friday_ai_home / ".state" / "models" / "qwen3.5:9b.ready").write_text("")
     runner = CliRunner()
     result = runner.invoke(doctor, [], catch_exceptions=False)
     assert "Background tasks" in result.output
@@ -20,8 +20,8 @@ def test_doctor_shows_bg_section_when_state_present(tmp_openjarvis_home: Path) -
     assert "ready" in result.output
 
 
-def test_doctor_exit_code_when_bg_failed(tmp_openjarvis_home: Path) -> None:
-    (tmp_openjarvis_home / ".state" / "extension-failed").write_text("oom")
+def test_doctor_exit_code_when_bg_failed(tmp_friday_ai_home: Path) -> None:
+    (tmp_friday_ai_home / ".state" / "extension-failed").write_text("oom")
     runner = CliRunner()
     result = runner.invoke(doctor, [], catch_exceptions=False)
     # Doctor should exit non-zero when any bg task is failed.
@@ -29,7 +29,7 @@ def test_doctor_exit_code_when_bg_failed(tmp_openjarvis_home: Path) -> None:
     assert "failed" in result.output.lower()
 
 
-def test_doctor_no_bg_section_when_state_dir_empty(tmp_openjarvis_home: Path) -> None:
+def test_doctor_no_bg_section_when_state_dir_empty(tmp_friday_ai_home: Path) -> None:
     """Empty .state/ — section still appears but reports 'no background tasks'."""
     runner = CliRunner()
     result = runner.invoke(doctor, [], catch_exceptions=False)

@@ -1,0 +1,22 @@
+[package]
+name = "friday_ai-engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+friday_ai-core = { path = "../friday_ai-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+async-trait = { workspace = true }
+once_cell = { workspace = true }
+futures = { workspace = true }
+tokio-stream = { workspace = true }
+rig-core = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }

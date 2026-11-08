@@ -6,7 +6,7 @@ import builtins
 import sys
 from unittest.mock import MagicMock
 
-from openjarvis.tools.audio_tool import AudioTranscribeTool
+from friday_ai.tools.audio_tool import AudioTranscribeTool
 
 
 class TestAudioTranscribeTool:

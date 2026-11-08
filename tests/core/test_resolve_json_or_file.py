@@ -1,11 +1,11 @@
-"""Tests for resolve_json_or_file in openjarvis.core.config."""
+"""Tests for resolve_json_or_file in friday_ai.core.config."""
 
 import json
 from pathlib import Path
 
 import pytest
 
-from openjarvis.core.config import load_config, resolve_json_or_file
+from friday_ai.core.config import load_config, resolve_json_or_file
 
 
 class TestResolveJsonOrFile:

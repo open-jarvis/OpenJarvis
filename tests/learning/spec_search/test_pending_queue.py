@@ -1,10 +1,10 @@
-"""Tests for openjarvis.learning.spec_search.pending_queue module."""
+"""Tests for friday_ai.learning.spec_search.pending_queue module."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from openjarvis.learning.spec_search.models import (
+from friday_ai.learning.spec_search.models import (
     Edit,
     EditOp,
     EditPillar,
@@ -27,7 +27,7 @@ def _make_edit(edit_id: str = "edit-001") -> Edit:
 
 class TestPendingQueue:
     def test_enqueue_creates_file(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.pending_queue import PendingQueue
+        from friday_ai.learning.spec_search.pending_queue import PendingQueue
 
         queue = PendingQueue(tmp_path / "pending_review")
         queue.enqueue("session-001", _make_edit())
@@ -37,7 +37,7 @@ class TestPendingQueue:
         assert "edit-001" in files[0].name
 
     def test_list_pending(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.pending_queue import PendingQueue
+        from friday_ai.learning.spec_search.pending_queue import PendingQueue
 
         queue = PendingQueue(tmp_path / "pending_review")
         queue.enqueue("session-001", _make_edit("e1"))
@@ -48,7 +48,7 @@ class TestPendingQueue:
         assert ids == {"e1", "e2"}
 
     def test_resolve_removes_file(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.pending_queue import PendingQueue
+        from friday_ai.learning.spec_search.pending_queue import PendingQueue
 
         queue = PendingQueue(tmp_path / "pending_review")
         queue.enqueue("session-001", _make_edit())
@@ -57,13 +57,13 @@ class TestPendingQueue:
         assert len(queue.list_pending()) == 0
 
     def test_list_empty_queue(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.pending_queue import PendingQueue
+        from friday_ai.learning.spec_search.pending_queue import PendingQueue
 
         queue = PendingQueue(tmp_path / "pending_review")
         assert queue.list_pending() == []
 
     def test_get_pending_edit(self, tmp_path: Path) -> None:
-        from openjarvis.learning.spec_search.pending_queue import PendingQueue
+        from friday_ai.learning.spec_search.pending_queue import PendingQueue
 
         queue = PendingQueue(tmp_path / "pending_review")
         queue.enqueue("session-001", _make_edit())

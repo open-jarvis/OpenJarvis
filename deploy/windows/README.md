@@ -1,4 +1,4 @@
-# OpenJarvis on native Windows
+# FridayAI on native Windows
 
 Phase-1 of the native-Windows-support RFC (#298). Mirrors the Linux
 (`deploy/systemd/`) and macOS (`deploy/launchd/`) deployments — but for
@@ -18,8 +18,8 @@ What it does:
 2. Checks Python 3.10 – 3.13 (3.14 has no numpy wheels yet — see #432).
 3. Checks `git` on PATH.
 4. Installs `uv` (https://astral.sh/uv) if absent.
-5. Clones the OpenJarvis repository to `%LOCALAPPDATA%\OpenJarvis`
-   (override with `$env:OPENJARVIS_HOME`).
+5. Clones the FridayAI repository to `%LOCALAPPDATA%\FridayAI`
+   (override with `$env:FRIDAY_AI_HOME`).
 6. Runs `uv sync --extra desktop --group desktop-native` so the FastAPI server,
    speech backend, and native extension are importable.
 7. Optionally prompts to register a scheduled task that auto-starts the
@@ -38,21 +38,21 @@ the same knobs are honored via env vars when the corresponding flag is
 absent:
 
 ```powershell
-$env:OPENJARVIS_SKIP_SERVICE = '1'
+$env:FRIDAY_AI_SKIP_SERVICE = '1'
 irm https://open-jarvis.github.io/OpenJarvis/install.ps1 | iex
 ```
 
-The available env vars: `OPENJARVIS_SKIP_SERVICE`, `OPENJARVIS_SERVICE`,
-`OPENJARVIS_FORCE`. If you need richer control, save the script first
+The available env vars: `FRIDAY_AI_SKIP_SERVICE`, `FRIDAY_AI_SERVICE`,
+`FRIDAY_AI_FORCE`. If you need richer control, save the script first
 (`irm ... -OutFile install.ps1; .\install.ps1 -Force`).
 
 ## Manual scheduled-task setup
 
 If you skipped the prompt during install, you can register / inspect /
-remove the task with `jarvis-service.ps1`:
+remove the task with `friday-service.ps1`:
 
 ```powershell
-$srv = "$env:LOCALAPPDATA\OpenJarvis\src\deploy\windows\jarvis-service.ps1"
+$srv = "$env:LOCALAPPDATA\FridayAI\src\deploy\windows\friday-service.ps1"
 
 # install (idempotent — replaces existing)
 powershell -ExecutionPolicy Bypass -File $srv install
@@ -73,27 +73,27 @@ up if missed).
 
 By default the scheduled task binds `127.0.0.1` — reachable only from
 this machine, no API key required. This matches launchd parity (see
-`deploy/launchd/com.openjarvis.plist`).
+`deploy/launchd/com.friday_ai.plist`).
 
 To expose on your LAN:
 
 ```powershell
 # 1. Generate an API key. The server REFUSES to bind 0.0.0.0 without one.
-$env:OPENJARVIS_API_KEY = (uv run jarvis auth generate-key)
+$env:FRIDAY_AI_API_KEY = (uv run friday auth generate-key)
 
 # 2. Re-register the task with -ListenHost 0.0.0.0.
 powershell -ExecutionPolicy Bypass -File $srv install -ListenHost 0.0.0.0
 ```
 
-`jarvis-service.ps1 install` refuses `-ListenHost 0.0.0.0` if
-`$env:OPENJARVIS_API_KEY` is unset — same guard as the systemd unit's
-`EnvironmentFile=/etc/openjarvis/env`.
+`friday-service.ps1 install` refuses `-ListenHost 0.0.0.0` if
+`$env:FRIDAY_AI_API_KEY` is unset — same guard as the systemd unit's
+`EnvironmentFile=/etc/friday_ai/env`.
 
 ## Parity table
 
 | Concern | systemd | launchd | Windows |
 |---------|---------|---------|---------|
-| Service definition | `deploy/systemd/openjarvis.service` | `deploy/launchd/com.openjarvis.plist` | `deploy/windows/jarvis-service.ps1` (cmdlet-driven) |
+| Service definition | `deploy/systemd/friday_ai.service` | `deploy/launchd/com.friday_ai.plist` | `deploy/windows/friday-service.ps1` (cmdlet-driven) |
 | Default bind | `0.0.0.0` (with API key) | `127.0.0.1` (no API key) | `127.0.0.1` (no API key) |
 | Restart on failure | `Restart=on-failure RestartSec=5` | `KeepAlive=true` | `RestartCount=3 RestartInterval=PT1M` |
 | Auto-start | `multi-user.target` | `RunAtLoad=true` | `AtLogOn` trigger |
@@ -103,7 +103,7 @@ powershell -ExecutionPolicy Bypass -File $srv install -ListenHost 0.0.0.0
 To pull the latest:
 
 ```powershell
-cd "$env:LOCALAPPDATA\OpenJarvis\src"
+cd "$env:LOCALAPPDATA\FridayAI\src"
 git pull --ff-only
 uv sync --extra desktop --group desktop-native
 ```
@@ -118,8 +118,8 @@ irm https://open-jarvis.github.io/OpenJarvis/install.ps1 | iex
 ## Uninstall
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\OpenJarvis\src\deploy\windows\jarvis-service.ps1" uninstall
-Remove-Item -Recurse -Force "$env:LOCALAPPDATA\OpenJarvis"
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\FridayAI\src\deploy\windows\friday-service.ps1" uninstall
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\FridayAI"
 ```
 
 Uninstalling does NOT remove `uv` (it's a separate tool — you may have

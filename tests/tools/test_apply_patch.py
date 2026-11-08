@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openjarvis.tools.apply_patch import ApplyPatchTool
+from friday_ai.tools.apply_patch import ApplyPatchTool
 
 
 class TestApplyPatchTool:
