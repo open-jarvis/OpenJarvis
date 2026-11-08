@@ -28,11 +28,13 @@ mkdir -p "$STATE_DIR"
 
 if [[ ! -f "$MANIFEST" ]]; then
     echo "build-extension.sh: manifest not found at $MANIFEST" > "$FAILED"
+    rm -f "$BUILT"
     exit 1
 fi
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
     echo "build-extension.sh: runtime venv not found at $VENV_DIR" > "$FAILED"
+    rm -f "$BUILT"
     exit 1
 fi
 
@@ -47,7 +49,9 @@ if VIRTUAL_ENV="$VENV_DIR" uvx maturin develop --uv -m "$MANIFEST" >>"$LOG" 2>&1
     # into a different venv than the one that runs the server, which leaves
     # memory silently broken at runtime (#502). Only the import check below
     # proves the serving venv can load it.
-    if ! "$VENV_DIR/bin/python" -c "import openjarvis_rust" >>"$LOG" 2>&1; then
+    if "$VENV_DIR/bin/python" -c "import openjarvis_rust" >>"$LOG" 2>&1; then
+        :
+    else
         rc=$?
         {
             echo "build-extension.sh: maturin succeeded but 'import openjarvis_rust'"
