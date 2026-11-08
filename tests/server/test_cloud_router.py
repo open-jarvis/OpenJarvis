@@ -42,6 +42,12 @@ def test_get_provider_detects_litellm_prefixed_openrouter_id():
     assert cloud_router.get_provider(model) == "openrouter"
 
 
+def test_ollama_namespace_tag_is_local():
+    model = "maternion/spark-x2.5:4b-q4_K_M"
+    assert cloud_router.get_provider(model) is None
+    assert not cloud_router.is_cloud_model(model)
+
+
 @pytest.mark.parametrize(
     "requested_model,expected_forwarded_model",
     [

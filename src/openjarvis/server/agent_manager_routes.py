@@ -120,6 +120,83 @@ class FeedbackRequest(BaseModel):
     reason: Optional[str] = None
 
 
+def _start_telegram_binding(app: Any, binding: Dict[str, Any]) -> None:
+    """Start a managed Telegram listener and route replies through the bridge."""
+    config = binding.get("config") or {}
+    bot_token = config.get("bot_token", "")
+    if not bot_token:
+        logger.warning("Telegram binding has no bot token")
+        return
+
+    from openjarvis.channels.telegram import TelegramChannel
+
+    channel = TelegramChannel(
+        bot_token=bot_token,
+        allowed_chat_ids=config.get("allowed_chat_ids", ""),
+        parse_mode=config.get("parse_mode", "Markdown"),
+        bus=getattr(app.state, "bus", None),
+    )
+    bridge = getattr(app.state, "channel_bridge", None)
+    if bridge is None or not hasattr(bridge, "handle_incoming"):
+        from openjarvis.core.events import EventBus
+        from openjarvis.server.channel_bridge import ChannelBridge
+        from openjarvis.server.session_store import SessionStore
+
+        engine = getattr(app.state, "engine", None)
+        deep_research_agent = None
+        if engine is not None:
+            tools = _build_deep_research_tools(engine=engine, model="")
+            if tools:
+                from openjarvis.agents.deep_research import DeepResearchAgent
+
+                model_name = getattr(app.state, "model", "") or getattr(
+                    engine, "_model", ""
+                )
+                deep_research_agent = DeepResearchAgent(
+                    engine=engine,
+                    model=model_name,
+                    tools=tools,
+                    bus=getattr(app.state, "bus", None),
+                    capability_policy=getattr(
+                        app.state, "capability_policy", None
+                    ),
+                    rate_limiter=getattr(app.state, "rate_limiter", None),
+                    agent_id=binding.get("agent_id", ""),
+                    interactive=True,
+                    confirm_callback=lambda _prompt: True,
+                )
+
+        bus = getattr(app.state, "bus", None) or EventBus()
+        bridge = ChannelBridge(
+            channels={},
+            session_store=SessionStore(),
+            bus=bus,
+            agent_manager=getattr(app.state, "agent_manager", None),
+            deep_research_agent=deep_research_agent,
+        )
+        app.state.channel_bridge = bridge
+
+    def _handle_message(message: Any) -> None:
+        response = bridge.handle_incoming(
+            message.conversation_id,
+            message.content,
+            "telegram",
+        )
+        if response:
+            channel.send(
+                message.conversation_id,
+                response,
+                conversation_id=message.message_id,
+            )
+
+    channel.on_message(_handle_message)
+    channel.connect()
+    app.state.telegram_channel = channel
+    if hasattr(bridge, "_channels"):
+        bridge._channels["telegram"] = channel
+    logger.info("Telegram channel connected for managed agent binding")
+
+
 def _resolve_memory_backend(config: Any) -> Any:
     """Instantiate the configured memory backend, or None if unavailable.
 
@@ -2040,6 +2117,20 @@ def create_agent_manager_router(
                         exc,
                     )
 
+        if req.channel_type == "telegram":
+            try:
+                previous = getattr(request.app.state, "telegram_channel", None)
+                if previous is not None:
+                    previous.disconnect()
+                _start_telegram_binding(request.app, binding)
+            except Exception as exc:
+                manager.unbind_channel(binding["id"])
+                logger.exception("Failed to start Telegram")
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Failed to start Telegram: {exc}",
+                ) from exc
+
         return binding
 
     @agents_router.delete("/{agent_id}/channels/{binding_id}")
@@ -2064,6 +2155,13 @@ def create_agent_manager_router(
                     )
 
                     stop_slack_daemon()
+                elif ch_type == "telegram":
+                    telegram_channel = getattr(
+                        request.app.state, "telegram_channel", None
+                    )
+                    if telegram_channel is not None:
+                        telegram_channel.disconnect()
+                        request.app.state.telegram_channel = None
         except Exception:
             pass
         manager.unbind_channel(binding_id)
