@@ -659,6 +659,30 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/desktop-v')
     runs-on: ubuntu-latest
     steps:
+      - name: Add stable download aliases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STABLE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${STABLE_TAG#desktop-v}"
+          DOWNLOAD_DIR="$RUNNER_TEMP/stable-downloads"
+          mkdir -p "$DOWNLOAD_DIR"
+          while read -r source alias; do
+            gh release download "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --pattern "$source" --dir "$DOWNLOAD_DIR" --clobber
+            mv "$DOWNLOAD_DIR/$source" "$DOWNLOAD_DIR/$alias"
+            gh release upload "$STABLE_TAG" "$DOWNLOAD_DIR/$alias" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          done <<EOF
+          OpenJarvis_${VERSION}_universal.dmg OpenJarvis_universal.dmg
+          OpenJarvis_${VERSION}_x64-setup.exe OpenJarvis_x64-setup.exe
+          OpenJarvis_${VERSION}_arm64-setup.exe OpenJarvis_arm64-setup.exe
+          OpenJarvis_${VERSION}_amd64.deb OpenJarvis_amd64.deb
+          OpenJarvis-${VERSION}-1.x86_64.rpm OpenJarvis_x86_64.rpm
+          OpenJarvis_${VERSION}_amd64.AppImage OpenJarvis_amd64.AppImage
+          EOF
+
       - name: Publish verified stable release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
