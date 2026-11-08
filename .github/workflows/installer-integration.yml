@@ -85,7 +85,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-15]
+        # macOS 14 runners retired on November 2, 2026. Keep coverage of
+        # both Intel and Apple Silicon on supported macOS 15 images.
+        os: [macos-15-intel, macos-15]
 
     steps:
       - uses: actions/checkout@v7
