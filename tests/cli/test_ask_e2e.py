@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import logging
 from pathlib import Path
 from unittest import mock
 
@@ -91,9 +92,21 @@ class TestAskCommand:
 
     def test_json_output(self, monkeypatch, tmp_path: Path) -> None:
         _patch_ask(monkeypatch, tmp_path)
+        cfg = _ask_mod.load_config()
+
+        # A startup warning (e.g. missing openjarvis_rust) goes to stderr and
+        # must not end up in the JSON on stdout (#1115).
+        def _load_config_with_warning():
+            logging.getLogger("openjarvis.security").warning(
+                "Failed to set up rate limiter"
+            )
+            return cfg
+
+        monkeypatch.setattr(_ask_mod, "load_config", _load_config_with_warning)
         result = CliRunner().invoke(cli, ["ask", "--json", "Hello"])
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        assert "Failed to set up rate limiter" in result.stderr
+        data = json.loads(result.stdout)
         assert "content" in data
 
     def test_telemetry_recorded(self, monkeypatch, tmp_path: Path) -> None:
