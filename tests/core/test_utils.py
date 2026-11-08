@@ -18,6 +18,8 @@ from openjarvis.core.utils import (
     process_alive,
     terminate_process,
 )
+
+
 def test_open_browser_windows_quotes_url() -> None:
     with (
         patch("openjarvis.core.utils.platform.system", return_value="Windows"),
