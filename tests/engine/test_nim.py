@@ -123,6 +123,30 @@ def test_generate_maps_connection_errors(respx_mock) -> None:
     engine.close()
 
 
+@pytest.mark.parametrize("status", [502, 503, 504])
+def test_generate_maps_gateway_errors(respx_mock, status) -> None:
+    respx_mock.post(_CHAT_URL).mock(return_value=httpx.Response(status))
+    engine = NIMEngine(host=_HOST)
+
+    with pytest.raises(EngineConnectionError, match=str(status)):
+        engine.generate(_message(), model="nim-model")
+
+    engine.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [502, 503, 504])
+async def test_stream_maps_gateway_errors(respx_mock, status) -> None:
+    respx_mock.post(_CHAT_URL).mock(return_value=httpx.Response(status))
+    engine = NIMEngine(host=_HOST)
+
+    with pytest.raises(EngineConnectionError, match=str(status)):
+        async for _ in engine.stream(_message(), model="nim-model"):
+            pass
+
+    engine._client.close()
+
+
 def test_health_falls_back_to_models(respx_mock) -> None:
     respx_mock.get(f"{_HOST}/v1/health/ready").mock(return_value=httpx.Response(404))
     models = respx_mock.get(f"{_HOST}/v1/models").mock(
