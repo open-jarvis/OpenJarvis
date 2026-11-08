@@ -99,19 +99,17 @@ def open_browser(url: str) -> None:
     """Open *url* in the user's default browser, with a Windows fast-path.
 
     :func:`webbrowser.open` is the cross-platform default, but on Windows it
-    sometimes blocks or fails inside a console host. ``cmd /c start "" "URL"``
-    is the canonical Windows incantation that hands the URL to the OS shell
-    and returns immediately. We try that first on Windows and fall back to
-    :func:`webbrowser.open` if the handoff fails.
+    sometimes blocks or fails inside a console host. :func:`os.startfile`
+    hands the URL to the OS shell and returns immediately. We try that first
+    on Windows and fall back to :func:`webbrowser.open` if it fails.
     """
     if platform.system() == "Windows":
         try:
-            # ``cmd /c start`` leaves the URL unquoted, so ``&`` in OAuth query
-            # strings is parsed as a command separator. ``os.startfile`` passes
-            # the URL straight to the Windows shell without a command line.
-            os.startfile(url)  # type: ignore[attr-defined]  # Windows-only
+            # Not ``cmd /c start "" URL``: cmd.exe would read each ``&`` in
+            # the query string as a command separator and truncate the URL.
+            os.startfile(url)  # type: ignore[attr-defined]
             return
-        except OSError:
+        except Exception:  # noqa: BLE001 - any launch failure -> fall back
             pass
     webbrowser.open(url)
 
