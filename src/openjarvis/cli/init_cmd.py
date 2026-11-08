@@ -202,11 +202,15 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
         ollama_pull(host, model, console)
     elif engine == "llamacpp":
-        repo = spec.metadata.get("hf_repo", "")
+        repo = spec.metadata.get("gguf_repo") or spec.metadata.get("hf_repo", "")
         gguf = spec.metadata.get("gguf_file", "")
         if repo and gguf:
             console.print(f"  Downloading [cyan]{gguf}[/cyan] from {repo}...")
             hf_download(repo, gguf, console)
+            mmproj = spec.metadata.get("mmproj_file", "")
+            if mmproj:
+                console.print(f"  Downloading [cyan]{mmproj}[/cyan] from {repo}...")
+                hf_download(repo, mmproj, console)
         else:
             console.print(f"  [yellow]No GGUF download info for {model}[/yellow]")
     elif engine == "mlx":
