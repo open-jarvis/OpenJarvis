@@ -14,9 +14,33 @@ import pytest
 
 from openjarvis.core.utils import (
     _windows_process_alive,
+    open_browser,
     process_alive,
     terminate_process,
 )
+
+
+def test_open_browser_windows_quotes_url() -> None:
+    with (
+        patch("openjarvis.core.utils.platform.system", return_value="Windows"),
+        patch("openjarvis.core.utils.subprocess.run") as run,
+        patch("openjarvis.core.utils.webbrowser.open") as browser_open,
+    ):
+        open_browser(
+            "https://accounts.google.com/o/oauth2/v2/auth?"
+            "client_id=x&redirect_uri=http://localhost:8789/callback"
+        )
+
+    run.assert_called_once_with(
+        [
+            "cmd",
+            "/c",
+            'start "" "https://accounts.google.com/o/oauth2/v2/auth?client_id=x&redirect_uri=http://localhost:8789/callback"',
+        ],
+        check=False,
+        shell=False,
+    )
+    browser_open.assert_not_called()
 
 
 class TestProcessAlive:
