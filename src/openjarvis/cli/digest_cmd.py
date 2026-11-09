@@ -203,9 +203,12 @@ def digest(
 
         audio_path = str(artifact.audio_path)
         console.print(f"[dim]Audio path: '{audio_path}'[/dim]")
-        has_audio = bool(audio_path) and artifact.audio_path.exists()
+        # Path("") is "." and exists(), so an empty path must be checked by name.
+        has_audio = bool(artifact.audio_path.name) and artifact.audio_path.exists()
         console.print(f"[dim]Audio available: {has_audio}[/dim]")
-        if has_audio:
+        if text_only:
+            pass
+        elif has_audio:
             audio_thread = threading.Thread(
                 target=_play_audio, args=(audio_path,), daemon=True
             )
@@ -247,7 +250,7 @@ def digest(
 
     # Play audio in background while text renders
     audio_path = str(artifact.audio_path)
-    if not text_only and audio_path and artifact.audio_path.exists():
+    if not text_only and artifact.audio_path.name and artifact.audio_path.exists():
         audio_thread = threading.Thread(
             target=_play_audio, args=(audio_path,), daemon=True
         )
