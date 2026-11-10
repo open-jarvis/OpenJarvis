@@ -215,6 +215,7 @@ class TestCredentialPassthroughProtection:
         )
         result = tool.execute(command=cmd)
 
+        assert result.success is True
         assert secret_val not in result.content, (
             f"Security violation: Sensitive credential '{secret_key}' was leaked "
             "to subprocess."
@@ -473,6 +474,8 @@ class TestCombinedOutputBudget:
             f"Security violation: Live combined output size {len(raw_bytes)} bytes "
             f"exceeds the shared budget of {max_budget} bytes."
         )
+        assert result.metadata["output_limited"] is True
+        assert result.success is False
 
     @pytest.mark.skipif(
         not RUST_AVAILABLE,
