@@ -178,7 +178,26 @@ jobs:
     needs: [validate]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    outputs:
+      stable_release_id: ${{ steps.stable-draft.outputs.id }}
     steps:
+      - name: Prepare a shared draft for stable builds
+        id: stable-draft
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STABLE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+              --title "Desktop $STABLE_TAG" --notes "Desktop application built from $GITHUB_SHA"
+          fi
+          release_id=$(gh release view "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,isDraft --jq 'select(.isDraft) | .databaseId')
+          test -n "$release_id" || { echo "::error::Expected a draft for $STABLE_TAG"; exit 1; }
+          echo "id=$release_id" >> "$GITHUB_OUTPUT"
+
       - name: Delete old assets from desktop-edge
         if: "!startsWith(github.ref, 'refs/tags/desktop-v')"
         env:
@@ -552,6 +571,7 @@ jobs:
         with:
           projectPath: frontend
           tauriScript: npx tauri
+          releaseId: ${{ needs.clean-release.outputs.stable_release_id }}
           tagName: ${{ steps.release-info.outputs.tag }}
           releaseName: ${{ steps.release-info.outputs.name }}
           releaseBody: 'Desktop application built from ${{ github.sha }}'
@@ -607,7 +627,7 @@ jobs:
     needs: [build-and-release]
     runs-on: ubuntu-latest
     steps:
-      - name: Verify published updater manifest
+      - name: Verify release updater manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ needs.build-and-release.outputs.tag }}
@@ -623,7 +643,10 @@ jobs:
             sleep 3
           done
           test -s "$RUNNER_TEMP/desktop-release-check/latest.json"
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.id')
+          # The REST lookup by tag only finds published releases. gh release
+          # view also resolves a draft by its pending tag.
+          release_id=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId --jq .databaseId)
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
             --paginate --slurp > "$RUNNER_TEMP/desktop-release-check/assets.json"
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
