@@ -2,185 +2,60 @@
 
 from __future__ import annotations
 
+import importlib
+import logging
+
 from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+
+logger = logging.getLogger(__name__)
 
 # Import built-in tools to trigger @ToolRegistry.register() decorators.
 # Each is wrapped in try/except so the package loads even before the
-# individual tool modules are created.
-try:
-    import openjarvis.tools.calculator  # noqa: F401
-except ImportError:
-    pass
+# individual tool modules are created or if optional dependencies are missing.
+_BUILTIN_TOOL_MODULES = (
+    "calculator",
+    "think",
+    "retrieval",
+    "llm_tool",
+    "file_read",
+    "web_search",
+    "weather",
+    "fx_macro",
+    "code_interpreter",
+    "code_interpreter_docker",
+    "repl",
+    "storage_tools",
+    "mcp_adapter",
+    "channel_tools",
+    "http_request",
+    "docker_shell_exec",
+    "shell_exec",
+    "memory_manage",
+    "user_profile_manage",
+    "skill_manage",
+    "file_write",
+    "apply_patch",
+    "git_tool",
+    "db_query",
+    "pdf_tool",
+    "image_tool",
+    "audio_tool",
+    "knowledge_tools",
+    "text_to_speech",
+    "digest_collect",
+    "scan_chunks",
+    "knowledge_sql",
+    "apple_calendar",
+    "knowledge_search",
+    "browser",
+    "browser_axtree",
+    "proactive_tools",
+)
 
-try:
-    import openjarvis.tools.think  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.retrieval  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.llm_tool  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.file_read  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.web_search  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.weather  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.fx_macro  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.code_interpreter  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.code_interpreter_docker  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.repl  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.storage_tools  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.mcp_adapter  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.channel_tools  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.http_request  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.docker_shell_exec  # noqa: F401
-    import openjarvis.tools.shell_exec  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.memory_manage  # noqa: F401
-except ImportError:
-    pass
-try:
-    import openjarvis.tools.user_profile_manage  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.skill_manage  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.file_write  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.apply_patch  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.git_tool  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.db_query  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.pdf_tool  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.image_tool  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.audio_tool  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.knowledge_tools  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.text_to_speech  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.digest_collect  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.scan_chunks  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.knowledge_sql  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.apple_calendar  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.knowledge_search  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.browser  # noqa: F401
-    import openjarvis.tools.browser_axtree  # noqa: F401
-except ImportError:
-    pass
-
-try:
-    import openjarvis.tools.proactive_tools  # noqa: F401
-except ImportError:
-    pass
+for _name in _BUILTIN_TOOL_MODULES:
+    try:
+        importlib.import_module(f"openjarvis.tools.{_name}")
+    except ImportError as _exc:
+        logger.debug("Optional tool %s not loaded: %s", _name, _exc)
 
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]
