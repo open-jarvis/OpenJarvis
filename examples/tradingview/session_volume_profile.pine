@@ -1,0 +1,15 @@
+//@version=6
+indicator("Session Volume Profile - POC & Value Area", overlay = true)
+
+int rows = input.int(30, "Number of rows", minval = 1, maxval = 500)
+float valueAreaPercent = input.float(70.0, "Value area (%)", minval = 1.0, maxval = 100.0, step = 1.0)
+
+color upVolumeColor = input.color(color.new(color.teal, 35), "Up-volume color")
+color downVolumeColor = input.color(color.new(color.red, 35), "Down-volume color")
+color pocColor = input.color(color.yellow, "Point of control color")
+color valueAreaColor = input.color(color.new(color.blue, 85), "Value area color")
+
+volumeProfile = volume.profile_session(rows, valueAreaPercent)
+
+if not na(volumeProfile)
+    volumeProfile.plot(upVolumeColor, downVolumeColor, pocColor, valueAreaColor)
