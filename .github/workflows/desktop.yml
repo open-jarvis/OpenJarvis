@@ -224,7 +224,7 @@ jobs:
         include:
           - platform: ubuntu-22.04
             args: ''
-          - platform: macos-14
+          - platform: macos-15
             args: '--target universal-apple-darwin'
           - platform: windows-latest
             args: ''
@@ -260,7 +260,7 @@ jobs:
       # `xcrun` is preinstalled on macOS runners, hence placement before the
       # toolchain steps rather than next to "Configure Apple signing".
       - name: Preflight Apple notarization credentials
-        if: matrix.platform == 'macos-14'
+        if: matrix.platform == 'macos-15'
         env:
           CERT: ${{ secrets.APPLE_CERTIFICATE }}
           A_ID: ${{ secrets.APPLE_ID }}
@@ -293,12 +293,17 @@ jobs:
           # first definitive answer rather than retrying into the same wall.
           attempt=1
           while [ "$attempt" -le 3 ]; do
-            out=$(xcrun notarytool history \
+            # GitHub invokes bash with -e: capture failure in a conditional
+            # so credential errors reach the diagnostics below.
+            if out=$(xcrun notarytool history \
               --apple-id "$A_ID" \
               --team-id "$A_TEAM" \
               --password "$A_PASS" \
-              --output-format json 2>&1)
-            rc=$?
+              --output-format json 2>&1); then
+              rc=0
+            else
+              rc=$?
+            fi
 
             if [ $rc -eq 0 ]; then
               echo "Apple notarization preflight OK — credentials valid, team reachable, agreements in effect."
@@ -359,7 +364,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-14' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.platform == 'macos-15' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -384,7 +389,7 @@ jobs:
           OLLAMA_TARGET: ${{ matrix.target }}
         run: |
           cd frontend/src-tauri/scripts && chmod +x download-ollama.sh
-          if [[ "${{ matrix.platform }}" == "macos-14" ]]; then
+          if [[ "${{ matrix.platform }}" == "macos-15" ]]; then
             # Tauri builds each architecture first, then bundles the universal
             # app. Ollama's darwin archive already contains both slices, so
             # download it once and supply all three names Tauri looks for.
@@ -550,7 +555,9 @@ jobs:
           tagName: ${{ steps.release-info.outputs.tag }}
           releaseName: ${{ steps.release-info.outputs.name }}
           releaseBody: 'Desktop application built from ${{ github.sha }}'
-          releaseDraft: false
+          # Publish stable builds only after every platform and updater
+          # manifest has passed verification.
+          releaseDraft: ${{ startsWith(github.ref, 'refs/tags/desktop-v') }}
           prerelease: ${{ steps.release-info.outputs.prerelease }}
           uploadUpdaterJson: true
           args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
@@ -647,13 +654,48 @@ jobs:
           }
           NODE
 
+  publish-stable-release:
+    needs: [verify-release]
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add stable download aliases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STABLE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${STABLE_TAG#desktop-v}"
+          DOWNLOAD_DIR="$RUNNER_TEMP/stable-downloads"
+          mkdir -p "$DOWNLOAD_DIR"
+          while read -r source alias; do
+            gh release download "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --pattern "$source" --dir "$DOWNLOAD_DIR" --clobber
+            mv "$DOWNLOAD_DIR/$source" "$DOWNLOAD_DIR/$alias"
+            gh release upload "$STABLE_TAG" "$DOWNLOAD_DIR/$alias" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          done <<EOF
+          OpenJarvis_${VERSION}_universal.dmg OpenJarvis_universal.dmg
+          OpenJarvis_${VERSION}_x64-setup.exe OpenJarvis_x64-setup.exe
+          OpenJarvis_${VERSION}_arm64-setup.exe OpenJarvis_arm64-setup.exe
+          OpenJarvis_${VERSION}_amd64.deb OpenJarvis_amd64.deb
+          OpenJarvis-${VERSION}-1.x86_64.rpm OpenJarvis_x86_64.rpm
+          OpenJarvis_${VERSION}_amd64.AppImage OpenJarvis_amd64.AppImage
+          EOF
+
+      - name: Publish verified stable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STABLE_TAG: ${{ github.ref_name }}
+        run: gh release edit "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+
   # When a stable `desktop-v*` release is published, repoint the
   # `desktop-latest` auto-update channel (the endpoint the installed app
   # polls) at it. The stable release's own `latest.json` already references
   # this release's signed assets, so we copy it verbatim — installed apps are
   # only ever offered vetted stable builds, never `desktop-edge` dev builds.
   refresh-stable-channel:
-    needs: [verify-release]
+    needs: [publish-stable-release]
     if: startsWith(github.ref, 'refs/tags/desktop-v')
     runs-on: ubuntu-latest
     steps:
