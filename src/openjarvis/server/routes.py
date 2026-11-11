@@ -1247,11 +1247,17 @@ async def reload_cloud_engine(request: Request):
         # Compatibility fallback for non-desktop/manual configurations.
         keys_path = get_config_dir() / "cloud-keys.env"
         if keys_path.exists():
-            for raw_line in keys_path.read_text().splitlines():
+            for raw_line in keys_path.read_text(encoding="utf-8").splitlines():
                 line = raw_line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
-                    os.environ[k.strip()] = v.strip()
+                    val = v.strip()
+                    if (val.startswith('"') and val.endswith('"')) or (
+                        val.startswith("'") and val.endswith("'")
+                    ):
+                        if len(val) >= 2:
+                            val = val[1:-1]
+                    os.environ[k.strip()] = val
 
     # Try to build a fresh CloudEngine.
     try:
