@@ -5,8 +5,8 @@ Low-risk, read-only or browser-only actions run directly:
 * ``open_url``      - open an http(s) link in the default browser
 * ``system_status`` - CPU, memory, disk, battery and time
 
-Anything that launches programs, opens files or runs commands asks the user
-first through the approval queue (see ``_approval_gate``):
+Opening apps, files and folders runs immediately but is recorded in the approval
+history; running commands asks the user first (see ``_approval_gate``):
 
 * ``open_app``        - launch an application
 * ``open_path``       - open a file or folder with its default program
@@ -31,6 +31,7 @@ from openjarvis.tools._approval_gate import (
     APPROVAL_WAIT_SECONDS,
     ApprovalOutcome,
     outcome_message,
+    record_auto_action,
     request_approval,
 )
 from openjarvis.tools._stubs import BaseTool, ToolSpec
@@ -213,7 +214,7 @@ class OpenAppTool(BaseTool):
             description=(
                 "Launch an application on the user's PC, e.g. 'notepad', "
                 "'calculator', 'chrome', 'vs code', 'spotify', 'settings'. "
-                "The user is asked to approve first."
+                "Runs immediately; each launch is logged."
             ),
             parameters={
                 "type": "object",
@@ -223,7 +224,7 @@ class OpenAppTool(BaseTool):
                 "required": ["app"],
             },
             category="pc",
-            timeout_seconds=APPROVAL_WAIT_SECONDS + 15,
+            timeout_seconds=20.0,
         )
 
     def execute(self, **params: Any) -> ToolResult:
@@ -231,18 +232,13 @@ class OpenAppTool(BaseTool):
         if not name:
             return _fail("open_app", "No application name given.")
         target = _WINDOWS_APPS.get(name.lower(), name) if _IS_WINDOWS else name
-        what = f"open the app '{name}'"
-        outcome = request_approval(
-            "open_app",
-            f"Open {name}",
-            {"app": name, "launch": target},
-        )
-        if outcome != ApprovalOutcome.APPROVED:
-            return _fail("open_app", outcome_message(outcome, what))
         try:
             _os_open(target)
         except Exception as exc:
             return _fail("open_app", f"Could not open {name}: {exc}")
+        # Opening apps is a "safe" action: it runs without a card but is
+        # still recorded in the approval history.
+        record_auto_action("open_app", f"Open {name}", {"app": name, "launch": target})
         return _ok("open_app", f"Opened {name}.")
 
 
@@ -259,8 +255,8 @@ class OpenPathTool(BaseTool):
             description=(
                 "Open a file or folder on the user's PC with its default "
                 "program (folders open in the file manager). Accepts '~' and "
-                "names like 'Downloads', 'Documents', 'Desktop'. The user is "
-                "asked to approve first."
+                "names like 'Downloads', 'Documents', 'Desktop'. Runs "
+                "immediately; each open is logged in the action history."
             ),
             parameters={
                 "type": "object",
@@ -270,7 +266,7 @@ class OpenPathTool(BaseTool):
                 "required": ["path"],
             },
             category="pc",
-            timeout_seconds=APPROVAL_WAIT_SECONDS + 15,
+            timeout_seconds=20.0,
         )
 
     def execute(self, **params: Any) -> ToolResult:
@@ -281,13 +277,11 @@ class OpenPathTool(BaseTool):
         path = Path.home() / raw.capitalize() if raw.lower() in known else Path(raw).expanduser()
         if not path.exists():
             return _fail("open_path", f"{path} does not exist.")
-        outcome = request_approval("open_path", f"Open {path}", {"path": str(path)})
-        if outcome != ApprovalOutcome.APPROVED:
-            return _fail("open_path", outcome_message(outcome, f"open {path}"))
         try:
             _os_open(str(path))
         except Exception as exc:
             return _fail("open_path", f"Could not open {path}: {exc}")
+        record_auto_action("open_path", f"Open {path}", {"path": str(path)})
         return _ok("open_path", f"Opened {path}.")
 
 

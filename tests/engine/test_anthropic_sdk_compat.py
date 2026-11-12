@@ -7,7 +7,11 @@ import json
 import pytest
 
 from openjarvis.core.types import Message, Role
-from openjarvis.engine.cloud import CloudEngine
+from openjarvis.engine.cloud import (
+    _ANTHROPIC_ALWAYS_THINKING_PREFIXES,
+    _ANTHROPIC_MIN_THINKING_MAX_TOKENS,
+    CloudEngine,
+)
 
 
 @pytest.mark.asyncio
@@ -108,5 +112,9 @@ async def test_anthropic_sdk_sampling_parameters(
         assert requests[0]["temperature"] == 0.35
     else:
         assert "temperature" not in requests[0]
-    assert requests[0]["max_tokens"] == 42
+    if model.startswith(_ANTHROPIC_ALWAYS_THINKING_PREFIXES):
+        # Always-thinking models get a floor so reasoning can't eat the reply.
+        assert requests[0]["max_tokens"] == _ANTHROPIC_MIN_THINKING_MAX_TOKENS
+    else:
+        assert requests[0]["max_tokens"] == 42
     assert requests[0]["model"] == message["model"]

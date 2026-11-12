@@ -78,6 +78,37 @@ def request_approval(
             pass
 
 
+def record_auto_action(action_type: str, description: str, payload: Dict[str, Any]) -> None:
+    """Log an action that ran without asking (low-risk "safe" actions).
+
+    The entry goes into the same approval store, already marked executed, so
+    the approval history shows everything Jarvis did on the PC.
+    """
+    try:
+        from openjarvis.tools.approval_store import STATUS_EXECUTED, ApprovalStore
+    except Exception:
+        logger.debug("Approval store unavailable for auto-action log", exc_info=True)
+        return
+    store = ApprovalStore()
+    try:
+        action = store.queue_action(
+            action_type=action_type,
+            description=description,
+            payload={**payload, "auto_approved": True},
+            permission_key=f"pc:{action_type}",
+            tier="auto",
+            ttl_hours=1,
+        )
+        store.update_status(action.id, STATUS_EXECUTED)
+    except Exception:
+        logger.debug("Failed to record auto action %s", action_type, exc_info=True)
+    finally:
+        try:
+            store._conn.close()
+        except Exception:
+            pass
+
+
 def outcome_message(outcome: str, what: str) -> str:
     if outcome == ApprovalOutcome.DENIED:
         return f"The user denied: {what}. Do not retry unless they ask again."
@@ -86,4 +117,10 @@ def outcome_message(outcome: str, what: str) -> str:
     return f"Approval could not be requested for: {what}. Nothing was done."
 
 
-__all__ = ["APPROVAL_WAIT_SECONDS", "ApprovalOutcome", "outcome_message", "request_approval"]
+__all__ = [
+    "APPROVAL_WAIT_SECONDS",
+    "ApprovalOutcome",
+    "outcome_message",
+    "record_auto_action",
+    "request_approval",
+]

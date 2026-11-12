@@ -246,7 +246,7 @@ export function AutomationsDeck({
             label="PC actions"
             detail={
               status
-                ? status.agent_tools.includes('open_app') ? 'Enabled · risky actions need approval' : 'Tools not enabled in config'
+                ? status.agent_tools.includes('open_app') ? 'Opening apps, files & sites is automatic · commands and Claude Code need approval' : 'Tools not enabled in config'
                 : 'Checking…'
             }
           />
