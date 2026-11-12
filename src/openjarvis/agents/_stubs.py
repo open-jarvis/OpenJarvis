@@ -481,6 +481,12 @@ class ToolUsingAgent(BaseAgent):
         executor = getattr(self, "_executor", None)
         if executor is not None:
             executor.begin_session([input])
+        # Loop detection is per run too: without this, identical tool calls
+        # from earlier, unrelated requests count toward max_identical_calls,
+        # and a long-lived server blocks a tool after its first few uses.
+        loop_guard = getattr(self, "_loop_guard", None)
+        if loop_guard is not None:
+            loop_guard.reset()
         super()._emit_turn_start(input)
 
     def _build_messages(

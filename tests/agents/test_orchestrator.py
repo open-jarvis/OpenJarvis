@@ -924,3 +924,40 @@ class TestOrchestratorGovernanceHook:
         assert calls == []
         assert result.tool_results[0].success is False
         assert "not an object" in result.tool_results[0].content
+
+
+class TestOrchestratorLoopGuardPerRun:
+    """A server reuses one agent for many requests; loop detection must not
+    carry identical tool calls over from earlier, unrelated runs."""
+
+    def test_same_tool_call_allowed_across_separate_runs(self):
+        tool_turn = {
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "name": "calculator",
+                    "arguments": '{"expression":"2+2"}',
+                }
+            ],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+            "model": "test-model",
+            "finish_reason": "tool_calls",
+        }
+        final_turn = {
+            "content": "The answer is 4.",
+            "usage": {"prompt_tokens": 15, "completion_tokens": 5, "total_tokens": 20},
+            "model": "test-model",
+            "finish_reason": "stop",
+        }
+        runs = 5  # more than LoopGuardConfig.max_identical_calls (3)
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.side_effect = [tool_turn, final_turn] * runs
+        agent = OrchestratorAgent(engine, "test-model", tools=[_CalculatorStub()])
+        assert agent._loop_guard is not None
+
+        for _ in range(runs):
+            result = agent.run("What is 2+2?")
+            assert result.tool_results[0].success is True
+            assert result.tool_results[0].content == "4"
