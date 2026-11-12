@@ -69,6 +69,26 @@ class ScheduledTask:
         )
 
 
+def _to_utc_iso(value: str, timezone_name: Optional[str] = None) -> str:
+    """Return *value* (an ISO datetime) as a UTC ISO string.
+
+    Naive datetimes are interpreted in *timezone_name*, else the default
+    automation timezone, else UTC. Unparseable values are returned unchanged.
+    """
+    try:
+        dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return value
+    if dt.tzinfo is None:
+        tz_name = timezone_name
+        if not tz_name:
+            from openjarvis.scheduler.settings import get_default_timezone
+
+            tz_name = get_default_timezone()
+        dt = dt.replace(tzinfo=ZoneInfo(tz_name) if tz_name else timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
 def _now_iso() -> str:
     """Return current UTC time as ISO 8601 string."""
     return datetime.now(timezone.utc).isoformat()
@@ -202,6 +222,18 @@ class TaskScheduler:
                 logger.exception("Scheduler poll error")
             self._stop_event.wait(timeout=self._poll_interval)
 
+    def run_task_now(self, task_id: str) -> None:
+        """Execute *task_id* immediately (blocking), outside its schedule.
+
+        The run is logged like a scheduled one. A one-time task that has not
+        fired yet is completed by this run.
+        """
+        with self._lock:
+            d = self._store.get_task(task_id)
+        if d is None:
+            raise KeyError(f"Task not found: {task_id}")
+        self._execute_task(ScheduledTask.from_dict(d))
+
     def _execute_task(self, task: ScheduledTask) -> None:
         """Execute a single due task and log the result."""
         started_at = _now_iso()
@@ -235,10 +267,18 @@ class TaskScheduler:
                 if meta.get("operator_id"):
                     ask_kwargs["system_prompt"] = meta.get("system_prompt", "")
                     ask_kwargs["operator_id"] = meta["operator_id"]
-                result_text = self._system.ask(
+                answer = self._system.ask(
                     task.prompt,
                     **ask_kwargs,
                 )
+                # JarvisSystem.ask returns a dict ({"content": ..., "usage": ...});
+                # the run log stores text, and SQLite cannot bind a dict.
+                if isinstance(answer, dict):
+                    if answer.get("error"):
+                        raise RuntimeError(str(answer.get("content") or "Task failed"))
+                    result_text = str(answer.get("content") or "")
+                else:
+                    result_text = str(answer or "")
             else:
                 result_text = f"[dry-run] Would execute: {task.prompt}"
             success = True
@@ -292,8 +332,13 @@ class TaskScheduler:
             # If already run, no more runs
             if task.last_run is not None:
                 return None
-            # Otherwise the schedule_value is the target ISO datetime
-            return task.schedule_value
+            # Otherwise the schedule_value is the target ISO datetime. Due
+            # checks compare ISO strings against UTC, so normalize to UTC: a
+            # naive value is read in the task's (or default) timezone.
+            return _to_utc_iso(
+                task.schedule_value,
+                str((task.metadata or {}).get("timezone") or "") or None,
+            )
 
         if task.schedule_type == "interval":
             seconds = float(task.schedule_value)

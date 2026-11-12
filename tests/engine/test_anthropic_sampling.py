@@ -6,7 +6,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from openjarvis.core.types import Message, Role
-from openjarvis.engine.cloud import CloudEngine
+from openjarvis.engine.cloud import (
+    _ANTHROPIC_ALWAYS_THINKING_PREFIXES,
+    _ANTHROPIC_MIN_THINKING_MAX_TOKENS,
+    CloudEngine,
+)
 
 
 class _Stream:
@@ -76,7 +80,11 @@ async def test_fixed_sampling_models_omit_temperature(method, model):
     assert "temperature" not in sent
     assert "temperature" not in sent.get("extra_body", {})
     assert sent["model"] == model
-    assert sent["max_tokens"] == 32
+    if model.startswith(_ANTHROPIC_ALWAYS_THINKING_PREFIXES):
+        # Always-thinking models get a floor so reasoning can't eat the reply.
+        assert sent["max_tokens"] == _ANTHROPIC_MIN_THINKING_MAX_TOKENS
+    else:
+        assert sent["max_tokens"] == 32
 
 
 @pytest.mark.asyncio

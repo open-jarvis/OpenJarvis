@@ -275,6 +275,23 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                 exc_info=True,
             )
 
+    # Smart routing: ``model="auto"`` keeps everyday chat on the local model
+    # and sends complex / automation work to Claude when it is configured.
+    if model == "auto":
+        from openjarvis.server.smart_routing import choose_model
+
+        decision = choose_model(
+            query_text_for_complexity,
+            complexity_info.tier if complexity_info is not None else None,
+            local_model=getattr(request.app.state, "model", "") or "",
+            engine=engine,
+        )
+        model = decision.model
+        request_body.model = model
+        logging.getLogger("openjarvis.server").info(
+            "Smart routing -> %s (%s)", model, decision.reason
+        )
+
     # Skill library: name the few installed skills relevant to this request so
     # the agent can load one with ``use_skill``. Skipped unless the agent has
     # that tool, and for requests with no strong match (e.g. small talk).

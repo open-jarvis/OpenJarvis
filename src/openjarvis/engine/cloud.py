@@ -40,6 +40,11 @@ PRICING: Dict[str, tuple[float, float]] = {
     "claude-opus-4-6": (5.00, 25.00),
     "claude-sonnet-4-6": (3.00, 15.00),
     "claude-haiku-4-5": (1.00, 5.00),
+    # Current Claude generation (USD per 1M input / output tokens).
+    "claude-opus-5-5": (4.00, 20.00),
+    "claude-sonnet-5-5": (2.00, 10.00),
+    "claude-haiku-5-5": (0.10, 0.50),
+    "claude-fable-5-2": (8.00, 40.00),
     "gemini-2.5-pro": (1.25, 10.00),
     "gemini-2.5-flash": (0.30, 2.50),
     "gemini-3-pro": (2.00, 12.00),
@@ -83,6 +88,11 @@ _OPENAI_MODELS = [
     "o3-mini",
 ]
 _ANTHROPIC_MODELS = [
+    # Current generation first so pickers and "auto" routing surface them.
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    "claude-fable-5-2",
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
     "claude-haiku-3-5-20241022",
@@ -99,6 +109,54 @@ _ANTHROPIC_FIXED_SAMPLING_PREFIXES = (
     "claude-fable-5",
     "claude-haiku-5-5",
 )
+# Models that always think before answering: a small ``max_tokens`` budget is
+# spent on reasoning and the visible reply comes back empty or truncated.
+_ANTHROPIC_ALWAYS_THINKING_PREFIXES = (
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    "claude-fable-5",
+)
+_ANTHROPIC_MIN_THINKING_MAX_TOKENS = 16_000
+# Models that reject forced ``tool_choice`` (``any`` / ``tool``) with a 400.
+_ANTHROPIC_NO_FORCED_TOOL_PREFIXES = (
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-fable-5-1",
+    "claude-fable-5-2",
+)
+# Models that accept server-side refusal fallback ("default" routing mode).
+_ANTHROPIC_FALLBACK_PREFIXES = (
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-fable-5-2",
+    "claude-fable-5-1",
+)
+_ANTHROPIC_FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+
+def _anthropic_request_extras(model: str, create_kwargs: Dict[str, Any]) -> None:
+    """Apply per-model request adjustments for current Claude models in place.
+
+    * raise ``max_tokens`` for always-thinking models so reasoning cannot
+      consume the whole budget;
+    * opt into server-side refusal fallback where supported, so a policy
+      decline is retried on a fallback model inside the same call.
+    """
+    if model.startswith(_ANTHROPIC_ALWAYS_THINKING_PREFIXES):
+        create_kwargs["max_tokens"] = max(
+            int(create_kwargs.get("max_tokens") or 0),
+            _ANTHROPIC_MIN_THINKING_MAX_TOKENS,
+        )
+    if model.startswith(_ANTHROPIC_FALLBACK_PREFIXES):
+        extra_body = dict(create_kwargs.get("extra_body") or {})
+        extra_body["fallbacks"] = "default"
+        create_kwargs["extra_body"] = extra_body
+        headers = dict(create_kwargs.get("extra_headers") or {})
+        headers["anthropic-beta"] = _ANTHROPIC_FALLBACK_BETA
+        create_kwargs["extra_headers"] = headers
+
+
 _GOOGLE_MODELS = [
     "gemini-2.5-pro",
     "gemini-2.5-flash",
@@ -793,11 +851,22 @@ class CloudEngine(InferenceEngine):
                     create_kwargs["tools"] = [json_tool]
                 else:
                     create_kwargs["tools"].append(json_tool)
-                create_kwargs["tool_choice"] = {
-                    "type": "tool",
-                    "name": "json_output",
-                }
+                if model.startswith(_ANTHROPIC_NO_FORCED_TOOL_PREFIXES):
+                    # Forced tool_choice is a 400 on these models: keep the
+                    # schema strict and steer to the tool from the prompt.
+                    json_tool["strict"] = True
+                    create_kwargs["tool_choice"] = {"type": "auto"}
+                    create_kwargs["system"] = (
+                        (create_kwargs.get("system") or "")
+                        + "\n\nRespond by calling the json_output tool."
+                    ).strip()
+                else:
+                    create_kwargs["tool_choice"] = {
+                        "type": "tool",
+                        "name": "json_output",
+                    }
 
+        _anthropic_request_extras(model, create_kwargs)
         t0 = time.monotonic()
         resp = self._anthropic_client.messages.create(**create_kwargs)
         elapsed = time.monotonic() - t0
@@ -848,6 +917,8 @@ class CloudEngine(InferenceEngine):
                 content_parts.append(block.text)
 
         content = "\n".join(content_parts) if content_parts else ""
+        if resp.stop_reason == "refusal" and not content:
+            content = "Claude declined this request, and no fallback model could answer it."
         prompt_tokens = resp.usage.input_tokens if resp.usage else 0
         completion_tokens = resp.usage.output_tokens if resp.usage else 0
 
@@ -1453,6 +1524,7 @@ class CloudEngine(InferenceEngine):
             create_kwargs["extra_body"] = {"temperature": temperature}
         if system_text:
             create_kwargs["system"] = system_text
+        _anthropic_request_extras(model, create_kwargs)
         with self._anthropic_client.messages.stream(**create_kwargs) as stream:
             for text in stream.text_stream:
                 yield text
@@ -1918,6 +1990,7 @@ class CloudEngine(InferenceEngine):
         if raw_tools:
             create_kwargs["tools"] = _convert_tools_to_anthropic(raw_tools)
         kwargs.pop("tool_choice", None)
+        _anthropic_request_extras(model, create_kwargs)
 
         with self._anthropic_client.messages.stream(**create_kwargs) as stream:
             tool_index = -1

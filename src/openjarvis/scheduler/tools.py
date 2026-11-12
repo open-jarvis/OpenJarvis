@@ -3,11 +3,67 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Optional
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+
+_DAY_NUMBERS = {
+    "sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6,
+}
+_TIME_RE = re.compile(r"^\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*$", re.IGNORECASE)
+
+
+def _parse_time(text: str) -> tuple[int, int]:
+    """'21:00', '9pm', '7:30 am' -> (hour, minute)."""
+    m = _TIME_RE.match(text or "")
+    if not m:
+        raise ValueError(f"expected a time like '21:00', got {text!r}")
+    hour, minute = int(m.group(1)), int(m.group(2) or 0)
+    ampm = (m.group(3) or "").lower()
+    if ampm == "pm" and hour < 12:
+        hour += 12
+    if ampm == "am" and hour == 12:
+        hour = 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError(f"time out of range: {text!r}")
+    return hour, minute
+
+
+def normalize_schedule(schedule_type: str, schedule_value: str) -> tuple[str, str]:
+    """Map friendly schedule types onto the scheduler's cron/interval/once.
+
+    Small local models reliably fill ``daily`` + ``21:00`` but often swap the
+    fields of a raw cron expression, so the friendly forms are preferred.
+    """
+    kind = schedule_type.strip().lower()
+    value = schedule_value.strip()
+    if kind in ("daily", "weekdays"):
+        hour, minute = _parse_time(value)
+        days = "*" if kind == "daily" else "1-5"
+        return "cron", f"{minute} {hour} * * {days}"
+    if kind == "weekly":
+        day_text, _, time_text = value.partition(" ")
+        day = _DAY_NUMBERS.get(day_text.strip().lower()[:3])
+        if day is None:
+            raise ValueError(f"expected '<day> HH:MM' like 'mon 08:00', got {value!r}")
+        hour, minute = _parse_time(time_text or "09:00")
+        return "cron", f"{minute} {hour} * * {day}"
+    if kind in ("every_minutes", "every_hours"):
+        try:
+            n = float(value)
+        except ValueError as exc:
+            raise ValueError(f"expected a number, got {value!r}") from exc
+        if n <= 0:
+            raise ValueError("the number must be positive")
+        seconds = n * (60 if kind == "every_minutes" else 3600)
+        return "interval", str(int(max(60, seconds)))
+    if kind in ("cron", "interval", "once"):
+        return kind, value
+    raise ValueError(f"unknown schedule type {schedule_type!r}")
 
 
 @ToolRegistry.register("schedule_task")
@@ -22,34 +78,51 @@ class ScheduleTaskTool(BaseTool):
         return ToolSpec(
             name="schedule_task",
             description=(
-                "Schedule a task for future or recurring execution. "
-                "Supports cron expressions, interval (seconds), or "
-                "one-time ISO datetime scheduling."
+                "Schedule a task for future or recurring execution in the "
+                "user's local time. Use this when the user asks for a "
+                "recurring routine or a reminder. Prefer the simple types: "
+                "daily='21:00', weekdays='09:30', weekly='mon 08:00', "
+                "every_minutes='30', every_hours='2', once='2026-12-01T18:00'. "
+                "'cron' (5-field, minute first) and 'interval' (seconds) are "
+                "also accepted."
             ),
             parameters={
                 "type": "object",
                 "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Short label for the routine, e.g. 'Morning briefing'.",
+                    },
                     "prompt": {
                         "type": "string",
                         "description": "The prompt/query to execute on schedule.",
                     },
                     "schedule_type": {
                         "type": "string",
-                        "description": (
-                            "Schedule type: 'cron', 'interval', or 'once'."
-                        ),
-                        "enum": ["cron", "interval", "once"],
+                        "description": "How the task repeats.",
+                        "enum": [
+                            "daily",
+                            "weekdays",
+                            "weekly",
+                            "every_minutes",
+                            "every_hours",
+                            "once",
+                            "cron",
+                            "interval",
+                        ],
                     },
                     "schedule_value": {
                         "type": "string",
                         "description": (
-                            "Schedule value: cron expression, seconds for "
-                            "interval, or ISO datetime for once."
+                            "daily/weekdays: 24h time 'HH:MM'; weekly: "
+                            "'<day> HH:MM' (e.g. 'fri 17:00'); every_minutes / "
+                            "every_hours: a number; once: local ISO datetime; "
+                            "cron: 5-field expression; interval: seconds."
                         ),
                     },
                     "agent": {
                         "type": "string",
-                        "description": "Agent to use for execution (default: simple).",
+                        "description": "Agent to use for execution (default: orchestrator, which can use tools).",
                     },
                     "tools": {
                         "type": "string",
@@ -84,12 +157,32 @@ class ScheduleTaskTool(BaseTool):
                 success=False,
             )
         try:
+            schedule_type, schedule_value = normalize_schedule(
+                str(schedule_type), str(schedule_value)
+            )
+        except ValueError as exc:
+            return ToolResult(
+                tool_name="schedule_task",
+                content=f"Invalid schedule: {exc}",
+                success=False,
+            )
+        metadata: dict = {}
+        if params.get("name"):
+            metadata["name"] = str(params["name"])[:80]
+        if schedule_type == "cron":
+            from openjarvis.scheduler.settings import get_default_timezone
+
+            tz = get_default_timezone()
+            if tz:
+                metadata["timezone"] = tz
+        try:
             task = self._scheduler.create_task(
                 prompt=prompt,
                 schedule_type=schedule_type,
                 schedule_value=schedule_value,
-                agent=params.get("agent", "simple"),
+                agent=params.get("agent") or "orchestrator",
                 tools=params.get("tools", ""),
+                metadata=metadata,
             )
             return ToolResult(
                 tool_name="schedule_task",
