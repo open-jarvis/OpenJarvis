@@ -3,6 +3,14 @@ import { useNavigate } from 'react-router';
 import { HoloWorld } from '../components/Hud/HoloWorld';
 import { CoreReactor, type HudMode } from '../components/Hud/CoreReactor';
 import { Spectrum } from '../components/Hud/Spectrum';
+import { AutomationsDeck } from '../components/Hud/AutomationsDeck';
+import { ApprovalDock } from '../components/Hud/ApprovalDock';
+import {
+  automationApi,
+  browserTimezone,
+  useAutomations,
+  useRunFeed,
+} from '../components/Hud/automationApi';
 import { useAppStore } from '../lib/store';
 import { streamChat } from '../lib/sse';
 import {
@@ -15,6 +23,7 @@ import {
 import { stripThinkTags, toSpeakableText } from '../lib/message-text';
 import { useTts } from '../hooks/useTts';
 import '../components/Hud/hud.css';
+import '../components/Hud/hud-automation.css';
 
 interface HudMessage {
   id: string;
@@ -155,9 +164,18 @@ function Typewriter({ text, onTick }: { text: string; onTick?: () => void }) {
 export function HudPage() {
   const navigate = useNavigate();
   const models = useAppStore((s) => s.models);
-  const selectedModel = useAppStore((s) => s.selectedModel);
-  const setSelectedModel = useAppStore((s) => s.setSelectedModel);
   const tts = useTts();
+  // The HUD keeps its own model choice. "auto" lets the server route each
+  // request: everyday chat stays local, complex / automation work goes to Claude.
+  const [hudModel, setHudModel] = useState<string>(() => {
+    try { return localStorage.getItem('oj-hud-model') || 'auto'; } catch { return 'auto'; }
+  });
+  const chooseModel = useCallback((id: string) => {
+    setHudModel(id);
+    try { localStorage.setItem('oj-hud-model', id); } catch { /* private mode */ }
+  }, []);
+  const [deckOpen, setDeckOpen] = useState(false);
+  const automations = useAutomations(true);
 
   const [messages, setMessages] = useState<HudMessage[]>([]);
   const [input, setInput] = useState('');
@@ -221,11 +239,40 @@ export function HudPage() {
   const historyRef = useRef<HudMessage[]>([]);
   historyRef.current = messages;
 
-  const model = selectedModel || serverModel || models[0]?.id || '';
+  const model = hudModel === 'auto' ? 'auto' : hudModel || serverModel || models[0]?.id || '';
+  const claudeReady = !!automations.status?.claude.available;
 
   const addLog = useCallback((text: string, level: LogLine['level'] = 'info') => {
     setLog((l) => [...l.slice(-60), { id: ++logSeq, time: stamp(), text, level }]);
   }, []);
+
+  // Cron routines follow the user's clock: report the browser timezone once.
+  useEffect(() => {
+    const tz = browserTimezone();
+    if (tz) automationApi.setTimezone(tz).catch(() => {});
+  }, []);
+
+  // Announce routines that finish while the HUD is open.
+  const voiceOutRef = useRef(true);
+  const speakRef = useRef<(id: string, text: string) => void>(() => {});
+  useRunFeed((run) => {
+    addLog(`Routine "${run.name}" ${run.success ? 'complete' : 'failed'}`, run.success ? 'ok' : 'err');
+    setMessages((ms) => [
+      ...ms,
+      {
+        id: `run-${run.id}`,
+        role: 'assistant',
+        content: `[Routine · ${run.name}] ${run.success ? run.result || 'Done.' : `Failed: ${run.error}`}`,
+      },
+    ]);
+    if (voiceOutRef.current) {
+      const summary = run.success ? toSpeakableText(run.result).slice(0, 400) : 'It reported an error.';
+      speakRef.current(`run-${run.id}`, `Routine ${run.name} ${run.success ? 'complete.' : 'failed.'} ${summary}`);
+    }
+    void automations.refresh();
+  });
+  speakRef.current = speakReply;
+  voiceOutRef.current = voiceOut;
 
   // Boot sequence + telemetry polling
   const bootedRef = useRef(false);
@@ -334,13 +381,22 @@ export function HudPage() {
     let tokens = 0;
     let chunks = 0;
     let firstAt = 0;
+    let routedTo = '';
     try {
       for await (const ev of streamChat(
         {
           model,
           stream: true,
           messages: [
-            { role: 'system', content: 'You are J.A.R.V.I.S., a concise, capable personal AI running locally. Keep replies short and conversational unless asked for detail.' },
+            {
+              role: 'system',
+              content:
+                'You are J.A.R.V.I.S., a concise, capable personal AI on the user\'s own PC. Keep replies short and conversational unless asked for detail. ' +
+                'When tools are available you can: schedule recurring routines or reminders (schedule_task, list_scheduled_tasks), ' +
+                'open websites (open_url), open apps (open_app), open files or folders (open_path), check the PC (system_status), ' +
+                'run commands (run_pc_command) and hand coding or multi-step computer work to Claude Code (delegate_to_claude_code). ' +
+                'Actions that change the PC ask the user to approve on screen; say so briefly when you use them.',
+            },
             ...history.slice(-12).map((m) => ({ role: m.role, content: m.content })),
           ],
         },
@@ -358,6 +414,11 @@ export function HudPage() {
         if (ev.event) continue;
         try {
           const data = JSON.parse(ev.data);
+          if (model === 'auto' && !routedTo && typeof data.model === 'string' && data.model) {
+            routedTo = data.model;
+            const toClaude = routedTo.startsWith('claude');
+            addLog(`Routed → ${routedTo}${toClaude ? ' (Claude)' : ' (local)'}`, toClaude ? 'warn' : 'info');
+          }
           const delta = data.choices?.[0]?.delta?.content;
           if (delta) {
             if (!firstAt) { firstAt = performance.now(); setPhase('streaming'); }
@@ -494,7 +555,7 @@ export function HudPage() {
   // Keyboard: Esc exits, "/" focuses input
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && document.activeElement !== inputRef.current) navigate('/');
+      if (e.key === 'Escape' && document.activeElement !== inputRef.current && !document.querySelector('.deck')) navigate('/');
       if (e.key === '/' && document.activeElement !== inputRef.current) {
         e.preventDefault();
         inputRef.current?.focus();
@@ -526,8 +587,17 @@ export function HudPage() {
             <span className={`hud-dot ${online ? 'on' : 'off'}`} />
             <span>{online ? 'CORE ONLINE' : 'CORE OFFLINE'}</span>
             <span className="hud-sep" />
-            <span>{model ? model.toUpperCase() : 'NO MODEL'}</span>
+            <span>{model === 'auto' ? 'AUTO ROUTING' : model ? model.toUpperCase() : 'NO MODEL'}</span>
+            <span className="hud-sep" />
+            <span className={`hud-dot ${claudeReady ? 'on' : 'off'}`} />
+            <span>{claudeReady ? 'CLAUDE LINKED' : 'CLAUDE OFFLINE'}</span>
           </div>
+          <button type="button" className="hud-btn hud-btn--ghost hud-routines-btn" onClick={() => setDeckOpen(true)}>
+            ROUTINES
+            {automations.items.filter((a) => a.status === 'active').length > 0 && (
+              <span className="hud-badge">{automations.items.filter((a) => a.status === 'active').length}</span>
+            )}
+          </button>
           <button type="button" className="hud-btn hud-btn--ghost" onClick={() => navigate('/')}>
             EXIT HUD
           </button>
@@ -546,13 +616,22 @@ export function HudPage() {
             <Chrono />
           </Panel>
           <Panel title="Neural model" code="MDL-03" className="depth-1 hud-models">
+            <button
+              type="button"
+              className={`hud-chip ${model === 'auto' ? 'is-active' : ''}`}
+              onClick={() => { chooseModel('auto'); addLog('Smart routing: local for chat, Claude for hard tasks', 'ok'); }}
+              title="Everyday requests stay local; complex, coding and automation requests go to Claude when it is linked."
+            >
+              <span className="hud-chip__dot" />
+              AUTO · smart routing
+            </button>
             {models.length === 0 && <p className="hud-muted">Scanning for models…</p>}
             {models.map((m) => (
               <button
                 key={m.id}
                 type="button"
                 className={`hud-chip ${m.id === model ? 'is-active' : ''}`}
-                onClick={() => { setSelectedModel(m.id); addLog(`Model switched to ${m.id}`, 'ok'); }}
+                onClick={() => { chooseModel(m.id); addLog(`Model switched to ${m.id}`, 'ok'); }}
               >
                 <span className="hud-chip__dot" />
                 {m.id}
@@ -657,6 +736,24 @@ export function HudPage() {
           </button>
         </form>
       </div>
+
+      <ApprovalDock
+        onNew={(a) => {
+          addLog(`Approval needed: ${a.description}`, 'warn');
+          if (voiceOutRef.current) speakRef.current(`approval-${a.id}`, 'Authorisation required. Please approve or deny on screen.');
+        }}
+        onDecision={(a, approved) => addLog(`${approved ? 'Approved' : 'Denied'}: ${a.description}`, approved ? 'ok' : 'warn')}
+      />
+
+      <AutomationsDeck
+        open={deckOpen}
+        onClose={() => setDeckOpen(false)}
+        status={automations.status}
+        items={automations.items}
+        error={automations.error}
+        refresh={automations.refresh}
+        onLog={addLog}
+      />
     </div>
   );
 }

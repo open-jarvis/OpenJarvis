@@ -183,4 +183,19 @@ try:
 except ImportError:
     pass
 
+try:
+    import openjarvis.scheduler.tools  # noqa: F401  # schedule_task & friends
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.pc_actions  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.claude_code_worker  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]

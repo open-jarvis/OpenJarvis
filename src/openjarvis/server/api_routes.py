@@ -1295,6 +1295,14 @@ def include_all_routes(app) -> None:
     )
 
     app.include_router(approval_router)
+    try:
+        from openjarvis.server.automation_routes import (  # noqa: PLC0415
+            router as automation_router,
+        )
+
+        app.include_router(automation_router)
+    except ImportError:
+        pass
     app.include_router(agents_router)
     app.include_router(memory_router)
     app.include_router(traces_router)
