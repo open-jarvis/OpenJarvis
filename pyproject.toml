@@ -267,6 +267,9 @@ exclude = [
 "src/openjarvis/channels/whatsapp_baileys_bridge" = "_node_modules/whatsapp_baileys_bridge"
 "scripts/install" = "_install_scripts"
 "deploy/windows" = "_deploy/windows"
+# Starter presets for `jarvis init --preset` live outside the package in the
+# source tree; bundle a copy so installed wheels can find them.
+"configs/openjarvis/examples" = "openjarvis/presets"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

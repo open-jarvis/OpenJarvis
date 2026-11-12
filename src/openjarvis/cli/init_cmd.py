@@ -14,6 +14,7 @@ from rich.panel import Panel
 from openjarvis.cli._analytics_consent import apply_analytics_choice
 from openjarvis.cli._banner import print_banner
 from openjarvis.cli._bootstrap import detect_cloud_keys
+from openjarvis.cli._presets import preset_search_paths, resolve_preset
 from openjarvis.cli.model import find_model_spec, hf_download, ollama_pull
 from openjarvis.cli.scan_cmd import PrivacyScanner
 from openjarvis.core.config import (
@@ -340,21 +341,12 @@ def init(
 
     # Handle --preset: copy a starter config and return early
     if preset:
-        examples_dir = (
-            Path(__file__).resolve().parents[2] / "configs" / "openjarvis" / "examples"
-        )
-        # Also check installed package location
-        if not examples_dir.exists():
-            examples_dir = (
-                Path(__file__).resolve().parents[3]
-                / "configs"
-                / "openjarvis"
-                / "examples"
-            )
-        preset_path = examples_dir / f"{preset}.toml"
-        if not preset_path.exists():
+        preset_path = resolve_preset(preset)
+        if preset_path is None:
             console.print(f"[red]Preset '{preset}' not found.[/red]")
-            console.print(f"  Looked in: {examples_dir}")
+            console.print("  Looked in:")
+            for directory in preset_search_paths():
+                console.print(f"    {directory}")
             raise SystemExit(1)
         DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         DEFAULT_CONFIG_PATH.write_text(
