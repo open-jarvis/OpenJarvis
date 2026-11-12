@@ -275,6 +275,34 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                 exc_info=True,
             )
 
+    # Skill library: name the few installed skills relevant to this request so
+    # the agent can load one with ``use_skill``. Skipped unless the agent has
+    # that tool, and for requests with no strong match (e.g. small talk).
+    if query_text_for_complexity and use_server_agent and not request_body.tools:
+        agent_tool_names = {
+            getattr(getattr(t, "spec", None), "name", "")
+            for t in (getattr(agent, "_tools", None) or [])
+        }
+        if "use_skill" in agent_tool_names:
+            try:
+                from openjarvis.server.models import ChatMessage
+                from openjarvis.skills.library import skill_hint
+
+                hint = skill_hint(query_text_for_complexity)
+                if hint:
+                    msgs = list(request_body.messages)
+                    if msgs and msgs[0].role == "system":
+                        msgs[0] = msgs[0].model_copy(
+                            update={"content": f"{msgs[0].content or ''}\n\n{hint}"}
+                        )
+                    else:
+                        msgs.insert(0, ChatMessage(role="system", content=hint))
+                    request_body.messages = msgs
+            except Exception:
+                logging.getLogger("openjarvis.server").debug(
+                    "Skill hint failed", exc_info=True
+                )
+
     if request_body.stream:
         # When the client passes `tools`, stream the model's raw
         # OpenAI-compat function-calling decision directly from the engine

@@ -183,4 +183,10 @@ try:
 except ImportError:
     pass
 
+# On-demand skill library (find_skills / use_skill).
+try:
+    import openjarvis.tools.skill_library_tools  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]

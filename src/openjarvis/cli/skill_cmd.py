@@ -229,6 +229,10 @@ def _get_resolver(source: str, url: str = ""):
         from openjarvis.skills.sources.openclaw import OpenClawResolver
 
         return OpenClawResolver()
+    if source == "claude":
+        from openjarvis.skills.sources.claude import ClaudeResolver
+
+        return ClaudeResolver()
     if source == "github":
         if not url:
             raise click.BadParameter("github source requires --url")

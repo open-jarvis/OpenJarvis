@@ -567,6 +567,18 @@ def serve(
         if memory_service is not None:
             memory_service.start()
             console.print("  Memory svc: [cyan]active[/cyan]")
+            # Keep USER.md / MEMORY.md current from the facts it learns.
+            try:
+                from openjarvis.memory.profile import build_profile_curator
+
+                profile_curator = build_profile_curator(
+                    config, engine, model_name, memory_service
+                )
+                if profile_curator is not None:
+                    profile_curator.start()
+                    console.print("  Profile:   [cyan]auto-learning[/cyan]")
+            except Exception as exc:
+                logger.debug("Profile curator init failed: %s", exc)
     except Exception as exc:
         logger.debug("Memory service init failed: %s", exc)
         memory_service = None
