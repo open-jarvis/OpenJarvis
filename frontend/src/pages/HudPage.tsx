@@ -395,7 +395,7 @@ export function HudPage() {
                 'When tools are available you can: schedule recurring routines or reminders (schedule_task, list_scheduled_tasks), ' +
                 'open websites (open_url), open apps (open_app), open files or folders (open_path), check the PC (system_status), ' +
                 'run commands (run_pc_command) and hand coding or multi-step computer work to Claude Code (delegate_to_claude_code). ' +
-                'Actions that change the PC ask the user to approve on screen; say so briefly when you use them.',
+                'Running commands and Claude Code tasks ask the user to approve on screen; say so briefly when you use them.',
             },
             ...history.slice(-12).map((m) => ({ role: m.role, content: m.content })),
           ],
