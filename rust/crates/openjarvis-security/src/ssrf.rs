@@ -20,6 +20,31 @@ fn embedded_ipv4(v6: &Ipv6Addr) -> Option<Ipv4Addr> {
     if let Some(v4) = v6.to_ipv4_mapped() {
         return Some(v4);
     }
+    let seg = v6.segments();
+    // NAT64 well-known prefix 64:ff9b::/96 (RFC 6052): IPv4 in the last 32 bits.
+    if seg[0] == 0x0064
+        && seg[1] == 0xff9b
+        && seg[2] == 0
+        && seg[3] == 0
+        && seg[4] == 0
+        && seg[5] == 0
+    {
+        return Some(Ipv4Addr::new(
+            (seg[6] >> 8) as u8,
+            (seg[6] & 0xff) as u8,
+            (seg[7] >> 8) as u8,
+            (seg[7] & 0xff) as u8,
+        ));
+    }
+    // 6to4 2002::/16 (RFC 3056): IPv4 in bits 16-47.
+    if seg[0] == 0x2002 {
+        return Some(Ipv4Addr::new(
+            (seg[1] >> 8) as u8,
+            (seg[1] & 0xff) as u8,
+            (seg[2] >> 8) as u8,
+            (seg[2] & 0xff) as u8,
+        ));
+    }
     // IPv4-compatible (::a.b.c.d) — RFC 4291 deprecated but still parseable.
     // Excludes `::` and `::1` which must be classified as IPv6.
     let segments = v6.segments();
@@ -56,6 +81,15 @@ pub fn is_private_ip(ip: &IpAddr) -> bool {
                 || v4.is_multicast()
                 // 0.0.0.0/8 — current network, routes to localhost on Linux
                 || v4.octets()[0] == 0
+                // 100.64.0.0/10 — shared address space (CGNAT). Alibaba's
+                // metadata service (100.100.100.200) lives here.
+                || is_in_cidr_v4(v4, Ipv4Addr::new(100, 64, 0, 0), 10)
+                // 192.0.0.0/24 — IETF protocol assignments
+                || is_in_cidr_v4(v4, Ipv4Addr::new(192, 0, 0, 0), 24)
+                // 198.18.0.0/15 — benchmarking
+                || is_in_cidr_v4(v4, Ipv4Addr::new(198, 18, 0, 0), 15)
+                // 240.0.0.0/4 — reserved (includes 255.255.255.255)
+                || is_in_cidr_v4(v4, Ipv4Addr::new(240, 0, 0, 0), 4)
         }
         IpAddr::V6(v6) => {
             // IPv4-mapped (`::ffff:a.b.c.d`) and IPv4-compatible (`::a.b.c.d`)
@@ -174,6 +208,34 @@ mod tests {
         assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
         assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))));
         assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::LOCALHOST)));
+    }
+
+    #[test]
+    fn test_cgnat_and_reserved_ranges_are_private() {
+        for (a, b, c, d) in [
+            (100, 100, 100, 200),
+            (100, 64, 0, 1),
+            (100, 127, 255, 255),
+            (198, 18, 0, 1),
+            (192, 0, 0, 192),
+            (240, 0, 0, 1),
+        ] {
+            assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(a, b, c, d))));
+        }
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(100, 128, 0, 1))));
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(198, 20, 0, 1))));
+    }
+
+    #[test]
+    fn test_nat64_and_6to4_use_embedded_ipv4() {
+        let nat64_loopback: Ipv6Addr = "64:ff9b::7f00:1".parse().unwrap();
+        let nat64_public: Ipv6Addr = "64:ff9b::808:808".parse().unwrap();
+        let sixtofour_loopback: Ipv6Addr = "2002:7f00:1::1".parse().unwrap();
+        let sixtofour_public: Ipv6Addr = "2002:808:808::1".parse().unwrap();
+        assert!(is_private_ip(&IpAddr::V6(nat64_loopback)));
+        assert!(!is_private_ip(&IpAddr::V6(nat64_public)));
+        assert!(is_private_ip(&IpAddr::V6(sixtofour_loopback)));
+        assert!(!is_private_ip(&IpAddr::V6(sixtofour_public)));
     }
 
     #[test]

@@ -232,3 +232,39 @@ class TestFilterSensitivePaths:
 
     def test_filter_empty(self) -> None:
         assert filter_sensitive_paths([]) == []
+
+
+class TestCaseInsensitiveAndExtraNames:
+    """Regression: matching was case-sensitive and missed common secret files.
+
+    Runs against both the default backend and the pure-Python fallback.
+    """
+
+    NAMES = [
+        ".ENV",
+        "Id_Rsa",
+        "server.PEM",
+        ".Env.Local",
+        "id_ecdsa",
+        "id_dsa",
+        ".npmrc",
+        ".pypirc",
+        "vault.KDBX",
+    ]
+    SAFE = ["environment.py", "README.md", "id_rsa.pub", "keyboard.py"]
+
+    def _check(self) -> None:
+        for name in self.NAMES:
+            assert is_sensitive_file(f"/srv/app/{name}") is True, name
+        for name in self.SAFE:
+            assert is_sensitive_file(f"/srv/app/{name}") is False, name
+
+    def test_default_backend(self) -> None:
+        self._check()
+
+    def test_python_fallback(self, monkeypatch) -> None:
+        def unavailable():
+            raise ImportError("exercise the Python fallback")
+
+        monkeypatch.setattr("openjarvis._rust_bridge.get_rust_module", unavailable)
+        self._check()

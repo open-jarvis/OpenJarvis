@@ -467,6 +467,39 @@ class TestFunctionCallingModeUnchanged:
         assert result.content == "Hello back"
 
 
+class _CountingTool(_MockTool):
+    def __init__(self) -> None:
+        self.executed = 0
+
+    def execute(self, **params) -> ToolResult:
+        self.executed += 1
+        return ToolResult(
+            tool_name="calculator", content="same result", success=True
+        )
+
+
+class TestStructuredLoopGuard:
+    def test_repeated_identical_call_is_eventually_blocked(self):
+        """Structured mode must consult the loop guard like function-calling
+        mode does, instead of running the same call until max_turns."""
+        repeated = "THOUGHT: again\nTOOL: calculator\nINPUT: {\"expression\": \"1+1\"}"
+        engine = _MockEngine([repeated] * 11 + ["FINAL_ANSWER: done"])
+        tool = _CountingTool()
+        agent = OrchestratorAgent(
+            engine=engine,
+            model="test",
+            tools=[tool],
+            mode="structured",
+            max_turns=12,
+        )
+        result = agent.run("loop")
+        assert tool.executed < 11
+        assert any(
+            r.content.startswith("Loop guard:") and not r.success
+            for r in result.tool_results
+        )
+
+
 class TestParseStructuredResponse:
     def test_parse_thought_tool_input(self):
         parsed = OrchestratorAgent._parse_structured_response(
@@ -483,6 +516,29 @@ class TestParseStructuredResponse:
         )
         assert parsed["final_answer"] == "42"
         assert parsed["thought"] == "done"
+
+    def test_tool_word_inside_thought_is_not_a_tool_call(self):
+        parsed = OrchestratorAgent._parse_structured_response(
+            "THOUGHT: I need a tool: search is probably best here\n"
+            "TOOL: calculator\nINPUT: 2+2"
+        )
+        assert parsed["tool"] == "calculator"
+        assert parsed["input"] == "2+2"
+
+    def test_final_answer_phrase_inside_thought_is_ignored(self):
+        parsed = OrchestratorAgent._parse_structured_response(
+            "THOUGHT: Before I give the final answer: compute first\n"
+            "TOOL: calculator\nINPUT: 2+2"
+        )
+        assert parsed["final_answer"] == ""
+        assert parsed["tool"] == "calculator"
+
+    def test_input_word_inside_thought_is_ignored(self):
+        parsed = OrchestratorAgent._parse_structured_response(
+            "THOUGHT: the INPUT: field must be JSON\n"
+            "TOOL: calculator\nINPUT: 2+2"
+        )
+        assert parsed["input"] == "2+2"
 
     def test_parse_empty(self):
         parsed = OrchestratorAgent._parse_structured_response("")
