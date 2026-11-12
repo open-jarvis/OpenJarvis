@@ -478,6 +478,12 @@ def create_app(
     app.include_router(dashboard_router)
     app.include_router(comparison_router)
     app.include_router(create_connectors_router())
+    try:
+        from openjarvis.server.mcp_routes import create_mcp_router
+
+        app.include_router(create_mcp_router(config=config))
+    except Exception as exc:  # never block startup on the MCP settings API
+        logger.warning("MCP settings API unavailable: %s", exc)
     app.include_router(create_digest_router())
     app.include_router(upload_router)
     app.include_router(research_router)
