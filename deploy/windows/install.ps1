@@ -417,11 +417,13 @@ if (-not $ollamaExe) {
     } finally {
         $ProgressPreference = $prevProgress
     }
-    # OllamaSetup.exe is built with NSIS, whose silent-install flag is
-    # /S (uppercase). The Inno-Setup-style /silent would open the GUI
-    # and hang `Start-Process -Wait` indefinitely.
-    Write-Info "  Running OllamaSetup.exe /S (this can take a minute)..."
-    Start-Process -FilePath $ollamaSetup -ArgumentList '/S' -Wait
+    # OllamaSetup.exe is built with Inno Setup, whose unattended flags are
+    # /VERYSILENT /SUPPRESSMSGBOXES /NORESTART. The NSIS-style /S is not
+    # recognised: the wizard opens and `Start-Process -Wait` hangs
+    # indefinitely (invisibly so over SSH or in a scheduled task).
+    Write-Info "  Running OllamaSetup.exe /VERYSILENT (this can take a minute)..."
+    Start-Process -FilePath $ollamaSetup `
+        -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
     Remove-Item $ollamaSetup -ErrorAction SilentlyContinue
     Update-PathFromRegistry
     $ollamaExe = (Get-Command ollama -ErrorAction SilentlyContinue).Source
