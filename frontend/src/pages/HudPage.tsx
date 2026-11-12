@@ -5,6 +5,13 @@ import { CoreReactor, type HudMode } from '../components/Hud/CoreReactor';
 import { Spectrum } from '../components/Hud/Spectrum';
 import { AutomationsDeck } from '../components/Hud/AutomationsDeck';
 import { ApprovalDock } from '../components/Hud/ApprovalDock';
+import { AttachmentsDeck } from '../components/Hud/AttachmentsDeck';
+import {
+  ACCEPTED_FILES,
+  attachmentApi,
+  captureScreenshot,
+  type Attachment,
+} from '../components/Hud/attachmentApi';
 import {
   automationApi,
   browserTimezone,
@@ -24,11 +31,14 @@ import { stripThinkTags, toSpeakableText } from '../lib/message-text';
 import { useTts } from '../hooks/useTts';
 import '../components/Hud/hud.css';
 import '../components/Hud/hud-automation.css';
+import '../components/Hud/hud-attachments.css';
 
 interface HudMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  /** Names of files attached to this (user) message. */
+  files?: string[];
 }
 
 interface LogLine {
@@ -176,6 +186,14 @@ export function HudPage() {
   }, []);
   const [deckOpen, setDeckOpen] = useState(false);
   const automations = useAutomations(true);
+
+  // ---- Attachments ------------------------------------------------------
+  const [vaultOpen, setVaultOpen] = useState(false);
+  const [pending, setPending] = useState<Attachment[]>([]);
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
 
   const [messages, setMessages] = useState<HudMessage[]>([]);
   const [input, setInput] = useState('');
@@ -358,19 +376,109 @@ export function HudPage() {
 
   const worldEnergy = mode === 'thinking' ? 1 : mode === 'speaking' ? 0.6 : mode === 'listening' ? 0.4 : 0;
 
+  const addFiles = useCallback(
+    async (files: File[], source: 'upload' | 'paste' | 'drop' | 'screenshot') => {
+      if (files.length === 0) return;
+      setUploadingCount((n) => n + files.length);
+      try {
+        const res = await attachmentApi.upload(files, source);
+        res.errors.forEach((e) => addLog(`${e.name}: ${e.error}`, 'err'));
+        if (res.attachments.length) {
+          setPending((p) => [...p, ...res.attachments.filter((a) => !p.some((x) => x.id === a.id))]);
+          addLog(`Attached ${res.attachments.map((a) => a.name).join(', ')}`, 'ok');
+        }
+      } catch (e) {
+        addLog(`Attach failed: ${e instanceof Error ? e.message : e}`, 'err');
+      } finally {
+        setUploadingCount((n) => Math.max(0, n - files.length));
+      }
+    },
+    [addLog],
+  );
+
+  const takeScreenshot = useCallback(async () => {
+    try {
+      const shot = await captureScreenshot();
+      await addFiles([shot], 'screenshot');
+    } catch (e) {
+      // Cancelling the browser's share picker is not an error worth shouting about.
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog(/denied|abort|cancel/i.test(msg) ? 'Screenshot cancelled' : `Screenshot failed: ${msg}`, 'warn');
+    }
+  }, [addFiles, addLog]);
+
+  // Refresh pending image chips until their descriptions are ready.
+  useEffect(() => {
+    if (!pending.some((a) => a.status === 'describing')) return;
+    const t = setInterval(async () => {
+      const updated = await Promise.all(
+        pending.map((a) => (a.status === 'describing' ? attachmentApi.get(a.id).catch(() => a) : Promise.resolve(a))),
+      );
+      setPending((p) => p.map((a) => updated.find((u) => u.id === a.id) ?? a));
+    }, 2000);
+    return () => clearInterval(t);
+  }, [pending]);
+
+  // Paste images/files straight into the HUD.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files ?? []);
+      if (files.length === 0) return;
+      e.preventDefault();
+      const named = files.map((f, i) =>
+        f.name && f.name !== 'image.png'
+          ? f
+          : new File([f], `pasted-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}-${i + 1}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: f.type }),
+      );
+      void addFiles(named, 'paste');
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [addFiles]);
+
+  const dragHandlers = {
+    onDragEnter: (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes('Files')) return;
+      e.preventDefault();
+      dragDepth.current += 1;
+      setDragActive(true);
+    },
+    onDragOver: (e: React.DragEvent) => {
+      if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+    },
+    onDragLeave: () => {
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDragActive(false);
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!e.dataTransfer.files.length) return;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDragActive(false);
+      void addFiles(Array.from(e.dataTransfer.files), 'drop');
+    },
+  };
+
   const send = useCallback(async (raw: string) => {
-    const text = raw.trim();
+    const attached = pending;
+    const text = raw.trim() || (attached.length ? 'Please look at the attached file(s).' : '');
     if (!text || abortRef.current) return;
     if (!model) {
       addLog('No model available — pull one in Settings', 'err');
       return;
     }
     stopVoice();
-    const userMsg: HudMessage = { id: uid(), role: 'user', content: text };
+    const userMsg: HudMessage = {
+      id: uid(),
+      role: 'user',
+      content: text,
+      files: attached.length ? attached.map((a) => a.name) : undefined,
+    };
     const reply: HudMessage = { id: uid(), role: 'assistant', content: '' };
     const history = [...historyRef.current, userMsg];
     setMessages([...history, reply]);
     setInput('');
+    setPending([]);
     setPhase('thinking');
     addLog(`> ${text.length > 48 ? text.slice(0, 48) + '…' : text}`);
 
@@ -395,10 +503,13 @@ export function HudPage() {
                 'When tools are available you can: schedule recurring routines or reminders (schedule_task, list_scheduled_tasks), ' +
                 'open websites (open_url), open apps (open_app), open files or folders (open_path), check the PC (system_status), ' +
                 'run commands (run_pc_command) and hand coding or multi-step computer work to Claude Code (delegate_to_claude_code). ' +
-                'Running commands and Claude Code tasks ask the user to approve on screen; say so briefly when you use them.',
+                'Running commands and Claude Code tasks ask the user to approve on screen; say so briefly when you use them. ' +
+                'Files and images the user attaches are added to their message (images as a description); ' +
+                'earlier attachments can be found with list_attachments, read with read_attachment and kept long-term with save_attachment_to_knowledge.',
             },
             ...history.slice(-12).map((m) => ({ role: m.role, content: m.content })),
           ],
+          attachments: attached.length ? attached.map((a) => a.id) : undefined,
         },
         controller.signal,
       )) {
@@ -456,7 +567,7 @@ export function HudPage() {
       levelRef.current = 0;
       setPhase('idle');
     }
-  }, [model, addLog, stopVoice, speakReply, voiceOut]);
+  }, [model, addLog, stopVoice, speakReply, voiceOut, pending]);
 
   const stopMeter = () => {
     cancelAnimationFrame(meterRaf.current);
@@ -570,7 +681,15 @@ export function HudPage() {
   const temp = energy.gpu_temp_c ?? energy.cpu_temp_c ?? null;
 
   return (
-    <div className={`hud hud--${mode}`}>
+    <div className={`hud hud--${mode}`} {...dragHandlers}>
+      {dragActive && (
+        <div className="hud-drop" aria-hidden="true">
+          <div className="hud-drop__frame">
+            DROP TO ATTACH
+            <small>Documents, spreadsheets, code and images</small>
+          </div>
+        </div>
+      )}
       <HoloWorld energy={worldEnergy} />
       <div className="hud-vignette" aria-hidden="true" />
 
@@ -597,6 +716,9 @@ export function HudPage() {
             {automations.items.filter((a) => a.status === 'active').length > 0 && (
               <span className="hud-badge">{automations.items.filter((a) => a.status === 'active').length}</span>
             )}
+          </button>
+          <button type="button" className="hud-btn hud-btn--ghost" onClick={() => setVaultOpen(true)}>
+            FILES
           </button>
           <button type="button" className="hud-btn hud-btn--ghost" onClick={() => navigate('/')}>
             EXIT HUD
@@ -660,6 +782,11 @@ export function HudPage() {
                     ) : (
                       m.content
                     )}
+                    {m.files && m.files.length > 0 && (
+                      <span className="hud-msg__files">
+                        {m.files.map((f) => <span key={f} className="hud-msg__file">📎 {f}</span>)}
+                      </span>
+                    )}
                   </p>
                 </div>
               ))
@@ -696,6 +823,65 @@ export function HudPage() {
           className="hud-command"
           onSubmit={(e) => { e.preventDefault(); void send(input); }}
         >
+          {(pending.length > 0 || uploadingCount > 0) && (
+            <div className="hud-attach-tray" aria-label="Attached files">
+              {pending.map((a) => (
+                <span
+                  key={a.id}
+                  className={`att-chip ${a.status === 'describing' ? 'is-busy' : ''} ${a.status === 'failed' ? 'is-failed' : ''}`}
+                  title={a.error || a.name}
+                >
+                  <span className="att-chip__icon">{a.kind === 'image' ? 'IMG' : a.kind === 'document' ? 'DOC' : 'TXT'}</span>
+                  <span className="att-chip__name">{a.name}</span>
+                  <span className="att-chip__state">
+                    {a.status === 'describing' ? 'ANALYSING' : a.status === 'failed' ? 'UNREADABLE' : 'READY'}
+                  </span>
+                  <button
+                    type="button"
+                    className="att-chip__x"
+                    aria-label={`Remove ${a.name}`}
+                    onClick={() => setPending((p) => p.filter((x) => x.id !== a.id))}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {uploadingCount > 0 && (
+                <span className="att-chip is-busy">
+                  <span className="att-chip__name">Uploading {uploadingCount} file{uploadingCount > 1 ? 's' : ''}…</span>
+                </span>
+              )}
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            accept={ACCEPTED_FILES}
+            onChange={(e) => {
+              void addFiles(Array.from(e.target.files ?? []), 'upload');
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            className="hud-btn hud-btn--icon"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Attach files"
+            title="Attach files (or drop / paste them anywhere)"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 6.5v10a4.5 4.5 0 0 1-9 0V5a3 3 0 0 1 6 0v10.5a1.5 1.5 0 0 1-3 0V6.5H9V15.5a3 3 0 0 0 6 0V5a4.5 4.5 0 0 0-9 0v11.5a6 6 0 0 0 12 0v-10h-1.5Z" /></svg>
+          </button>
+          <button
+            type="button"
+            className="hud-btn hud-btn--icon"
+            onClick={() => void takeScreenshot()}
+            aria-label="Capture screen"
+            title="Capture your screen (you choose what to share) and attach it"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h3l1.5-2h7L17 5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm8 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Zm0 2a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z" /></svg>
+          </button>
           <button
             type="button"
             className={`hud-btn hud-btn--icon ${mode === 'listening' ? 'is-live' : ''}`}
@@ -721,7 +907,7 @@ export function HudPage() {
               ABORT
             </button>
           ) : (
-            <button type="submit" className="hud-btn" disabled={!input.trim()}>
+            <button type="submit" className="hud-btn" disabled={!input.trim() && pending.length === 0}>
               EXECUTE
             </button>
           )}
@@ -743,6 +929,13 @@ export function HudPage() {
           if (voiceOutRef.current) speakRef.current(`approval-${a.id}`, 'Authorisation required. Please approve or deny on screen.');
         }}
         onDecision={(a, approved) => addLog(`${approved ? 'Approved' : 'Denied'}: ${a.description}`, approved ? 'ok' : 'warn')}
+      />
+
+      <AttachmentsDeck
+        open={vaultOpen}
+        onClose={() => setVaultOpen(false)}
+        onAttach={(a) => setPending((p) => (p.some((x) => x.id === a.id) ? p : [...p, a]))}
+        onLog={addLog}
       />
 
       <AutomationsDeck

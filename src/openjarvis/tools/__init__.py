@@ -189,6 +189,12 @@ try:
 except ImportError:
     pass
 
+# Attachment library (list_attachments / read_attachment / save to knowledge).
+try:
+    import openjarvis.tools.attachment_tools  # noqa: F401
+except ImportError:
+    pass
+
 try:
     import openjarvis.scheduler.tools  # noqa: F401  # schedule_task & friends
 except ImportError:
