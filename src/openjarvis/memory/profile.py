@@ -33,7 +33,8 @@ _MAX_FACTS_IN_PROMPT = 80
 _MAX_CHARS = 3000
 _MAX_BACKUPS = 20
 
-_PROMPT = """You maintain two short memory files for a personal AI assistant called Jarvis.
+_PROMPT = """You maintain two short memory files for a personal AI assistant \
+called Jarvis.
 
 USER.md - durable facts about the user: name, location, work, family, \
 preferences, habits, likes/dislikes, how they want Jarvis to behave.
@@ -156,7 +157,9 @@ class ProfileCurator:
 
     def _last_ts(self) -> float:
         try:
-            return float(json.loads(_read(self._state_path) or "{}").get("last_fact_ts", 0))
+            return float(
+                json.loads(_read(self._state_path) or "{}").get("last_fact_ts", 0)
+            )
         except (ValueError, TypeError):
             return 0.0
 
@@ -219,7 +222,9 @@ class ProfileCurator:
             )
             parsed = parse_curated(str(result.get("content") or ""))
             if parsed is None:
-                logger.warning("Profile curator: model reply not in the expected layout")
+                logger.warning(
+                    "Profile curator: model reply not in the expected layout"
+                )
                 return False
             user_md, memory_md = (
                 part[: self._max_chars].rstrip() + "\n" for part in parsed

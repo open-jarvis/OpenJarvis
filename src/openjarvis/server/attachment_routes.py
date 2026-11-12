@@ -103,7 +103,9 @@ async def upload_attachments(
 @router.get("")
 async def list_attachments(request: Request, limit: int = 100) -> Dict[str, Any]:
     lib = library_for(request)
-    return {"attachments": [_summary(a) for a in lib.list(limit=max(1, min(500, limit)))]}
+    return {
+        "attachments": [_summary(a) for a in lib.list(limit=max(1, min(500, limit)))]
+    }
 
 
 @router.get("/{att_id}")

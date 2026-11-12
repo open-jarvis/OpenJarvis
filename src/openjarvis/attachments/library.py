@@ -105,7 +105,9 @@ class AttachmentLibrary:
     def _save(self, att: Attachment) -> None:
         d = self._dir(att.id)
         d.mkdir(parents=True, exist_ok=True)
-        (d / "meta.json").write_text(json.dumps(att.to_dict(), indent=2), encoding="utf-8")
+        (d / "meta.json").write_text(
+            json.dumps(att.to_dict(), indent=2), encoding="utf-8"
+        )
 
     def _write_text(self, att_id: str, text: str) -> None:
         (self._dir(att_id) / "text.txt").write_text(text, encoding="utf-8")
@@ -283,7 +285,10 @@ class AttachmentLibrary:
             body = self.text(att.id).strip()
             if att.kind == "image":
                 if att.status == "describing":
-                    body = "(The image is still being analysed; its description is not ready yet.)"
+                    body = (
+                        "(The image is still being analysed; "
+                        "its description is not ready yet.)"
+                    )
                 elif not body:
                     body = "(No description available for this image.)"
                 else:

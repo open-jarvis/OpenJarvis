@@ -85,20 +85,23 @@ def _serialize(task: Any, last_run: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 @router.get("/status")
 async def automation_status(request: Request) -> Dict[str, Any]:
+    import os
+
     from openjarvis.scheduler.settings import get_default_timezone
     from openjarvis.server.smart_routing import claude_available, claude_model
     from openjarvis.tools.claude_code_worker import claude_code_ready
 
-    import os
-
     engine = getattr(request.app.state, "engine", None)
     agent = getattr(request.app.state, "agent", None)
     tool_names = sorted(
-        t.spec.name for t in (getattr(agent, "_tools", None) or []) if hasattr(t, "spec")
+        t.spec.name
+        for t in (getattr(agent, "_tools", None) or [])
+        if hasattr(t, "spec")
     )
     cc_ready, cc_reason = claude_code_ready()
     return {
-        "scheduler_running": getattr(request.app.state, "task_scheduler", None) is not None,
+        "scheduler_running": getattr(request.app.state, "task_scheduler", None)
+        is not None,
         "timezone": get_default_timezone(),
         "local_model": getattr(request.app.state, "model", ""),
         "claude": {
@@ -142,14 +145,20 @@ async def create_automation(request: Request, body: AutomationCreate) -> Dict[st
 
     sched = _scheduler(request)
     if body.schedule_type not in _SCHEDULE_TYPES:
-        raise HTTPException(status_code=400, detail=f"schedule_type must be one of {_SCHEDULE_TYPES}")
+        raise HTTPException(
+            status_code=400, detail=f"schedule_type must be one of {_SCHEDULE_TYPES}"
+        )
     if body.schedule_type == "interval":
         try:
             seconds = float(body.schedule_value)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Interval must be a number of seconds") from exc
+            raise HTTPException(
+                status_code=400, detail="Interval must be a number of seconds"
+            ) from exc
         if seconds < 60:
-            raise HTTPException(status_code=400, detail="Interval must be at least 60 seconds")
+            raise HTTPException(
+                status_code=400, detail="Interval must be at least 60 seconds"
+            )
     if body.schedule_type == "cron":
         try:
             from croniter import croniter
@@ -157,9 +166,15 @@ async def create_automation(request: Request, body: AutomationCreate) -> Dict[st
             if not croniter.is_valid(body.schedule_value):
                 raise ValueError
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid cron expression") from exc
+            raise HTTPException(
+                status_code=400, detail="Invalid cron expression"
+            ) from exc
 
-    tz = body.timezone if valid_timezone(body.timezone) else (get_default_timezone() or "")
+    tz = (
+        body.timezone
+        if valid_timezone(body.timezone)
+        else (get_default_timezone() or "")
+    )
     metadata: Dict[str, Any] = {}
     if body.name.strip():
         metadata["name"] = body.name.strip()
@@ -177,7 +192,9 @@ async def create_automation(request: Request, body: AutomationCreate) -> Dict[st
             metadata=metadata,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not create automation: {exc}") from exc
+        raise HTTPException(
+            status_code=400, detail=f"Could not create automation: {exc}"
+        ) from exc
     return _serialize(task, None)
 
 
@@ -238,7 +255,9 @@ async def recent_runs(request: Request, after_id: int = 0) -> Dict[str, Any]:
         tid = r["task_id"]
         if tid not in names:
             d = store.get_task(tid) or {}
-            names[tid] = (d.get("metadata") or {}).get("name") or (d.get("prompt") or "")[:60]
+            names[tid] = (d.get("metadata") or {}).get("name") or (
+                d.get("prompt") or ""
+            )[:60]
         runs.append(
             {
                 "id": r["id"],

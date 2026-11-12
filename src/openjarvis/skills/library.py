@@ -127,7 +127,9 @@ class SkillLibrary:
         df: Counter = Counter()
         for key, entry in entries.items():
             # Name words count double: they are the strongest signal.
-            toks = _tokens(entry.name.replace("-", " ")) * 2 + _tokens(entry.description)
+            toks = _tokens(entry.name.replace("-", " ")) * 2 + _tokens(
+                entry.description
+            )
             counts = Counter(toks)
             doc_tokens[key] = counts
             df.update(counts.keys())
@@ -137,7 +139,9 @@ class SkillLibrary:
             self._doc_len = {k: sum(c.values()) for k, c in doc_tokens.items()}
             self._df = df
             self._avg_len = (
-                sum(self._doc_len.values()) / len(self._doc_len) if self._doc_len else 1.0
+                sum(self._doc_len.values()) / len(self._doc_len)
+                if self._doc_len
+                else 1.0
             )
             self._loaded_mtime = mtime
         logger.info("Skill library indexed %d skills from %s", len(entries), self._root)
@@ -167,8 +171,11 @@ class SkillLibrary:
                         continue
                     df = self._df.get(term, 0)
                     idf = math.log(1 + (n - df + 0.5) / (df + 0.5))
-                    score += idf * tf * (k1 + 1) / (
-                        tf + k1 * (1 - b + b * dl / self._avg_len)
+                    score += (
+                        idf
+                        * tf
+                        * (k1 + 1)
+                        / (tf + k1 * (1 - b + b * dl / self._avg_len))
                     )
                 if score > 0:
                     scored.append((self._entries[key], score))
@@ -249,7 +256,10 @@ def skill_hint(query: str, *, k: int = 3, min_score: float = 6.0) -> str:
         "only if it is actually useful):"
     ]
     for entry, _ in hits:
-        lines.append(f"- {entry.name}: {entry.description.splitlines()[0][:160] if entry.description else ''}")
+        lines.append(
+            f"- {entry.name}: "
+            + (entry.description.splitlines()[0][:160] if entry.description else "")
+        )
     return "\n".join(lines)
 
 

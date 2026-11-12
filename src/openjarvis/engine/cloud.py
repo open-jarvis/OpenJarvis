@@ -918,7 +918,9 @@ class CloudEngine(InferenceEngine):
 
         content = "\n".join(content_parts) if content_parts else ""
         if resp.stop_reason == "refusal" and not content:
-            content = "Claude declined this request, and no fallback model could answer it."
+            content = (
+                "Claude declined this request, and no fallback model could answer it."
+            )
         prompt_tokens = resp.usage.input_tokens if resp.usage else 0
         completion_tokens = resp.usage.output_tokens if resp.usage else 0
 

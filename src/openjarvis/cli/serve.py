@@ -783,7 +783,9 @@ def serve(
                     "Automations scheduler has no JarvisSystem (agent manager "
                     "disabled); routines will be logged as dry runs."
                 )
-            sched_db = config.scheduler.db_path or str(get_config_dir() / "scheduler.db")
+            sched_db = config.scheduler.db_path or str(
+                get_config_dir() / "scheduler.db"
+            )
             task_scheduler = TaskScheduler(
                 SchedulerStore(sched_db),
                 task_system,

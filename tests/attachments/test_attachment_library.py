@@ -44,7 +44,9 @@ def test_docx_and_xlsx_extraction() -> None:
     assert "Oct,4200" in out.text and out.pages == 1
 
 
-def test_rejects_unsupported_empty_and_oversized(lib: AttachmentLibrary, monkeypatch) -> None:
+def test_rejects_unsupported_empty_and_oversized(
+    lib: AttachmentLibrary, monkeypatch
+) -> None:
     with pytest.raises(AttachmentError):
         lib.add(b"MZ", "tool.exe")
     with pytest.raises(AttachmentError):
@@ -56,7 +58,9 @@ def test_rejects_unsupported_empty_and_oversized(lib: AttachmentLibrary, monkeyp
         lib.add(b"x" * 11, "big.txt")
 
 
-def test_find_list_and_delete_releases_blob(lib: AttachmentLibrary, tmp_path: Path) -> None:
+def test_find_list_and_delete_releases_blob(
+    lib: AttachmentLibrary, tmp_path: Path
+) -> None:
     a = lib.add(b"alpha", "notes-alpha.txt")
     b = lib.add(b"alpha", "copy.txt")  # same bytes -> shared blob
     assert lib.find(a.id).id == a.id

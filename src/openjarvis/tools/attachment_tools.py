@@ -72,7 +72,8 @@ class ListAttachmentsTool(BaseTool):
                 success=True,
             )
         lines = [
-            f"- {a.id} | {a.name} | {a.kind} | {a.created_at[:16].replace('T', ' ')} UTC"
+            f"- {a.id} | {a.name} | {a.kind} | "
+            f"{a.created_at[:16].replace('T', ' ')} UTC"
             + (" | in knowledge base" if a.knowledge_doc_id else "")
             for a in items[:limit]
         ]

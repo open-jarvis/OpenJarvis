@@ -155,7 +155,9 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     return [combined_system, *non_system_messages]
 
 
-async def _apply_attachments(request_body: ChatCompletionRequest, request: Request) -> None:
+async def _apply_attachments(
+    request_body: ChatCompletionRequest, request: Request
+) -> None:
     """Append attachment context to the last user message (in place)."""
     import asyncio
 

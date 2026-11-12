@@ -78,7 +78,9 @@ def request_approval(
             pass
 
 
-def record_auto_action(action_type: str, description: str, payload: Dict[str, Any]) -> None:
+def record_auto_action(
+    action_type: str, description: str, payload: Dict[str, Any]
+) -> None:
     """Log an action that ran without asking (low-risk "safe" actions).
 
     The entry goes into the same approval store, already marked executed, so
@@ -113,7 +115,10 @@ def outcome_message(outcome: str, what: str) -> str:
     if outcome == ApprovalOutcome.DENIED:
         return f"The user denied: {what}. Do not retry unless they ask again."
     if outcome == ApprovalOutcome.TIMED_OUT:
-        return f"No approval within {int(APPROVAL_WAIT_SECONDS)}s for: {what}. Nothing was done."
+        return (
+            f"No approval within {int(APPROVAL_WAIT_SECONDS)}s for: {what}. "
+            "Nothing was done."
+        )
     return f"Approval could not be requested for: {what}. Nothing was done."
 
 

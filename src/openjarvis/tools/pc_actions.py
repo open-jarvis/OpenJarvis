@@ -78,7 +78,10 @@ _WINDOWS_APPS = {
 def _truncate(text: str) -> str:
     if len(text) <= _MAX_OUTPUT_CHARS:
         return text
-    return text[:_MAX_OUTPUT_CHARS] + f"\n... [{len(text) - _MAX_OUTPUT_CHARS} more characters]"
+    return (
+        text[:_MAX_OUTPUT_CHARS]
+        + f"\n... [{len(text) - _MAX_OUTPUT_CHARS} more characters]"
+    )
 
 
 def _os_open(target: str) -> None:
@@ -143,7 +146,9 @@ class OpenUrlTool(BaseTool):
             url = "https://" + url
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
-            return _fail("open_url", f"Refusing to open {url!r}: only http(s) links are allowed.")
+            return _fail(
+                "open_url", f"Refusing to open {url!r}: only http(s) links are allowed."
+            )
         try:
             _os_open(url)
         except Exception as exc:
@@ -176,14 +181,21 @@ class SystemStatusTool(BaseTool):
         try:
             import psutil
 
-            lines.append(f"CPU: {psutil.cpu_percent(interval=0.5):.0f}% used, {psutil.cpu_count()} cores")
+            lines.append(
+                f"CPU: {psutil.cpu_percent(interval=0.5):.0f}% used, "
+                f"{psutil.cpu_count()} cores"
+            )
             mem = psutil.virtual_memory()
             lines.append(
-                f"Memory: {mem.percent:.0f}% used ({mem.used / 2**30:.1f} of {mem.total / 2**30:.1f} GB)"
+                f"Memory: {mem.percent:.0f}% used "
+                f"({mem.used / 2**30:.1f} of {mem.total / 2**30:.1f} GB)"
             )
             root = Path.home().anchor or "/"
             disk = psutil.disk_usage(root)
-            lines.append(f"Disk {root}: {disk.free / 2**30:.0f} GB free of {disk.total / 2**30:.0f} GB")
+            lines.append(
+                f"Disk {root}: {disk.free / 2**30:.0f} GB free "
+                f"of {disk.total / 2**30:.0f} GB"
+            )
             battery = psutil.sensors_battery()
             if battery is not None:
                 plug = "charging" if battery.power_plugged else "on battery"
@@ -274,7 +286,11 @@ class OpenPathTool(BaseTool):
         if not raw:
             return _fail("open_path", "No path given.")
         known = {"downloads", "documents", "desktop", "pictures", "music", "videos"}
-        path = Path.home() / raw.capitalize() if raw.lower() in known else Path(raw).expanduser()
+        path = (
+            Path.home() / raw.capitalize()
+            if raw.lower() in known
+            else Path(raw).expanduser()
+        )
         if not path.exists():
             return _fail("open_path", f"{path} does not exist.")
         try:
@@ -312,7 +328,9 @@ class RunPcCommandTool(BaseTool):
                     },
                     "reason": {
                         "type": "string",
-                        "description": "One short sentence shown to the user explaining why.",
+                        "description": (
+                            "One short sentence shown to the user explaining why."
+                        ),
                     },
                 },
                 "required": ["command"],
@@ -355,7 +373,9 @@ class RunPcCommandTool(BaseTool):
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except subprocess.TimeoutExpired:
-            return _fail("run_pc_command", f"`{command}` timed out after {_COMMAND_TIMEOUT}s.")
+            return _fail(
+                "run_pc_command", f"`{command}` timed out after {_COMMAND_TIMEOUT}s."
+            )
         except Exception as exc:
             return _fail("run_pc_command", f"Could not run `{command}`: {exc}")
         out = (proc.stdout or "").strip()

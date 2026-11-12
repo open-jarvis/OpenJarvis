@@ -10,9 +10,14 @@ from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
-
 _DAY_NUMBERS = {
-    "sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6,
+    "sun": 0,
+    "mon": 1,
+    "tue": 2,
+    "wed": 3,
+    "thu": 4,
+    "fri": 5,
+    "sat": 6,
 }
 _TIME_RE = re.compile(r"^\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*$", re.IGNORECASE)
 
@@ -91,7 +96,9 @@ class ScheduleTaskTool(BaseTool):
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Short label for the routine, e.g. 'Morning briefing'.",
+                        "description": (
+                            "Short label for the routine, e.g. 'Morning briefing'."
+                        ),
                     },
                     "prompt": {
                         "type": "string",
@@ -122,7 +129,10 @@ class ScheduleTaskTool(BaseTool):
                     },
                     "agent": {
                         "type": "string",
-                        "description": "Agent to use for execution (default: orchestrator, which can use tools).",
+                        "description": (
+                            "Agent to use for execution "
+                            "(default: orchestrator, which can use tools)."
+                        ),
                     },
                     "tools": {
                         "type": "string",

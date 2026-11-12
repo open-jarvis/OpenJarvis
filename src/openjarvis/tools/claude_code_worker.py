@@ -37,13 +37,18 @@ def _ensure_node_on_path() -> bool:
         return True
     candidates = []
     if sys.platform.startswith("win"):
-        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+        for base in (
+            os.environ.get("ProgramFiles"),
+            os.environ.get("ProgramFiles(x86)"),
+        ):
             if base:
                 candidates.append(Path(base) / "nodejs")
     else:
         candidates += [Path("/usr/local/bin"), Path("/opt/homebrew/bin")]
     for folder in candidates:
-        if (folder / ("node.exe" if sys.platform.startswith("win") else "node")).exists():
+        if (
+            folder / ("node.exe" if sys.platform.startswith("win") else "node")
+        ).exists():
             os.environ["PATH"] = str(folder) + os.pathsep + os.environ.get("PATH", "")
             return True
     return False
@@ -85,7 +90,9 @@ class DelegateToClaudeCodeTool(BaseTool):
                     },
                     "folder": {
                         "type": "string",
-                        "description": "Folder Claude Code works in (default: ~/JarvisWorkspace).",
+                        "description": (
+                            "Folder Claude Code works in (default: ~/JarvisWorkspace)."
+                        ),
                     },
                 },
                 "required": ["task"],
@@ -97,7 +104,9 @@ class DelegateToClaudeCodeTool(BaseTool):
     def execute(self, **params: Any) -> ToolResult:
         task = str(params.get("task", "")).strip()
         if not task:
-            return ToolResult(tool_name=self.tool_id, content="No task given.", success=False)
+            return ToolResult(
+                tool_name=self.tool_id, content="No task given.", success=False
+            )
         ready, reason = claude_code_ready()
         if not ready:
             return ToolResult(
@@ -105,7 +114,9 @@ class DelegateToClaudeCodeTool(BaseTool):
                 content=f"Claude Code is not available: {reason}.",
                 success=False,
             )
-        folder = Path(str(params.get("folder") or Path.home() / "JarvisWorkspace")).expanduser()
+        folder = Path(
+            str(params.get("folder") or Path.home() / "JarvisWorkspace")
+        ).expanduser()
         folder.mkdir(parents=True, exist_ok=True)
 
         summary = task if len(task) <= 160 else task[:157] + "..."
@@ -138,7 +149,9 @@ class DelegateToClaudeCodeTool(BaseTool):
                 content=f"Claude Code failed to run: {exc}",
                 success=False,
             )
-        content = (getattr(result, "content", "") or "").strip() or "(Claude Code returned no summary)"
+        content = (
+            getattr(result, "content", "") or ""
+        ).strip() or "(Claude Code returned no summary)"
         if len(content) > _MAX_RESULT_CHARS:
             content = content[:_MAX_RESULT_CHARS] + "\n... [truncated]"
         return ToolResult(
