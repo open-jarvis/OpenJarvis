@@ -143,7 +143,7 @@ fn boot_plan(cfg: &InferenceConfig, ram_gb: f64) -> BootPlan {
                     "--model".into(),
                     model,
                     "--agent".into(),
-                    "simple".into(),
+                    "orchestrator".into(),
                 ],
             }
         }
@@ -174,7 +174,7 @@ fn boot_plan(cfg: &InferenceConfig, ram_gb: f64) -> BootPlan {
                     "--model".into(),
                     model,
                     "--agent".into(),
-                    "simple".into(),
+                    "orchestrator".into(),
                 ],
             }
         }
