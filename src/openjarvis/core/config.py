@@ -2209,6 +2209,59 @@ enabled = ["code_interpreter", "web_search", "file_read", "shell_exec"]
 """
 
 
+def _toml_escape(value: str) -> str:
+    """Escape *value* for a TOML basic string."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _set_toml_host(toml_text: str, engine: str, host: str) -> str:
+    """Return *toml_text* with ``host`` set inside ``[engine.<engine>]``.
+
+    Written line-wise rather than as one regex over the whole document. The
+    previous version matched ``[engine.X]`` followed *immediately* by the host
+    line, which made the generated template's layout load-bearing: adding a
+    comment between the two silently stopped the substitution, and an engine
+    whose section is commented out or absent (nexa, uzu, apple_fm) kept the
+    template's localhost while reporting success. A host the caller asked for
+    being quietly discarded is the failure that matters here.
+
+    It also fixes two narrower faults: the host was interpolated into a
+    ``re.sub`` *replacement*, so a backslash in it raised ``PatternError``
+    ("invalid group reference"), and it was never escaped for TOML, so a
+    quote produced an unparseable file.
+
+    The key is replaced in place when present, inserted under the header when
+    the section exists without it, and the section is appended when missing.
+    """
+    header = f"[engine.{engine}]"
+    host_line = f'host = "{_toml_escape(host)}"'
+
+    lines = toml_text.splitlines()
+    in_section = False
+    section_start = None
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_section:
+                # Left the section without finding a host key: add one.
+                lines.insert(section_start + 1, host_line)
+                return "\n".join(lines) + ("\n" if toml_text.endswith("\n") else "")
+            in_section = stripped == header
+            if in_section:
+                section_start = index
+            continue
+        if in_section and stripped.split("=")[0].strip() == "host":
+            lines[index] = host_line
+            return "\n".join(lines) + ("\n" if toml_text.endswith("\n") else "")
+
+    if in_section and section_start is not None:
+        lines.insert(section_start + 1, host_line)
+    else:
+        # No such section: the engine's block is commented out or absent.
+        lines.extend(["", header, host_line])
+    return "\n".join(lines) + ("\n" if toml_text.endswith("\n") else "")
+
+
 def generate_default_toml(
     hw: HardwareInfo, engine: str | None = None, *, host: str | None = None
 ) -> str:
@@ -2442,11 +2495,7 @@ ssrf_protection = true
 # assistant_has_own_number = false
 """
     if host:
-        import re as _re
-
-        pattern = _re.escape(f"[engine.{engine}]") + r"\nhost = \"[^\"]*\""
-        replacement = f'[engine.{engine}]\\nhost = "{host}"'
-        result = _re.sub(pattern, replacement, result)
+        result = _set_toml_host(result, engine, host)
     return result
 
 
