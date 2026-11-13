@@ -136,8 +136,13 @@ def test_quickstart_writes_utf8_config(tmp_path: Path) -> None:
             return_value=_NON_CP1252_COMMENT + "[engine]\n",
         ),
         patch("openjarvis.cli.quickstart_cmd.recommend_engine", return_value="ollama"),
-        patch("openjarvis.cli.quickstart_cmd._check_engine_health", return_value=False),
+        patch("openjarvis.cli.quickstart_cmd._check_engine_health", return_value=True),
+        patch(
+            "openjarvis.cli.quickstart_cmd._check_model_available", return_value=True
+        ),
+        patch("openjarvis.cli.quickstart_cmd._test_query", return_value="Hello!"),
     ):
-        CliRunner().invoke(cli, ["quickstart"])
+        result = CliRunner().invoke(cli, ["quickstart"])
 
+    assert result.exit_code == 0, result.output
     assert _read_utf8(config_path).startswith(_NON_CP1252_COMMENT)
