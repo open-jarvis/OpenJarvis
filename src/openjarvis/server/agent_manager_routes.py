@@ -691,7 +691,12 @@ def _get_mcp_tools_locked(
         app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
         return app_state._mcp_tools_cache
 
-    from openjarvis.core.config import load_config, resolve_mcp_servers
+    from openjarvis.core.config import load_config
+    from openjarvis.mcp.loader import (
+        build_transport,
+        filter_server_tools,
+        resolve_effective_mcp_servers,
+    )
 
     openai_tools: List[Dict[str, Any]] = []
     adapters_by_name: Dict[str, Any] = {}
@@ -702,38 +707,22 @@ def _get_mcp_tools_locked(
         logger.warning("Failed to load config for MCP discovery: %s", exc)
         return openai_tools, adapters_by_name
 
-    if not app_config.tools.mcp.enabled or not app_config.tools.mcp.servers:
+    server_list = resolve_effective_mcp_servers(app_config)
+    if not server_list:
         return openai_tools, adapters_by_name
 
     from openjarvis.mcp.client import MCPClient
-    from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
     from openjarvis.tools.mcp_adapter import MCPToolProvider
-
-    try:
-        server_list = resolve_mcp_servers(
-            app_config.tools.mcp.servers,
-            app_config._config_dir,
-        )
-    except (OSError, UnicodeError, ValueError, TypeError) as exc:
-        logger.warning("Failed to parse MCP server config: %s", exc)
-        return openai_tools, adapters_by_name
 
     for server_cfg in server_list:
         cfg = server_cfg
         name = cfg.get("name", "<unnamed>")
-        url = cfg.get("url")
-        # Bearer token from config — mirrors the builder.py fix for #461.
-        token = cfg.get("token")
-        command = cfg.get("command", "")
-        args = cfg.get("args", [])
 
         client = None
         try:
-            if url:
-                transport = StreamableHTTPTransport(url=url, token=token)
-            elif command:
-                transport = StdioTransport(command=[command] + args)
-            else:
+            # Bearer token / auth header from config — mirrors builder.py (#461).
+            transport = build_transport(cfg)
+            if transport is None:
                 logger.warning(
                     "MCP server '%s' has neither 'url' nor 'command' — skipping",
                     name,
@@ -748,15 +737,7 @@ def _get_mcp_tools_locked(
             client.initialize()
 
             provider = MCPToolProvider(client)
-            discovered = provider.discover()
-
-            # Per-server tool filtering
-            include_tools = set(cfg.get("include_tools", []))
-            exclude_tools = set(cfg.get("exclude_tools", []))
-            if include_tools:
-                discovered = [t for t in discovered if t.spec.name in include_tools]
-            if exclude_tools:
-                discovered = [t for t in discovered if t.spec.name not in exclude_tools]
+            discovered = filter_server_tools(provider.discover(), cfg)
 
             staged: list[tuple[Any, Any]] = []
             staged_names = set(adapters_by_name)
