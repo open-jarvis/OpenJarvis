@@ -85,6 +85,15 @@ jarvis digest --fresh          # generate and play your first briefing
 
 Per-preset deep dives: [morning digest](https://open-jarvis.github.io/OpenJarvis/user-guide/morning-digest/) · [deep research](https://open-jarvis.github.io/OpenJarvis/user-guide/deep-research/) · [code assistant](https://open-jarvis.github.io/OpenJarvis/user-guide/code-assistant/) · [scheduled monitor](https://open-jarvis.github.io/OpenJarvis/user-guide/scheduled-monitor/) · [chat simple](https://open-jarvis.github.io/OpenJarvis/user-guide/chat-simple/) · or the full [quickstart guide](https://open-jarvis.github.io/OpenJarvis/getting-started/quickstart/).
 
+### Voice
+
+`jarvis chat --voice` adds microphone input and local text-to-speech. Press
+**Ctrl+Enter** to speak (plain **Enter** still submits typed text); recording
+stops after **3 seconds of silence**. Spoken replies are opt-in — enable with
+`speak = true` under `[speech]` in `config.toml`, then say "you can speak" /
+"stop speaking" to toggle them live. The terminal always shows the full
+response; the speaker gets a short summary. See the [chat guide](https://open-jarvis.github.io/OpenJarvis/user-guide/chat-simple/).
+
 ### Skills
 
 Skills teach agents how to better use tools and improve their reasoning. Every skill is a tool — agents discover them from a catalog and invoke them on demand.
