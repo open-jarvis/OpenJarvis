@@ -12,6 +12,12 @@ setup() {
     export SCRIPT="$BATS_TEST_DIRNAME/../../../scripts/install/pull-model.sh"
 }
 
+model_marker() {
+    local model_id="$1" state="$2" key
+    key=$(printf '%s' "$model_id" | base64 | tr '+/' '-_' | tr -d '=\r\n')
+    printf '%s/.state/models/v1/%s.%s' "$OPENJARVIS_HOME" "$key" "$state"
+}
+
 teardown() {
     # Clean up temp directory
     [[ -n "${TEST_TMPDIR:-}" ]] && rm -rf "$TEST_TMPDIR"
@@ -20,14 +26,14 @@ teardown() {
 @test "writes .downloading marker, then .ready on success" {
     OLLAMA_STUB_EXIT=0 run bash "$SCRIPT" qwen3.5:2b
     [ "$status" -eq 0 ]
-    [ -f "$OPENJARVIS_HOME/.state/models/qwen3.5:2b.ready" ]
-    [ ! -f "$OPENJARVIS_HOME/.state/models/qwen3.5:2b.downloading" ]
+    [ -f "$(model_marker qwen3.5:2b ready)" ]
+    [ ! -f "$(model_marker qwen3.5:2b downloading)" ]
 }
 
 @test "writes .failed on error after retries exhausted" {
     OLLAMA_STUB_EXIT=1 run bash "$SCRIPT" qwen3.5:2b
     [ "$status" -ne 0 ]
-    [ -f "$OPENJARVIS_HOME/.state/models/qwen3.5:2b.failed" ]
+    [ -f "$(model_marker qwen3.5:2b failed)" ]
 }
 
 @test "calls ollama pull with the right model name" {

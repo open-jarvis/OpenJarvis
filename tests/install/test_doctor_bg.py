@@ -9,9 +9,11 @@ from click.testing import CliRunner
 from openjarvis.cli.doctor_cmd import doctor
 
 
-def test_doctor_shows_bg_section_when_state_present(tmp_openjarvis_home: Path) -> None:
+def test_doctor_shows_bg_section_when_state_present(
+    tmp_openjarvis_home: Path, write_model_marker
+) -> None:
     (tmp_openjarvis_home / ".state" / "extension-built").write_text("")
-    (tmp_openjarvis_home / ".state" / "models" / "qwen3.5:9b.ready").write_text("")
+    write_model_marker("qwen3.5:9b", "ready")
     runner = CliRunner()
     result = runner.invoke(doctor, [], catch_exceptions=False)
     assert "Background tasks" in result.output

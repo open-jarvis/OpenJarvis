@@ -17,11 +17,19 @@ exit 0
 EOF
     cat > "$OPENJARVIS_HOME/.scripts/pull-model.sh" <<EOF
 #!/usr/bin/env bash
-touch "\$OPENJARVIS_HOME/.state/models/\${1}.ready"
+key=\$(printf '%s' "\$1" | base64 | tr '+/' '-_' | tr -d '=\r\n')
+mkdir -p "\$OPENJARVIS_HOME/.state/models/v1"
+touch "\$OPENJARVIS_HOME/.state/models/v1/\${key}.ready"
 exit 0
 EOF
     chmod +x "$OPENJARVIS_HOME/.scripts/"*.sh
     export SCRIPT="$BATS_TEST_DIRNAME/../../../scripts/install/bg-orchestrator.sh"
+}
+
+model_marker() {
+    local model_id="$1" state="$2" key
+    key=$(printf '%s' "$model_id" | base64 | tr '+/' '-_' | tr -d '=\r\n')
+    printf '%s/.state/models/v1/%s.%s' "$OPENJARVIS_HOME" "$key" "$state"
 }
 
 teardown() {
@@ -46,8 +54,8 @@ teardown() {
 @test "invokes pull-model.sh for each model arg" {
     run bash "$SCRIPT" qwen3.5:9b qwen3.5:27b
     [ "$status" -eq 0 ]
-    [ -f "$OPENJARVIS_HOME/.state/models/qwen3.5:9b.ready" ]
-    [ -f "$OPENJARVIS_HOME/.state/models/qwen3.5:27b.ready" ]
+    [ -f "$(model_marker qwen3.5:9b ready)" ]
+    [ -f "$(model_marker qwen3.5:27b ready)" ]
 }
 
 @test "removes pid file when done (via trap)" {
