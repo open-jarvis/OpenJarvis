@@ -21,6 +21,7 @@ Status = Literal["fail", "warn", "info"]
 
 CLOUD_PROVIDER_KEYS = {
     "anthropic",
+    "cheaperinference",
     "claude",
     "cloud",
     "codex",
@@ -54,6 +55,10 @@ LOCAL_ENGINE_KEYS = {
 
 API_KEY_ENV_VARS = {
     "ANTHROPIC_API_KEY": ("Anthropic cloud inference", {"anthropic", "claude"}),
+    "CHEAPER_INFERENCE_API_KEY": (
+        "Cheaper Inference cloud inference",
+        {"cheaperinference"},
+    ),
     "CARTESIA_API_KEY": (
         "Cartesia cloud text-to-speech",
         {"cartesia", "text_to_speech"},

@@ -629,6 +629,7 @@ export function SettingsPage() {
                 <CloudProviderStatus label="Google" keyName="GEMINI_API_KEY" />
                 <CloudProviderStatus label="OpenRouter" keyName="OPENROUTER_API_KEY" />
                 <CloudProviderStatus label="Atlas Cloud" keyName="ATLASCLOUD_API_KEY" />
+                <CloudProviderStatus label="Cheaper Inference" keyName="CHEAPER_INFERENCE_API_KEY" />
               </div>
             </SettingRow>
           </Section>
@@ -649,6 +650,9 @@ export function SettingsPage() {
             </SettingRow>
             <SettingRow label="Atlas Cloud" description="Models routed through Atlas Cloud">
               <ApiKeyInput keyName="ATLASCLOUD_API_KEY" placeholder="Atlas Cloud API key" />
+            </SettingRow>
+            <SettingRow label="Cheaper Inference" description="Models routed through Cheaper Inference">
+              <ApiKeyInput keyName="CHEAPER_INFERENCE_API_KEY" placeholder="ci_live_..." />
             </SettingRow>
           </Section>
 

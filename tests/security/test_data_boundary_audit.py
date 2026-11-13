@@ -411,6 +411,26 @@ def test_environment_credentials_report_presence_only(tmp_path, monkeypatch):
     assert "secret-key" not in str(report.to_dict(show_paths=True))
 
 
+def test_cheaper_inference_credentials_report_presence_without_value(
+    tmp_path, monkeypatch
+):
+    config = _low_noise_config()
+    monkeypatch.setenv("CHEAPER_INFERENCE_API_KEY", "private-gateway-key")
+    report = build_data_boundary_report(config, tmp_path)
+    findings = {finding.id: finding for finding in report.findings}
+    assert "env-credential-cheaper_inference_api_key" in findings
+    assert "private-gateway-key" not in str(report.to_dict(show_paths=True))
+
+
+def test_cheaper_inference_routing_prefix_is_a_cloud_target(tmp_path):
+    config = _low_noise_config()
+    config.engine.default = "auto"
+    config.intelligence.default_model = "cheaperinference/glm-5.3"
+    report = build_data_boundary_report(config, tmp_path)
+    findings = {finding.id: finding for finding in report.findings}
+    assert findings["cloud-default-model-configured"].status == "warn"
+
+
 def test_server_all_interfaces_is_warn(tmp_path):
     config = _low_noise_config()
     config.server.host = "0.0.0.0"

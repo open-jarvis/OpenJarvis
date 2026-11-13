@@ -12,6 +12,11 @@ describe('desktop cloud provider settings', () => {
     const atlasKeyInput = html.match(/<input[^>]*placeholder="Atlas Cloud API key"[^>]*>/)?.[0];
     expect(atlasKeyInput).toBeDefined();
     expect(atlasKeyInput).not.toContain('disabled');
+
+    expect(html).toContain('Cheaper Inference');
+    const cheaperKeyInput = html.match(/<input[^>]*placeholder="ci_live_\.\.\."[^>]*>/)?.[0];
+    expect(cheaperKeyInput).toBeDefined();
+    expect(cheaperKeyInput).not.toContain('disabled');
     vi.unstubAllGlobals();
   });
 });
