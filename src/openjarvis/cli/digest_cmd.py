@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import threading
+from pathlib import Path
 from typing import Optional
 
 import click
@@ -15,7 +16,7 @@ from openjarvis.core.config import DEFAULT_CONFIG_PATH, load_config
 
 
 def _play_audio(audio_path: str) -> None:
-    """Play audio file in background using available system player."""
+    """Play audio file in background using an available player."""
     players = ["ffplay -nodisp -autoexit", "aplay", "afplay", "paplay"]
     for player in players:
         cmd_parts = player.split() + [audio_path]
@@ -29,6 +30,16 @@ def _play_audio(audio_path: str) -> None:
             return
         except (FileNotFoundError, subprocess.CalledProcessError):
             continue
+
+    # Native Windows ships none of the players above (aplay/afplay/paplay are
+    # Unix-only and ffplay needs a separate FFmpeg install), so fall back to
+    # in-process PortAudio playback — the same path `jarvis chat --voice` uses.
+    try:
+        from openjarvis.speech.voice_io import play_wav
+
+        play_wav(Path(audio_path).read_bytes())
+    except Exception:
+        return
 
 
 def _save_digest_schedule(enabled: bool, cron: str) -> None:
