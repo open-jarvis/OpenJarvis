@@ -1664,6 +1664,9 @@ class SpeechConfig:
     # turns without re-saying the wake word until an exit phrase
     # (e.g. "merci jarvis") or Ctrl-C.
     conversation_mode: bool = True
+    # Push-to-talk: activate the mic with a global hotkey (F8) instead of the
+    # wake word. Requires the optional ``keyboard`` package.
+    push_to_talk: bool = False
 
 
 @dataclass(slots=True)

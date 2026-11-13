@@ -344,6 +344,37 @@ def record_voice(
         )
         return (transcript, SOURCE_VOICE_WAKE)
 
+    # Push-to-talk: a global hotkey (F8) opens the mic instead of the wake
+    # word. Falls back to the wake-word flow when ``keyboard`` is missing.
+    if _env_flag(
+        "JARVIS_PUSH_TO_TALK", getattr(config.speech, "push_to_talk", False)
+    ):
+        from openjarvis.speech.hotkey import hotkey_available, wait_for_hotkey
+
+        if not hotkey_available():
+            console.print(
+                "[dim yellow]Push-to-talk requires the 'keyboard' package — "
+                "install with: pip install keyboard[/dim yellow]"
+            )
+        else:
+            console.print(
+                "[dim cyan]Press F8 to talk… (Ctrl-C to cancel)[/dim cyan]"
+            )
+            if not wait_for_hotkey():
+                console.print("[dim]Hotkey not pressed.[/dim]")
+                return None
+            console.print("[bold green]Listening…[/bold green]")
+            _chime()
+            if conversation_enabled:
+                active_session.enter_conversation()
+            transcript = _record_transcript(console, active_session)
+            if transcript is None or transcript is VOICE_EXIT:
+                return transcript
+            console.print(
+                f"[bold]You (voice):[/bold] {_terminal_safe_text(transcript)}"
+            )
+            return (transcript, SOURCE_VOICE_WAKE)
+
     # Audio-level wake word (openWakeWord): always-listening, no push-to-talk.
     # Falls back to the transcript-based check below when unavailable.
     if wake_word_enabled and _env_flag(

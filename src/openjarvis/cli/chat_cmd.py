@@ -300,6 +300,88 @@ def _handle_save(
     console.print(f"[dim]Session saved to {path}[/dim]")
 
 
+def _summarize_session(
+    engine: Any,
+    history: Sequence[Message],
+    model: str,
+    engine_kwargs: dict,
+) -> str:
+    """Summarize the conversation into durable third-person facts."""
+    turns = [msg for msg in history if msg.role != Role.SYSTEM][-20:]
+    transcript = "\n".join(
+        f"{'Vous' if msg.role == Role.USER else 'Jarvis'}: "
+        f"{str(msg.content)[:500]}"
+        for msg in turns
+    )
+    prompt = (
+        "Résume cette conversation en 2 ou 3 phrases factuelles, à la "
+        "troisième personne, sur l'utilisateur (ses préférences, projets, "
+        "décisions). Ne répète pas d'instructions.\n\n" + transcript
+    )
+    parts: List[str] = []
+    for token in _stream_reply_tokens(
+        engine,
+        [Message(role=Role.USER, content=prompt)],
+        model=model,
+        **engine_kwargs,
+    ):
+        parts.append(token)
+    return "".join(parts).strip()
+
+
+def _store_summary_fact(
+    text: str,
+    memory_service: Any,
+    config: Any,
+) -> bool:
+    """Persist a summarized fact, via the service or the on-disk store."""
+    if memory_service is not None and hasattr(memory_service, "store_fact"):
+        return bool(memory_service.store_fact(text, source="manual"))
+    try:
+        from openjarvis.memory.store import TRUST_AUTO, create_fact_store
+
+        store = create_fact_store(
+            getattr(config.memory, "backend", "local"),
+            path=getattr(config.memory, "facts_path", None),
+            max_facts=getattr(config.memory, "max_facts", 1000),
+        )
+        return bool(
+            store.add_with_trust(text, source="manual", trust=TRUST_AUTO)
+        )
+    except Exception as exc:
+        logger.debug("Failed to persist memory fact: %s", exc)
+        return False
+
+
+def _handle_remember(
+    engine: Any,
+    history: Sequence[Message],
+    console: Console,
+    config: Any,
+    memory_service: Any,
+    model: str,
+    engine_kwargs: dict,
+) -> None:
+    """Summarize the conversation and store it in durable memory."""
+    if not any(msg.role == Role.USER for msg in history):
+        console.print("[dim]Nothing to remember yet.[/dim]")
+        return
+    try:
+        summary = _summarize_session(engine, history, model, engine_kwargs)
+    except Exception as exc:
+        console.print(
+            f"[red]Could not summarize: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    if not summary:
+        console.print("[dim]Nothing worth remembering.[/dim]")
+        return
+    if _store_summary_fact(summary, memory_service, config):
+        console.print(f"[dim]Remembered: {summary}[/dim]")
+    else:
+        console.print("[yellow]Could not persist the memory fact.[/yellow]")
+
+
 @click.command()
 @click.option("-e", "--engine", "engine_key", default=None, help="Engine backend.")
 @click.option(
@@ -700,6 +782,7 @@ def chat(
                 "  /shutup       — mute/unmute spoken replies\n"
                 "  /voice <id> | speed <x> | backend <id> — change the voice\n"
                 "  /save         — save this conversation to a file\n"
+                "  /remember     — summarize this conversation into memory\n"
                 "  /history      — show conversation\n"
                 "  /help         — this message"
             )
@@ -734,6 +817,17 @@ def chat(
             continue
         elif cmd == "/save":
             _handle_save(history, console, config)
+            continue
+        elif cmd == "/remember":
+            _handle_remember(
+                engine,
+                history,
+                console,
+                config,
+                memory_service,
+                model,
+                engine_kwargs,
+            )
             continue
         elif cmd == "/history":
             if not history:
@@ -889,6 +983,24 @@ def chat(
         saved = _save_transcript(history, config)
         if saved is not None:
             console.print(f"[dim]Session saved to {saved}[/dim]")
+
+    # Auto-summary → durable memory on exit (opt-in: JARVIS_REMEMBER_SESSION=1,
+    # or use /remember on demand).
+    if _env_flag("JARVIS_REMEMBER_SESSION", False):
+        try:
+            if any(msg.role == Role.USER for msg in history):
+                console.print("[dim]Remembering session…[/dim]")
+                _handle_remember(
+                    engine,
+                    history,
+                    console,
+                    config,
+                    memory_service,
+                    model,
+                    engine_kwargs,
+                )
+        except Exception as exc:
+            logger.debug("Auto-remember failed: %s", exc)
 
 
 __all__ = ["chat"]
