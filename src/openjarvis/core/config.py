@@ -1636,6 +1636,9 @@ class SpeechConfig:
     tts_backend: str = "kokoro"  # "kokoro", "openai_tts", "cartesia", "elevenlabs"
     voice_id: str = "bm_george"
     voice_speed: float = 1.0
+    # Speak replies aloud via TTS. Default off: the terminal always shows the
+    # full response, and a spoken summary is only produced when this is enabled.
+    speak: bool = False
 
 
 @dataclass(slots=True)

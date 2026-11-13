@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Optional
 
 from rich.markup import escape
@@ -117,13 +118,112 @@ class VoiceSession:
 
 
 def read_voice_input(console: Any, session: VoiceSession) -> Optional[str] | object:
-    """Accept a typed command/message, or record after an empty submission."""
-    try:
-        typed = input("You> [type, or press Enter to speak] ")
-    except (EOFError, KeyboardInterrupt):
+    """Accept a typed message, or record speech after Ctrl+Enter.
+
+    Plain Enter submits typed text (or re-prompts when the line is empty);
+    Ctrl+Enter starts microphone recording. Ctrl-C / EOF ends the session. On a
+    non-interactive stdin (piped/redirected) the chord can't exist, so we fall
+    back to plain line input without the raw key reader.
+    """
+    prompt = "You> [type, or press Ctrl+Enter to speak] "
+    if not sys.stdin.isatty():
+        try:
+            typed = input(prompt)
+        except (EOFError, KeyboardInterrupt):
+            return VOICE_EXIT
+        typed = typed.strip()
+        return typed if typed else record_voice(console, session)
+
+    kind, value = _prompt_line(prompt)
+    if kind == "exit":
         return VOICE_EXIT
-    typed = typed.strip()
-    return typed if typed else record_voice(console, session)
+    if kind == "speak":
+        return record_voice(console, session)
+    return value  # typed text, or None for an empty Enter (caller re-loops)
+
+
+def _prompt_line(prompt: str) -> tuple[str, Optional[str]]:
+    """Read a line, telling Ctrl+Enter (speak) from Enter (submit).
+
+    In raw mode Enter arrives as CR and Ctrl+Enter as LF (Ctrl+J); that single
+    difference is what this reader relies on. Returns one of
+    ``("exit", None)``, ``("speak", None)``, ``("text", line)``, ``("empty", None)``.
+    """
+    try:
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+    except OSError:
+        pass
+    try:
+        return (
+            _prompt_line_windows() if sys.platform == "win32" else _prompt_line_posix()
+        )
+    except (KeyboardInterrupt, Exception):
+        return ("exit", None)
+
+
+def _prompt_line_windows() -> tuple[str, Optional[str]]:
+    import msvcrt
+
+    buf: list[str] = []
+    while True:
+        ch = msvcrt.getwch()
+        if ch in ("\x03", "\x1a"):  # Ctrl+C / Ctrl+Z
+            return ("exit", None)
+        if ch in ("\x00", "\xe0"):
+            msvcrt.getwch()  # discard extended-key scan code (arrows, etc.)
+            continue
+        if ch == "\r":  # Enter: submit text, or re-prompt when empty
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            return ("text", "".join(buf).strip()) if buf else ("empty", None)
+        if ch == "\n":  # Ctrl+Enter / Ctrl+J: speak
+            return ("speak", None)
+        if ch in ("\b", "\x7f"):
+            if buf:
+                buf.pop()
+                sys.stdout.write("\b \b")
+                sys.stdout.flush()
+            continue
+        if ch >= " ":
+            buf.append(ch)
+            sys.stdout.write(ch)
+            sys.stdout.flush()
+
+
+def _prompt_line_posix() -> tuple[str, Optional[str]]:
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    buf: list[str] = []
+    try:
+        tty.setraw(fd)
+        while True:
+            ch = sys.stdin.read(1)
+            if ch == "":
+                return ("exit", None)
+            if ch == "\x03":  # Ctrl+C
+                return ("exit", None)
+            if ch in ("\r", "\n"):
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                if ch == "\n":  # Ctrl+Enter / Ctrl+J
+                    return ("speak", None)
+                return ("text", "".join(buf).strip()) if buf else ("empty", None)
+            if ch in ("\x7f", "\b"):
+                if buf:
+                    buf.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+                continue
+            if ch >= " " and ch != "\x7f":
+                buf.append(ch)
+                sys.stdout.write(ch)
+                sys.stdout.flush()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
 def record_voice(
@@ -211,4 +311,43 @@ def speak(text: str, console: Any, session: VoiceSession | None = None) -> None:
     )
 
 
-__all__ = ["VOICE_EXIT", "VoiceSession", "read_voice_input", "record_voice", "speak"]
+def make_spoken_reply(
+    content: str,
+    engine: Any,
+    model: str,
+    engine_kwargs: dict | None = None,
+) -> str:
+    """Condense a full reply into a short spoken version.
+
+    The terminal keeps the full text; the speaker gets a warm one-to-three
+    sentence summary that leads with a recommendation for questions. Falls back
+    to the full text when the engine cannot produce a condensed form.
+    """
+    from openjarvis.core.types import Message, Role
+
+    prompt = (
+        "Condense the assistant reply below into a short natural spoken summary "
+        "for text-to-speech: one to three sentences, under 60 words, warm and "
+        "human, not a verbatim read-out. When the reply answers a question, lead "
+        "with a direct recommendation. Return only the words to speak."
+    )
+    messages = [
+        Message(role=Role.SYSTEM, content=prompt),
+        Message(role=Role.USER, content=content),
+    ]
+    try:
+        result = engine.generate(messages, model=model, **(engine_kwargs or {}))
+        text = result.get("content", "") if isinstance(result, dict) else str(result)
+    except Exception:
+        text = ""
+    return (text or "").strip() or content
+
+
+__all__ = [
+    "VOICE_EXIT",
+    "VoiceSession",
+    "read_voice_input",
+    "record_voice",
+    "speak",
+    "make_spoken_reply",
+]

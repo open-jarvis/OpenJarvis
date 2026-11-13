@@ -13,7 +13,13 @@ from rich.markup import escape
 
 from openjarvis.cli._runtime_panel import runtime_cli_options
 from openjarvis.cli._tool_names import resolve_tool_names
-from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, read_voice_input, speak
+from openjarvis.cli._voice_chat import (
+    VOICE_EXIT,
+    VoiceSession,
+    make_spoken_reply,
+    read_voice_input,
+    speak,
+)
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
@@ -35,6 +41,27 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
         return input(prompt)
     except (EOFError, KeyboardInterrupt):
         return None
+
+
+def _speak_toggle(phrase: str) -> bool | None:
+    """Map a say-to-toggle phrase to on/off, else None.
+
+    Tolerates natural filler ("okay you can speak", "stop speaking now") by
+    dropping a small set of leading/trailing words before matching.
+    """
+    words = "".join(
+        c if (c.isalnum() or c.isspace()) else " " for c in phrase.lower()
+    ).split()
+    while words and words[0] in ("okay", "ok", "please"):
+        words = words[1:]
+    while words and words[-1] in ("now", "please"):
+        words = words[:-1]
+    norm = " ".join(words)
+    if norm in ("you can speak", "start speaking"):
+        return True
+    if norm in ("stop speaking", "stop talking"):
+        return False
+    return None
 
 
 @click.command()
@@ -76,7 +103,11 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
     "voice_mode",
     is_flag=True,
     default=False,
-    help="Enable voice I/O: mic input with silence detection + TTS response playback.",
+    help=(
+        "Enable microphone input with silence detection. Spoken replies are "
+        "gated by [speech] speak, or toggled live by saying "
+        '"you can speak" / "stop speaking".'
+    ),
 )
 @runtime_cli_options
 def chat(
@@ -107,8 +138,10 @@ def chat(
       /help         — show available commands
       /history      — show conversation history
 
-    Pass --voice to use microphone input (silence-detection) and hear responses
-    read back via text-to-speech (kokoro local or OpenAI TTS).
+    Pass --voice to use microphone input (silence-detection). Spoken replies are
+    gated by [speech] speak (default false) and, when enabled, read back a short
+    summary via text-to-speech (kokoro local or OpenAI TTS) while the terminal
+    shows the full response.
     """
     console = Console(stderr=True)
 
@@ -297,8 +330,9 @@ def chat(
 
     # Print banner
     voice_hint = (
-        "  [magenta]Voice mode ON[/magenta] — type normally, or press Enter "
-        "to speak; silence stops recording.\n"
+        "  [magenta]Voice mode ON[/magenta] — type normally, or press "
+        "Ctrl+Enter to speak; silence stops recording.\n"
+        '  Say "you can speak" / "stop speaking" to toggle spoken replies.\n'
         if voice_mode
         else ""
     )
@@ -362,6 +396,10 @@ def chat(
     if system_prompt:
         history.append(Message(role=Role.SYSTEM, content=system_prompt))
 
+    # Spoken replies start from config; say "you can speak"/"stop speaking"
+    # during the session to toggle them live.
+    speaking_enabled = bool(getattr(config.speech, "speak", False))
+
     # REPL loop
     while True:
         for note in _notifications.diff(get_status()):
@@ -383,6 +421,22 @@ def chat(
                 break
             user_input = user_input.strip()
             if not user_input:
+                continue
+
+        # Say-to-toggle spoken replies (works for typed and transcribed input).
+        if voice_mode:
+            toggle = _speak_toggle(user_input)
+            if toggle is True:
+                speaking_enabled = True
+                console.print(
+                    '[dim]Speaking on — say "stop speaking" to go back to text.[/dim]'
+                )
+                assert voice_session is not None
+                speak("Okay, I'll speak.", console, voice_session)
+                continue
+            if toggle is False:
+                speaking_enabled = False
+                console.print("[dim]Speaking off — replies will be text-only.[/dim]")
                 continue
 
         # Handle slash commands
@@ -498,9 +552,13 @@ def chat(
             console.print()
             console.print(Markdown(content))
             console.print()
-            if voice_mode:
+            if voice_mode and speaking_enabled:
                 assert voice_session is not None
-                speak(content, console, voice_session)
+                speak(
+                    make_spoken_reply(content, engine, model, engine_kwargs),
+                    console,
+                    voice_session,
+                )
 
             publish_completed_exchange(
                 bus,

@@ -19,7 +19,7 @@ from openjarvis.agents._stubs import (
     ToolUsingAgent,
 )
 from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, record_voice, speak
-from openjarvis.cli.chat_cmd import _read_input, chat
+from openjarvis.cli.chat_cmd import _read_input, _speak_toggle, chat
 from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.core.registry import AgentRegistry, ToolRegistry
@@ -157,6 +157,67 @@ class TestReadInput:
     def test_read_input_normal(self) -> None:
         with mock.patch("builtins.input", return_value="hello"):
             assert _read_input() == "hello"
+
+
+class TestSpeakToggle:
+    """Tests for the say-to-toggle spoken-replies feature."""
+
+    @pytest.mark.parametrize(
+        ("phrase", "expected"),
+        [
+            ("you can speak", True),
+            ("You can speak.", True),
+            ("You can speak now.", True),
+            ("okay you can speak", True),
+            ("please start speaking", True),
+            ("start speaking", True),
+            (" stop speaking ", False),
+            ("stop speaking now", False),
+            ("STOP TALKING", False),
+            ("hello", None),
+            ("when will you stop speaking", None),
+            ("can you speak now", None),
+        ],
+    )
+    def test_phrase_matching(self, phrase: str, expected: bool | None) -> None:
+        assert _speak_toggle(phrase) == expected
+
+    def test_voice_toggle_consumes_phrase_and_controls_speaking(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.return_value = {"content": "full reply"}
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        speak_mock = MagicMock()
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch("openjarvis.cli.chat_cmd.speak", speak_mock),
+            patch(
+                "openjarvis.cli.chat_cmd.make_spoken_reply",
+                return_value="spoken summary",
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--voice", "--model", "test-model"],
+                input="you can speak\nhello\nstop speaking\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        # Only the real message reaches the engine, not the toggle phrases.
+        engine.generate.assert_called_once()
+        sent = " ".join(m.content for m in engine.generate.call_args.args[0])
+        assert "hello" in sent
+        assert "you can speak" not in sent
+        assert "stop speaking" not in sent
+        # Speaking occurs twice: the "on" ack, then the summarized reply.
+        assert speak_mock.call_count == 2
+        assert speak_mock.call_args_list[0].args[0] == "Okay, I'll speak."
+        assert speak_mock.call_args_list[1].args[0] == "spoken summary"
 
 
 class TestVoiceInput:
