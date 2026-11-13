@@ -314,7 +314,7 @@ def test_tts_health_retries_after_unavailable(mock_tts_backend):
 async def test_concurrent_tts_health_requests_share_resolution(mock_tts_backend):
     app = _unresolved_tts_app()
 
-    def discover(_preferred):
+    def discover(_preferred, **_kwargs):
         time.sleep(0.05)
         return mock_tts_backend
 
@@ -329,7 +329,7 @@ async def test_concurrent_tts_health_requests_share_resolution(mock_tts_backend)
             )
 
     assert all(response.json()["available"] is True for response in responses)
-    mock_discover.assert_called_once_with("kokoro")
+    mock_discover.assert_called_once_with("kokoro", device="auto")
 
 
 @pytest.mark.asyncio
@@ -337,7 +337,7 @@ async def test_concurrent_unavailable_probes_share_attempt_then_retry(mock_tts_b
     app = _unresolved_tts_app()
     attempts = 0
 
-    def discover(_preferred):
+    def discover(_preferred, **_kwargs):
         nonlocal attempts
         attempts += 1
         time.sleep(0.05)

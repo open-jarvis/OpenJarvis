@@ -1081,6 +1081,7 @@ async def _resolve_tts_backend(request: Request):
         def discover():
             from openjarvis.speech._tts_discovery import (
                 get_tts_backend,
+                tts_device_for,
                 voice_preferences,
             )
 
@@ -1091,7 +1092,7 @@ async def _resolve_tts_backend(request: Request):
                 config = load_config()
 
             preferred, _, _ = voice_preferences(config)
-            return get_tts_backend(preferred)
+            return get_tts_backend(preferred, device=tts_device_for(config))
 
         task = asyncio.create_task(asyncio.to_thread(discover))
         app.state.tts_resolution_task = task

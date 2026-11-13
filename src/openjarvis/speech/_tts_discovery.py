@@ -38,11 +38,18 @@ def get_tts_backend(
     preferred: str = "",
     *,
     attempted: Optional[set[str]] = None,
+    device: str = "auto",
 ) -> Optional[Any]:
     """Return the first healthy TTS backend, preferring *preferred*.
 
     ``attempted`` lets a caller carry state across calls so a backend that
     already failed is not retried; it is mutated in place.
+
+    ``device`` is the compute device for local synthesis, mirroring how
+    ``_discovery._create_backend`` forwards ``speech.device`` to
+    faster-whisper. Without it Kokoro defaults to ``"auto"`` and claims the
+    GPU, which fails with CUDA OOM when a local LLM already holds the VRAM.
+    See :func:`_create_backend` for which backends take it.
     """
     # Import triggers built-in backend registration only when voice output is
     # actually requested.
@@ -58,13 +65,39 @@ def get_tts_backend(
         if not TTSRegistry.contains(key):
             continue
         try:
-            candidate = TTSRegistry.get(key)()
-            if candidate.health():
+            candidate = _create_backend(key, device)
+            if candidate is not None and candidate.health():
                 return candidate
         except Exception:
             logger.debug("TTS backend %s unavailable", key, exc_info=True)
             continue
     return None
+
+
+def _create_backend(key: str, device: str) -> Optional[Any]:
+    """Instantiate the TTS backend registered under *key*.
+
+    Mirrors ``_discovery._create_backend``: which constructor arguments a
+    backend takes is stated explicitly per key rather than inferred, so adding
+    a backend that needs configuration is a visible edit here. Only local
+    backends take a compute device; the cloud ones synthesize server-side.
+    """
+    from openjarvis.core.registry import TTSRegistry
+
+    backend_cls = TTSRegistry.get(key)
+
+    if key == "kokoro":
+        return backend_cls(device=device)
+    return backend_cls()
+
+
+def tts_device_for(config: "JarvisConfig") -> str:
+    """Resolve the TTS compute device, falling back to ``speech.device``."""
+    speech = getattr(config, "speech", None)
+    tts_device = (getattr(speech, "tts_device", "") or "").strip()
+    if tts_device:
+        return tts_device
+    return (getattr(speech, "device", "") or "auto").strip() or "auto"
 
 
 def voice_preferences(config: "JarvisConfig") -> tuple[str, str, float]:
@@ -82,5 +115,6 @@ __all__ = [
     "TTS_BACKEND_ORDER",
     "default_voice_for",
     "get_tts_backend",
+    "tts_device_for",
     "voice_preferences",
 ]

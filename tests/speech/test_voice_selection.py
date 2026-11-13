@@ -8,6 +8,8 @@ ID like ``bm_george`` can never reach OpenAI or Cartesia on fallback.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -94,7 +96,9 @@ def test_configured_backend_is_tried_before_healthy_fallbacks(monkeypatch, prefe
             return True
 
     monkeypatch.setattr(TTSRegistry, "contains", lambda key: True)
-    monkeypatch.setattr(TTSRegistry, "get", lambda key: lambda: HealthyBackend(key))
+    monkeypatch.setattr(
+        TTSRegistry, "get", lambda key: lambda **_kw: HealthyBackend(key)
+    )
     session = _session(tts_backend=preferred, voice_id="chosen-voice")
 
     selected = session.get_tts_backend()
@@ -129,7 +133,7 @@ def test_synthesis_failure_falls_back_without_retrying_or_leaking_voice(monkeypa
             pass
 
     monkeypatch.setattr(TTSRegistry, "contains", lambda key: True)
-    monkeypatch.setattr(TTSRegistry, "get", lambda key: lambda: Backend(key))
+    monkeypatch.setattr(TTSRegistry, "get", lambda key: lambda **_kw: Backend(key))
     monkeypatch.setattr(
         "openjarvis.speech.voice_io.play_wav",
         lambda audio, **kwargs: played.append(audio),
@@ -146,3 +150,69 @@ def test_synthesis_failure_falls_back_without_retrying_or_leaking_voice(monkeypa
         ("kokoro", "bm_george"),
     ]
     assert played == [b"wav", b"wav"]
+
+
+class TestTTSDevice:
+    """speech.tts_device / speech.device must reach local TTS backends."""
+
+    def test_device_forwarded_to_local_backend(self):
+        from openjarvis.speech._tts_discovery import get_tts_backend
+
+        seen = {}
+
+        class _Local:
+            backend_id = "kokoro"
+
+            def __init__(self, device: str = "auto"):
+                seen["device"] = device
+
+            def health(self):
+                return True
+
+        with (
+            patch("openjarvis.core.registry.TTSRegistry.contains") as contains,
+            patch("openjarvis.core.registry.TTSRegistry.get") as get,
+        ):
+            contains.side_effect = lambda k: k == "kokoro"
+            get.return_value = _Local
+            backend = get_tts_backend("kokoro", device="cpu")
+
+        assert backend is not None
+        assert seen["device"] == "cpu"
+
+    def test_device_not_passed_to_cloud_backend(self):
+        """Cloud backends synthesize server-side and take no device=."""
+        from openjarvis.speech._tts_discovery import get_tts_backend
+
+        class _Cloud:
+            backend_id = "elevenlabs"
+
+            def __init__(self):
+                pass
+
+            def health(self):
+                return True
+
+        with (
+            patch("openjarvis.core.registry.TTSRegistry.contains") as contains,
+            patch("openjarvis.core.registry.TTSRegistry.get") as get,
+        ):
+            contains.side_effect = lambda k: k == "elevenlabs"
+            get.return_value = _Cloud
+            backend = get_tts_backend("elevenlabs", device="cpu")
+
+        assert backend is not None
+
+    def test_tts_device_falls_back_to_speech_device(self):
+        from openjarvis.core.config import SpeechConfig
+        from openjarvis.speech._tts_discovery import tts_device_for
+
+        cfg = SimpleNamespace(speech=SpeechConfig(device="cpu"))
+        assert tts_device_for(cfg) == "cpu"
+
+    def test_tts_device_overrides_speech_device(self):
+        from openjarvis.core.config import SpeechConfig
+        from openjarvis.speech._tts_discovery import tts_device_for
+
+        cfg = SimpleNamespace(speech=SpeechConfig(device="cuda", tts_device="cpu"))
+        assert tts_device_for(cfg) == "cpu"
