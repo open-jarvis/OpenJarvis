@@ -6,7 +6,12 @@ import struct
 import sys
 from types import SimpleNamespace
 
-from openjarvis.speech.voice_io import BargeInMonitor, _play_loop, record_until_silence
+from openjarvis.speech.voice_io import (
+    BargeInMonitor,
+    _play_loop,
+    play_beep,
+    record_until_silence,
+)
 
 
 class _FakeStream:
@@ -159,3 +164,63 @@ def test_play_loop_without_interrupt_check_blocks() -> None:
     sd = _FakeSD()
     assert _play_loop(sd, b"audio", 24000, interrupt_check=None) is True
     assert sd.played and sd.waited
+
+
+# -- wake-word chime ---------------------------------------------------------
+
+
+def test_play_beep_returns_false_without_sounddevice(monkeypatch) -> None:
+    import sys
+
+    monkeypatch.setitem(sys.modules, "sounddevice", None)
+    assert play_beep() is False
+
+
+def test_play_beep_plays_tone(monkeypatch) -> None:
+    import sys
+
+    class _ToneArray:
+        def __mul__(self, other):
+            return self
+
+        def __rmul__(self, other):
+            return self
+
+        def __truediv__(self, other):
+            return self
+
+        def __rtruediv__(self, other):
+            return self
+
+        def astype(self, dtype):
+            return [0.1]
+
+    class _FakeNP:
+        pi = 3.14
+        float32 = "float32"
+
+        def arange(self, n):
+            return _ToneArray()
+
+        def sin(self, x):
+            return _ToneArray()
+
+    class _FakeSD:
+        def __init__(self) -> None:
+            self.played = None
+            self.sample_rate = None
+
+        def play(self, data, sr) -> None:
+            self.played = data
+            self.sample_rate = sr
+
+        def wait(self) -> None:
+            pass
+
+    sd = _FakeSD()
+    monkeypatch.setitem(sys.modules, "numpy", _FakeNP())
+    monkeypatch.setitem(sys.modules, "sounddevice", sd)
+
+    assert play_beep() is True
+    assert sd.played == [0.1]
+    assert sd.sample_rate == 24000

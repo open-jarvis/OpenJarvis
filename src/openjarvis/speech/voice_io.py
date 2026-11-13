@@ -261,4 +261,32 @@ class BargeInMonitor:
         return self._failed
 
 
-__all__ = ["BargeInMonitor", "play_wav", "record_until_silence"]
+def play_beep(
+    *,
+    frequency: float = 880.0,
+    duration: float = 0.15,
+    sample_rate: int = 24000,
+) -> bool:
+    """Play a short confirmation beep (wake-word chime).
+
+    Best-effort: returns ``False`` silently when the audio stack
+    (sounddevice/numpy) is unavailable, so callers never need to guard it.
+    """
+    try:
+        import numpy as np
+        import sounddevice as sd
+    except ImportError:
+        return False
+    try:
+        samples = np.arange(int(sample_rate * duration))
+        tone = (0.3 * np.sin(2 * np.pi * frequency * samples / sample_rate)).astype(
+            np.float32
+        )
+        sd.play(tone, sample_rate)
+        sd.wait()
+        return True
+    except Exception:  # noqa: BLE001 — the chime is a nicety, never fatal
+        return False
+
+
+__all__ = ["BargeInMonitor", "play_beep", "play_wav", "record_until_silence"]

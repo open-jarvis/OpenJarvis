@@ -1660,6 +1660,10 @@ class SpeechConfig:
     # Barge-in: stop Jarvis's speech (and generation) when the user starts
     # talking over the answer.
     barge_in: bool = True
+    # Conversation mode: after the wake word fires, keep listening across
+    # turns without re-saying the wake word until an exit phrase
+    # (e.g. "merci jarvis") or Ctrl-C.
+    conversation_mode: bool = True
 
 
 @dataclass(slots=True)

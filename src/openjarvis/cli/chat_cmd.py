@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 from collections.abc import Iterator, Sequence
+from pathlib import Path
 from typing import Any, List, Optional
 
 import click
@@ -81,37 +83,61 @@ def _run_vision_reply(
     console: Console,
     voice_session: Optional[VoiceSession],
     default_model: str,
-    question: str,
+    spec: str,
     engine_kwargs: dict,
     config: Any,
 ) -> None:
-    """Describe the screen with a vision-capable model (the ``/see`` command).
+    """Describe the screen / webcam / image file (the ``/see`` command).
 
-    Captures the primary screen, attaches it to a fresh user message and
-    streams the model's description back (spoken sentence-by-sentence in
-    voice mode). The vision model comes from ``JARVIS_VISION_MODEL``,
-    ``intelligence.vision_model``, or falls back to the active chat model.
+    ``spec`` selects the source: empty = screen, ``cam`` = webcam,
+    ``save[:path]`` = save the screenshot to a file, anything else = an image
+    file path. The captured image is attached to a fresh user message and the
+    model's description is streamed back (spoken sentence-by-sentence in
+    voice mode).
     """
-    from openjarvis.tools.screen import capture_screen_b64
+    from openjarvis.tools.screen import (
+        capture_screen_b64,
+        capture_webcam_b64,
+        image_file_b64,
+        save_screen,
+    )
+
+    spec = spec.strip()
+    if spec.startswith("save"):
+        path_arg = spec[len("save") :].strip().lstrip(":").strip()
+        try:
+            saved = save_screen(path_arg or None)
+        except Exception as exc:
+            console.print(
+                f"[red]Screen capture failed: {_safe_rich_label(exc)}[/red]"
+            )
+            return
+        console.print(f"[dim]Screenshot saved to {saved}[/dim]")
+        return
+
+    try:
+        if not spec:
+            image_b64 = capture_screen_b64()
+            prompt = "Décris ce qui est affiché à l'écran."
+        elif spec == "cam":
+            image_b64 = capture_webcam_b64()
+            prompt = "Décris ce que la webcam voit."
+        else:
+            image_b64 = image_file_b64(spec)
+            prompt = "Décris cette image."
+    except Exception as exc:
+        console.print(
+            f"[red]Vision capture failed: {_safe_rich_label(exc)}[/red]"
+        )
+        return
 
     vision_model = (
         os.environ.get("JARVIS_VISION_MODEL")
         or getattr(config.intelligence, "vision_model", "")
         or default_model
     )
-    prompt = question.strip() or "Décris ce qui est affiché à l'écran."
-
-    try:
-        image_b64 = capture_screen_b64()
-    except Exception as exc:
-        console.print(
-            f"[red]Screen capture failed: {_safe_rich_label(exc)}[/red]"
-        )
-        return
-
     console.print(
-        f"[dim]Describing the screen with "
-        f"{_safe_rich_label(vision_model)}…[/dim]"
+        f"[dim]Describing with {_safe_rich_label(vision_model)}…[/dim]"
     )
     speaker: Optional[SentenceSpeaker] = None
     if voice_session is not None:
@@ -137,6 +163,141 @@ def _run_vision_reply(
         console.print(f"\n[red]Error: {exc}[/red]\n")
         return
     console.print()
+
+
+def _handle_read(console: Console) -> None:
+    """OCR the screen and print its text (the ``/read`` command)."""
+    from openjarvis.tools.ocr import screen_text
+
+    try:
+        text = screen_text()
+    except Exception as exc:
+        console.print(f"[red]OCR failed: {_safe_rich_label(exc)}[/red]")
+        return
+    if not text:
+        console.print("[dim]No text found on the screen.[/dim]")
+        return
+    console.print("[bold]Text on screen:[/bold]")
+    console.print(text)
+
+
+def _handle_speak(
+    text: str,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    config: Any,
+) -> None:
+    """Speak *text* aloud (the ``/speak`` command), even in muted voice mode."""
+    if not text:
+        console.print("[dim]Usage: /speak <text>[/dim]")
+        return
+    session = voice_session if voice_session is not None else VoiceSession(config)
+    speak(text, console, session)
+
+
+def _handle_shutup(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+) -> None:
+    """Toggle spoken replies (the ``/shutup`` command)."""
+    if voice_session is None:
+        console.print("[dim]Voice mode is off — nothing to mute.[/dim]")
+        return
+    muted = voice_session.toggle_mute()
+    console.print(
+        f"[dim]Voice replies {'muted' if muted else 'unmuted'}.[/dim]"
+    )
+
+
+def _handle_voice(
+    spec: str,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+) -> None:
+    """Change the TTS voice/speed/backend mid-session (the ``/voice`` command)."""
+    if voice_session is None:
+        console.print(
+            "[dim]Voice mode is off — start with --voice to control the "
+            "voice.[/dim]"
+        )
+        return
+    parts = spec.split()
+    if not parts:
+        console.print(
+            "[dim]Usage: /voice <voice_id> | /voice speed <float> | "
+            "/voice backend <id>[/dim]"
+        )
+        return
+    kwargs: dict = {}
+    if parts[0] == "speed" and len(parts) > 1:
+        try:
+            kwargs["speed"] = float(parts[1])
+        except ValueError:
+            console.print("[red]Invalid speed value.[/red]")
+            return
+    elif parts[0] == "backend" and len(parts) > 1:
+        kwargs["backend"] = parts[1]
+    else:
+        kwargs["voice_id"] = parts[0]
+    try:
+        summary = voice_session.override_voice(**kwargs)
+    except Exception as exc:
+        console.print(
+            f"[red]Could not change voice: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    console.print(f"[dim]Voice updated — {summary}[/dim]")
+
+
+def _transcript_path(config: Any) -> Path:
+    """Return the file path for a new session transcript."""
+    from openjarvis.core.paths import get_config_dir
+
+    directory = get_config_dir() / "sessions"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / f"chat_{time.strftime('%Y-%m-%d_%H%M%S')}.md"
+
+
+def _save_transcript(
+    history: Sequence[Message],
+    config: Any,
+) -> Optional[Path]:
+    """Save the conversation as Markdown; returns the path or ``None``.
+
+    Best-effort: a full transcript of only system messages (nothing said) is
+    skipped, and any write failure returns ``None`` without raising.
+    """
+    if not history or all(msg.role == Role.SYSTEM for msg in history):
+        return None
+    try:
+        path = _transcript_path(config)
+        lines = [
+            f"# OpenJarvis chat — {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+        ]
+        for msg in history:
+            role_str = msg.role if isinstance(msg.role, str) else msg.role.value
+            lines.append(f"## {role_str.upper()}")
+            lines.append(str(msg.content))
+            lines.append("")
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return path
+    except Exception as exc:
+        logger.debug("Failed to save session transcript: %s", exc)
+        return None
+
+
+def _handle_save(
+    history: Sequence[Message],
+    console: Console,
+    config: Any,
+) -> None:
+    """Write the current conversation to a Markdown file (``/save``)."""
+    path = _save_transcript(history, config)
+    if path is None:
+        console.print("[dim]Nothing to save yet.[/dim]")
+        return
+    console.print(f"[dim]Session saved to {path}[/dim]")
 
 
 @click.command()
@@ -532,7 +693,13 @@ def chat(
                 "  /clear        — clear conversation\n"
                 "  /model        — show model info\n"
                 "  /runtime      — Ollama context + GPU offload for this session\n"
-                "  /see [question] — describe the screen (local vision)\n"
+                "  /see [cam|file|save[:path]] — describe the screen / webcam / "
+                "an image, or save a screenshot\n"
+                "  /read         — OCR the text on the screen (Tesseract)\n"
+                "  /speak <text> — read text aloud\n"
+                "  /shutup       — mute/unmute spoken replies\n"
+                "  /voice <id> | speed <x> | backend <id> — change the voice\n"
+                "  /save         — save this conversation to a file\n"
                 "  /history      — show conversation\n"
                 "  /help         — this message"
             )
@@ -547,6 +714,26 @@ def chat(
                 engine_kwargs,
                 config,
             )
+            continue
+        elif cmd == "/read" or cmd.startswith("/read "):
+            _handle_read(console)
+            continue
+        elif cmd.startswith("/speak"):
+            _handle_speak(
+                user_input[len("/speak") :].strip(),
+                console,
+                voice_session,
+                config,
+            )
+            continue
+        elif cmd == "/shutup":
+            _handle_shutup(console, voice_session)
+            continue
+        elif cmd.startswith("/voice"):
+            _handle_voice(user_input[len("/voice") :].strip(), console, voice_session)
+            continue
+        elif cmd == "/save":
+            _handle_save(history, console, config)
             continue
         elif cmd == "/history":
             if not history:
@@ -628,15 +815,16 @@ def chat(
 
                         monitor = BargeInMonitor()
                         monitor.start()
-                    # Speak sentence-by-sentence while the model keeps
-                    # generating, so the voice reply starts as soon as the
-                    # first sentence is complete (instead of after the full
-                    # answer).
-                    speaker = SentenceSpeaker(
-                        voice_session,
-                        console,
-                        interrupt_check=monitor.consume if monitor else None,
-                    )
+                    if not voice_session.voice_muted:
+                        # Speak sentence-by-sentence while the model keeps
+                        # generating, so the voice reply starts as soon as the
+                        # first sentence is complete (instead of after the
+                        # full answer).
+                        speaker = SentenceSpeaker(
+                            voice_session,
+                            console,
+                            interrupt_check=monitor.consume if monitor else None,
+                        )
                 content = ""
                 barge_interrupted = False
                 try:
@@ -677,7 +865,7 @@ def chat(
                 console.print()
             if voice_mode:
                 assert voice_session is not None
-                if not streamed_reply:
+                if not streamed_reply and not voice_session.voice_muted:
                     # Agent replies arrive whole — speak them in one go.
                     speak(content, console, voice_session)
 
@@ -694,6 +882,13 @@ def chat(
 
     if memory_service is not None:
         memory_service.stop()
+
+    # Auto-save the session transcript (Markdown under <config-dir>/sessions/).
+    # Disable with JARVIS_SAVE_SESSIONS=0; /save writes it on demand.
+    if _env_flag("JARVIS_SAVE_SESSIONS", True):
+        saved = _save_transcript(history, config)
+        if saved is not None:
+            console.print(f"[dim]Session saved to {saved}[/dim]")
 
 
 __all__ = ["chat"]

@@ -63,6 +63,8 @@ class VoiceSession:
         self._tts_attempted: set[str] = set()
         self._voice_prefs: tuple[str, str, float] | None = None
         self._voice_warned: set[str] = set()
+        self._conversation_active = False
+        self._voice_muted = False
 
     def get_stt_backend(self) -> Any:
         """Resolve and health-check STT once, then reuse the loaded backend."""
@@ -132,6 +134,60 @@ class VoiceSession:
         """Forget a backend that failed synthesis and allow the next fallback."""
         self._tts_backend = None
 
+    # -- conversation mode ---------------------------------------------------
+
+    @property
+    def conversation_active(self) -> bool:
+        """True while multi-turn listening is active (no wake word needed)."""
+        return self._conversation_active
+
+    def enter_conversation(self) -> None:
+        """Start multi-turn listening after the wake word fired."""
+        self._conversation_active = True
+
+    def leave_conversation(self) -> None:
+        """End multi-turn listening (exit phrase or Ctrl-C)."""
+        self._conversation_active = False
+
+    # -- voice control -------------------------------------------------------
+
+    @property
+    def voice_muted(self) -> bool:
+        """True when spoken replies are suppressed (``/shutup``)."""
+        return self._voice_muted
+
+    def toggle_mute(self) -> bool:
+        """Flip the spoken-reply mute and return the new state."""
+        self._voice_muted = not self._voice_muted
+        return self._voice_muted
+
+    def override_voice(
+        self,
+        *,
+        voice_id: Optional[str] = None,
+        speed: Optional[float] = None,
+        backend: Optional[str] = None,
+    ) -> str:
+        """Override TTS preferences for the rest of the session.
+
+        Returns a human-readable description of the new settings.
+        """
+        from openjarvis.core.config import load_config
+        from openjarvis.speech._tts_discovery import voice_preferences
+
+        config = self._config if self._config is not None else load_config()
+        base_backend, base_voice, base_speed = voice_preferences(config)
+        new_backend = backend or base_backend
+        new_voice = voice_id if voice_id is not None else base_voice
+        new_speed = float(speed) if speed is not None else base_speed
+        self._voice_prefs = (new_backend, new_voice, new_speed)
+        # Re-resolve the TTS backend so the new preferences take effect.
+        self._tts_backend = None
+        return (
+            f"voice: {new_voice or 'default'} "
+            f"(backend: {new_backend}, speed: x{new_speed:g})"
+        )
+
 
 def read_voice_input(
     console: Any,
@@ -157,6 +213,76 @@ def read_voice_input(
     return record_voice(console, session, source=source)
 
 
+def _is_exit_phrase(text: str, wake_word: str) -> bool:
+    """True when *text* asks to end conversation mode."""
+    normalized = " ".join(text.lower().split()).rstrip(".,!?…")
+    word = wake_word.strip().lower()
+    phrases = {
+        f"merci {word}",
+        f"au revoir {word}",
+        f"stop {word}",
+        f"arrête {word}",
+        f"arrête-toi {word}",
+        f"c'est tout {word}",
+        f"c'est fini {word}",
+        "c'est tout",
+    }
+    return normalized in phrases
+
+
+def _record_transcript(
+    console: Any,
+    session: VoiceSession,
+) -> Optional[str] | object:
+    """Record until silence and transcribe.
+
+    Returns the stripped transcript string, the ``None`` nothing-heard
+    sentinel, or the ``VOICE_EXIT`` sentinel on Ctrl-C / mic failure.
+    """
+    from openjarvis.speech.voice_io import record_until_silence
+
+    console.print("[dim cyan]Listening… (speak now, stops on silence)[/dim cyan]")
+    try:
+        audio_bytes = record_until_silence()
+    except KeyboardInterrupt:
+        return VOICE_EXIT
+    except Exception as exc:
+        # PortAudio failures are regular Exceptions (and can surface as
+        # OSError), so report them without letting terminal control sequences
+        # through. SystemExit deliberately continues to propagate, while
+        # Ctrl-C maps to the chat loop's graceful-exit sentinel above.
+        console.print(f"[red]Mic error: {_terminal_safe_text(exc)}[/red]")
+        return VOICE_EXIT
+
+    console.print("[dim]Transcribing…[/dim]")
+    try:
+        backend = session.get_stt_backend()
+        if backend is None:
+            console.print("[red]No speech-to-text backend available.[/red]")
+            return VOICE_EXIT
+        result = backend.transcribe(
+            audio_bytes, format="wav", language=session.get_stt_language()
+        )
+        text = result.text.strip()
+        if text:
+            return text
+        console.print("[dim]Nothing heard — try again.[/dim]")
+        return None
+    except Exception as exc:
+        console.print(f"[red]Transcription error: {_terminal_safe_text(exc)}[/red]")
+        return None
+
+
+def _chime() -> None:
+    """Play the wake-word confirmation beep (best-effort, never raises)."""
+    try:
+        from openjarvis.speech.voice_io import play_beep
+
+        play_beep()
+    except Exception:  # noqa: BLE001 — the chime is a nicety
+        pass
+
+
 def record_voice(
     console: Any,
     session: VoiceSession | None = None,
@@ -170,11 +296,13 @@ def record_voice(
     listening mode and the wake word is stripped from the command text; the
     returned source is then ``"voice_wake"`` instead of ``"voice"``.
 
+    With conversation mode enabled, subsequent turns skip the wake word until
+    an exit phrase ("merci jarvis", "stop jarvis", …) or Ctrl-C.
+
     Returns the accepted ``(command, source)`` pair, the ``None`` nothing-heard
     sentinel, or the ``VOICE_EXIT`` sentinel.
     """
     from openjarvis.core.config import load_config
-    from openjarvis.speech.voice_io import record_until_silence
 
     active_session = session or VoiceSession()
     backend = active_session.get_stt_backend()
@@ -196,6 +324,25 @@ def record_voice(
         "JARVIS_WAKE_ENABLED", getattr(config.speech, "wake_word_enabled", True)
     )
     utterance_source = source or SOURCE_VOICE
+    conversation_enabled = _env_flag(
+        "JARVIS_CONVERSATION",
+        getattr(config.speech, "conversation_mode", True),
+    )
+
+    # Conversation mode: the wake word already fired on a previous turn —
+    # accept commands directly until an exit phrase.
+    if conversation_enabled and active_session.conversation_active:
+        transcript = _record_transcript(console, active_session)
+        if transcript is None or transcript is VOICE_EXIT:
+            return transcript
+        if _is_exit_phrase(transcript, wake_word):
+            active_session.leave_conversation()
+            console.print("[dim]Conversation ended.[/dim]")
+            return None
+        console.print(
+            f"[bold]You (voice):[/bold] {_terminal_safe_text(transcript)}"
+        )
+        return (transcript, SOURCE_VOICE_WAKE)
 
     # Audio-level wake word (openWakeWord): always-listening, no push-to-talk.
     # Falls back to the transcript-based check below when unavailable.
@@ -225,114 +372,61 @@ def record_voice(
                     console.print("[dim]No wake word heard — try again.[/dim]")
                 return None
             console.print("[bold green]Wake word detected![/bold green]")
+            _chime()
+            if conversation_enabled:
+                active_session.enter_conversation()
             # Audio already gated the wake phrase: record the command and
             # accept it directly (transcript check below is a no-op for it).
-            return _record_command_after_wake(
-                console, active_session, wake_word_enabled=False
+            transcript = _record_transcript(console, active_session)
+            if transcript is None or transcript is VOICE_EXIT:
+                return transcript
+            console.print(
+                f"[bold]You (voice):[/bold] {_terminal_safe_text(transcript)}"
             )
+            return (transcript, SOURCE_VOICE_WAKE)
         console.print(
             "[dim]Audio wake word unavailable — using transcript-based "
             "detection.[/dim]"
         )
 
-    console.print("[dim cyan]Listening… (speak now, stops on silence)[/dim cyan]")
-    try:
-        audio_bytes = record_until_silence()
-    except KeyboardInterrupt:
-        return VOICE_EXIT
-    except Exception as exc:
-        # PortAudio failures are regular Exceptions (and can surface as
-        # OSError), so report them without letting terminal control sequences
-        # through. SystemExit deliberately continues to propagate, while
-        # Ctrl-C maps to the chat loop's graceful-exit sentinel above.
-        console.print(f"[red]Mic error: {_terminal_safe_text(exc)}[/red]")
-        return VOICE_EXIT
+    transcript = _record_transcript(console, active_session)
+    if transcript is None or transcript is VOICE_EXIT:
+        return transcript
+    text = transcript
 
-    console.print("[dim]Transcribing…[/dim]")
-    try:
-        result = backend.transcribe(
-            audio_bytes, format="wav", language=active_session.get_stt_language()
+    detected_wake = False
+    if wake_word_enabled:
+        detected_wake = check_wake_word(text, wake_word)
+
+    if detected_wake:
+        # Strip the wake word (and any trailing punctuation) from the
+        # beginning of the command.
+        text = strip_wake_word(text, wake_word)
+        console.print(
+            "[bold green]Wake word detected![/bold green] "
+            f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}"
         )
-        text = result.text.strip()
+        _chime()
+        if conversation_enabled:
+            active_session.enter_conversation()
+        # If there's still text after the wake word, return it;
+        # otherwise prompt for a command
         if text:
-            # Check for wake word
-            detected_wake = False
-            if wake_word_enabled:
-                detected_wake = check_wake_word(text, wake_word)
-
-            if detected_wake:
-                # Strip the wake word (and any trailing punctuation) from the
-                # beginning of the command.
-                text = strip_wake_word(text, wake_word)
-                console.print(
-                    "[bold green]Wake word detected![/bold green] "
-                    f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}"
-                )
-                # If there's still text after the wake word, return it;
-                # otherwise prompt for a command
-                if text:
-                    return (text, SOURCE_VOICE_WAKE)
-                console.print(
-                    "[dim]Please give a command after the wake word.[/dim]"
-                )
-                return None
-            if wake_word_enabled:
-                # Wake-gated listening: ignore utterances that did not carry
-                # the wake word instead of treating them as commands.
-                console.print(
-                    "[dim]No wake word detected — say "
-                    f"'{wake_word}' to wake Jarvis.[/dim]"
-                )
-                return None
-            console.print(f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}")
-            return (text, utterance_source)
-        console.print("[dim]Nothing heard — try again.[/dim]")
-        return None
-    except Exception as exc:
-        console.print(f"[red]Transcription error: {_terminal_safe_text(exc)}[/red]")
-        return None
-
-
-def _record_command_after_wake(
-    console: Any,
-    session: VoiceSession,
-    *,
-    wake_word_enabled: bool,
-) -> Optional[Tuple[str, str]] | object:
-    """Record and transcribe a command after the audio wake word fired.
-
-    Returns the ``(command, SOURCE_VOICE_WAKE)`` pair, the ``None``
-    nothing-heard sentinel, or the ``VOICE_EXIT`` sentinel.
-    """
-    from openjarvis.speech.voice_io import record_until_silence
-
-    console.print("[dim cyan]Listening… (speak now, stops on silence)[/dim cyan]")
-    try:
-        audio_bytes = record_until_silence()
-    except KeyboardInterrupt:
-        return VOICE_EXIT
-    except Exception as exc:
-        console.print(f"[red]Mic error: {_terminal_safe_text(exc)}[/red]")
-        return VOICE_EXIT
-
-    console.print("[dim]Transcribing…[/dim]")
-    try:
-        backend = session.get_stt_backend()
-        if backend is None:
-            console.print("[red]No speech-to-text backend available.[/red]")
-            return VOICE_EXIT
-        result = backend.transcribe(
-            audio_bytes, format="wav", language=session.get_stt_language()
-        )
-        text = result.text.strip()
-        if text:
-            console.print(f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}")
             return (text, SOURCE_VOICE_WAKE)
-        console.print("[dim]Nothing heard — try again.[/dim]")
+        console.print(
+            "[dim]Please give a command after the wake word.[/dim]"
+        )
         return None
-    except Exception as exc:
-        console.print(f"[red]Transcription error: {_terminal_safe_text(exc)}[/red]")
+    if wake_word_enabled:
+        # Wake-gated listening: ignore utterances that did not carry
+        # the wake word instead of treating them as commands.
+        console.print(
+            "[dim]No wake word detected — say "
+            f"'{wake_word}' to wake Jarvis.[/dim]"
+        )
         return None
+    console.print(f"[bold]You (voice):[/bold] {_terminal_safe_text(text)}")
+    return (text, utterance_source)
 
 
 def speak(
