@@ -509,7 +509,14 @@ class ToolExecutor:
                                 "source": "tool_output_injection_scan",
                                 "tool": tool_call.name,
                                 "threat_level": level,
-                                "findings": len(scan.findings),
+                                "findings": [
+                                    {
+                                        "pattern": finding.pattern_name,
+                                        "threat": finding.threat_level.value,
+                                        "description": finding.description,
+                                    }
+                                    for finding in scan.findings
+                                ],
                             },
                         )
                     if level in ("high", "critical"):
