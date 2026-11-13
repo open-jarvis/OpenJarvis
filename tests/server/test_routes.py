@@ -2104,3 +2104,46 @@ async def test_slow_local_discovery_keeps_health_endpoint_responsive(with_tools)
 
     assert response.status_code == 200
     assert "Hello" in response.text
+
+
+class TestConfiguredModelOrdering:
+    """/v1/models must lead with the model the server is configured to use.
+
+    The web UI auto-selects chatModels[0] when it has no stored preference,
+    so the picker landed on whatever the engine happened to list first --
+    often a small model -- while [intelligence] default_model was ignored.
+    The chat then answered from a different model than the one configured,
+    without saying so.
+    """
+
+    _MODELS = ["tiny-1b", "qwen2.5:14b", "another-model"]
+
+    def test_the_configured_model_is_listed_first(self):
+        engine = _make_engine(models=list(self._MODELS))
+        app = create_app(engine, "qwen2.5:14b", config=_test_config())
+
+        resp = TestClient(app).get("/v1/models")
+
+        assert resp.status_code == 200
+        assert [m["id"] for m in resp.json()["data"]][0] == "qwen2.5:14b"
+
+    def test_reordering_keeps_every_model_exactly_once(self):
+        engine = _make_engine(models=list(self._MODELS))
+        app = create_app(engine, "qwen2.5:14b", config=_test_config())
+
+        resp = TestClient(app).get("/v1/models")
+
+        returned = [m["id"] for m in resp.json()["data"]]
+        assert sorted(returned) == sorted(self._MODELS)
+
+    def test_a_configured_model_the_engine_does_not_offer_is_not_invented(self):
+        # Listing a model the engine cannot serve would send the UI straight
+        # to a 404 on the first message.
+        engine = _make_engine(models=list(self._MODELS))
+        app = create_app(engine, "not-installed", config=_test_config())
+
+        resp = TestClient(app).get("/v1/models")
+
+        returned = [m["id"] for m in resp.json()["data"]]
+        assert "not-installed" not in returned
+        assert returned == self._MODELS
