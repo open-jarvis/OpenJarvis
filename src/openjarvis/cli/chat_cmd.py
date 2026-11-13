@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
-from typing import List, Optional
+from collections.abc import Iterator, Sequence
+from typing import Any, List, Optional
 
 import click
 from rich.console import Console
@@ -13,7 +15,15 @@ from rich.markup import escape
 
 from openjarvis.cli._runtime_panel import runtime_cli_options
 from openjarvis.cli._tool_names import resolve_tool_names
-from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, read_voice_input, speak
+from openjarvis.cli._voice_chat import (
+    SOURCE_TYPED,
+    VOICE_EXIT,
+    SentenceSpeaker,
+    VoiceSession,
+    _env_flag,
+    read_voice_input,
+    speak,
+)
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
@@ -35,6 +45,98 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
         return input(prompt)
     except (EOFError, KeyboardInterrupt):
         return None
+
+
+def _stream_reply_tokens(
+    engine: Any,
+    messages: Sequence[Message],
+    *,
+    model: str,
+    **engine_kwargs: Any,
+) -> Iterator[str]:
+    """Yield the assistant reply token by token, via the engine stream.
+
+    Prefers the engine's synchronous token stream (``stream_sync``) so the
+    first token arrives while the model is still generating — a faster
+    perceived response than waiting for the full completion. Falls back to the
+    blocking ``generate`` for engines without a native sync stream.
+    """
+    stream_sync = getattr(engine, "stream_sync", None)
+    if stream_sync is None:
+        result = engine.generate(messages, model=model, **engine_kwargs)
+        content = (
+            result.get("content", "") if isinstance(result, dict) else str(result)
+        )
+        if content:
+            yield content
+        return
+    tokens = stream_sync(messages, model=model, **engine_kwargs)
+    for token in tokens:
+        if token:
+            yield token
+
+
+def _run_vision_reply(
+    engine: Any,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    default_model: str,
+    question: str,
+    engine_kwargs: dict,
+    config: Any,
+) -> None:
+    """Describe the screen with a vision-capable model (the ``/see`` command).
+
+    Captures the primary screen, attaches it to a fresh user message and
+    streams the model's description back (spoken sentence-by-sentence in
+    voice mode). The vision model comes from ``JARVIS_VISION_MODEL``,
+    ``intelligence.vision_model``, or falls back to the active chat model.
+    """
+    from openjarvis.tools.screen import capture_screen_b64
+
+    vision_model = (
+        os.environ.get("JARVIS_VISION_MODEL")
+        or getattr(config.intelligence, "vision_model", "")
+        or default_model
+    )
+    prompt = question.strip() or "Décris ce qui est affiché à l'écran."
+
+    try:
+        image_b64 = capture_screen_b64()
+    except Exception as exc:
+        console.print(
+            f"[red]Screen capture failed: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+
+    console.print(
+        f"[dim]Describing the screen with "
+        f"{_safe_rich_label(vision_model)}…[/dim]"
+    )
+    speaker: Optional[SentenceSpeaker] = None
+    if voice_session is not None:
+        speaker = SentenceSpeaker(voice_session, console)
+    content = ""
+    try:
+        for token in _stream_reply_tokens(
+            engine,
+            [Message(role=Role.USER, content=prompt, images=[image_b64])],
+            model=vision_model,
+            **engine_kwargs,
+        ):
+            content += token
+            console.print(token, end="", markup=False)
+            if speaker is not None:
+                speaker.feed(token)
+        if speaker is not None:
+            speaker.flush()
+    except KeyboardInterrupt:
+        console.print("\n[dim]Generation interrupted.[/dim]")
+        return
+    except Exception as exc:
+        console.print(f"\n[red]Error: {exc}[/red]\n")
+        return
+    console.print()
 
 
 @click.command()
@@ -347,6 +449,19 @@ def chat(
 
         memory_backend = _get_memory_backend(config)
 
+    # Semantic memory: rank facts by local embedding similarity (Ollama
+    # /api/embed). Optional — built once per session, falls back to recency.
+    semantic_ranker = None
+    if getattr(config.memory, "semantic_enabled", False):
+        try:
+            from openjarvis.tools.storage.semantic import build_semantic_ranker
+
+            semantic_ranker = build_semantic_ranker(config)
+            if semantic_ranker is not None:
+                console.print("[dim]  Memory: semantic recall ON[/dim]")
+        except Exception as exc:
+            logger.debug("Failed to build semantic ranker: %s", exc)
+
     # Conversation state
     if not system_prompt:
         from openjarvis.prompt.builder import SystemPromptBuilder
@@ -367,6 +482,7 @@ def chat(
         for note in _notifications.diff(get_status()):
             console.print(f"[dim cyan]{note}[/dim cyan]")
 
+        source: str = SOURCE_TYPED
         if voice_mode:
             assert voice_session is not None
             result = read_voice_input(console, voice_session)
@@ -375,7 +491,7 @@ def chat(
                 break
             if result is None:
                 continue  # nothing heard, loop again
-            user_input = result
+            user_input, source = result
         else:
             user_input = _read_input()
             if user_input is None:
@@ -416,8 +532,20 @@ def chat(
                 "  /clear        — clear conversation\n"
                 "  /model        — show model info\n"
                 "  /runtime      — Ollama context + GPU offload for this session\n"
+                "  /see [question] — describe the screen (local vision)\n"
                 "  /history      — show conversation\n"
                 "  /help         — this message"
+            )
+            continue
+        elif cmd == "/see" or cmd.startswith("/see "):
+            _run_vision_reply(
+                engine,
+                console,
+                voice_session,
+                model,
+                user_input[len("/see") :].strip(),
+                engine_kwargs,
+                config,
             )
             continue
         elif cmd == "/history":
@@ -430,8 +558,10 @@ def chat(
                     console.print(f"[bold]{role}:[/bold] {msg.content[:200]}")
             continue
 
-        # Add user message
-        history.append(Message(role=Role.USER, content=user_input))
+        # Add user message (carries the utterance source for LLM comprehension)
+        history.append(
+            Message(role=Role.USER, content=user_input, metadata={"source": source})
+        )
 
         generation_history = history
         agent_context_message = None
@@ -458,6 +588,7 @@ def chat(
                     memory_backend,
                     config=ctx_cfg,
                     facts=facts,
+                    ranker=semantic_ranker,
                 )
                 if agent is not None:
                     if context_messages:
@@ -468,6 +599,7 @@ def chat(
                 logger.debug("Failed to inject memory context", exc_info=True)
 
         # Generate response even when optional memory context is unavailable.
+        streamed_reply = False
         try:
             if agent is not None:
                 from openjarvis.agents._stubs import AgentContext
@@ -483,24 +615,71 @@ def chat(
                     response.content if hasattr(response, "content") else str(response)
                 )
             else:
-                result = engine.generate(
-                    generation_history,
-                    model=model,
-                    **engine_kwargs,
-                )
-                content = (
-                    result.get("content", "")
-                    if isinstance(result, dict)
-                    else str(result)
-                )
+                monitor: Any = None
+                speaker: Optional[SentenceSpeaker] = None
+                if voice_mode:
+                    assert voice_session is not None
+                    # Barge-in: watch the mic while Jarvis speaks so the user
+                    # can interrupt the reply by starting to talk.
+                    if _env_flag(
+                        "JARVIS_BARGE_IN", getattr(config.speech, "barge_in", True)
+                    ):
+                        from openjarvis.speech.voice_io import BargeInMonitor
+
+                        monitor = BargeInMonitor()
+                        monitor.start()
+                    # Speak sentence-by-sentence while the model keeps
+                    # generating, so the voice reply starts as soon as the
+                    # first sentence is complete (instead of after the full
+                    # answer).
+                    speaker = SentenceSpeaker(
+                        voice_session,
+                        console,
+                        interrupt_check=monitor.consume if monitor else None,
+                    )
+                content = ""
+                barge_interrupted = False
+                try:
+                    for token in _stream_reply_tokens(
+                        engine,
+                        generation_history,
+                        model=model,
+                        **engine_kwargs,
+                    ):
+                        content += token
+                        # Stream the reply token by token so the user sees the
+                        # answer start arriving immediately instead of waiting
+                        # for the full completion.
+                        console.print(token, end="", markup=False)
+                        if speaker is not None:
+                            speaker.feed(token)
+                            if speaker.interrupted:
+                                barge_interrupted = True
+                                break
+                    if speaker is not None and not barge_interrupted:
+                        speaker.flush()
+                finally:
+                    if monitor is not None:
+                        monitor.stop()
+                if barge_interrupted:
+                    console.print("\n[dim]Interrupted by speech.[/dim]")
+                    continue
+                streamed_reply = True
 
             history.append(Message(role=Role.ASSISTANT, content=content))
-            console.print()
-            console.print(Markdown(content))
-            console.print()
+            if streamed_reply:
+                # Tokens were already streamed to the terminal; just
+                # terminate the line.
+                console.print()
+            else:
+                console.print()
+                console.print(Markdown(content))
+                console.print()
             if voice_mode:
                 assert voice_session is not None
-                speak(content, console, voice_session)
+                if not streamed_reply:
+                    # Agent replies arrive whole — speak them in one go.
+                    speak(content, console, voice_session)
 
             publish_completed_exchange(
                 bus,

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, List, Optional, Sequence, Tuple
 
 from openjarvis.core.events import EventType, get_event_bus
 from openjarvis.core.types import Message, Role
@@ -13,6 +14,8 @@ from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
 
 if TYPE_CHECKING:
     from openjarvis.memory.store import Fact
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -138,6 +141,33 @@ def _merge_context_message(
     return [combined] + [m for m in messages if m.role != Role.SYSTEM]
 
 
+def _select_facts(
+    facts: Sequence[Fact],
+    budget: int,
+    *,
+    scores: Optional[dict] = None,
+) -> Tuple[List[Fact], int]:
+    """Pick trusted facts within *budget* tokens.
+
+    By default facts are considered newest-first. When *scores* (fact text →
+    semantic similarity) is provided, more relevant facts win — ties keep the
+    newest-first order. Facts are skipped (not truncated destructively) when
+    the running total would exceed the budget.
+    """
+    ordered = list(reversed(_trusted_facts(facts)))
+    if scores is not None:
+        ordered.sort(key=lambda fact: scores.get(fact.text, 0.0), reverse=True)
+    selected: List[Fact] = []
+    total_tokens = 0
+    for fact in ordered:
+        tokens = _count_tokens(fact.text)
+        if total_tokens + tokens > budget:
+            continue
+        selected.append(fact)
+        total_tokens += tokens
+    return selected, total_tokens
+
+
 def inject_context(
     query: str,
     messages: List[Message],
@@ -145,6 +175,7 @@ def inject_context(
     *,
     config: Optional[ContextConfig] = None,
     facts: Sequence[Fact] = (),
+    ranker: Optional[Any] = None,
 ) -> List[Message]:
     """Retrieve relevant context and prepend it to *messages*.
 
@@ -168,6 +199,10 @@ def inject_context(
         Durable facts captured by the automatic memory service. Quarantined
         provenance tiers are excluded before budgeting or prompt construction,
         as are retrieved documents carrying the same quarantined tiers.
+    ranker:
+        Optional semantic fact ranker (see ``tools/storage/semantic.py``).
+        When provided, facts are ranked by embedding similarity to *query*
+        instead of newest-first; a ranking failure falls back to recency.
     """
     cfg = config or ContextConfig()
     if not cfg.enabled:
@@ -183,36 +218,48 @@ def inject_context(
     # Filter by minimum score
     results = [r for r in results if r.score >= cfg.min_score]
 
-    # When both sources have data, cap facts at half the total budget so they
-    # cannot starve query-specific document retrieval. Unused fact budget is
-    # still available to documents. Newest facts win within the fact budget.
-    fact_budget = cfg.max_context_tokens
-    if results:
-        fact_budget //= 2
-    selected_facts: List[Fact] = []
-    total_tokens = 0
-    for fact in reversed(_trusted_facts(facts)):
-        tokens = _count_tokens(fact.text)
-        if total_tokens + tokens > fact_budget:
-            continue
-        selected_facts.append(fact)
-        total_tokens += tokens
+    # Budget: facts and retrieved documents share cfg.max_context_tokens.
+    # When retrieval produced candidates, reserve half the budget for facts so
+    # durable memories cannot starve query-specific document context; the
+    # documents then fill whatever budget remains. With no backend there is
+    # nothing to retrieve, so facts get the full budget.
+    fact_budget = cfg.max_context_tokens // 2 if results else cfg.max_context_tokens
+    fact_scores: Optional[dict] = None
+    if ranker is not None and facts:
+        try:
+            trusted = _trusted_facts(facts)
+            similarities = ranker.rank(query, [fact.text for fact in trusted])
+            fact_scores = {
+                fact.text: float(similarity)
+                for fact, similarity in zip(trusted, similarities)
+            }
+        except Exception:
+            logger.debug(
+                "Semantic fact ranking failed; using recency", exc_info=True
+            )
+    selected_facts, fact_tokens = _select_facts(
+        facts, fact_budget, scores=fact_scores
+    )
 
-    # Fill the remaining context budget with retrieved documents.
+    # Fill the context budget with retrieved documents, best-first order.
     truncated: List[RetrievalResult] = []
+    total_tokens = fact_tokens
     for r in results:
         tokens = _count_tokens(r.content)
-        if total_tokens + tokens > cfg.max_context_tokens:
-            # A large top result should not disappear solely because facts
-            # consumed their reserved share. Prefer that result when it fits
-            # the total budget on its own.
-            if not truncated and selected_facts and tokens <= cfg.max_context_tokens:
-                selected_facts = []
-                total_tokens = 0
-            else:
-                break
-        if total_tokens + tokens > cfg.max_context_tokens:
+        over_budget = total_tokens + tokens > cfg.max_context_tokens
+        # A large top result should not disappear solely because facts reserved
+        # their share; prefer the document that fits the total budget on its own.
+        evict_facts = (
+            over_budget
+            and not truncated
+            and bool(selected_facts)
+            and tokens <= cfg.max_context_tokens
+        )
+        if over_budget and not evict_facts:
             break
+        if evict_facts:
+            selected_facts, fact_tokens = [], 0
+            total_tokens = 0
         truncated.append(r)
         total_tokens += tokens
 

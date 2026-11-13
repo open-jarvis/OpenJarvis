@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Any, Dict, List
 
 from openjarvis.core.types import Message
@@ -115,6 +115,25 @@ class MultiEngine(InferenceEngine):
         engine = self._engine_for(model)
         async for chunk in engine.stream_full(messages, model=model, **kwargs):
             yield chunk
+
+    def stream_sync(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> Iterator[str]:
+        """Delegate stream_sync() to the engine that owns the model."""
+        engine = self._engine_for(model)
+        return engine.stream_sync(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
 
     def list_models(self) -> List[str]:
         self._refresh_map()

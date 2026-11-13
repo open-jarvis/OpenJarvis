@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Any, Dict, List
 
 import httpx
@@ -83,11 +83,31 @@ def _default_num_ctx() -> int:
         return 16384
 
 
+def _keep_alive(
+    kwargs: Dict[str, Any],
+    config_default: str | None = None,
+) -> str | None:
+    """Resolve the Ollama ``keep_alive`` duration for a request.
+
+    Precedence: explicit ``keep_alive`` kwarg > config ``keep_alive`` >
+    ``OLLAMA_KEEP_ALIVE`` env var > ``None`` (let Ollama apply its server
+    default, which unloads idle models after 5 minutes). Set ``-1`` to keep
+    the model resident and skip the reload latency between requests.
+    """
+    value = kwargs.get("keep_alive")
+    if value is not None:
+        return value
+    if config_default:
+        return config_default
+    return os.environ.get("OLLAMA_KEEP_ALIVE") or None
+
+
 def _ollama_request_options(
     *,
     temperature: float,
     max_tokens: int,
     kwargs: Dict[str, Any],
+    default_num_ctx: int | None = None,
 ) -> Dict[str, Any]:
     """Build Ollama ``options`` dict from generate/stream kwargs."""
     options: Dict[str, Any] = {
@@ -96,6 +116,8 @@ def _ollama_request_options(
     }
     if kwargs.get("num_ctx") is not None:
         options["num_ctx"] = int(kwargs["num_ctx"])
+    elif default_num_ctx is not None:
+        options["num_ctx"] = int(default_num_ctx)
     else:
         options["num_ctx"] = _default_num_ctx()
     if kwargs.get("num_gpu") is not None:
@@ -120,12 +142,17 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
         host: str | None = None,
         *,
         timeout: float = 1800.0,
+        keep_alive: str | None = None,
+        num_ctx: int | None = None,
     ) -> None:
         # Priority: explicit host (from config.toml) > OLLAMA_HOST env var > default
         if host is None:
             env_host = os.environ.get("OLLAMA_HOST")
             host = env_host or self._DEFAULT_HOST
         self._host = host.rstrip("/")
+        # Config-level runtime defaults (may still be overridden per request).
+        self._keep_alive = keep_alive
+        self._num_ctx = num_ctx
         # Used by the shared async streaming plumbing (AsyncHTTPEngineMixin) so a
         # wedged token read is bounded by ``timeout`` instead of hanging the
         # single event loop for the httpx default.
@@ -166,6 +193,7 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
                 temperature=temperature,
                 max_tokens=max_tokens,
                 kwargs=kwargs,
+                default_num_ctx=self._num_ctx or None,
             ),
         }
         # Disable extended thinking by default (Qwen3.5 etc.).
@@ -175,6 +203,11 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
             payload["think"] = False
         elif kwargs["think"] is not None:
             payload["think"] = kwargs["think"]
+        # Keep the model resident across requests when configured, avoiding
+        # the load/reload round-trip that dominates latency on idle servers.
+        keep_alive = _keep_alive(kwargs, self._keep_alive)
+        if keep_alive is not None:
+            payload["keep_alive"] = keep_alive
         # Pass tools if provided
         tools = kwargs.get("tools")
         if tools:
@@ -271,6 +304,69 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
                 result["tool_calls"] = tool_calls
         return result
 
+    def stream_sync(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> Iterator[str]:
+        """Synchronous token streaming via the blocking httpx client.
+
+        Mirrors the async ``stream`` implementation: POSTs to ``/api/chat``
+        with ``stream: true`` and yields content deltas as Ollama's NDJSON
+        lines arrive, instead of waiting for the full completion. Consumed by
+        sync callers (the ``jarvis chat`` REPL) so the first token reaches the
+        user sooner (faster perceived response).
+        """
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": messages_to_dicts(messages),
+            "stream": True,
+            "options": _ollama_request_options(
+                temperature=temperature,
+                max_tokens=max_tokens,
+                kwargs=kwargs,
+                default_num_ctx=self._num_ctx or None,
+            ),
+        }
+        # Mirror generate()'s default: disable extended thinking unless the
+        # caller opted in.
+        if "think" not in kwargs:
+            payload["think"] = False
+        elif kwargs["think"] is not None:
+            payload["think"] = kwargs["think"]
+        keep_alive = _keep_alive(kwargs, self._keep_alive)
+        if keep_alive is not None:
+            payload["keep_alive"] = keep_alive
+
+        try:
+            with self._client.stream("POST", "/api/chat", json=payload) as resp:
+                if not resp.is_success:
+                    # Read the (short) error body before touching ``.text``.
+                    resp.read()
+                    self._raise_stream_http_error(resp.status_code, resp.text)
+                for line in resp.iter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    content = chunk.get("message", {}).get("content", "")
+                    if content:
+                        yield content
+                    if chunk.get("done", False):
+                        break
+        except STREAM_TRANSPORT_ERRORS as exc:
+            # Transport failures (incl. a mid-stream server disconnect) map to
+            # a clean error; the set is kept narrow so cancellation propagates.
+            raise EngineConnectionError(
+                f"Ollama not reachable at {self._host}"
+            ) from exc
+
     async def stream(
         self,
         messages: Sequence[Message],
@@ -288,6 +384,7 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
                 temperature=temperature,
                 max_tokens=max_tokens,
                 kwargs=kwargs,
+                default_num_ctx=self._num_ctx or None,
             ),
         }
         # Mirror generate()'s default: disable extended thinking unless the
@@ -298,6 +395,9 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
             payload["think"] = False
         elif kwargs["think"] is not None:
             payload["think"] = kwargs["think"]
+        keep_alive = _keep_alive(kwargs, self._keep_alive)
+        if keep_alive is not None:
+            payload["keep_alive"] = keep_alive
         try:
             # ASYNC streaming: ``httpx.AsyncClient`` + ``aiter_lines`` never
             # blocks the event loop between tokens (the previous SYNC
@@ -387,12 +487,16 @@ class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
                 temperature=temperature,
                 max_tokens=max_tokens,
                 kwargs=kwargs,
+                default_num_ctx=self._num_ctx or None,
             ),
         }
         if "think" not in kwargs:
             payload["think"] = False
         elif kwargs["think"] is not None:
             payload["think"] = kwargs["think"]
+        keep_alive = _keep_alive(kwargs, self._keep_alive)
+        if keep_alive is not None:
+            payload["keep_alive"] = keep_alive
 
         tools = kwargs.get("tools")
         if tools:

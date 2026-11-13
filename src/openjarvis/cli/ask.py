@@ -1181,12 +1181,20 @@ def ask(
                     min_score=config.memory.context_min_score,
                     max_context_tokens=(config.memory.context_max_tokens),
                 )
+                ranker = None
+                if getattr(config.memory, "semantic_enabled", False):
+                    from openjarvis.tools.storage.semantic import (
+                        build_semantic_ranker,
+                    )
+
+                    ranker = build_semantic_ranker(config)
                 messages = inject_context(
                     query_text,
                     messages,
                     backend,
                     config=ctx_cfg,
                     facts=facts,
+                    ranker=ranker,
                 )
         except Exception as exc:
             logger.debug("Failed to inject memory context: %s", exc)

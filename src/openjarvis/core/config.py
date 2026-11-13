@@ -369,6 +369,13 @@ class OllamaEngineConfig:
     """Per-engine config for Ollama."""
 
     host: str = ""
+    # Keep the model resident across requests ("-1" = forever, "30m", "0" = unload
+    # immediately). Empty = Ollama server default. Avoids reload latency on idle
+    # servers and reduces network churn from repeated model loads.
+    keep_alive: str = ""
+    # Context window override (tokens). 0 = use JARVIS_NUM_CTX / built-in default.
+    # A smaller window evaluates the prompt faster and lowers memory use.
+    num_ctx: int = 0
 
 
 @dataclass(slots=True)
@@ -625,6 +632,8 @@ class IntelligenceConfig:
     top_k: int = 40
     repetition_penalty: float = 1.0
     stop_sequences: str = ""  # Comma-separated stop strings
+    # Model used for local vision (``/see`` in chat). Empty = active chat model.
+    vision_model: str = ""
 
 
 @dataclass(slots=True)
@@ -977,6 +986,11 @@ class StorageConfig:
     facts_path: str = field(
         default_factory=lambda: str(get_config_dir() / "memory_facts.jsonl")
     )
+    # Semantic recall: rank facts by local embedding similarity (Ollama
+    # /api/embed) in addition to the keyword score. Off by default — it adds
+    # one embedding request per chat turn.
+    semantic_enabled: bool = False
+    embedding_model: str = "nomic-embed-text"  # Ollama embedding model tag
 
 
 # Backward-compatibility alias
@@ -1636,6 +1650,16 @@ class SpeechConfig:
     tts_backend: str = "kokoro"  # "kokoro", "openai_tts", "cartesia", "elevenlabs"
     voice_id: str = "bm_george"
     voice_speed: float = 1.0
+    # Wake word that activates listening mode (case-insensitive).
+    wake_word: str = "jarvis"
+    # Whether wake word detection is active.
+    wake_word_enabled: bool = True
+    # Audio-level wake word (openWakeWord, always-listening). Falls back to
+    # the transcript-based check when the openwakeword package is unavailable.
+    audio_wake_word: bool = True
+    # Barge-in: stop Jarvis's speech (and generation) when the user starts
+    # talking over the answer.
+    barge_in: bool = True
 
 
 @dataclass(slots=True)
@@ -2273,6 +2297,7 @@ fallback_model = ""
 # quantization = "none"        # none, fp8, int8, int4, gguf_q4, gguf_q8
 # preferred_engine = ""        # Override engine for this model (e.g., "vllm")
 # provider = ""                # local, openai, anthropic, google
+# vision_model = ""            # local vision model for /see ("" = chat model)
 temperature = 0.7
 max_tokens = 1024
 # top_p = 0.9
@@ -2304,6 +2329,8 @@ enabled = false               # set true to enable the memory service
 backend = "local"             # fact-store backend (local = on-disk JSONL)
 extraction_model = ""         # model for fact extraction ("" = active model)
 max_facts = 1000              # cap on stored facts
+# semantic_enabled = false    # rank facts by local embedding similarity
+# embedding_model = "nomic-embed-text"   # Ollama model for /api/embed
 
 [tools.mcp]
 enabled = true

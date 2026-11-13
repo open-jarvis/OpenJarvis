@@ -161,7 +161,7 @@ class TestRuntimePanelBranches:
 class TestChatPickerIntegration:
     def test_cloud_chat_never_receives_ollama_runtime_kwargs(self) -> None:
         engine = MagicMock()
-        engine.generate.return_value = {"content": "ok"}
+        engine.stream_sync.return_value = iter(["ok"])
         cfg = JarvisConfig()
         cfg.intelligence.default_model = "gpt-4o-mini"
         with (
@@ -185,8 +185,8 @@ class TestChatPickerIntegration:
 
         assert result.exit_code == 0
         wants_panel.assert_not_called()
-        engine.generate.assert_called_once()
-        kwargs = engine.generate.call_args.kwargs
+        engine.stream_sync.assert_called_once()
+        kwargs = engine.stream_sync.call_args.kwargs
         assert kwargs["model"] == "gpt-4o-mini"
         # Security engine wrappers may make their generic inference defaults
         # explicit; cloud calls must still never inherit Ollama-only knobs.
@@ -311,7 +311,7 @@ class TestChatPickerIntegration:
 
     def test_num_ctx_num_gpu_cli_bypasses_panel(self) -> None:
         engine = MagicMock()
-        engine.generate.return_value = {"content": "ok"}
+        engine.stream_sync.return_value = iter(["ok"])
         p = _chat_patches(engine)
         with (
             p[0],
@@ -343,8 +343,8 @@ class TestChatPickerIntegration:
         assert result.exit_code == 0
         assert "ctx=12,000" in result.output
         assert "gpu=8 layers" in result.output
-        engine.generate.assert_called_once()
-        call_kw = engine.generate.call_args[1]
+        engine.stream_sync.assert_called_once()
+        call_kw = engine.stream_sync.call_args.kwargs
         assert call_kw.get("num_ctx") == 12000
         assert call_kw.get("num_gpu") == 8
 
