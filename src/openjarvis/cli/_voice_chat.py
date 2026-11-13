@@ -70,10 +70,16 @@ class VoiceSession:
         if self._tts_backend is not None:
             return self._tts_backend
 
-        from openjarvis.speech._tts_discovery import get_tts_backend
+        from openjarvis.core.config import load_config
+        from openjarvis.speech._tts_discovery import get_tts_backend, tts_device_for
 
         preferred, _, _ = self.get_voice_preferences()
-        self._tts_backend = get_tts_backend(preferred, attempted=self._tts_attempted)
+        config = self._config if self._config is not None else load_config()
+        self._tts_backend = get_tts_backend(
+            preferred,
+            attempted=self._tts_attempted,
+            device=tts_device_for(config),
+        )
         return self._tts_backend
 
     def get_voice_preferences(self) -> tuple[str, str, float]:

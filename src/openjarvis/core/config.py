@@ -1636,6 +1636,12 @@ class SpeechConfig:
     tts_backend: str = "kokoro"  # "kokoro", "openai_tts", "cartesia", "elevenlabs"
     voice_id: str = "bm_george"
     voice_speed: float = 1.0
+    # Compute device for LOCAL TTS synthesis ("auto", "cpu", "cuda", "mps").
+    # Empty means "follow ``device``", so a single ``device = "cpu"`` keeps both
+    # STT and TTS off the GPU. Cloud TTS backends ignore this. Kokoro is an 82M
+    # model that synthesizes faster than real time on CPU, so pinning it to
+    # "cpu" is the usual fix when the GPU is already hosting a local LLM.
+    tts_device: str = ""
 
 
 @dataclass(slots=True)
