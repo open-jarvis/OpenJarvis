@@ -53,15 +53,15 @@ class EnergyBatch:
 
         if self._monitor is not None:
             with self._monitor.sample() as energy_sample:
-                start = time.monotonic()
+                start = time.perf_counter()
                 yield ctx
-                elapsed = time.monotonic() - start
+                elapsed = time.perf_counter() - start
             total_energy = energy_sample.energy_joules
             mean_power = energy_sample.mean_power_watts
         else:
-            start = time.monotonic()
+            start = time.perf_counter()
             yield ctx
-            elapsed = time.monotonic() - start
+            elapsed = time.perf_counter() - start
             total_energy = ctx._total_energy
             mean_power = 0.0
 
