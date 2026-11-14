@@ -88,6 +88,32 @@ def test_windows_installer_failure_does_not_exit_interactive_host() -> None:
     assert "exit 1" not in write_fail
 
 
+def test_windows_installer_runs_ollama_setup_unattended() -> None:
+    # OllamaSetup.exe is Inno Setup; the NSIS-style /S opens the wizard and
+    # hangs the installer forever.
+    installer = WINDOWS_INSTALL_PS1.read_text(encoding="utf-8")
+    assert "'/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'" in installer
+    assert "-ArgumentList '/S'" not in installer
+
+
+def test_windows_powershell_scripts_are_ascii() -> None:
+    # Windows PowerShell 5.1 reads BOM-less files as ANSI, so a UTF-8 em dash
+    # decodes to bytes that include a smart quote and breaks string parsing.
+    for script in sorted((ROOT / "deploy" / "windows").glob("*.ps1")):
+        raw = script.read_bytes()
+        if raw.startswith(b"\xef\xbb\xbf"):
+            continue
+        offenders = [
+            number
+            for number, line in enumerate(raw.splitlines(), start=1)
+            if not line.isascii()
+        ]
+        assert not offenders, (
+            f"{script.name} has non-ASCII characters on lines {offenders}; "
+            "use ASCII or save the file with a UTF-8 BOM."
+        )
+
+
 def test_quickstart_installs_web_search_dependencies() -> None:
     quickstart = QUICKSTART_SH.read_text()
     assert "--extra tools-search" in quickstart
