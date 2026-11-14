@@ -495,6 +495,104 @@ class TestChatCommand:
         assert result.exit_code == 0
         assert "Session saved to" in result.output
 
+    def test_quick_command_answers_without_engine(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="quelle heure est-il\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Il est " in result.output
+        engine.stream_sync.assert_not_called()
+
+    def test_translate_command_streams_translation(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["Bonjour le monde"])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/translate en Hello world\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Bonjour le monde" in result.output
+        prompt = engine.stream_sync.call_args.args[0][0].content
+        assert "Traduis" in prompt
+        assert "en anglais" in prompt
+        assert "Hello world" in prompt
+
+    def test_summarize_command_fetches_and_summarizes(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["Résumé court."])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.cli.chat_cmd._fetch_url_text",
+                return_value="Article complet ici.",
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/summarize https://example.com\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Résumé court." in result.output
+        prompt = engine.stream_sync.call_args.args[0][0].content
+        assert "Article complet ici." in prompt
+
+    def test_summarize_command_reports_fetch_failure(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.cli.chat_cmd._fetch_url_text",
+                side_effect=RuntimeError("network down"),
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/summarize https://example.com\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Could not fetch the page" in result.output
+        engine.stream_sync.assert_not_called()
+
     def test_remember_stores_summary_fact(self) -> None:
         engine = MagicMock()
         engine.engine_id = "mock"

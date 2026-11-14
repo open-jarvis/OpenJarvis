@@ -28,6 +28,19 @@ def _rms(data: bytes) -> float:
     return (sum(s * s for s in shorts) / n) ** 0.5
 
 
+def _auto_vad() -> Any:
+    """Build a Silero VAD when available, else ``None`` (RMS fallback).
+
+    Injection seam: tests monkeypatch this to pin the RMS path or a fake VAD.
+    """
+    try:
+        from openjarvis.speech.vad import build_vad
+
+        return build_vad()
+    except Exception:  # noqa: BLE001 — VAD is an optional layer
+        return None
+
+
 def record_until_silence(
     *,
     sample_rate: int = _SAMPLE_RATE,
@@ -37,6 +50,10 @@ def record_until_silence(
     max_seconds: float = _MAX_RECORD_SECONDS,
 ) -> bytes:
     """Record from the default microphone until silence is detected.
+
+    Speech detection combines Silero VAD (when available) with the RMS
+    amplitude heuristic — either signal keeps the utterance open, so the
+    neural detector improves endpointing without ever regressing it.
 
     Returns raw WAV bytes (16-bit mono).
     Raises RuntimeError if sounddevice is not installed.
@@ -48,6 +65,8 @@ def record_until_silence(
             "sounddevice is required for voice input. "
             "Install with: pip install sounddevice"
         )
+
+    vad = _auto_vad()
 
     chunks_per_second = sample_rate / _CHUNK
     silence_chunks = int(silence_seconds * chunks_per_second)
@@ -70,7 +89,8 @@ def record_until_silence(
             frames.append(data)
 
             amplitude = _rms(data)
-            if amplitude > silence_threshold:
+            vad_speech = vad is not None and vad.is_speech(data)
+            if vad_speech or amplitude > silence_threshold:
                 has_speech = True
                 silence_count = 0
             elif not has_speech and len(frames) >= startup_silence_chunks:
@@ -179,12 +199,14 @@ class BargeInMonitor:
         energy_threshold: int = _SILENCE_THRESHOLD,
         sustained_chunks: int = 3,
         stream_factory: "Callable[[], Any] | None" = None,
+        vad: Any = None,
     ) -> None:
         self._sample_rate = sample_rate
         self._chunk = chunk
         self._energy_threshold = energy_threshold
         self._sustained_chunks = sustained_chunks
         self._stream_factory = stream_factory
+        self._vad = vad
         self._triggered = False
         self._sustained = 0
         self._failed = False
@@ -196,6 +218,11 @@ class BargeInMonitor:
         """Start monitoring. Returns ``False`` when no audio backend exists."""
         if self._thread is not None:
             return not self._failed
+        if self._vad is None:
+            try:
+                self._vad = _auto_vad()
+            except Exception:  # noqa: BLE001 — VAD is an optional layer
+                self._vad = None
         self._thread = threading.Thread(
             target=self._run,
             name="barge-in-monitor",
@@ -232,9 +259,15 @@ class BargeInMonitor:
             self._failed = True
 
     def _register_energy(self, chunk: bytes) -> bool:
-        """Count sustained loud chunks; latch the trigger. Returns triggered."""
+        """Count sustained speech chunks; latch the trigger. Returns triggered.
+
+        A chunk counts as speech when it is loud (RMS above the energy
+        threshold) OR the Silero VAD scores it above 0.5 — the neural
+        detector catches soft speech that pure energy would miss.
+        """
         with self._lock:
-            if _rms(chunk) > self._energy_threshold:
+            vad_speech = self._vad is not None and self._vad.is_speech(chunk)
+            if vad_speech or _rms(chunk) > self._energy_threshold:
                 self._sustained += 1
             else:
                 self._sustained = 0

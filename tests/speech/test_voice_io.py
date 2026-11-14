@@ -40,6 +40,7 @@ def test_initial_silence_stops_at_startup_timeout(monkeypatch) -> None:
     silence = bytes(1024 * 2)
     stream = _FakeStream([silence] * 30)
     _install_audio(monkeypatch, stream)
+    monkeypatch.setattr("openjarvis.speech.voice_io._auto_vad", lambda: None)
 
     record_until_silence(
         sample_rate=1024,
@@ -55,6 +56,7 @@ def test_post_speech_uses_normal_silence_window(monkeypatch) -> None:
     silence = bytes(1024 * 2)
     stream = _FakeStream([speech, silence, silence, silence])
     _install_audio(monkeypatch, stream)
+    monkeypatch.setattr("openjarvis.speech.voice_io._auto_vad", lambda: None)
 
     record_until_silence(
         sample_rate=1024,
@@ -64,6 +66,31 @@ def test_post_speech_uses_normal_silence_window(monkeypatch) -> None:
     )
 
     assert stream.reads == 3
+
+
+def test_vad_detects_soft_speech_below_energy_threshold(monkeypatch) -> None:
+    class _AlwaysSpeech:
+        def is_speech(self, data):
+            return True
+
+    monkeypatch.setattr(
+        "openjarvis.speech.voice_io._auto_vad",
+        lambda: _AlwaysSpeech(),
+    )
+    quiet = struct.pack("1024h", *([100] * 1024))  # below the 500 RMS threshold
+    stream = _FakeStream([quiet] * 30)
+    _install_audio(monkeypatch, stream)
+
+    record_until_silence(
+        sample_rate=1024,
+        silence_seconds=2,
+        startup_silence_seconds=1,
+        max_seconds=30,
+    )
+
+    # RMS alone would stop after the startup window; the VAD keeps the
+    # utterance open so every frame is consumed (never silent).
+    assert stream.reads == 30
 
 
 # -- barge-in (speak over Jarvis to interrupt him) ---------------------------
@@ -93,6 +120,18 @@ def test_monitor_resets_counter_on_silence() -> None:
     monitor._register_energy(_loud_chunk())
     monitor._register_energy(_quiet_chunk())
     assert monitor._register_energy(_loud_chunk()) is False
+
+
+def test_monitor_uses_vad_for_soft_speech() -> None:
+    class _AlwaysSpeech:
+        def is_speech(self, chunk):
+            return True
+
+    monitor = BargeInMonitor(sustained_chunks=3, vad=_AlwaysSpeech())
+    assert monitor._register_energy(_quiet_chunk()) is False
+    assert monitor._register_energy(_quiet_chunk()) is False
+    # RMS stays silent, but the VAD hears speech → the trigger latches.
+    assert monitor._register_energy(_quiet_chunk()) is True
 
 
 def test_play_loop_returns_false_when_interrupted() -> None:

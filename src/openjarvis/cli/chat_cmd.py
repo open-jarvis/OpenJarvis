@@ -382,6 +382,122 @@ def _handle_remember(
         console.print("[yellow]Could not persist the memory fact.[/yellow]")
 
 
+def _stream_llm_reply(
+    engine: Any,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    prompt: str,
+    model: str,
+    engine_kwargs: dict,
+) -> None:
+    """Stream an LLM reply for *prompt*, printing and speaking it."""
+    speaker: Optional[SentenceSpeaker] = None
+    if voice_session is not None and not voice_session.voice_muted:
+        speaker = SentenceSpeaker(voice_session, console)
+    try:
+        for token in _stream_reply_tokens(
+            engine,
+            [Message(role=Role.USER, content=prompt)],
+            model=model,
+            **engine_kwargs,
+        ):
+            console.print(token, end="", markup=False)
+            if speaker is not None:
+                speaker.feed(token)
+        if speaker is not None:
+            speaker.flush()
+    except KeyboardInterrupt:
+        console.print("\n[dim]Generation interrupted.[/dim]")
+        return
+    except Exception as exc:
+        console.print(f"\n[red]Error: {exc}[/red]\n")
+        return
+    console.print()
+
+
+_LANG_ALIASES = {
+    "fr": "français",
+    "en": "anglais",
+    "es": "espagnol",
+    "de": "allemand",
+    "it": "italien",
+    "pt": "portugais",
+    "ar": "arabe",
+}
+
+
+def _run_translate(
+    engine: Any,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    spec: str,
+    model: str,
+    engine_kwargs: dict,
+) -> None:
+    """Translate text locally (the ``/translate`` command)."""
+    parts = spec.split(maxsplit=1)
+    target = "français"
+    text = spec
+    if parts and parts[0] in _LANG_ALIASES:
+        target = _LANG_ALIASES[parts[0]]
+        text = parts[1] if len(parts) > 1 else ""
+    if not text.strip():
+        console.print(
+            "[dim]Usage: /translate [fr|en|es|de|it|pt|ar] <texte>[/dim]"
+        )
+        return
+    prompt = (
+        f"Traduis le texte suivant en {target}. "
+        "Ne réponds qu'avec la traduction, sans commentaire.\n\n" + text
+    )
+    _stream_llm_reply(engine, console, voice_session, prompt, model, engine_kwargs)
+
+
+def _fetch_url_text(url: str, timeout: float = 15.0) -> str:
+    """Fetch a URL and strip HTML down to readable text."""
+    import html
+    import re
+
+    import httpx
+
+    response = httpx.get(url, timeout=timeout, follow_redirects=True)
+    response.raise_for_status()
+    text = response.text
+    text = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", text)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    return html.unescape(re.sub(r"\s+", " ", text)).strip()
+
+
+def _run_summarize(
+    engine: Any,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    spec: str,
+    model: str,
+    engine_kwargs: dict,
+) -> None:
+    """Summarize a web page locally (the ``/summarize`` command)."""
+    url = spec.strip()
+    if not url:
+        console.print("[dim]Usage: /summarize <url>[/dim]")
+        return
+    try:
+        page_text = _fetch_url_text(url)
+    except Exception as exc:
+        console.print(
+            f"[red]Could not fetch the page: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    if not page_text.strip():
+        console.print("[dim]No readable text found on that page.[/dim]")
+        return
+    prompt = (
+        "Résume en quelques phrases le contenu de la page web suivante. "
+        "Réponds en français.\n\n" + page_text[:8000]
+    )
+    _stream_llm_reply(engine, console, voice_session, prompt, model, engine_kwargs)
+
+
 @click.command()
 @click.option("-e", "--engine", "engine_key", default=None, help="Engine backend.")
 @click.option(
@@ -783,6 +899,8 @@ def chat(
                 "  /voice <id> | speed <x> | backend <id> — change the voice\n"
                 "  /save         — save this conversation to a file\n"
                 "  /remember     — summarize this conversation into memory\n"
+                "  /translate [lang] <text> — translate text locally\n"
+                "  /summarize <url> — summarize a web page locally\n"
                 "  /history      — show conversation\n"
                 "  /help         — this message"
             )
@@ -829,6 +947,26 @@ def chat(
                 engine_kwargs,
             )
             continue
+        elif cmd.startswith("/translate"):
+            _run_translate(
+                engine,
+                console,
+                voice_session,
+                user_input[len("/translate") :].strip(),
+                model,
+                engine_kwargs,
+            )
+            continue
+        elif cmd.startswith("/summarize"):
+            _run_summarize(
+                engine,
+                console,
+                voice_session,
+                user_input[len("/summarize") :].strip(),
+                model,
+                engine_kwargs,
+            )
+            continue
         elif cmd == "/history":
             if not history:
                 console.print("[dim]No history yet.[/dim]")
@@ -838,6 +976,40 @@ def chat(
                     role = role_str.upper()
                     console.print(f"[bold]{role}:[/bold] {msg.content[:200]}")
             continue
+
+        # Deterministic quick commands (no LLM): time, lock, open apps, volume.
+        # Matched before the engine so they answer instantly and offline.
+        if agent is None and _env_flag("JARVIS_QUICK_COMMANDS", True):
+            from openjarvis.speech.quick_commands import handle_quick_command
+
+            quick_reply = handle_quick_command(user_input)
+            if quick_reply is not None:
+                history.append(
+                    Message(
+                        role=Role.USER,
+                        content=user_input,
+                        metadata={"source": source},
+                    )
+                )
+                history.append(
+                    Message(role=Role.ASSISTANT, content=quick_reply)
+                )
+                console.print()
+                console.print(Markdown(quick_reply))
+                console.print()
+                if (
+                    voice_mode
+                    and voice_session is not None
+                    and not voice_session.voice_muted
+                ):
+                    speak(quick_reply, console, voice_session)
+                publish_completed_exchange(
+                    bus,
+                    user_input,
+                    quick_reply,
+                    source="cli.chat",
+                )
+                continue
 
         # Add user message (carries the utterance source for LLM comprehension)
         history.append(
