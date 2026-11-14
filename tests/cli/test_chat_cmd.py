@@ -593,6 +593,131 @@ class TestChatCommand:
         assert "Could not fetch the page" in result.output
         engine.stream_sync.assert_not_called()
 
+    def test_news_command_prints_headlines(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.headlines_for",
+                return_value=["Titre un", "Titre deux"],
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/news tech\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Titre un" in result.output
+        assert "Titre deux" in result.output
+        engine.stream_sync.assert_not_called()
+
+    def test_markets_command_prints_prices(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.crypto_prices",
+                return_value={"bitcoin": 61000.5},
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/marchés\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "bitcoin" in result.output
+        assert "61,000.50" in result.output
+
+    def test_convert_currency_command(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.currency_rate",
+                return_value=0.92,
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/convert 100 usd en eur\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "100 USD = 92.00 EUR" in result.output
+
+    def test_convert_units_command_is_local(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/convert 5 km en miles\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "5 km = 3.10685 miles" in result.output
+
+    def test_brief_command_composes_time_weather_news(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.weather_now",
+                return_value="Paris : ⛅ +8°C",
+            ),
+            patch(
+                "openjarvis.tools.net.headlines_for",
+                return_value=["À la une du jour"],
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/brief\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Il est " in result.output
+        assert "Météo : Paris : ⛅ +8°C" in result.output
+        assert "À la une du jour" in result.output
+
     def test_remember_stores_summary_fact(self) -> None:
         engine = MagicMock()
         engine.engine_id = "mock"

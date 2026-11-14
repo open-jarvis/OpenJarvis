@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import time
 from collections.abc import Iterator, Sequence
@@ -498,6 +499,149 @@ def _run_summarize(
     _stream_llm_reply(engine, console, voice_session, prompt, model, engine_kwargs)
 
 
+def _say(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    text: str,
+) -> None:
+    """Speak *text* aloud in voice mode (respecting the mute state)."""
+    if voice_session is not None and not voice_session.voice_muted:
+        speak(text, console, voice_session)
+
+
+def _handle_news(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    category: str,
+) -> None:
+    """Read RSS headlines (the ``/news`` command)."""
+    from openjarvis.tools.net import headlines_for
+
+    category = category.strip()
+    try:
+        headlines = headlines_for(category)
+    except Exception as exc:
+        console.print(
+            f"[red]News unavailable: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    if not headlines:
+        console.print("[dim]No headlines available right now.[/dim]")
+        return
+    lines = [f"[bold]Actualités[/bold] ([cyan]{category or 'général'}[/cyan]):"]
+    spoken = ["Voici les titres."]
+    for i, title in enumerate(headlines, 1):
+        lines.append(f"  {i}. {title}")
+        spoken.append(f"{i}. {title}")
+    console.print(Markdown("\n".join(lines)))
+    _say(console, voice_session, " ".join(spoken))
+
+
+def _handle_markets(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+) -> None:
+    """Show crypto prices (the ``/marchés`` command)."""
+    from openjarvis.tools.net import crypto_prices
+
+    try:
+        prices = crypto_prices()
+    except Exception as exc:
+        console.print(
+            f"[red]Market data unavailable: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    lines = ["[bold]Marchés[/bold]:"]
+    spoken = []
+    for name, price in prices.items():
+        lines.append(f"  {name}: {price:,.2f} EUR")
+        spoken.append(f"{name} : {price:,.2f} euros.")
+    console.print(Markdown("\n".join(lines)))
+    _say(console, voice_session, " ".join(spoken))
+
+
+def _handle_convert(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    spec: str,
+) -> None:
+    """Convert units or currencies (the ``/convert`` command)."""
+    from openjarvis.tools.net import convert_units, currency_rate
+
+    local = convert_units(spec)
+    if local:
+        console.print(Markdown(local))
+        _say(console, voice_session, local)
+        return
+    match = re.match(
+        r"^\s*([\d.,]+)\s*([A-Za-z]{3})\s+(?:en|to|vers)\s+([A-Za-z]{3})\s*$",
+        spec,
+    )
+    if match is None:
+        console.print(
+            "[dim]Usage: /convert 5 km en miles | "
+            "/convert 100 usd en eur[/dim]"
+        )
+        return
+    try:
+        amount = float(match.group(1).replace(",", "."))
+    except ValueError:
+        console.print("[red]Montant invalide.[/red]")
+        return
+    from_cur, to_cur = match.group(2).upper(), match.group(3).upper()
+    try:
+        rate = currency_rate(from_cur, to_cur)
+    except Exception as exc:
+        console.print(
+            f"[red]Conversion failed: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    text = f"{amount:g} {from_cur} = {amount * rate:,.2f} {to_cur}"
+    console.print(Markdown(text))
+    _say(console, voice_session, text)
+
+
+def _handle_briefing(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    config: Any,
+) -> None:
+    """Morning-style briefing: time + weather + headlines + memory facts."""
+    from openjarvis.speech.quick_commands import time_text
+    from openjarvis.tools.net import headlines_for, weather_now
+
+    parts = [f"**[Briefing]** {time_text()}"]
+    spoken = [time_text()]
+
+    try:
+        weather = weather_now()
+        parts.append(f"Météo : {weather}")
+        spoken.append(f"Météo : {weather}.")
+    except Exception as exc:
+        logger.debug("Briefing weather failed: %s", exc)
+
+    try:
+        headlines = headlines_for("", limit=3)
+        if headlines:
+            parts.append("À la une : " + " · ".join(headlines))
+            spoken.append("À la une : " + ". ".join(headlines))
+    except Exception as exc:
+        logger.debug("Briefing news failed: %s", exc)
+
+    try:
+        from openjarvis.memory.store import load_configured_facts
+
+        facts = [fact.text for fact in load_configured_facts(config)][-2:]
+        if facts:
+            parts.append("Pour mémoire : " + " · ".join(facts))
+            spoken.append("Pour mémoire : " + ". ".join(facts))
+    except Exception as exc:
+        logger.debug("Briefing memory failed: %s", exc)
+
+    console.print(Markdown("\n".join(parts)))
+    _say(console, voice_session, " ".join(spoken))
+
+
 @click.command()
 @click.option("-e", "--engine", "engine_key", default=None, help="Engine backend.")
 @click.option(
@@ -901,6 +1045,10 @@ def chat(
                 "  /remember     — summarize this conversation into memory\n"
                 "  /translate [lang] <text> — translate text locally\n"
                 "  /summarize <url> — summarize a web page locally\n"
+                "  /news [monde|tech|sport|economie|culture|science] — headlines\n"
+                "  /marchés      — crypto prices (EUR)\n"
+                "  /convert <x> <unité> en <unité> | <x> usd en eur\n"
+                "  /brief        — time + weather + headlines + memory\n"
                 "  /history      — show conversation\n"
                 "  /help         — this message"
             )
@@ -966,6 +1114,26 @@ def chat(
                 model,
                 engine_kwargs,
             )
+            continue
+        elif cmd.startswith("/news"):
+            _handle_news(
+                console,
+                voice_session,
+                user_input[len("/news") :].strip(),
+            )
+            continue
+        elif cmd == "/marchés" or cmd.startswith("/marchés "):
+            _handle_markets(console, voice_session)
+            continue
+        elif cmd.startswith("/convert"):
+            _handle_convert(
+                console,
+                voice_session,
+                user_input[len("/convert") :].strip(),
+            )
+            continue
+        elif cmd == "/brief" or cmd.startswith("/brief "):
+            _handle_briefing(console, voice_session, config)
             continue
         elif cmd == "/history":
             if not history:

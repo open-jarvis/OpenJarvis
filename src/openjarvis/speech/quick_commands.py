@@ -145,6 +145,11 @@ def _set_volume(level: str) -> str:
     return "Volume ajusté."
 
 
+def time_text() -> str:
+    """Return the current date/time in French (public helper)."""
+    return _french_time(time.localtime)
+
+
 def handle_quick_command(
     text: str,
     *,
@@ -187,4 +192,4 @@ def handle_quick_command(
     return None
 
 
-__all__ = ["handle_quick_command"]
+__all__ = ["handle_quick_command", "time_text"]
