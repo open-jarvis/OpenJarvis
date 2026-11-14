@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 import sys
-from typing import List, Optional
+import time
+from collections.abc import Iterator, Sequence
+from pathlib import Path
+from typing import Any, List, Optional
 
 import click
 from rich.console import Console
@@ -13,7 +18,15 @@ from rich.markup import escape
 
 from openjarvis.cli._runtime_panel import runtime_cli_options
 from openjarvis.cli._tool_names import resolve_tool_names
-from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, read_voice_input, speak
+from openjarvis.cli._voice_chat import (
+    SOURCE_TYPED,
+    VOICE_EXIT,
+    SentenceSpeaker,
+    VoiceSession,
+    _env_flag,
+    read_voice_input,
+    speak,
+)
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
@@ -35,6 +48,615 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
         return input(prompt)
     except (EOFError, KeyboardInterrupt):
         return None
+
+
+def _stream_reply_tokens(
+    engine: Any,
+    messages: Sequence[Message],
+    *,
+    model: str,
+    **engine_kwargs: Any,
+) -> Iterator[str]:
+    """Yield the assistant reply token by token, via the engine stream.
+
+    Prefers the engine's synchronous token stream (``stream_sync``) so the
+    first token arrives while the model is still generating — a faster
+    perceived response than waiting for the full completion. Falls back to the
+    blocking ``generate`` for engines without a native sync stream.
+    """
+    stream_sync = getattr(engine, "stream_sync", None)
+    if stream_sync is None:
+        result = engine.generate(messages, model=model, **engine_kwargs)
+        content = (
+            result.get("content", "") if isinstance(result, dict) else str(result)
+        )
+        if content:
+            yield content
+        return
+    tokens = stream_sync(messages, model=model, **engine_kwargs)
+    for token in tokens:
+        if token:
+            yield token
+
+
+def _run_vision_reply(
+    engine: Any,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    default_model: str,
+    spec: str,
+    engine_kwargs: dict,
+    config: Any,
+) -> None:
+    """Describe the screen / webcam / image file (the ``/see`` command).
+
+    ``spec`` selects the source: empty = screen, ``cam`` = webcam,
+    ``save[:path]`` = save the screenshot to a file, anything else = an image
+    file path. The captured image is attached to a fresh user message and the
+    model's description is streamed back (spoken sentence-by-sentence in
+    voice mode).
+    """
+    from openjarvis.tools.screen import (
+        capture_screen_b64,
+        capture_webcam_b64,
+        image_file_b64,
+        save_screen,
+    )
+
+    spec = spec.strip()
+    if spec.startswith("save"):
+        path_arg = spec[len("save") :].strip().lstrip(":").strip()
+        try:
+            saved = save_screen(path_arg or None)
+        except Exception as exc:
+            console.print(
+                f"[red]Screen capture failed: {_safe_rich_label(exc)}[/red]"
+            )
+            return
+        console.print(f"[dim]Screenshot saved to {saved}[/dim]")
+        return
+
+    try:
+        if not spec:
+            image_b64 = capture_screen_b64()
+            prompt = "Décris ce qui est affiché à l'écran."
+        elif spec == "cam":
+            image_b64 = capture_webcam_b64()
+            prompt = "Décris ce que la webcam voit."
+        else:
+            image_b64 = image_file_b64(spec)
+            prompt = "Décris cette image."
+    except Exception as exc:
+        console.print(
+            f"[red]Vision capture failed: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+
+    vision_model = (
+        os.environ.get("JARVIS_VISION_MODEL")
+        or getattr(config.intelligence, "vision_model", "")
+        or default_model
+    )
+    console.print(
+        f"[dim]Describing with {_safe_rich_label(vision_model)}…[/dim]"
+    )
+    speaker: Optional[SentenceSpeaker] = None
+    if voice_session is not None:
+        speaker = SentenceSpeaker(voice_session, console)
+    content = ""
+    try:
+        for token in _stream_reply_tokens(
+            engine,
+            [Message(role=Role.USER, content=prompt, images=[image_b64])],
+            model=vision_model,
+            **engine_kwargs,
+        ):
+            content += token
+            console.print(token, end="", markup=False)
+            if speaker is not None:
+                speaker.feed(token)
+        if speaker is not None:
+            speaker.flush()
+    except KeyboardInterrupt:
+        console.print("\n[dim]Generation interrupted.[/dim]")
+        return
+    except Exception as exc:
+        console.print(f"\n[red]Error: {exc}[/red]\n")
+        return
+    console.print()
+
+
+def _handle_read(console: Console) -> None:
+    """OCR the screen and print its text (the ``/read`` command)."""
+    from openjarvis.tools.ocr import screen_text
+
+    try:
+        text = screen_text()
+    except Exception as exc:
+        console.print(f"[red]OCR failed: {_safe_rich_label(exc)}[/red]")
+        return
+    if not text:
+        console.print("[dim]No text found on the screen.[/dim]")
+        return
+    console.print("[bold]Text on screen:[/bold]")
+    console.print(text)
+
+
+def _handle_speak(
+    text: str,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    config: Any,
+) -> None:
+    """Speak *text* aloud (the ``/speak`` command), even in muted voice mode."""
+    if not text:
+        console.print("[dim]Usage: /speak <text>[/dim]")
+        return
+    session = voice_session if voice_session is not None else VoiceSession(config)
+    speak(text, console, session)
+
+
+def _handle_shutup(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+) -> None:
+    """Toggle spoken replies (the ``/shutup`` command)."""
+    if voice_session is None:
+        console.print("[dim]Voice mode is off — nothing to mute.[/dim]")
+        return
+    muted = voice_session.toggle_mute()
+    console.print(
+        f"[dim]Voice replies {'muted' if muted else 'unmuted'}.[/dim]"
+    )
+
+
+def _handle_voice(
+    spec: str,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+) -> None:
+    """Change the TTS voice/speed/backend mid-session (the ``/voice`` command)."""
+    if voice_session is None:
+        console.print(
+            "[dim]Voice mode is off — start with --voice to control the "
+            "voice.[/dim]"
+        )
+        return
+    parts = spec.split()
+    if not parts:
+        console.print(
+            "[dim]Usage: /voice <voice_id> | /voice speed <float> | "
+            "/voice backend <id>[/dim]"
+        )
+        return
+    kwargs: dict = {}
+    if parts[0] == "speed" and len(parts) > 1:
+        try:
+            kwargs["speed"] = float(parts[1])
+        except ValueError:
+            console.print("[red]Invalid speed value.[/red]")
+            return
+    elif parts[0] == "backend" and len(parts) > 1:
+        kwargs["backend"] = parts[1]
+    else:
+        kwargs["voice_id"] = parts[0]
+    try:
+        summary = voice_session.override_voice(**kwargs)
+    except Exception as exc:
+        console.print(
+            f"[red]Could not change voice: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    console.print(f"[dim]Voice updated — {summary}[/dim]")
+
+
+def _transcript_path(config: Any) -> Path:
+    """Return the file path for a new session transcript."""
+    from openjarvis.core.paths import get_config_dir
+
+    directory = get_config_dir() / "sessions"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / f"chat_{time.strftime('%Y-%m-%d_%H%M%S')}.md"
+
+
+def _save_transcript(
+    history: Sequence[Message],
+    config: Any,
+) -> Optional[Path]:
+    """Save the conversation as Markdown; returns the path or ``None``.
+
+    Best-effort: a full transcript of only system messages (nothing said) is
+    skipped, and any write failure returns ``None`` without raising.
+    """
+    if not history or all(msg.role == Role.SYSTEM for msg in history):
+        return None
+    try:
+        path = _transcript_path(config)
+        lines = [
+            f"# OpenJarvis chat — {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+        ]
+        for msg in history:
+            role_str = msg.role if isinstance(msg.role, str) else msg.role.value
+            lines.append(f"## {role_str.upper()}")
+            lines.append(str(msg.content))
+            lines.append("")
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return path
+    except Exception as exc:
+        logger.debug("Failed to save session transcript: %s", exc)
+        return None
+
+
+def _handle_save(
+    history: Sequence[Message],
+    console: Console,
+    config: Any,
+) -> None:
+    """Write the current conversation to a Markdown file (``/save``)."""
+    path = _save_transcript(history, config)
+    if path is None:
+        console.print("[dim]Nothing to save yet.[/dim]")
+        return
+    console.print(f"[dim]Session saved to {path}[/dim]")
+
+
+def _summarize_session(
+    engine: Any,
+    history: Sequence[Message],
+    model: str,
+    engine_kwargs: dict,
+) -> str:
+    """Summarize the conversation into durable third-person facts."""
+    turns = [msg for msg in history if msg.role != Role.SYSTEM][-20:]
+    transcript = "\n".join(
+        f"{'Vous' if msg.role == Role.USER else 'Jarvis'}: "
+        f"{str(msg.content)[:500]}"
+        for msg in turns
+    )
+    prompt = (
+        "Résume cette conversation en 2 ou 3 phrases factuelles, à la "
+        "troisième personne, sur l'utilisateur (ses préférences, projets, "
+        "décisions). Ne répète pas d'instructions.\n\n" + transcript
+    )
+    parts: List[str] = []
+    for token in _stream_reply_tokens(
+        engine,
+        [Message(role=Role.USER, content=prompt)],
+        model=model,
+        **engine_kwargs,
+    ):
+        parts.append(token)
+    return "".join(parts).strip()
+
+
+def _store_summary_fact(
+    text: str,
+    memory_service: Any,
+    config: Any,
+) -> bool:
+    """Persist a summarized fact, via the service or the on-disk store."""
+    if memory_service is not None and hasattr(memory_service, "store_fact"):
+        return bool(memory_service.store_fact(text, source="manual"))
+    try:
+        from openjarvis.memory.store import TRUST_AUTO, create_fact_store
+
+        store = create_fact_store(
+            getattr(config.memory, "backend", "local"),
+            path=getattr(config.memory, "facts_path", None),
+            max_facts=getattr(config.memory, "max_facts", 1000),
+        )
+        return bool(
+            store.add_with_trust(text, source="manual", trust=TRUST_AUTO)
+        )
+    except Exception as exc:
+        logger.debug("Failed to persist memory fact: %s", exc)
+        return False
+
+
+def _handle_remember(
+    engine: Any,
+    history: Sequence[Message],
+    console: Console,
+    config: Any,
+    memory_service: Any,
+    model: str,
+    engine_kwargs: dict,
+) -> None:
+    """Summarize the conversation and store it in durable memory."""
+    if not any(msg.role == Role.USER for msg in history):
+        console.print("[dim]Nothing to remember yet.[/dim]")
+        return
+    try:
+        summary = _summarize_session(engine, history, model, engine_kwargs)
+    except Exception as exc:
+        console.print(
+            f"[red]Could not summarize: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    if not summary:
+        console.print("[dim]Nothing worth remembering.[/dim]")
+        return
+    if _store_summary_fact(summary, memory_service, config):
+        console.print(f"[dim]Remembered: {summary}[/dim]")
+    else:
+        console.print("[yellow]Could not persist the memory fact.[/yellow]")
+
+
+def _stream_llm_reply(
+    engine: Any,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    prompt: str,
+    model: str,
+    engine_kwargs: dict,
+) -> None:
+    """Stream an LLM reply for *prompt*, printing and speaking it."""
+    speaker: Optional[SentenceSpeaker] = None
+    if voice_session is not None and not voice_session.voice_muted:
+        speaker = SentenceSpeaker(voice_session, console)
+    try:
+        for token in _stream_reply_tokens(
+            engine,
+            [Message(role=Role.USER, content=prompt)],
+            model=model,
+            **engine_kwargs,
+        ):
+            console.print(token, end="", markup=False)
+            if speaker is not None:
+                speaker.feed(token)
+        if speaker is not None:
+            speaker.flush()
+    except KeyboardInterrupt:
+        console.print("\n[dim]Generation interrupted.[/dim]")
+        return
+    except Exception as exc:
+        console.print(f"\n[red]Error: {exc}[/red]\n")
+        return
+    console.print()
+
+
+_LANG_ALIASES = {
+    "fr": "français",
+    "en": "anglais",
+    "es": "espagnol",
+    "de": "allemand",
+    "it": "italien",
+    "pt": "portugais",
+    "ar": "arabe",
+}
+
+
+def _run_translate(
+    engine: Any,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    spec: str,
+    model: str,
+    engine_kwargs: dict,
+) -> None:
+    """Translate text locally (the ``/translate`` command)."""
+    parts = spec.split(maxsplit=1)
+    target = "français"
+    text = spec
+    if parts and parts[0] in _LANG_ALIASES:
+        target = _LANG_ALIASES[parts[0]]
+        text = parts[1] if len(parts) > 1 else ""
+    if not text.strip():
+        console.print(
+            "[dim]Usage: /translate [fr|en|es|de|it|pt|ar] <texte>[/dim]"
+        )
+        return
+    prompt = (
+        f"Traduis le texte suivant en {target}. "
+        "Ne réponds qu'avec la traduction, sans commentaire.\n\n" + text
+    )
+    _stream_llm_reply(engine, console, voice_session, prompt, model, engine_kwargs)
+
+
+def _fetch_url_text(url: str, timeout: float = 15.0) -> str:
+    """Fetch a URL and strip HTML down to readable text."""
+    import html
+    import re
+
+    import httpx
+
+    response = httpx.get(url, timeout=timeout, follow_redirects=True)
+    response.raise_for_status()
+    text = response.text
+    text = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", text)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    return html.unescape(re.sub(r"\s+", " ", text)).strip()
+
+
+def _run_summarize(
+    engine: Any,
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    spec: str,
+    model: str,
+    engine_kwargs: dict,
+) -> None:
+    """Summarize a web page locally (the ``/summarize`` command)."""
+    url = spec.strip()
+    if not url:
+        console.print("[dim]Usage: /summarize <url>[/dim]")
+        return
+    try:
+        page_text = _fetch_url_text(url)
+    except Exception as exc:
+        console.print(
+            f"[red]Could not fetch the page: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    if not page_text.strip():
+        console.print("[dim]No readable text found on that page.[/dim]")
+        return
+    prompt = (
+        "Résume en quelques phrases le contenu de la page web suivante. "
+        "Réponds en français.\n\n" + page_text[:8000]
+    )
+    _stream_llm_reply(engine, console, voice_session, prompt, model, engine_kwargs)
+
+
+def _say(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    text: str,
+) -> None:
+    """Speak *text* aloud in voice mode (respecting the mute state)."""
+    if voice_session is not None and not voice_session.voice_muted:
+        speak(text, console, voice_session)
+
+
+def _handle_news(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    category: str,
+) -> None:
+    """Read RSS headlines (the ``/news`` command)."""
+    from openjarvis.tools.net import headlines_for
+
+    category = category.strip()
+    try:
+        headlines = headlines_for(category)
+    except Exception as exc:
+        console.print(
+            f"[red]News unavailable: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    if not headlines:
+        console.print("[dim]No headlines available right now.[/dim]")
+        return
+    lines = [f"[bold]Actualités[/bold] ([cyan]{category or 'général'}[/cyan]):"]
+    spoken = ["Voici les titres."]
+    for i, title in enumerate(headlines, 1):
+        lines.append(f"  {i}. {title}")
+        spoken.append(f"{i}. {title}")
+    console.print(Markdown("\n".join(lines)))
+    _say(console, voice_session, " ".join(spoken))
+
+
+def _handle_markets(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+) -> None:
+    """Show crypto prices (the ``/marchés`` command)."""
+    from openjarvis.tools.net import crypto_prices
+
+    try:
+        prices = crypto_prices()
+    except Exception as exc:
+        console.print(
+            f"[red]Market data unavailable: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    lines = ["[bold]Marchés[/bold]:"]
+    spoken = []
+    for name, price in prices.items():
+        lines.append(f"  {name}: {price:,.2f} EUR")
+        spoken.append(f"{name} : {price:,.2f} euros.")
+    console.print(Markdown("\n".join(lines)))
+    _say(console, voice_session, " ".join(spoken))
+
+
+def _handle_convert(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    spec: str,
+) -> None:
+    """Convert units or currencies (the ``/convert`` command)."""
+    from openjarvis.tools.net import convert_units, currency_rate
+
+    local = convert_units(spec)
+    if local:
+        console.print(Markdown(local))
+        _say(console, voice_session, local)
+        return
+    match = re.match(
+        r"^\s*([\d.,]+)\s*([A-Za-z]{3})\s+(?:en|to|vers)\s+([A-Za-z]{3})\s*$",
+        spec,
+    )
+    if match is None:
+        console.print(
+            "[dim]Usage: /convert 5 km en miles | "
+            "/convert 100 usd en eur[/dim]"
+        )
+        return
+    try:
+        amount = float(match.group(1).replace(",", "."))
+    except ValueError:
+        console.print("[red]Montant invalide.[/red]")
+        return
+    from_cur, to_cur = match.group(2).upper(), match.group(3).upper()
+    try:
+        rate = currency_rate(from_cur, to_cur)
+    except Exception as exc:
+        console.print(
+            f"[red]Conversion failed: {_safe_rich_label(exc)}[/red]"
+        )
+        return
+    text = f"{amount:g} {from_cur} = {amount * rate:,.2f} {to_cur}"
+    console.print(Markdown(text))
+    _say(console, voice_session, text)
+
+
+def _handle_city_time(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    city: str,
+) -> None:
+    """Show the current time in another city (the ``/heure`` command)."""
+    from openjarvis.tools.net import city_time
+
+    try:
+        text = city_time(city)
+    except Exception as exc:
+        console.print(f"[red]{_safe_rich_label(exc)}[/red]")
+        return
+    console.print(Markdown(text))
+    _say(console, voice_session, text)
+
+
+def _handle_briefing(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    config: Any,
+) -> None:
+    """Morning-style briefing: time + weather + headlines + memory facts."""
+    from openjarvis.speech.quick_commands import time_text
+    from openjarvis.tools.net import headlines_for, weather_now
+
+    parts = [f"**[Briefing]** {time_text()}"]
+    spoken = [time_text()]
+
+    try:
+        weather = weather_now()
+        parts.append(f"Météo : {weather}")
+        spoken.append(f"Météo : {weather}.")
+    except Exception as exc:
+        logger.debug("Briefing weather failed: %s", exc)
+
+    try:
+        headlines = headlines_for("", limit=3)
+        if headlines:
+            parts.append("À la une : " + " · ".join(headlines))
+            spoken.append("À la une : " + ". ".join(headlines))
+    except Exception as exc:
+        logger.debug("Briefing news failed: %s", exc)
+
+    try:
+        from openjarvis.memory.store import load_configured_facts
+
+        facts = [fact.text for fact in load_configured_facts(config)][-2:]
+        if facts:
+            parts.append("Pour mémoire : " + " · ".join(facts))
+            spoken.append("Pour mémoire : " + ". ".join(facts))
+    except Exception as exc:
+        logger.debug("Briefing memory failed: %s", exc)
+
+    console.print(Markdown("\n".join(parts)))
+    _say(console, voice_session, " ".join(spoken))
 
 
 @click.command()
@@ -347,6 +969,19 @@ def chat(
 
         memory_backend = _get_memory_backend(config)
 
+    # Semantic memory: rank facts by local embedding similarity (Ollama
+    # /api/embed). Optional — built once per session, falls back to recency.
+    semantic_ranker = None
+    if getattr(config.memory, "semantic_enabled", False):
+        try:
+            from openjarvis.tools.storage.semantic import build_semantic_ranker
+
+            semantic_ranker = build_semantic_ranker(config)
+            if semantic_ranker is not None:
+                console.print("[dim]  Memory: semantic recall ON[/dim]")
+        except Exception as exc:
+            logger.debug("Failed to build semantic ranker: %s", exc)
+
     # Conversation state
     if not system_prompt:
         from openjarvis.prompt.builder import SystemPromptBuilder
@@ -367,6 +1002,7 @@ def chat(
         for note in _notifications.diff(get_status()):
             console.print(f"[dim cyan]{note}[/dim cyan]")
 
+        source: str = SOURCE_TYPED
         if voice_mode:
             assert voice_session is not None
             result = read_voice_input(console, voice_session)
@@ -375,7 +1011,7 @@ def chat(
                 break
             if result is None:
                 continue  # nothing heard, loop again
-            user_input = result
+            user_input, source = result
         else:
             user_input = _read_input()
             if user_input is None:
@@ -416,9 +1052,113 @@ def chat(
                 "  /clear        — clear conversation\n"
                 "  /model        — show model info\n"
                 "  /runtime      — Ollama context + GPU offload for this session\n"
+                "  /see [cam|file|save[:path]] — describe the screen / webcam / "
+                "an image, or save a screenshot\n"
+                "  /read         — OCR the text on the screen (Tesseract)\n"
+                "  /speak <text> — read text aloud\n"
+                "  /shutup       — mute/unmute spoken replies\n"
+                "  /voice <id> | speed <x> | backend <id> — change the voice\n"
+                "  /save         — save this conversation to a file\n"
+                "  /remember     — summarize this conversation into memory\n"
+                "  /translate [lang] <text> — translate text locally\n"
+                "  /summarize <url> — summarize a web page locally\n"
+                "  /news [monde|tech|sport|economie|culture|science] — headlines\n"
+                "  /marchés      — crypto prices (EUR)\n"
+                "  /convert <x> <unité> en <unité> | <x> usd en eur\n"
+                "  /heure <ville> — local time in another city\n"
+                "  /brief        — time + weather + headlines + memory\n"
                 "  /history      — show conversation\n"
                 "  /help         — this message"
             )
+            continue
+        elif cmd == "/see" or cmd.startswith("/see "):
+            _run_vision_reply(
+                engine,
+                console,
+                voice_session,
+                model,
+                user_input[len("/see") :].strip(),
+                engine_kwargs,
+                config,
+            )
+            continue
+        elif cmd == "/read" or cmd.startswith("/read "):
+            _handle_read(console)
+            continue
+        elif cmd.startswith("/speak"):
+            _handle_speak(
+                user_input[len("/speak") :].strip(),
+                console,
+                voice_session,
+                config,
+            )
+            continue
+        elif cmd == "/shutup":
+            _handle_shutup(console, voice_session)
+            continue
+        elif cmd.startswith("/voice"):
+            _handle_voice(user_input[len("/voice") :].strip(), console, voice_session)
+            continue
+        elif cmd == "/save":
+            _handle_save(history, console, config)
+            continue
+        elif cmd == "/remember":
+            _handle_remember(
+                engine,
+                history,
+                console,
+                config,
+                memory_service,
+                model,
+                engine_kwargs,
+            )
+            continue
+        elif cmd.startswith("/translate"):
+            _run_translate(
+                engine,
+                console,
+                voice_session,
+                user_input[len("/translate") :].strip(),
+                model,
+                engine_kwargs,
+            )
+            continue
+        elif cmd.startswith("/summarize"):
+            _run_summarize(
+                engine,
+                console,
+                voice_session,
+                user_input[len("/summarize") :].strip(),
+                model,
+                engine_kwargs,
+            )
+            continue
+        elif cmd.startswith("/news"):
+            _handle_news(
+                console,
+                voice_session,
+                user_input[len("/news") :].strip(),
+            )
+            continue
+        elif cmd == "/marchés" or cmd.startswith("/marchés "):
+            _handle_markets(console, voice_session)
+            continue
+        elif cmd.startswith("/convert"):
+            _handle_convert(
+                console,
+                voice_session,
+                user_input[len("/convert") :].strip(),
+            )
+            continue
+        elif cmd.startswith("/heure"):
+            _handle_city_time(
+                console,
+                voice_session,
+                user_input[len("/heure") :].strip(),
+            )
+            continue
+        elif cmd == "/brief" or cmd.startswith("/brief "):
+            _handle_briefing(console, voice_session, config)
             continue
         elif cmd == "/history":
             if not history:
@@ -430,8 +1170,44 @@ def chat(
                     console.print(f"[bold]{role}:[/bold] {msg.content[:200]}")
             continue
 
-        # Add user message
-        history.append(Message(role=Role.USER, content=user_input))
+        # Deterministic quick commands (no LLM): time, lock, open apps, volume.
+        # Matched before the engine so they answer instantly and offline.
+        if agent is None and _env_flag("JARVIS_QUICK_COMMANDS", True):
+            from openjarvis.speech.quick_commands import handle_quick_command
+
+            quick_reply = handle_quick_command(user_input)
+            if quick_reply is not None:
+                history.append(
+                    Message(
+                        role=Role.USER,
+                        content=user_input,
+                        metadata={"source": source},
+                    )
+                )
+                history.append(
+                    Message(role=Role.ASSISTANT, content=quick_reply)
+                )
+                console.print()
+                console.print(Markdown(quick_reply))
+                console.print()
+                if (
+                    voice_mode
+                    and voice_session is not None
+                    and not voice_session.voice_muted
+                ):
+                    speak(quick_reply, console, voice_session)
+                publish_completed_exchange(
+                    bus,
+                    user_input,
+                    quick_reply,
+                    source="cli.chat",
+                )
+                continue
+
+        # Add user message (carries the utterance source for LLM comprehension)
+        history.append(
+            Message(role=Role.USER, content=user_input, metadata={"source": source})
+        )
 
         generation_history = history
         agent_context_message = None
@@ -458,6 +1234,7 @@ def chat(
                     memory_backend,
                     config=ctx_cfg,
                     facts=facts,
+                    ranker=semantic_ranker,
                 )
                 if agent is not None:
                     if context_messages:
@@ -468,6 +1245,7 @@ def chat(
                 logger.debug("Failed to inject memory context", exc_info=True)
 
         # Generate response even when optional memory context is unavailable.
+        streamed_reply = False
         try:
             if agent is not None:
                 from openjarvis.agents._stubs import AgentContext
@@ -483,24 +1261,72 @@ def chat(
                     response.content if hasattr(response, "content") else str(response)
                 )
             else:
-                result = engine.generate(
-                    generation_history,
-                    model=model,
-                    **engine_kwargs,
-                )
-                content = (
-                    result.get("content", "")
-                    if isinstance(result, dict)
-                    else str(result)
-                )
+                monitor: Any = None
+                speaker: Optional[SentenceSpeaker] = None
+                if voice_mode:
+                    assert voice_session is not None
+                    # Barge-in: watch the mic while Jarvis speaks so the user
+                    # can interrupt the reply by starting to talk.
+                    if _env_flag(
+                        "JARVIS_BARGE_IN", getattr(config.speech, "barge_in", True)
+                    ):
+                        from openjarvis.speech.voice_io import BargeInMonitor
+
+                        monitor = BargeInMonitor()
+                        monitor.start()
+                    if not voice_session.voice_muted:
+                        # Speak sentence-by-sentence while the model keeps
+                        # generating, so the voice reply starts as soon as the
+                        # first sentence is complete (instead of after the
+                        # full answer).
+                        speaker = SentenceSpeaker(
+                            voice_session,
+                            console,
+                            interrupt_check=monitor.consume if monitor else None,
+                        )
+                content = ""
+                barge_interrupted = False
+                try:
+                    for token in _stream_reply_tokens(
+                        engine,
+                        generation_history,
+                        model=model,
+                        **engine_kwargs,
+                    ):
+                        content += token
+                        # Stream the reply token by token so the user sees the
+                        # answer start arriving immediately instead of waiting
+                        # for the full completion.
+                        console.print(token, end="", markup=False)
+                        if speaker is not None:
+                            speaker.feed(token)
+                            if speaker.interrupted:
+                                barge_interrupted = True
+                                break
+                    if speaker is not None and not barge_interrupted:
+                        speaker.flush()
+                finally:
+                    if monitor is not None:
+                        monitor.stop()
+                if barge_interrupted:
+                    console.print("\n[dim]Interrupted by speech.[/dim]")
+                    continue
+                streamed_reply = True
 
             history.append(Message(role=Role.ASSISTANT, content=content))
-            console.print()
-            console.print(Markdown(content))
-            console.print()
+            if streamed_reply:
+                # Tokens were already streamed to the terminal; just
+                # terminate the line.
+                console.print()
+            else:
+                console.print()
+                console.print(Markdown(content))
+                console.print()
             if voice_mode:
                 assert voice_session is not None
-                speak(content, console, voice_session)
+                if not streamed_reply and not voice_session.voice_muted:
+                    # Agent replies arrive whole — speak them in one go.
+                    speak(content, console, voice_session)
 
             publish_completed_exchange(
                 bus,
@@ -515,6 +1341,31 @@ def chat(
 
     if memory_service is not None:
         memory_service.stop()
+
+    # Auto-save the session transcript (Markdown under <config-dir>/sessions/).
+    # Disable with JARVIS_SAVE_SESSIONS=0; /save writes it on demand.
+    if _env_flag("JARVIS_SAVE_SESSIONS", True):
+        saved = _save_transcript(history, config)
+        if saved is not None:
+            console.print(f"[dim]Session saved to {saved}[/dim]")
+
+    # Auto-summary → durable memory on exit (opt-in: JARVIS_REMEMBER_SESSION=1,
+    # or use /remember on demand).
+    if _env_flag("JARVIS_REMEMBER_SESSION", False):
+        try:
+            if any(msg.role == Role.USER for msg in history):
+                console.print("[dim]Remembering session…[/dim]")
+                _handle_remember(
+                    engine,
+                    history,
+                    console,
+                    config,
+                    memory_service,
+                    model,
+                    engine_kwargs,
+                )
+        except Exception as exc:
+            logger.debug("Auto-remember failed: %s", exc)
 
 
 __all__ = ["chat"]

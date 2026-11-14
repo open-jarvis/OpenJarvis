@@ -221,3 +221,77 @@ class TestOpenBrowser:
             open_browser(self.OAUTH_URL)
 
         browser_open.assert_called_once_with(self.OAUTH_URL)
+
+
+class TestStrftimeUnpadded:
+    """The glibc-only ``%-`` flag must work on Windows too (no ValueError)."""
+
+    def test_unpadded_day_and_hour(self) -> None:
+        from datetime import datetime
+
+        from openjarvis.core.utils import strftime_unpadded
+
+        dt = datetime(2026, 3, 5, 9, 7)
+        assert strftime_unpadded(dt, "%B %-d, %-I:%M %p") == "March 5, 9:07 AM"
+
+    def test_padded_tokens_are_unchanged(self) -> None:
+        from datetime import datetime
+
+        from openjarvis.core.utils import strftime_unpadded
+
+        dt = datetime(2026, 3, 5, 9, 7)
+        assert strftime_unpadded(dt, "%Y-%m-%d %H:%M") == "2026-03-05 09:07"
+
+    def test_non_datetime_falls_back_to_str(self) -> None:
+        from openjarvis.core.utils import strftime_unpadded
+
+        assert strftime_unpadded("2026-03-05", "%B %-d") == "2026-03-05"
+
+
+class TestUnpaddedFormattingCallers:
+    """Regression: calendar/digest formatting raised on Windows."""
+
+    def test_apple_calendar_date_format(self) -> None:
+        from datetime import datetime
+
+        from openjarvis.core.utils import strftime_unpadded
+
+        dt = datetime(2026, 3, 5, 9, 7)
+        text = strftime_unpadded(dt, "%A, %B %-d %Y at %-I:%M %p")
+        assert text == "Thursday, March 5 2026 at 9:07 AM"
+
+    def test_digest_formatters(self) -> None:
+        from datetime import datetime
+
+        from openjarvis.tools.digest_collect import _format_date, _format_time
+
+        dt = datetime(2026, 4, 1, 10, 30)
+        assert _format_date(dt) == "April 1"
+        assert _format_time(dt) == "10:30 AM"
+
+
+class TestGetPythonExecutable:
+    """The helper must return an interpreter that actually runs code."""
+
+    def test_prefers_the_running_interpreter(self) -> None:
+        import sys
+
+        from openjarvis.core.utils import get_python_executable
+
+        assert get_python_executable() == sys.executable
+
+    def test_frozen_bundle_skips_the_windows_store_alias(self, monkeypatch) -> None:
+        """shutil.which("python3") may be the 9009-exiting Store stub."""
+        import sys
+
+        from openjarvis.core.utils import get_python_executable
+
+        alias = r"C:\Users\x\AppData\Local\Microsoft\WindowsApps\python3.EXE"
+        real = r"C:\Python312\python.exe"
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(
+            "openjarvis.core.utils.shutil.which",
+            lambda name: {"python3": alias, "python": real}.get(name),
+        )
+
+        assert get_python_executable() == real

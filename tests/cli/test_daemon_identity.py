@@ -13,6 +13,15 @@ from click.testing import CliRunner
 from openjarvis.cli import daemon_cmd
 
 
+def _posix(path) -> str:
+    """Render a path with forward slashes.
+
+    WindowsPath turns "/proc/x" into "\\proc\\x", but the simulated procfs
+    paths are POSIX strings, so both sides must be normalised.
+    """
+    return str(path).replace("\\", "/")
+
+
 @pytest.fixture
 def linux_process(tmp_path, monkeypatch):
     """Provide deterministic procfs data while using real registration files."""
@@ -31,10 +40,10 @@ def linux_process(tmp_path, monkeypatch):
     read_bytes = Path.read_bytes
 
     def proc_text(path, *args, **kwargs):
-        if str(path).startswith("/proc/"):
+        if _posix(path).startswith("/proc/"):
             if not process["readable"]:
                 raise PermissionError("procfs unavailable")
-            if str(path) == "/proc/sys/kernel/random/boot_id":
+            if _posix(path) == "/proc/sys/kernel/random/boot_id":
                 return process["boot_id"] + "\n"
             if path.name == "stat" and path.parent.name.isdecimal():
                 pid = int(path.parent.name)
@@ -45,7 +54,7 @@ def linux_process(tmp_path, monkeypatch):
         return read_text(path, *args, **kwargs)
 
     def proc_bytes(path, *args, **kwargs):
-        if str(path).startswith("/proc/"):
+        if _posix(path).startswith("/proc/"):
             if not process["readable"]:
                 raise PermissionError("procfs unavailable")
             assert path.name == "cmdline"
@@ -197,7 +206,7 @@ def test_legacy_migration_rechecks_identity_after_reading_command(
 
     def recycled_after_read(path, *args, **kwargs):
         result = read_bytes(path, *args, **kwargs)
-        if str(path) == "/proc/4321/cmdline":
+        if _posix(path) == "/proc/4321/cmdline":
             linux_process["starts"][4321] += 1
         return result
 

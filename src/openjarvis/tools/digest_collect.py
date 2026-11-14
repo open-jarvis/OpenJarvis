@@ -11,6 +11,7 @@ from typing import Any, Dict, List
 from openjarvis.connectors._stubs import Document
 from openjarvis.core.registry import ConnectorRegistry, ToolRegistry
 from openjarvis.core.types import ToolResult
+from openjarvis.core.utils import strftime_unpadded
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 # ---------------------------------------------------------------------------
@@ -79,12 +80,12 @@ def _time_ago(ts: datetime) -> str:
 
 def _format_date(ts: datetime) -> str:
     """Format a datetime as 'April 1' style."""
-    return ts.strftime("%B %-d") if hasattr(ts, "strftime") else str(ts)
+    return strftime_unpadded(ts, "%B %-d")
 
 
 def _format_time(ts: datetime) -> str:
     """Format a datetime as '10:30 AM' style."""
-    return ts.strftime("%-I:%M %p") if hasattr(ts, "strftime") else str(ts)
+    return strftime_unpadded(ts, "%-I:%M %p")
 
 
 def _parse_content_json(doc: Document) -> Dict[str, Any]:

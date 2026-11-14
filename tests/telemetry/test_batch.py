@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Generator
@@ -131,6 +132,9 @@ class TestEnergyBatchNoMonitor:
         batch = EnergyBatch()
         with batch.sample() as ctx:
             ctx.record_request(tokens=1000)
+            # Windows' monotonic clock ticks at ~15.6 ms; a request recorded
+            # and exited within one tick yields elapsed == 0 and no throughput.
+            time.sleep(0.03)
 
         assert batch.metrics is not None
         assert batch.metrics.mean_throughput_tok_per_sec > 0

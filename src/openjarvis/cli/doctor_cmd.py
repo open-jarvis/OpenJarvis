@@ -320,6 +320,46 @@ def _check_security_profile() -> CheckResult:
         )
 
 
+def _check_wake_word() -> CheckResult:
+    """Report wake-word voice activation status."""
+    try:
+        config = _get_config()
+        wake_word = getattr(config.speech, "wake_word", "jarvis")
+        enabled = getattr(config.speech, "wake_word_enabled", True)
+        if not enabled:
+            return CheckResult(
+                name="Wake word",
+                status="warn",
+                message=f"Disabled (wake_word = '{wake_word}')",
+                details=(
+                    "Enable with speech.wake_word_enabled = true in config.toml."
+                ),
+            )
+        audio_detail = ""
+        if getattr(config.speech, "audio_wake_word", True):
+            from openjarvis.speech.audio_wake import unavailable_reason
+
+            reason = unavailable_reason()
+            if reason is not None:
+                audio_detail = (
+                    f" Audio wake word (openWakeWord) unavailable: {reason}"
+                )
+            else:
+                audio_detail = " Audio wake word (openWakeWord) available."
+        return CheckResult(
+            name="Wake word",
+            status="ok",
+            message=f"'{wake_word}' enabled",
+            details=audio_detail or None,
+        )
+    except Exception as exc:
+        return CheckResult(
+            name="Wake word",
+            status="warn",
+            message=f"Could not check: {exc}",
+        )
+
+
 def _check_nodejs() -> CheckResult:
     """Check Node.js version for Node-backed integrations."""
     node_path = shutil.which("node")
@@ -379,6 +419,7 @@ def _run_all_checks() -> List[CheckResult]:
     checks.append(_check_default_model(engine_probes))
     checks.extend(_check_optional_deps())
     checks.append(_check_speech_backend())
+    checks.append(_check_wake_word())
     checks.append(_check_nodejs())
     checks.append(_check_security_profile())
     return checks

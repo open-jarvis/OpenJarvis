@@ -76,11 +76,11 @@ class EnergyBenchmark(BaseBenchmark):
             energy_method = getattr(energy_monitor, "energy_method", lambda: "")()
 
             for _ in range(num_samples):
-                t0 = time.time()
+                t0 = time.perf_counter()
                 try:
                     with energy_monitor.sample() as sample:
                         result = engine.generate(messages, model=model)
-                    elapsed = time.time() - t0
+                    elapsed = time.perf_counter() - t0
 
                     usage = result.get("usage", {})
                     tokens = usage.get("completion_tokens", 0)
@@ -110,10 +110,10 @@ class EnergyBenchmark(BaseBenchmark):
             ss_result = detector.result
         else:
             for _ in range(num_samples):
-                t0 = time.time()
+                t0 = time.perf_counter()
                 try:
                     result = engine.generate(messages, model=model)
-                    elapsed = time.time() - t0
+                    elapsed = time.perf_counter() - t0
 
                     usage = result.get("usage", {})
                     tokens = usage.get("completion_tokens", 0)

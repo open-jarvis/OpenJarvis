@@ -63,6 +63,16 @@ def _make_engine(key: str, config: JarvisConfig) -> InferenceEngine:
             sampling=cfg.sampling,
         )
 
+    # ollama: carry the runtime defaults (keep_alive / num_ctx) from config so
+    # "lighter + faster" knobs are honored without env-var plumbing.
+    if key == "ollama":
+        cfg = config.engine.ollama
+        return cls(
+            host=cfg.host or None,
+            keep_alive=cfg.keep_alive or None,
+            num_ctx=cfg.num_ctx or None,
+        )
+
     host_attr = _HOST_MAP.get(key)
     if host_attr is not None:
         host = getattr(config.engine, host_attr, None)

@@ -21,10 +21,14 @@ OPENJARVIS_HOME="${OPENJARVIS_HOME:-$HOME/.openjarvis}"
 STATE_DIR="$OPENJARVIS_HOME/.state/models"
 mkdir -p "$STATE_DIR"
 
-DOWNLOADING="$STATE_DIR/${MODEL}.downloading"
-READY="$STATE_DIR/${MODEL}.ready"
-FAILED="$STATE_DIR/${MODEL}.failed"
-LOG="$STATE_DIR/${MODEL}.log"
+# ':' is illegal in Windows file names (it opens an NTFS alternate data
+# stream), so the stem is percent-encoded exactly like `_bg_state.encode_model_id`.
+MODEL_STEM="${MODEL//:/%3A}"
+
+DOWNLOADING="$STATE_DIR/${MODEL_STEM}.downloading"
+READY="$STATE_DIR/${MODEL_STEM}.ready"
+FAILED="$STATE_DIR/${MODEL_STEM}.failed"
+LOG="$STATE_DIR/${MODEL_STEM}.log"
 
 # Cleanup any prior state for this model.
 rm -f "$READY" "$FAILED"
