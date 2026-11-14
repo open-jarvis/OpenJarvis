@@ -290,3 +290,98 @@ class TestCheckNodejs:
         assert "Not found" in result.message
         assert result.details is not None
         assert "OpenClaw" not in result.details
+
+
+class TestRemoteEndpointsAreNotProbed:
+    """`jarvis doctor` must not call third-party APIs by default.
+
+    Engines default to remote endpoints -- `nim` ships
+    `https://integrate.api.nvidia.com` -- so probing every registered engine
+    sent a request to NVIDIA just for running a local diagnostic, and listed
+    their hosted catalogue as if it were available on this machine.
+    """
+
+    def _engine(self, host: str):
+        engine = MagicMock()
+        engine._host = host
+        engine.health.return_value = True
+        return engine
+
+    def test_a_remote_engine_is_not_health_checked(self):
+        from openjarvis.cli.doctor_cmd import _probe_engines
+
+        engine = self._engine("https://integrate.api.nvidia.com")
+        with (
+            patch(
+                "openjarvis.core.registry.EngineRegistry.keys",
+                return_value=["nim"],
+            ),
+            patch("openjarvis.engine._discovery._make_engine", return_value=engine),
+        ):
+            probes = _probe_engines()
+
+        engine.health.assert_not_called()
+        assert probes["nim"].skipped is True
+
+    def test_probe_remote_opts_back_in(self):
+        from openjarvis.cli.doctor_cmd import _probe_engines
+
+        engine = self._engine("https://integrate.api.nvidia.com")
+        with (
+            patch(
+                "openjarvis.core.registry.EngineRegistry.keys",
+                return_value=["nim"],
+            ),
+            patch("openjarvis.engine._discovery._make_engine", return_value=engine),
+        ):
+            probes = _probe_engines(probe_remote=True)
+
+        engine.health.assert_called_once()
+        assert probes["nim"].skipped is False
+
+    def test_a_local_engine_is_still_probed(self):
+        from openjarvis.cli.doctor_cmd import _probe_engines
+
+        engine = self._engine("http://localhost:11434")
+        with (
+            patch(
+                "openjarvis.core.registry.EngineRegistry.keys",
+                return_value=["ollama"],
+            ),
+            patch("openjarvis.engine._discovery._make_engine", return_value=engine),
+        ):
+            probes = _probe_engines()
+
+        engine.health.assert_called_once()
+        assert probes["ollama"].healthy is True
+
+
+class TestLocalEndpointDetection:
+    def test_loopback_and_local_names_count_as_local(self):
+        from openjarvis.cli.doctor_cmd import _is_local_endpoint
+
+        for host in (
+            "http://localhost:11434",
+            "http://127.0.0.1:8000",
+            "http://[::1]:8000",
+            "http://box.local:1234",
+        ):
+            engine = MagicMock()
+            engine._host = host
+            assert _is_local_endpoint(engine) is True, host
+
+    def test_a_public_api_is_not_local(self):
+        from openjarvis.cli.doctor_cmd import _is_local_endpoint
+
+        engine = MagicMock()
+        engine._host = "https://integrate.api.nvidia.com"
+        assert _is_local_endpoint(engine) is False
+
+    def test_an_unreadable_host_is_probed_rather_than_skipped(self):
+        # Skipping on uncertainty would hide a broken local engine.
+        from openjarvis.cli.doctor_cmd import _is_local_endpoint
+
+        engine = MagicMock()
+        engine._host = None
+        engine.host = None
+        assert _is_local_endpoint(engine) is True

@@ -34,6 +34,7 @@ class _EngineProbe:
     engine: Any | None
     healthy: bool
     error: str | None = None
+    skipped: bool = False
 
 
 # -- Individual checks -------------------------------------------------------
@@ -89,8 +90,42 @@ def _get_config() -> Any:
         return JarvisConfig()
 
 
-def _probe_engines(config: Any | None = None) -> Dict[str, _EngineProbe]:
-    """Instantiate and health-check every engine once, concurrently."""
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]")
+
+
+def _is_local_endpoint(engine: Any) -> bool:
+    """Return True when the engine talks to this machine.
+
+    Engines default to remote endpoints (``nim`` ships
+    ``https://integrate.api.nvidia.com``), so probing every registered engine
+    reached third-party APIs just for running ``jarvis doctor``. Diagnostics
+    stay on-device unless the user asks otherwise with ``--probe-remote``.
+    """
+    host = getattr(engine, "_host", None) or getattr(engine, "host", None)
+    if not isinstance(host, str) or not host:
+        # Only skip when a remote hostname is positively identified; an
+        # unreadable host is probed as before.
+        return True
+    without_scheme = host.split("://", 1)[-1]
+    hostname = without_scheme.split("/", 1)[0].rsplit("@", 1)[-1]
+    if hostname.startswith("["):
+        # Bracketed IPv6, optionally followed by :port. Counting colons
+        # cannot separate the port here: "[::1]:8000" has three.
+        closing = hostname.find("]")
+        if closing != -1:
+            hostname = hostname[: closing + 1]
+    elif hostname.count(":") == 1:
+        hostname = hostname.rsplit(":", 1)[0]
+    return hostname in _LOCAL_HOSTS or hostname.endswith(".local")
+
+
+def _probe_engines(
+    config: Any | None = None, *, probe_remote: bool = False
+) -> Dict[str, _EngineProbe]:
+    """Instantiate and health-check every engine once, concurrently.
+
+    Remote endpoints are skipped unless *probe_remote* is set.
+    """
     _ensure_engines_imported()
 
     from openjarvis.core.registry import EngineRegistry
@@ -102,6 +137,8 @@ def _probe_engines(config: Any | None = None) -> Dict[str, _EngineProbe]:
     def probe(key: str) -> tuple[str, _EngineProbe]:
         try:
             engine = _discovery._make_engine(key, resolved_config)
+            if not probe_remote and not _is_local_endpoint(engine):
+                return key, _EngineProbe(engine=engine, healthy=False, skipped=True)
             return key, _EngineProbe(engine=engine, healthy=bool(engine.health()))
         except Exception as exc:
             return key, _EngineProbe(engine=None, healthy=False, error=str(exc))
@@ -121,7 +158,15 @@ def _check_engines(
     resolved_probes = probes if probes is not None else _probe_engines()
 
     for key, probe in resolved_probes.items():
-        if probe.healthy:
+        if probe.skipped:
+            results.append(
+                CheckResult(
+                    f"Engine: {key}",
+                    "info",
+                    "Remote endpoint — not probed (use --probe-remote)",
+                )
+            )
+        elif probe.healthy:
             results.append(CheckResult(f"Engine: {key}", "ok", "Reachable"))
         elif probe.error:
             results.append(
@@ -367,13 +412,13 @@ _STATUS_ICONS = {
 }
 
 
-def _run_all_checks() -> List[CheckResult]:
+def _run_all_checks(*, probe_remote: bool = False) -> List[CheckResult]:
     """Run all diagnostic checks and return results."""
     checks: List[CheckResult] = []
     checks.append(_check_python_version())
     checks.append(_check_config_exists())
     checks.append(_check_config_parses())
-    engine_probes = _probe_engines()
+    engine_probes = _probe_engines(probe_remote=probe_remote)
     checks.extend(_check_engines(engine_probes))
     checks.extend(_check_models(engine_probes))
     checks.append(_check_default_model(engine_probes))
@@ -391,9 +436,14 @@ def _results_to_dicts(checks: List[CheckResult]) -> List[Dict[str, Any]]:
 
 @click.command()
 @click.option("--json", "as_json", is_flag=True, help="Output results as JSON.")
-def doctor(as_json: bool) -> None:
+@click.option(
+    "--probe-remote",
+    is_flag=True,
+    help="Also health-check engines pointing at remote endpoints.",
+)
+def doctor(as_json: bool, probe_remote: bool) -> None:
     """Run diagnostic checks on your OpenJarvis installation."""
-    checks = _run_all_checks()
+    checks = _run_all_checks(probe_remote=probe_remote)
 
     if as_json:
         click.echo(json.dumps(_results_to_dicts(checks), indent=2))
