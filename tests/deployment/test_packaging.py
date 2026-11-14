@@ -29,7 +29,7 @@ CLAUDE_RUNNER = ROOT / "src" / "openjarvis" / "agents" / "claude_code_runner"
 
 
 def _pyproject() -> dict:
-    return tomllib.loads(PYPROJECT.read_text())
+    return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
 
 
 def test_openjarvis_rust_not_in_published_desktop_extra() -> None:
@@ -60,7 +60,7 @@ def test_openjarvis_rust_has_local_uv_path_source() -> None:
 
 def test_desktop_app_syncs_the_native_group() -> None:
     # Otherwise the group's openjarvis_rust is never installed for the app.
-    assert '"desktop-native"' in DESKTOP_LIB_RS.read_text(), (
+    assert '"desktop-native"' in DESKTOP_LIB_RS.read_text(encoding="utf-8"), (
         "the desktop app must `uv sync --group desktop-native` so the native "
         "extension is built at launch."
     )
@@ -70,7 +70,7 @@ def test_windows_installer_syncs_the_native_group() -> None:
     # The Windows source installer does not run maturin separately.
     assert (
         "& $uvExe sync --extra desktop --group desktop-native"
-        in WINDOWS_INSTALL_PS1.read_text()
+        in WINDOWS_INSTALL_PS1.read_text(encoding="utf-8")
     ), (
         "the Windows installer must include `--group desktop-native` so "
         "openjarvis_rust is built during source install."
@@ -89,7 +89,7 @@ def test_windows_installer_failure_does_not_exit_interactive_host() -> None:
 
 
 def test_quickstart_installs_web_search_dependencies() -> None:
-    quickstart = QUICKSTART_SH.read_text()
+    quickstart = QUICKSTART_SH.read_text(encoding="utf-8")
     assert "--extra tools-search" in quickstart
     assert "already running on port 8000" in quickstart
 
@@ -195,6 +195,6 @@ def test_sdist_omits_desktop_binaries_and_rebuilds_runtime_wheel(tmp_path) -> No
         else:
             for path in (project / source).rglob("*"):
                 if path.is_file():
-                    assert f"{destination}/{path.relative_to(project / source)}" in (
-                        wheel_files
-                    )
+                    # Wheel archive names always use forward slashes.
+                    relative = path.relative_to(project / source).as_posix()
+                    assert f"{destination}/{relative}" in wheel_files

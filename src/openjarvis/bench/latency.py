@@ -55,10 +55,10 @@ class LatencyBenchmark(BaseBenchmark):
         for i in range(num_samples):
             prompt = _CANNED_PROMPTS[i % len(_CANNED_PROMPTS)]
             messages = [Message(role=Role.USER, content=prompt)]
-            t0 = time.time()
+            t0 = time.perf_counter()
             try:
                 engine.generate(messages, model=model)
-                latencies.append(time.time() - t0)
+                latencies.append(time.perf_counter() - t0)
             except Exception as exc:
                 logger.debug("Measurement request failed: %s", exc)
                 errors += 1

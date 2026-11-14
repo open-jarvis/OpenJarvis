@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # Import the real module via importlib to patch its attributes.
 import importlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,17 @@ import pytest
 from click.testing import CliRunner
 
 from openjarvis.cli.model import model
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _flat_output(text: str) -> str:
+    """Flatten Rich panel output: drop styling and box borders, unwrap lines."""
+    text = _ANSI_RE.sub("", text)
+    for char in "\u2502\u2503\u2551":
+        text = text.replace(char, " ")
+    return " ".join(text.split())
+
 
 model_module = importlib.import_module("openjarvis.cli.model")
 
@@ -80,8 +92,9 @@ class TestModelConvert:
         assert Path(convert_calls[0][1]) != output_dir
         assert Path(convert_calls[0][1]).parent.parent == output_dir.parent
         assert (output_dir / "config.json").is_file()
-        assert "jarvis host" in result.output
-        assert "--backend mlx" in result.output
+        flat = _flat_output(result.output)
+        assert "jarvis host" in flat
+        assert "--backend mlx" in flat
 
     def test_convert_mlx_missing_extra(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -272,8 +285,9 @@ class TestModelConvert:
             "q4_k_m",
         ]
         assert (output_dir / "some--repo.q4_k_m.gguf").read_bytes() == b"quantized"
-        assert "jarvis host" in result.output
-        assert "--backend llamacpp" in result.output
+        flat = _flat_output(result.output)
+        assert "jarvis host" in flat
+        assert "--backend llamacpp" in flat
 
     def test_convert_gguf_missing_tool(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

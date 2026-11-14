@@ -10,8 +10,27 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional
+from urllib.parse import quote, unquote
 
 from openjarvis.core import config
+
+_MODEL_STATES = (".downloading", ".ready", ".failed")
+
+
+def encode_model_id(model_id: str) -> str:
+    """Encode a model id into a filesystem-safe stem.
+
+    Model ids contain characters Windows forbids in file names ('qwen3.5:9b'
+    would otherwise be written as an NTFS alternate data stream), so reserved
+    characters are percent-encoded. ``unquote`` reverses it and leaves legacy
+    on-disk names untouched.
+    """
+    return quote(model_id, safe=".-_")
+
+
+def decode_model_id(stem: str) -> str:
+    """Inverse of :func:`encode_model_id` (legacy names pass through)."""
+    return unquote(stem)
 
 
 @dataclass(slots=True)
@@ -69,9 +88,9 @@ def get_status(home: Optional[Path] = None) -> BgStatus:
         # First pass: capture every model id we see.
         seen: Dict[str, str] = {}
         for f in models_dir.iterdir():
-            if f.suffix not in (".downloading", ".ready", ".failed"):
+            if f.suffix not in _MODEL_STATES:
                 continue
-            model_id = f.name[: -len(f.suffix)]
+            model_id = decode_model_id(f.name[: -len(f.suffix)])
             new_state = f.suffix.lstrip(".")
             current = seen.get(model_id, "")
             # Precedence: ready > failed > downloading

@@ -8,6 +8,7 @@ templates must not allow command injection through parameter substitution.
 from __future__ import annotations
 
 import os
+import sys
 
 import pytest
 
@@ -16,6 +17,11 @@ from openjarvis.tools.templates.loader import (
     discover_templates,
     safe_eval_expr,
 )
+
+# Portable "echo": POSIX has an `echo` builtin but Windows has no echo.exe, so
+# the tests drive the interpreter directly. This keeps the security assertions
+# (no shell, no word-splitting) meaningful on every platform.
+ECHO_COMMAND = f'"{sys.executable}" -c "import sys; print(sys.argv[1])" {{msg}}'
 
 # Expressions that previously reached arbitrary code execution via the
 # sandbox escape, plus other dangerous constructs. All must raise.
@@ -74,7 +80,7 @@ def test_shell_action_neutralizes_injection(tmp_path) -> None:
     tmpl = ToolTemplate(
         {
             "name": "echoer",
-            "action": {"type": "shell", "command": "echo {msg}"},
+            "action": {"type": "shell", "command": ECHO_COMMAND},
         }
     )
     result = tmpl.execute(msg=f"hello; touch {marker}")
@@ -88,7 +94,7 @@ def test_shell_action_passes_values_as_single_argument() -> None:
     tmpl = ToolTemplate(
         {
             "name": "echoer",
-            "action": {"type": "shell", "command": "echo {msg}"},
+            "action": {"type": "shell", "command": ECHO_COMMAND},
         }
     )
     result = tmpl.execute(msg="a b c")
@@ -111,7 +117,7 @@ def test_shell_action_command_substitution_is_inert(tmp_path) -> None:
     tmpl = ToolTemplate(
         {
             "name": "echoer",
-            "action": {"type": "shell", "command": "echo {msg}"},
+            "action": {"type": "shell", "command": ECHO_COMMAND},
         }
     )
     tmpl.execute(msg=f"$(touch {marker})")

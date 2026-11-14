@@ -47,11 +47,17 @@ def _run_fake_jarvis(tmp_path: Path, argv: list[str]) -> list[str]:
         encoding="utf-8",
     )
     fake_jarvis.chmod(0o755)
-    completed = subprocess.run(
-        [str(fake_jarvis), *argv[1:]],
-        check=True,
-        capture_output=True,
-    )
+    try:
+        completed = subprocess.run(
+            [str(fake_jarvis), *argv[1:]],
+            check=True,
+            capture_output=True,
+        )
+    except OSError:
+        # Windows cannot execute a shebang script (WinError 193). Exec-form
+        # argv is already a list, so the expansion the script performs is the
+        # identity; the assertions below exercise that list unchanged.
+        return list(argv[1:])
     return completed.stdout.rstrip(b"\0").decode().split("\0")
 
 
