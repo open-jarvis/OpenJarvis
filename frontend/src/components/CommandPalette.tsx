@@ -80,6 +80,15 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
       { id: 'atlascloud/Qwen/Qwen3-235B-A22B-Instruct-2507', desc: 'Qwen3 235B via Atlas Cloud' },
     ],
   },
+  {
+    name: 'PopNow',
+    envKey: 'POPNOW_API_KEY',
+    models: [
+      { id: 'popnow/deepseek/v4-flash/chat', desc: 'DeepSeek V4 Flash via PopNow' },
+      { id: 'popnow/google/gemini-3.7-flash/chat', desc: 'Gemini 3.7 Flash via PopNow' },
+      { id: 'popnow/moonshot/kimi-k3/chat', desc: 'Kimi K3 via PopNow' },
+    ],
+  },
 ];
 
 type Tab = 'installed' | 'catalogue' | 'cloud';
