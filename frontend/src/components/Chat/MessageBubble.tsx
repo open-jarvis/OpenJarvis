@@ -33,6 +33,18 @@ function getTextContent(node: any): string {
   return '';
 }
 
+// Each block picks its own direction from its first strong character, so an
+// Arabic paragraph next to English text renders right-to-left with its
+// punctuation in place. Code blocks keep the default left-to-right.
+const AUTO_DIR_TAGS = ['p', 'li', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'th', 'td'] as const;
+
+const autoDirComponents = Object.fromEntries(
+  AUTO_DIR_TAGS.map((Tag) => [
+    Tag,
+    ({ node: _node, ...props }: any) => <Tag dir="auto" {...props} />,
+  ]),
+);
+
 function CodeBlockPre({ children, ...props }: any) {
   const [copied, setCopied] = useState(false);
   const codeElement = Array.isArray(children) ? children[0] : children;
@@ -121,6 +133,7 @@ export function MessageBubble({ message, isLive = false }: Props) {
     return (
       <div className="flex justify-end mb-4">
         <div
+          dir="auto"
           className="max-w-[85%] px-4 py-2.5 text-sm leading-relaxed"
           style={{
             background: 'var(--color-user-bubble)',
@@ -166,6 +179,7 @@ export function MessageBubble({ message, isLive = false }: Props) {
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={rehypePlugins}
             components={{
+              ...autoDirComponents,
               pre: CodeBlockPre,
             }}
           >
