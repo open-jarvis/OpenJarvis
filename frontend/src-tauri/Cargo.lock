@@ -59,15 +59,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
-name = "arbitrary"
-version = "1.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
-dependencies = [
- "derive_arbitrary",
-]
-
-[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -605,6 +596,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "constant_time_eq"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9eb6feb175df65d0a3ccd3e73484e940d0ac664e8034f0519fd49a93db3071d9"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "cookie"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -815,17 +815,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 dependencies = [
  "serde_core",
-]
-
-[[package]]
-name = "derive_arbitrary"
-version = "1.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.118",
 ]
 
 [[package]]
@@ -2344,9 +2333,9 @@ dependencies = [
 
 [[package]]
 name = "minisign-verify"
-version = "0.2.5"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22f9645cb765ea72b8111f36c522475d2daa0d22c957a9826437e97534bc4e9e"
+checksum = "871285dc19d8d0ebe0eef3d0e99a205f2a71363b122632cbbfa4a6c370a960ce"
 
 [[package]]
 name = "miniz_oxide"
@@ -2847,7 +2836,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tokio",
- "toml_edit 0.25.16+spec-1.1.0",
+ "toml_edit 0.25.18+spec-1.1.0",
 ]
 
 [[package]]
@@ -3161,7 +3150,7 @@ version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
 dependencies = [
- "toml_edit 0.25.16+spec-1.1.0",
+ "toml_edit 0.25.18+spec-1.1.0",
 ]
 
 [[package]]
@@ -3300,18 +3289,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
 dependencies = [
  "libc",
- "rand_chacha 0.3.1",
+ "rand_chacha",
  "rand_core 0.6.4",
-]
-
-[[package]]
-name = "rand"
-version = "0.9.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44c5af06bb1b7d3216d91932aed5265164bf384dc89cd6ba05cf59a35f5f76ea"
-dependencies = [
- "rand_chacha 0.9.0",
- "rand_core 0.9.5",
 ]
 
 [[package]]
@@ -3336,31 +3315,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "rand_chacha"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
-dependencies = [
- "ppv-lite86",
- "rand_core 0.9.5",
-]
-
-[[package]]
 name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.17",
-]
-
-[[package]]
-name = "rand_core"
-version = "0.9.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
-dependencies = [
- "getrandom 0.3.4",
 ]
 
 [[package]]
@@ -3499,9 +3459,9 @@ dependencies = [
 
 [[package]]
 name = "rfd"
-version = "0.16.0"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a15ad77d9e70a92437d8f74c35d99b4e4691128df018833e99f90bcd36152672"
+checksum = "20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220"
 dependencies = [
  "block2",
  "dispatch2",
@@ -3509,16 +3469,18 @@ dependencies = [
  "gobject-sys",
  "gtk-sys",
  "js-sys",
+ "libc",
  "log",
  "objc2",
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-foundation",
+ "percent-encoding",
  "raw-window-handle",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3859,9 +3821,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.151"
+version = "1.0.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
 dependencies = [
  "itoa",
  "memchr",
@@ -3991,7 +3953,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e362d9935bc50f019969e2f9ecd66786612daae13e8f277be7bfb66e8bed3f7"
 dependencies = [
  "libc",
- "sigchld",
  "windows-sys 0.60.2",
 ]
 
@@ -4000,27 +3961,6 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
-
-[[package]]
-name = "sigchld"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47106eded3c154e70176fc83df9737335c94ce22f821c32d17ed1db1f83badb1"
-dependencies = [
- "libc",
- "os_pipe",
- "signal-hook",
-]
-
-[[package]]
-name = "signal-hook"
-version = "0.3.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
-dependencies = [
- "libc",
- "signal-hook-registry",
-]
 
 [[package]]
 name = "signal-hook-registry"
@@ -4357,9 +4297,9 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
 name = "tauri"
-version = "2.12.1"
+version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed99ee9694a2deb776d91cae48ac7411ddfc89ecae2f9b5041111d8c88f2ace9"
+checksum = "d061d042ccd2df9c9f1508c1e63d835278c0a4c8801eb41764080e51f2eaaf34"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4408,9 +4348,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-build"
-version = "2.7.1"
+version = "2.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59563ca5b331fd97f27ee9672ec8d36d33bb3c9e2c9f6710a1a5687256052e45"
+checksum = "2eea0b6302f82c574b21af6fc6ae6e86183b9280853c22621d0abf0936911ffc"
 dependencies = [
  "anyhow",
  "cargo_toml",
@@ -4500,9 +4440,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-dialog"
-version = "2.8.1"
+version = "2.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "daf9a5c92e39bdd84f22f6be9230e39d0c4e140345f71ffe6058dca4f71127cf"
+checksum = "ce0fb9c2b6d34a9720627ed930ebc8af26f61e648695aecaeb03d5c33c5896f5"
 dependencies = [
  "log",
  "raw-window-handle",
@@ -4518,9 +4458,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-fs"
-version = "2.6.0"
+version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "466eb32466fe5021b6728b06862f9ff14a9f7e1af890047654e03a96d7c0e1bb"
+checksum = "5d58eb1d4984e535f47a642ffec09a2da6f5c18a12b5902d12126cb7626d628b"
 dependencies = [
  "anyhow",
  "dunce",
@@ -4542,9 +4482,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-global-shortcut"
-version = "2.4.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bd2e1f725891a1613af8f25bf918ba3357654b0fd3f2d794c0ce76cbdd92ed2"
+checksum = "93ff17919fe09852d269bd37b1d3d2e993b9dbb514afe7acbf3346c1d3627e2d"
 dependencies = [
  "global-hotkey",
  "log",
@@ -4557,13 +4497,13 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-notification"
-version = "2.5.1"
+version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "533770889abb60a0407d5a32096182f0e6463f5a3dfaa675be94580aa14070e1"
+checksum = "5bc6c194a95a535abdfbe3bc1af9a43935b8b9b29c216b8e71af8b59132703cf"
 dependencies = [
  "log",
  "notify-rust",
- "rand 0.9.4",
+ "rand 0.10.2",
  "serde",
  "serde_json",
  "serde_repr",
@@ -4572,6 +4512,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "url",
+ "zbus 5.16.0",
 ]
 
 [[package]]
@@ -4586,11 +4527,12 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-shell"
-version = "2.4.1"
+version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bd8f131731087b2608ad604969af43b06c5411d094d635a81fc8c852dda5634"
+checksum = "7375b25f72f70f6168f27f1ba3a413e30eaa0a2098cff53a4046ebfe9e2f142d"
 dependencies = [
  "encoding_rs",
+ "libc",
  "log",
  "open",
  "os_pipe",
@@ -4603,13 +4545,14 @@ dependencies = [
  "tauri-plugin",
  "thiserror 2.0.18",
  "tokio",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
 name = "tauri-plugin-single-instance"
-version = "2.5.2"
+version = "2.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee2c8fe2d6b75caed0153f91eda30ea1dea3bfb6710d5adb80456d2c035a569d"
+checksum = "726b6da0dd5bd1344f84f4108a622c07d01923baacb5c803a605189672c5352f"
 dependencies = [
  "serde",
  "serde_json",
@@ -4623,11 +4566,11 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-updater"
-version = "2.13.2"
+version = "2.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cb463cd1f26c9562a01718fe9adf6927795f764c3576e509f27cf567307ddef"
+checksum = "d957abbcb3f9f6c76d22a3a0f012f30880640d0bccb5634d2b12a9937e4c872b"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "dirs 7.0.0",
  "flate2",
  "futures-util",
@@ -4887,9 +4830,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.53.2"
+version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e95f91fcc7a621e8b030f6aa23c71fe9838ae2fb4d8118b75602a328f5144044"
+checksum = "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3"
 dependencies = [
  "bytes",
  "libc",
@@ -5018,9 +4961,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.25.16+spec-1.1.0"
+version = "0.25.18+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88f38f3af8bf71841c67a990f4e2b52143b2d0a1a994c72513ff4c14977fc722"
+checksum = "1ec6e78bd70db9420d8d212fa9dc97f116448a1ceff5d00eabb991d407e21396"
 dependencies = [
  "indexmap 2.14.0",
  "toml_datetime 1.1.2+spec-1.1.0",
@@ -5031,18 +4974,18 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.1.4+spec-1.1.0"
+version = "1.1.5+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bed810ee007d8e7f9cf20b4774e7198142fa27186e0f805871da7f3c39eaf333"
+checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
 dependencies = [
  "winnow 1.0.3",
 ]
 
 [[package]]
 name = "toml_writer"
-version = "1.1.3+spec-1.1.0"
+version = "1.2.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
+checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 
 [[package]]
 name = "tower"
@@ -5147,6 +5090,12 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "typed-path"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ce898823d8cd0f028662d2f349694b1af0a5cc9be83f1d213a00d3147445e1e"
 
 [[package]]
 name = "typeid"
@@ -6387,14 +6336,20 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "4.6.1"
+version = "9.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "caa8cd6af31c3b31c6631b8f483848b91589021b28fffe50adada48d4f4d2ed1"
+checksum = "e3476fd497ac8af5b1ec7b51acab7bef380f7e8dd8e0487595bafd839417a302"
 dependencies = [
- "arbitrary",
+ "constant_time_eq",
  "crc32fast",
+ "getrandom 0.4.3",
  "indexmap 2.14.0",
+ "libc",
  "memchr",
+ "nix 0.31.3",
+ "typed-path",
+ "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
