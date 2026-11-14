@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
 
+import openjarvis.security.scanner as scanner_module
 from openjarvis.core.config import CapabilitiesConfig, JarvisConfig, SecurityConfig
 from openjarvis.core.events import EventBus
 from openjarvis.security import SecurityContext, setup_security
@@ -32,17 +34,7 @@ def _make_config(*, enabled: bool = True, caps_enabled: bool = False) -> JarvisC
     return cfg
 
 
-def _has_rust() -> bool:
-    try:
-        import openjarvis_rust  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
 class TestSetupSecurityEnabled:
-    @pytest.mark.skipif(not _has_rust(), reason="Rust extension not compiled")
     def test_returns_wrapped_engine(self) -> None:
         from openjarvis.security.guardrails import GuardrailsEngine
 
@@ -52,6 +44,7 @@ class TestSetupSecurityEnabled:
 
         assert isinstance(sec.engine, GuardrailsEngine)
         assert sec.audit_logger is not None
+        sec.audit_logger.close()
 
     def test_returns_security_context(self) -> None:
         engine = _make_mock_engine()
@@ -61,15 +54,70 @@ class TestSetupSecurityEnabled:
         assert isinstance(sec, SecurityContext)
         # Audit logger should always work (no Rust dependency)
         assert sec.audit_logger is not None
+        sec.audit_logger.close()
 
-    def test_graceful_without_rust(self) -> None:
-        """Scanners fail gracefully when Rust is unavailable."""
+    def test_wraps_and_redacts_without_rust(self, monkeypatch) -> None:
+        """Default data-protection controls remain active without Rust."""
+        from openjarvis.core.types import Message, Role
+        from openjarvis.security.guardrails import GuardrailsEngine
+
+        monkeypatch.setattr(scanner_module._rust_bridge, "RUST_AVAILABLE", False)
         engine = _make_mock_engine()
         bus = EventBus()
-        sec = setup_security(_make_config(), engine, bus)
+        config = _make_config()
+        config.security.mode = "redact"
 
-        # Should not raise — scanner failure is caught
+        sec = setup_security(config, engine, bus)
+
+        sec.engine.generate(
+            [
+                Message(
+                    role=Role.USER,
+                    content="key sk-abc123def456ghi789jkl012 email user@example.com",
+                )
+            ],
+            model="mock",
+        )
+
+        assert isinstance(sec.engine, GuardrailsEngine)
+        sent_messages = engine.generate.call_args.args[0]
+        assert sent_messages[0].content == (
+            "key [REDACTED:openai_key] email [REDACTED:email]"
+        )
+        sec.audit_logger.close()
+
+    def test_personal_profile_warns_when_scanner_initialization_fails(
+        self, monkeypatch, caplog
+    ) -> None:
+        config = _make_config()
+        config.security.profile = "personal"
+
+        def _broken_scanner():
+            raise RuntimeError("scanner unavailable")
+
+        monkeypatch.setattr(scanner_module, "SecretScanner", _broken_scanner)
+
+        with caplog.at_level(logging.WARNING, logger="openjarvis.security"):
+            sec = setup_security(config, _make_mock_engine(), EventBus())
+
         assert isinstance(sec, SecurityContext)
+        assert "Failed to set up security scanners" in caplog.text
+        sec.audit_logger.close()
+
+    @pytest.mark.parametrize("profile", ["shared", "server"])
+    def test_server_profiles_fail_closed_when_scanner_initialization_fails(
+        self, monkeypatch, profile
+    ) -> None:
+        config = _make_config()
+        config.security.profile = profile
+
+        def _broken_scanner():
+            raise RuntimeError("scanner unavailable")
+
+        monkeypatch.setattr(scanner_module, "SecretScanner", _broken_scanner)
+
+        with pytest.raises(RuntimeError, match="Security scanner initialization"):
+            setup_security(config, _make_mock_engine(), EventBus())
 
     @pytest.mark.parametrize("profile", ["", "personal", "shared", "server"])
     def test_enabled_policy_fails_closed_when_initialization_fails(

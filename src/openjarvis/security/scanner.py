@@ -2,25 +2,137 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from typing import Dict, Tuple
 
-from openjarvis._rust_bridge import get_rust_module, scan_result_from_json
+from openjarvis import _rust_bridge
 from openjarvis.security._stubs import BaseScanner
-from openjarvis.security.types import ScanResult, ThreatLevel
+from openjarvis.security.types import ScanFinding, ScanResult, ThreatLevel
+
+logger = logging.getLogger(__name__)
+
+
+class _RegexScanner(BaseScanner):
+    """Prefer the native scanner and fall back to equivalent Python regexes."""
+
+    PATTERNS: Dict[str, Tuple[str, ThreatLevel, str]] = {}
+    PYTHON_PATTERN_PREFIXES: Dict[str, str] = {}
+    _rust_class_name = ""
+
+    def __init__(self) -> None:
+        self._patterns = [
+            (
+                name,
+                re.compile(self.PYTHON_PATTERN_PREFIXES.get(name, "") + pattern),
+                threat,
+                description,
+            )
+            for name, (pattern, threat, description) in self.PATTERNS.items()
+        ]
+        self._rust_impl = None
+        if _rust_bridge.RUST_AVAILABLE:
+            try:
+                rust_class = getattr(
+                    _rust_bridge.get_rust_module(), self._rust_class_name
+                )
+                self._rust_impl = rust_class()
+            except Exception:  # noqa: BLE001 - Python scanner remains available
+                logger.warning(
+                    "Rust %s unavailable; using Python fallback",
+                    self.scanner_id,
+                    exc_info=True,
+                )
+
+    @staticmethod
+    def _valid_match(name: str, text: str, match: re.Match[str]) -> bool:
+        if name != "ipv4_address":
+            return True
+        octets = match.group(0).split(".")
+        if any(
+            not octet.isascii() or not octet.isdigit() or int(octet) > 255
+            for octet in octets
+        ):
+            return False
+        start, end = match.span()
+        joined_before = (
+            start >= 2 and text[start - 1] == "." and text[start - 2] in "0123456789"
+        )
+        joined_after = (
+            end + 1 < len(text) and text[end] == "." and text[end + 1] in "0123456789"
+        )
+        return not (joined_before or joined_after)
+
+    def _scan_python(self, text: str) -> ScanResult:
+        findings = []
+        for name, regex, threat, description in self._patterns:
+            for match in regex.finditer(text):
+                if not self._valid_match(name, text, match):
+                    continue
+                findings.append(
+                    ScanFinding(
+                        pattern_name=name,
+                        matched_text=match.group(0),
+                        threat_level=threat,
+                        start=match.start(),
+                        end=match.end(),
+                        description=description,
+                    )
+                )
+        return ScanResult(findings=findings)
+
+    def _redact_python(self, text: str) -> str:
+        result = text
+        for name, regex, _threat, _description in self._patterns:
+            marker = f"[REDACTED:{name}]"
+
+            def replace(match: re.Match[str]) -> str:
+                if self._valid_match(name, result, match):
+                    return marker
+                return match.group(0)
+
+            result = regex.sub(replace, result)
+        return result
+
+    def scan(self, text: str) -> ScanResult:
+        """Scan *text* with Rust when available, otherwise use Python."""
+        if self._rust_impl is not None:
+            try:
+                return _rust_bridge.scan_result_from_json(self._rust_impl.scan(text))
+            except Exception:  # noqa: BLE001 - fail over to equivalent patterns
+                logger.warning(
+                    "Rust %s scan failed; using Python fallback",
+                    self.scanner_id,
+                    exc_info=True,
+                )
+                self._rust_impl = None
+        return self._scan_python(text)
+
+    def redact(self, text: str) -> str:
+        """Redact *text* with Rust when available, otherwise use Python."""
+        if self._rust_impl is not None:
+            try:
+                return self._rust_impl.redact(text)
+            except Exception:  # noqa: BLE001 - fail over to equivalent patterns
+                logger.warning(
+                    "Rust %s redaction failed; using Python fallback",
+                    self.scanner_id,
+                    exc_info=True,
+                )
+                self._rust_impl = None
+        return self._redact_python(text)
+
 
 # ---------------------------------------------------------------------------
 # SecretScanner
 # ---------------------------------------------------------------------------
 
 
-class SecretScanner(BaseScanner):
+class SecretScanner(_RegexScanner):
     """Detect API keys, tokens, passwords, and other secrets in text."""
 
     scanner_id = "secrets"
-
-    def __init__(self) -> None:
-        _rust = get_rust_module()
-        self._rust_impl = _rust.SecretScanner()
+    _rust_class_name = "SecretScanner"
 
     PATTERNS: Dict[str, Tuple[str, ThreatLevel, str]] = {
         "openai_key": (
@@ -75,28 +187,23 @@ class SecretScanner(BaseScanner):
         ),
     }
 
-    def scan(self, text: str) -> ScanResult:
-        """Scan *text* for secret patterns — always via Rust backend."""
-        return scan_result_from_json(self._rust_impl.scan(text))
-
-    def redact(self, text: str) -> str:
-        """Replace secret matches with ``[REDACTED:{pattern_name}]``."""
-        return self._rust_impl.redact(text)
-
 
 # ---------------------------------------------------------------------------
 # PIIScanner
 # ---------------------------------------------------------------------------
 
 
-class PIIScanner(BaseScanner):
+class PIIScanner(_RegexScanner):
     """Detect personally identifiable information in text."""
 
     scanner_id = "pii"
+    _rust_class_name = "PIIScanner"
 
-    def __init__(self) -> None:
-        _rust = get_rust_module()
-        self._rust_impl = _rust.PIIScanner()
+    # Python's backtracking regex engine otherwise retries the unbounded email
+    # local-part at every character in long non-email input. Restricting starts
+    # to the beginning of each local-part run preserves matches and linearizes
+    # that adversarial case; Rust's regex engine does not need this guard.
+    PYTHON_PATTERN_PREFIXES = {"email": r"(?<![a-zA-Z0-9._%+-])"}
 
     PATTERNS: Dict[str, Tuple[str, ThreatLevel, str]] = {
         "email": (
@@ -129,20 +236,12 @@ class PIIScanner(BaseScanner):
             ThreatLevel.MEDIUM,
             "US phone number",
         ),
-        "ipv4_public": (
-            r"\b(?!10\.)(?!172\.(?:1[6-9]|2\d|3[01])\.)(?!192\.168\.)(?!127\.)(?!0\.)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
+        "ipv4_address": (
+            r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
             ThreatLevel.LOW,
-            "Public IPv4 address",
+            "IPv4 address",
         ),
     }
-
-    def scan(self, text: str) -> ScanResult:
-        """Scan *text* for PII patterns — always via Rust backend."""
-        return scan_result_from_json(self._rust_impl.scan(text))
-
-    def redact(self, text: str) -> str:
-        """Replace PII matches with ``[REDACTED:{pattern_name}]``."""
-        return self._rust_impl.redact(text)
 
 
 __all__ = ["PIIScanner", "SecretScanner"]
