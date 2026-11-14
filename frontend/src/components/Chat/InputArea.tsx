@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Square, Paperclip, Search } from 'lucide-react';
+import { Send, Square, Search, Ear } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat, streamResearch } from '../../lib/sse';
+import { useClapWake } from '../../hooks/useClapWake';
 import { fetchSavings, getBase } from '../../lib/api';
 import { listConnectors, getSyncStatus } from '../../lib/connectors-api';
 import { serializeToolCallArguments } from '../../lib/tool-call';
@@ -81,6 +82,7 @@ function useResearchCorpusSync(enabled: boolean): {
 
 export function InputArea() {
   const [input, setInput] = useState('');
+  const [clapWakeEnabled, setClapWakeEnabled] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -154,6 +156,27 @@ export function InputArea() {
       await startRecording();
     }
   }, [speechState, startRecording, stopRecording]);
+
+  const handleClapWake = useCallback(() => {
+    setClapWakeEnabled(false);
+    toast.info('Clap detected. Speak, then press the microphone to transcribe.');
+    void startRecording();
+  }, [startRecording]);
+  const clapWake = useClapWake(
+    clapWakeEnabled && speechEnabled && speechAvailable && !streamState.isStreaming,
+    handleClapWake,
+  );
+
+  useEffect(() => {
+    if (!speechEnabled || !speechAvailable) setClapWakeEnabled(false);
+  }, [speechEnabled, speechAvailable]);
+
+  useEffect(() => {
+    if (clapWake.error) {
+      toast.error(clapWake.error);
+      setClapWakeEnabled(false);
+    }
+  }, [clapWake.error]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -625,6 +648,30 @@ export function InputArea() {
           </button>
         ) : (
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setClapWakeEnabled((enabled) => !enabled)}
+              disabled={!speechEnabled || !speechAvailable || streamState.isStreaming}
+              aria-pressed={clapWakeEnabled}
+              title={
+                !speechEnabled
+                  ? 'Enable Speech-to-Text in Settings first'
+                  : !speechAvailable
+                    ? 'Speech backend not configured'
+                    : clapWake.listening
+                      ? 'Clap wake is listening; click to turn it off'
+                      : clapWakeEnabled
+                        ? 'Waiting for microphone permission'
+                        : 'Listen for one clap to start voice input'
+              }
+              className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:cursor-default disabled:opacity-30"
+              style={{
+                background: clapWake.listening ? 'var(--color-accent-subtle)' : 'transparent',
+                color: clapWake.listening ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+              }}
+            >
+              <Ear size={16} />
+            </button>
             <MicButton
               state={speechState}
               onClick={handleMicClick}

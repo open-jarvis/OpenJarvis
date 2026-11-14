@@ -87,6 +87,79 @@ def test_gui_custom_ports_use_project_root_and_same_origin_proxy(
     owner_type.return_value.shutdown.assert_called_once_with()
 
 
+def test_gui_lan_host_exposes_frontend_and_api(
+    tmp_path: Path,
+) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    process = mock.Mock(spec=subprocess.Popen)
+    process.pid = 4321
+    process.poll.return_value = None
+    process.wait.return_value = 0
+
+    with (
+        mock.patch.object(gui_cmd, "_frontend_dir", return_value=frontend),
+        mock.patch.object(gui_cmd, "_check_frontend_port"),
+        mock.patch.object(gui_cmd, "_ensure_frontend_dependencies"),
+        mock.patch.object(gui_cmd.shutil, "which", return_value="/bin/tool"),
+        mock.patch.object(
+            gui_cmd.subprocess, "run", return_value=mock.Mock(returncode=0)
+        ) as run,
+        mock.patch.object(gui_cmd.subprocess, "Popen", return_value=process) as popen,
+        mock.patch.object(gui_cmd, "_FrontendOwner") as owner_type,
+        mock.patch.object(gui_cmd, "_api_healthy", return_value=False),
+        mock.patch.object(gui_cmd, "_wait_for_port", return_value=True),
+        mock.patch.object(gui_cmd.webbrowser, "open"),
+    ):
+        result = CliRunner().invoke(
+            gui_cmd.gui,
+            ["--host", "0.0.0.0", "--no-browser"],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "another device on your trusted LAN" in result.output
+    assert "jarvis auth create-key" in result.output
+    assert run.call_args.args[0][-2:] == ["--host", "0.0.0.0"]
+    assert popen.call_args.args[0][5] == "0.0.0.0"
+    assert popen.call_args.kwargs["env"]["OPENJARVIS_VITE_PROXY_TARGET"] == (
+        "http://127.0.0.1:8000"
+    )
+    owner_type.return_value.shutdown.assert_called_once_with()
+
+
+def test_gui_refuses_unverified_lan_api_with_no_server() -> None:
+    result = CliRunner().invoke(
+        gui_cmd.gui,
+        ["--host", "0.0.0.0", "--no-server"],
+    )
+
+    assert result.exit_code != 0
+    assert "cannot verify API authentication" in result.output
+
+
+def test_gui_does_not_reuse_a_preexisting_api_for_lan_access(
+    tmp_path: Path,
+) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    with (
+        mock.patch.object(gui_cmd, "_frontend_dir", return_value=frontend),
+        mock.patch.object(gui_cmd.shutil, "which", return_value="/bin/tool"),
+        mock.patch.object(gui_cmd, "_check_frontend_port"),
+        mock.patch.object(gui_cmd, "_ensure_frontend_dependencies"),
+        mock.patch.object(gui_cmd, "_api_healthy", return_value=True),
+        mock.patch.object(gui_cmd.subprocess, "run") as run,
+    ):
+        result = CliRunner().invoke(
+            gui_cmd.gui,
+            ["--host", "0.0.0.0", "--no-browser"],
+        )
+
+    assert result.exit_code != 0
+    assert "Stop it with `jarvis stop`" in result.output
+    run.assert_not_called()
+
+
 def test_gui_rejects_occupied_frontend_port_before_launch(tmp_path: Path) -> None:
     frontend = tmp_path / "frontend"
     frontend.mkdir()
