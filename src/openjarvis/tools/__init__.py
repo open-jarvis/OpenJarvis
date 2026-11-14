@@ -184,3 +184,6 @@ except ImportError:
     pass
 
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]
+
+# Organic marketing production tools.
+import openjarvis.tools.marketing  # noqa: F401
