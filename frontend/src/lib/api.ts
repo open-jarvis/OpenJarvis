@@ -1,6 +1,7 @@
 import type { ModelInfo, SavingsData, ServerInfo } from '../types';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
 import { serializeToolCallArguments } from './tool-call';
+import { timeZoneHeaders } from './timezone';
 
 // ---------------------------------------------------------------------------
 // Supabase config
@@ -712,7 +713,10 @@ export async function fetchTemplates(): Promise<AgentTemplate[]> {
 }
 
 export async function runManagedAgent(agentId: string): Promise<void> {
-  const res = await apiFetch(`/v1/managed-agents/${agentId}/run`, { method: 'POST' });
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/run`, {
+    method: 'POST',
+    headers: timeZoneHeaders(),
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || `Failed: ${res.status}`);
@@ -766,7 +770,7 @@ export async function sendAgentMessage(
 ): Promise<AgentMessage> {
   const res = await apiFetch(`/v1/managed-agents/${agentId}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...timeZoneHeaders() },
     body: JSON.stringify({ content, mode, stream: true }),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -881,7 +885,7 @@ export async function sendAgentMessage(
 export async function askAgent(agentId: string, content: string): Promise<AgentMessage> {
   const res = await apiFetch(`/v1/managed-agents/${agentId}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...timeZoneHeaders() },
     body: JSON.stringify({ content, mode: 'immediate', stream: false }),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
