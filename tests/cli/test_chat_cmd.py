@@ -747,3 +747,134 @@ class TestChatAgents:
         assert "chat executed!" not in result.output
         assert "Confirm:" not in result.output
         assert limiter.keys == ["tool_chat_agent:dangerous_chat"]
+
+
+class _McpStateTool(BaseTool):
+    """Stands in for a tool discovered from an external MCP server."""
+
+    tool_id = "ha_state"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(name="ha_state", description="Home state from MCP.")
+
+    def execute(self, **params) -> ToolResult:
+        return ToolResult(
+            tool_name="ha_state", content="kitchen light on", success=True
+        )
+
+
+class _McpChatAgent(ToolUsingAgent):
+    agent_id = "mcp_chat_agent"
+
+    def run(self, input, context: AgentContext | None = None, **kwargs):
+        result = self._executor.execute(
+            ToolCall(id="mcp", name="ha_state", arguments="{}")
+        )
+        return AgentResult(content=result.content, tool_results=[result], turns=1)
+
+
+class TestChatMcpTools:
+    """``jarvis chat`` loads external MCP tools like ``ask`` and ``serve`` do."""
+
+    def _invoke(self, config, agent, loader):
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.cli._model_switch.tty_wants_model_picker",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.cli._runtime_panel.tty_wants_runtime_panel",
+                return_value=False,
+            ),
+            patch("openjarvis.mcp.loader.load_mcp_tools_from_config", loader),
+        ):
+            return CliRunner().invoke(
+                chat,
+                ["--agent", agent, "--model", "test-model"],
+                input="what is on?\n/quit\n",
+            )
+
+    def _config(self, tmp_path, *, tools=""):
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+        config.agent.tools = tools
+        config.tools.enabled = []
+        config._config_dir = tmp_path
+        return config
+
+    def test_tool_agent_gets_mcp_tools_and_clients_are_closed(self, tmp_path) -> None:
+        AgentRegistry.register_value("mcp_chat_agent", _McpChatAgent)
+        client = MagicMock()
+        loader = MagicMock(return_value=([_McpStateTool()], [client]))
+        config = self._config(tmp_path)
+
+        result = self._invoke(config, "mcp_chat_agent", loader)
+
+        assert result.exit_code == 0, result.output
+        assert "kitchen light on" in result.output
+        loader.assert_called_once_with(
+            config.tools.mcp, allowed_names=None, config_dir=tmp_path
+        )
+        client.close.assert_called_once()
+
+    def test_configured_tool_names_filter_mcp_tools(self, tmp_path) -> None:
+        AgentRegistry.register_value("mcp_chat_agent", _McpChatAgent)
+        loader = MagicMock(return_value=([_McpStateTool()], []))
+        config = self._config(tmp_path, tools="ha_state")
+
+        result = self._invoke(config, "mcp_chat_agent", loader)
+
+        assert result.exit_code == 0, result.output
+        assert loader.call_args.kwargs["allowed_names"] == {"ha_state"}
+        assert "kitchen light on" in result.output
+
+    def test_agent_without_tools_does_not_load_mcp(self, tmp_path) -> None:
+        AgentRegistry.register_value("simple_chat_agent", _SimpleChatAgent)
+        loader = MagicMock(return_value=([], []))
+
+        result = self._invoke(self._config(tmp_path), "simple_chat_agent", loader)
+
+        assert result.exit_code == 0, result.output
+        loader.assert_not_called()
+
+    def test_mcp_failure_does_not_break_chat(self, tmp_path) -> None:
+        AgentRegistry.register_value("tool_chat_agent", _ToolChatAgent)
+        ToolRegistry.register_value("dangerous_chat", _DangerousChatTool)
+        loader = MagicMock(side_effect=RuntimeError("mcp down"))
+        config = self._config(tmp_path, tools="dangerous_chat")
+
+        result = self._invoke(config, "tool_chat_agent", loader)
+
+        assert result.exit_code == 0, result.output
+        assert "MCP tools unavailable" in result.output
+
+    def test_clients_closed_when_agent_construction_fails(self, tmp_path) -> None:
+        class _BrokenAgent(_McpChatAgent):
+            agent_id = "broken_mcp_agent"
+
+            def __init__(self, *args, **kwargs):
+                raise RuntimeError("agent boom")
+
+        AgentRegistry.register_value("broken_mcp_agent", _BrokenAgent)
+        client = MagicMock()
+        loader = MagicMock(return_value=([_McpStateTool()], [client]))
+        closed_before_prompt = []
+
+        def first_prompt(*args, **kwargs):
+            closed_before_prompt.append(client.close.called)
+            return None  # EOF ends the session
+
+        with patch("openjarvis.cli.chat_cmd._read_input", side_effect=first_prompt):
+            result = self._invoke(self._config(tmp_path), "broken_mcp_agent", loader)
+
+        assert result.exit_code == 0, result.output
+        assert "failed" in result.output
+        # Closed right after the failure, not kept open for the whole session
+        assert closed_before_prompt == [True]
+        client.close.assert_called_once()
