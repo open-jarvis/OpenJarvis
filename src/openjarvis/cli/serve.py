@@ -315,9 +315,14 @@ def serve(
     managed_mcp_tools: list = []
     mcp_clients: list = []
     try:
-        from openjarvis.mcp.loader import load_mcp_tools_from_config
+        from openjarvis.mcp.loader import (
+            load_mcp_tools_from_config,
+            resolve_effective_mcp_servers,
+        )
 
-        managed_mcp_tools, mcp_clients = load_mcp_tools_from_config(config.tools.mcp)
+        managed_mcp_tools, mcp_clients = load_mcp_tools_from_config(
+            config.tools.mcp, servers=resolve_effective_mcp_servers(config)
+        )
     except Exception as exc:
         logger.warning("Managed-agent MCP tools failed to load: %s", exc)
 
