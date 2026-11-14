@@ -92,6 +92,28 @@ cat > ~/.openjarvis/connectors/news_rss.json << 'EOF'
 EOF
 ```
 
+For calendars on any CalDAV server (Nextcloud, Radicale, Baïkal, SOGo, Fastmail, iCloud…), install the optional extra and save the credentials — use an app password, not your main password:
+
+```bash
+pip install 'openjarvis[caldav]'
+
+# Nextcloud: Settings → Security → Devices & sessions → Create new app password
+install -m 600 /dev/null ~/.openjarvis/connectors/caldav.json
+cat > ~/.openjarvis/connectors/caldav.json << 'EOF'
+{"url": "https://cloud.example.com/remote.php/dav",
+ "username": "YOUR_USERNAME",
+ "password": "YOUR_APP_PASSWORD",
+ "calendars": []}
+EOF
+```
+
+Leave `calendars` empty to include every calendar, or list display names (e.g. `["Work", "Family"]`). Alternatively set the `CALDAV_URL`, `CALDAV_USERNAME`, `CALDAV_PASSWORD` and `CALDAV_CALENDARS` (comma-separated) environment variables; when `CALDAV_URL` is set the file is ignored entirely (the two are never mixed). Cancelled events are skipped. Then use it in the digest:
+
+```toml
+[digest.calendar]
+sources = ["caldav"]
+```
+
 Hacker News, iMessage, and Apple Music work automatically on macOS with no setup.
 
 ### 5. Set your TTS API key
@@ -142,7 +164,7 @@ The `sections` list controls what the digest covers, in order of priority:
 |---------|---------|-----------------|
 | `health` | `oura`, `apple_health`, `strava` | Sleep, readiness, activity, workouts |
 | `messages` | `gmail`, `google_tasks`, `slack`, `notion`, `imessage`, `github_notifications` | Email triage, tasks, texts, Slack, PRs |
-| `calendar` | `gcalendar` | Today's events and schedule |
+| `calendar` | `gcalendar`, `caldav` | Today's events and schedule |
 | `world` | `weather`, `hackernews`, `news_rss` | Weather forecast, tech news, RSS feeds |
 | `music` | `spotify`, `apple_music` | Recently played tracks (opt-in) |
 
