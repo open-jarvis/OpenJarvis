@@ -205,6 +205,46 @@ def test_kokoro_pipeline_cached_per_language(monkeypatch):
     assert init_calls == ["a", "z"]
 
 
+def test_kokoro_construction_silences_third_party_warnings(monkeypatch):
+    """KModel/KPipeline construction must not leak Kokoro/torch warnings."""
+    import sys
+    import types
+    import warnings
+
+    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    class FakeKModel:
+        def __init__(self, **kwargs):
+            warnings.warn("Defaulting repo_id to hexgrad/Kokoro-82M", UserWarning)
+
+        def to(self, _device):
+            return self
+
+        def eval(self):
+            return self
+
+    class FakeKPipeline:
+        def __init__(self, lang_code, model):
+            warnings.warn("dropout option ... num_layers greater than 1", UserWarning)
+            warnings.warn("weight_norm is deprecated", FutureWarning)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "kokoro",
+        types.SimpleNamespace(KModel=FakeKModel, KPipeline=FakeKPipeline),
+    )
+
+    backend = KokoroTTSBackend(device="cpu")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        backend._ensure_pipeline("a")
+
+    messages = [str(w.message) for w in caught]
+    assert not any("Defaulting repo_id" in m for m in messages)
+    assert not any("dropout" in m for m in messages)
+    assert not any("weight_norm" in m for m in messages)
+
+
 def test_kokoro_pipeline_cache_is_thread_safe(monkeypatch):
     """Concurrent requests for one language construct exactly one pipeline."""
     import sys

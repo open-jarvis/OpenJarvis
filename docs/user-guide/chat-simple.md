@@ -141,6 +141,43 @@ jarvis ask -m deepseek-r1:14b "Hello"
 OPENJARVIS_MODEL=qwen3.5:9b jarvis ask "Hello"
 ```
 
+## Voice Mode
+
+`jarvis chat --voice` adds microphone input and local text-to-speech (kokoro,
+bundled with the `speech` extra):
+
+```bash
+jarvis chat --voice
+```
+
+### Talking to Jarvis
+
+- **Speak:** press **Ctrl+Enter** to start recording. Plain **Enter** submits
+  typed text as usual.
+- **Stop:** recording stops automatically after **3 seconds of silence** — long
+  enough that a mid-sentence pause doesn't cut you off.
+
+### Spoken replies (optional)
+
+Spoken replies are **off by default**: the terminal always shows the full
+response. To have Jarvis read replies aloud, enable `speak` under `[speech]`:
+
+```toml
+[speech]
+speak = true
+voice_speed = 1.15   # slightly faster than natural speech
+```
+
+When speaking is enabled, the terminal keeps the full AI response while Jarvis
+speaks a short, human summary — for questions, a direct recommendation. Toggle
+it live inside a session by saying (or typing):
+
+- **"you can speak"** — turn spoken replies on
+- **"stop speaking"** — back to text-only
+
+> The spoken summary needs the `speech` extra (`uv sync --extra speech`); kokoro
+> downloads its English model on first use.
+
 ## Troubleshooting
 
 **"No running engine found"** -- Make sure Ollama is running. Start it with `ollama serve` or open the Ollama desktop app.

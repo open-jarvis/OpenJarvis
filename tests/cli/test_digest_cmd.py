@@ -52,3 +52,26 @@ def test_digest_no_cache(tmp_path):
     result = runner.invoke(cli, ["digest", "--db-path", db_path])
     assert result.exit_code == 0
     assert "No digest for today" in result.output
+
+
+def test_play_audio_falls_back_to_sounddevice_without_cli_player(tmp_path, monkeypatch):
+    """No CLI player on the platform returns the WAV bytes to in-process playback."""
+    from openjarvis.cli import digest_cmd
+
+    wav = tmp_path / "clip.wav"
+    wav.write_bytes(b"RIFFfakewavbytes")
+
+    def _no_cli_player(cmd_parts, **kwargs):
+        raise FileNotFoundError("no player here")
+
+    monkeypatch.setattr(digest_cmd.subprocess, "run", _no_cli_player)
+
+    played: list[bytes] = []
+    monkeypatch.setattr(
+        "openjarvis.speech.voice_io.play_wav",
+        lambda audio, sample_rate=24000: played.append(audio),
+    )
+
+    digest_cmd._play_audio(str(wav))
+
+    assert played == [b"RIFFfakewavbytes"]

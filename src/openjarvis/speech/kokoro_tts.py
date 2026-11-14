@@ -19,6 +19,7 @@ import logging
 import sys
 import threading
 import types
+import warnings
 from collections import OrderedDict
 from typing import Any, Dict, List
 
@@ -167,7 +168,12 @@ class KokoroTTSBackend(TTSBackend):
             try:
                 # KModel is language-blind and is by far the heaviest part of
                 # Kokoro. Reuse one model across every language pipeline.
-                pipeline = KPipeline(lang_code=lang_code, model=self._ensure_model())
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    warnings.simplefilter("ignore", FutureWarning)
+                    pipeline = KPipeline(
+                        lang_code=lang_code, model=self._ensure_model()
+                    )
             except ImportError as exc:
                 # Kokoro loads language-specific G2P resources at init time and
                 # several languages need extra dependencies that aren't pulled in
@@ -227,7 +233,13 @@ class KokoroTTSBackend(TTSBackend):
 
         model_kwargs = {"model": self._model_path} if self._model_path else {}
         try:
-            self._model = KModel(**model_kwargs).to(device).eval()
+            with warnings.catch_warnings():
+                # torch emits benign dropout/weight_norm warnings while building
+                # Kokoro's LSTM, and Kokoro warns about its default repo_id;
+                # hide them so speech starts without a wall of warnings.
+                warnings.simplefilter("ignore", UserWarning)
+                warnings.simplefilter("ignore", FutureWarning)
+                self._model = KModel(**model_kwargs).to(device).eval()
         except RuntimeError as exc:
             raise RuntimeError(
                 f"Failed to initialize Kokoro on device {device!r}: {exc}"
