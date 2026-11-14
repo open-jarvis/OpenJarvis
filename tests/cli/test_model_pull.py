@@ -92,6 +92,7 @@ class TestPullCliMultiEngine:
 
     def test_pull_llamacpp_uses_huggingface_cli(self) -> None:
         from openjarvis.cli import cli
+        from openjarvis.intelligence.model_catalog import BUILTIN_MODELS
 
         runner = CliRunner()
         with (
@@ -107,10 +108,16 @@ class TestPullCliMultiEngine:
             )
 
         assert result.exit_code == 0
-        mock_run.assert_called_once()
-        call_args = mock_run.call_args[0][0]
-        assert "huggingface-cli" in call_args
-        assert "qwen3.5-9b-q4_k_m.gguf" in call_args
+        assert mock_run.call_count == 2
+        calls = [call.args[0] for call in mock_run.call_args_list]
+        assert all("huggingface-cli" in call_args for call_args in calls)
+        assert all("unsloth/Qwen3.5-9B-GGUF" in call_args for call_args in calls)
+        assert any("Qwen3.5-9B-Q4_K_M.gguf" in call_args for call_args in calls)
+        assert any("mmproj-F16.gguf" in call_args for call_args in calls)
+        spec = next(spec for spec in BUILTIN_MODELS if spec.model_id == "qwen3.5:9b")
+        assert spec.metadata["gguf_size_gb"] == 5.7
+        assert spec.metadata["mmproj_size_gb"] == 0.9
+        assert spec.metadata["modalities"] == ["text", "image"]
 
     def test_pull_mlx_uses_huggingface_cli(self) -> None:
         from openjarvis.cli import cli

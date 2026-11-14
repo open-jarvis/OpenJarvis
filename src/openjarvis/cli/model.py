@@ -246,7 +246,7 @@ def pull(model_name: str, engine: str | None) -> None:
             console.print(f"[red]Model not in catalog:[/red] {model_name}")
             sys.exit(1)
         if engine == "llamacpp":
-            repo = spec.metadata.get("hf_repo", "")
+            repo = spec.metadata.get("gguf_repo") or spec.metadata.get("hf_repo", "")
             gguf = spec.metadata.get("gguf_file", "")
             if not repo or not gguf:
                 console.print(f"[red]No GGUF download info for {model_name}[/red]")
@@ -254,6 +254,11 @@ def pull(model_name: str, engine: str | None) -> None:
             console.print(f"Downloading [cyan]{gguf}[/cyan] from {repo}...")
             if not hf_download(repo, gguf, console):
                 sys.exit(1)
+            mmproj = spec.metadata.get("mmproj_file", "")
+            if mmproj:
+                console.print(f"Downloading [cyan]{mmproj}[/cyan] from {repo}...")
+                if not hf_download(repo, mmproj, console):
+                    sys.exit(1)
         else:  # mlx
             mlx_repo = spec.metadata.get("mlx_repo", "")
             if not mlx_repo:
