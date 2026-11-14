@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { GitBranch, Clock, ChevronRight, ChevronDown } from 'lucide-react';
+import { getBase, authHeaders } from '../../lib/api';
 
 interface TraceStepData {
   model?: string;
@@ -124,8 +125,8 @@ export function TraceDebugger() {
 
   const fetchTraces = useCallback(async () => {
     try {
-      const base = import.meta.env.VITE_API_URL || '';
-      const res = await fetch(`${base}/v1/traces?limit=50`);
+      const base = getBase();
+      const res = await fetch(`${base}/v1/traces?limit=50`, { headers: authHeaders() });
       if (!res.ok) throw new Error();
       const data = await res.json();
       setTraces(data.traces || []);

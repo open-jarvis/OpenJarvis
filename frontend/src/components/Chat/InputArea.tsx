@@ -3,7 +3,7 @@ import { Send, Square, Paperclip, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat, streamResearch } from '../../lib/sse';
-import { fetchSavings, getBase } from '../../lib/api';
+import { fetchSavings, getBase, authHeaders } from '../../lib/api';
 import { listConnectors, getSyncStatus } from '../../lib/connectors-api';
 import { serializeToolCallArguments } from '../../lib/tool-call';
 import {
@@ -497,7 +497,7 @@ export function InputArea() {
       // Check if the response has digest audio available
       let audioMeta: { url: string } | undefined;
       try {
-        const digestRes = await fetch(`${getBase()}/api/digest`);
+        const digestRes = await fetch(`${getBase()}/api/digest`, { headers: authHeaders() });
         if (digestRes.ok) {
           const digest = await digestRes.json();
           if (digest.audio_available) {
