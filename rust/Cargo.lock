@@ -1323,6 +1323,7 @@ name = "openjarvis-tools"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "libc",
  "meval",
  "once_cell",
  "openjarvis-core",

@@ -9,20 +9,46 @@ from __future__ import annotations
 
 import importlib
 import os
-import shlex
-import subprocess
 import sys
+import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from openjarvis.core import get_python_executable
+from openjarvis._rust_bridge import RUST_AVAILABLE
 from openjarvis.tools.shell_exec import ShellExecTool
 
 
-def _rust_output(stdout: str = "", stderr: str = "", code: int = 0) -> str:
-    """Build the Rust shell_exec output format."""
-    return f"Exit code: {code}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+def _rust_output(
+    stdout: str = "",
+    stderr: str = "",
+    code: int = 0,
+    *,
+    timed_out: bool = False,
+    output_limited: bool = False,
+    stdout_truncated: bool = False,
+    stderr_truncated: bool = False,
+):
+    """Build the structured Rust shell_exec result used by the PyO3 API."""
+    content = f"Exit code: {code}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    if timed_out:
+        content = f"Command timed out.\n{content}"
+    if output_limited:
+        content = f"Output limit reached; process tree terminated.\n{content}"
+    if stdout_truncated:
+        content += "\n[stdout truncated: combined capture limit reached]"
+    if stderr_truncated:
+        content += "\n[stderr truncated: combined capture limit reached]"
+    return SimpleNamespace(
+        content=content,
+        success=(code == 0 and not timed_out and not output_limited),
+        returncode=code,
+        timed_out=timed_out,
+        output_limited=output_limited,
+        stdout_truncated=stdout_truncated,
+        stderr_truncated=stderr_truncated,
+    )
 
 
 def _make_mock_rust(side_effect=None, return_value=None):
@@ -54,7 +80,7 @@ class TestShellExecTool:
         assert tool.spec.name == "shell_exec"
         assert tool.spec.category == "system"
         assert tool.spec.requires_confirmation is True
-        assert tool.spec.timeout_seconds == 60.0
+        assert tool.spec.timeout_seconds == 30.0
         assert "code:execute" in tool.spec.required_capabilities
         assert "command" in tool.spec.parameters["properties"]
         assert "command" in tool.spec.parameters["required"]
@@ -98,19 +124,23 @@ class TestShellExecTool:
         assert "error_msg" in result.content
         assert "--- stderr ---" in result.content
 
-    @pytest.mark.skip(
-        reason="Rust backend has no timeout — Command::output() blocks",
+    @pytest.mark.skipif(
+        not RUST_AVAILABLE,
+        reason="native Rust backend required for process-tree timeout test",
     )
     def test_timeout_exceeded(self):
         tool = ShellExecTool()
-        result = tool.execute(command="sleep 60", timeout=1)
+        command = "ping -n 60 127.0.0.1 >nul" if os.name == "nt" else "sleep 60"
+        result = tool.execute(command=command, timeout=1)
         assert result.success is False
         assert "timed out" in result.content
         assert result.metadata["returncode"] == -1
         assert result.metadata["timeout_used"] == 1
+        assert result.metadata["timed_out"] is True
+        assert result.metadata["output_limited"] is False
 
     def test_timeout_capped_at_max(self):
-        """timeout param is still capped in Python; Rust ignores it."""
+        """Timeout is capped in both Python and Rust."""
         mock_mod = _make_mock_rust(
             return_value=_rust_output(stdout="ok\n"),
         )
@@ -151,36 +181,22 @@ class TestShellExecTool:
         assert result.success is False
         assert "not a directory" in result.content
 
-    @pytest.mark.skip(reason="Rust backend inherits parent env — no env isolation")
-    def test_env_clearing(self):
-        """Verify that arbitrary env vars are NOT passed through."""
-        marker = "OPENJARVIS_TEST_SECRET_12345"
-        os.environ[marker] = "leaked"
-        try:
-            tool = ShellExecTool()
-            result = tool.execute(command=f"echo ${marker}")
-            assert result.success is True
-            assert "leaked" not in result.content
-        finally:
-            os.environ.pop(marker, None)
+    def test_environment_passthrough_is_not_a_tool_parameter(self):
+        assert "env_passthrough" not in ShellExecTool().spec.parameters["properties"]
 
-    @pytest.mark.skip(
-        reason="Rust backend inherits parent env — no env_passthrough",
-    )
-    def test_env_passthrough(self):
-        """Verify that explicitly listed env vars ARE passed through."""
-        marker = "OPENJARVIS_TEST_PASSTHROUGH_67890"
-        os.environ[marker] = "allowed_value"
-        try:
-            tool = ShellExecTool()
-            result = tool.execute(
+    def test_model_cannot_forward_a_dummy_api_key(self, monkeypatch):
+        marker = "OPENJARVIS_WP2_DUMMY_API_TOKEN"
+        monkeypatch.setenv(marker, "dummy-key-must-not-be-forwarded")
+        mock_mod = _make_mock_rust(return_value=_rust_output(stdout=""))
+        with patch("openjarvis._rust_bridge.get_rust_module", return_value=mock_mod):
+            result = ShellExecTool().execute(
                 command=f"echo ${marker}",
                 env_passthrough=[marker],
             )
-            assert result.success is True
-            assert "allowed_value" in result.content
-        finally:
-            os.environ.pop(marker, None)
+        assert result.success is True
+        mock_mod.ShellExecTool.return_value.execute.assert_called_once_with(
+            f"echo ${marker}", None, 30
+        )
 
     def test_returncode_in_metadata(self):
         mock_mod = _make_mock_rust(
@@ -196,10 +212,7 @@ class TestShellExecTool:
         assert result.metadata["returncode"] == 0
 
     def test_nonzero_returncode(self):
-        """Non-zero exit in Rust returns ToolResult::failure() but PyO3 binding
-        returns Ok(content).  The Python wrapper currently treats that as
-        success=True (it only sets success=False on exception).  The Rust
-        output still contains the exit code in the formatted string."""
+        """The actual non-zero exit status survives the Rust/Python boundary."""
         mock_mod = _make_mock_rust(
             return_value=_rust_output(code=42),
         )
@@ -209,22 +222,66 @@ class TestShellExecTool:
             return_value=mock_mod,
         ):
             result = tool.execute(command="exit 42")
-        # PyO3 binding returns content for both success/failure ToolResults,
-        # so Python wrapper sets success=True and returncode=0.
-        assert result.success is True
+        assert result.success is False
+        assert result.metadata["returncode"] == 42
         assert "Exit code: 42" in result.content
 
-    @pytest.mark.skip(reason="Rust backend has no output truncation")
-    def test_max_output_truncation(self, tmp_path):
-        """Stdout exceeding 100 KB is truncated."""
-        tool = ShellExecTool()
-        result = tool.execute(
-            command=(
-                f"{shlex.quote(get_python_executable())} -c \"print('A' * 200000)\""
+    def test_timeout_never_reports_success_even_if_backend_flag_is_inconsistent(self):
+        mock_mod = _make_mock_rust(
+            return_value=SimpleNamespace(
+                content="Command timed out.",
+                success=True,
+                returncode=0,
+                timed_out=True,
+                stdout_truncated=False,
+                stderr_truncated=False,
             ),
         )
-        assert "truncated" in result.content
-        assert len(result.content) < 200_000
+        with patch("openjarvis._rust_bridge.get_rust_module", return_value=mock_mod):
+            result = ShellExecTool().execute(command="sleep 10", timeout=1)
+
+        assert result.success is False
+        assert result.metadata["timed_out"] is True
+
+    def test_output_limit_metadata_is_preserved(self):
+        mock_mod = _make_mock_rust(
+            return_value=SimpleNamespace(
+                content="Output limit reached.",
+                success=True,
+                returncode=0,
+                timed_out=False,
+                output_limited=True,
+                stdout_truncated=True,
+                stderr_truncated=False,
+            ),
+        )
+        with patch("openjarvis._rust_bridge.get_rust_module", return_value=mock_mod):
+            result = ShellExecTool().execute(command="unbounded output")
+
+        assert result.success is False
+        assert result.metadata["output_limited"] is True
+        assert result.metadata["stdout_truncated"] is True
+
+    @pytest.mark.skipif(
+        not RUST_AVAILABLE,
+        reason="requires the compiled Rust extension",
+    )
+    def test_native_continuous_output_is_stopped_at_combined_budget(self):
+        command = (
+            "for /L %i in (1,1,2147483647) do @echo x"
+            if os.name == "nt"
+            else "while :; do printf x; done"
+        )
+        started = time.monotonic()
+        result = ShellExecTool().execute(command=command, timeout=30)
+
+        assert time.monotonic() - started < 5
+        assert result.success is False
+        assert result.metadata["output_limited"] is True
+        assert result.metadata["timed_out"] is False
+        assert (
+            result.metadata["stdout_truncated"] or result.metadata["stderr_truncated"]
+        )
 
     def test_no_output(self):
         """Rust always returns the format string even when stdout/stderr are empty."""
@@ -265,6 +322,44 @@ class TestShellExecTool:
             result = tool.execute(command="echo ok")
         assert result.metadata["timeout_used"] == 30
 
+    def test_structured_result_metadata(self):
+        result_obj = _rust_output(code=7, stderr_truncated=True)
+        mock_mod = _make_mock_rust(return_value=result_obj)
+        with patch("openjarvis._rust_bridge.get_rust_module", return_value=mock_mod):
+            result = ShellExecTool().execute(command="exit 7", timeout=4)
+        assert result.success is False
+        assert result.metadata["returncode"] == 7
+        assert result.metadata["stderr_truncated"] is True
+        mock_mod.ShellExecTool.return_value.execute.assert_called_once_with(
+            "exit 7", None, 4
+        )
+
+    def test_unicode_output(self):
+        mock_mod = _make_mock_rust(return_value=_rust_output(stdout="héllo 世界\n"))
+        with patch("openjarvis._rust_bridge.get_rust_module", return_value=mock_mod):
+            result = ShellExecTool().execute(command="echo unicode")
+        assert "héllo 世界" in result.content
+
+    @pytest.mark.skipif(
+        not RUST_AVAILABLE,
+        reason="requires the compiled Rust extension",
+    )
+    def test_native_rust_python_integration(self, monkeypatch):
+        marker = "OPENJARVIS_WP2_INTEGRATION_DUMMY_SECRET"
+        monkeypatch.setenv(marker, "dummy-not-a-real-secret")
+        command = (
+            f"echo %{marker}%" if os.name == "nt" else f"printf '%s' \"${marker}\""
+        )
+        hidden = ShellExecTool().execute(command=command)
+        assert hidden.success is True
+        assert "dummy-not-a-real-secret" not in hidden.content
+        assert hidden.metadata["returncode"] == 0
+
+        nonzero_command = "exit /b 42" if os.name == "nt" else "exit 42"
+        failed = ShellExecTool().execute(command=nonzero_command)
+        assert failed.success is False
+        assert failed.metadata["returncode"] == 42
+
     def test_rust_exception_sets_failure(self):
         """When the Rust backend raises an exception, Python sets success=False."""
         mock_mod = _make_mock_rust(
@@ -280,100 +375,25 @@ class TestShellExecTool:
         assert result.metadata["returncode"] == -1
 
 
-class TestSanitizedEnvWindowsKeys:
-    """Regression for #789: the Python fallback's env allowlist was
-    POSIX-focused ("PATH", "HOME", "USER", "LANG", "TERM") and omitted
-    variables Windows needs for basic process bootstrapping -- missing
-    SystemRoot breaks Winsock/DNS init for any network-touching command
-    (git, curl, pip, npm all fail with "getaddrinfo() thread failed to
-    start"), and missing LOCALAPPDATA makes the Windows Store Python
-    launcher provision a ~170MB Python\\ folder in the cwd instead of
-    finding the real interpreter.
-    """
-
-    def test_base_env_keys_include_windows_essentials(self):
-        from openjarvis.tools.shell_exec import _WINDOWS_ENV_KEYS
-
-        for key in (
-            "SystemRoot",
-            "SystemDrive",
-            "COMSPEC",
-            "PATHEXT",
-            "TEMP",
-            "TMP",
-            "USERPROFILE",
-            "LOCALAPPDATA",
-            "APPDATA",
-        ):
-            assert key in _WINDOWS_ENV_KEYS, f"{key} missing from Windows keys"
-
-    def test_windows_keys_are_only_enabled_on_windows(self):
-        from openjarvis.tools.shell_exec import _BASE_ENV_KEYS, _WINDOWS_ENV_KEYS
-
-        if os.name == "nt":
-            assert set(_WINDOWS_ENV_KEYS) <= set(_BASE_ENV_KEYS)
-        else:
-            assert set(_WINDOWS_ENV_KEYS).isdisjoint(_BASE_ENV_KEYS)
-
-    @pytest.mark.skipif(os.name != "nt", reason="requires a real Windows child")
-    def test_windows_env_vars_reach_the_subprocess(self, monkeypatch):
-        """End-to-end: with the Rust backend unavailable (forcing the
-        Python sanitised-env fallback), a Windows-critical variable
-        present in the host environment must actually reach the child
-        process instead of being stripped."""
-        monkeypatch.setenv("SystemRoot", r"C:\Windows")
-        monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\tester\AppData\Local")
-
-        captured: dict = {}
-
-        def _fake_run(*args, **kwargs):
-            captured["env"] = kwargs.get("env")
-            return subprocess.CompletedProcess(args, 0, stdout="ok\n", stderr="")
-
-        tool = ShellExecTool()
-        with (
-            patch(
-                "openjarvis._rust_bridge.get_rust_module",
-                side_effect=ImportError("no rust module"),
-            ),
-            patch("subprocess.run", side_effect=_fake_run),
-        ):
-            result = tool.execute(command="echo ok")
-
-        assert result.success is True
-        env = captured["env"]
-        assert env is not None
-        assert env.get("SystemRoot") == r"C:\Windows"
-        assert env.get("LOCALAPPDATA") == r"C:\Users\tester\AppData\Local"
-
-    @pytest.mark.skipif(os.name != "nt", reason="requires a real Windows child")
-    def test_real_windows_child_bootstraps_and_resolves_localhost(
-        self, tmp_path, monkeypatch
-    ):
-        """Exercise the actual sanitized environment and Windows process path."""
-        import json
-
-        local_app_data = str(tmp_path / "LocalAppData")
-        monkeypatch.setenv("LOCALAPPDATA", local_app_data)
-        probe = (
-            "import json, os, socket; "
-            "addresses = socket.getaddrinfo('localhost', 80); "
-            "print(json.dumps({"
-            "'SystemRoot': os.environ.get('SystemRoot'), "
-            "'LOCALAPPDATA': os.environ.get('LOCALAPPDATA'), "
-            "'dns_ok': bool(addresses)}))"
-        )
-        command = subprocess.list2cmdline([sys.executable, "-c", probe])
-
-        with patch(
+def test_native_backend_unavailable_fails_closed_without_execution():
+    with (
+        patch(
             "openjarvis._rust_bridge.get_rust_module",
-            side_effect=ImportError("force Python fallback"),
-        ):
-            result = ShellExecTool().execute(command=command)
+            side_effect=ImportError("native extension unavailable"),
+        ),
+        patch("subprocess.run") as fallback_run,
+    ):
+        result = ShellExecTool().execute(command="echo SHOULD_NOT_RUN", timeout=7)
 
-        assert result.success is True, result.content
-        stdout = result.content.split("=== STDOUT ===\n", 1)[1].splitlines()[0]
-        payload = json.loads(stdout)
-        assert payload["SystemRoot"] == os.environ["SystemRoot"]
-        assert payload["LOCALAPPDATA"] == local_app_data
-        assert payload["dns_ok"] is True
+    assert result.success is False
+    assert "command was not executed" in result.content
+    assert result.metadata == {
+        "returncode": -1,
+        "timeout_used": 7,
+        "working_dir": None,
+        "timed_out": False,
+        "output_limited": False,
+        "stdout_truncated": False,
+        "stderr_truncated": False,
+    }
+    fallback_run.assert_not_called()

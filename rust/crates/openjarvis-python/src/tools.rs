@@ -116,6 +116,24 @@ impl PyFileWriteTool {
 #[pyclass(name = "ShellExecTool")]
 pub struct PyShellExecTool;
 
+#[pyclass(name = "ShellExecResult")]
+pub struct PyShellExecResult {
+    #[pyo3(get)]
+    pub content: String,
+    #[pyo3(get)]
+    pub success: bool,
+    #[pyo3(get)]
+    pub returncode: i32,
+    #[pyo3(get)]
+    pub timed_out: bool,
+    #[pyo3(get)]
+    pub output_limited: bool,
+    #[pyo3(get)]
+    pub stdout_truncated: bool,
+    #[pyo3(get)]
+    pub stderr_truncated: bool,
+}
+
 #[pymethods]
 impl PyShellExecTool {
     #[new]
@@ -123,17 +141,31 @@ impl PyShellExecTool {
         Self
     }
 
-    #[pyo3(signature = (command, cwd=None))]
-    fn execute(&self, command: &str, cwd: Option<&str>) -> PyResult<String> {
+    #[pyo3(signature = (command, cwd=None, timeout=None))]
+    fn execute(
+        &self,
+        command: &str,
+        cwd: Option<&str>,
+        timeout: Option<u64>,
+    ) -> PyResult<PyShellExecResult> {
         let tool = openjarvis_tools::builtin::shell::ShellExecTool;
         let mut params = serde_json::json!({"command": command});
         if let Some(cwd) = cwd {
             params["cwd"] = serde_json::Value::String(cwd.to_string());
         }
-        let result = tool
-            .execute(&params)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-        Ok(result.content)
+        if let Some(timeout) = timeout {
+            params["timeout"] = timeout.into();
+        }
+        let (result, output_limited) = tool.execute_structured_with_limit(&params);
+        Ok(PyShellExecResult {
+            content: result.content,
+            success: result.success,
+            returncode: result.returncode,
+            timed_out: result.timed_out,
+            output_limited,
+            stdout_truncated: result.stdout_truncated,
+            stderr_truncated: result.stderr_truncated,
+        })
     }
 }
 
