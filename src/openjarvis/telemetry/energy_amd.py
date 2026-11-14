@@ -56,9 +56,20 @@ class AmdEnergyMonitor(EnergyMonitor):
             return False
         try:
             amdsmi.amdsmi_init()
-            handles = amdsmi.amdsmi_get_processor_handles()
-            amdsmi.amdsmi_shut_down()
-            return len(handles) > 0
+            try:
+                handles = amdsmi.amdsmi_get_processor_handles()
+                if not handles:
+                    return False
+                # A handle is not enough. On integrated AMD graphics (Strix
+                # Halo / gfx1151) enumeration succeeds and every metric call
+                # then fails with AMDSMI_STATUS_UNEXPECTED_DATA. Without this
+                # probe the monitor is selected and silently records zero
+                # joules forever, which is indistinguishable from a real
+                # measurement once it is in the telemetry DB.
+                amdsmi.amdsmi_get_energy_count(handles[0])
+                return True
+            finally:
+                amdsmi.amdsmi_shut_down()
         except Exception as exc:
             logger.debug("AMD energy monitor availability check failed: %s", exc)
             return False

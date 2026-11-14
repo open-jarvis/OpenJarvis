@@ -145,7 +145,8 @@ def create_energy_monitor(
 ) -> Optional[EnergyMonitor]:
     """Factory — auto-detect and return the best available EnergyMonitor.
 
-    Detection order: NVIDIA > AMD > Apple > CPU RAPL.
+    Detection order: NVIDIA > AMD (amdsmi) > AMD (amdgpu sysfs) > Apple >
+    CPU RAPL.
     If *prefer_vendor* is set, try that vendor first.
 
     Every monitor returned by the normal path reports *measured* energy. When
@@ -179,6 +180,17 @@ def create_energy_monitor(
         default_order.append(AmdEnergyMonitor)
     except Exception as exc:
         logger.debug("Failed to load AMD energy monitor: %s", exc)
+
+    try:
+        # Fallback for AMD hardware amdsmi cannot read (notably APUs), via the
+        # kernel's amdgpu hwmon sysfs interface.
+        from openjarvis.telemetry.energy_amd_sysfs import AmdSysfsEnergyMonitor
+
+        vendor_map.setdefault("amd", AmdSysfsEnergyMonitor)
+        vendor_map["amd_sysfs"] = AmdSysfsEnergyMonitor
+        default_order.append(AmdSysfsEnergyMonitor)
+    except Exception as exc:
+        logger.debug("Failed to load AMD sysfs energy monitor: %s", exc)
 
     try:
         from openjarvis.telemetry.energy_apple import AppleEnergyMonitor

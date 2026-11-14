@@ -87,6 +87,10 @@ class TestCreateEnergyMonitor:
                 return_value=False,
             ),
             patch(
+                "openjarvis.telemetry.energy_amd_sysfs.AmdSysfsEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
                 "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
                 return_value=False,
             ),
@@ -107,6 +111,10 @@ class TestCreateEnergyMonitor:
             ),
             patch(
                 "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_amd_sysfs.AmdSysfsEnergyMonitor.available",
                 return_value=False,
             ),
             patch(
@@ -148,6 +156,10 @@ class TestCreateEnergyMonitor:
                 side_effect=amd_available,
             ),
             patch(
+                "openjarvis.telemetry.energy_amd_sysfs.AmdSysfsEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
                 "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
                 return_value=False,
             ),
@@ -186,6 +198,10 @@ class TestCreateEnergyMonitor:
                 side_effect=amd_available,
             ),
             patch(
+                "openjarvis.telemetry.energy_amd_sysfs.AmdSysfsEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
                 "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
                 return_value=False,
             ),
@@ -202,7 +218,7 @@ class TestCreateEnergyMonitor:
             assert call_order == ["nvidia", "amd"]
 
     def test_prefer_vendor_tried_first_then_default_order(self):
-        """prefer_vendor=cpu_rapl puts RAPL first, then NVIDIA > AMD > Apple."""
+        """prefer_vendor=cpu_rapl puts RAPL first, then the default order."""
         call_order = []
 
         def rapl_available():
@@ -215,6 +231,10 @@ class TestCreateEnergyMonitor:
 
         def amd_available():
             call_order.append("amd")
+            return False
+
+        def amd_sysfs_available():
+            call_order.append("amd_sysfs")
             return False
 
         def apple_available():
@@ -231,6 +251,10 @@ class TestCreateEnergyMonitor:
                 side_effect=amd_available,
             ),
             patch(
+                "openjarvis.telemetry.energy_amd_sysfs.AmdSysfsEnergyMonitor.available",
+                side_effect=amd_sysfs_available,
+            ),
+            patch(
                 "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
                 side_effect=apple_available,
             ),
@@ -241,4 +265,4 @@ class TestCreateEnergyMonitor:
         ):
             result = create_energy_monitor(prefer_vendor="cpu_rapl")
             assert result is None
-            assert call_order == ["rapl", "nvidia", "amd", "apple"]
+            assert call_order == ["rapl", "nvidia", "amd", "amd_sysfs", "apple"]
