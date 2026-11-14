@@ -87,6 +87,33 @@ Run it standalone:
 docker run -d -p 8000:8000 openjarvis:latest
 ```
 
+### Running the prebuilt image with a host Ollama server
+
+If you already have the `openjarvis-jarvis:latest` image and Ollama running
+on the host, set an API key and map each container to a different host port:
+
+```bash
+export OPENJARVIS_API_KEY="$(jarvis auth generate-key)"
+
+docker run -d --name openjarvis-8001 \
+  -e OPENJARVIS_API_KEY \
+  -e OLLAMA_HOST=http://host.docker.internal:11434 \
+  -p 8001:8000 \
+  --add-host host.docker.internal:host-gateway \
+  openjarvis-jarvis:latest
+
+docker run -d --name openjarvis-8003 \
+  -e OPENJARVIS_API_KEY \
+  -e OLLAMA_HOST=http://host.docker.internal:11434 \
+  -p 8003:8000 \
+  --add-host host.docker.internal:host-gateway \
+  openjarvis-jarvis:latest
+```
+
+The API is available at `http://localhost:8001` and
+`http://localhost:8003`. Keep the API key out of source control; the commands
+read it from the shell environment.
+
 ### GPU Image (`Dockerfile.gpu`)
 
 The GPU image is built on `nvidia/cuda:12.4.0-runtime-ubuntu22.04` and includes the CUDA 12.4 runtime libraries, enabling GPU-accelerated inference when paired with a GPU-capable engine like vLLM or SGLang.
