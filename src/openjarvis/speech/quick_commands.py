@@ -10,6 +10,7 @@ Windows-only actions are guarded by ``os.name``; unmatched text returns
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
 from typing import Callable, Optional
@@ -145,6 +146,23 @@ def _set_volume(level: str) -> str:
     return "Volume ajusté."
 
 
+def _extract_city(text: str) -> Optional[str]:
+    """Return a known city mentioned after à/in/de/at, or None."""
+    match = re.search(
+        r"\b(?:à|in|at|de)\s+([a-zà-ÿ0-9' -]{2,30})\s*$",
+        text,
+    )
+    if match is None:
+        return None
+    candidate = match.group(1).strip()
+    from openjarvis.tools.net import CITY_TZ_MAP, _normalize_city
+
+    if _normalize_city(candidate) not in CITY_TZ_MAP:
+        return None
+    # Preserve a display-friendly casing ("new york" → "New York").
+    return candidate.title()
+
+
 def time_text() -> str:
     """Return the current date/time in French (public helper)."""
     return _french_time(time.localtime)
@@ -168,6 +186,14 @@ def handle_quick_command(
         return _lock_pc()
 
     if any(pattern in lowered for pattern in _TIME_PATTERNS):
+        city = _extract_city(lowered)
+        if city:
+            try:
+                from openjarvis.tools.net import city_time
+
+                return city_time(city)
+            except Exception:  # noqa: BLE001 — unknown tz falls back locally
+                pass
         return _french_time(now_fn)
 
     for app_name, executable in _KNOWN_APPS.items():

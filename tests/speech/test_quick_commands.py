@@ -72,6 +72,21 @@ def test_unknown_commands_return_none() -> None:
     assert handle_quick_command("") is None
 
 
+def test_time_in_city_uses_world_time(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "openjarvis.tools.net.city_time",
+        lambda city: f"À {city}, il est 17h05.",
+    )
+    reply = handle_quick_command("quelle heure est-il à Tokyo")
+    assert reply == "À Tokyo, il est 17h05."
+
+
+def test_time_without_city_stays_local() -> None:
+    reply = handle_quick_command("quelle heure est-il", now_fn=_fixed_time)
+    assert reply is not None
+    assert "samedi 14 novembre 2026" in reply
+
+
 def test_open_command_rejects_arbitrary_apps() -> None:
     # "ouvre" with an app outside the known list must NOT launch anything.
     assert handle_quick_command("ouvre le gestionnaire de tâches") is None

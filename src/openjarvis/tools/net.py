@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import xml.etree.ElementTree as ET
 from typing import List, Optional
 
@@ -209,11 +210,148 @@ def convert_units(text: str) -> Optional[str]:
     return f"{amount:g} {source} = {result:.6g} {target}"
 
 
+# -- world time (local zoneinfo, worldtimeapi fallback) -----------------------
+
+# Common city names → IANA timezone. Free-text city resolution without a
+# geocoding API; "/" inputs (e.g. Europe/Paris) pass through as IANA names.
+CITY_TZ_MAP: dict[str, str] = {
+    "paris": "Europe/Paris",
+    "londres": "Europe/London",
+    "london": "Europe/London",
+    "tokyo": "Asia/Tokyo",
+    "new york": "America/New_York",
+    "los angeles": "America/Los_Angeles",
+    "montreal": "America/Toronto",
+    "montréal": "America/Toronto",
+    "berlin": "Europe/Berlin",
+    "madrid": "Europe/Madrid",
+    "rome": "Europe/Rome",
+    "moscou": "Europe/Moscow",
+    "pekin": "Asia/Shanghai",
+    "pékin": "Asia/Shanghai",
+    "beijing": "Asia/Shanghai",
+    "shanghai": "Asia/Shanghai",
+    "sydney": "Australia/Sydney",
+    "dubai": "Asia/Dubai",
+    "dubaï": "Asia/Dubai",
+    "singapour": "Asia/Singapore",
+    "singapore": "Asia/Singapore",
+    "mumbai": "Asia/Kolkata",
+    "bombay": "Asia/Kolkata",
+    "rio": "America/Sao_Paulo",
+    "sao paulo": "America/Sao_Paulo",
+    "são paulo": "America/Sao_Paulo",
+    "bruxelles": "Europe/Brussels",
+    "genève": "Europe/Zurich",
+    "geneve": "Europe/Zurich",
+    "zurich": "Europe/Zurich",
+    "amsterdam": "Europe/Amsterdam",
+    "stockholm": "Europe/Stockholm",
+    "oslo": "Europe/Oslo",
+    "helsinki": "Europe/Helsinki",
+    "lisbonne": "Europe/Lisbon",
+    "athènes": "Europe/Athens",
+    "athenes": "Europe/Athens",
+    "le caire": "Africa/Cairo",
+    "alger": "Africa/Algiers",
+    "tunis": "Africa/Tunis",
+    "casablanca": "Africa/Casablanca",
+    "dakar": "Africa/Dakar",
+    "mexico": "America/Mexico_City",
+    "bogota": "America/Bogota",
+    "buenos aires": "America/Argentina/Buenos_Aires",
+    "seoul": "Asia/Seoul",
+    "séoul": "Asia/Seoul",
+    "hong kong": "Asia/Hong_Kong",
+    "bangkok": "Asia/Bangkok",
+    "jakarta": "Asia/Jakarta",
+    "istanbul": "Europe/Istanbul",
+    "auckland": "Pacific/Auckland",
+    "toronto": "America/Toronto",
+    "chicago": "America/Chicago",
+    "washington": "America/New_York",
+}
+
+
+def _normalize_city(name: str) -> str:
+    """Lowercase, strip accents and collapse whitespace."""
+    import unicodedata
+
+    text = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return " ".join(text.lower().split())
+
+
+def format_city_time(label: str, now: time.struct_time) -> str:
+    """Format a city's time for display/speech (injection seam for tests)."""
+    return f"À {label}, il est {now.tm_hour:02d}h{now.tm_min:02d}."
+
+
+def _timezone_now(tz_name: str) -> time.struct_time:
+    """Current local time in *tz_name* (zoneinfo, worldtimeapi fallback)."""
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        now = datetime.now(ZoneInfo(tz_name))
+        return time.struct_time(
+            (
+                now.year,
+                now.month,
+                now.day,
+                now.hour,
+                now.minute,
+                now.second,
+                now.weekday(),
+                now.timetuple().tm_yday,
+                -1,
+            )
+        )
+    except Exception:
+        pass
+    # Fallback: worldtimeapi.org (free, no key).
+    import calendar
+
+    response = _get(f"https://worldtimeapi.org/api/timezone/{tz_name}")
+    response.raise_for_status()
+    raw = response.json().get("datetime") or ""
+    match = re.match(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})", raw)
+    if match is None:
+        raise RuntimeError(f"Impossible d'obtenir l'heure de {tz_name}")
+    year, month, day, hour, minute = (int(g) for g in match.groups())
+    return time.struct_time(
+        (year, month, day, hour, minute, 0, calendar.weekday(year, month, day), 0, -1)
+    )
+
+
+def city_time(city: str) -> str:
+    """Current time in *city* (known city name or an IANA ``Area/City``)."""
+    raw = city.strip().rstrip(".,!?")
+    if not raw:
+        raise RuntimeError("Indique une ville : /heure Tokyo")
+    normalized = _normalize_city(raw)
+    if "/" in normalized:
+        tz_name = raw.strip()
+        label = raw.strip()
+    else:
+        tz_name = CITY_TZ_MAP.get(normalized)
+        if tz_name is None:
+            raise RuntimeError(
+                f"Ville inconnue : {raw}. Essaie une ville connue "
+                "(Tokyo, Paris, New York, Londres, Sydney…) ou un fuseau "
+                "IANA (Europe/Paris)."
+            )
+        label = raw
+    return format_city_time(label, _timezone_now(tz_name))
+
+
 __all__ = [
+    "CITY_TZ_MAP",
     "RSS_FEEDS",
+    "city_time",
     "convert_units",
     "crypto_prices",
     "currency_rate",
+    "format_city_time",
     "headlines_for",
     "rss_headlines",
     "weather_now",

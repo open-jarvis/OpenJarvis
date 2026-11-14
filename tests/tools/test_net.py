@@ -5,9 +5,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from openjarvis.tools.net import (
+    city_time,
     convert_units,
     crypto_prices,
     currency_rate,
+    format_city_time,
     headlines_for,
     rss_headlines,
     weather_now,
@@ -98,3 +100,42 @@ def test_convert_units_length_and_temperature() -> None:
 def test_convert_units_rejects_unsupported() -> None:
     assert convert_units("hello world") is None
     assert convert_units("5 pommes en poires") is None
+
+
+def test_format_city_time_is_deterministic() -> None:
+    import time as _time
+
+    now = _time.struct_time((2026, 11, 14, 9, 5, 0, 5, 318, 0))
+    assert format_city_time("Tokyo", now) == "À Tokyo, il est 09h05."
+
+
+def test_city_time_unknown_city_raises() -> None:
+    import pytest
+
+    with pytest.raises(RuntimeError) as excinfo:
+        city_time("Atlantide")
+    assert "Ville inconnue" in str(excinfo.value)
+
+
+def test_city_time_known_city_uses_mapping(monkeypatch) -> None:
+    import time as _time
+
+    fixed = _time.struct_time((2026, 11, 14, 9, 5, 0, 5, 318, 0))
+    calls = []
+    monkeypatch.setattr(
+        "openjarvis.tools.net._timezone_now",
+        lambda tz: calls.append(tz) or fixed,
+    )
+    assert city_time("Tokyo") == "À Tokyo, il est 09h05."
+    assert calls == ["Asia/Tokyo"]
+
+
+def test_city_time_iana_name_passes_through(monkeypatch) -> None:
+    import time as _time
+
+    fixed = _time.struct_time((2026, 11, 14, 12, 0, 0, 5, 318, 0))
+    monkeypatch.setattr(
+        "openjarvis.tools.net._timezone_now",
+        lambda tz: fixed,
+    )
+    assert city_time("Europe/Paris") == "À Europe/Paris, il est 12h00."

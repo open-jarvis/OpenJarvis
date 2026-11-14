@@ -601,6 +601,23 @@ def _handle_convert(
     _say(console, voice_session, text)
 
 
+def _handle_city_time(
+    console: Console,
+    voice_session: Optional[VoiceSession],
+    city: str,
+) -> None:
+    """Show the current time in another city (the ``/heure`` command)."""
+    from openjarvis.tools.net import city_time
+
+    try:
+        text = city_time(city)
+    except Exception as exc:
+        console.print(f"[red]{_safe_rich_label(exc)}[/red]")
+        return
+    console.print(Markdown(text))
+    _say(console, voice_session, text)
+
+
 def _handle_briefing(
     console: Console,
     voice_session: Optional[VoiceSession],
@@ -1048,6 +1065,7 @@ def chat(
                 "  /news [monde|tech|sport|economie|culture|science] — headlines\n"
                 "  /marchés      — crypto prices (EUR)\n"
                 "  /convert <x> <unité> en <unité> | <x> usd en eur\n"
+                "  /heure <ville> — local time in another city\n"
                 "  /brief        — time + weather + headlines + memory\n"
                 "  /history      — show conversation\n"
                 "  /help         — this message"
@@ -1130,6 +1148,13 @@ def chat(
                 console,
                 voice_session,
                 user_input[len("/convert") :].strip(),
+            )
+            continue
+        elif cmd.startswith("/heure"):
+            _handle_city_time(
+                console,
+                voice_session,
+                user_input[len("/heure") :].strip(),
             )
             continue
         elif cmd == "/brief" or cmd.startswith("/brief "):

@@ -718,6 +718,54 @@ class TestChatCommand:
         assert "Météo : Paris : ⛅ +8°C" in result.output
         assert "À la une du jour" in result.output
 
+    def test_heure_command_shows_city_time(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.city_time",
+                return_value="À Tokyo, il est 17h05.",
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/heure Tokyo\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "À Tokyo, il est 17h05." in result.output
+
+    def test_heure_command_unknown_city_reports_error(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.city_time",
+                side_effect=RuntimeError("Ville inconnue : Atlantide."),
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/heure Atlantide\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Ville inconnue" in result.output
+
     def test_remember_stores_summary_fact(self) -> None:
         engine = MagicMock()
         engine.engine_id = "mock"
