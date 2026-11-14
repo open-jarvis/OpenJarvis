@@ -145,6 +145,20 @@ class SchedulerStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_recent_runs(
+        self, after_id: int = 0, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Return run logs with ``id > after_id`` across all tasks, oldest first."""
+        rows = self._conn.execute(
+            "SELECT * FROM task_run_logs WHERE id > ? ORDER BY id ASC LIMIT ?",
+            (after_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def latest_run_id(self) -> int:
+        row = self._conn.execute("SELECT MAX(id) FROM task_run_logs").fetchone()
+        return int(row[0] or 0) if row else 0
+
     # -- Lifecycle -----------------------------------------------------------
 
     def close(self) -> None:

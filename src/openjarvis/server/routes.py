@@ -155,6 +155,36 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     return [combined_system, *non_system_messages]
 
 
+async def _apply_attachments(
+    request_body: ChatCompletionRequest, request: Request
+) -> None:
+    """Append attachment context to the last user message (in place)."""
+    import asyncio
+
+    from openjarvis.server.attachment_routes import library_for
+
+    lib = library_for(request)
+    ids = [i for i in dict.fromkeys(request_body.attachments or []) if lib.get(i)]
+    if not ids:
+        return
+    # Give freshly attached images a moment to finish being described.
+    for _ in range(50):
+        if all(lib.get(i).status != "describing" for i in ids):
+            break
+        await asyncio.sleep(0.5)
+    context = await asyncio.to_thread(lib.context_for, ids)
+    if not context:
+        return
+    msgs = list(request_body.messages)
+    for idx in range(len(msgs) - 1, -1, -1):
+        if msgs[idx].role == "user":
+            msgs[idx] = msgs[idx].model_copy(
+                update={"content": f"{msgs[idx].content or ''}\n\n{context}".strip()}
+            )
+            break
+    request_body.messages = msgs
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request_body: ChatCompletionRequest, request: Request):
     """Handle chat completion requests (streaming and non-streaming)."""
@@ -273,6 +303,62 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
             logging.getLogger("openjarvis.server").debug(
                 "Complexity analysis failed",
                 exc_info=True,
+            )
+
+    # Smart routing: ``model="auto"`` keeps everyday chat on the local model
+    # and sends complex / automation work to Claude when it is configured.
+    if model == "auto":
+        from openjarvis.server.smart_routing import choose_model
+
+        decision = choose_model(
+            query_text_for_complexity,
+            complexity_info.tier if complexity_info is not None else None,
+            local_model=getattr(request.app.state, "model", "") or "",
+            engine=engine,
+        )
+        model = decision.model
+        request_body.model = model
+        logging.getLogger("openjarvis.server").info(
+            "Smart routing -> %s (%s)", model, decision.reason
+        )
+
+    # Skill library: name the few installed skills relevant to this request so
+    # the agent can load one with ``use_skill``. Skipped unless the agent has
+    # that tool, and for requests with no strong match (e.g. small talk).
+    if query_text_for_complexity and use_server_agent and not request_body.tools:
+        agent_tool_names = {
+            getattr(getattr(t, "spec", None), "name", "")
+            for t in (getattr(agent, "_tools", None) or [])
+        }
+        if "use_skill" in agent_tool_names:
+            try:
+                from openjarvis.server.models import ChatMessage
+                from openjarvis.skills.library import skill_hint
+
+                hint = skill_hint(query_text_for_complexity)
+                if hint:
+                    msgs = list(request_body.messages)
+                    if msgs and msgs[0].role == "system":
+                        msgs[0] = msgs[0].model_copy(
+                            update={"content": f"{msgs[0].content or ''}\n\n{hint}"}
+                        )
+                    else:
+                        msgs.insert(0, ChatMessage(role="system", content=hint))
+                    request_body.messages = msgs
+            except Exception:
+                logging.getLogger("openjarvis.server").debug(
+                    "Skill hint failed", exc_info=True
+                )
+
+    # Attachments: add the attached files' text (or image descriptions) to the
+    # last user message. Done after routing and the skill hint so those look
+    # at what the user typed, not at a long document.
+    if request_body.attachments and request_body.messages:
+        try:
+            await _apply_attachments(request_body, request)
+        except Exception:
+            logging.getLogger("openjarvis.server").warning(
+                "Attaching files to the message failed", exc_info=True
             )
 
     if request_body.stream:

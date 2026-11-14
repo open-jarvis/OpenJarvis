@@ -183,4 +183,31 @@ try:
 except ImportError:
     pass
 
+# On-demand skill library (find_skills / use_skill).
+try:
+    import openjarvis.tools.skill_library_tools  # noqa: F401
+except ImportError:
+    pass
+
+# Attachment library (list_attachments / read_attachment / save to knowledge).
+try:
+    import openjarvis.tools.attachment_tools  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.scheduler.tools  # noqa: F401  # schedule_task & friends
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.pc_actions  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.claude_code_worker  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]

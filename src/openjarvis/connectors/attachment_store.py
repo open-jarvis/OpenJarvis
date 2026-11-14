@@ -165,6 +165,37 @@ class AttachmentStore:
             return None
         return blob_path.read_bytes()
 
+    def release(self, sha: str, source_doc_id: str) -> bool:
+        """Drop *source_doc_id*'s reference to *sha*.
+
+        The blob file and its row are deleted only when no other source still
+        references it, so shared (deduplicated) content is never lost.
+        Returns True when the blob itself was deleted.
+        """
+        row = self._conn.execute(
+            "SELECT source_doc_ids FROM attachments WHERE sha256 = ?", (sha,)
+        ).fetchone()
+        if row is None:
+            return False
+        source_ids = [
+            s for s in json.loads(row["source_doc_ids"]) if s != source_doc_id
+        ]
+        if source_ids:
+            self._conn.execute(
+                "UPDATE attachments SET source_doc_ids = ? WHERE sha256 = ?",
+                (json.dumps(source_ids), sha),
+            )
+            self._conn.commit()
+            return False
+        self._conn.execute("DELETE FROM attachments WHERE sha256 = ?", (sha,))
+        self._conn.commit()
+        blob_path = self._base_dir / sha[:2] / sha
+        try:
+            blob_path.unlink()
+        except FileNotFoundError:
+            pass
+        return True
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------

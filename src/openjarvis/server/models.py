@@ -28,6 +28,8 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int = 1024
     stream: bool = False
     tools: Optional[List[Dict[str, Any]]] = None
+    # Ids from /v1/attachments; their text is added to the last user message.
+    attachments: Optional[List[str]] = None
 
 
 # ---------------------------------------------------------------------------

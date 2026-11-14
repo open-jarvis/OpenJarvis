@@ -567,6 +567,18 @@ def serve(
         if memory_service is not None:
             memory_service.start()
             console.print("  Memory svc: [cyan]active[/cyan]")
+            # Keep USER.md / MEMORY.md current from the facts it learns.
+            try:
+                from openjarvis.memory.profile import build_profile_curator
+
+                profile_curator = build_profile_curator(
+                    config, engine, model_name, memory_service
+                )
+                if profile_curator is not None:
+                    profile_curator.start()
+                    console.print("  Profile:   [cyan]auto-learning[/cyan]")
+            except Exception as exc:
+                logger.debug("Profile curator init failed: %s", exc)
     except Exception as exc:
         logger.debug("Memory service init failed: %s", exc)
         memory_service = None
@@ -587,6 +599,8 @@ def serve(
 
     # Set up agent scheduler for cron/interval agents
     agent_scheduler = None
+    # The JarvisSystem built below also executes scheduled automations.
+    task_system = None
     if agent_manager is not None:
         try:
             from openjarvis.agents.executor import AgentExecutor
@@ -668,6 +682,7 @@ def serve(
                 _mcp_clients=mcp_clients,
             )
             executor.set_system(system)
+            task_system = system
 
             agent_scheduler = AgentScheduler(
                 manager=agent_manager,
@@ -748,6 +763,49 @@ def serve(
             logger.debug("ChannelBridge init skipped: %s", exc)
 
     cors_origins = _resolve_server_cors_origins(config.server.cors_origins)
+    # Task scheduler for automations (routines created from the HUD or by the
+    # agent's schedule_task tool). Runs prompts through the JarvisSystem above.
+    task_scheduler = None
+    if config.scheduler.enabled:
+        try:
+            from openjarvis.scheduler.scheduler import TaskScheduler
+            from openjarvis.scheduler.store import SchedulerStore
+            from openjarvis.scheduler.tools import (
+                CancelScheduledTaskTool,
+                ListScheduledTasksTool,
+                PauseScheduledTaskTool,
+                ResumeScheduledTaskTool,
+                ScheduleTaskTool,
+            )
+
+            if task_system is None:
+                logger.warning(
+                    "Automations scheduler has no JarvisSystem (agent manager "
+                    "disabled); routines will be logged as dry runs."
+                )
+            sched_db = config.scheduler.db_path or str(
+                get_config_dir() / "scheduler.db"
+            )
+            task_scheduler = TaskScheduler(
+                SchedulerStore(sched_db),
+                task_system,
+                poll_interval=max(10, int(config.scheduler.poll_interval or 30)),
+                bus=bus,
+            )
+            for _tool_cls in (
+                ScheduleTaskTool,
+                ListScheduledTasksTool,
+                PauseScheduledTaskTool,
+                ResumeScheduledTaskTool,
+                CancelScheduledTaskTool,
+            ):
+                _tool_cls._scheduler = task_scheduler
+            task_scheduler.start()
+            console.print("  Automations: [cyan]active[/cyan]")
+        except Exception as exc:
+            logger.warning("Automation scheduler failed to start: %s", exc)
+            task_scheduler = None
+
     app = create_app(
         engine,
         model_name,
@@ -772,6 +830,14 @@ def serve(
         webhook_config=webhook_config,
         cors_origins=cors_origins,
     )
+    app.state.task_scheduler = task_scheduler
+    if task_scheduler is not None:
+
+        @app.on_event("shutdown")
+        async def _stop_task_scheduler() -> None:
+            import asyncio as _asyncio
+
+            await _asyncio.to_thread(task_scheduler.stop)
 
     console.print(
         f"[green]Starting OpenJarvis API server[/green]\n"

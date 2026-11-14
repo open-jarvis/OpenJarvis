@@ -7,6 +7,8 @@ export interface ChatRequest {
   stream: true;
   temperature?: number;
   max_tokens?: number;
+  /** Attachment ids (from /v1/attachments) to include with the last user message. */
+  attachments?: string[];
 }
 
 export async function* streamChat(
