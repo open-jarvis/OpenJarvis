@@ -35,7 +35,9 @@ def _make_calendar_db(path):
     return conn
 
 
-def _insert_event(conn, *, rowid, summary, start, end, tz="UTC", uuid=None):
+def _insert_event(
+    conn, *, rowid, summary, start, end, tz="UTC", uuid=None, last_modified=None
+):
     conn.execute(
         """INSERT INTO CalendarItem VALUES
         (?, ?, '', ?, ?, 0, ?, NULL, 0, ?, ?, 1, 0)""",
@@ -45,7 +47,7 @@ def _insert_event(conn, *, rowid, summary, start, end, tz="UTC", uuid=None):
             _to_apple_ts(start),
             _to_apple_ts(end),
             tz,
-            _to_apple_ts(start),
+            _to_apple_ts(last_modified if last_modified is not None else start),
             uuid or f"event-{rowid}",
         ),
     )
@@ -167,3 +169,53 @@ def test_calendar_tools_are_registered_and_executable(tmp_path, monkeypatch):
     search = ToolRegistry.get("calendar_search")().execute(query="Planning")
     assert upcoming.success and "Planning session" in upcoming.content
     assert search.success and "Planning session" in search.content
+
+
+def test_upcoming_event_survives_a_since_filter_older_than_its_last_edit(tmp_path):
+    """An untouched future event must still reach a caller passing ``since``.
+
+    The morning digest asks every connector for ``since = now - 24h``.  Filtering
+    calendar rows on ``last_modified`` dropped any event created earlier than
+    that, which is most of them, so the calendar section came back empty while
+    the connector itself clearly held the event.
+    """
+    db = tmp_path / "calendar.sqlite"
+    conn = _make_calendar_db(db)
+    now = datetime.now(tz=timezone.utc)
+    _insert_event(
+        conn,
+        rowid=1,
+        summary="Dentist",
+        start=now + timedelta(days=3),
+        end=now + timedelta(days=3, hours=1),
+        last_modified=now - timedelta(days=30),
+    )
+    conn.commit()
+    conn.close()
+
+    connector = AppleCalendarConnector(db_path=str(db))
+    recent = list(connector.sync(since=now - timedelta(hours=24)))
+    assert len(recent) == 1
+    assert "Dentist" in str(recent[0].content)
+    assert len(recent) == len(list(connector.sync()))
+
+
+def test_stale_past_event_is_still_filtered_out_by_since(tmp_path):
+    """``since`` must keep working for events that have already happened."""
+    db = tmp_path / "calendar.sqlite"
+    conn = _make_calendar_db(db)
+    now = datetime.now(tz=timezone.utc)
+    _insert_event(
+        conn,
+        rowid=1,
+        summary="Yesterday standup",
+        start=now - timedelta(hours=20),
+        end=now - timedelta(hours=19),
+        last_modified=now - timedelta(days=30),
+    )
+    conn.commit()
+    conn.close()
+
+    connector = AppleCalendarConnector(db_path=str(db))
+    assert list(connector.sync(since=now - timedelta(hours=24))) == []
+    assert len(list(connector.sync())) == 1

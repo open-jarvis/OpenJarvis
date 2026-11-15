@@ -349,7 +349,15 @@ class AppleCalendarConnector(BaseConnector):
                     since_utc = (
                         since if since.tzinfo else since.replace(tzinfo=timezone.utc)
                     )
-                    if timestamp < since_utc:
+                    # `since` filters on last-modified, which suits incremental
+                    # sync but not a briefing: tomorrow's meeting, created a
+                    # month ago, has an old last_modified and was dropped, so
+                    # the calendar section came back empty while the connector
+                    # held the event. An event that has not happened yet is
+                    # kept even when it was not touched since `since`.
+                    event_start = _apple_ts(start_date) if start_date else None
+                    still_upcoming = event_start is not None and event_start >= now
+                    if timestamp < since_utc and not still_upcoming:
                         continue
 
                 location = self._fetch_location(conn, loc_id)
