@@ -110,6 +110,16 @@ jarvis serve
 
 The server is OpenAI-compatible, so any client that works with the OpenAI API can point to `http://localhost:8000/v1`.
 
+### Voice input and clap wake
+
+Enable **Speech-to-Text** in Settings and configure an available speech backend.
+In the chat composer, click the ear button to listen for one clap. After the
+clap, speak and press the microphone button to stop recording and transcribe;
+the recognized text is placed in the composer for you to review and send.
+Clap wake is off by default, asks for microphone permission when enabled, and
+stops listening after it detects a clap. On a remote device, browsers require
+HTTPS to grant microphone access.
+
 ## Using the Desktop App
 
 1. Start the backend: `jarvis serve` (or `./scripts/quickstart.sh`)

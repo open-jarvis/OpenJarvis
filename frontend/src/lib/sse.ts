@@ -1,6 +1,37 @@
 import type { ResearchEvent, SSEEvent } from '../types';
 import { getBase, authHeaders } from './api';
 
+async function chatRequestError(response: Response): Promise<string> {
+  const fallback = `Chat request failed: ${response.status}`;
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return fallback;
+  }
+  if (!body || typeof body !== 'object') return fallback;
+
+  const payload = body as {
+    detail?: unknown;
+    message?: unknown;
+    error?: unknown;
+  };
+  const error =
+    typeof payload.detail === 'string'
+      ? payload.detail
+      : typeof payload.message === 'string'
+        ? payload.message
+        : typeof payload.error === 'string'
+          ? payload.error
+          : payload.error &&
+              typeof payload.error === 'object' &&
+              'message' in payload.error &&
+              typeof payload.error.message === 'string'
+            ? payload.error.message
+            : '';
+  return error ? `${fallback}: ${error.slice(0, 500)}` : fallback;
+}
+
 export interface ChatRequest {
   model: string;
   messages: Array<{ role: string; content: string }>;
@@ -22,10 +53,13 @@ export async function* streamChat(
   });
 
   if (!response.ok) {
-    throw new Error(`Chat request failed: ${response.status}`);
+    throw new Error(await chatRequestError(response));
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) {
+    throw new Error('Chat request failed: the server returned an empty response.');
+  }
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 

@@ -182,6 +182,59 @@ To stop all services, press ++ctrl+c++ in the terminal.
 !!! tip "Environment variable"
     Set `OPENJARVIS_MODEL` to change the default model: `OPENJARVIS_MODEL=deepseek-r1:14b ./scripts/quickstart.sh`
 
+### Use a cloud model (optional)
+
+OpenJarvis uses a local model by default. To use a hosted model instead, set its
+provider key in the same terminal that starts OpenJarvis. For example, on
+macOS/Linux:
+
+```bash
+export OPENAI_API_KEY="your-key"
+./scripts/quickstart.sh
+```
+
+On Windows PowerShell, set the variable before starting the server or desktop
+app:
+
+```powershell
+$env:OPENAI_API_KEY = "your-key"
+jarvis gui
+```
+
+In the app, open the model picker with ++ctrl+k++ (or ++cmd+k++ on macOS), select
+**Cloud Models**, and choose a model for the configured provider. The browser
+app reads cloud keys from the server process environment; keep the key out of
+`config.toml`, source control, and browser storage. In the desktop app, you can
+instead enter provider keys under **Settings → API Keys**, where they are saved
+in secure desktop storage. OpenAI, Anthropic, Google, OpenRouter, and Atlas Cloud
+are supported; use `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`,
+`OPENROUTER_API_KEY`, or `ATLASCLOUD_API_KEY` for those providers.
+Cloud requests send prompts to the selected provider and may incur usage
+charges; use a local model to keep inference on your device.
+
+### Connect another device on your Wi-Fi
+
+You can open the same running assistant from a phone or another computer on
+your trusted home network. First generate an API key, then start the GUI on the
+LAN interface:
+
+```bash
+jarvis auth create-key
+# If an API server is already running, stop it so the new key takes effect:
+jarvis stop
+jarvis gui --host 0.0.0.0
+```
+
+On the other device, open `http://<computer-LAN-IP>:5173` and enter the
+generated key under **Settings → API key**. Find the computer's LAN IP with
+`ipconfig` on Windows or `ip addr` on Linux. The key protects API requests;
+the browser UI and key travel over plain HTTP, so use this only on a trusted
+private network, never public Wi-Fi or an Internet-facing port. Use HTTPS via a
+trusted reverse proxy for access outside your LAN. Conversations are stored
+locally per browser and are not synchronized between devices. Browser
+microphone access on another device requires HTTPS; local `localhost` access
+continues to work over HTTP.
+
 ## Initialize Configuration
 
 Start by detecting your hardware and generating a configuration file:
