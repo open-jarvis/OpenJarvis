@@ -11,7 +11,11 @@ from __future__ import annotations
 import pytest
 import tomllib
 
-from openjarvis.core.config import HardwareInfo, generate_default_toml
+from openjarvis.core.config import (
+    HardwareInfo,
+    generate_default_toml,
+    generate_minimal_toml,
+)
 
 
 def _host_of(toml_text: str, engine: str) -> str:
@@ -56,6 +60,22 @@ class TestHostileValues:
         host = 'http://x"y'
         toml_text = generate_default_toml(HardwareInfo(), "ollama", host=host)
         assert _host_of(toml_text, "ollama") == host
+
+    @pytest.mark.parametrize("generate", [generate_default_toml, generate_minimal_toml])
+    @pytest.mark.parametrize(
+        "host",
+        [
+            'http://x"y',
+            r"http://a\g<1>b",
+            "http://x/\nline",
+            "http://x/\x00",
+            "http://x/\x7f",
+            "http://x/🐻",
+        ],
+    )
+    def test_host_roundtrips_in_both_config_formats(self, generate, host):
+        config = generate(HardwareInfo(), "ollama", host=host)
+        assert _host_of(config, "ollama") == host
 
 
 class TestSetTomlHost:

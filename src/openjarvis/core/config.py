@@ -2183,7 +2183,7 @@ def generate_minimal_toml(
         mem_label = "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
         gpu_comment = f"\n# GPU: {hw.gpu.name} ({hw.gpu.vram_gb} GB {mem_label})"
     if host:
-        engine_host_section = f'\n[engine.{engine}]\nhost = "{host}"\n'
+        engine_host_section = f'\n[engine.{engine}]\nhost = "{_toml_escape(host)}"\n'
     else:
         engine_host_section = (
             f"\n[engine.{engine}]\n"
@@ -2211,7 +2211,11 @@ enabled = ["code_interpreter", "web_search", "file_read", "shell_exec"]
 
 def _toml_escape(value: str) -> str:
     """Escape *value* for a TOML basic string."""
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    import json
+
+    # JSON escapes the same C0 controls as TOML. Keep Unicode characters intact
+    # to avoid surrogate-pair escapes, which TOML rejects, and also escape DEL.
+    return json.dumps(value, ensure_ascii=False)[1:-1].replace("\x7f", "\\u007f")
 
 
 def _set_toml_host(toml_text: str, engine: str, host: str) -> str:
