@@ -6,6 +6,8 @@ import threading
 import time
 from unittest.mock import MagicMock
 
+import pytest
+
 from openjarvis.agents._stubs import AgentContext
 from openjarvis.agents.orchestrator import OrchestratorAgent
 from openjarvis.core.events import EventBus, EventType
@@ -924,6 +926,25 @@ class TestOrchestratorGovernanceHook:
         assert calls == []
         assert result.tool_results[0].success is False
         assert "not an object" in result.tool_results[0].content
+
+    @pytest.mark.parametrize(
+        "decision",
+        ["deny", "BLOCK", {"decision": "block"}, 1, object()],
+        ids=["str-deny", "str-block", "dict", "int", "object"],
+    )
+    def test_non_bool_truthy_return_fails_closed(self, decision):
+        """Only a literal True allows; a truthy non-bool must not fail open."""
+        agent = OrchestratorAgent(
+            _make_engine_with_tool_call(),
+            "test-model",
+            tools=[_CalculatorStub()],
+            before_tool_call=lambda name, args: decision,
+        )
+
+        result = agent.run("What is 2+2?")
+
+        assert result.tool_results[0].success is False
+        assert "[Governance]" in result.tool_results[0].content
 
 
 class TestOrchestratorLoopGuardPerRun:
