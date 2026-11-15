@@ -1,0 +1,16 @@
+{
+  "name": "openjarvis-signpath-build-hook",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test sign-file.test.mjs"
+  },
+  "dependencies": {
+    "@actions/artifact": "6.3.1"
+  },
+  "overrides": {
+    "archiver-utils": {
+      "glob": "^14.0.4"
+    }
+  }
+}
