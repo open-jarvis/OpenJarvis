@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Link } from 'react-router';
 import {
   Palette,
   Globe,
@@ -656,6 +657,15 @@ export function SettingsPage() {
           <Section title="Tools">
             <SettingRow label="Web Search" description="Tavily key for web search tool">
               <ApiKeyInput keyName="TAVILY_API_KEY" placeholder="tvly-..." toolName="web_search" />
+            </SettingRow>
+          </Section>
+
+          {/* MCP servers */}
+          <Section title="MCP servers">
+            <SettingRow label="MCP library" description="Add, test and manage MCP servers and their tools">
+              <Link to="/mcp" className="text-xs font-medium" style={{ color: 'var(--color-accent)' }}>
+                Open MCP page →
+              </Link>
             </SettingRow>
           </Section>
 

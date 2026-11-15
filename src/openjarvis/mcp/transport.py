@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue
 import subprocess
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from openjarvis.mcp.protocol import MCPRequest, MCPResponse
 
@@ -73,10 +74,13 @@ class StdioTransport(MCPTransport):
         command: List[str],
         *,
         response_timeout: float = 600.0,
+        env: Optional[Dict[str, str]] = None,
     ) -> None:
         if response_timeout <= 0:
             raise ValueError("response_timeout must be positive")
         self._command = command
+        # Extra variables layered on top of the parent environment.
+        self._env = dict(env) if env else None
         self._response_timeout = response_timeout
         self._process: Optional[subprocess.Popen[str]] = None
         self._stdout_queue: queue.Queue[Any] = queue.Queue(
@@ -100,6 +104,7 @@ class StdioTransport(MCPTransport):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env={**os.environ, **self._env} if self._env else None,
         )
         self._reader_thread = threading.Thread(
             target=self._read_stdout,
@@ -269,6 +274,7 @@ class StreamableHTTPTransport(MCPTransport):
         url: str,
         *,
         token: Optional[str] = None,
+        auth_header: Optional[str] = None,
         connect_timeout: float = 10.0,
         request_timeout: float = 60.0,
     ) -> None:
@@ -276,6 +282,9 @@ class StreamableHTTPTransport(MCPTransport):
 
         self._url = url
         self._token = token
+        # Custom header name for the token (e.g. ``X-API-Key``). ``None``
+        # keeps the default ``Authorization: Bearer <token>`` form.
+        self._auth_header = auth_header or None
         self._session_id: Optional[str] = None
         self._client = httpx.Client(
             timeout=httpx.Timeout(
@@ -301,14 +310,18 @@ class StreamableHTTPTransport(MCPTransport):
         servers such as Home Assistant's. Falsy tokens (None / empty
         string) deliberately do NOT send the header, matching the
         upstream MCP spec and the cfg.get("token") plumbing in the
-        builder.
+        builder. With ``auth_header`` set, the raw token is sent under
+        that header name instead.
         """
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         }
         if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
+            if self._auth_header:
+                headers[self._auth_header] = self._token
+            else:
+                headers["Authorization"] = f"Bearer {self._token}"
         if self._session_id is not None:
             headers["Mcp-Session-Id"] = self._session_id
         return headers

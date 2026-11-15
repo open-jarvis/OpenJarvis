@@ -1,0 +1,517 @@
+{
+  "version": 1,
+  "verified_on": "2026-11-06",
+  "entries": [
+    {
+      "id": "gmail",
+      "name": "Gmail",
+      "category": "productivity",
+      "kind": "official",
+      "description": "Read, search and send Gmail.",
+      "source": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+      "auth_note": "OAuth 2.0 only (Developer Preview).",
+      "server": {
+        "transport": "http",
+        "url": "https://gmailmcp.googleapis.com/mcp/v1",
+        "auth_type": "none"
+      },
+      "requires_oauth": true
+    },
+    {
+      "id": "google-calendar",
+      "name": "Google Calendar",
+      "category": "productivity",
+      "kind": "official",
+      "description": "Calendar events.",
+      "source": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+      "auth_note": "OAuth 2.0 only (Developer Preview).",
+      "server": {
+        "transport": "http",
+        "url": "https://calendarmcp.googleapis.com/mcp/v1",
+        "auth_type": "none"
+      },
+      "requires_oauth": true
+    },
+    {
+      "id": "google-drive",
+      "name": "Google Drive",
+      "category": "files",
+      "kind": "official",
+      "description": "Drive files.",
+      "source": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+      "auth_note": "OAuth 2.0 only (Developer Preview).",
+      "server": {
+        "transport": "http",
+        "url": "https://drivemcp.googleapis.com/mcp/v1",
+        "auth_type": "none"
+      },
+      "requires_oauth": true
+    },
+    {
+      "id": "slack",
+      "name": "Slack",
+      "category": "communication",
+      "kind": "official",
+      "description": "Search and read Slack messages.",
+      "source": "https://docs.slack.dev/ai/mcp-server/",
+      "auth_note": "OAuth only (user token).",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.slack.com/mcp",
+        "auth_type": "none"
+      },
+      "requires_oauth": true
+    },
+    {
+      "id": "slack-zencoder",
+      "name": "Slack (Zencoder)",
+      "category": "communication",
+      "kind": "community",
+      "description": "Maintained fork of the archived reference Slack server, using a bot token.",
+      "source": "https://github.com/zencoderai/slack-mcp-server",
+      "auth_note": "Install first: npm install -g @zencoderai/slack-mcp-server. Needs a Slack bot token and team ID.",
+      "server": {
+        "transport": "stdio",
+        "command": "slack-mcp",
+        "args": [],
+        "env_names": [
+          "SLACK_BOT_TOKEN",
+          "SLACK_TEAM_ID"
+        ]
+      }
+    },
+    {
+      "id": "asana",
+      "name": "Asana",
+      "category": "productivity",
+      "kind": "official",
+      "description": "Tasks and projects.",
+      "source": "https://developers.asana.com/docs/using-asanas-mcp-server",
+      "auth_note": "OAuth only.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.asana.com/v2/mcp",
+        "auth_type": "none"
+      },
+      "requires_oauth": true
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "category": "dev",
+      "kind": "official",
+      "description": "Repositories, issues, pull requests and Actions.",
+      "source": "https://github.com/github/github-mcp-server",
+      "auth_note": "GitHub personal access token as a bearer token.",
+      "server": {
+        "transport": "http",
+        "url": "https://api.githubcopilot.com/mcp/",
+        "auth_type": "bearer"
+      }
+    },
+    {
+      "id": "github-local",
+      "name": "GitHub (local, Docker)",
+      "category": "dev",
+      "kind": "official",
+      "description": "The same GitHub tools, run locally in Docker.",
+      "source": "https://github.com/github/github-mcp-server",
+      "auth_note": "Needs Docker and a GitHub personal access token.",
+      "server": {
+        "transport": "stdio",
+        "command": "docker",
+        "args": [
+          "run",
+          "-i",
+          "--rm",
+          "-e",
+          "GITHUB_PERSONAL_ACCESS_TOKEN",
+          "ghcr.io/github/github-mcp-server"
+        ],
+        "env_names": [
+          "GITHUB_PERSONAL_ACCESS_TOKEN"
+        ]
+      }
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "category": "productivity",
+      "kind": "official",
+      "description": "Pages, databases and search.",
+      "source": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
+      "auth_note": "Bearer MCP token from the Notion developer portal (Business/Enterprise plans). Otherwise OAuth.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.notion.com/mcp",
+        "auth_type": "bearer"
+      }
+    },
+    {
+      "id": "notion-local",
+      "name": "Notion (local, legacy)",
+      "category": "productivity",
+      "kind": "official",
+      "description": "Integration-token server. Notion says it is no longer maintained.",
+      "source": "https://github.com/makenotion/notion-mcp-server",
+      "auth_note": "Notion integration token.",
+      "server": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@notionhq/notion-mcp-server"
+        ],
+        "env_names": [
+          "NOTION_TOKEN"
+        ]
+      }
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "category": "productivity",
+      "kind": "official",
+      "description": "Issues, projects and cycles.",
+      "source": "https://linear.app/docs/mcp",
+      "auth_note": "Linear API key as a bearer token. Read-only endpoint: /mcp/readonly.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.linear.app/mcp",
+        "auth_type": "bearer"
+      }
+    },
+    {
+      "id": "atlassian",
+      "name": "Atlassian (Jira & Confluence)",
+      "category": "productivity",
+      "kind": "official",
+      "description": "Jira and Confluence through Atlassian Rovo.",
+      "source": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/configuring-authentication-via-api-token/",
+      "auth_note": "Service-account API key as a bearer token, or a custom Authorization header with \"Basic base64(email:api_token)\". An org admin must enable API-token auth.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.atlassian.com/v2/mcp",
+        "auth_type": "bearer"
+      }
+    },
+    {
+      "id": "sentry",
+      "name": "Sentry",
+      "category": "dev",
+      "kind": "official",
+      "description": "Issues, errors and traces.",
+      "source": "https://github.com/getsentry/sentry-mcp",
+      "auth_note": "Custom Authorization header with the value \"Sentry-Bearer <token>\". Otherwise OAuth.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.sentry.dev/mcp",
+        "auth_type": "header",
+        "auth_header": "Authorization"
+      }
+    },
+    {
+      "id": "sentry-local",
+      "name": "Sentry (local)",
+      "category": "dev",
+      "kind": "official",
+      "description": "Sentry tools run locally.",
+      "source": "https://github.com/getsentry/sentry-mcp",
+      "auth_note": "Sentry auth token. Set SENTRY_HOST too for self-hosted Sentry.",
+      "server": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "@sentry/mcp-server@latest"
+        ],
+        "env_names": [
+          "SENTRY_AUTH_TOKEN"
+        ]
+      }
+    },
+    {
+      "id": "stripe",
+      "name": "Stripe",
+      "category": "payments",
+      "kind": "official",
+      "description": "Stripe API and docs.",
+      "source": "https://docs.stripe.com/mcp",
+      "auth_note": "Stripe Agent API key as a bearer token. Full secret keys stop working on 30 Nov 2026.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.stripe.com",
+        "auth_type": "bearer"
+      }
+    },
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "category": "dev",
+      "kind": "official",
+      "description": "The whole Cloudflare API.",
+      "source": "https://developers.cloudflare.com/agents/model-context-protocol/mcp-servers-for-cloudflare/",
+      "auth_note": "Cloudflare user or account API token as a bearer token.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.cloudflare.com/mcp",
+        "auth_type": "bearer"
+      }
+    },
+    {
+      "id": "supabase",
+      "name": "Supabase",
+      "category": "data",
+      "kind": "official",
+      "description": "Projects, SQL and migrations.",
+      "source": "https://supabase.com/docs/guides/getting-started/mcp",
+      "auth_note": "Supabase personal access token as a bearer token. Add ?project_ref=…&read_only=true to scope it.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.supabase.com/mcp",
+        "auth_type": "bearer"
+      }
+    },
+    {
+      "id": "figma-desktop",
+      "name": "Figma (desktop app)",
+      "category": "design",
+      "kind": "official",
+      "description": "Design context from the local Figma desktop app.",
+      "source": "https://developers.figma.com/docs/figma-mcp-server/local-server-installation/",
+      "auth_note": "No token. Needs the Figma desktop app with the MCP server turned on and a Dev or Full seat.",
+      "server": {
+        "transport": "http",
+        "url": "http://127.0.0.1:3845/mcp",
+        "auth_type": "none"
+      }
+    },
+    {
+      "id": "zapier",
+      "name": "Zapier",
+      "category": "utilities",
+      "kind": "official",
+      "description": "Actions across thousands of apps.",
+      "source": "https://docs.zapier.com/mcp/overview/how-connections-work",
+      "auth_note": "Zapier MCP connection token as a bearer token.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.zapier.com/api/v1/connect",
+        "auth_type": "bearer"
+      }
+    },
+    {
+      "id": "brave-search",
+      "name": "Brave Search",
+      "category": "search",
+      "kind": "official",
+      "description": "Web, news and image search.",
+      "source": "https://github.com/brave/brave-search-mcp-server",
+      "auth_note": "Brave Search API key.",
+      "server": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@brave/brave-search-mcp-server",
+          "--transport",
+          "stdio"
+        ],
+        "env_names": [
+          "BRAVE_API_KEY"
+        ]
+      }
+    },
+    {
+      "id": "exa",
+      "name": "Exa",
+      "category": "search",
+      "kind": "official",
+      "description": "Neural web search.",
+      "source": "https://docs.exa.ai/reference/exa-mcp",
+      "auth_note": "Exa API key in the x-api-key header.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.exa.ai/mcp",
+        "auth_type": "header",
+        "auth_header": "x-api-key"
+      }
+    },
+    {
+      "id": "tavily",
+      "name": "Tavily",
+      "category": "search",
+      "kind": "official",
+      "description": "Search and extract web content.",
+      "source": "https://github.com/tavily-ai/tavily-mcp",
+      "auth_note": "Tavily API key as a bearer token.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.tavily.com/mcp/",
+        "auth_type": "bearer"
+      }
+    },
+    {
+      "id": "firecrawl",
+      "name": "Firecrawl",
+      "category": "web",
+      "kind": "official",
+      "description": "Scrape, crawl and search the web.",
+      "source": "https://github.com/firecrawl/firecrawl-mcp-server",
+      "auth_note": "Firecrawl API key as a bearer token.",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.firecrawl.dev/v2/mcp",
+        "auth_type": "bearer"
+      }
+    },
+    {
+      "id": "context7",
+      "name": "Context7",
+      "category": "dev",
+      "kind": "official",
+      "description": "Up-to-date library documentation.",
+      "source": "https://github.com/upstash/context7",
+      "auth_note": "Context7 API key as a bearer token (optional, raises rate limits).",
+      "server": {
+        "transport": "http",
+        "url": "https://mcp.context7.com/mcp",
+        "auth_type": "bearer"
+      }
+    },
+    {
+      "id": "playwright",
+      "name": "Playwright",
+      "category": "web",
+      "kind": "official",
+      "description": "Browser automation by Microsoft.",
+      "source": "https://github.com/microsoft/playwright-mcp",
+      "auth_note": "No token.",
+      "server": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "@playwright/mcp@latest"
+        ]
+      }
+    },
+    {
+      "id": "filesystem",
+      "name": "Filesystem",
+      "category": "files",
+      "kind": "reference",
+      "description": "File operations limited to the folders you allow.",
+      "source": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+      "auth_note": "No token. Replace the folder path; add one argument per folder.",
+      "server": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-filesystem",
+          "/path/to/allowed/folder"
+        ]
+      }
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch",
+      "category": "web",
+      "kind": "reference",
+      "description": "Fetch a URL and convert it to Markdown.",
+      "source": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
+      "auth_note": "No token. Needs uv.",
+      "server": {
+        "transport": "stdio",
+        "command": "uvx",
+        "args": [
+          "mcp-server-fetch"
+        ]
+      }
+    },
+    {
+      "id": "git",
+      "name": "Git",
+      "category": "dev",
+      "kind": "reference",
+      "description": "Read and change a local git repository.",
+      "source": "https://github.com/modelcontextprotocol/servers/tree/main/src/git",
+      "auth_note": "No token. Replace the repository path. Needs uv.",
+      "server": {
+        "transport": "stdio",
+        "command": "uvx",
+        "args": [
+          "mcp-server-git",
+          "--repository",
+          "/path/to/repo"
+        ]
+      }
+    },
+    {
+      "id": "memory",
+      "name": "Memory",
+      "category": "utilities",
+      "kind": "reference",
+      "description": "Knowledge-graph memory that persists across chats.",
+      "source": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+      "auth_note": "No token.",
+      "server": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-memory"
+        ]
+      }
+    },
+    {
+      "id": "sequential-thinking",
+      "name": "Sequential Thinking",
+      "category": "utilities",
+      "kind": "reference",
+      "description": "A tool for step-by-step reasoning.",
+      "source": "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+      "auth_note": "No token.",
+      "server": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-sequential-thinking"
+        ]
+      }
+    },
+    {
+      "id": "time",
+      "name": "Time",
+      "category": "utilities",
+      "kind": "reference",
+      "description": "Current time and time-zone conversion.",
+      "source": "https://github.com/modelcontextprotocol/servers/tree/main/src/time",
+      "auth_note": "No token. Needs uv.",
+      "server": {
+        "transport": "stdio",
+        "command": "uvx",
+        "args": [
+          "mcp-server-time"
+        ]
+      }
+    },
+    {
+      "id": "everything",
+      "name": "Everything (test server)",
+      "category": "dev",
+      "kind": "reference",
+      "description": "Exercises every MCP feature; useful for testing.",
+      "source": "https://github.com/modelcontextprotocol/servers/tree/main/src/everything",
+      "auth_note": "No token.",
+      "server": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-everything"
+        ]
+      }
+    }
+  ]
+}
