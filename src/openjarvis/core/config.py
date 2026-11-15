@@ -989,6 +989,9 @@ class MCPConfig:
 
     enabled: bool = True
     servers: str = ""  # JSON list of MCP server configs
+    # Redirect URI for MCP OAuth sign-in. Empty: derived from the address
+    # the server is reached at (``<base>/v1/mcp/oauth/callback``).
+    oauth_redirect_uri: str = ""
 
 
 _MAX_EXTERNAL_JSON_BYTES = 4 * 1024 * 1024

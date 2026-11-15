@@ -84,7 +84,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         payload shape — useful reconnaissance for probing the authenticated
         endpoints. This only applies when an API key is configured at all, so
         keyless local use is unchanged.
+
+        The MCP OAuth callback is exempt: the browser arrives there from the
+        authorization server without the API key, and the single-use
+        ``state`` it must carry is what authorizes it.
         """
+        if path == "/v1/mcp/oauth/callback":
+            return False
         return (
             path.startswith("/v1/")
             or path.startswith("/api/")
