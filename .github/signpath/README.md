@@ -17,9 +17,11 @@ The existing SignPath organization is `OpenJarvis [OSS]`, ID
 2. Confirm the notification address for the existing `CI builds` user.
 3. Create a project for `https://github.com/open-jarvis/OpenJarvis` and use the
    XML from `artifact-configuration.xml`. Each uploaded ZIP contains one file.
-4. Link the GitHub.com trusted build system to the project. Configure the
-   SignPath GitHub App for the OpenJarvis repository and retain the Foundation
-   program's build-origin verification requirements.
+4. Link the GitHub.com trusted build system to the project and retain the
+   Foundation program's build-origin verification requirements. SignPath's
+   GitHub App is needed for audit-log-based policy verification. Check the
+   project's actual policy before requesting that installation, because the
+   app requests repository and organization administration permissions.
 5. Grant the CI user submitter access to the project's signing policy and store
    its API token in the repository secret listed below. Keep the token out of
    source files and logs.
