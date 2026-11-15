@@ -126,3 +126,29 @@ def test_bundled_template_agent_survives_a_tick(tmp_path):
 
     assert mgr.get_agent(agent["id"])["status"] == "idle"
     mgr.close()
+
+
+def test_lifetime_budget_accumulates_across_ticks_with_response_limit(tmp_path):
+    """A response limit and a lifetime limit remain independent."""
+    mgr = AgentManager(str(tmp_path / "test.db"))
+    bus = EventBus(record_history=True)
+    executor = AgentExecutor(mgr, bus)
+    agent = mgr.create_agent(
+        "bounded", config={"max_tokens": 50, "max_total_tokens": 1000}
+    )
+
+    for tokens, expected_status in (
+        (400, "idle"),
+        (600, "idle"),
+        (1, "budget_exceeded"),
+    ):
+        mgr.start_tick(agent["id"])
+        result = AgentResult(content="done", metadata={"tokens_used": tokens})
+        executor._finalize_tick(agent["id"], result, error=None, duration=1.0)
+        assert mgr.get_agent(agent["id"])["status"] == expected_status
+
+    events = [e for e in bus.history if e.event_type == EventType.AGENT_BUDGET_EXCEEDED]
+    assert len(events) == 1
+    assert events[0].data["total_tokens"] == 1001
+    assert events[0].data["max_tokens"] == 1000
+    mgr.close()
