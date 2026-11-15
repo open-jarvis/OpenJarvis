@@ -247,6 +247,12 @@ class MemoryService:
     def list_facts(self) -> List[Fact]:
         return self._store.list()
 
+    def store_fact(self, text: str, source: str = "manual") -> bool:
+        """Persist a single durable fact directly (e.g. ``/remember``)."""
+        return bool(
+            self._store.add_with_trust(text, source=source, trust=TRUST_AUTO)
+        )
+
     def clear_facts(self) -> int:
         return self._store.clear()
 

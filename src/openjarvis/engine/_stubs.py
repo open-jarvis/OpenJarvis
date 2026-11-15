@@ -7,7 +7,7 @@ Phase 1 will provide concrete implementations (vLLM, Ollama, etc.).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -72,6 +72,37 @@ class InferenceEngine(ABC):
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """Synchronous completion — returns a dict with ``content`` and ``usage``."""
+
+    def stream_sync(
+        self,
+        messages: Sequence,
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> Iterator[str]:
+        """Synchronous token streaming; default falls back to blocking generate.
+
+        Engines backed by an incremental sync API override this to stream
+        tokens as they are produced (faster perceived response: the first
+        token arrives while the model is still generating). The default
+        buffers the full completion via ``generate`` and replays it as a
+        single token, preserving the streaming contract for engines that
+        only implement the blocking path.
+        """
+        result = self.generate(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+        content = (
+            result.get("content", "") if isinstance(result, dict) else str(result)
+        )
+        if content:
+            yield content
 
     @abstractmethod
     async def stream(

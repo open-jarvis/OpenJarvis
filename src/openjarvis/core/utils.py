@@ -11,6 +11,7 @@ import platform
 import shutil
 import signal
 import subprocess
+import sys
 import time
 import webbrowser
 
@@ -79,19 +80,25 @@ def _posix_process_state(pid: int) -> str | None:
 
 
 def get_python_executable() -> str:
-    """Return the best ``python`` interpreter name on PATH.
+    """Return a Python interpreter that is known to work.
 
-    Prefers ``python3`` (Linux/macOS convention); falls back to ``python``
-    (Windows / some minimal Linux distros that ship only ``python``). Returns
-    the literal string ``"python3"`` when neither is found, so callers still
-    get a usable command that will fail with a clear "command not found"
-    rather than an empty string.
+    The running interpreter wins: on Windows, ``shutil.which("python3")``
+    resolves to the Microsoft Store *App Execution Alias* under
+    ``WindowsApps`` for many machines, and that stub exits with code 9009
+    (printing an install prompt) instead of running code. Frozen bundles have
+    no interpreter to borrow, so they fall back to PATH lookup.
 
     The result is a *command name or absolute path* that callers can hand to
     :mod:`subprocess` directly when ``shell=False``, and must be shell-quoted
     (:func:`shlex.quote`) before being interpolated into a ``shell=True``
     command string — paths on Windows often contain spaces.
     """
+    if not getattr(sys, "frozen", False) and sys.executable:
+        return sys.executable
+    for name in ("python3", "python"):
+        candidate = shutil.which(name)
+        if candidate and "windowsapps" not in candidate.lower():
+            return candidate
     return shutil.which("python3") or shutil.which("python") or "python3"
 
 
@@ -184,9 +191,39 @@ def terminate_process(pid: int | None, *, grace_seconds: float = 3.0) -> None:
             pass
 
 
+def strftime_unpadded(value: object, fmt: str) -> str:
+    """``strftime`` with glibc's ``%-`` flag emulated on every platform.
+
+    Windows' C runtime rejects ``%-d``/``%-I`` with ``ValueError: Invalid
+    format string``, which broke calendar rendering and digests there. The
+    unpadded tokens are replaced by markers, formatted, then restored.
+    """
+    if not hasattr(value, "strftime"):
+        return str(value)
+    tokens = (
+        ("%-d", lambda: str(value.day)),
+        ("%-m", lambda: str(value.month)),
+        ("%-H", lambda: str(value.hour)),
+        ("%-I", lambda: str(int(value.strftime("%I")))),
+        ("%-M", lambda: str(value.minute)),
+        ("%-S", lambda: str(value.second)),
+    )
+    markers: dict[str, str] = {}
+    for index, (token, resolve) in enumerate(tokens):
+        if token in fmt:
+            marker = f"\x01{index}\x02"
+            fmt = fmt.replace(token, marker)
+            markers[marker] = resolve()
+    text = value.strftime(fmt)
+    for marker, resolved in markers.items():
+        text = text.replace(marker, resolved)
+    return text
+
+
 __all__ = [
     "get_python_executable",
     "open_browser",
     "process_alive",
+    "strftime_unpadded",
     "terminate_process",
 ]

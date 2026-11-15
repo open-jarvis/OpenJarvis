@@ -18,7 +18,11 @@ except ImportError:  # respx is an optional test-only dep; the async MockTranspo
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._base import EngineConnectionError
-from openjarvis.engine.ollama import OllamaEngine, _is_control_token_only_args
+from openjarvis.engine.ollama import (
+    OllamaEngine,
+    _is_control_token_only_args,
+    _keep_alive,
+)
 
 # respx-backed tests exercise the SYNC client paths (generate/list_models/health)
 # and the respx-driven stream tests; they skip cleanly when respx is absent. The
@@ -32,6 +36,46 @@ requires_respx = pytest.mark.skipif(
 def engine() -> OllamaEngine:
     EngineRegistry.register_value("ollama", OllamaEngine)
     return OllamaEngine(host="http://testhost:11434")
+
+
+class TestKeepAlive:
+    """``keep_alive`` keeps the model resident to avoid reload latency."""
+
+    def test_explicit_kwarg_wins(self, monkeypatch) -> None:
+        monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "10m")
+        assert _keep_alive({"keep_alive": "-1"}) == "-1"
+
+    def test_env_var_fallback(self, monkeypatch) -> None:
+        monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "30m")
+        assert _keep_alive({}) == "30m"
+
+    def test_none_when_unset(self, monkeypatch) -> None:
+        monkeypatch.delenv("OLLAMA_KEEP_ALIVE", raising=False)
+        assert _keep_alive({}) is None
+
+    def test_generate_sends_keep_alive(self, monkeypatch) -> None:
+        monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "-1")
+        captured: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["payload"] = json.loads(request.content)
+            return httpx.Response(
+                200,
+                json={
+                    "message": {"role": "assistant", "content": "ok"},
+                    "model": "m",
+                    "prompt_eval_count": 1,
+                    "eval_count": 1,
+                },
+            )
+
+        engine = OllamaEngine(host="http://testhost:11434")
+        engine._client = httpx.Client(
+            transport=httpx.MockTransport(handler),
+            base_url="http://testhost:11434",
+        )
+        engine.generate([Message(role=Role.USER, content="Hi")], model="m")
+        assert captured["payload"]["keep_alive"] == "-1"
 
 
 @requires_respx
@@ -295,6 +339,85 @@ class TestOllamaStream:
             ):
                 tokens.append(tok)
         assert "Hello" in tokens
+
+
+class TestOllamaStreamSync:
+    """Sync streaming: the ``jarvis chat`` REPL consumes ``stream_sync`` deltas."""
+
+    def test_stream_sync_yields_content_until_done(self, engine: OllamaEngine) -> None:
+        lines = [
+            json.dumps({"message": {"content": "Hello"}, "done": False}),
+            json.dumps({"message": {"content": " world"}, "done": True}),
+        ]
+        engine._client = httpx.Client(
+            transport=_ndjson_transport(lines),
+            base_url="http://testhost:11434",
+        )
+        tokens = list(
+            engine.stream_sync(
+                [Message(role=Role.USER, content="Hi")], model="qwen3:8b"
+            )
+        )
+        assert tokens == ["Hello", " world"]
+
+    def test_stream_sync_single_final_chunk(self, engine: OllamaEngine) -> None:
+        lines = [json.dumps({"message": {"content": "Hello"}, "done": True})]
+        engine._client = httpx.Client(
+            transport=_ndjson_transport(lines),
+            base_url="http://testhost:11434",
+        )
+        tokens = list(
+            engine.stream_sync(
+                [Message(role=Role.USER, content="Hi")], model="qwen3:8b"
+            )
+        )
+        assert tokens == ["Hello"]
+
+    def test_stream_sync_500_maps_to_connection_error(
+        self, engine: OllamaEngine
+    ) -> None:
+        status_transport = (
+            TestOllamaStreamHttpErrorMapping._status_transport(500, text="boom")
+        )
+        engine._client = httpx.Client(
+            transport=status_transport,
+            base_url="http://testhost:11434",
+        )
+        with pytest.raises(EngineConnectionError) as excinfo:
+            list(
+                engine.stream_sync(
+                    [Message(role=Role.USER, content="Hi")], model="qwen3:8b"
+                )
+            )
+        assert "500" in str(excinfo.value)
+        assert "boom" in str(excinfo.value)
+
+    def test_stream_sync_posts_stream_true_and_forwards_keep_alive(
+        self, engine: OllamaEngine
+    ) -> None:
+        captured: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["payload"] = json.loads(request.content)
+            return httpx.Response(
+                200,
+                text=json.dumps({"message": {"content": "ok"}, "done": True}) + "\n",
+            )
+
+        engine._client = httpx.Client(
+            transport=httpx.MockTransport(handler),
+            base_url="http://testhost:11434",
+        )
+        tokens = list(
+            engine.stream_sync(
+                [Message(role=Role.USER, content="Hi")],
+                model="qwen3:8b",
+                keep_alive="-1",
+            )
+        )
+        assert tokens == ["ok"]
+        assert captured["payload"]["stream"] is True
+        assert captured["payload"]["keep_alive"] == "-1"
 
 
 def _ndjson_transport(lines: list[str]) -> httpx.MockTransport:

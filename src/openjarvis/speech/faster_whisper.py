@@ -10,15 +10,39 @@ from typing import List, Optional
 from openjarvis.core.registry import SpeechRegistry
 from openjarvis.speech._stubs import Segment, SpeechBackend, TranscriptionResult
 
-try:
-    from faster_whisper import WhisperModel
-except ImportError:
-    WhisperModel = None  # type: ignore[assignment, misc]
+# The heavy native deps (faster-whisper → numpy, ctranslate2) are imported
+# lazily so importing ``openjarvis.cli``/``openjarvis.speech`` stays cheap and
+# a broken numpy install can never crash commands that never transcribe.
+WhisperModel = None  # type: ignore[assignment, misc]
+ctranslate2 = None  # type: ignore[assignment]
 
-try:
-    import ctranslate2
-except ImportError:
-    ctranslate2 = None  # type: ignore[assignment]
+# Probe once: a successful probe sets the globals, a failed one leaves them
+# None so callers get the install hint instead of retrying on every request.
+_DEPS_LOADED = False
+
+
+def _load_dependencies() -> None:
+    """Import the optional STT dependencies on first use."""
+    global _DEPS_LOADED, WhisperModel, ctranslate2
+    if _DEPS_LOADED:
+        return
+    _DEPS_LOADED = True
+    # Never clobber a value a caller already provided (tests substitute a mock
+    # or ``None`` to simulate a missing dependency).
+    if WhisperModel is None:
+        try:
+            from faster_whisper import WhisperModel as _WhisperModel
+
+            WhisperModel = _WhisperModel
+        except ImportError:
+            return
+    if ctranslate2 is None:
+        try:
+            import ctranslate2 as _ctranslate2
+
+            ctranslate2 = _ctranslate2
+        except ImportError:
+            ctranslate2 = None
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +104,7 @@ class FasterWhisperBackend(SpeechBackend):
     def _ensure_model(self) -> WhisperModel:
         """Lazy-load the Whisper model on first use."""
         if self._model is None:
+            _load_dependencies()
             if WhisperModel is None:
                 self._last_error = (
                     "faster-whisper is not installed. "

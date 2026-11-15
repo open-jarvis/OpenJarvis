@@ -142,7 +142,12 @@ def test_faster_whisper_falls_back_from_unsupported_float16():
 
 
 def test_faster_whisper_missing_dependency_hint_uses_desktop_extra():
-    with patch("openjarvis.speech.faster_whisper.WhisperModel", new=None):
+    # Simulate a completed probe that found no dependency: the lazy loader
+    # must not re-import over the simulated absence.
+    with (
+        patch("openjarvis.speech.faster_whisper._DEPS_LOADED", True),
+        patch("openjarvis.speech.faster_whisper.WhisperModel", new=None),
+    ):
         backend = FasterWhisperBackend()
 
         with pytest.raises(ImportError) as excinfo:
@@ -154,9 +159,9 @@ def test_faster_whisper_missing_dependency_hint_uses_desktop_extra():
 
 def test_faster_whisper_health_no_model():
     """Health returns False before model is loaded."""
-    with patch(
-        "openjarvis.speech.faster_whisper.WhisperModel",
-        new=None,
+    with (
+        patch("openjarvis.speech.faster_whisper._DEPS_LOADED", True),
+        patch("openjarvis.speech.faster_whisper.WhisperModel", new=None),
     ):
         backend = FasterWhisperBackend()
         assert backend.health() is False

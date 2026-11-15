@@ -56,7 +56,9 @@ class TestCodeInterpreterValidation:
         )
         monkeypatch.setitem(sys.modules, "resource", fake_resource)
         setsid = MagicMock()
-        monkeypatch.setattr("openjarvis.tools.code_interpreter.os.setsid", setsid)
+        monkeypatch.setattr(
+            "openjarvis.tools.code_interpreter.os.setsid", setsid, raising=False
+        )
 
         _child_limits()
 

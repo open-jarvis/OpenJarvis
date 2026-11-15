@@ -70,10 +70,22 @@ def _message_estimated_chars(message: Message) -> int:
 
 
 def messages_to_dicts(messages: Sequence[Message]) -> List[Dict[str, Any]]:
-    """Convert ``Message`` objects to OpenAI-format dicts."""
+    """Convert ``Message`` objects to OpenAI-format dicts.
+
+    Messages carrying a ``source`` provenance tag (e.g. ``"voice_wake"`` for a
+    command that arrived via the wake word and had it stripped) are annotated
+    inline as ``[Source: <source>]`` so the target LLM always knows where the
+    instruction came from, without mutating the caller's conversation history.
+    """
     out: List[Dict[str, Any]] = []
     for m in messages:
-        d: Dict[str, Any] = {"role": m.role.value, "content": m.content}
+        content = m.content
+        source = (m.metadata or {}).get("source") if m.metadata else None
+        if source:
+            content = f"[Source: {source}] {content}" if content else (
+                f"[Source: {source}]"
+            )
+        d: Dict[str, Any] = {"role": m.role.value, "content": content}
         if m.name:
             d["name"] = m.name
         if m.tool_calls:

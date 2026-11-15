@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import subprocess
 import tempfile
 
 from openjarvis.core import get_python_executable
@@ -12,6 +13,28 @@ from openjarvis.security.subprocess_sandbox import (
     kill_process_tree,
     run_sandboxed,
 )
+
+
+def _py(code: str) -> str:
+    """Build a shell command that runs *code* with this interpreter.
+
+    Shell snippets in this module must work under both POSIX sh and cmd.exe,
+    so interpreter invocations are quoted per platform.
+    """
+    exe = get_python_executable()
+    if os.name == "nt":
+        return f'"{exe}" -c {subprocess.list2cmdline([code])}'
+    return f"{shlex.quote(exe)} -c {shlex.quote(code)}"
+
+
+def _sleep(seconds: int) -> str:
+    """Portable ``sleep`` (Windows has no sleep executable)."""
+    return _py(f"import time; time.sleep({seconds})")
+
+
+def _pwd() -> str:
+    return "cd" if os.name == "nt" else "pwd"
+
 
 # ---------------------------------------------------------------------------
 # build_safe_env tests
@@ -73,14 +96,14 @@ class TestRunSandboxed:
         assert not result.killed
 
     def test_timeout_kills_process(self) -> None:
-        result = run_sandboxed("sleep 60", timeout=1.0)
+        result = run_sandboxed(_sleep(60), timeout=1.0)
         assert result.timed_out
         assert result.killed
         assert result.returncode == -1
 
     def test_working_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = run_sandboxed("pwd", working_dir=tmpdir, timeout=10.0)
+            result = run_sandboxed(_pwd(), working_dir=tmpdir, timeout=10.0)
             assert result.returncode == 0
             assert tmpdir in result.stdout.strip()
 
@@ -88,7 +111,10 @@ class TestRunSandboxed:
         os.environ["TEST_SECRET"] = "super_secret_value"
         try:
             result = run_sandboxed(
-                'echo "val=$TEST_SECRET"',
+                _py(
+                    "import os; "
+                    "print('val=' + os.environ.get('TEST_SECRET', 'MISSING'))"
+                ),
                 timeout=10.0,
             )
             assert result.returncode == 0
@@ -99,7 +125,7 @@ class TestRunSandboxed:
     def test_output_truncation(self) -> None:
         # Generate output larger than max_output_bytes
         result = run_sandboxed(
-            f"{shlex.quote(get_python_executable())} -c \"print('A' * 200)\"",
+            _py("print('A' * 200)"),
             timeout=10.0,
             max_output_bytes=50,
         )

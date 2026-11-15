@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
 from openjarvis.core.registry import ConnectorRegistry
+from openjarvis.core.utils import strftime_unpadded
 from openjarvis.tools._stubs import ToolSpec
 
 # ---------------------------------------------------------------------------
@@ -240,11 +241,13 @@ class AppleCalendarConnector(BaseConnector):
         )
 
         if all_day:
-            date_str = start_dt.strftime("%A, %B %-d %Y (all day)")
+            date_str = strftime_unpadded(start_dt, "%A, %B %-d %Y (all day)")
         else:
-            date_str = start_dt.strftime("%A, %B %-d %Y at %-I:%M %p")
+            date_str = strftime_unpadded(
+                start_dt, "%A, %B %-d %Y at %-I:%M %p"
+            )
             if end_dt:
-                date_str += end_dt.strftime(" – %-I:%M %p")
+                date_str += strftime_unpadded(end_dt, " – %-I:%M %p")
             if start_tz and start_tz != "_float":
                 date_str += f" ({start_tz})"
 

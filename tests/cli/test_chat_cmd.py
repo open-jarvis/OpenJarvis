@@ -18,12 +18,18 @@ from openjarvis.agents._stubs import (
     BaseAgent,
     ToolUsingAgent,
 )
-from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, record_voice, speak
-from openjarvis.cli.chat_cmd import _read_input, chat
+from openjarvis.cli._voice_chat import (
+    VOICE_EXIT,
+    SentenceSpeaker,
+    VoiceSession,
+    record_voice,
+    speak,
+)
+from openjarvis.cli.chat_cmd import _read_input, _stream_reply_tokens, chat
 from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.core.registry import AgentRegistry, ToolRegistry
-from openjarvis.core.types import Role, ToolCall, ToolResult
+from openjarvis.core.types import Message, Role, ToolCall, ToolResult
 from openjarvis.memory.store import LocalFactStore
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
@@ -131,6 +137,9 @@ class TestChatCommand:
                 "openjarvis.speech.voice_io.record_until_silence",
                 side_effect=KeyboardInterrupt,
             ),
+            # Keep the transcript-based recording path under test: a real
+            # openWakeWord detector would try the microphone.
+            patch("openjarvis.speech.audio_wake.build_detector", return_value=None),
         ):
             result = CliRunner().invoke(
                 chat,
@@ -141,6 +150,885 @@ class TestChatCommand:
         assert result.exit_code == 0
         assert result.exception is None
         assert "Goodbye!" in result.output
+
+    def test_voice_wake_command_is_tagged_with_source(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["ok"])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch("openjarvis.cli.chat_cmd.read_voice_input") as read_voice_input,
+            patch("openjarvis.cli._voice_chat.speak"),
+            patch("openjarvis.speech.voice_io.BargeInMonitor"),
+        ):
+            read_voice_input.side_effect = [
+                ("mets la lumière sur", "voice_wake"),
+                ("/quit", "typed"),
+            ]
+            result = CliRunner().invoke(
+                chat,
+                ["--voice", "--model", "test-model"],
+                input="mets la lumière sur\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        user_messages = [
+            m
+            for m in engine.stream_sync.call_args.args[0]
+            if m.role == Role.USER
+        ]
+        assert user_messages[-1].content == "mets la lumière sur"
+        assert user_messages[-1].metadata.get("source") == "voice_wake"
+
+    def test_voice_mode_speaks_sentence_by_sentence_while_streaming(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(
+            ["Bonjour. Comment", " vas-tu ?"]
+        )
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch("openjarvis.cli.chat_cmd.read_voice_input") as read_voice_input,
+            patch("openjarvis.cli._voice_chat.speak") as speak_mock,
+            patch("openjarvis.speech.voice_io.BargeInMonitor"),
+        ):
+            read_voice_input.side_effect = [
+                ("Bonjour", "voice_wake"),
+                ("/quit", "typed"),
+            ]
+            result = CliRunner().invoke(
+                chat,
+                ["--voice", "--model", "test-model"],
+                input="\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        spoken = [call.args[0] for call in speak_mock.call_args_list]
+        assert spoken == ["Bonjour.", "Comment vas-tu ?"]
+
+    def test_see_command_describes_screen_with_vision_model(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["Un navigateur est ouvert."])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.screen.capture_screen_b64",
+                return_value="aW1hZ2U=",
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/see\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Un navigateur est ouvert." in result.output
+        sent = engine.stream_sync.call_args.args[0]
+        assert sent[0].images == ["aW1hZ2U="]
+        assert "Décris ce qui est affiché" in sent[0].content
+
+    def test_see_command_reports_capture_failure(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.screen.capture_screen_b64",
+                side_effect=RuntimeError("Pillow missing"),
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/see\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Vision capture failed" in result.output
+        engine.stream_sync.assert_not_called()
+
+    def test_see_command_describes_image_file(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["Une photo de chat."])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.screen.image_file_b64",
+                return_value="aW1n",
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/see chat.png\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Une photo de chat." in result.output
+        sent = engine.stream_sync.call_args.args[0]
+        assert sent[0].images == ["aW1n"]
+        assert "Décris cette image." in sent[0].content
+
+    def test_see_command_uses_webcam(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["Une personne."])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.screen.capture_webcam_b64",
+                return_value="Y2Ft",
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/see cam\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        sent = engine.stream_sync.call_args.args[0]
+        assert sent[0].images == ["Y2Ft"]
+
+    def test_see_save_writes_screenshot(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.screen.save_screen",
+                return_value="C:\\shots\\shot.png",
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/see save\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Screenshot saved to C:\\shots\\shot.png" in result.output
+        engine.stream_sync.assert_not_called()
+
+    def test_read_command_prints_ocr_text(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.ocr.screen_text",
+                return_value="Bonjour OCR",
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/read\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Bonjour OCR" in result.output
+
+    def test_read_command_reports_ocr_failure(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.ocr.screen_text",
+                side_effect=RuntimeError("no tesseract"),
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/read\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "OCR failed" in result.output
+
+    def test_speak_command_reads_text_aloud(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch("openjarvis.cli.chat_cmd.speak") as speak_mock,
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/speak Bonjour tout le monde\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert speak_mock.call_args.args[0] == "Bonjour tout le monde"
+
+    def test_shutup_mutes_spoken_replies(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["Salut."])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch("openjarvis.cli.chat_cmd.read_voice_input") as read_voice_input,
+            patch("openjarvis.cli._voice_chat.speak") as speak_mock,
+            patch("openjarvis.speech.voice_io.BargeInMonitor"),
+        ):
+            read_voice_input.side_effect = [
+                ("/shutup", "typed"),
+                ("bonjour", "voice_wake"),
+                ("/quit", "typed"),
+            ]
+            result = CliRunner().invoke(
+                chat,
+                ["--voice", "--model", "test-model"],
+                input="x\nx\nx\n",
+            )
+
+        assert result.exit_code == 0
+        assert "muted" in result.output
+        speak_mock.assert_not_called()
+
+    def test_voice_command_updates_preferences(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch("openjarvis.cli.chat_cmd.read_voice_input") as read_voice_input,
+            patch("openjarvis.speech.voice_io.BargeInMonitor"),
+        ):
+            read_voice_input.side_effect = [
+                ("/voice speed 1.5", "typed"),
+                ("/quit", "typed"),
+            ]
+            result = CliRunner().invoke(
+                chat,
+                ["--voice", "--model", "test-model"],
+                input="x\nx\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Voice updated" in result.output
+        assert "x1.5" in result.output
+
+    def test_save_command_writes_transcript(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["Réponse."])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="hello\n/save\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Session saved to" in result.output
+
+    def test_quick_command_answers_without_engine(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="quelle heure est-il\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Il est " in result.output
+        engine.stream_sync.assert_not_called()
+
+    def test_translate_command_streams_translation(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["Bonjour le monde"])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/translate en Hello world\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Bonjour le monde" in result.output
+        prompt = engine.stream_sync.call_args.args[0][0].content
+        assert "Traduis" in prompt
+        assert "en anglais" in prompt
+        assert "Hello world" in prompt
+
+    def test_summarize_command_fetches_and_summarizes(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["Résumé court."])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.cli.chat_cmd._fetch_url_text",
+                return_value="Article complet ici.",
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/summarize https://example.com\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Résumé court." in result.output
+        prompt = engine.stream_sync.call_args.args[0][0].content
+        assert "Article complet ici." in prompt
+
+    def test_summarize_command_reports_fetch_failure(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.cli.chat_cmd._fetch_url_text",
+                side_effect=RuntimeError("network down"),
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/summarize https://example.com\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Could not fetch the page" in result.output
+        engine.stream_sync.assert_not_called()
+
+    def test_news_command_prints_headlines(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.headlines_for",
+                return_value=["Titre un", "Titre deux"],
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/news tech\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Titre un" in result.output
+        assert "Titre deux" in result.output
+        engine.stream_sync.assert_not_called()
+
+    def test_markets_command_prints_prices(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.crypto_prices",
+                return_value={"bitcoin": 61000.5},
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/marchés\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "bitcoin" in result.output
+        assert "61,000.50" in result.output
+
+    def test_convert_currency_command(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.currency_rate",
+                return_value=0.92,
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/convert 100 usd en eur\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "100 USD = 92.00 EUR" in result.output
+
+    def test_convert_units_command_is_local(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/convert 5 km en miles\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "5 km = 3.10685 miles" in result.output
+
+    def test_brief_command_composes_time_weather_news(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.weather_now",
+                return_value="Paris : ⛅ +8°C",
+            ),
+            patch(
+                "openjarvis.tools.net.headlines_for",
+                return_value=["À la une du jour"],
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/brief\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Il est " in result.output
+        assert "Météo : Paris : ⛅ +8°C" in result.output
+        assert "À la une du jour" in result.output
+
+    def test_heure_command_shows_city_time(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.city_time",
+                return_value="À Tokyo, il est 17h05.",
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/heure Tokyo\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "À Tokyo, il est 17h05." in result.output
+
+    def test_heure_command_unknown_city_reports_error(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.tools.net.city_time",
+                side_effect=RuntimeError("Ville inconnue : Atlantide."),
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/heure Atlantide\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Ville inconnue" in result.output
+
+    def test_remember_stores_summary_fact(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.side_effect = [
+            iter(["Réponse."]),
+            iter(["L'utilisateur aime le café."]),
+        ]
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="hello\n/remember\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Remembered" in result.output
+        from openjarvis.core.paths import get_config_dir
+
+        facts_text = (get_config_dir() / "memory_facts.jsonl").read_text(
+            encoding="utf-8"
+        )
+        assert "café" in facts_text
+
+    def test_remember_without_history(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="/remember\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Nothing to remember yet." in result.output
+        engine.stream_sync.assert_not_called()
+
+    def test_auto_remember_on_exit_when_enabled(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.side_effect = [
+            iter(["Réponse."]),
+            iter(["Fait durable sur l'utilisateur."]),
+        ]
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch.dict(
+                "os.environ",
+                {"JARVIS_REMEMBER_SESSION": "1"},
+                clear=False,
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="hello\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Remembering session…" in result.output
+        assert "Remembered" in result.output
+
+    def test_transcript_auto_saved_on_exit(self) -> None:
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["Réponse."])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="hello\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Session saved to" in result.output
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.stream_sync.return_value = iter(["Réponse."])
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--model", "test-model"],
+                input="hello\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Session saved to" in result.output
+
+
+class TestSentenceSpeaker:
+    """Sentence-by-sentence TTS: speak while the model keeps generating."""
+
+    @staticmethod
+    def _speaker(captured: list) -> SentenceSpeaker:
+        return SentenceSpeaker(
+            MagicMock(),
+            MagicMock(),
+            speak_fn=lambda text, console, session: captured.append(text),
+        )
+
+    def test_speaks_each_completed_sentence_as_it_arrives(self) -> None:
+        spoken: list = []
+        speaker = self._speaker(spoken)
+        speaker.feed("Bonjour. Comment")
+        assert spoken == ["Bonjour."]
+        speaker.feed(" vas-tu ?")
+        assert spoken == ["Bonjour.", "Comment vas-tu ?"]
+
+    def test_decimal_point_is_not_a_sentence_end(self) -> None:
+        spoken: list = []
+        speaker = self._speaker(spoken)
+        speaker.feed("Pi vaut 3.14 environ.")
+        assert spoken == ["Pi vaut 3.14 environ."]
+
+    def test_flush_speaks_leftover_without_punctuation(self) -> None:
+        spoken: list = []
+        speaker = self._speaker(spoken)
+        speaker.feed("ok")
+        assert spoken == []
+        speaker.flush()
+        assert spoken == ["ok"]
+
+    def test_flush_does_nothing_when_empty(self) -> None:
+        spoken: list = []
+        speaker = self._speaker(spoken)
+        speaker.feed("Tout dit.")
+        assert spoken == ["Tout dit."]
+        speaker.flush()
+        assert spoken == ["Tout dit."]
+
+    def test_markdown_is_cleaned_before_speaking(self) -> None:
+        spoken: list = []
+        speaker = self._speaker(spoken)
+        speaker.feed(
+            "**Bold** text with `code` and [a link](https://x.y)."
+        )
+        assert spoken == ["Bold text with code and a link."]
+
+    def test_interrupt_stops_speaker_and_skips_remaining_sentences(self) -> None:
+        spoken: list = []
+
+        def interrupted_speak(text, console, session, **kwargs):
+            spoken.append(text)
+            return False  # playback cut off by user speech
+
+        speaker = SentenceSpeaker(
+            MagicMock(),
+            MagicMock(),
+            speak_fn=interrupted_speak,
+            interrupt_check=lambda: False,
+        )
+        speaker.feed("Première phrase. Deuxième phrase.")
+        assert spoken == ["Première phrase."]
+        assert speaker.interrupted is True
+        speaker.feed("Troisième phrase.")
+        speaker.flush()
+        assert spoken == ["Première phrase."]
+
+    def test_stale_trigger_is_consumed_before_each_sentence(self) -> None:
+        spoken: list = []
+        checks = iter([True, False])
+
+        def interrupt_check():
+            try:
+                return next(checks)
+            except StopIteration:
+                return False
+
+        def speak_fn(text, console, session, **kwargs):
+            spoken.append(text)
+            return True
+
+        speaker = SentenceSpeaker(
+            MagicMock(),
+            MagicMock(),
+            speak_fn=speak_fn,
+            interrupt_check=interrupt_check,
+        )
+        speaker.feed("Première phrase.")
+        assert spoken == ["Première phrase."]
+        assert speaker.interrupted is False
+
+
+class TestStreamReplyTokens:
+    """The REPL must stream engine tokens, falling back to generate."""
+
+    def test_stream_reply_tokens_joins_engine_stream(self) -> None:
+        engine = MagicMock()
+        engine.stream_sync.return_value = iter(["Hello", " ", "world"])
+
+        tokens = list(
+            _stream_reply_tokens(
+                engine,
+                [Message(role=Role.USER, content="Hi")],
+                model="test-model",
+            )
+        )
+
+        assert tokens == ["Hello", " ", "world"]
+        engine.stream_sync.assert_called_once()
+
+    def test_stream_reply_tokens_falls_back_to_generate(self) -> None:
+        engine = MagicMock()
+        engine.stream_sync = None
+        engine.generate.return_value = {"content": "fallback"}
+
+        tokens = list(
+            _stream_reply_tokens(
+                engine,
+                [Message(role=Role.USER, content="Hi")],
+                model="test-model",
+            )
+        )
+
+        assert tokens == ["fallback"]
+        engine.generate.assert_called_once()
+
+    def test_stream_reply_tokens_skips_empty_tokens(self) -> None:
+        engine = MagicMock()
+        engine.stream_sync.return_value = iter(["", "Hi", ""])
+
+        tokens = list(
+            _stream_reply_tokens(
+                engine,
+                [Message(role=Role.USER, content="Hi")],
+                model="test-model",
+            )
+        )
+
+        assert tokens == ["Hi"]
 
 
 class TestReadInput:
@@ -180,10 +1068,13 @@ class TestVoiceInput:
             SimpleNamespace(text="first message"),
             SimpleNamespace(text="second message"),
         ]
-        session = VoiceSession(JarvisConfig())
+        config = JarvisConfig()
+        config.speech.wake_word_enabled = False
+        session = VoiceSession(config)
         console = MagicMock()
 
         with (
+            patch("openjarvis.core.config.load_config", return_value=config),
             patch(
                 "openjarvis.speech._discovery.get_speech_backend",
                 return_value=backend,
@@ -193,11 +1084,395 @@ class TestVoiceInput:
                 return_value=b"wav",
             ),
         ):
-            assert record_voice(console, session) == "first message"
-            assert record_voice(console, session) == "second message"
+            assert record_voice(console, session) == ("first message", "voice")
+            assert record_voice(console, session) == ("second message", "voice")
 
         discover.assert_called_once()
         assert backend.transcribe.call_count == 2
+
+    def test_voice_wake_word_strips_command_after_detection(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(
+            text="Jarvis, lance le bloc-notes"
+        )
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = True
+        config.speech.audio_wake_word = False  # test the transcript path
+        session = VoiceSession(config)
+        console = MagicMock()
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+        ):
+            assert record_voice(console, session) == (
+                "lance le bloc-notes",
+                "voice_wake",
+            )
+
+    def test_voice_wake_word_alone_asks_for_command(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(text="Jarvis")
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = True
+        config.speech.audio_wake_word = False  # test the transcript path
+        session = VoiceSession(config)
+        console = MagicMock()
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+        ):
+            assert record_voice(console, session) is None
+
+    def test_voice_wake_word_disabled_returns_transcript_as_is(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(
+            text="Jarvis, lance le bloc-notes"
+        )
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = False
+        session = VoiceSession(config)
+        console = MagicMock()
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+        ):
+            assert record_voice(console, session) == (
+                "Jarvis, lance le bloc-notes",
+                "voice",
+            )
+
+    def test_voice_ignores_transcript_without_wake_word(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(text="mets la lumière sur")
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = True
+        config.speech.audio_wake_word = False  # test the transcript path
+        session = VoiceSession(config)
+        console = MagicMock()
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+        ):
+            # Wake-gated listening must ignore utterances that did not carry
+            # the wake word instead of treating them as commands.
+            assert record_voice(console, session) is None
+
+    def test_voice_audio_wake_word_gates_recording(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(
+            text="mets la lumière sur"
+        )
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = True
+        config.speech.audio_wake_word = True
+        session = VoiceSession(config)
+        console = MagicMock()
+        detector = MagicMock()
+        detector.listen.return_value = True
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+            patch(
+                "openjarvis.speech.audio_wake.build_detector",
+                return_value=detector,
+            ),
+        ):
+            # Audio wake word fired → the command is accepted as voice_wake
+            # without the transcript needing to contain the wake word.
+            assert record_voice(console, session) == (
+                "mets la lumière sur",
+                "voice_wake",
+            )
+
+        detector.close.assert_called_once()
+
+    def test_voice_audio_wake_timeout_returns_none(self) -> None:
+        backend = MagicMock()
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = True
+        session = VoiceSession(config)
+        console = MagicMock()
+        detector = MagicMock()
+        detector.listen.return_value = False
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.audio_wake.build_detector",
+                return_value=detector,
+            ),
+        ):
+            assert record_voice(console, session) is None
+
+    def test_voice_falls_back_to_transcript_wake_when_audio_unavailable(
+        self,
+    ) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(
+            text="Jarvis, lance le bloc-notes"
+        )
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = True
+        session = VoiceSession(config)
+        console = MagicMock()
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+            patch(
+                "openjarvis.speech.audio_wake.build_detector",
+                return_value=None,
+            ),
+        ):
+            # No openWakeWord → the transcript-based check still works.
+            assert record_voice(console, session) == (
+                "lance le bloc-notes",
+                "voice_wake",
+            )
+
+    def test_wake_word_fires_chime(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(
+            text="Jarvis, lance le bloc-notes"
+        )
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = True
+        config.speech.audio_wake_word = False
+        session = VoiceSession(config)
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+            patch("openjarvis.cli._voice_chat._chime") as chime,
+        ):
+            record_voice(MagicMock(), session)
+
+        chime.assert_called_once()
+
+    def test_conversation_mode_accepts_turns_without_wake_word(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.side_effect = [
+            SimpleNamespace(text="Jarvis, lance le bloc-notes"),
+            SimpleNamespace(text="mets la lumière sur"),
+        ]
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = True
+        config.speech.audio_wake_word = False
+        session = VoiceSession(config)
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+            patch("openjarvis.cli._voice_chat._chime"),
+        ):
+            assert record_voice(MagicMock(), session) == (
+                "lance le bloc-notes",
+                "voice_wake",
+            )
+            assert session.conversation_active is True
+            # Second turn: the wake word is no longer required.
+            assert record_voice(MagicMock(), session) == (
+                "mets la lumière sur",
+                "voice_wake",
+            )
+
+    def test_conversation_mode_ends_on_exit_phrase(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.side_effect = [
+            SimpleNamespace(text="Jarvis, lance le bloc-notes"),
+            SimpleNamespace(text="Merci jarvis"),
+        ]
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = True
+        config.speech.audio_wake_word = False
+        session = VoiceSession(config)
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+            patch("openjarvis.cli._voice_chat._chime"),
+        ):
+            assert record_voice(MagicMock(), session) == (
+                "lance le bloc-notes",
+                "voice_wake",
+            )
+            # "Merci jarvis" ends the conversation without being treated as a
+            # command.
+            assert record_voice(MagicMock(), session) is None
+            assert session.conversation_active is False
+
+    def test_push_to_talk_hotkey_opens_the_mic(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(text="bonjour")
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = True
+        config.speech.push_to_talk = True
+        session = VoiceSession(config)
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+            patch(
+                "openjarvis.speech.hotkey.hotkey_available",
+                return_value=True,
+            ),
+            patch(
+                "openjarvis.speech.hotkey.wait_for_hotkey",
+                return_value=True,
+            ),
+            patch("openjarvis.cli._voice_chat._chime"),
+        ):
+            assert record_voice(MagicMock(), session) == (
+                "bonjour",
+                "voice_wake",
+            )
+
+    def test_push_to_talk_returns_none_when_not_pressed(self) -> None:
+        backend = MagicMock()
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.push_to_talk = True
+        session = VoiceSession(config)
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.hotkey.hotkey_available",
+                return_value=True,
+            ),
+            patch(
+                "openjarvis.speech.hotkey.wait_for_hotkey",
+                return_value=False,
+            ),
+        ):
+            assert record_voice(MagicMock(), session) is None
+
+    def test_voice_wake_word_env_override(self) -> None:
+        backend = MagicMock()
+        backend.transcribe.return_value = SimpleNamespace(
+            text="Computer, lance le bloc-notes"
+        )
+        config = JarvisConfig()
+        config.speech.wake_word = "jarvis"
+        config.speech.wake_word_enabled = True
+        config.speech.audio_wake_word = False  # test the transcript path
+        session = VoiceSession(config)
+        console = MagicMock()
+
+        with (
+            patch("openjarvis.core.config.load_config", return_value=config),
+            patch.dict(
+                "os.environ",
+                {"JARVIS_WAKE_WORD": "computer"},
+                clear=False,
+            ),
+            patch(
+                "openjarvis.speech._discovery.get_speech_backend",
+                return_value=backend,
+            ),
+            patch(
+                "openjarvis.speech.voice_io.record_until_silence",
+                return_value=b"wav",
+            ),
+        ):
+            assert record_voice(console, session) == (
+                "lance le bloc-notes",
+                "voice_wake",
+            )
 
     @pytest.mark.parametrize(
         ("language", "expected"),
@@ -210,9 +1485,11 @@ class TestVoiceInput:
         backend.transcribe.return_value = SimpleNamespace(text="olá")
         config = JarvisConfig()
         config.speech.language = language
+        config.speech.wake_word_enabled = False
         session = VoiceSession(config)
 
         with (
+            patch("openjarvis.core.config.load_config", return_value=config),
             patch(
                 "openjarvis.speech._discovery.get_speech_backend",
                 return_value=backend,
@@ -222,7 +1499,7 @@ class TestVoiceInput:
                 return_value=b"wav",
             ),
         ):
-            assert record_voice(MagicMock(), session) == "olá"
+            assert record_voice(MagicMock(), session) == ("olá", "voice")
 
         backend.transcribe.assert_called_once_with(
             b"wav", format="wav", language=expected
@@ -233,11 +1510,14 @@ class TestVoiceInput:
         backend.transcribe.return_value = SimpleNamespace(
             text="[link=https://attacker.invalid]trusted[/link]\x1b]8;;evil\x07"
         )
-        session = VoiceSession(JarvisConfig())
+        config = JarvisConfig()
+        config.speech.wake_word_enabled = False
+        session = VoiceSession(config)
         output = StringIO()
         console = Console(file=output, force_terminal=True)
 
         with (
+            patch("openjarvis.core.config.load_config", return_value=config),
             patch(
                 "openjarvis.speech._discovery.get_speech_backend",
                 return_value=backend,
@@ -251,7 +1531,7 @@ class TestVoiceInput:
 
         rendered = output.getvalue()
         plain = Text.from_ansi(rendered).plain
-        assert result.startswith("[link=https://attacker.invalid]")
+        assert result[0].startswith("[link=https://attacker.invalid]")
         assert "\x1b]8;" not in rendered
         assert "[link=https://attacker.invalid]trusted[/link]" in plain
 
@@ -273,6 +1553,7 @@ class TestVoiceInput:
                 "openjarvis.speech.voice_io.record_until_silence",
                 side_effect=error,
             ),
+            patch("openjarvis.speech.audio_wake.build_detector", return_value=None),
         ):
             result = record_voice(console, session)
 
@@ -296,6 +1577,7 @@ class TestVoiceInput:
                 "openjarvis.speech.voice_io.record_until_silence",
                 side_effect=KeyboardInterrupt,
             ),
+            patch("openjarvis.speech.audio_wake.build_detector", return_value=None),
         ):
             assert record_voice(MagicMock(), session) is VOICE_EXIT
 
@@ -312,6 +1594,7 @@ class TestVoiceInput:
                 "openjarvis.speech.voice_io.record_until_silence",
                 side_effect=SystemExit(),
             ),
+            patch("openjarvis.speech.audio_wake.build_detector", return_value=None),
             pytest.raises(SystemExit),
         ):
             record_voice(MagicMock(), session)
@@ -353,6 +1636,7 @@ class TestChatAgents:
 
         engine = MagicMock()
         engine.engine_id = "mock"
+        engine.stream_sync = None
         engine.generate.return_value = {"content": "Blue."}
         config = JarvisConfig()
         config.intelligence.default_model = "test-model"
@@ -387,6 +1671,7 @@ class TestChatAgents:
 
         engine = MagicMock()
         engine.engine_id = "mock"
+        engine.stream_sync = None
         engine.generate.return_value = {"content": "Tea."}
         config = JarvisConfig()
         config.intelligence.default_model = "test-model"
@@ -427,6 +1712,7 @@ class TestChatAgents:
 
         engine = MagicMock()
         engine.engine_id = "mock"
+        engine.stream_sync = None
         engine.generate.return_value = {"content": "Still working."}
         config = JarvisConfig()
         config.intelligence.default_model = "test-model"

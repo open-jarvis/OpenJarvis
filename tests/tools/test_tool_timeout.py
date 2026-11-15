@@ -145,7 +145,10 @@ class TestToolTimeout:
                     timeout_seconds=0.01,
                 )
 
-        executor = ToolExecutor([BrieflyStuckTool(delay=0.3)])
+        # The tool must stay blocked for longer than the whole submission
+        # loop: Windows' ~15 ms timer granularity makes a 0.3 s delay race
+        # with 24 timed-out calls, so the queue could drain before filling.
+        executor = ToolExecutor([BrieflyStuckTool(delay=2.0)])
         results = [
             executor.execute(ToolCall(id=str(i), name="slow_tool", arguments="{}"))
             for i in range(24)
