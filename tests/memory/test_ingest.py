@@ -175,3 +175,99 @@ def test_ingest_processes_normal_files(tmp_path: Path):
     sources = {c.source for c in chunks}
     assert any("app.py" in s for s in sources)
     assert any("doc.md" in s for s in sources)
+
+
+# ---------------------------------------------------------------------------
+# .docx and other binary files
+# ---------------------------------------------------------------------------
+
+_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _make_docx(path: Path, body_xml: str) -> None:
+    """Write a minimal .docx: a zip archive holding word/document.xml."""
+    import zipfile
+
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:document xmlns:w="{_W}"><w:body>{body_xml}</w:body></w:document>'
+    )
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", "<Types/>")
+        zf.writestr("word/document.xml", document)
+
+
+def _p(text: str) -> str:
+    return f"<w:p><w:r><w:t>{text}</w:t></w:r></w:p>"
+
+
+def test_detect_file_type_docx(tmp_path: Path):
+    assert detect_file_type(tmp_path / "Report.DOCX") == "docx"
+
+
+def test_read_document_docx(tmp_path: Path):
+    p = tmp_path / "contract.docx"
+    split_run = (
+        "<w:p><w:r><w:t>Split </w:t></w:r><w:r><w:t>across runs</w:t></w:r></w:p>"
+    )
+    table = (
+        "<w:tbl><w:tr>"
+        f"<w:tc>{_p('Item')}</w:tc><w:tc>{_p('Price')}</w:tc>"
+        "</w:tr></w:tbl>"
+    )
+    _make_docx(p, _p("Service agreement") + _p("") + split_run + table)
+
+    text, meta = read_document(p)
+
+    assert meta.file_type == "docx"
+    # One block per paragraph, runs joined, empty paragraphs dropped.
+    assert text.split("\n\n") == [
+        "Service agreement",
+        "Split across runs",
+        "Item",
+        "Price",
+    ]
+
+
+def test_read_document_docx_invalid_raises_oserror(tmp_path: Path):
+    p = tmp_path / "broken.docx"
+    p.write_bytes(b"this is not a zip archive")
+    with pytest.raises(OSError):
+        read_document(p)
+
+
+def test_ingest_directory_reads_docx_text(tmp_path: Path):
+    """A .docx is indexed as its text, not as the bytes of the zip archive."""
+    _make_docx(tmp_path / "notes.docx", _p("Quarterly planning notes"))
+    (tmp_path / "plain.txt").write_text("plain text file", encoding="utf-8")
+
+    chunks = ingest_path(tmp_path)
+    joined = "\n".join(c.content for c in chunks)
+
+    assert "Quarterly planning notes" in joined
+    assert "plain text file" in joined
+    assert "word/document.xml" not in joined
+    assert "PK" not in joined
+
+
+def test_ingest_directory_skips_corrupt_docx(tmp_path: Path):
+    (tmp_path / "broken.docx").write_bytes(b"not a zip archive")
+    (tmp_path / "ok.txt").write_text("still indexed", encoding="utf-8")
+
+    chunks = ingest_path(tmp_path)
+
+    assert {Path(c.source).name for c in chunks} == {"ok.txt"}
+
+
+def test_ingest_directory_skips_binary_files(tmp_path: Path):
+    """Binary files with no reader are skipped, whatever their extension."""
+    (tmp_path / "sheet.xlsx").write_bytes(b"PK\x03\x04\x14\x00\x06\x00 spreadsheet")
+    (tmp_path / "legacy.doc").write_bytes(
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 32 + b"legacy document"
+    )
+    (tmp_path / "blob.dat").write_bytes(b"\x00\x01\x02 raw bytes")
+    (tmp_path / "ok.md").write_text("# Heading\n\nreal content", encoding="utf-8")
+
+    chunks = ingest_path(tmp_path)
+
+    assert {Path(c.source).name for c in chunks} == {"ok.md"}
