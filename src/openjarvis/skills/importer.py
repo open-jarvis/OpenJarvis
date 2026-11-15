@@ -25,6 +25,8 @@ from typing import List
 import yaml
 
 from openjarvis.core.paths import get_config_dir
+from openjarvis.security.injection_scanner import InjectionScanner
+from openjarvis.security.types import ThreatLevel
 from openjarvis.skills.parser import SkillParser
 from openjarvis.skills.security import (
     TrustTier,
@@ -51,6 +53,7 @@ class ImportResult:
     warnings: List[str] = field(default_factory=list)
     trust_tier: TrustTier = TrustTier.UNREVIEWED
     dangerous_capabilities: List[str] = field(default_factory=list)
+    injection_findings: List[str] = field(default_factory=list)
     requires_confirmation: bool = False
 
 
@@ -68,6 +71,7 @@ class SkillImporter:
         if target_root is None:
             target_root = get_config_dir() / "skills"
         self._target_root = Path(target_root)
+        self._injection_scanner = InjectionScanner()
 
     def import_skill(
         self,
@@ -144,6 +148,13 @@ class SkillImporter:
                 "and/or write to the filesystem."
             )
 
+        # 1b. Scan inbound SKILL.md for prompt-injection patterns before
+        # writing anything to disk.
+        if not self._check_injection(
+            source_md, result, confirm_dangerous=confirm_dangerous
+        ):
+            return result
+
         # 2. Validate copied resources and translate tool references
         copied_subdirs = list(COPIED_SUBDIRS)
         if with_scripts:
@@ -209,6 +220,59 @@ class SkillImporter:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _check_injection(
+        self,
+        source_md: Path,
+        result: ImportResult,
+        *,
+        confirm_dangerous: bool,
+    ) -> bool:
+        """Scan inbound SKILL.md for prompt-injection patterns.
+
+        Returns ``False`` when installation should be refused (unreviewed skill
+        with HIGH/CRITICAL findings and ``confirm_dangerous=False``).
+        """
+        scan_result = self._injection_scanner.scan(
+            source_md.read_text(encoding="utf-8")
+        )
+        if scan_result.is_clean:
+            return True
+
+        result.injection_findings = [
+            f"{f.threat_level.value}:{f.pattern_name}: {f.description}"
+            for f in scan_result.findings
+        ]
+        summary = ", ".join(result.injection_findings[:3])
+        if len(result.injection_findings) > 3:
+            summary += f", and {len(result.injection_findings) - 3} more"
+
+        high_or_critical = any(
+            f.threat_level in (ThreatLevel.HIGH, ThreatLevel.CRITICAL)
+            for f in scan_result.findings
+        )
+        if high_or_critical and result.trust_tier == TrustTier.UNREVIEWED:
+            result.requires_confirmation = True
+            if not confirm_dangerous:
+                result.success = False
+                result.warnings.append(
+                    "Refusing to install: this unreviewed skill triggered "
+                    f"prompt-injection findings ({summary}). "
+                    "Re-run with confirm_dangerous=True (or `--yes-dangerous` "
+                    "on the CLI) only if you trust the source and have "
+                    "reviewed what it does."
+                )
+                return False
+            result.warnings.append(
+                f"Installed with prompt-injection findings ({summary}) "
+                "— confirmed by caller."
+            )
+            return True
+
+        result.warnings.append(
+            f"Prompt-injection scan warnings ({summary}); review SKILL.md before use."
+        )
+        return True
 
     @staticmethod
     def _find_symlinks(root: Path) -> list[Path]:
