@@ -38,7 +38,7 @@ def _parse_patch(patch_text: str) -> tuple[Optional[str], List[_Hunk], bool]:
     (path, hunks, is_creation)
         *path* is extracted from the ``+++ b/...`` header if present, or
         ``None`` if no header is found.  *hunks* is a list of ``_Hunk``
-        objects.  *is_creation* indicates whether this patch creates a new file.
+        objects.  *is_creation* indicates an explicit ``/dev/null`` source.
 
     Raises
     ------
@@ -101,9 +101,7 @@ def _parse_patch(patch_text: str) -> tuple[Optional[str], List[_Hunk], bool]:
     if not hunks:
         raise ValueError("No hunks found in patch")
 
-    is_creation = is_dev_null_source or bool(hunks and hunks[0].old_start == 0)
-
-    return target_path, hunks, is_creation
+    return target_path, hunks, is_dev_null_source
 
 
 def _apply_hunks(original: str, hunks: List[_Hunk], eol: Optional[str] = None) -> str:
@@ -127,9 +125,9 @@ def _apply_hunks(original: str, hunks: List[_Hunk], eol: Optional[str] = None) -
 
     for hunk_idx, hunk in enumerate(hunks):
         # Position in orig_lines (0-indexed).
-        # In unified diffs for new or empty files, old_start=0 represents
-        # the beginning of the file (index 0). Non-empty files use 1-indexed numbers.
-        pos = (0 if hunk.old_start == 0 else hunk.old_start - 1) + offset
+        # Empty old ranges describe an insertion boundary after old_start
+        # lines. Other ranges identify their first line using 1-based numbers.
+        pos = (hunk.old_start if hunk.old_count == 0 else hunk.old_start - 1) + offset
         new_lines: List[str] = []
         check_pos = pos
 
@@ -277,8 +275,15 @@ class ApplyPatchTool(BaseTool):
 
         # Check file exists
         file_existed = path.exists()
+        if file_existed and is_creation:
+            return ToolResult(
+                tool_name="apply_patch",
+                content=f"Cannot create file: {target} already exists.",
+                success=False,
+            )
         if not file_existed:
-            if not is_creation:
+            empty_source = hunks[0].old_start == 0 and hunks[0].old_count == 0
+            if not is_creation and not empty_source:
                 return ToolResult(
                     tool_name="apply_patch",
                     content=f"File not found: {target}",
@@ -347,7 +352,8 @@ class ApplyPatchTool(BaseTool):
 
         # Write patched content
         try:
-            with open(path, "w", encoding="utf-8", newline="") as f:
+            mode = "w" if file_existed else "x"
+            with open(path, mode, encoding="utf-8", newline="") as f:
                 f.write(patched)
         except OSError as exc:
             return ToolResult(

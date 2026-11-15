@@ -308,3 +308,90 @@ class TestApplyPatchTool:
         assert result.success is False
         assert "sensitive" in result.content.lower()
         assert not env_file.exists()
+
+    def test_creation_patch_does_not_modify_existing_file(self, tmp_path):
+        target = tmp_path / "existing.txt"
+        target.write_text("original content\n", encoding="utf-8")
+        patch = "--- /dev/null\n+++ b/existing.txt\n@@ -0,0 +1 @@\n+new content\n"
+
+        result = ApplyPatchTool().execute(patch=patch, path=str(target))
+
+        assert result.success is False
+        assert "already exists" in result.content
+        assert target.read_text(encoding="utf-8") == "original content\n"
+        assert not (tmp_path / "existing.txt.bak").exists()
+
+    def test_creation_preserves_file_created_by_another_writer(
+        self, tmp_path, monkeypatch
+    ):
+        from pathlib import Path
+
+        target = tmp_path / "raced.txt"
+        original_mkdir = Path.mkdir
+
+        def create_directory_and_racing_file(directory, *args, **kwargs):
+            original_mkdir(directory, *args, **kwargs)
+            target.write_text("another writer\n", encoding="utf-8")
+
+        monkeypatch.setattr(Path, "mkdir", create_directory_and_racing_file)
+        patch = "--- /dev/null\n+++ b/raced.txt\n@@ -0,0 +1 @@\n+new content\n"
+
+        result = ApplyPatchTool().execute(patch=patch, path=str(target))
+
+        assert result.success is False
+        assert target.read_text(encoding="utf-8") == "another writer\n"
+
+    @pytest.mark.parametrize(
+        "old_start,expected",
+        [
+            (0, "inserted\none\ntwo\n"),
+            (1, "one\ninserted\ntwo\n"),
+            (2, "one\ntwo\ninserted\n"),
+        ],
+    )
+    def test_insertion_only_hunk_uses_boundary_position(
+        self, tmp_path, old_start, expected
+    ):
+        target = tmp_path / "insert.txt"
+        target.write_text("one\ntwo\n", encoding="utf-8")
+        patch = (
+            "--- a/insert.txt\n+++ b/insert.txt\n"
+            f"@@ -{old_start},0 +{old_start + 1} @@\n+inserted\n"
+        )
+
+        result = ApplyPatchTool().execute(patch=patch, path=str(target), backup=False)
+
+        assert result.success is True, result.content
+        assert target.read_text(encoding="utf-8") == expected
+
+    def test_multiple_insertion_hunks_account_for_offset(self, tmp_path):
+        target = tmp_path / "multiple.txt"
+        target.write_text("one\ntwo\n", encoding="utf-8")
+        patch = (
+            "--- a/multiple.txt\n+++ b/multiple.txt\n"
+            "@@ -0,0 +1 @@\n+head\n@@ -2,0 +4 @@\n+tail\n"
+        )
+
+        result = ApplyPatchTool().execute(patch=patch, path=str(target), backup=False)
+
+        assert result.success is True, result.content
+        assert target.read_text(encoding="utf-8") == "head\none\ntwo\ntail\n"
+
+    def test_existing_crlf_file_preserves_endings_with_lf_patch(self, tmp_path):
+        target = tmp_path / "existing-crlf.txt"
+        target.write_bytes(b"one\r\ntwo\r\n")
+        patch = "@@ -1,2 +1,2 @@\n one\n-two\n+three\n"
+
+        result = ApplyPatchTool().execute(patch=patch, path=str(target), backup=False)
+
+        assert result.success is True, result.content
+        assert target.read_bytes() == b"one\r\nthree\r\n"
+
+    def test_headerless_empty_source_patch_creates_file(self, tmp_path):
+        target = tmp_path / "headerless.txt"
+        patch = "@@ -0,0 +1 @@\n+created\n"
+
+        result = ApplyPatchTool().execute(patch=patch, path=str(target))
+
+        assert result.success is True, result.content
+        assert target.read_text(encoding="utf-8") == "created\n"
