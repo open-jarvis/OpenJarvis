@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from openjarvis.core.types import Message
@@ -127,3 +132,46 @@ def test_load_keys_edge_cases_and_empty_quotes(tmp_path, monkeypatch):
     assert keys["EMPTY_SINGLE"] == ""
     assert keys["JUST_ONE"] == '"'
     assert keys["MISMATCHED"] == "\"test'"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loader", ["router", "reload"])
+async def test_cloud_key_file_is_utf8_with_windows_default_encoding(
+    tmp_path, monkeypatch, loader
+):
+    """Both file-loading paths preserve quoted keys under a cp1252 locale."""
+    env_file = tmp_path / "cloud-keys.env"
+    env_file.write_bytes(
+        (
+            "# assistant ❤\n"
+            'OPENAI_API_KEY="fake-openai-key"\n'
+            "ANTHROPIC_API_KEY='fake-anthropic-key'\n"
+        ).encode("utf-8")
+    )
+    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        # Track originally absent keys too: the reload route writes os.environ.
+        monkeypatch.setenv(key, "")
+        monkeypatch.delenv(key, raising=False)
+    original_read = Path.read_text
+
+    def read_with_windows_default(path, encoding=None, errors=None):
+        return original_read(path, encoding=encoding or "cp1252", errors=errors)
+
+    monkeypatch.setattr(Path, "read_text", read_with_windows_default)
+    if loader == "router":
+        monkeypatch.setattr(cloud_router, "_CLOUD_ENV_FILE", env_file)
+        keys = cloud_router._load_keys()
+    else:
+        from openjarvis.server import routes
+
+        monkeypatch.setattr(routes, "get_config_dir", lambda: tmp_path)
+        cloud = MagicMock()
+        cloud.health.return_value = False
+        monkeypatch.setattr("openjarvis.engine.cloud.CloudEngine", lambda: cloud)
+        request = SimpleNamespace(json=AsyncMock(return_value={}))
+        result = await routes.reload_cloud_engine(request)
+        assert result["status"] == "no_cloud"
+        keys = os.environ
+
+    assert keys["OPENAI_API_KEY"] == "fake-openai-key"
+    assert keys["ANTHROPIC_API_KEY"] == "fake-anthropic-key"
