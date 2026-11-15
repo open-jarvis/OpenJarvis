@@ -39,6 +39,27 @@ _AUTOMATION_INTENT = re.compile(
 )
 
 
+_MALAYALAM_CHAR = re.compile(r"[ഀ-ൿ]")
+_LATIN_CHAR = re.compile(r"[A-Za-z]")
+# Share of letters that must be Malayalam: an English question quoting one
+# Malayalam word stays an English question.
+_MALAYALAM_SHARE = 0.3
+
+
+# A trailing "(...)" paragraph is a client instruction (the HUD appends one in
+# English to spoken turns), not the user's words: judge the language without it.
+_TRAILING_INSTRUCTION = re.compile(r"\n\s*\n\s*\([^()]*\)\s*$")
+
+
+def _is_malayalam(text: str) -> bool:
+    text = _TRAILING_INSTRUCTION.sub("", text)
+    ml = len(_MALAYALAM_CHAR.findall(text))
+    if ml == 0:
+        return False
+    latin = len(_LATIN_CHAR.findall(text))
+    return ml / (ml + latin) >= _MALAYALAM_SHARE
+
+
 @dataclass(frozen=True)
 class RouteDecision:
     model: str
@@ -107,6 +128,9 @@ def choose_model(
     hard = None
     if _AUTOMATION_INTENT.search(text):
         hard = "automation or coding task"
+    elif _is_malayalam(text):
+        # Small local models write poor Malayalam; cloud models are far better.
+        hard = "Malayalam request"
     elif tier in _CLAUDE_TIERS:
         hard = f"{tier.replace('_', ' ')} request"
     if hard:

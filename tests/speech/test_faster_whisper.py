@@ -1,5 +1,6 @@
 """Tests for Faster-Whisper speech backend."""
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -267,3 +268,25 @@ def test_configured_language_skips_detection_unless_request_overrides():
 
     assert model.transcribe.call_args_list[0].kwargs["language"] == "en"
     assert model.transcribe.call_args_list[1].kwargs["language"] == "de"
+
+
+def test_nvidia_pip_dll_folders_are_put_on_path(tmp_path, monkeypatch):
+    """pip's nvidia-cublas-cu12 ships the DLLs CTranslate2 needs, outside PATH."""
+    from openjarvis.speech import faster_whisper as fw
+
+    cublas_bin = tmp_path / "nvidia" / "cublas" / "bin"
+    cublas_bin.mkdir(parents=True)
+    (tmp_path / "nvidia" / "cudnn").mkdir()  # no bin folder: ignored
+    monkeypatch.setattr(fw, "_nvidia_package_roots", lambda: [str(tmp_path / "nvidia")])
+    monkeypatch.setenv("PATH", r"C:\existing")
+    added = []
+    monkeypatch.setattr(fw.os, "add_dll_directory", added.append, raising=False)
+
+    found = fw._add_nvidia_dll_dirs()
+
+    assert found == [str(cublas_bin)]
+    assert os.environ["PATH"].split(os.pathsep)[0] == str(cublas_bin)
+    assert added == [str(cublas_bin)]
+    # Idempotent: a second call does not add the folder again.
+    fw._add_nvidia_dll_dirs()
+    assert os.environ["PATH"].split(os.pathsep).count(str(cublas_bin)) == 1

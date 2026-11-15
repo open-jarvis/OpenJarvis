@@ -30,10 +30,56 @@ _CUBLAS_LIBRARY = "cublas64_12.dll" if sys.platform == "win32" else "libcublas.s
 _CUDA_ERROR_MARKERS = ("cublas", "cudnn", "cuda")
 
 
+def _nvidia_package_roots() -> List[str]:
+    """Folders of the ``nvidia`` pip namespace package (nvidia-cublas-cu12 etc.)."""
+    import importlib.util
+
+    try:
+        spec = importlib.util.find_spec("nvidia")
+    except (ImportError, ValueError):
+        return []
+    return list(spec.submodule_search_locations or []) if spec else []
+
+
+def _add_nvidia_dll_dirs() -> List[str]:
+    """Make DLLs from NVIDIA's pip wheels loadable (Windows).
+
+    ``pip install nvidia-cublas-cu12`` puts cuBLAS in
+    ``site-packages/nvidia/cublas/bin``, which is not on the DLL search path,
+    so CTranslate2 cannot find it. Prepend each such ``bin`` folder to PATH
+    (what CTranslate2's loader searches) and register it as a DLL directory.
+    """
+    found: List[str] = []
+    for root in _nvidia_package_roots():
+        try:
+            names = sorted(os.listdir(root))
+        except OSError:
+            continue
+        for name in names:
+            bin_dir = os.path.join(root, name, "bin")
+            if os.path.isdir(bin_dir):
+                found.append(bin_dir)
+    current = os.environ.get("PATH", "").split(os.pathsep)
+    for bin_dir in found:
+        if bin_dir in current:
+            continue
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+        current.insert(0, bin_dir)
+        add_dll_directory = getattr(os, "add_dll_directory", None)
+        if add_dll_directory is not None:
+            try:
+                add_dll_directory(bin_dir)
+            except OSError:
+                pass
+    return found
+
+
 def _cuda_runtime_usable() -> bool:
     """True when a CUDA device exists and the cuBLAS runtime can be loaded."""
     if ctranslate2 is None:
         return False
+    if sys.platform == "win32":
+        _add_nvidia_dll_dirs()
     try:
         if ctranslate2.get_cuda_device_count() < 1:
             return False

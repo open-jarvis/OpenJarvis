@@ -188,3 +188,9 @@
   .hud-attach-tray { position: static; order: -2; width: 100%; }
   .att-head-actions { flex-wrap: wrap; justify-content: flex-end; }
 }
+
+/* ---------- Spoken-language button (Malayalam needs a font with its script) ---------- */
+.hud-lang-btn {
+  min-width: 64px;
+  font-family: var(--hud-mono), 'Nirmala UI', 'Noto Sans Malayalam', sans-serif;
+}

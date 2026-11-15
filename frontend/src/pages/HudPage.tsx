@@ -18,6 +18,17 @@ import {
   useAutomations,
   useRunFeed,
 } from '../components/Hud/automationApi';
+import {
+  SPEECH_LANG_LABEL,
+  hasMalayalam,
+  isSpeechLang,
+  nextSpeechLang,
+  pickMalayalamVoice,
+  spokenReplySuffix,
+  whisperLanguage,
+  type SpeechLang,
+} from '../components/Hud/speechLang';
+import { createVoiceActivity } from '../components/Hud/voiceActivity';
 import { useAppStore } from '../lib/store';
 import { streamChat } from '../lib/sse';
 import {
@@ -174,9 +185,25 @@ function Typewriter({ text, onTick }: { text: string; onTick?: () => void }) {
 // Voice commands are answered out loud, so a long markdown answer means a long
 // wait (synthesis) and a long listen. Small local models ignore a brevity rule
 // buried in the system prompt but follow one attached to the question itself,
-// so it goes on the spoken turn only (never shown, never kept in history).
-const SPOKEN_REPLY_SUFFIX =
-  '\n\n(Spoken request: reply in at most two short spoken sentences, plain words, no lists or markdown.)';
+// so spokenReplySuffix() goes on the spoken turn only (never shown or kept).
+
+/** Wait briefly for the browser's voice list (Edge loads it asynchronously). */
+function loadVoices(synth: SpeechSynthesis): Promise<SpeechSynthesisVoice[]> {
+  const now = synth.getVoices();
+  if (now.length) return Promise.resolve(now);
+  return new Promise((resolve) => {
+    const done = () => { synth.removeEventListener('voiceschanged', done); resolve(synth.getVoices()); };
+    synth.addEventListener('voiceschanged', done);
+    window.setTimeout(done, 1500);
+  });
+}
+
+const readPref = (key: string): string | null => {
+  try { return localStorage.getItem(key); } catch { return null; }
+};
+const writePref = (key: string, value: string) => {
+  try { localStorage.setItem(key, value); } catch { /* private mode */ }
+};
 
 export function HudPage() {
   const navigate = useNavigate();
@@ -211,6 +238,20 @@ export function HudPage() {
   const [energy, setEnergy] = useState<Energy>({});
   const [phase, setPhase] = useState<'idle' | 'listening' | 'transcribing' | 'thinking' | 'streaming'>('idle');
   const [voiceOut, setVoiceOut] = useState(true);
+  // Spoken language (AUTO detects English or Malayalam) and hands-free mode:
+  // listen, send when the user pauses, answer, then listen again.
+  const [speechLang, setSpeechLang] = useState<SpeechLang>(() => {
+    const saved = readPref('oj-hud-speech-lang');
+    return isSpeechLang(saved) ? saved : 'auto';
+  });
+  const [handsFree, setHandsFree] = useState(() => readPref('oj-hud-hands-free') === '1');
+  const speechLangRef = useRef(speechLang);
+  speechLangRef.current = speechLang;
+  const handsFreeRef = useRef(handsFree);
+  handsFreeRef.current = handsFree;
+  useEffect(() => { writePref('oj-hud-speech-lang', speechLang); }, [speechLang]);
+  useEffect(() => { writePref('oj-hud-hands-free', handsFree ? '1' : '0'); }, [handsFree]);
+  const logRef = useRef<(text: string, level?: LogLine['level']) => void>(() => {});
   const [lastTps, setLastTps] = useState(0);
   const [browserSpeaking, setBrowserSpeaking] = useState(false);
   const speechPollRef = useRef(0);
@@ -225,23 +266,31 @@ export function HudPage() {
     setBrowserSpeaking(false);
   }, [tts]);
 
-  const speakReply = useCallback((id: string, text: string) => {
-    if (tts.available) { void tts.speak(id, text); return; }
+  const speakReply = useCallback(async (id: string, text: string) => {
+    // Kokoro has no Malayalam voice; Edge's natural Malayalam voices do.
+    const malayalam = hasMalayalam(text);
+    if (tts.available && !malayalam) { void tts.speak(id, text); return; }
     if (!('speechSynthesis' in window)) return;
     const synth = window.speechSynthesis;
-    const voices = synth.getVoices();
+    setBrowserSpeaking(true);
+    const voices = await loadVoices(synth);
     const u = new SpeechSynthesisUtterance(text);
-    u.voice =
-      voices.find((v) => /en-GB/i.test(v.lang) && /male|george|ryan|daniel|thomas/i.test(v.name)) ||
-      voices.find((v) => /en-GB/i.test(v.lang)) ||
-      voices.find((v) => v.lang.startsWith('en')) ||
-      null;
-    u.rate = 1.03;
-    u.pitch = 0.9;
+    if (malayalam) {
+      u.lang = 'ml-IN';
+      u.voice = pickMalayalamVoice(voices);
+      if (!u.voice) logRef.current('No Malayalam voice in this browser - open the HUD in Microsoft Edge', 'warn');
+    } else {
+      u.voice =
+        voices.find((v) => /en-GB/i.test(v.lang) && /male|george|ryan|daniel|thomas/i.test(v.name)) ||
+        voices.find((v) => /en-GB/i.test(v.lang)) ||
+        voices.find((v) => v.lang.startsWith('en')) ||
+        null;
+      u.rate = 1.03;
+      u.pitch = 0.9;
+    }
     synth.cancel();
     synth.speak(u);
     // start/end events are unreliable across browsers, so poll the engine.
-    setBrowserSpeaking(true);
     window.clearInterval(speechPollRef.current);
     speechPollRef.current = window.setInterval(() => {
       if (!synth.speaking && !synth.pending) {
@@ -294,6 +343,7 @@ export function HudPage() {
   const addLog = useCallback((text: string, level: LogLine['level'] = 'info') => {
     setLog((l) => [...l.slice(-60), { id: ++logSeq, time: stamp(), text, level }]);
   }, []);
+  logRef.current = addLog;
 
   // Cron routines follow the user's clock: report the browser timezone once.
   useEffect(() => {
@@ -539,11 +589,15 @@ export function HudPage() {
                 'You have long-term memory: facts the user shares are saved automatically and remembered in future sessions, ' +
                 'so when asked to remember something, confirm that you will (never claim you cannot remember). ' +
                 'Files and images the user attaches are added to their message (images as a description); ' +
-                'earlier attachments can be found with list_attachments, read with read_attachment and kept long-term with save_attachment_to_knowledge.',
+                'earlier attachments can be found with list_attachments, read with read_attachment and kept long-term with save_attachment_to_knowledge. ' +
+                'Reply in the language the user uses; when they write or speak Malayalam, reply in Malayalam script.',
             },
             ...history.slice(-12).map((m) => ({
               role: m.role,
-              content: opts.spoken && m.id === userMsg.id ? m.content + SPOKEN_REPLY_SUFFIX : m.content,
+              content:
+                opts.spoken && m.id === userMsg.id
+                  ? m.content + spokenReplySuffix(speechLangRef.current, m.content)
+                  : m.content,
             })),
           ],
           attachments: attached.length ? attached.map((a) => a.id) : undefined,
@@ -614,43 +668,76 @@ export function HudPage() {
     audioCtxRef.current = null;
   };
 
+  /** Why the current recording stopped: decides whether it is transcribed. */
+  const stopReasonRef = useRef<'manual' | 'pause' | 'discard'>('manual');
+  const stopRecorder = (reason: 'manual' | 'pause' | 'discard') => {
+    const rec = recorderRef.current;
+    recorderRef.current = null;
+    stopReasonRef.current = reason;
+    if (rec && rec.state === 'recording') rec.stop();
+  };
+
   const startListening = useCallback(async () => {
+    if (recorderRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia) {
       addLog('Microphone not supported here', 'err');
+      setHandsFree(false);
       return;
     }
     try {
       stopVoice();
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       streamRef.current = stream;
       const ctx = new AudioContext();
       audioCtxRef.current = ctx;
+      const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
-      ctx.createMediaStreamSource(stream).connect(analyser);
+      source.connect(analyser);
       analyserRef.current = analyser;
-      const buf = new Uint8Array(analyser.fftSize);
-      const loop = () => {
-        analyser.getByteTimeDomainData(buf);
+
+      // Detect when the user starts and stops talking. Runs on the audio
+      // callback (not requestAnimationFrame) so it keeps working while the
+      // HUD tab is in the background.
+      const vad = createVoiceActivity();
+      const meter = ctx.createScriptProcessor(1024, 1, 1);
+      const mute = ctx.createGain();
+      mute.gain.value = 0;
+      source.connect(meter);
+      meter.connect(mute);
+      mute.connect(ctx.destination);
+      meter.onaudioprocess = (e) => {
+        const data = e.inputBuffer.getChannelData(0);
         let sum = 0;
-        for (const v of buf) sum += ((v - 128) / 128) ** 2;
-        levelRef.current = Math.min(1, Math.sqrt(sum / buf.length) * 4);
-        meterRaf.current = requestAnimationFrame(loop);
+        for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+        const level = Math.min(1, Math.sqrt(sum / data.length) * 4);
+        levelRef.current = level;
+        const event = vad.update(level, performance.now());
+        if (event === 'speech-end') stopRecorder('pause');
+        else if (event === 'timeout') stopRecorder('discard');
       };
-      loop();
 
       const chunks: Blob[] = [];
       const rec = new MediaRecorder(stream);
       rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
       rec.onstop = async () => {
+        meter.onaudioprocess = null;
         stream.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         stopMeter();
+        const reason = stopReasonRef.current;
+        // Nothing was said (or hands-free gave up waiting): skip Whisper.
+        if (reason === 'discard' || (reason === 'pause' && !vad.heardSpeech())) {
+          setPhase('idle');
+          return;
+        }
         setPhase('transcribing');
         addLog('Decoding voice input…');
         try {
           const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
-          const result = await transcribeAudio(blob);
+          const result = await transcribeAudio(blob, 'recording.webm', whisperLanguage(speechLangRef.current));
           const heard = result.text.trim();
           setPhase('idle');
           if (heard) {
@@ -666,20 +753,35 @@ export function HudPage() {
       };
       rec.start();
       recorderRef.current = rec;
+      stopReasonRef.current = 'manual';
       setPhase('listening');
-      addLog('Microphone live', 'ok');
+      addLog(handsFreeRef.current ? 'Listening… (hands-free)' : 'Microphone live', 'ok');
     } catch {
       addLog('Microphone access denied', 'err');
+      setHandsFree(false);
       stopMeter();
       setPhase('idle');
     }
   }, [addLog, send, stopVoice]);
 
-  const stopListening = useCallback(() => {
-    const rec = recorderRef.current;
-    recorderRef.current = null;
-    if (rec && rec.state === 'recording') rec.stop();
-  }, []);
+  const stopListening = useCallback(() => stopRecorder('manual'), []);
+
+  // Hands-free: once Jarvis is idle and silent again, listen for the next turn.
+  useEffect(() => {
+    if (!handsFree || phase !== 'idle' || speaking || tts.isLoading || abortRef.current) return;
+    const t = window.setTimeout(() => {
+      if (handsFreeRef.current && !recorderRef.current) void startListening();
+    }, 350);
+    return () => window.clearTimeout(t);
+  }, [handsFree, phase, speaking, tts.isLoading, startListening]);
+
+  const toggleHandsFree = useCallback(() => {
+    setHandsFree((on) => {
+      if (on && recorderRef.current) stopRecorder('discard');
+      addLog(on ? 'Hands-free off' : 'Hands-free on: talk any time, I send when you pause', on ? 'info' : 'ok');
+      return !on;
+    });
+  }, [addLog]);
 
   // Cleanup on unmount
   useEffect(() => () => {
@@ -988,6 +1090,24 @@ export function HudPage() {
             aria-pressed={voiceOut}
           >
             VOICE {voiceOut ? 'ON' : 'OFF'}
+          </button>
+          <button
+            type="button"
+            className={`hud-btn hud-btn--toggle ${handsFree ? 'is-on' : ''}`}
+            onClick={toggleHandsFree}
+            title="Hands-free: Jarvis listens, sends when you pause, answers, then listens again"
+            aria-pressed={handsFree}
+          >
+            HANDS-FREE {handsFree ? 'ON' : 'OFF'}
+          </button>
+          <button
+            type="button"
+            className="hud-btn hud-btn--toggle is-on hud-lang-btn"
+            onClick={() => setSpeechLang((l) => nextSpeechLang(l))}
+            title="Spoken language: AUTO detects English or Malayalam"
+            aria-label={`Spoken language: ${SPEECH_LANG_LABEL[speechLang]}`}
+          >
+            {SPEECH_LANG_LABEL[speechLang]}
           </button>
         </form>
       </div>
