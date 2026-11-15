@@ -55,7 +55,12 @@ def get_tts_backend(
 
     seen = attempted if attempted is not None else set()
 
-    for key in dict.fromkeys((preferred, *TTS_BACKEND_ORDER)):
+    candidates = (
+        JARVIS_LOCAL_FALLBACK_ORDER
+        if preferred == "jarvis_local"
+        else (preferred, *TTS_BACKEND_ORDER)
+    )
+    for key in dict.fromkeys(candidates):
         if not key or key in seen:
             continue
         seen.add(key)
