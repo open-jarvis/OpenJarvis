@@ -69,6 +69,10 @@ def _load_keys() -> dict[str, str]:
 
 def get_provider(model: str) -> str | None:
     """Return the provider for a model name, or None if it's a local model."""
+    # Bare GPT-OSS names and Ollama tags are local, despite the "gpt-" prefix.
+    # Provider-qualified IDs (e.g. "openai/gpt-oss-20b") still route to cloud.
+    if model == "gpt-oss" or model.startswith(("gpt-oss:", "gpt-oss-")):
+        return None
     if any(model.startswith(p) for p in _OPENAI_PREFIXES):
         return "openai"
     if any(model.startswith(p) for p in _ANTHROPIC_PREFIXES):
