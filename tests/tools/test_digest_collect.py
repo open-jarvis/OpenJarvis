@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -10,10 +11,12 @@ from openjarvis.core.registry import ConnectorRegistry, ToolRegistry
 
 
 def test_digest_collect_registered():
-    from openjarvis.tools.digest_collect import DigestCollectTool
+    from openjarvis.tools import digest_collect
 
-    ToolRegistry.register_value("digest_collect", DigestCollectTool)
-    assert ToolRegistry.contains("digest_collect")
+    # The registry fixture clears entries, while Python caches imported modules.
+    if not ToolRegistry.contains("digest_collect"):
+        importlib.reload(digest_collect)
+    assert ToolRegistry.get("digest_collect") is digest_collect.DigestCollectTool
 
 
 def test_digest_collect_executes():
