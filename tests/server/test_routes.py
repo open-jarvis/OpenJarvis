@@ -1526,6 +1526,55 @@ class TestIdentityPromptInjection:
 
 
 class TestModelsEndpoint:
+    def test_local_gpt_oss_is_listed_alongside_other_local_models(self):
+        """Do not filter GPT-OSS out of the installed-model picker (#1187)."""
+        models = ["gpt-oss:20b", "qwen3:8b"]
+        engine = _make_engine(models=models)
+        engine.engine_id = "ollama"
+        app = create_app(engine, models[0], config=_test_config())
+
+        with patch(
+            "openjarvis.server.cloud_router.list_local_models",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as list_local_models:
+            resp = TestClient(app).get("/v1/models")
+
+        assert resp.status_code == 200
+        assert [item["id"] for item in resp.json()["data"]] == models
+        list_local_models.assert_not_called()
+
+    @pytest.mark.parametrize("multi", [False, True])
+    def test_local_gpt_oss_streams_through_ollama(self, multi):
+        """A local GPT-OSS request must never need a cloud API key (#1187)."""
+        from openjarvis.engine.multi import MultiEngine
+
+        model = "gpt-oss:20b"
+        ollama = _make_engine(models=[model])
+        ollama.engine_id = "ollama"
+        ollama.is_cloud = False
+        engine = MultiEngine([("ollama", ollama)]) if multi else ollama
+        app = create_app(engine, model, config=_test_config())
+
+        with patch(
+            "openjarvis.server.cloud_router.stream_cloud",
+            side_effect=AssertionError("Local model routed to cloud"),
+        ) as stream_cloud:
+            resp = TestClient(app).post(
+                "/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "stream": True,
+                },
+            )
+
+        assert resp.status_code == 200
+        stream_cloud.assert_not_called()
+        assert "Hello" in resp.text
+        assert '"engine": "ollama"' in resp.text
+        assert "Error during generation" not in resp.text
+
     def test_list_models(self, client):
         resp = client.get("/v1/models")
         assert resp.status_code == 200
