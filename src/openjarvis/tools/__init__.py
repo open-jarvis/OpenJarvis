@@ -195,6 +195,12 @@ try:
 except ImportError:
     pass
 
+# Habits and journal behind the home screen (add_habit / complete_habit / ...).
+try:
+    import openjarvis.tools.life_tools  # noqa: F401
+except ImportError:
+    pass
+
 try:
     import openjarvis.scheduler.tools  # noqa: F401  # schedule_task & friends
 except ImportError:
