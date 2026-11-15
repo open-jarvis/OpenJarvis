@@ -271,3 +271,46 @@ def test_ingest_directory_skips_binary_files(tmp_path: Path):
     chunks = ingest_path(tmp_path)
 
     assert {Path(c.source).name for c in chunks} == {"ok.md"}
+
+
+@pytest.mark.parametrize("damage", ["encrypted", "unsupported_compression", "deflate"])
+def test_unreadable_docx_does_not_abort_directory_ingest(tmp_path: Path, damage):
+    """Unreadable ZIP members fail as documents without stopping the folder."""
+    import zipfile
+
+    path = tmp_path / "unreadable.docx"
+    _make_docx(path, _p("document content"))
+    with zipfile.ZipFile(path) as archive:
+        local = archive.getinfo("word/document.xml").header_offset
+        central_start = archive.start_dir
+    data = bytearray(path.read_bytes())
+    central = data.index(b"word/document.xml", central_start) - 46
+    assert data[central : central + 4] == b"PK\x01\x02"
+    if damage == "encrypted":
+        data[local + 6] |= 1
+        data[central + 8] |= 1
+    elif damage == "unsupported_compression":
+        data[local + 8 : local + 10] = (99).to_bytes(2, "little")
+        data[central + 10 : central + 12] = (99).to_bytes(2, "little")
+    else:
+        name_length = int.from_bytes(data[local + 26 : local + 28], "little")
+        extra_length = int.from_bytes(data[local + 28 : local + 30], "little")
+        # A DEFLATE block with reserved type 3 cannot be decompressed.
+        data[local + 30 + name_length + extra_length] = 7
+    path.write_bytes(data)
+    (tmp_path / "ok.txt").write_text("still indexed", encoding="utf-8")
+
+    with pytest.raises(OSError, match="Not a readable .docx"):
+        read_document(path)
+    assert {Path(c.source).name for c in ingest_path(tmp_path)} == {"ok.txt"}
+
+
+def test_docx_size_limit_skips_document_and_keeps_other_files(tmp_path, monkeypatch):
+    path = tmp_path / "oversized.docx"
+    _make_docx(path, _p("body exceeds the configured limit"))
+    monkeypatch.setattr("openjarvis.tools.storage.ingest._DOCX_MAX_XML_BYTES", 32)
+    (tmp_path / "ok.txt").write_text("still indexed", encoding="utf-8")
+
+    with pytest.raises(OSError, match="too large"):
+        read_document(path)
+    assert {Path(c.source).name for c in ingest_path(tmp_path)} == {"ok.txt"}

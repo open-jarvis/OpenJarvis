@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import zipfile
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -161,7 +162,13 @@ def _read_docx(path: Path) -> str:
             if info.file_size > _DOCX_MAX_XML_BYTES:
                 raise OSError(f"Document body too large to read: {path}")
             root = ElementTree.fromstring(archive.read(info))
-    except (zipfile.BadZipFile, KeyError, ElementTree.ParseError) as exc:
+    except (
+        zipfile.BadZipFile,
+        KeyError,
+        ElementTree.ParseError,
+        RuntimeError,  # encrypted files or unsupported compression
+        zlib.error,
+    ) as exc:
         raise OSError(f"Not a readable .docx file: {path}") from exc
 
     paragraphs: List[str] = []
