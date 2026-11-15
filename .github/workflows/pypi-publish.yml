@@ -24,6 +24,8 @@ permissions:
 
 jobs:
   publish:
+    # GitHub emits a published event for desktop installers as well as Python releases.
+    if: ${{ github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'desktop-') }}
     runs-on: ubuntu-latest
     environment: pypi
     steps:
