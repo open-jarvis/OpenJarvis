@@ -11,6 +11,7 @@ API-backed engine over the DuckDuckGo HTML scrape:
 * ``FIRECRAWL_API_KEY`` set, or ``FIRECRAWL_API_URL`` pointing at a
   self-hosted instance → Firecrawl, which also returns URL lookups (including
   PDFs) as markdown
+* ``SEARCHAPI_API_KEY`` set → SearchApi, a Google SERP API
 * none of them → You.com, keyless free tier (no signup, rate limited per IP)
 
 The keyless tier is what makes a fresh install API-backed with zero config.
@@ -67,8 +68,25 @@ FIRECRAWL_KEYS_URL = (
     "?utm_source=openjarvis&utm_medium=integration"
 )
 
+SEARCHAPI_SEARCH_URL = "https://www.searchapi.io/api/v1/search"
+SEARCHAPI_API_KEY_ENV = "SEARCHAPI_API_KEY"
+# Two-letter country code, Google's ``gl`` parameter, asking SearchApi for
+# that country's result set. Unset means the API's own default (US).
+SEARCHAPI_GL_ENV = "SEARCHAPI_GL"
+# Error bodies carry ``{"error": "..."}``; the message is relayed into the
+# fallback reason, cut here so an unexpected body cannot flood it.
+SEARCHAPI_ERROR_MESSAGE_CHARS = 200
+
 ENGINE_ENV = "OPENJARVIS_WEB_SEARCH_ENGINE"
-ENGINES = ("auto", "youcom", "tavily", "duckduckgo", "serply", "firecrawl")
+ENGINES = (
+    "auto",
+    "youcom",
+    "tavily",
+    "duckduckgo",
+    "serply",
+    "firecrawl",
+    "searchapi",
+)
 
 # Identifies OpenJarvis to You.com. The keyless tier carries no API key, so the
 # User-Agent is the only attribution signal; sent to You.com hosts only.
@@ -115,6 +133,8 @@ class WebSearchTool(BaseTool):
         serply_location: str | None = None,
         firecrawl_api_key: str | None = None,
         firecrawl_api_url: str | None = None,
+        searchapi_api_key: str | None = None,
+        searchapi_gl: str | None = None,
     ):
         """Configure the search engine.
 
@@ -141,6 +161,12 @@ class WebSearchTool(BaseTool):
         self._firecrawl_self_hosted = (
             self._firecrawl_api_url != FIRECRAWL_DEFAULT_API_URL
         )
+        self._searchapi_api_key = (
+            searchapi_api_key or os.environ.get(SEARCHAPI_API_KEY_ENV) or ""
+        ).strip() or None
+        self._searchapi_gl = (
+            searchapi_gl or os.environ.get(SEARCHAPI_GL_ENV) or ""
+        ).strip() or None
         self._max_results = max_results
 
         requested = (engine or os.environ.get(ENGINE_ENV) or "auto").strip().lower()
@@ -158,10 +184,10 @@ class WebSearchTool(BaseTool):
 
         Keyed engines come first, in the order they were added, so every
         install that already had a key resolves exactly as it did before:
-        Tavily, then keyed You.com, then Serply, then Firecrawl. The keyless
-        You.com tier is last and remains the zero-config API-backed path, which
-        means a Serply or Firecrawl key only ever wins over having no key at
-        all.
+        Tavily, then keyed You.com, then Serply, then Firecrawl, then
+        SearchApi. The keyless You.com tier is last and remains the
+        zero-config API-backed path, which means a Serply, Firecrawl or
+        SearchApi key only ever wins over having no key at all.
         """
         if self._engine != "auto":
             return self._engine
@@ -173,6 +199,8 @@ class WebSearchTool(BaseTool):
             return "serply"
         if self._firecrawl_api_key or self._firecrawl_self_hosted:
             return "firecrawl"
+        if self._searchapi_api_key:
+            return "searchapi"
         return "youcom"
 
     @property
@@ -207,6 +235,7 @@ class WebSearchTool(BaseTool):
                     YOUCOM_API_KEY_ENV,
                     SERPLY_API_KEY_ENV,
                     FIRECRAWL_API_KEY_ENV,
+                    SEARCHAPI_API_KEY_ENV,
                 ],
                 "engine": engine,
                 "engines": list(ENGINES),
@@ -632,6 +661,106 @@ class WebSearchTool(BaseTool):
             text = text[:max_chars] + "\n\n[Content truncated]"
         return text
 
+    @staticmethod
+    def _format_searchapi_results(
+        payload: dict[str, Any], max_results: int
+    ) -> tuple[str, int]:
+        """Render a SearchApi Google payload in the shared result format.
+
+        Only ``organic_results`` is mapped. The payload also carries blocks
+        such as ``ai_overview``, ``knowledge_graph`` and ``related_searches``
+        that appear for some queries and not others, so nothing depends on
+        them. Google ignores a per-request result count, so the API returns
+        one page (about ten rows) and the list is cut to ``max_results`` here.
+        Links are passed through as returned; Google serves some lower
+        positions as ``google.com/goto?url=...`` redirects.
+        """
+        items = payload.get("organic_results") if isinstance(payload, dict) else None
+        parts: list[str] = []
+        count = 0
+        for item in (items or [])[:max_results]:
+            title = item.get("title") or "Untitled"
+            url = item.get("link", "")
+            content = item.get("snippet") or ""
+            parts.append(f"### {title}\nSource: {url}\nSummary: {content}")
+            count += 1
+        return "\n\n---\n\n".join(parts), count
+
+    @staticmethod
+    def _searchapi_error_message(response: Any) -> str | None:
+        """Pull the ``error`` string out of a SearchApi error body, if any.
+
+        Non-2xx replies carry ``{"error": "..."}``, for example
+        ``"Invalid API key."`` on 401. Anything else is ignored rather than
+        echoed, so an unexpected body never reaches the fallback reason.
+        """
+        try:
+            body = response.json()
+        except ValueError:
+            return None
+        message = body.get("error") if isinstance(body, dict) else None
+        if isinstance(message, str) and message.strip():
+            return message.strip()[:SEARCHAPI_ERROR_MESSAGE_CHARS]
+        return None
+
+    def _searchapi_search(self, query: str, max_results: int) -> ToolResult:
+        """Search Google via SearchApi.
+
+        The query reaches Google as written, so operators survive the round
+        trip: ``site:`` restricts the corpus and ``after:``/``before:`` bound
+        results by date. The key travels only in the ``Authorization`` header,
+        never in the URL, so it stays out of HTTPX's request log. Setting
+        ``SEARCHAPI_GL`` to a country code asks for that country's result set
+        instead of the API's default.
+        """
+        import httpx
+
+        params = {"engine": "google", "q": query}
+        if self._searchapi_gl:
+            params["gl"] = self._searchapi_gl
+        try:
+            response = httpx.get(
+                SEARCHAPI_SEARCH_URL,
+                params=params,
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {self._searchapi_api_key or ''}",
+                },
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            detail = self._searchapi_error_message(exc.response)
+            if status == 401:
+                reason = f"SearchApi rejected the credential in {SEARCHAPI_API_KEY_ENV}"
+                if detail:
+                    reason += f" ({detail})"
+                raise _WebSearchEngineError(reason) from None
+            reason = f"SearchApi search failed with HTTP {status}"
+            if detail:
+                reason += f": {detail}"
+            raise _WebSearchEngineError(reason) from None
+        except (httpx.HTTPError, ValueError) as exc:
+            # Header validation can include the Authorization value, so only
+            # the exception type is reported. execute() logs this message and
+            # returns it in fallback metadata.
+            raise _WebSearchEngineError(
+                f"SearchApi search failed ({type(exc).__name__})"
+            ) from None
+
+        formatted, count = self._format_searchapi_results(payload, max_results)
+        metadata: dict[str, Any] = {"num_results": count, "engine": "searchapi"}
+        if self._searchapi_gl:
+            metadata["searchapi_gl"] = self._searchapi_gl
+        return ToolResult(
+            tool_name="web_search",
+            content=formatted or "No results found.",
+            success=True,
+            metadata=metadata,
+        )
+
     def _duckduckgo_search(self, query: str, max_results: int) -> str:
         """Search using DuckDuckGo as fallback."""
         from ddgs import DDGS
@@ -728,6 +857,8 @@ class WebSearchTool(BaseTool):
                 return self._serply_search(query, max_results)
             if engine == "firecrawl":
                 return self._firecrawl_search(query, max_results)
+            if engine == "searchapi":
+                return self._searchapi_search(query, max_results)
             return self._tavily_search(query, max_results)
         except _WebSearchEngineError as exc:
             reason = str(exc)

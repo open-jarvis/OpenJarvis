@@ -137,24 +137,25 @@ You get a ChatGPT-like interface with streaming responses, tool use, energy moni
 
 Web search works with no configuration: queries go to the You.com keyless
 free tier, which is rate limited per IP and needs no signup. To raise those
-limits, or to use Tavily, Serply or Firecrawl instead, add `YOUDOTCOM_API_KEY`,
-`TAVILY_API_KEY`, `SERPLY_API_KEY` or `FIRECRAWL_API_KEY` under
-**Settings → Tools → Web Search** after the app starts, or export one before
-starting quickstart:
+limits, or to use Tavily, Serply, Firecrawl or SearchApi instead, add
+`YOUDOTCOM_API_KEY`, `TAVILY_API_KEY`, `SERPLY_API_KEY`, `FIRECRAWL_API_KEY` or
+`SEARCHAPI_API_KEY` under **Settings → Tools → Web Search** after the app
+starts, or export one before starting quickstart:
 
 ```bash
 export YOUDOTCOM_API_KEY="..."   # free key: https://you.com/platform
 export SERPLY_API_KEY="..."      # free tier: https://serply.io
 export FIRECRAWL_API_KEY="..."   # free tier: https://www.firecrawl.dev/app/api-keys?utm_source=openjarvis&utm_medium=integration
+export SEARCHAPI_API_KEY="..."   # free tier: https://www.searchapi.io
 ./scripts/quickstart.sh
 ```
 
 Set `OPENJARVIS_WEB_SEARCH_ENGINE` to pick an engine explicitly — `youcom`,
-`tavily`, `serply`, `firecrawl`, or `duckduckgo`. The default, `auto`, uses
-Tavily when `TAVILY_API_KEY` is set, then You.com, then Serply, then Firecrawl,
-and settles on the You.com keyless tier when no key is set at all. DuckDuckGo
-remains the fallback for every engine; dropping to it is logged at `WARNING`,
-since its scraped results are unranked.
+`tavily`, `serply`, `firecrawl`, `searchapi`, or `duckduckgo`. The default,
+`auto`, uses Tavily when `TAVILY_API_KEY` is set, then You.com, then Serply,
+then Firecrawl, then SearchApi, and settles on the You.com keyless tier when
+no key is set at all. DuckDuckGo remains the fallback for every engine;
+dropping to it is logged at `WARNING`, since its scraped results are unranked.
 
 Serply proxies Google itself, so Google search operators reach the index
 unchanged: `site:arxiv.org` restricts the corpus and `after:2026-01-01` bounds
@@ -172,6 +173,13 @@ instead of the hosted API; no key is needed if your instance runs without
 auth. Page fetches then run on your instance, and search queries go on to the
 search backend it is configured with. Keys:
 [firecrawl.dev](https://www.firecrawl.dev/app/api-keys?utm_source=openjarvis&utm_medium=integration).
+
+SearchApi is a Google SERP API as well, so the same operators reach Google
+unchanged. It returns one page of organic results per request, which is cut
+to `max_results` on this side. Set `SEARCHAPI_GL` to a two-letter country code
+such as `br` to ask for that country's result set instead of the default. Keys
+and request options are documented at [searchapi.io](https://www.searchapi.io)
+and [searchapi.io/docs/google](https://www.searchapi.io/docs/google).
 
 The script does not automatically source `.env` files. Run `source .env`
 first if that is where you keep the key. Stop any existing OpenJarvis server
@@ -301,7 +309,7 @@ Agents add multi-turn reasoning and tool-calling capabilities. The `orchestrator
 | `retrieval` | Search the memory store for relevant context. |
 | `llm` | Make sub-queries to another model. |
 | `file_read` | Read files with path validation. |
-| `web_search` | Web search via You.com (keyless by default), Tavily, Serply, or Firecrawl, with a DuckDuckGo fallback. |
+| `web_search` | Web search via You.com (keyless by default), Tavily, Serply, Firecrawl, or SearchApi, with a DuckDuckGo fallback. |
 
 ### CLI Example
 

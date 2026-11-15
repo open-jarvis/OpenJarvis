@@ -80,6 +80,7 @@ API_KEY_ENV_VARS = {
     "YOUDOTCOM_API_KEY": ("You.com web search", {"youcom", "web_search"}),
     "SERPLY_API_KEY": ("Serply web search", {"serply", "web_search"}),
     "FIRECRAWL_API_KEY": ("Firecrawl web search", {"firecrawl", "web_search"}),
+    "SEARCHAPI_API_KEY": ("SearchApi web search", {"searchapi", "web_search"}),
 }
 
 CHANNEL_SECRET_FIELDS: tuple[tuple[str, str, str], ...] = (
@@ -1158,7 +1159,15 @@ def _web_search_destination() -> str:
     source of truth; ``test_data_boundary_audit`` asserts the two agree.
     """
     engine = (os.environ.get("OPENJARVIS_WEB_SEARCH_ENGINE") or "auto").strip().lower()
-    if engine not in {"auto", "youcom", "tavily", "duckduckgo", "serply", "firecrawl"}:
+    if engine not in {
+        "auto",
+        "youcom",
+        "tavily",
+        "duckduckgo",
+        "serply",
+        "firecrawl",
+        "searchapi",
+    }:
         engine = "auto"
     if engine == "auto":
         if os.environ.get("TAVILY_API_KEY"):
@@ -1171,6 +1180,8 @@ def _web_search_destination() -> str:
             _firecrawl_self_hosted_url()
         ):
             engine = "firecrawl"
+        elif (os.environ.get("SEARCHAPI_API_KEY") or "").strip():
+            engine = "searchapi"
         else:
             engine = "youcom"
 
@@ -1193,6 +1204,11 @@ def _web_search_destination() -> str:
                 "on to its configured search backend)"
             )
         return "Firecrawl search API"
+    if engine == "searchapi":
+        gl = (os.environ.get("SEARCHAPI_GL") or "").strip()
+        if gl:
+            return f"SearchApi web search API (Google SERP, region {gl})"
+        return "SearchApi web search API (Google SERP)"
     tier = "keyed" if os.environ.get("YOUDOTCOM_API_KEY") else "keyless free tier"
     return f"You.com web search API ({tier})"
 

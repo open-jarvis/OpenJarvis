@@ -1441,6 +1441,8 @@ class TestWebSearchDestination:
             "SERPLY_PROXY_LOCATION",
             "FIRECRAWL_API_KEY",
             "FIRECRAWL_API_URL",
+            "SEARCHAPI_API_KEY",
+            "SEARCHAPI_GL",
             "OPENJARVIS_WEB_SEARCH_ENGINE",
         ):
             monkeypatch.delenv(key, raising=False)
@@ -1527,6 +1529,32 @@ class TestWebSearchDestination:
         monkeypatch.setenv("FIRECRAWL_API_URL", "http://localhost:3002")
         assert "self-hosted at localhost" in _web_search_destination()
 
+    def test_searchapi_is_named(self, monkeypatch):
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-key")
+        assert _web_search_destination() == "SearchApi web search API (Google SERP)"
+
+    def test_searchapi_region_is_named_when_configured(self, monkeypatch):
+        """``gl`` decides which country's Google answers the query, so the
+        audit has to disclose it and not just the vendor."""
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-key")
+        monkeypatch.setenv("SEARCHAPI_GL", "br")
+        assert "region br" in _web_search_destination()
+
+    def test_blank_searchapi_key_matches_runtime(self, monkeypatch):
+        from openjarvis.security.data_boundary_audit import _web_search_destination
+        from openjarvis.tools.web_search import WebSearchTool
+
+        self._clear(monkeypatch)
+        monkeypatch.setenv("SEARCHAPI_API_KEY", " \n")
+        assert WebSearchTool()._resolve_engine() == "youcom"
+        assert _web_search_destination() == "You.com web search API (keyless free tier)"
+
     def test_matches_the_tool_resolution(self, monkeypatch):
         """Guard against the audit's copy of the precedence rule drifting from
         WebSearchTool._resolve_engine, which is the source of truth."""
@@ -1539,6 +1567,7 @@ class TestWebSearchDestination:
             "duckduckgo": "DuckDuckGo",
             "serply": "Serply",
             "firecrawl": "Firecrawl",
+            "searchapi": "SearchApi",
         }
         engines = (
             None,
@@ -1548,6 +1577,7 @@ class TestWebSearchDestination:
             "duckduckgo",
             "serply",
             "firecrawl",
+            "searchapi",
         )
         keys = (
             ("TAVILY_API_KEY", "tvly-key"),
@@ -1555,6 +1585,7 @@ class TestWebSearchDestination:
             ("SERPLY_API_KEY", "srp-key"),
             ("FIRECRAWL_API_KEY", "fc-test"),
             ("FIRECRAWL_API_URL", "http://localhost:3002"),
+            ("SEARCHAPI_API_KEY", "sa-key"),
         )
         for present in itertools.product((False, True), repeat=len(keys)):
             for engine in engines:

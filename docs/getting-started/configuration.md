@@ -1152,7 +1152,9 @@ OpenJarvis respects the following environment variables:
 | `FXMACRODATA_API_KEY` | API key for the `fx_macro_data` tool. Optional: recent USD releases, the USD release calendar and every currency's indicator catalogue work without it. The key unlocks other currencies, full history and FX rates. Keys: [fxmacrodata.com](https://fxmacrodata.com/subscribe). |
 | `FIRECRAWL_API_KEY` | API key for the Firecrawl web search engine. Optional. When set and no other search key is, `auto` engine selection prefers Firecrawl over the keyless tier, and URL queries return the page or PDF as markdown. Keys: [firecrawl.dev](https://www.firecrawl.dev/app/api-keys?utm_source=openjarvis&utm_medium=integration). |
 | `FIRECRAWL_API_URL` | Base URL of the Firecrawl API, for example a [self-hosted Firecrawl](https://docs.firecrawl.dev/contributing/self-host). Optional. Defaults to `https://api.firecrawl.dev`. Any other URL enables the Firecrawl engine without a key, for instances that run without auth. |
-| `OPENJARVIS_WEB_SEARCH_ENGINE` | Web search engine for the `web_search` tool: `auto` (default), `youcom`, `tavily`, `serply`, `firecrawl`, or `duckduckgo`. |
+| `SEARCHAPI_API_KEY` | API key for the SearchApi web search engine, a Google SERP API. Optional. When set and no other search key is, `auto` engine selection prefers SearchApi over the keyless tier. Keys: [searchapi.io](https://www.searchapi.io). |
+| `SEARCHAPI_GL` | Two-letter country code (Google's `gl` parameter) asking SearchApi for that country's result set, for example `br`. Optional. Unset means the API's own default, the US result set. See [searchapi.io/docs/google](https://www.searchapi.io/docs/google). |
+| `OPENJARVIS_WEB_SEARCH_ENGINE` | Web search engine for the `web_search` tool: `auto` (default), `youcom`, `tavily`, `serply`, `firecrawl`, `searchapi`, or `duckduckgo`. |
 
 In the desktop app, you can save `ATLASCLOUD_API_KEY` in **Cloud Models** or
 **Settings → API Keys** instead of setting an environment variable.

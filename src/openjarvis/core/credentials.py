@@ -38,6 +38,7 @@ TOOL_CREDENTIALS: dict[str, list[str]] = {
         "YOUDOTCOM_API_KEY",
         "SERPLY_API_KEY",
         "FIRECRAWL_API_KEY",
+        "SEARCHAPI_API_KEY",
     ],
     "get_weather": ["OPENWEATHERMAP_API_KEY"],
     "fx_macro_data": ["FXMACRODATA_API_KEY"],
@@ -86,6 +87,7 @@ OPTIONAL_TOOL_CREDENTIALS: dict[str, frozenset[str]] = {
             "YOUDOTCOM_API_KEY",
             "SERPLY_API_KEY",
             "FIRECRAWL_API_KEY",
+            "SEARCHAPI_API_KEY",
         }
     ),
     # Recent USD releases, the USD calendar and every catalogue are keyless;

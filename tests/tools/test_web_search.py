@@ -31,6 +31,13 @@ def _no_ambient_firecrawl_key(monkeypatch):
     monkeypatch.delenv("FIRECRAWL_API_URL", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_searchapi_key(monkeypatch):
+    """Same guard as above for the SearchApi env, for the same reason (#972)."""
+    monkeypatch.delenv("SEARCHAPI_API_KEY", raising=False)
+    monkeypatch.delenv("SEARCHAPI_GL", raising=False)
+
+
 class TestWebSearchTool:
     @pytest.fixture
     def duckduckgo_results(self, monkeypatch):
@@ -865,6 +872,41 @@ class TestEngineSelection:
         monkeypatch.setenv("FIRECRAWL_API_URL", "http://localhost:3002")
         assert WebSearchTool()._resolve_engine() == "firecrawl"
 
+    def test_auto_prefers_searchapi_over_the_keyless_tier(self, monkeypatch):
+        """A SearchApi key only ever wins over having no key at all."""
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        assert WebSearchTool()._resolve_engine() == "searchapi"
+
+    def test_searchapi_never_displaces_an_existing_keyed_engine(self, monkeypatch):
+        """Adding a SearchApi key must not change where an install already goes."""
+        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
+        monkeypatch.setenv("YOUDOTCOM_API_KEY", "ydc-key")
+        monkeypatch.setenv("SERPLY_API_KEY", "srp-x")
+        monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
+        assert WebSearchTool()._resolve_engine() == "tavily"
+
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        assert WebSearchTool()._resolve_engine() == "youcom"
+
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        assert WebSearchTool()._resolve_engine() == "serply"
+
+        monkeypatch.delenv("SERPLY_API_KEY", raising=False)
+        assert WebSearchTool()._resolve_engine() == "firecrawl"
+
+    def test_blank_searchapi_key_does_not_enable_the_engine(self, monkeypatch):
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.delenv("YOUDOTCOM_API_KEY", raising=False)
+        monkeypatch.delenv("OPENJARVIS_WEB_SEARCH_ENGINE", raising=False)
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "  \n")
+        assert WebSearchTool()._resolve_engine() == "youcom"
+
     def test_explicit_engine_overrides_key_presence(self, monkeypatch):
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
         assert WebSearchTool(engine="youcom")._resolve_engine() == "youcom"
@@ -895,6 +937,8 @@ class TestEngineSelection:
         assert "serply" in spec.metadata["engines"]
         assert "FIRECRAWL_API_KEY" in spec.metadata["optional_api_keys"]
         assert "firecrawl" in spec.metadata["engines"]
+        assert "SEARCHAPI_API_KEY" in spec.metadata["optional_api_keys"]
+        assert "searchapi" in spec.metadata["engines"]
         # Backwards compatible for readers of the old single-key field.
         assert spec.metadata["requires_api_key"] == "TAVILY_API_KEY"
 
@@ -1654,6 +1698,294 @@ class TestFirecrawlCredentialSafety:
         assert "LocalProtocolError" in caplog.text
         assert "private-token" not in caplog.text
         assert "fc-key" not in caplog.text
+
+
+class TestSearchApiSearch:
+    """The SearchApi engine, exercised against mocked HTTP.
+
+    The payload is shaped after a live ``engine=google`` response: Google
+    ignores a per-request result count, so one page comes back, and some
+    lower positions are ``google.com/goto`` redirects rather than the
+    destination URL.
+    """
+
+    PAYLOAD = {
+        "search_metadata": {"status": "Success", "engine": "google"},
+        "search_parameters": {
+            "engine": "google",
+            "q": "test query",
+            "device": "desktop",
+            "hl": "en",
+            "gl": "us",
+        },
+        "search_information": {"query_displayed": "test query"},
+        "organic_results": [
+            {
+                "position": 1,
+                "title": "Result A",
+                "link": "https://example.com/a",
+                "source": "Example",
+                "domain": "example.com",
+                "displayed_link": "https://example.com › a",
+                "snippet": "Desc A",
+                "snippet_highlighted_words": ["Desc"],
+                "date": "Oct 1, 2026",
+            },
+            {
+                "position": 2,
+                "title": "Result B",
+                "link": "https://example.com/b",
+                "source": "Example",
+                "domain": "example.com",
+                "displayed_link": "https://example.com › b",
+                "snippet": "Desc B",
+            },
+            {
+                "position": 3,
+                "title": "Result C",
+                "link": "https://www.google.com/goto?url=CAESmQEB",
+                "link_token": "CAESmQEB",
+                "source": "Example",
+                "displayed_link": "https://example.com › c",
+                "snippet": "Desc C",
+            },
+        ],
+        "related_searches": [],
+        "pagination": {"current": 1},
+    }
+
+    def _mock_get(self, monkeypatch, payload=None, status=200):
+        import httpx
+
+        calls = {}
+
+        def _get(url, **kwargs):
+            calls["url"] = url
+            calls["params"] = kwargs.get("params")
+            calls["headers"] = kwargs.get("headers")
+            resp = MagicMock()
+            resp.status_code = status
+            resp.json.return_value = payload if payload is not None else self.PAYLOAD
+            if status >= 400:
+                resp.text = "error body"
+                resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+                    f"HTTP {status}", request=MagicMock(), response=resp
+                )
+            else:
+                resp.raise_for_status = MagicMock()
+            return resp
+
+        monkeypatch.setattr(httpx, "get", _get)
+        return calls
+
+    def _mock_ddgs(self, monkeypatch):
+        mock_ddgs = MagicMock()
+        mock_ddgs.text.return_value = []
+        mock_module = MagicMock()
+        mock_module.DDGS.return_value = mock_ddgs
+        monkeypatch.setitem(sys.modules, "ddgs", mock_module)
+
+    def test_endpoint_and_bearer_header(self, monkeypatch):
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        calls = self._mock_get(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="test query")
+
+        assert result.success is True
+        assert calls["url"] == "https://www.searchapi.io/api/v1/search"
+        assert calls["headers"]["Authorization"] == "Bearer sa-x"
+        assert calls["headers"]["Accept"] == "application/json"
+        assert result.metadata["engine"] == "searchapi"
+
+    def test_key_travels_only_in_the_header(self, monkeypatch):
+        """The API also accepts the key as a query parameter, which would put
+        it in HTTPX's request log. Only the header form is used."""
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        calls = self._mock_get(monkeypatch)
+
+        WebSearchTool(engine="searchapi").execute(query="q")
+
+        assert "sa-x" not in calls["url"]
+        assert "sa-x" not in " ".join(str(v) for v in calls["params"].values())
+        assert calls["params"] == {"engine": "google", "q": "q"}
+
+    def test_key_from_the_env_is_stripped(self, monkeypatch):
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "  sa-x\n")
+        calls = self._mock_get(monkeypatch)
+
+        WebSearchTool(engine="searchapi").execute(query="q")
+
+        assert calls["headers"]["Authorization"] == "Bearer sa-x"
+
+    def test_result_format_matches_the_other_engines(self, monkeypatch):
+        """Same labeled Source/Summary shape agents already parse (#390)."""
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        self._mock_get(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="test query")
+
+        assert "### Result A" in result.content
+        assert "Source: https://example.com/a" in result.content
+        assert "Summary: Desc A" in result.content
+        assert "### Result B" in result.content
+        assert result.metadata["num_results"] == 3
+
+    def test_redirect_links_pass_through_unchanged(self, monkeypatch):
+        """Lower positions can come back as google.com/goto redirects; they
+        are relayed as the API returned them rather than resolved here."""
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        self._mock_get(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="test query")
+
+        assert "Source: https://www.google.com/goto?url=CAESmQEB" in result.content
+
+    def test_results_are_cut_to_max_results_client_side(self, monkeypatch):
+        """Google ignores a per-request count, so no ``num`` is sent and the
+        page is trimmed after the fact."""
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        calls = self._mock_get(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi", max_results=3).execute(
+            query="q", max_results=2
+        )
+
+        assert "num" not in calls["params"]
+        assert result.metadata["num_results"] == 2
+        assert "### Result A" in result.content
+        assert "### Result B" in result.content
+        assert "### Result C" not in result.content
+
+    def test_query_reaches_the_api_unmodified(self, monkeypatch):
+        """The point of a SERP API is that Google's operators survive, so
+        nothing here may rewrite, quote or strip the query."""
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        calls = self._mock_get(monkeypatch)
+
+        query = "transformer inference site:arxiv.org after:2026-01-01"
+        WebSearchTool(engine="searchapi").execute(query=query)
+
+        assert calls["params"]["q"] == query
+
+    def test_empty_results(self, monkeypatch):
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        self._mock_get(monkeypatch, payload={"organic_results": []})
+        result = WebSearchTool(engine="searchapi").execute(query="q")
+        assert result.success is True
+        assert result.content == "No results found."
+
+    def test_missing_organic_results_block(self, monkeypatch):
+        """Some queries answer with only a knowledge graph or an AI overview
+        and no organic block at all."""
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        self._mock_get(monkeypatch, payload={"knowledge_graph": {"title": "x"}})
+        result = WebSearchTool(engine="searchapi").execute(query="q")
+        assert result.success is True
+        assert result.content == "No results found."
+        assert result.metadata["num_results"] == 0
+
+    def test_no_gl_param_by_default(self, monkeypatch):
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        calls = self._mock_get(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="q")
+
+        assert "gl" not in calls["params"]
+        assert "searchapi_gl" not in result.metadata
+
+    def test_gl_param_when_configured(self, monkeypatch):
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        monkeypatch.setenv("SEARCHAPI_GL", "br")
+        calls = self._mock_get(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="q")
+
+        assert calls["params"]["gl"] == "br"
+        assert result.metadata["searchapi_gl"] == "br"
+
+    def test_rejected_key_names_the_env_var_and_the_api_message(self, monkeypatch):
+        """A 401 is a credential problem, and the fallback reason has to say
+        which variable to fix rather than just 'HTTP 401'. The API's own
+        message is relayed too, since it says why the key was rejected."""
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-bad")
+        self._mock_get(monkeypatch, payload={"error": "Invalid API key."}, status=401)
+        self._mock_ddgs(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="q")
+
+        assert result.metadata["fallback_from"] == "searchapi"
+        assert result.metadata["degraded"] is True
+        assert "SEARCHAPI_API_KEY" in result.metadata["fallback_reason"]
+        assert "Invalid API key." in result.metadata["fallback_reason"]
+        assert "sa-bad" not in result.metadata["fallback_reason"]
+
+    def test_other_http_error_reports_the_status(self, monkeypatch):
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        self._mock_get(monkeypatch, status=500)
+        self._mock_ddgs(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="q")
+
+        assert "HTTP 500" in result.metadata["fallback_reason"]
+        assert "SEARCHAPI_API_KEY" not in result.metadata["fallback_reason"]
+
+    def test_other_http_error_relays_the_api_message(self, monkeypatch):
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+        self._mock_get(
+            monkeypatch, payload={"error": "Monthly limit reached."}, status=429
+        )
+        self._mock_ddgs(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="q")
+
+        reason = result.metadata["fallback_reason"]
+        assert "HTTP 429" in reason
+        assert "Monthly limit reached." in reason
+
+    def test_unparseable_error_body_is_not_echoed(self, monkeypatch):
+        import httpx
+
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-x")
+
+        def _get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 502
+            resp.text = "<html>bad gateway</html>"
+            resp.json.side_effect = ValueError("not json")
+            resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "HTTP 502", request=MagicMock(), response=resp
+            )
+            return resp
+
+        monkeypatch.setattr(httpx, "get", _get)
+        self._mock_ddgs(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="q")
+
+        assert result.metadata["fallback_reason"] == (
+            "SearchApi search failed with HTTP 502"
+        )
+
+    def test_transport_error_reports_only_the_exception_type(self, monkeypatch):
+        """Header validation errors can echo the Authorization value, so a
+        transport failure names the exception class and nothing else."""
+        import httpx
+
+        monkeypatch.setenv("SEARCHAPI_API_KEY", "sa-secret")
+
+        def _get(url, **kwargs):
+            raise httpx.ConnectError("refused while sending Bearer sa-secret")
+
+        monkeypatch.setattr(httpx, "get", _get)
+        self._mock_ddgs(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="q")
+
+        assert result.metadata["fallback_from"] == "searchapi"
+        assert result.metadata["fallback_reason"] == (
+            "SearchApi search failed (ConnectError)"
+        )
+        assert "sa-secret" not in result.metadata["fallback_reason"]
 
 
 class TestFallbackVisibility:
