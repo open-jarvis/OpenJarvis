@@ -36,6 +36,7 @@ import {
   type MemoryStats,
 } from '../lib/api';
 import { isAutoUpdateDisabled, setAutoUpdateDisabled } from '../components/Desktop/UpdateChecker';
+import { McpServersSection } from '../components/settings/McpServersSection';
 
 const CLOUD_KEY_STATUS_CHANGED = 'openjarvis-cloud-key-status-changed';
 
@@ -657,6 +658,11 @@ export function SettingsPage() {
             <SettingRow label="Web Search" description="Tavily key for web search tool">
               <ApiKeyInput keyName="TAVILY_API_KEY" placeholder="tvly-..." toolName="web_search" />
             </SettingRow>
+          </Section>
+
+          {/* MCP servers */}
+          <Section title="MCP servers">
+            <McpServersSection />
           </Section>
 
           {/* Memory */}

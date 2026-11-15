@@ -30,10 +30,91 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def resolve_effective_mcp_servers(config: Any) -> list[dict[str, Any]]:
+    """Return every MCP server the runtime should load, as loader dicts.
+
+    Merges servers declared in ``[tools.mcp].servers`` (inline JSON or a
+    JSON file path, unchanged behaviour) with the enabled servers managed
+    from the GUI (:class:`openjarvis.mcp.store.MCPServerStore`). Returns
+    ``[]`` when ``[tools.mcp].enabled`` is false. Errors in one source are
+    logged and that source is skipped.
+    """
+    from pathlib import Path
+
+    from openjarvis.core.config import get_config_dir, resolve_mcp_servers
+    from openjarvis.mcp.store import MCPServerStore, default_store_root
+
+    mcp_cfg = config.tools.mcp
+    if not mcp_cfg.enabled:
+        return []
+    raw_dir = getattr(config, "_config_dir", None)
+    config_dir = Path(raw_dir) if isinstance(raw_dir, (str, Path)) else None
+    config_dir = config_dir or get_config_dir()
+
+    servers: list[dict[str, Any]] = []
+    if mcp_cfg.servers:
+        try:
+            servers.extend(resolve_mcp_servers(mcp_cfg.servers, config_dir))
+        except (OSError, UnicodeError, ValueError, TypeError) as exc:
+            logger.warning("Failed to parse MCP server config: %s", exc)
+    try:
+        store = MCPServerStore(default_store_root(config_dir))
+        servers.extend(store.runtime_configs())
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        logger.warning("Failed to read GUI-managed MCP servers: %s", exc)
+    return servers
+
+
+def build_transport(
+    cfg: dict[str, Any],
+    *,
+    request_timeout: Optional[float] = None,
+) -> Any:
+    """Build the transport for one server dict, or ``None`` if it has neither
+    ``url`` nor ``command``.
+
+    ``auth_header`` (optional) sends ``token`` under that header name
+    instead of ``Authorization: Bearer``.
+    """
+    from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
+
+    url = cfg.get("url")
+    command = cfg.get("command", "")
+    if url:
+        # Optional kwargs are passed only when set so the call shape for
+        # plain config.toml servers stays ``(url=..., token=...)``.
+        kwargs: dict[str, Any] = {}
+        if cfg.get("auth_header"):
+            kwargs["auth_header"] = cfg["auth_header"]
+        if request_timeout is not None:
+            kwargs["request_timeout"] = request_timeout
+        return StreamableHTTPTransport(url=url, token=cfg.get("token"), **kwargs)
+    if command:
+        stdio_kwargs: dict[str, Any] = {}
+        if request_timeout is not None:
+            stdio_kwargs["response_timeout"] = request_timeout
+        return StdioTransport(
+            command=[command] + list(cfg.get("args", [])), **stdio_kwargs
+        )
+    return None
+
+
+def filter_server_tools(tools: list[Any], cfg: dict[str, Any]) -> list[Any]:
+    """Apply a server's ``include_tools`` / ``exclude_tools`` filters."""
+    include_tools = set(cfg.get("include_tools", []))
+    exclude_tools = set(cfg.get("exclude_tools", []))
+    if include_tools:
+        tools = [t for t in tools if t.spec.name in include_tools]
+    if exclude_tools:
+        tools = [t for t in tools if t.spec.name not in exclude_tools]
+    return tools
+
+
 def load_mcp_tools_from_config(
     mcp_cfg: Any,
     *,
     allowed_names: Optional[set[str]] = None,
+    servers: Optional[list[dict[str, Any]]] = None,
 ) -> tuple[list["BaseTool"], list["MCPClient"]]:
     """Load tools from every server in ``mcp_cfg.servers``.
 
@@ -46,13 +127,16 @@ def load_mcp_tools_from_config(
     own include/exclude filter. Pass the caller's `--tools`/`enabled`
     list to honour CLI scoping; pass ``None`` to take every tool.
 
+    ``servers`` replaces ``mcp_cfg.servers`` with an already-resolved
+    list (see :func:`resolve_effective_mcp_servers`).
+
     Returns ``([], [])`` when mcp is disabled or no servers are
     configured — no exception, no warning.
     """
     # ``enabled`` and ``servers`` come from openjarvis.core.config's
     # MCPConfig dataclass; accept duck-typed equivalents for tests.
     enabled = getattr(mcp_cfg, "enabled", False)
-    servers_blob = getattr(mcp_cfg, "servers", None)
+    servers_blob = servers if servers is not None else getattr(mcp_cfg, "servers", None)
     if not enabled or not servers_blob:
         return [], []
 
@@ -74,7 +158,6 @@ def load_mcp_tools_from_config(
     # cheaply from CLI startup paths without dragging in the heavy MCP
     # client stack until something actually wants to discover tools.
     from openjarvis.mcp.client import MCPClient
-    from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
     from openjarvis.tools.mcp_adapter import MCPToolProvider
 
     tools: list["BaseTool"] = []
@@ -84,16 +167,8 @@ def load_mcp_tools_from_config(
         try:
             cfg = json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
             name = cfg.get("name", "<unnamed>")
-            url = cfg.get("url")
-            token = cfg.get("token")
-            command = cfg.get("command", "")
-            args = cfg.get("args", [])
-
-            if url:
-                transport = StreamableHTTPTransport(url=url, token=token)
-            elif command:
-                transport = StdioTransport(command=[command] + args)
-            else:
+            transport = build_transport(cfg)
+            if transport is None:
                 logger.warning(
                     "MCP server '%s' has neither 'url' nor 'command' — skipping",
                     name,
@@ -124,14 +199,7 @@ def load_mcp_tools_from_config(
             clients.append(client)
 
             provider = MCPToolProvider(client)
-            discovered = provider.discover()
-
-            include_tools = set(cfg.get("include_tools", []))
-            exclude_tools = set(cfg.get("exclude_tools", []))
-            if include_tools:
-                discovered = [t for t in discovered if t.spec.name in include_tools]
-            if exclude_tools:
-                discovered = [t for t in discovered if t.spec.name not in exclude_tools]
+            discovered = filter_server_tools(provider.discover(), cfg)
             if allowed_names:
                 discovered = [t for t in discovered if t.spec.name in allowed_names]
 
