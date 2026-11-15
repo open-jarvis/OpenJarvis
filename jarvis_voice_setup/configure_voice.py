@@ -1,44 +1,61 @@
-"""Configure this OpenJarvis checkout to speak locally; backup before changing."""
+"""Configure the *separate* OpenJarvis installation for local voice and AI.
+
+Always backs up existing config. Honors OPENJARVIS_HOME / OPENJARVIS_CONFIG,
+so the user's older Jarvis application is never silently reconfigured.
+"""
 from __future__ import annotations
 
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
 
-try:
-    import tomlkit
-except ImportError:
-    raise SystemExit("Run this using uv run python (or the OpenJarvis .venv).")
+import tomlkit
 
-HOME = Path.home() / ".openjarvis"
-HOME.mkdir(exist_ok=True, parents=True)
-CONFIG = HOME / "config.toml"
-PERSONA = Path(__file__).resolve().parent / "jarvis_persona.txt"
+root = Path(os.environ.get("OPENJARVIS_HOME") or
+            (Path.home() / ".openjarvis")).expanduser().resolve()
+path_setting = os.environ.get("OPENJARVIS_CONFIG")
+config = (Path(path_setting).expanduser().resolve() if path_setting
+          else root / "config.toml")
+config.parent.mkdir(exist_ok=True, parents=True)
 
-if CONFIG.exists():
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = HOME / f"config.toml.backup-{stamp}"
-    shutil.copy2(CONFIG, backup)
-    data = tomlkit.parse(CONFIG.read_text(encoding="utf-8"))
-    print("Existing config backed up to", backup)
+persona = (Path(__file__).resolve().parent / "jarvis_persona.txt").read_text(
+    encoding="utf-8"
+).strip()
+
+if config.is_file():
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    backup = config.with_name(f"config.backup-{stamp}.toml")
+    shutil.copy2(config, backup)
+    doc = tomlkit.parse(config.read_text(encoding="utf-8"))
+    print("Existing settings backed up to:", backup)
 else:
-    data = tomlkit.document()
+    doc = tomlkit.document()
 
-if "speech" not in data:
-    data["speech"] = tomlkit.table()
-data["speech"]["tts_backend"] = "jarvis_local"
-data["speech"]["voice_id"] = "jarvis-local"
-data["speech"]["voice_speed"] = 1.0
+if "speech" not in doc:
+    doc["speech"] = tomlkit.table()
+doc["speech"]["tts_backend"] = "jarvis_local"
+doc["speech"]["voice_id"] = "jarvis-local"
+doc["speech"]["voice_speed"] = 1.0
+doc["speech"]["backend"] = "faster-whisper"
+doc["speech"]["model"] = "base"
+doc["speech"]["device"] = "cpu"
+doc["speech"]["compute_type"] = "int8"
 
-if "agent" not in data:
-    data["agent"] = tomlkit.table()
-prior = str(data["agent"].get("system_prompt", "")).strip()
-jarvis_prompt = PERSONA.read_text(encoding="utf-8").strip()
-if not prior.startswith(jarvis_prompt):
-    data["agent"]["system_prompt"] = jarvis_prompt + (
+if "engine" not in doc:
+    doc["engine"] = tomlkit.table()
+doc["engine"]["default"] = "ollama"
+
+if "agent" not in doc:
+    doc["agent"] = tomlkit.table()
+prior = str(doc["agent"].get("system_prompt", "")).strip()
+if not prior.startswith(persona):
+    doc["agent"]["system_prompt"] = persona + (
         "\n\nAdditional existing instructions:\n" + prior if prior else ""
     )
-CONFIG.write_text(tomlkit.dumps(data), encoding="utf-8")
-print("Jarvis voice: local-only bridge, fallback local Kokoro.")
-print("OpenJarvis config:", CONFIG)
-print("Your AI model and tools were not changed.")
+
+config.write_text(tomlkit.dumps(doc), encoding="utf-8")
+print("Local Jarvis config:", config)
+print("AI: Ollama | Speech recognition: local Whisper")
+print("Voice: Jarvis-local (Piper; optional local Chatterbox)")
+print("No paid cloud providers are configured by this script.")
