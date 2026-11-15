@@ -247,11 +247,11 @@
 }
 .zen-nav__item:hover, .zen-nav__item.is-active { background: var(--zen-accent-soft); color: var(--zen-accent); }
 .zen-nav__icon svg { width: 19px; height: 19px; }
-.zen-nav__label { flex: 1; }
+.zen-nav__label { flex: 1; text-align: left; }
 .zen-nav__chev { color: var(--zen-muted); font-size: 18px; }
 
 /* ---------- kaizen ---------- */
-.zen-kaizen { min-height: 360px; padding: 0; display: flex; flex-direction: column; justify-content: flex-end; }
+.zen-kaizen { min-height: 450px; padding: 0; display: flex; flex-direction: column; justify-content: flex-end; }
 .zen-kaizen__art { position: absolute; inset: 0; height: 100%; }
 .zen-kaizen__glyph { position: absolute; top: 18px; left: 20px; display: flex; flex-direction: column; font-size: 30px; line-height: 1.1; color: var(--zen-ink); }
 .zen-kaizen__glyph small { font-size: 9px; letter-spacing: 0.2em; color: var(--zen-muted); margin-top: 4px; }
@@ -345,7 +345,7 @@
 /* ---------- focus hero ---------- */
 .zen-hero { padding: 0; min-height: 440px; display: flex; flex-direction: column; }
 .zen-hero__art { position: absolute; inset: 0 0 34%; height: auto; }
-.zen-hero__content { position: relative; padding: 28px 26px 18px; display: flex; flex-direction: column; gap: 10px; flex: 1; justify-content: flex-end; background: linear-gradient(transparent 0%, rgba(255, 255, 255, 0.82) 45%); }
+.zen-hero__content { position: relative; min-height: 270px; padding: 28px 26px 18px; display: flex; flex-direction: column; gap: 10px; flex: 1; justify-content: flex-end; background: linear-gradient(transparent 20%, rgba(255, 255, 255, 0.78) 62%); }
 .zen-hero__mark { font: 700 44px/0.6 Georgia, serif; color: var(--zen-accent-2); }
 .zen-hero__quote { margin: 0; max-width: 520px; font-family: var(--zen-head); font-size: clamp(22px, 2.3vw, 32px); line-height: 1.18; letter-spacing: 0.04em; text-transform: uppercase; }
 .zen-hero__quote em { font-style: normal; color: var(--zen-accent); }
@@ -376,8 +376,9 @@
 .zen-week__line { fill: none; stroke: var(--zen-accent-2); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .zen-week circle { fill: #fff; stroke: var(--zen-accent-2); stroke-width: 2; }
 .zen-week circle.is-today { fill: var(--zen-accent); stroke: #fff; stroke-width: 2.5; }
-.zen-week__days { display: flex; justify-content: space-between; padding: 0 8px; font-size: 11px; color: var(--zen-muted); }
-.zen-week__days .is-today { color: #fff; background: var(--zen-accent); border-radius: 50%; width: 20px; height: 20px; display: grid; place-items: center; margin: -2px -5px 0; }
+.zen-week__days { display: flex; justify-content: space-between; padding: 0 4px; font-size: 11px; color: var(--zen-muted); }
+.zen-week__days span { width: 20px; height: 20px; display: grid; place-items: center; }
+.zen-week__days .is-today { color: #fff; background: var(--zen-accent); border-radius: 50%; }
 .zen-week .zen-muted { margin: 6px 0 0; }
 
 /* ---------- progress ring ---------- */
@@ -385,6 +386,7 @@
 .zen-ring { position: relative; width: 124px; height: 124px; flex: none; }
 .zen-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 .zen-ring__track { fill: none; stroke: var(--zen-accent-soft); stroke-width: 10; }
+.zen-ring__fill[stroke-dasharray^='0.00'] { opacity: 0; }
 .zen-ring__fill { fill: none; stroke: var(--zen-accent); stroke-width: 10; stroke-linecap: round; transition: stroke-dasharray 0.8s cubic-bezier(0.16, 1, 0.3, 1); filter: drop-shadow(0 2px 6px rgba(107, 92, 246, 0.35)); }
 .zen-ring__label { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .zen-ring__label strong { font-family: var(--zen-head); font-size: 28px; }
@@ -475,7 +477,9 @@
 /* ---------- mission + reminder ---------- */
 .zen-mission { display: grid; grid-template-columns: minmax(200px, 0.9fr) 2fr; padding: 0; min-height: 260px; }
 .zen-mission__art { height: 100%; min-height: 240px; }
-.zen-mission__body { padding: 22px 26px; display: flex; flex-direction: column; gap: 10px; }
+.zen-mission__body { padding: 22px 26px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.zen-mission__body > .zen-bar, .zen-mission__body > .zen-roadmap, .zen-mission__body > form { align-self: stretch; }
+.zen-more { align-self: center; margin-top: 12px; }
 .zen-mission h3 { margin: 0; font-family: var(--zen-head); font-size: 24px; letter-spacing: 0.08em; text-transform: uppercase; }
 .zen-mission__form { display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
 .zen-bar { position: relative; height: 6px; margin: 4px 60px 6px 0; border-radius: 6px; background: var(--zen-accent-soft); }

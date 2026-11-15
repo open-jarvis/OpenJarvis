@@ -5,10 +5,12 @@ import { lifeApi, localDay, weekOf, type JournalEntry } from './lifeApi';
 import { QUOTE_FILTERS, quotesFor, type QuoteCategory } from './zenMath';
 
 const SCENES = ['sea', 'mountain', 'city'] as const;
+const QUOTES_SHOWN = 4;
 
 export function QuotesCard() {
   const [filter, setFilter] = useState<'all' | QuoteCategory | 'saved'>('all');
   const [saved, setSaved] = useState<string[]>([]);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     lifeApi.bookmarks().then((r) => setSaved(r.quotes)).catch(() => undefined);
@@ -36,7 +38,7 @@ export function QuotesCard() {
       </div>
       <ul className="zen-quote-list">
         {list.length === 0 && <li className="zen-empty">Bookmark a quote to keep it here.</li>}
-        {list.map((q, i) => (
+        {(showAll ? list : list.slice(0, QUOTES_SHOWN)).map((q, i) => (
           <li key={q.text} className="zen-quote">
             <Skyline scene={SCENES[i % SCENES.length]} figure={i % 2 === 0} className="zen-quote__art" />
             <span className="zen-quote__mark" aria-hidden="true">“</span>
@@ -47,6 +49,13 @@ export function QuotesCard() {
           </li>
         ))}
       </ul>
+      {list.length > QUOTES_SHOWN && (
+        <div className="zen-row" style={{ justifyContent: 'center' }}>
+          <button type="button" className="zen-link zen-more" onClick={() => setShowAll((s) => !s)}>
+            {showAll ? 'Show fewer' : `Show all ${list.length}`}
+          </button>
+        </div>
+      )}
     </section>
   );
 }
