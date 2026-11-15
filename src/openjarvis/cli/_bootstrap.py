@@ -186,8 +186,10 @@ def _seed_memory_files() -> None:
 # Default model picked at install time when a cloud key is detected via
 # --prefer-cloud-when-available.  These IDs will rot as new model versions
 # ship; bump them when sub-project A's release notes track new defaults.
+# OpenRouter IDs must keep the "openrouter/" prefix: the cloud engine routes on
+# it, and a bare "anthropic/claude-*" would be sent to the Anthropic SDK.
 _CLOUD_PROVIDER_DEFAULT_MODELS: dict[str, str] = {
-    "openrouter": "anthropic/claude-opus-4-6",
+    "openrouter": "openrouter/anthropic/claude-sonnet-4",
     "anthropic": "claude-opus-4-6",
     "openai": "gpt-5",
     "google": "gemini-3-pro",
