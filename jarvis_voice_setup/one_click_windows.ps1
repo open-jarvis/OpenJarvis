@@ -77,7 +77,7 @@ try {
         $ready = ($check.ready -eq $true)
     } catch { }
     if (-not $ready) {
-        Start-Process -FilePath $voicePython -ArgumentList @($voiceServer) -WorkingDirectory $voiceDir
+        Start-Process -FilePath $voicePython -ArgumentList ('"' + $voiceServer + '"') -WorkingDirectory $voiceDir
         for ($i = 0; $i -lt 40; $i++) {
             Start-Sleep -Milliseconds 500
             try {
