@@ -798,6 +798,16 @@ def _print_profile(
         "Routing policy to select model (e.g. heuristic, learned). Overrides config."
     ),
 )
+@click.option(
+    "--speak",
+    "speak_aloud",
+    is_flag=True,
+    default=False,
+    help=(
+        "Speak the response aloud with the configured TTS backend "
+        "([speech] tts_backend / voice_id / voice_speed)."
+    ),
+)
 @click.pass_context
 def ask(
     ctx: click.Context,
@@ -818,6 +828,7 @@ def ask(
     image_paths: tuple[str, ...] = (),
     capture_screen: bool = False,
     router_policy: str | None = None,
+    speak_aloud: bool = False,
 ) -> None:
     """Ask Jarvis a question."""
     quiet = (ctx.obj or {}).get("quiet", False) or output_json
@@ -1138,6 +1149,11 @@ def ask(
         else:
             click.echo(result.content)
 
+        if speak_aloud and result.content:
+            from openjarvis.cli._voice_chat import speak
+
+            speak(result.content, console)
+
         if enable_profile:
             _print_profile(
                 bus,
@@ -1224,6 +1240,11 @@ def ask(
         click.echo(json_mod.dumps(result, indent=2))
     else:
         click.echo(result.get("content", ""))
+
+    if speak_aloud and result.get("content"):
+        from openjarvis.cli._voice_chat import speak
+
+        speak(result["content"], console)
 
     if enable_profile:
         _print_profile(

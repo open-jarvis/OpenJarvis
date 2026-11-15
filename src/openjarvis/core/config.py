@@ -1636,6 +1636,15 @@ class SpeechConfig:
     tts_backend: str = "kokoro"  # "kokoro", "openai_tts", "cartesia", "elevenlabs"
     voice_id: str = "bm_george"
     voice_speed: float = 1.0
+    # Voice chat turn-taking. ``hands_free`` re-opens the mic after each spoken
+    # reply instead of waiting for Enter. ``turn_model`` points at a local
+    # Smart Turn v3 ONNX file; empty = download pipecat-ai/smart-turn-v3.
+    # ``turn_pause_secs`` is the silence before asking Smart Turn whether the
+    # user is done: Pipecat's 0.2 s cuts multi-sentence messages after the
+    # first sentence, which a half-duplex chat cannot recover from.
+    hands_free: bool = False
+    turn_model: str = ""
+    turn_pause_secs: float = 0.5
 
 
 @dataclass(slots=True)

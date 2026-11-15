@@ -16,6 +16,17 @@ from openjarvis.core.config import DEFAULT_CONFIG_PATH, load_config
 
 def _play_audio(audio_path: str) -> None:
     """Play audio file in background using available system player."""
+    # sounddevice playback first: the subprocess players below are all
+    # POSIX tools, so without this the digest is silent on Windows.
+    try:
+        from pathlib import Path
+
+        from openjarvis.speech.voice_io import play_wav
+
+        play_wav(Path(audio_path).read_bytes())
+        return
+    except Exception:
+        pass
     players = ["ffplay -nodisp -autoexit", "aplay", "afplay", "paplay"]
     for player in players:
         cmd_parts = player.split() + [audio_path]

@@ -13,7 +13,14 @@ from rich.markup import escape
 
 from openjarvis.cli._runtime_panel import runtime_cli_options
 from openjarvis.cli._tool_names import resolve_tool_names
-from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, read_voice_input, speak
+from openjarvis.cli._voice_chat import (
+    VOICE_EXIT,
+    VoiceSession,
+    read_voice_input,
+    speak,
+    speak_stream,
+    voice_style_prompt,
+)
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
@@ -27,6 +34,13 @@ def _safe_rich_label(value: object) -> str:
     from openjarvis.cli._model_switch import sanitize_model_id
 
     return escape(sanitize_model_id(str(value)))
+
+
+def _config_flag(value: object) -> bool:
+    """Read a TOML boolean, also accepting the quoted strings users write."""
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return value is True
 
 
 def _read_input(prompt: str = "You> ") -> Optional[str]:
@@ -78,6 +92,15 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
     default=False,
     help="Enable voice I/O: mic input with silence detection + TTS response playback.",
 )
+@click.option(
+    "--hands-free/--no-hands-free",
+    "hands_free",
+    default=None,
+    help=(
+        "Voice mode: listen again automatically after each reply, no Enter "
+        "needed (implies --voice). Defaults to [speech] hands_free."
+    ),
+)
 @runtime_cli_options
 def chat(
     engine_key: str | None,
@@ -91,6 +114,7 @@ def chat(
     num_ctx: int | None,
     num_gpu: int | None,
     skip_runtime_panel: bool,
+    hands_free: bool | None = None,
 ) -> None:
     """Start an interactive multi-turn chat session.
 
@@ -108,12 +132,25 @@ def chat(
       /history      — show conversation history
 
     Pass --voice to use microphone input (silence-detection) and hear responses
-    read back via text-to-speech (kokoro local or OpenAI TTS).
+    read back via text-to-speech (kokoro local or OpenAI TTS). Replies are
+    then asked to be short and spoken-style (override in <config>/VOICE.md).
+    Add --hands-free to keep listening between turns: no Enter needed, any
+    key switches to typing for one turn.
     """
     console = Console(stderr=True)
 
     config = load_config()
     bus = EventBus(record_history=False)
+
+    voice_mode = voice_mode or hands_free is True
+    if hands_free is None:
+        hands_free = _config_flag(getattr(config.speech, "hands_free", False))
+    hands_free = voice_mode and hands_free
+
+    voice_style = voice_style_prompt() if voice_mode else ""
+    agent_template = config.agent.default_system_prompt or ""
+    if voice_style:
+        agent_template = f"{agent_template}\n\n{voice_style}".strip()
 
     import dataclasses as _dc
 
@@ -266,7 +303,7 @@ def chat(
                     from openjarvis.prompt.builder import SystemPromptBuilder
 
                     kwargs["prompt_builder"] = SystemPromptBuilder(
-                        agent_template=config.agent.default_system_prompt or "",
+                        agent_template=agent_template,
                         memory_files_config=effective_mf,
                         system_prompt_config=config.system_prompt,
                     )
@@ -294,14 +331,27 @@ def chat(
     # Keep voice state outside the core chat path so picker/runtime changes can
     # be layered independently. Loaded speech models live for this session.
     voice_session = VoiceSession(config) if voice_mode else None
+    if voice_session is not None:
+        # Load the end-of-turn, speech-to-text and TTS models while the user
+        # reads the banner and speaks their first question.
+        import threading
+
+        threading.Thread(target=voice_session.preload, daemon=True).start()
 
     # Print banner
-    voice_hint = (
-        "  [magenta]Voice mode ON[/magenta] — type normally, or press Enter "
-        "to speak; silence stops recording.\n"
-        if voice_mode
-        else ""
-    )
+    if hands_free:
+        voice_hint = (
+            "  [magenta]Hands-free voice mode ON[/magenta] — just speak; press "
+            "any key to type instead. Ctrl-C cuts a reply, or quits while "
+            "listening.\n"
+        )
+    elif voice_mode:
+        voice_hint = (
+            "  [magenta]Voice mode ON[/magenta] — type normally, or press Enter "
+            "to speak; recording stops when you finish.\n"
+        )
+    else:
+        voice_hint = ""
     console.print(
         f"[green bold]OpenJarvis Chat[/green bold]\n"
         f"  Engine: [cyan]{_safe_rich_label(engine_name)}[/cyan]  "
@@ -352,29 +402,41 @@ def chat(
         from openjarvis.prompt.builder import SystemPromptBuilder
 
         builder = SystemPromptBuilder(
-            agent_template=config.agent.default_system_prompt or "",
+            agent_template=agent_template,
             memory_files_config=effective_mf,
             system_prompt_config=config.system_prompt,
         )
         system_prompt = builder.build()
+    elif voice_style:
+        system_prompt = f"{system_prompt}\n\n{voice_style}"
 
     history: List[Message] = []
     if system_prompt:
         history.append(Message(role=Role.SYSTEM, content=system_prompt))
 
     # REPL loop
+    announce = True
     while True:
         for note in _notifications.diff(get_status()):
             console.print(f"[dim cyan]{note}[/dim cyan]")
 
         if voice_mode:
             assert voice_session is not None
-            result = read_voice_input(console, voice_session)
+            try:
+                result = read_voice_input(
+                    console, voice_session, hands_free=hands_free, announce=announce
+                )
+            except KeyboardInterrupt:
+                result = VOICE_EXIT
             if result is VOICE_EXIT:
                 console.print("\n[dim]Goodbye![/dim]")
                 break
             if result is None:
-                continue  # nothing heard, loop again
+                # Nothing heard: listen again, without re-printing the
+                # prompt on every silent hands-free cycle.
+                announce = not hands_free
+                continue
+            announce = True
             user_input = result
         else:
             user_input = _read_input()
@@ -469,6 +531,7 @@ def chat(
 
         # Generate response even when optional memory context is unavailable.
         try:
+            streamed = False
             if agent is not None:
                 from openjarvis.agents._stubs import AgentContext
 
@@ -478,10 +541,30 @@ def chat(
                 for msg in history[:-1]:
                     if msg.role != Role.SYSTEM:
                         agent_context.conversation.add(msg)
-                response = agent.run(user_input, context=agent_context)
-                content = (
-                    response.content if hasattr(response, "content") else str(response)
-                )
+
+                deltas = None
+                if voice_mode and hasattr(agent, "run_stream"):
+                    # Stream tokens straight into TTS: speech starts on the
+                    # first completed sentence instead of after the full
+                    # reply. Falls back to run() when the engine can't
+                    # stream. Streamed text is echoed plain, not as
+                    # Markdown.
+                    try:
+                        deltas = agent.run_stream(user_input, context=agent_context)
+                    except NotImplementedError:
+                        deltas = None
+                if deltas is not None:
+                    assert voice_session is not None
+                    console.print()
+                    content = speak_stream(deltas, console, voice_session)
+                    streamed = True
+                else:
+                    response = agent.run(user_input, context=agent_context)
+                    content = (
+                        response.content
+                        if hasattr(response, "content")
+                        else str(response)
+                    )
             else:
                 result = engine.generate(
                     generation_history,
@@ -495,12 +578,13 @@ def chat(
                 )
 
             history.append(Message(role=Role.ASSISTANT, content=content))
-            console.print()
-            console.print(Markdown(content))
-            console.print()
-            if voice_mode:
-                assert voice_session is not None
-                speak(content, console, voice_session)
+            if not streamed:
+                console.print()
+                console.print(Markdown(content))
+                console.print()
+                if voice_mode:
+                    assert voice_session is not None
+                    speak(content, console, voice_session)
 
             publish_completed_exchange(
                 bus,

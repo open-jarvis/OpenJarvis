@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import os
+import sys
 import tempfile
 from typing import List, Optional
 
@@ -23,6 +25,11 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _describe(exc: BaseException) -> str:
+    # Text only: the exception's traceback would keep the GPU model alive.
+    return f"{type(exc).__name__}: {exc}"
+
+
 @SpeechRegistry.register("faster-whisper")
 class FasterWhisperBackend(SpeechBackend):
     """Local speech-to-text using Faster-Whisper (CTranslate2)."""
@@ -40,6 +47,8 @@ class FasterWhisperBackend(SpeechBackend):
         self._compute_type = compute_type
         self._model: Optional[WhisperModel] = None
         self._last_error: Optional[str] = None
+        self._effective_device: Optional[str] = None
+        self._fallback_reason: Optional[str] = None
 
     def _resolve_compute_type(self) -> str:
         """Pick a CTranslate2 compute type supported by the configured device."""
@@ -77,8 +86,22 @@ class FasterWhisperBackend(SpeechBackend):
         )
         return fallback
 
+    @property
+    def effective_device(self) -> Optional[str]:
+        """Device the loaded model runs on, or None before a successful load."""
+        return self._effective_device
+
+    @property
+    def fallback_reason(self) -> Optional[str]:
+        """Why the configured device was abandoned for CPU, or None."""
+        return self._fallback_reason
+
     def _ensure_model(self) -> WhisperModel:
-        """Lazy-load the Whisper model on first use."""
+        """Lazy-load the Whisper model on first use.
+
+        On a non-CPU device, a failed load or warm-up transcription makes
+        the model reload on CPU (int8).
+        """
         if self._model is None:
             if WhisperModel is None:
                 self._last_error = (
@@ -86,14 +109,95 @@ class FasterWhisperBackend(SpeechBackend):
                     "Install with: uv sync --extra desktop"
                 )
                 raise ImportError(self._last_error)
+            self._fallback_reason = None
             compute_type = self._resolve_compute_type()
-            self._model = WhisperModel(
+            if self._device == "cpu":
+                model = WhisperModel(
+                    self._model_size,
+                    device="cpu",
+                    compute_type=compute_type,
+                )
+                self._effective_device = "cpu"
+            else:
+                model = self._load_on_accelerator(compute_type)
+            self._model = model
+        self._last_error = None
+        return self._model
+
+    def _load_on_accelerator(self, compute_type: str) -> WhisperModel:
+        """Load on the configured non-CPU device, or fall back to CPU.
+
+        Loading can succeed while inference fails (e.g. cuBLAS missing), so
+        a warm-up runs the full decode, segment generator included. It is
+        retried once, since a CUDA out-of-memory error can be transient.
+        """
+        if sys.platform == "win32":
+            # CTranslate2 loads cublas64_12.dll lazily by bare name (PATH
+            # search, os.add_dll_directory is ignored); importing torch
+            # preloads it from torch/lib.
+            try:
+                import torch  # noqa: F401
+            except (ImportError, OSError):
+                pass
+        try:
+            model = WhisperModel(
                 self._model_size,
                 device=self._device,
                 compute_type=compute_type,
             )
-        self._last_error = None
-        return self._model
+        except Exception as exc:
+            return self._load_cpu_fallback("model load", _describe(exc))
+
+        device = getattr(getattr(model, "model", None), "device", None)
+        if not isinstance(device, str):
+            device = self._device
+        if device == "cpu":
+            self._effective_device = "cpu"
+            return model
+
+        error = self._warm_up(model)
+        if error is not None:
+            logger.debug(
+                "Faster-Whisper warm-up failed on device=%r (%s); retrying once",
+                device,
+                error,
+            )
+            gc.collect()
+            error = self._warm_up(model)
+        if error is not None:
+            return self._load_cpu_fallback("warm-up inference", error)
+        self._effective_device = device
+        return model
+
+    def _warm_up(self, model: WhisperModel) -> Optional[str]:
+        """Transcribe one second of silence; return the error text, if any."""
+        import numpy as np
+
+        try:
+            segments, _info = model.transcribe(
+                np.zeros(16000, dtype=np.float32),
+                language="en",
+                beam_size=1,
+            )
+            list(segments)
+        except Exception as exc:
+            return _describe(exc)
+        return None
+
+    def _load_cpu_fallback(self, stage: str, error: str) -> WhisperModel:
+        """Load the model on CPU (int8) after ``stage`` failed on the device."""
+        self._fallback_reason = f"{stage} on device={self._device!r} failed: {error}"
+        logger.warning(
+            "Faster-Whisper %s; falling back to device='cpu', compute_type='int8'",
+            self._fallback_reason,
+        )
+        model = WhisperModel(
+            self._model_size,
+            device="cpu",
+            compute_type="int8",
+        )
+        self._effective_device = "cpu"
+        return model
 
     def transcribe(
         self,
