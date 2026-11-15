@@ -18,10 +18,14 @@ logger = logging.getLogger(__name__)
 # Priority order: local first, then cloud.
 TTS_BACKEND_ORDER = ("kokoro", "openai_tts", "cartesia", "elevenlabs")
 
+# Explicit local selection may only fall back to local Kokoro, not cloud TTS.
+JARVIS_LOCAL_FALLBACK_ORDER = ("jarvis_local", "kokoro")
+
 # Voice IDs are backend-specific and NOT portable. ``speech.voice_id`` applies
 # only to ``speech.tts_backend``; if synthesis falls back to another backend we
 # use that backend's own default rather than passing an unrecognized ID through.
 BACKEND_DEFAULT_VOICE = {
+    "jarvis_local": "jarvis-local",
     "kokoro": "bm_george",  # British male
     "openai_tts": "onyx",  # deepest OpenAI preset
     "cartesia": "",  # no safe static default; let Cartesia choose
