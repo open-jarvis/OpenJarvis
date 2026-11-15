@@ -1,0 +1,119 @@
+name: Windows Defender investigation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    steps:
+      - name: Record Defender state
+        shell: pwsh
+        run: |
+          Get-MpComputerStatus | Select-Object AMServiceEnabled, AntivirusEnabled,
+            RealTimeProtectionEnabled, AntivirusSignatureVersion,
+            AntivirusSignatureLastUpdated, AMEngineVersion | ConvertTo-Json
+          try { Update-MpSignature -ErrorAction Stop } catch {
+            Write-Warning "Signature update failed: $($_.Exception.Message)"
+          }
+          Get-MpComputerStatus | Select-Object AntivirusSignatureVersion,
+            AntivirusSignatureLastUpdated, AMEngineVersion | ConvertTo-Json
+
+      - name: Download verified samples and scan
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Join-Path $env:RUNNER_TEMP 'openjarvis-defender-samples'
+          New-Item -ItemType Directory -Path $folder | Out-Null
+          $started = Get-Date
+          $samples = @(
+            @{
+              Name = 'OpenJarvis_1.0.5_x64-setup.exe'
+              Url = 'https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.5/OpenJarvis_1.0.5_x64-setup.exe'
+              Sha256 = '6d68581a4d4c07cc5b4e0f79bbd08dc64691ebb5ecbac50ccb8589df0ef35b14'
+            },
+            @{
+              Name = 'install.ps1'
+              Url = 'https://open-jarvis.github.io/OpenJarvis/install.ps1'
+              Sha256 = '2d0089611ae9d62cb03b87197a7e9d7168505c48d05b41f343302f885741f433'
+            },
+            @{
+              Name = 'rustfmt-1.89.0-x86_64-pc-windows-msvc.tar.xz'
+              Url = 'https://static.rust-lang.org/dist/2025-08-07/rustfmt-1.89.0-x86_64-pc-windows-msvc.tar.xz'
+              Sha256 = '7cab256ad2279e65ddfbb79ce454d5160fbcd58bb672742d59dd8883c55ff912'
+            },
+            @{
+              Name = 'clippy-1.89.0-x86_64-pc-windows-msvc.tar.xz'
+              Url = 'https://static.rust-lang.org/dist/2025-08-07/clippy-1.89.0-x86_64-pc-windows-msvc.tar.xz'
+              Sha256 = '371a98be3e239f760a7f0e87793ad0a871cdc2e607590cc47514d91fd8d1383c'
+            },
+            @{
+              Name = 'rustc-1.89.0-x86_64-pc-windows-msvc.tar.xz'
+              Url = 'https://static.rust-lang.org/dist/2025-08-07/rustc-1.89.0-x86_64-pc-windows-msvc.tar.xz'
+              Sha256 = '76f70bbd3dc8681ee189931bc5e270cd9524ff3d17738d87f609bba4980c466c'
+            },
+            @{
+              Name = 'cargo-1.89.0-x86_64-pc-windows-msvc.tar.xz'
+              Url = 'https://static.rust-lang.org/dist/2025-08-07/cargo-1.89.0-x86_64-pc-windows-msvc.tar.xz'
+              Sha256 = '8c0a40a5411746ff6600d93acd16652fef56702196bb25b940ff399d7e107f40'
+            }
+          )
+          $downloadFailures = @()
+          foreach ($sample in $samples) {
+            try {
+              $path = Join-Path $folder $sample.Name
+              Invoke-WebRequest -Uri $sample.Url -OutFile $path
+              $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+              if ($actual -ine $sample.Sha256) { throw "SHA256 mismatch for $($sample.Name)" }
+              Write-Output "VERIFIED $($sample.Name) $actual"
+              if ($sample.Name.EndsWith('.tar.xz')) {
+                & tar -xf $path -C $folder
+                if ($LASTEXITCODE -ne 0) { throw "Archive extraction failed for $($sample.Name)" }
+              }
+            } catch {
+              $downloadFailures += "$($sample.Name): $($_.Exception.Message)"
+              Write-Warning $downloadFailures[-1]
+            }
+          }
+          Get-ChildItem -LiteralPath $folder -Recurse -File |
+            Where-Object { $_.Extension -in @('.exe', '.dll', '.ps1') } |
+            ForEach-Object {
+              $signature = Get-AuthenticodeSignature -LiteralPath $_.FullName
+              [pscustomobject]@{
+                File = $_.FullName.Substring($folder.Length + 1)
+                Sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+                Signature = [string]$signature.Status
+              }
+            } | ConvertTo-Json -Depth 4
+          $state = Get-MpComputerStatus
+          $scanComplete = $false
+          if ($state.AntivirusEnabled -and $state.AMServiceEnabled) {
+            Start-MpScan -ScanType CustomScan -ScanPath $folder -ErrorAction Stop
+            $scanComplete = $true
+          } else {
+            Write-Warning 'Defender is unavailable. No scan result can be claimed.'
+          }
+          $detections = @(Get-MpThreatDetection | Where-Object {
+            $_.InitialDetectionTime -ge $started -and
+              @($_.Resources | Where-Object { $_ -like "*$folder*" }).Count -gt 0
+          })
+          $detections | Select-Object ThreatID, InitialDetectionTime,
+            ActionSuccess, Resources | ConvertTo-Json -Depth 5
+          if ($detections.Count) {
+            $ids = @($detections.ThreatID)
+            Get-MpThreat | Where-Object { $_.ThreatID -in $ids } |
+              Select-Object ThreatID, ThreatName, SeverityID, IsActive | ConvertTo-Json
+          }
+          [pscustomobject]@{
+            ScanComplete = $scanComplete
+            DetectionCount = $detections.Count
+            DownloadFailures = $downloadFailures
+            AntivirusSignatureVersion = $state.AntivirusSignatureVersion
+          } | ConvertTo-Json -Depth 5
+          if ($downloadFailures.Count -or $detections.Count -or -not $scanComplete) {
+            throw 'Investigation needs review. See sample, scan, and detection details above.'
+          }
