@@ -776,11 +776,11 @@ export function HudPage() {
   }, [handsFree, phase, speaking, tts.isLoading, startListening]);
 
   const toggleHandsFree = useCallback(() => {
-    setHandsFree((on) => {
-      if (on && recorderRef.current) stopRecorder('discard');
-      addLog(on ? 'Hands-free off' : 'Hands-free on: talk any time, I send when you pause', on ? 'info' : 'ok');
-      return !on;
-    });
+    // Side effects stay out of the state updater (React may call it twice).
+    const on = handsFreeRef.current;
+    if (on && recorderRef.current) stopRecorder('discard');
+    addLog(on ? 'Hands-free off' : 'Hands-free on: talk any time, I send when you pause', on ? 'info' : 'ok');
+    setHandsFree(!on);
   }, [addLog]);
 
   // Cleanup on unmount
