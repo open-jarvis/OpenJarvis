@@ -3905,6 +3905,10 @@ mod tests {
             .serve_args
             .windows(2)
             .any(|w| w == ["--model", "qwen3.5:4b"]));
+        assert!(plan
+            .serve_args
+            .windows(2)
+            .any(|w| w == ["--agent", "orchestrator"]));
     }
 
     #[test]
@@ -3942,6 +3946,10 @@ mod tests {
             .serve_args
             .windows(2)
             .any(|w| w == ["--model", "qwen2.5-7b"]));
+        assert!(plan
+            .serve_args
+            .windows(2)
+            .any(|w| w == ["--agent", "orchestrator"]));
     }
 
     #[test]
