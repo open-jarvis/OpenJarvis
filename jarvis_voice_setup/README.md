@@ -1,5 +1,32 @@
 # Free offline Jarvis voice — Windows
 
+## Easiest Windows setup (separate from your existing Jarvis)
+
+From the **repository root**, double-click **START_OFFLINE_JARVIS_WINDOWS.bat**.
+This launches the official Windows source installer with your own GitHub fork
+selected, installs local Ollama/Whisper/Piper components, configures a separate
+install in `%LOCALAPPDATA%\OpenJarvis-Offline`, and opens a short speech test.
+Run **OPEN_OFFLINE_JARVIS_AGAIN.bat** to start the installed version later.
+
+**Windows prerequisite:** Stanford OpenJarvis compiles a Rust extension with
+Microsoft's C++ Build Tools. If the setup stops to request the free Microsoft
+Visual Studio Build Tools / "Desktop development with C++" workload, approve
+that official installer and run START_OFFLINE_JARVIS_WINDOWS.bat again.
+This is a large download; the launcher does not silently install it.
+
+This setup does **not** replace your existing Jarvis app or upload audio
+recordings to GitHub. It doesn't activate the optional voice clone until
+you supply a clean consented WAV sample and install Chatterbox locally.
+The initial voice test is the standard free British Piper voice.
+
+The installer requires internet for its first-time downloads but uses local
+speech and a local AI engine afterwards. Your system hardware will affect
+performance. Windows microphone and voice similarity have not been verified
+until you test the installer on that computer.
+
+---
+
+
 This is an optional, local-only extension of your fork of Stanford OpenJarvis.
 It does not modify the original Stanford project or your older Python Jarvis
 application. When you select the jarvis_local backend, voice fallback is
