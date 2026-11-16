@@ -6,10 +6,12 @@ All Notion API calls are mocked; no network access is required.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
-from unittest.mock import patch
+from unittest.mock import call, patch
 
+import httpx
 import pytest
 
 from openjarvis.connectors._stubs import Document
@@ -375,3 +377,138 @@ def test_sync_yields_database_document(
     assert "In progress" in doc.content
     assert doc.metadata.get("object") == "database"
     mock_query_db.assert_called_once_with("ntn_fake", "db1")
+
+
+def _database_payload():
+    return {
+        "results": [
+            {
+                "id": "db1",
+                "object": "database",
+                "title": [{"plain_text": "Tasks"}],
+                "last_edited_time": "2024-03-15T10:00:00.000Z",
+                "properties": {},
+            }
+        ],
+        "has_more": False,
+    }
+
+
+def _database_row(title, edited="2024-03-15T10:00:00.000Z"):
+    return {
+        "object": "page",
+        "last_edited_time": edited,
+        "properties": {"Name": {"type": "title", "title": [{"plain_text": title}]}},
+    }
+
+
+@patch("openjarvis.connectors.notion._notion_api_search")
+@patch("openjarvis.connectors.notion._notion_api_query_database")
+def test_database_rows_are_paginated(mock_query, mock_search, connector):
+    Path(connector._credentials_path).write_text(
+        '{"token":"ntn_fake"}', encoding="utf-8"
+    )
+    mock_search.return_value = _database_payload()
+    mock_query.side_effect = [
+        {
+            "results": [_database_row("First page task")],
+            "has_more": True,
+            "next_cursor": "rows-2",
+        },
+        {"results": [_database_row("Second page task")], "has_more": False},
+    ]
+
+    docs = list(connector.sync())
+
+    assert len(docs) == 1
+    assert "First page task" in docs[0].content
+    assert "Second page task" in docs[0].content
+    assert mock_query.call_args_list == [
+        call("ntn_fake", "db1"),
+        call("ntn_fake", "db1", cursor="rows-2"),
+    ]
+
+
+@patch("openjarvis.connectors.notion._notion_api_search")
+@patch("openjarvis.connectors.notion._notion_api_query_database")
+def test_incremental_sync_refreshes_rows_under_an_old_database(
+    mock_query, mock_search, connector
+):
+    Path(connector._credentials_path).write_text(
+        '{"token":"ntn_fake"}', encoding="utf-8"
+    )
+    mock_search.return_value = _database_payload()
+    edited = "2026-11-14T10:00:00.000Z"
+    mock_query.return_value = {
+        "results": [_database_row("Updated task", edited)],
+        "has_more": False,
+    }
+
+    docs = list(connector.sync(since=datetime(2026, 11, 1, tzinfo=timezone.utc)))
+
+    assert len(docs) == 1
+    assert "Updated task" in docs[0].content
+    assert docs[0].timestamp == datetime(2026, 11, 14, 10, tzinfo=timezone.utc)
+
+
+@patch("openjarvis.connectors.notion._notion_api_search")
+@patch("openjarvis.connectors.notion._notion_api_query_database")
+def test_database_query_failure_is_not_reported_as_success(
+    mock_query, mock_search, connector
+):
+    Path(connector._credentials_path).write_text(
+        '{"token":"ntn_fake"}', encoding="utf-8"
+    )
+    mock_search.return_value = _database_payload()
+    request = httpx.Request("POST", "https://api.notion.com/v1/databases/db1/query")
+    response = httpx.Response(403, request=request)
+    mock_query.side_effect = httpx.HTTPStatusError(
+        "database query denied", request=request, response=response
+    )
+
+    with pytest.raises(httpx.HTTPStatusError, match="database query denied"):
+        list(connector.sync())
+
+
+@pytest.mark.parametrize("cursor", [None, "", "repeat"])
+@patch("openjarvis.connectors.notion._notion_api_search")
+@patch("openjarvis.connectors.notion._notion_api_query_database")
+def test_invalid_database_pagination_stops(mock_query, mock_search, cursor, connector):
+    Path(connector._credentials_path).write_text(
+        '{"token":"ntn_fake"}', encoding="utf-8"
+    )
+    mock_search.return_value = _database_payload()
+    mock_query.return_value = {"results": [], "has_more": True, "next_cursor": cursor}
+
+    with pytest.raises(ValueError, match="pagination cursor"):
+        list(connector.sync())
+    assert mock_query.call_count <= 2
+
+
+def test_http_database_query_uses_the_pinned_api_and_cursor(respx_mock):
+    from openjarvis.connectors.notion import _notion_api_query_database
+
+    route = respx_mock.post("https://api.notion.com/v1/databases/db1/query").respond(
+        200, json={"results": [], "has_more": False}
+    )
+    _notion_api_query_database("ntn_fake", "db1", cursor="opaque-cursor")
+
+    request = route.calls[0].request
+    assert request.headers["Notion-Version"] == "2022-06-28"
+    assert request.headers["Authorization"] == "Bearer ntn_fake"
+    assert json.loads(request.content) == {
+        "page_size": 100,
+        "start_cursor": "opaque-cursor",
+    }
+
+
+def test_http_search_does_not_filter_out_databases(respx_mock):
+    from openjarvis.connectors.notion import _notion_api_search
+
+    route = respx_mock.post("https://api.notion.com/v1/search").respond(
+        200, json={"results": [], "has_more": False}
+    )
+    _notion_api_search("ntn_fake")
+
+    assert "filter" not in json.loads(route.calls[0].request.content)
+    assert route.calls[0].request.headers["Notion-Version"] == "2022-06-28"

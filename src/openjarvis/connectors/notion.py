@@ -455,8 +455,9 @@ class NotionConnector(BaseConnector):
                 last_edited_str: str = item.get("last_edited_time", "")
                 timestamp = _parse_iso_datetime(last_edited_str)
 
-                # Apply since filter
-                if since is not None:
+                # A database row can change independently of its container.
+                # Refresh database contents even when the container is old.
+                if since is not None and obj_type == "page":
                     # Make since timezone-aware for comparison if needed
                     since_aware = since
                     if since.tzinfo is None and timestamp.tzinfo is not None:
@@ -496,32 +497,53 @@ class NotionConnector(BaseConnector):
                             )
                         lines.append("\n".join(prop_lines))
 
-                    # Query database rows if available
-                    try:
-                        query_resp = _notion_api_query_database(token, item_id)
+                    row_cursor = None
+                    seen_cursors: set[str] = set()
+                    row_lines: List[str] = []
+                    while True:
+                        query_resp = (
+                            _notion_api_query_database(
+                                token, item_id, cursor=row_cursor
+                            )
+                            if row_cursor
+                            else _notion_api_query_database(token, item_id)
+                        )
                         rows: List[Dict[str, Any]] = query_resp.get("results", [])
-                        if rows:
-                            row_lines = ["## Rows"]
-                            for row in rows:
-                                row_title = _extract_page_title(row)
-                                row_details: List[str] = []
-                                for p_name, p_data in row.get("properties", {}).items():
-                                    if (
-                                        isinstance(p_data, dict)
-                                        and p_data.get("type") != "title"
-                                    ):
-                                        val = _extract_property_value(p_data)
-                                        if val:
-                                            row_details.append(f"{p_name}: {val}")
-                                if row_details:
-                                    row_lines.append(
-                                        f"- **{row_title}** ({', '.join(row_details)})"
-                                    )
-                                else:
-                                    row_lines.append(f"- {row_title}")
-                            lines.append("\n".join(row_lines))
-                    except Exception:
-                        pass
+                        for row in rows:
+                            edited = row.get("last_edited_time")
+                            if edited:
+                                timestamp = max(timestamp, _parse_iso_datetime(edited))
+                            row_title = _extract_page_title(row)
+                            row_details: List[str] = []
+                            for p_name, p_data in row.get("properties", {}).items():
+                                if (
+                                    isinstance(p_data, dict)
+                                    and p_data.get("type") != "title"
+                                ):
+                                    val = _extract_property_value(p_data)
+                                    if val:
+                                        row_details.append(f"{p_name}: {val}")
+                            if row_details:
+                                row_lines.append(
+                                    f"- **{row_title}** ({', '.join(row_details)})"
+                                )
+                            else:
+                                row_lines.append(f"- {row_title}")
+                        if not query_resp.get("has_more", False):
+                            break
+                        next_cursor = query_resp.get("next_cursor")
+                        if (
+                            not isinstance(next_cursor, str)
+                            or not next_cursor
+                            or next_cursor in seen_cursors
+                        ):
+                            raise ValueError(
+                                "Notion database returned an invalid pagination cursor"
+                            )
+                        seen_cursors.add(next_cursor)
+                        row_cursor = next_cursor
+                    if row_lines:
+                        lines.append("## Rows\n" + "\n".join(row_lines))
 
                     content = "\n\n".join(lines)
                 else:
