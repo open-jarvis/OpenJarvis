@@ -47,6 +47,7 @@ COPY src/ src/
 COPY rust/ rust/
 COPY scripts/install scripts/install
 COPY deploy/windows deploy/windows
+COPY configs/openjarvis/examples configs/openjarvis/examples
 
 # Copy built frontend into the server static directory
 COPY --from=frontend /src/openjarvis/server/static src/openjarvis/server/static/
