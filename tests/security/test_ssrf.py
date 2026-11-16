@@ -332,6 +332,11 @@ class TestReservedRanges:
         ("2002:7f00:1::1", True),
         ("2002:808:808::1", False),
         ("64:ff9b::c000:9", False),
+        ("64:ff9b:1::", True),
+        ("64:ff9b:1::7f00:1", True),
+        ("64:ff9b:1::a9fe:a9fe", True),
+        ("64:ff9b:1:ffff:ffff:ffff:ffff:ffff", True),
+        ("64:ff9b:2::1", False),
     ],
 )
 def test_reserved_address_policy_matches_native_and_python(address, blocked):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -252,8 +253,23 @@ class TestCaseInsensitiveAndExtraNames:
         ".npmrc",
         ".pypirc",
         "vault.KDBX",
+        "production.env",
+        "PRODUCTION.ENV",
+        "id_rsa::$DATA",
+        ".npmrc.",
+        ".pypirc ",
+        "vault.kdbx:backup:$DATA",
+        "normal:secret.pem",
     ]
-    SAFE = ["environment.py", "README.md", "id_rsa.pub", "keyboard.py"]
+    SAFE = [
+        "environment.py",
+        "README.md",
+        "id_rsa.pub",
+        "keyboard.py",
+        "production.env.example",
+        ".npmrc.example",
+        "id_rsa.pub::$DATA",
+    ]
 
     def _check(self) -> None:
         for name in self.NAMES:
@@ -270,3 +286,13 @@ class TestCaseInsensitiveAndExtraNames:
 
         monkeypatch.setattr("openjarvis._rust_bridge.get_rust_module", unavailable)
         self._check()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires Win32 filename aliases")
+@pytest.mark.parametrize("suffix", ["::$DATA", ".", " "])
+def test_windows_aliases_of_secret_files_are_blocked(tmp_path, policy_backend, suffix):
+    secret = tmp_path / "id_ecdsa_sk"
+    secret.write_bytes(b"not-a-real-key")
+    alias = Path(str(secret) + suffix)
+    assert alias.read_bytes() == secret.read_bytes()
+    assert is_sensitive_file(alias)

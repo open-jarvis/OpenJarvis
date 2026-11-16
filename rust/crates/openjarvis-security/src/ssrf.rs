@@ -106,6 +106,10 @@ pub fn is_private_ip(ip: &IpAddr) -> bool {
                 || v6.is_multicast()
                 || is_ula_v6(v6)
                 || is_link_local_v6(v6)
+                // RFC 8215 local-use translation prefix is not global space.
+                || (v6.segments()[0] == 0x64
+                    && v6.segments()[1] == 0xff9b
+                    && v6.segments()[2] == 1)
         }
     }
 }
@@ -239,6 +243,18 @@ mod tests {
         assert!(!is_private_ip(&IpAddr::V6(nat64_public)));
         assert!(is_private_ip(&IpAddr::V6(sixtofour_loopback)));
         assert!(!is_private_ip(&IpAddr::V6(sixtofour_public)));
+    }
+
+    #[test]
+    fn test_local_use_nat64_prefix_is_blocked() {
+        for address in [
+            "64:ff9b:1::",
+            "64:ff9b:1::7f00:1",
+            "64:ff9b:1:ffff:ffff:ffff:ffff:ffff",
+        ] {
+            assert!(is_private_ip(&address.parse().unwrap()));
+        }
+        assert!(!is_private_ip(&"64:ff9b:2::1".parse().unwrap()));
     }
 
     #[test]

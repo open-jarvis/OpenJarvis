@@ -89,9 +89,12 @@ def _is_sensitive_file_py(path_str: str) -> bool:
     # the same file as ".env" / "id_rsa". The patterns are all lowercase.
     p = Path(path_str)
     name = p.name.lower()
+    # Match both the literal name and its Win32-compatible basename. NTFS
+    # streams and trailing dots/spaces must not hide a credential filename.
+    alias = name.partition(":")[0].rstrip(" .")
     full = str(p).lower()
     for pattern in DEFAULT_SENSITIVE_PATTERNS:
-        if fnmatch.fnmatchcase(name, pattern) or fnmatch.fnmatchcase(full, pattern):
+        if any(fnmatch.fnmatchcase(value, pattern) for value in (name, alias, full)):
             return True
     return False
 

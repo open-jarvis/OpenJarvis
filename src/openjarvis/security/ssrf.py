@@ -34,6 +34,7 @@ _BLOCKED_CIDR = [
     ipaddress.ip_network("255.255.255.255/32"),  # broadcast
     ipaddress.ip_network("::/128"),  # IPv6 unspecified
     ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("64:ff9b:1::/48"),  # local-use translation, RFC 8215
     ipaddress.ip_network("fc00::/7"),  # unique local
     ipaddress.ip_network("fe80::/10"),  # link-local v6
     ipaddress.ip_network("ff00::/8"),  # IPv6 multicast

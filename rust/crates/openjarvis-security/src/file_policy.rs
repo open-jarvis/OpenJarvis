@@ -30,8 +30,11 @@ static SENSITIVE_PATTERNS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     ])
 });
 
-static SENSITIVE_EXTENSIONS: Lazy<Vec<&'static str>> =
-    Lazy::new(|| vec![".pem", ".key", ".p12", ".pfx", ".jks", ".secrets", ".kdbx"]);
+static SENSITIVE_EXTENSIONS: Lazy<Vec<&'static str>> = Lazy::new(|| {
+    vec![
+        ".env", ".pem", ".key", ".p12", ".pfx", ".jks", ".secrets", ".kdbx",
+    ]
+});
 
 static SENSITIVE_PREFIXES: Lazy<Vec<&'static str>> = Lazy::new(|| vec![".env.", "credentials."]);
 
@@ -73,8 +76,15 @@ fn matches_sensitive_name(path: &Path) -> bool {
     // Case-insensitive: on macOS and Windows ".ENV" or "Id_Rsa" name the same
     // file as ".env" / "id_rsa". All patterns are lowercase.
     let lowered = name.to_lowercase();
-    let name = lowered.as_str();
+    let alias = lowered
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(['.', ' ']);
+    matches_sensitive_basename(&lowered) || matches_sensitive_basename(alias)
+}
 
+fn matches_sensitive_basename(name: &str) -> bool {
     if SENSITIVE_PATTERNS.contains(name) {
         return true;
     }
@@ -133,6 +143,13 @@ mod tests {
             ".npmrc",
             ".pypirc",
             "vault.KDBX",
+            "production.env",
+            "PRODUCTION.ENV",
+            "id_rsa::$DATA",
+            ".npmrc.",
+            ".pypirc ",
+            "vault.kdbx:backup:$DATA",
+            "normal:secret.pem",
             ".Env.Local",
         ] {
             assert!(
@@ -142,6 +159,7 @@ mod tests {
         }
         assert!(!is_sensitive_file(Path::new("/srv/app/environment.py")));
         assert!(!is_sensitive_file(Path::new("/srv/app/id_rsa.pub")));
+        assert!(!is_sensitive_file(Path::new("/srv/app/id_rsa.pub::$DATA")));
     }
 
     #[test]
