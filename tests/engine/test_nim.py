@@ -136,15 +136,36 @@ def test_generate_maps_gateway_errors(respx_mock, status) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", [502, 503, 504])
-async def test_stream_maps_gateway_errors(respx_mock, status) -> None:
+@pytest.mark.parametrize("method", ["stream", "stream_full"])
+async def test_stream_maps_gateway_errors(respx_mock, status, method) -> None:
     respx_mock.post(_CHAT_URL).mock(return_value=httpx.Response(status))
     engine = NIMEngine(host=_HOST)
 
     with pytest.raises(EngineConnectionError, match=str(status)):
-        async for _ in engine.stream(_message(), model="nim-model"):
+        async for _ in getattr(engine, method)(_message(), model="nim-model"):
             pass
 
     engine._client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 429])
+@pytest.mark.parametrize("method", ["generate", "stream", "stream_full"])
+async def test_non_gateway_status_is_preserved(respx_mock, status, method) -> None:
+    route = respx_mock.post(_CHAT_URL).mock(return_value=httpx.Response(status))
+    engine = NIMEngine(host=_HOST)
+
+    try:
+        with pytest.raises(httpx.HTTPStatusError) as error:
+            if method == "generate":
+                engine.generate(_message(), model="nim-model")
+            else:
+                async for _ in getattr(engine, method)(_message(), model="nim-model"):
+                    pass
+        assert error.value.response.status_code == status
+        assert route.call_count == 1
+    finally:
+        engine.close()
 
 
 def test_health_falls_back_to_models(respx_mock) -> None:
