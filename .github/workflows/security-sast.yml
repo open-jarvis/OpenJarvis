@@ -118,6 +118,9 @@ jobs:
           BASELINE: ${{ github.event.pull_request.base.sha || github.event.before }}
         shell: bash
         run: |
+          # checkout uses a temporary HOME; trust only this ephemeral checkout
+          # in the scanner container's actual Git configuration as well.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           args=()
           if [ -n "$BASELINE" ] && [ "$BASELINE" != 0000000000000000000000000000000000000000 ]; then
             git cat-file -e "$BASELINE^{commit}"
