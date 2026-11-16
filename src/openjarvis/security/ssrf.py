@@ -39,6 +39,11 @@ _BLOCKED_CIDR = [
     ipaddress.ip_network("ff00::/8"),  # IPv6 multicast
 ]
 
+# IANA lists these two protocol anycast endpoints as globally reachable.
+_PUBLIC_PROTOCOL_IPS = frozenset(
+    ipaddress.ip_address(ip) for ip in ("192.0.0.9", "192.0.0.10")
+)
+
 
 def _embedded_ipv4(addr: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
     """Return the embedded IPv4 for IPv4-mapped (`::ffff:a.b.c.d`),
@@ -80,7 +85,9 @@ def is_private_ip(ip_str: str) -> bool:
         embedded = _embedded_ipv4(addr)
         if embedded is not None:
             addr = embedded
-    return any(addr in net for net in _BLOCKED_CIDR)
+    return addr not in _PUBLIC_PROTOCOL_IPS and any(
+        addr in net for net in _BLOCKED_CIDR
+    )
 
 
 def check_ssrf(url: str) -> Optional[str]:

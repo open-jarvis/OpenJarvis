@@ -247,6 +247,8 @@ class TestCaseInsensitiveAndExtraNames:
         ".Env.Local",
         "id_ecdsa",
         "id_dsa",
+        "id_ecdsa_sk",
+        "id_ed25519_sk",
         ".npmrc",
         ".pypirc",
         "vault.KDBX",

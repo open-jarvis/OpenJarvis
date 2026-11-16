@@ -208,9 +208,7 @@ class OrchestratorAgent(ToolUsingAgent):
                     # it a model repeating one call was only stopped by
                     # max_turns.
                     verdict = (
-                        self._loop_guard.check_call(
-                            tool_call.name, tool_call.arguments
-                        )
+                        self._loop_guard.check_call(tool_call.name, tool_call.arguments)
                         if self._loop_guard
                         else None
                     )
@@ -324,10 +322,12 @@ class OrchestratorAgent(ToolUsingAgent):
             "final_answer": "",
         }
 
+        next_field = r"(?=^[ \t]*(?:THOUGHT|TOOL|INPUT|FINAL[_ ]?ANSWER):|\Z)"
+        flags = re.DOTALL | re.IGNORECASE | re.MULTILINE
         thought_match = re.search(
-            r"THOUGHT:\s*(.+?)(?=\nTOOL:|\nFINAL[_ ]?ANSWER:|\Z)",
+            rf"^[ \t]*THOUGHT:[ \t]*(.*?){next_field}",
             text,
-            re.DOTALL | re.IGNORECASE,
+            flags,
         )
         if thought_match:
             result["thought"] = thought_match.group(1).strip()
@@ -336,16 +336,16 @@ class OrchestratorAgent(ToolUsingAgent):
         # inside THOUGHT such as "I need a tool: search" or "before the final
         # answer: ..." was parsed as a real TOOL / FINAL_ANSWER field.
         final_match = re.search(
-            r"^[ \t]*FINAL[_ ]?ANSWER:\s*(.+)",
+            r"^[ \t]*FINAL[_ ]?ANSWER:[ \t]*(.*)",
             text,
-            re.DOTALL | re.IGNORECASE | re.MULTILINE,
+            flags,
         )
         if final_match:
             result["final_answer"] = final_match.group(1).strip()
             return result
 
         tool_match = re.search(
-            r"^[ \t]*TOOL:\s*(.+)",
+            r"^[ \t]*TOOL:[ \t]*([^\r\n]*)",
             text,
             re.IGNORECASE | re.MULTILINE,
         )
@@ -353,9 +353,9 @@ class OrchestratorAgent(ToolUsingAgent):
             result["tool"] = tool_match.group(1).strip()
 
         input_match = re.search(
-            r"^[ \t]*INPUT:\s*(.+?)(?=\nTHOUGHT:|\nTOOL:|\nFINAL|\Z)",
+            rf"^[ \t]*INPUT:[ \t]*(.*?){next_field}",
             text,
-            re.DOTALL | re.IGNORECASE | re.MULTILINE,
+            flags,
         )
         if input_match:
             result["input"] = input_match.group(1).strip()

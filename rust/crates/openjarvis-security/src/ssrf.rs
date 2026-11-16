@@ -85,7 +85,9 @@ pub fn is_private_ip(ip: &IpAddr) -> bool {
                 // metadata service (100.100.100.200) lives here.
                 || is_in_cidr_v4(v4, Ipv4Addr::new(100, 64, 0, 0), 10)
                 // 192.0.0.0/24 — IETF protocol assignments
-                || is_in_cidr_v4(v4, Ipv4Addr::new(192, 0, 0, 0), 24)
+                || (is_in_cidr_v4(v4, Ipv4Addr::new(192, 0, 0, 0), 24)
+                    && v4.octets() != [192, 0, 0, 9]
+                    && v4.octets() != [192, 0, 0, 10])
                 // 198.18.0.0/15 — benchmarking
                 || is_in_cidr_v4(v4, Ipv4Addr::new(198, 18, 0, 0), 15)
                 // 240.0.0.0/4 — reserved (includes 255.255.255.255)
@@ -150,9 +152,7 @@ pub fn check_ssrf(url_str: &str) -> Option<String> {
             // Normalize IPv4-mapped / IPv4-compatible IPv6 to embedded IPv4
             // so the `BLOCKED_HOSTS` and private-range checks below catch
             // them. This is the core SSRF fix.
-            embedded_ipv4(v6)
-                .map(IpAddr::V4)
-                .unwrap_or(IpAddr::V6(*v6)),
+            embedded_ipv4(v6).map(IpAddr::V4).unwrap_or(IpAddr::V6(*v6)),
         ),
         url::Host::Domain(_) => None,
     };
@@ -224,6 +224,9 @@ mod tests {
         }
         assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(100, 128, 0, 1))));
         assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(198, 20, 0, 1))));
+        // Globally reachable PCP and TURN anycast exceptions in 192.0.0/24.
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(192, 0, 0, 9))));
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(192, 0, 0, 10))));
     }
 
     #[test]
@@ -327,7 +330,10 @@ mod tests {
     #[test]
     fn test_check_ssrf_allows_ipv4_mapped_public() {
         let result = check_ssrf("http://[::ffff:8.8.8.8]/");
-        assert!(result.is_none(), "public IP wrapped as IPv6 must be allowed");
+        assert!(
+            result.is_none(),
+            "public IP wrapped as IPv6 must be allowed"
+        );
     }
 
     #[test]
@@ -335,7 +341,10 @@ mod tests {
         // ::ffff:100.100.100.200 — Alibaba metadata; not in any private CIDR,
         // so must be caught by `BLOCKED_HOSTS` lookup on the normalized IPv4.
         let result = check_ssrf("http://[::ffff:100.100.100.200]/");
-        assert!(result.is_some(), "Alibaba metadata via mapped form must be blocked");
+        assert!(
+            result.is_some(),
+            "Alibaba metadata via mapped form must be blocked"
+        );
         assert!(result.unwrap().contains("Blocked host"));
     }
 

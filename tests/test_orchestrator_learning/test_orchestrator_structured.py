@@ -473,16 +473,14 @@ class _CountingTool(_MockTool):
 
     def execute(self, **params) -> ToolResult:
         self.executed += 1
-        return ToolResult(
-            tool_name="calculator", content="same result", success=True
-        )
+        return ToolResult(tool_name="calculator", content="same result", success=True)
 
 
 class TestStructuredLoopGuard:
     def test_repeated_identical_call_is_eventually_blocked(self):
         """Structured mode must consult the loop guard like function-calling
         mode does, instead of running the same call until max_turns."""
-        repeated = "THOUGHT: again\nTOOL: calculator\nINPUT: {\"expression\": \"1+1\"}"
+        repeated = 'THOUGHT: again\nTOOL: calculator\nINPUT: {"expression": "1+1"}'
         engine = _MockEngine([repeated] * 11 + ["FINAL_ANSWER: done"])
         tool = _CountingTool()
         agent = OrchestratorAgent(
@@ -501,6 +499,27 @@ class TestStructuredLoopGuard:
 
 
 class TestParseStructuredResponse:
+    def test_empty_tool_does_not_consume_input_marker(self):
+        parsed = OrchestratorAgent._parse_structured_response("TOOL:\nINPUT: {}")
+        assert parsed["tool"] == ""
+        assert parsed["input"] == "{}"
+
+    def test_empty_input_does_not_consume_thought_marker(self):
+        parsed = OrchestratorAgent._parse_structured_response(
+            "TOOL: calculator\nINPUT:\n  THOUGHT: wait"
+        )
+        assert parsed["input"] == ""
+        assert parsed["thought"] == "wait"
+
+    def test_indented_case_insensitive_fields_stop_at_next_marker(self):
+        parsed = OrchestratorAgent._parse_structured_response(
+            "  thought: reasoning\n  tool: calculator\n"
+            '  input: {"expression":"2+2"}\n  thought: after'
+        )
+        assert parsed["thought"] == "reasoning"
+        assert parsed["tool"] == "calculator"
+        assert parsed["input"] == '{"expression":"2+2"}'
+
     def test_parse_thought_tool_input(self):
         parsed = OrchestratorAgent._parse_structured_response(
             "THOUGHT: reasoning\nTOOL: calculator\nINPUT: 2+2"
@@ -535,8 +554,7 @@ class TestParseStructuredResponse:
 
     def test_input_word_inside_thought_is_ignored(self):
         parsed = OrchestratorAgent._parse_structured_response(
-            "THOUGHT: the INPUT: field must be JSON\n"
-            "TOOL: calculator\nINPUT: 2+2"
+            "THOUGHT: the INPUT: field must be JSON\nTOOL: calculator\nINPUT: 2+2"
         )
         assert parsed["input"] == "2+2"
 

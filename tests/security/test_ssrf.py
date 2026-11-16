@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from openjarvis.security.ssrf import _check_ssrf_python, check_ssrf, is_private_ip
 
 
@@ -309,3 +311,33 @@ class TestReservedRanges:
     def test_nat64_literal_url_blocked(self):
         result = _check_ssrf_python("http://[64:ff9b::7f00:1]/")
         assert result is not None
+
+
+@pytest.mark.parametrize(
+    ("address", "blocked"),
+    [
+        ("100.63.255.255", False),
+        ("100.64.0.0", True),
+        ("100.127.255.255", True),
+        ("100.128.0.0", False),
+        ("192.0.0.8", True),
+        ("192.0.0.9", False),
+        ("192.0.0.10", False),
+        ("192.0.0.11", True),
+        ("198.19.255.255", True),
+        ("198.20.0.0", False),
+        ("240.0.0.0", True),
+        ("64:ff9b::7f00:1", True),
+        ("64:ff9b::808:808", False),
+        ("2002:7f00:1::1", True),
+        ("2002:808:808::1", False),
+        ("64:ff9b::c000:9", False),
+    ],
+)
+def test_reserved_address_policy_matches_native_and_python(address, blocked):
+    native = pytest.importorskip("openjarvis_rust")
+    host = f"[{address}]" if ":" in address else address
+    url = f"http://{host}/"
+    assert is_private_ip(address) is blocked
+    assert bool(_check_ssrf_python(url)) is blocked
+    assert bool(native.check_ssrf(url)) is blocked
