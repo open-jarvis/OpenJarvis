@@ -31,9 +31,16 @@ _SECTION_ORDER: List[tuple] = [
             "outlook",
             "notion",
             "github_notifications",
+            "gcontacts",
+            "apple_contacts",
         },
     ),
-    ("CALENDAR", {"gcalendar"}),
+    # apple_calendar belongs here with gcalendar.  Left out, its events
+    # fell through to OTHER, so a briefing built from the CALENDAR section
+    # never saw them even though the connector had returned them.  The
+    # other Apple connectors are mapped (apple_health, apple_music), so
+    # this was an omission rather than a decision.
+    ("CALENDAR", {"gcalendar", "apple_calendar"}),
     ("WORLD", {"weather", "hackernews", "news_rss"}),
     ("MUSIC", {"spotify", "apple_music"}),
 ]

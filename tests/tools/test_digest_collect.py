@@ -104,3 +104,40 @@ def test_oura_line_without_day_uses_timestamp_date():
     )
 
     assert _format_doc("oura", doc).startswith("[oura] Sleep — April 1: score 82")
+
+
+class TestSectionMapping:
+    """Every connector a briefing section needs must map to that section.
+
+    An unmapped connector is not dropped -- it lands under OTHER, which is
+    worse than an error: the data is collected, the section it belongs to
+    stays empty, and nothing reports a problem.
+    """
+
+    def test_apple_calendar_belongs_to_the_calendar_section(self):
+        from openjarvis.tools.digest_collect import _CONNECTOR_TO_SECTION
+
+        assert _CONNECTOR_TO_SECTION.get("apple_calendar") == "CALENDAR"
+
+    def test_both_calendars_land_in_the_same_section(self):
+        from openjarvis.tools.digest_collect import _CONNECTOR_TO_SECTION
+
+        assert (
+            _CONNECTOR_TO_SECTION["apple_calendar"]
+            == (_CONNECTOR_TO_SECTION["gcalendar"])
+        )
+
+    def test_contact_connectors_are_mapped(self):
+        from openjarvis.tools.digest_collect import _CONNECTOR_TO_SECTION
+
+        for connector in ("gcontacts", "apple_contacts"):
+            assert connector in _CONNECTOR_TO_SECTION, connector
+
+    def test_no_connector_is_mapped_to_two_sections(self):
+        from openjarvis.tools.digest_collect import _SECTION_ORDER
+
+        seen: dict = {}
+        for section, ids in _SECTION_ORDER:
+            for cid in ids:
+                assert cid not in seen, f"{cid} in {seen[cid]} and {section}"
+                seen[cid] = section
