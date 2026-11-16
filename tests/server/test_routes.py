@@ -1885,3 +1885,222 @@ class TestTraceRecording:
         assert trace.query == "stream please"
         # _make_engine streams "Hello", " ", "world".
         assert trace.result == "Hello world"
+
+
+class TestLocalEngineStreaming:
+    def test_local_engine_org_model_streams_locally(self):
+        """A ``publisher/model`` ID advertised by a local engine stays local.
+
+        LM Studio lists models as ``qwen/qwen3-4b-2507``; the OpenRouter name
+        heuristic must not send that chat to a cloud provider.
+        """
+        from openjarvis.engine.multi import MultiEngine
+
+        model = "qwen/qwen3-4b-2507"
+        local = _make_engine(models=[model])
+        local.engine_id = "lmstudio"
+        local.is_cloud = False
+        engine = MultiEngine([("lmstudio", local)])
+        app = create_app(engine, model, config=_test_config())
+
+        async def direct_cloud_tokens():
+            yield "wrong backend"
+
+        with patch(
+            "openjarvis.server.cloud_router.stream_cloud",
+            return_value=direct_cloud_tokens(),
+        ) as stream_cloud:
+            resp = TestClient(app).post(
+                "/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "stream": True,
+                },
+            )
+
+        assert resp.status_code == 200
+        stream_cloud.assert_not_called()
+        assert "Hello" in resp.text
+        assert '"engine": "lmstudio"' in resp.text
+
+
+class TestDirectCloudRouting:
+    """``_uses_direct_cloud_router`` decides when a chat leaves the device."""
+
+    @staticmethod
+    def _multi(*entries):
+        from openjarvis.engine.multi import MultiEngine
+
+        engines = []
+        for key, models, is_cloud in entries:
+            eng = MagicMock()
+            eng.is_cloud = is_cloud
+            eng.list_models.return_value = models
+            engines.append((key, eng))
+        return MultiEngine(engines)
+
+    def test_org_model_listed_by_local_engine_stays_local(self):
+        from openjarvis.server.routes import _uses_direct_cloud_router
+
+        engine = self._multi(("lmstudio", ["google/gemma-4-e4b"], False))
+        assert _uses_direct_cloud_router(engine, "google/gemma-4-e4b") is False
+
+    def test_org_model_listed_only_by_cloud_engine_goes_to_cloud(self):
+        from openjarvis.server.routes import _uses_direct_cloud_router
+
+        engine = self._multi(
+            ("lmstudio", ["qwen3-4b-instruct-2507"], False),
+            ("cloud", ["meta-llama/llama-3-8b"], True),
+        )
+        assert _uses_direct_cloud_router(engine, "meta-llama/llama-3-8b") is True
+
+    def test_unknown_org_model_still_goes_to_cloud(self):
+        from openjarvis.server.routes import _uses_direct_cloud_router
+
+        engine = self._multi(("lmstudio", ["qwen3-4b-instruct-2507"], False))
+        assert _uses_direct_cloud_router(engine, "meta-llama/llama-3-8b") is True
+
+    def test_plain_local_engine_listing_org_model_stays_local(self):
+        from openjarvis.server.routes import _uses_direct_cloud_router
+
+        engine = _make_engine(models=["qwen/qwen3-4b-2507"])
+        engine.engine_id = "lmstudio"
+        engine.is_cloud = False
+        assert _uses_direct_cloud_router(engine, "qwen/qwen3-4b-2507") is False
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_local_provider_models_are_listed_without_repeated_discovery(multi):
+    from openjarvis.engine.multi import MultiEngine
+
+    models = ["qwen/qwen3-4b-2507", "google/gemma-4-e4b"]
+    local = _make_engine(models=models)
+    local.engine_id = "lmstudio"
+    local.is_cloud = False
+    engine = MultiEngine([("lmstudio", local)]) if multi else local
+    app = create_app(engine, models[0], config=_test_config())
+    local.list_models.reset_mock()
+
+    response = TestClient(app).get("/v1/models")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["data"]] == models
+    assert local.list_models.call_count <= 1
+
+
+def test_local_discovery_failure_does_not_send_a_provider_model_to_cloud():
+    model = "qwen/qwen3-4b-2507"
+    local = _make_engine(models=[model])
+    local.engine_id = "lmstudio"
+    local.is_cloud = False
+    app = create_app(local, model, config=_test_config())
+    local.list_models.side_effect = RuntimeError("discovery unavailable")
+
+    with patch(
+        "openjarvis.server.cloud_router.stream_cloud",
+        side_effect=AssertionError("Local prompt reached cloud"),
+    ) as cloud:
+        response = TestClient(app).post(
+            "/v1/chat/completions",
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": True,
+            },
+        )
+
+    assert response.status_code == 200
+    assert "Hello" in response.text
+    cloud.assert_not_called()
+
+
+@pytest.mark.parametrize("is_cloud", [False, True])
+def test_wrapped_model_owners_retain_cloud_or_local_classification(is_cloud):
+    from openjarvis.engine.multi import MultiEngine
+    from openjarvis.security.guardrails import GuardrailsEngine
+    from openjarvis.server.routes import _uses_direct_cloud_router
+    from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+
+    model = "example/model"
+    inner = _make_engine(models=[model])
+    inner.is_cloud = is_cloud
+    wrapped = GuardrailsEngine(InstrumentedEngine(inner, EventBus()), scanners=[])
+    engine = MultiEngine([("owner", wrapped)])
+    assert _uses_direct_cloud_router(engine, model) is is_cloud
+
+
+def test_discovery_failure_preserves_explicit_cloud_choices():
+    from openjarvis.server.routes import _uses_direct_cloud_router
+
+    engine = _make_engine(models=["private/model"])
+    engine.engine_id = "lmstudio"
+    engine.is_cloud = False
+    engine.list_models.side_effect = RuntimeError("discovery unavailable")
+
+    for model in ("gpt-4o", "openrouter/auto", "atlascloud/openai/gpt-4.1-mini"):
+        assert _uses_direct_cloud_router(engine, model) is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_tools", [False, True])
+async def test_slow_local_discovery_keeps_health_endpoint_responsive(with_tools):
+    import asyncio
+    import threading
+
+    import httpx
+
+    from openjarvis.engine._stubs import StreamChunk
+
+    started = threading.Event()
+    release = threading.Event()
+    metadata_timed_out = threading.Event()
+    model = "qwen/qwen3-4b-2507"
+    engine = _make_engine(models=[model])
+    engine.engine_id = "lmstudio"
+    engine.is_cloud = False
+
+    def slow_models():
+        started.set()
+        if not release.wait(timeout=10):
+            metadata_timed_out.set()
+            raise RuntimeError("test metadata wait expired")
+        return [model]
+
+    async def stream_full(*args, **kwargs):
+        yield StreamChunk(content="Hello")
+
+    engine.list_models.side_effect = slow_models
+    engine.stream_full = stream_full
+    app = create_app(engine, model, config=_test_config())
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": "hello"}],
+        "stream": True,
+    }
+    if with_tools:
+        payload["tools"] = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "lookup",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        pending = asyncio.create_task(client.post("/v1/chat/completions", json=payload))
+        try:
+            assert await asyncio.wait_for(asyncio.to_thread(started.wait, 5), timeout=6)
+            health = await asyncio.wait_for(client.get("/health"), timeout=3)
+            assert health.status_code == 200
+            assert not metadata_timed_out.is_set()
+        finally:
+            release.set()
+            response = await asyncio.wait_for(pending, timeout=5)
+
+    assert response.status_code == 200
+    assert "Hello" in response.text

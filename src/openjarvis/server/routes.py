@@ -449,6 +449,50 @@ def _engine_key_for_model(engine: Any, model: str) -> str | None:
     return None
 
 
+def _local_engine_advertises(
+    engine: Any, model: str, *, known_models: set[str] | None = None
+) -> bool:
+    """Whether a non-cloud engine behind *engine* lists *model* verbatim.
+
+    Local OpenAI-compatible servers such as LM Studio advertise
+    ``publisher/model`` IDs (e.g. ``qwen/qwen3-4b-2507``) that look like
+    OpenRouter IDs to :func:`~openjarvis.server.cloud_router.is_cloud_model`.
+    When a local engine lists the exact ID, it owns the model.
+    """
+    from openjarvis.engine.multi import MultiEngine
+    from openjarvis.security.guardrails import GuardrailsEngine
+    from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+
+    current = engine
+    mapped_owner = False
+    while True:
+        if isinstance(current, InstrumentedEngine):
+            current = current._inner
+        elif isinstance(current, GuardrailsEngine):
+            current = current._engine
+        elif isinstance(current, MultiEngine):
+            key = current.engine_key_for(model)
+            current = next((eng for k, eng in current._engines if k == key), None)
+            if current is None:
+                return False
+            mapped_owner = True
+        else:
+            break
+    if getattr(current, "is_cloud", False) is True:
+        return False
+    if mapped_owner:
+        return True
+    if known_models is not None:
+        return model in known_models
+    try:
+        return model in current.list_models()
+    except Exception:
+        logging.getLogger("openjarvis.server").debug(
+            "Local model discovery failed; keeping ambiguous provider IDs local"
+        )
+        return "/" in model
+
+
 def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
     """Whether *model* should bypass the configured engine for direct cloud."""
     from openjarvis.server.cloud_router import get_provider, is_cloud_model
@@ -464,7 +508,10 @@ def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
         # Do not make a blocking model-list HTTP request on every chat turn.
         provider = get_provider(model)
         return "/" not in model or model.startswith(f"{provider}/")
-    return True
+    provider = get_provider(model)
+    if model.startswith(f"{provider}/"):
+        return True
+    return not _local_engine_advertises(engine, model)
 
 
 def _handle_direct(
@@ -816,7 +863,7 @@ async def _handle_stream_tools(
     messages = _to_messages(req.messages)
     messages = _ensure_identity_prompt(messages, app_config)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-    use_cloud = _uses_direct_cloud_router(engine, model)
+    use_cloud = await asyncio.to_thread(_uses_direct_cloud_router, engine, model)
     telemetry_engine = (
         "cloud" if use_cloud else (_engine_key_for_model(engine, model) or "ollama")
     )
@@ -955,7 +1002,7 @@ async def _handle_stream(
 
     # Route directly to the right backend — bypasses engine routing entirely
     # so broken MultiEngine state can never misdirect requests.
-    use_cloud = _uses_direct_cloud_router(engine, model)
+    use_cloud = await asyncio.to_thread(_uses_direct_cloud_router, engine, model)
     telemetry_engine = (
         "cloud" if use_cloud else (_engine_key_for_model(engine, model) or "ollama")
     )
@@ -1130,11 +1177,13 @@ async def list_models(request: Request) -> ModelListResponse:
     # Fall back to direct Ollama query only when the engine returns nothing.
     engine = request.app.state.engine
     all_ids = await asyncio.to_thread(engine.list_models)
+    known_models = set(all_ids)
     model_ids = [
         m
         for m in all_ids
         if not is_cloud_model(m)
         or _engine_key_for_model(engine, m) in ("litellm", "nim")
+        or _local_engine_advertises(engine, m, known_models=known_models)
     ]
     if not model_ids:
         model_ids = await list_local_models()
