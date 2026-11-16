@@ -4,11 +4,37 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from openjarvis.security.rate_limiter import (
     RateLimitConfig,
     RateLimiter,
     TokenBucket,
 )
+
+
+@pytest.fixture(params=["native", "python"], autouse=True)
+def security_backend(request, monkeypatch):
+    import openjarvis._rust_bridge as bridge
+
+    if request.param == "native" and not bridge.RUST_AVAILABLE:
+        pytest.skip("native extension unavailable")
+    monkeypatch.setattr(bridge, "RUST_AVAILABLE", request.param == "native")
+
+
+def test_reset_empty_key_does_not_reset_other_keys():
+    limiter = RateLimiter(RateLimitConfig(burst_size=1))
+    assert limiter.check("")[0]
+    assert limiter.check("other")[0]
+    limiter.reset("")
+    assert limiter.check("")[0]
+    assert limiter.check("other")[0] is False
+
+
+def test_zero_rate_remains_denied_after_burst():
+    limiter = RateLimiter(RateLimitConfig(requests_per_minute=0, burst_size=1))
+    assert limiter.check("key") == (True, 0.0)
+    assert limiter.check("key") == (False, float("inf"))
 
 
 class TestTokenBucket:

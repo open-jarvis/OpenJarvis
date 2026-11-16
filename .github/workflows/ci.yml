@@ -154,6 +154,10 @@ jobs:
         shell: bash
         run: uv run pytest tests/security/test_file_policy.py tests/security/test_ssrf.py -q
 
+      - name: Verify capability and rate-limit backend parity
+        shell: bash
+        run: uv run pytest tests/security/test_capabilities.py tests/security/test_rate_limiter.py tests/security/test_optional_native_security.py -q
+
       - name: Smoke-test CLI
         shell: bash
         run: |
