@@ -1,4 +1,14 @@
 {
   "schema": 1,
-  "exceptions": []
+  "exceptions": [
+    {
+      "lockfile": "frontend/src-tauri/Cargo.lock",
+      "package": "glib",
+      "version": "0.18.5",
+      "advisories": ["RUSTSEC-2024-0429"],
+      "reason": "Tauri's Linux GTK3 dependency requires glib 0.18; the upstream fix starts at 0.20 and cannot be substituted without a GTK migration. OpenJarvis does not directly use VariantStrIter. This Linux-only upstream risk remains visible and must be reviewed again before expiry.",
+      "upstream": "https://rustsec.org/advisories/RUSTSEC-2024-0429.html",
+      "expires": "2026-12-16"
+    }
+  ]
 }

@@ -1,6 +1,6 @@
 name: security-sast
 
-# Called by the required lint job's dependency. Audits cannot be skipped or
+# Called by the core lint job's dependency. Audits cannot be skipped or
 # turned into green checks by suppressing scanner failures.
 on:
   workflow_call:
