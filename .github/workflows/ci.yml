@@ -10,10 +10,23 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  security:
+    uses: ./.github/workflows/security-sast.yml
+
   lint:
+    needs: security
+    if: always()
     runs-on: ubuntu-latest
     steps:
+      - name: Require a complete successful security audit
+        env:
+          SECURITY_RESULT: ${{ needs.security.result }}
+        run: test "$SECURITY_RESULT" = success
+
       - uses: actions/checkout@v7
 
       - name: Set up Python
