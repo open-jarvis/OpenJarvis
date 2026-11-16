@@ -38,7 +38,7 @@ describe('message text direction', () => {
 
     expect(html).toMatch(/<blockquote dir="auto">/);
     expect(html).toMatch(/<blockquote dir="auto">[\s\S]*<div[^>]*dir="ltr"/);
-    expect(html).toContain('const value = 1;');
+    expect(html.replace(/<[^>]*>/g, '')).toContain('const value = 1;');
   });
 
   it('lets mixed-language table cells choose their direction independently', () => {
