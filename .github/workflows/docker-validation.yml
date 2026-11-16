@@ -1,0 +1,58 @@
+name: Docker validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/docker-validation.yml"
+      - "deploy/docker/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "rust/**"
+      - "frontend/**"
+      - "src/**"
+      - "scripts/install/**"
+      - "configs/openjarvis/examples/**"
+      - "deploy/windows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build the CPU image from tracked source
+        env:
+          IMAGE: openjarvis-validation:${{ github.sha }}
+        run: |
+          git archive --format=tar HEAD | docker build \
+            --progress=plain --file deploy/docker/Dockerfile --tag "$IMAGE" -
+
+      - name: Verify installed CLI, native extension, UI, and presets
+        env:
+          IMAGE: openjarvis-validation:${{ github.sha }}
+        run: |
+          docker run --rm --network none "$IMAGE" --version
+          docker run --rm --network none --entrypoint python "$IMAGE" -c '
+          import os
+          from pathlib import Path
+          from importlib.resources import files
+          import openjarvis_rust
+          from openjarvis.cli._presets import available_presets
+          assert os.getuid() != 0, "runtime must use an unprivileged user"
+          assert os.access(Path.home(), os.W_OK), "runtime home must be writable"
+          assert files("openjarvis.server").joinpath("static/index.html").is_file()
+          assert available_presets(), "starter presets must be bundled"
+          print("Container runtime smoke checks passed")
+          '
