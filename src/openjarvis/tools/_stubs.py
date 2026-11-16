@@ -433,7 +433,8 @@ class ToolExecutor:
 
         # Execute with timeout
         timeout = tool.spec.timeout_seconds or self._default_timeout
-        t0 = time.time()
+        # perf_counter: time.time() is ~16 ms on Windows; fast tools read as 0 s.
+        t0 = time.perf_counter()
         future = _TOOL_RUNNER.submit(tool.execute, **params)
         try:
             if future is None:
@@ -468,7 +469,7 @@ class ToolExecutor:
                 content=f"Tool execution error: {exc}",
                 success=False,
             )
-        latency = time.time() - t0
+        latency = time.perf_counter() - t0
         result.latency_seconds = latency
         result.metadata["arguments"] = params
 
