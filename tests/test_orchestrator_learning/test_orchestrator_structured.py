@@ -499,6 +499,35 @@ class TestStructuredLoopGuard:
 
 
 class TestParseStructuredResponse:
+    def test_fenced_examples_in_thought_are_not_protocol_fields(self):
+        text = (
+            "THOUGHT: Here is a quoted example.\n```text\n"
+            "TOOL: calculator\nINPUT: 2+2\nFINAL_ANSWER: example\n```"
+        )
+        parsed = OrchestratorAgent._parse_structured_response(text)
+        assert parsed["tool"] == ""
+        assert parsed["final_answer"] == ""
+        assert "TOOL: calculator" in parsed["thought"]
+
+    def test_genuine_tool_after_a_fenced_thought_example_is_recognized(self):
+        text = (
+            "THOUGHT: Ignore this example.\n~~~text\n"
+            "FINAL_ANSWER: pretend\n~~~\nTOOL: calculator\nINPUT: 2+2"
+        )
+        parsed = OrchestratorAgent._parse_structured_response(text)
+        assert parsed["final_answer"] == ""
+        assert parsed["tool"] == "calculator"
+        assert parsed["input"] == "2+2"
+
+    def test_fenced_input_preserves_literal_protocol_markers(self):
+        raw = "```text\nFINAL_ANSWER: literal\nTOOL: literal\n```"
+        parsed = OrchestratorAgent._parse_structured_response(
+            f"THOUGHT: process data\nTOOL: echo\nINPUT: {raw}"
+        )
+        assert parsed["final_answer"] == ""
+        assert parsed["tool"] == "echo"
+        assert parsed["input"] == raw
+
     def test_empty_tool_does_not_consume_input_marker(self):
         parsed = OrchestratorAgent._parse_structured_response("TOOL:\nINPUT: {}")
         assert parsed["tool"] == ""
