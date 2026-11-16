@@ -6,7 +6,10 @@ synthesized, and speech models can be warmed up before the first turn.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
+
+import pytest
 
 from openjarvis.cli._voice_chat import VoiceSession, _split_for_speech, speak
 from openjarvis.speech.tts import TTSResult
@@ -139,3 +142,84 @@ def test_warm_up_never_calls_billed_tts_backends(monkeypatch):
     session._warm_up()
 
     assert backend.spoken == []
+
+
+@pytest.mark.parametrize(
+    "failure", [RuntimeError("device failed"), KeyboardInterrupt()]
+)
+def test_playback_failure_cancels_remaining_synthesis(monkeypatch, failure):
+    text = (
+        "The first sentence is ready for playback. "
+        "The second sentence is still being synthesized. "
+        "The third sentence should never be requested."
+    )
+    chunks = _split_for_speech(text)
+    second_started = threading.Event()
+    release = threading.Event()
+
+    class BlockingBackend(_Backend):
+        def synthesize(self, text, **kwargs):
+            if text == chunks[1]:
+                second_started.set()
+                assert release.wait(3)
+            return super().synthesize(text, **kwargs)
+
+    backend = BlockingBackend()
+
+    def fail_playback(audio, **kwargs):
+        assert second_started.wait(2)
+        raise failure
+
+    monkeypatch.setattr("openjarvis.speech.voice_io.play_wav", fail_playback)
+    previous_threads = set(threading.enumerate())
+    try:
+        if isinstance(failure, KeyboardInterrupt):
+            with pytest.raises(KeyboardInterrupt):
+                speak(text, _Console(), _session(monkeypatch, backend))
+        else:
+            speak(text, _Console(), _session(monkeypatch, backend))
+    finally:
+        producers = [
+            t
+            for t in threading.enumerate()
+            if t.name == "voice-tts" and t not in previous_threads
+        ]
+        release.set()
+        for producer in producers:
+            producer.join(timeout=2)
+    assert all(not t.is_alive() for t in producers)
+    assert [sentence for sentence, _ in backend.spoken] == chunks[:2]
+
+
+def test_prefetch_is_limited_to_one_pending_chunk(monkeypatch):
+    text = (
+        "The first sentence is ready for playback. "
+        "The second sentence can be prefetched now. "
+        "The third sentence must wait for the player."
+    )
+    chunks = _split_for_speech(text)
+    second_ready = threading.Event()
+    third_started = threading.Event()
+    observed = []
+    played = []
+
+    class TrackingBackend(_Backend):
+        def synthesize(self, text, **kwargs):
+            result = super().synthesize(text, **kwargs)
+            if text == chunks[1]:
+                second_ready.set()
+            if text == chunks[2]:
+                third_started.set()
+            return result
+
+    def play(audio, **kwargs):
+        if audio == chunks[0].encode():
+            assert second_ready.wait(2)
+            observed.append(third_started.wait(0.1))
+        played.append(audio)
+
+    monkeypatch.setattr("openjarvis.speech.voice_io.play_wav", play)
+    backend = TrackingBackend()
+    speak(text, _Console(), _session(monkeypatch, backend))
+    assert observed == [False]
+    assert played == [sentence.encode() for sentence in chunks]

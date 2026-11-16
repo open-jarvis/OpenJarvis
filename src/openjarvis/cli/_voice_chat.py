@@ -293,18 +293,45 @@ def _play_pipelined(
     console: Any,
     play_wav: Any,
 ) -> None:
-    """Play ``first`` while the remaining chunks are synthesized in order."""
-    results: queue.Queue[Any] = queue.Queue()
+    """Play ``first`` while prefetching at most one subsequent chunk.
+
+    Cancellation prevents further synthesis. An already-running synchronous
+    backend call may finish, so joining it on interruption is time-bounded.
+    """
+    results: queue.Queue[Any] = queue.Queue(maxsize=1)
+    stop = threading.Event()
+    finished = threading.Event()
+    slots = threading.Semaphore(1)
 
     def synthesize_rest() -> None:
         try:
             for chunk in rest:
-                results.put(backend.synthesize(chunk, **synth_kwargs))
-        except Exception as exc:
-            results.put(exc)
+                while not stop.is_set():
+                    if slots.acquire(timeout=0.05):
+                        break
+                else:
+                    return
+                if stop.is_set():
+                    return
+                try:
+                    result = backend.synthesize(chunk, **synth_kwargs)
+                except Exception as exc:
+                    if not stop.is_set():
+                        results.put(exc)
+                    return
+                if stop.is_set():
+                    return
+                # A slot is released only when the player consumes a result.
+                results.put(result)
+        finally:
+            finished.set()
 
+    producer = None
     if rest:
-        threading.Thread(target=synthesize_rest, name="voice-tts", daemon=True).start()
+        producer = threading.Thread(
+            target=synthesize_rest, name="voice-tts", daemon=True
+        )
+        producer.start()
 
     try:
         result = first
@@ -318,12 +345,27 @@ def _play_pipelined(
             if result.audio:
                 play_wav(result.audio, sample_rate=result.sample_rate)
             if remaining:
-                result = results.get()
+                while True:
+                    try:
+                        result = results.get(timeout=0.05)
+                    except queue.Empty:
+                        if finished.is_set() and results.empty():
+                            raise RuntimeError(
+                                "Speech synthesis ended before the next audio chunk"
+                            ) from None
+                    else:
+                        slots.release()
+                        break
     except Exception as exc:
         console.print(
             "[dim yellow]Voice playback failed: "
             f"{_terminal_safe_text(exc)}[/dim yellow]"
         )
+    finally:
+        stop.set()
+        slots.release()
+        if producer is not None:
+            producer.join(timeout=0.25)
 
 
 __all__ = ["VOICE_EXIT", "VoiceSession", "read_voice_input", "record_voice", "speak"]
