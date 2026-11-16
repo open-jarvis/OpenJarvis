@@ -178,6 +178,7 @@ def test_sections_expose_prompt_metadata(memory_dir: Path):
         "soul",
         "memory",
         "user",
+        "current_time",
         "session_context",
         "previous_state",
     ]

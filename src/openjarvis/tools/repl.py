@@ -8,6 +8,7 @@ within the same session.
 from __future__ import annotations
 
 import io
+import sys
 import threading
 import time
 import uuid
@@ -125,6 +126,10 @@ class _ReplSession:
     created_at: float = field(default_factory=time.time)
     last_used: float = field(default_factory=time.time)
     execution_count: int = 0
+
+
+class _ReplTimedOut(BaseException):
+    """Cooperative deadline reached while executing a REPL-owned frame."""
 
 
 # ---------------------------------------------------------------------------
@@ -288,16 +293,32 @@ class ReplTool(BaseTool):
         code: str,
         session: _ReplSession,
     ) -> tuple[str, bool]:
-        """Execute code in a daemon thread with timeout.
+        """Execute code with a deadline checked in REPL-owned Python frames.
+
+        External library calls may finish later. Cancellation is checked in
+        REPL-compiled frames instead of injecting an exception into arbitrary
+        library code.
 
         Returns (output, success).
         """
         result_holder: Dict[str, Any] = {"output": "", "success": True}
+        cancelled = threading.Event()
+        deadline = time.perf_counter() + self._timeout
+
+        def _check_deadline(frame, event, arg):
+            # Only REPL-compiled code is traced; library frames are left alone.
+            if frame.f_code.co_filename != "<repl>":
+                return None
+            if cancelled.is_set() or time.perf_counter() >= deadline:
+                raise _ReplTimedOut
+            return _check_deadline
 
         def _run() -> None:
             stdout_buf = io.StringIO()
             stderr_buf = io.StringIO()
+            previous_trace = sys.gettrace()
             try:
+                sys.settrace(_check_deadline)
                 with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
                     # Try eval first for expression display (REPL-like behavior)
                     try:
@@ -309,10 +330,18 @@ class ReplTool(BaseTool):
                         # Not an expression — execute as statements
                         compiled = compile(code, "<repl>", "exec")
                         exec(compiled, session.namespace)  # noqa: S102
+            except _ReplTimedOut:
+                result_holder["output"] = (
+                    f"Execution timed out after {self._timeout} seconds."
+                )
+                result_holder["success"] = False
+                return
             except Exception as exc:
                 result_holder["output"] = f"{type(exc).__name__}: {exc}"
                 result_holder["success"] = False
                 return
+            finally:
+                sys.settrace(previous_trace)
 
             output = stdout_buf.getvalue()
             err = stderr_buf.getvalue()
@@ -320,11 +349,17 @@ class ReplTool(BaseTool):
                 output += ("\n" if output else "") + err
             result_holder["output"] = output
 
-        thread = threading.Thread(target=_run, daemon=True)
+        thread = threading.Thread(
+            target=_run, daemon=True, name=f"openjarvis-repl-{session.session_id}"
+        )
         thread.start()
         thread.join(timeout=self._timeout)
 
         if thread.is_alive():
+            cancelled.set()
+            # Ordinary Python loops exit promptly. Blocking native calls may
+            # finish later; do not inject exceptions into arbitrary thread code.
+            thread.join(timeout=0.1)
             return (
                 f"Execution timed out after {self._timeout} seconds.",
                 False,

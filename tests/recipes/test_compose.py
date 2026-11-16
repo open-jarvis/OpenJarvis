@@ -178,7 +178,7 @@ class TestLoadOperatorRecipe:
 
             [agent]
             type = "simple"
-            system_prompt_path = "{prompt_file}"
+            system_prompt_path = "{prompt_file.as_posix()}"
         """)
         p = tmp_path / "ext.toml"
         p.write_text(toml)
