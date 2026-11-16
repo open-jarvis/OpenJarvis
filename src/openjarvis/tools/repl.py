@@ -295,8 +295,9 @@ class ReplTool(BaseTool):
     ) -> tuple[str, bool]:
         """Execute code with a deadline checked in REPL-owned Python frames.
 
-        Native blocking calls may finish later. Cancellation never injects an
-        exception into library or context-manager cleanup frames.
+        External library calls may finish later. Cancellation is checked in
+        REPL-compiled frames instead of injecting an exception into arbitrary
+        library code.
 
         Returns (output, success).
         """
@@ -305,7 +306,7 @@ class ReplTool(BaseTool):
         deadline = time.perf_counter() + self._timeout
 
         def _check_deadline(frame, event, arg):
-            # Never interrupt library or context-manager cleanup frames.
+            # Only REPL-compiled code is traced; library frames are left alone.
             if frame.f_code.co_filename != "<repl>":
                 return None
             if cancelled.is_set() or time.perf_counter() >= deadline:
