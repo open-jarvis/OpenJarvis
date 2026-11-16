@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig, LoopVerdict
+from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig
 
 
 def test_warn_before_block_first_cycle_warns():
@@ -14,9 +14,10 @@ def test_warn_before_block_first_cycle_warns():
     guard = LoopGuard(config)
     # Simulate the Rust backend blocking on the second identical call
     mock_rust = MagicMock()
+    # The native boundary returns None or a reason string, not a Python verdict.
     mock_rust.check.side_effect = [
-        LoopVerdict(blocked=False, reason=""),
-        LoopVerdict(blocked=True, reason="identical_calls:search"),
+        None,
+        "identical_calls:search",
     ]
     guard._rust_impl = mock_rust
     guard.check_call("search", '{"q": "test"}')
@@ -34,10 +35,10 @@ def test_warn_before_block_second_cycle_blocks():
     guard = LoopGuard(config)
     mock_rust = MagicMock()
     mock_rust.check.side_effect = [
-        LoopVerdict(blocked=False, reason=""),
-        LoopVerdict(blocked=True, reason="identical_calls:search"),
-        LoopVerdict(blocked=False, reason=""),
-        LoopVerdict(blocked=True, reason="identical_calls:search"),
+        None,
+        "identical_calls:search",
+        None,
+        "identical_calls:search",
     ]
     guard._rust_impl = mock_rust
     guard.check_call("search", '{"q": "test"}')
@@ -58,8 +59,8 @@ def test_default_behavior_unchanged():
     guard = LoopGuard(config)
     mock_rust = MagicMock()
     mock_rust.check.side_effect = [
-        LoopVerdict(blocked=False, reason=""),
-        LoopVerdict(blocked=True, reason="identical_calls:search"),
+        None,
+        "identical_calls:search",
     ]
     guard._rust_impl = mock_rust
     guard.check_call("search", '{"q": "test"}')
