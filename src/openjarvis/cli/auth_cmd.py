@@ -31,7 +31,7 @@ def create_key() -> None:
 
     # Read existing config or start fresh
     if config_path.exists():
-        content = config_path.read_text()
+        content = config_path.read_text(encoding="utf-8")
     else:
         content = ""
 
@@ -45,7 +45,7 @@ def create_key() -> None:
     else:
         content += f'\n[server.auth]\napi_key = "{key}"\n'
 
-    config_path.write_text(content)
+    config_path.write_text(content, encoding="utf-8")
     os.chmod(config_path, stat.S_IRUSR | stat.S_IWUSR)  # 0600
 
     click.echo(f"API key generated: {key}")
@@ -61,11 +61,11 @@ def revoke_key() -> None:
         click.echo("No config file found.")
         return
 
-    content = config_path.read_text()
+    content = config_path.read_text(encoding="utf-8")
     if "api_key" not in content:
         click.echo("No API key found in config.")
         return
 
     content = re.sub(r'api_key\s*=\s*"[^"]*"', 'api_key = ""', content)
-    config_path.write_text(content)
+    config_path.write_text(content, encoding="utf-8")
     click.echo("API key revoked.")

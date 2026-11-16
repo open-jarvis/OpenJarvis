@@ -42,6 +42,8 @@ dependencies = [
     "rich>=13",
     "tomli>=2.0; python_version < '3.11'",
     "tomlkit>=0.12",
+    # IANA time-zone fallback for Windows and minimal container images.
+    "tzdata>=2025.3",
     "websockets>=15.0.1",
 ]
 
@@ -68,7 +70,7 @@ inference-google = [
 ]
 # Exact security pin covering the LiteLLM command-injection advisories.
 # Avoid 1.82.7/1.82.8, which were affected by the March supply-chain incident.
-inference-litellm = ["litellm==1.104.2"]
+inference-litellm = ["litellm==1.106.6"]
 inference-gemma = ["pygemma>=0.1.3"]
 tools-search = [
     "tavily-python>=0.3",
@@ -267,6 +269,9 @@ exclude = [
 "src/openjarvis/channels/whatsapp_baileys_bridge" = "_node_modules/whatsapp_baileys_bridge"
 "scripts/install" = "_install_scripts"
 "deploy/windows" = "_deploy/windows"
+# Starter presets for `jarvis init --preset` live outside the package in the
+# source tree; bundle a copy so installed wheels can find them.
+"configs/openjarvis/examples" = "openjarvis/presets"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -61,6 +61,55 @@ def test_cartesia_synthesize():
     assert result.voice_id == "test-voice"
 
 
+def test_cartesia_default_model_is_current(monkeypatch):
+    # Cartesia sunset the original "sonic" id (HTTP 400 "Model sunsetted");
+    # the default must track a model the API still serves.
+    monkeypatch.delenv("CARTESIA_MODEL", raising=False)
+    from openjarvis.speech.cartesia_tts import CartesiaTTSBackend
+
+    backend = CartesiaTTSBackend(api_key="fake-key")
+    assert backend._model == "sonic-3"
+
+
+def test_cartesia_model_env_override(monkeypatch):
+    monkeypatch.setenv("CARTESIA_MODEL", "sonic-turbo")
+    from openjarvis.speech.cartesia_tts import CartesiaTTSBackend
+
+    assert CartesiaTTSBackend(api_key="fake-key")._model == "sonic-turbo"
+    # An explicit constructor argument still wins over the environment.
+    assert CartesiaTTSBackend(api_key="fake-key", model="sonic-2")._model == "sonic-2"
+
+
+@pytest.mark.parametrize("speed", [1.0, 1.25])
+def test_cartesia_request_sends_current_model_and_api_version(speed):
+    from openjarvis.speech import cartesia_tts
+
+    captured: dict = {}
+
+    class _Resp:
+        content = b"audio-bytes"
+
+        def raise_for_status(self):
+            return None
+
+    def fake_post(url, *, headers, json, timeout):
+        captured.update(url=url, headers=headers, json=json)
+        return _Resp()
+
+    with patch.object(cartesia_tts.httpx, "post", side_effect=fake_post):
+        out = cartesia_tts._cartesia_synthesize(
+            "fake-key", "Hello", "voice-1", speed=speed
+        )
+
+    assert out == b"audio-bytes"
+    assert captured["url"].endswith("/tts/bytes")
+    assert captured["json"]["model_id"] == "sonic-3"
+    assert captured["headers"]["Cartesia-Version"] == "2025-04-16"
+    assert "speed" not in captured["json"]
+    if speed != 1.0:
+        assert captured["json"]["generation_config"] == {"speed": speed}
+
+
 # ---------------------------------------------------------------------------
 # Kokoro backend tests
 # ---------------------------------------------------------------------------

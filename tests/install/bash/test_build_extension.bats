@@ -8,6 +8,20 @@ setup() {
     touch "$OPENJARVIS_HOME/src/rust/crates/openjarvis-python/Cargo.toml"
     export UV_STUB_LOG="$TEST_TMPDIR/uv.log"
     : > "$UV_STUB_LOG"
+    export PYTHON_STUB_LOG="$TEST_TMPDIR/python.log"
+    : > "$PYTHON_STUB_LOG"
+    mkdir -p "$OPENJARVIS_HOME/.venv/bin"
+    cat > "$OPENJARVIS_HOME/.venv/bin/python" <<'EOF'
+#!/usr/bin/env bash
+echo "$0 $*" >> "$PYTHON_STUB_LOG"
+exit "${PYTHON_STUB_EXIT:-0}"
+EOF
+    chmod +x "$OPENJARVIS_HOME/.venv/bin/python"
+    # A function takes precedence over the script's self-healed PATH, even
+    # on developer machines with a real uvx in ~/.local/bin.
+    export UVX_STUB="$BATS_TEST_DIRNAME/stubs/uvx"
+    uvx() { "$UVX_STUB" "$@"; }
+    export -f uvx
     export PATH="$BATS_TEST_DIRNAME/stubs:$PATH"
     export SCRIPT="$BATS_TEST_DIRNAME/../../../scripts/install/build-extension.sh"
 }
@@ -36,10 +50,42 @@ teardown() {
     [ -f "$OPENJARVIS_HOME/.state/extension-built" ]
 }
 
-@test "calls uv run maturin develop with the right manifest" {
+@test "builds and verifies the extension in the runtime venv" {
     UV_STUB_EXIT=0 run bash "$SCRIPT"
-    grep -q "run maturin develop -m" "$UV_STUB_LOG"
-    grep -q "rust/crates/openjarvis-python/Cargo.toml" "$UV_STUB_LOG"
+    [ "$status" -eq 0 ]
+    grep -Fx "VIRTUAL_ENV=$OPENJARVIS_HOME/.venv" "$UV_STUB_LOG"
+    grep -Fx "maturin develop --uv -m $OPENJARVIS_HOME/src/rust/crates/openjarvis-python/Cargo.toml" "$UV_STUB_LOG"
+    grep -Fx "$OPENJARVIS_HOME/.venv/bin/python -c import openjarvis_rust" "$PYTHON_STUB_LOG"
+    [ ! -d "$OPENJARVIS_HOME/src/.venv" ]
+}
+
+@test "reports a failed runtime import and preserves its exit code" {
+    touch "$OPENJARVIS_HOME/.state/extension-built"
+    PYTHON_STUB_EXIT=7 run bash "$SCRIPT"
+    [ "$status" -eq 7 ]
+    [ ! -f "$OPENJARVIS_HOME/.state/extension-built" ]
+    grep -q "failed in the serving venv ($OPENJARVIS_HOME/.venv)" "$OPENJARVIS_HOME/.state/extension-failed"
+    grep -q 'exit=7' "$OPENJARVIS_HOME/.state/extension-failed"
+}
+
+@test "fails before compilation when the runtime venv is missing" {
+    touch "$OPENJARVIS_HOME/.state/extension-built"
+    rm -f "$OPENJARVIS_HOME/.venv/bin/python"
+    run bash "$SCRIPT"
+    [ "$status" -ne 0 ]
+    [ ! -s "$UV_STUB_LOG" ]
+    [ ! -f "$OPENJARVIS_HOME/.state/extension-built" ]
+    grep -q "runtime venv not found" "$OPENJARVIS_HOME/.state/extension-failed"
+}
+
+@test "fails before compilation when the manifest is missing" {
+    touch "$OPENJARVIS_HOME/.state/extension-built"
+    rm -f "$OPENJARVIS_HOME/src/rust/crates/openjarvis-python/Cargo.toml"
+    run bash "$SCRIPT"
+    [ "$status" -ne 0 ]
+    [ ! -s "$UV_STUB_LOG" ]
+    [ ! -f "$OPENJARVIS_HOME/.state/extension-built" ]
+    grep -q "manifest not found" "$OPENJARVIS_HOME/.state/extension-failed"
 }
 
 @test "atomic rename — no .tmp file left behind" {
