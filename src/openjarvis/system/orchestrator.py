@@ -176,6 +176,10 @@ class QueryOrchestrator:
                 agent_id=agent_name,
             )
         )
+        if system_prompt is None:
+            _cfg_prompt = getattr(s.config.agent, "system_prompt", "") or ""
+            if _cfg_prompt.strip():
+                system_prompt = _cfg_prompt
         if system_prompt is not None:
             agent_kwargs["system_prompt"] = system_prompt
         if operator_id is not None:

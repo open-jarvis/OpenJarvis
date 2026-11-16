@@ -63,7 +63,9 @@ class TestTraceStore:
         home = tmp_path / "home"
         cwd = tmp_path / "cwd"
         cwd.mkdir()
+        # Path.expanduser reads HOME on POSIX and USERPROFILE on Windows.
         monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
         monkeypatch.chdir(cwd)
 
         store = TraceStore("~/.openjarvis/traces.db")

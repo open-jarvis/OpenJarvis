@@ -10,7 +10,7 @@ refuses to start on a non-loopback address without one. Set it first:
 ```bash
 cd deploy/docker
 cp .env.example .env
-echo "OPENJARVIS_API_KEY=$(jarvis auth generate-key)" > .env   # or paste your own
+export OPENJARVIS_API_KEY="$(openssl rand -hex 32)"
 ```
 
 Then start both the API server and an Ollama backend with Docker Compose:
@@ -22,6 +22,8 @@ docker compose up -d
 `docker compose` reads `OPENJARVIS_API_KEY` from `.env` (or your shell
 environment) and fails fast if it is unset. Clients must then send
 `Authorization: Bearer <key>` on `/v1/*` and `/api/*` requests.
+Keep this key available in your shell, or save its value in `.env` for later
+Compose invocations. The example uses OpenSSL to generate a random key.
 
 This brings up two services:
 
@@ -75,17 +77,50 @@ ENTRYPOINT ["jarvis"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-Build it manually:
+Build it manually from the repository root:
 
 ```bash
-docker build -t openjarvis:latest .
+docker build -f deploy/docker/Dockerfile -t openjarvis:latest .
 ```
 
 Run it standalone:
 
 ```bash
-docker run -d -p 8000:8000 openjarvis:latest
+docker run -d -e OPENJARVIS_API_KEY -p 127.0.0.1:8000:8000 openjarvis:latest
 ```
+
+### Running the built image with a host Ollama server
+
+Use the `openjarvis:latest` image built above. Ollama must already be running
+on the host with a model installed and listening on an address reachable from
+containers. On Linux, its default loopback-only binding is not reachable via
+the Docker host gateway; configure its binding using the
+[Ollama server instructions](https://docs.ollama.com/faq#how-do-i-configure-ollama-server)
+and restrict access to trusted container traffic.
+
+Set an API key and map each container to a different loopback host port:
+
+```bash
+export OPENJARVIS_API_KEY="$(openssl rand -hex 32)"
+
+docker run -d --name openjarvis-8001 \
+  -e OPENJARVIS_API_KEY \
+  -e OLLAMA_HOST=http://host.docker.internal:11434 \
+  -p 127.0.0.1:8001:8000 \
+  --add-host host.docker.internal:host-gateway \
+  openjarvis:latest serve --engine ollama --host 0.0.0.0 --port 8000
+
+docker run -d --name openjarvis-8003 \
+  -e OPENJARVIS_API_KEY \
+  -e OLLAMA_HOST=http://host.docker.internal:11434 \
+  -p 127.0.0.1:8003:8000 \
+  --add-host host.docker.internal:host-gateway \
+  openjarvis:latest serve --engine ollama --host 0.0.0.0 --port 8000
+```
+
+The API is available at `http://localhost:8001` and
+`http://localhost:8003`. Keep the API key out of source control; the commands
+read it from the shell environment.
 
 ### GPU Image (`Dockerfile.gpu`)
 

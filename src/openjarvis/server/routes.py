@@ -449,11 +449,69 @@ def _engine_key_for_model(engine: Any, model: str) -> str | None:
     return None
 
 
+def _local_engine_advertises(
+    engine: Any, model: str, *, known_models: set[str] | None = None
+) -> bool:
+    """Whether a non-cloud engine behind *engine* lists *model* verbatim.
+
+    Local OpenAI-compatible servers such as LM Studio advertise
+    ``publisher/model`` IDs (e.g. ``qwen/qwen3-4b-2507``) that look like
+    OpenRouter IDs to :func:`~openjarvis.server.cloud_router.is_cloud_model`.
+    When a local engine lists the exact ID, it owns the model.
+    """
+    from openjarvis.engine.multi import MultiEngine
+    from openjarvis.security.guardrails import GuardrailsEngine
+    from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+
+    current = engine
+    mapped_owner = False
+    while True:
+        if isinstance(current, InstrumentedEngine):
+            current = current._inner
+        elif isinstance(current, GuardrailsEngine):
+            current = current._engine
+        elif isinstance(current, MultiEngine):
+            key = current.engine_key_for(model)
+            current = next((eng for k, eng in current._engines if k == key), None)
+            if current is None:
+                return False
+            mapped_owner = True
+        else:
+            break
+    if getattr(current, "is_cloud", False) is True:
+        return False
+    if mapped_owner:
+        return True
+    if known_models is not None:
+        return model in known_models
+    try:
+        return model in current.list_models()
+    except Exception:
+        logging.getLogger("openjarvis.server").debug(
+            "Local model discovery failed; keeping ambiguous provider IDs local"
+        )
+        return "/" in model
+
+
 def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
     """Whether *model* should bypass the configured engine for direct cloud."""
-    from openjarvis.server.cloud_router import is_cloud_model
+    from openjarvis.server.cloud_router import get_provider, is_cloud_model
 
-    return is_cloud_model(model) and _engine_key_for_model(engine, model) != "litellm"
+    if not is_cloud_model(model):
+        return False
+    engine_key = _engine_key_for_model(engine, model)
+    if engine_key == "litellm":
+        return False
+    if engine_key == "nim":
+        # Bare org/model IDs belong to the configured NIM backend. Explicit
+        # cloud-provider namespaces and native cloud IDs retain their route.
+        # Do not make a blocking model-list HTTP request on every chat turn.
+        provider = get_provider(model)
+        return "/" not in model or model.startswith(f"{provider}/")
+    provider = get_provider(model)
+    if model.startswith(f"{provider}/"):
+        return True
+    return not _local_engine_advertises(engine, model)
 
 
 def _handle_direct(
@@ -805,7 +863,7 @@ async def _handle_stream_tools(
     messages = _to_messages(req.messages)
     messages = _ensure_identity_prompt(messages, app_config)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-    use_cloud = _uses_direct_cloud_router(engine, model)
+    use_cloud = await asyncio.to_thread(_uses_direct_cloud_router, engine, model)
     telemetry_engine = (
         "cloud" if use_cloud else (_engine_key_for_model(engine, model) or "ollama")
     )
@@ -944,7 +1002,7 @@ async def _handle_stream(
 
     # Route directly to the right backend — bypasses engine routing entirely
     # so broken MultiEngine state can never misdirect requests.
-    use_cloud = _uses_direct_cloud_router(engine, model)
+    use_cloud = await asyncio.to_thread(_uses_direct_cloud_router, engine, model)
     telemetry_engine = (
         "cloud" if use_cloud else (_engine_key_for_model(engine, model) or "ollama")
     )
@@ -1115,14 +1173,17 @@ async def list_models(request: Request) -> ModelListResponse:
 
     # Prefer engine.list_models() so mock engines work in tests.
     # Filter out direct-cloud model IDs that may appear via MultiEngine, but
-    # retain provider-qualified IDs owned by the configured LiteLLM engine.
+    # retain provider-qualified IDs owned by configured engines like LiteLLM or NIM.
     # Fall back to direct Ollama query only when the engine returns nothing.
     engine = request.app.state.engine
     all_ids = await asyncio.to_thread(engine.list_models)
+    known_models = set(all_ids)
     model_ids = [
         m
         for m in all_ids
-        if not is_cloud_model(m) or _engine_key_for_model(engine, m) == "litellm"
+        if not is_cloud_model(m)
+        or _engine_key_for_model(engine, m) in ("litellm", "nim")
+        or _local_engine_advertises(engine, m, known_models=known_models)
     ]
     if not model_ids:
         model_ids = await list_local_models()
@@ -1137,8 +1198,8 @@ async def list_models(request: Request) -> ModelListResponse:
             ModelObject(
                 id=mid,
                 owned_by=(
-                    "litellm"
-                    if _engine_key_for_model(engine, mid) == "litellm"
+                    _engine_key_for_model(engine, mid)
+                    if _engine_key_for_model(engine, mid) in ("litellm", "nim")
                     else "openjarvis"
                 ),
             )
@@ -1247,11 +1308,17 @@ async def reload_cloud_engine(request: Request):
         # Compatibility fallback for non-desktop/manual configurations.
         keys_path = get_config_dir() / "cloud-keys.env"
         if keys_path.exists():
-            for raw_line in keys_path.read_text().splitlines():
+            for raw_line in keys_path.read_text(encoding="utf-8").splitlines():
                 line = raw_line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
-                    os.environ[k.strip()] = v.strip()
+                    val = v.strip()
+                    if (val.startswith('"') and val.endswith('"')) or (
+                        val.startswith("'") and val.endswith("'")
+                    ):
+                        if len(val) >= 2:
+                            val = val[1:-1]
+                    os.environ[k.strip()] = val
 
     # Try to build a fresh CloudEngine.
     try:
