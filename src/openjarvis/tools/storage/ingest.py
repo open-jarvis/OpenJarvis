@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import zipfile
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
+from xml.etree import ElementTree
 
 from openjarvis.tools.storage.chunking import Chunk, ChunkConfig, chunk_text
 
@@ -76,12 +79,14 @@ class DocumentMeta:
 
 
 def detect_file_type(path: Path) -> str:
-    """Map a file extension to one of: text, markdown, pdf, code."""
+    """Map a file extension to one of: text, markdown, pdf, docx, code."""
     suffix = path.suffix.lower()
     if suffix in {".md", ".markdown", ".mdx"}:
         return "markdown"
     if suffix == ".pdf":
         return "pdf"
+    if suffix == ".docx":
+        return "docx"
     if suffix in _CODE_EXTS:
         return "code"
     return "text"
@@ -96,6 +101,8 @@ def read_document(path: Path) -> Tuple[str, DocumentMeta]:
         If the file is a PDF and ``pdfplumber`` is not installed.
     FileNotFoundError
         If *path* does not exist.
+    OSError
+        If the file is a ``.docx`` that cannot be read as one.
     """
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
@@ -112,6 +119,8 @@ def read_document(path: Path) -> Tuple[str, DocumentMeta]:
             ) from None
 
         text = _read_pdf(path)
+    elif ftype == "docx":
+        text = _read_docx(path)
     else:
         text = _read_text(path)
 
@@ -131,6 +140,64 @@ def _read_text(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         return path.read_text(encoding="latin-1")
+
+
+# WordprocessingML namespace and the largest document.xml we are willing to
+# inflate (a .docx is a zip archive, so the size on disk says little).
+_DOCX_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_DOCX_MAX_XML_BYTES = 64 * 1024 * 1024
+
+
+def _read_docx(path: Path) -> str:
+    """Extract the text of a .docx, one block per paragraph.
+
+    Uses only the standard library: the body lives in ``word/document.xml``
+    and every paragraph, including those inside table cells, is a ``w:p``.
+    Raises ``OSError`` when the file is not a readable .docx so that callers
+    can skip it like any other unreadable file.
+    """
+    try:
+        with zipfile.ZipFile(path) as archive:
+            info = archive.getinfo("word/document.xml")
+            if info.file_size > _DOCX_MAX_XML_BYTES:
+                raise OSError(f"Document body too large to read: {path}")
+            root = ElementTree.fromstring(archive.read(info))
+    except (
+        zipfile.BadZipFile,
+        KeyError,
+        ElementTree.ParseError,
+        RuntimeError,  # encrypted files or unsupported compression
+        zlib.error,
+    ) as exc:
+        raise OSError(f"Not a readable .docx file: {path}") from exc
+
+    paragraphs: List[str] = []
+    for paragraph in root.iter(f"{_DOCX_NS}p"):
+        pieces: List[str] = []
+        for node in paragraph.iter():
+            if node.tag == f"{_DOCX_NS}t":
+                pieces.append(node.text or "")
+            elif node.tag == f"{_DOCX_NS}tab":
+                pieces.append("\t")
+            elif node.tag in (f"{_DOCX_NS}br", f"{_DOCX_NS}cr"):
+                pieces.append("\n")
+        text = "".join(pieces).strip()
+        if text:
+            paragraphs.append(text)
+    return "\n\n".join(paragraphs)
+
+
+def _looks_binary(path: Path) -> bool:
+    """Return True when the start of the file contains NUL bytes.
+
+    Text files do not; office documents, archives, databases, fonts and
+    images do. Reading those as text indexes garbage.
+    """
+    try:
+        with path.open("rb") as handle:
+            return b"\x00" in handle.read(8192)
+    except OSError:
+        return True
 
 
 def _read_pdf(path: Path) -> str:
@@ -232,12 +299,20 @@ def ingest_path(
         }:
             continue
 
+        # ...and binary files the extension list does not know about
+        # (.xlsx, .pptx, .doc, databases, fonts): formats with a reader
+        # are handled by read_document, anything else would be indexed as
+        # garbage.
+        if detect_file_type(child) not in {"pdf", "docx"} and _looks_binary(child):
+            continue
+
         try:
             text, _meta = read_document(child)
             chunks = chunk_text(text, source=str(child), config=config)
             all_chunks.extend(chunks)
         except (ImportError, OSError):
-            # Skip files we can't read (e.g. PDF without pdfplumber)
+            # Skip files we can't read (e.g. PDF without pdfplumber,
+            # a corrupt .docx)
             continue
 
     return all_chunks
