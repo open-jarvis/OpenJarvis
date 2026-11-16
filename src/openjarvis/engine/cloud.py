@@ -124,12 +124,12 @@ _DEEPSEEK_MODELS = [
 _OPENROUTER_POPULAR = [
     "openrouter/auto",
     "openrouter/openai/gpt-4o",
-    "openrouter/anthropic/claude-sonnet-4",
+    "openrouter/anthropic/claude-sonnet-4.5",
     "openrouter/google/gemini-2.5-pro",
     "openrouter/meta-llama/llama-3.3-70b-instruct",
     "openrouter/mistralai/mistral-large",
-    "openrouter/deepseek/deepseek-r1",
-    "openrouter/qwen/qwen3-235b-a22b",
+    "openrouter/deepseek/deepseek-r1-0528",
+    "openrouter/qwen/qwen3-235b-a22b-2507",
 ]
 
 # Atlas Cloud models — prefixed with "atlascloud/" so they can be identified.

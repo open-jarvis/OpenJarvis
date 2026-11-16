@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ def load_mcp_tools_from_config(
     mcp_cfg: Any,
     *,
     allowed_names: Optional[set[str]] = None,
+    config_dir: Optional[Path] = None,
 ) -> tuple[list["BaseTool"], list["MCPClient"]]:
     """Load tools from every server in ``mcp_cfg.servers``.
 
@@ -41,6 +43,12 @@ def load_mcp_tools_from_config(
     ``MCPClient`` instances — keep a reference or the transports get
     GC'd. Failures in any single server are logged and that server is
     skipped; the rest are returned as a best-effort batch.
+
+    ``servers`` is either inline JSON or a path to a JSON file, resolved
+    exactly like ``SystemBuilder`` does via
+    :func:`openjarvis.core.config.resolve_mcp_servers`. Relative paths are
+    resolved against ``config_dir`` — pass ``config._config_dir`` — which
+    defaults to the OpenJarvis home directory.
 
     ``allowed_names`` is an outer filter applied after each server's
     own include/exclude filter. Pass the caller's `--tools`/`enabled`
@@ -57,10 +65,16 @@ def load_mcp_tools_from_config(
         return [], []
 
     try:
-        server_list = (
-            json.loads(servers_blob) if isinstance(servers_blob, str) else servers_blob
-        )
-    except (json.JSONDecodeError, TypeError) as exc:
+        if isinstance(servers_blob, str):
+            from openjarvis.core.config import resolve_mcp_servers
+            from openjarvis.core.paths import get_config_dir
+
+            server_list = resolve_mcp_servers(
+                servers_blob, config_dir or get_config_dir()
+            )
+        else:
+            server_list = servers_blob
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
         logger.warning("Failed to parse MCP servers config: %s", exc)
         return [], []
     if not isinstance(server_list, list):

@@ -5231,6 +5231,7 @@ dependencies = [
     { name = "rich" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "tomlkit" },
+    { name = "tzdata" },
     { name = "websockets" },
 ]
 
@@ -5560,6 +5561,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'orchestrator-training'", specifier = ">=4.40" },
     { name = "twilio", marker = "extra == 'channel-twilio'", specifier = ">=9.0" },
     { name = "twitchio", marker = "extra == 'channel-twitch'", specifier = ">=2.6" },
+    { name = "tzdata", specifier = ">=2025.3" },
     { name = "uvicorn", marker = "extra == 'desktop'", specifier = ">=0.30" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.30" },
     { name = "viberbot", marker = "extra == 'channel-viber'", specifier = ">=1.0" },

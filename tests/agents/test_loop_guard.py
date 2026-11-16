@@ -2,7 +2,62 @@
 
 from __future__ import annotations
 
+import pytest
+
 from openjarvis.core.events import EventBus, EventType
+
+
+@pytest.mark.parametrize("backend", ["python", "rust"])
+@pytest.mark.parametrize("detector", ["identical", "poll", "ping_pong"])
+def test_changing_reasons_cannot_keep_a_loop_in_warning_state(backend, detector):
+    from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig
+
+    config = LoopGuardConfig(
+        max_identical_calls=3 if detector == "identical" else 100,
+        poll_tool_budget=3 if detector == "poll" else 100,
+        ping_pong_window=4 if detector == "ping_pong" else 100,
+    )
+    guard = LoopGuard(config)
+    if backend == "python":
+        guard._rust_impl = None
+    elif guard._rust_impl is None:
+        pytest.skip("Rust extension unavailable")
+
+    calls = [
+        (
+            ("a", "b")[i % 2] if detector == "ping_pong" else "calc",
+            "same arguments" if detector == "identical" else str(i),
+        )
+        for i in range(12)
+    ]
+    verdicts = [guard.check_call(*call) for call in calls]
+    assert any(v.warned for v in verdicts)
+    assert any(v.blocked for v in verdicts)
+    first_block = next(i for i, v in enumerate(verdicts) if v.blocked)
+    assert all(v.blocked for v in verdicts[first_block:])
+    if detector != "ping_pong" or backend == "python":
+        assert sum(v.warned for v in verdicts) == 1
+
+    guard.reset()
+    repeated = [guard.check_call(*call) for call in calls]
+    assert [(v.warned, v.blocked) for v in repeated] == [
+        (v.warned, v.blocked) for v in verdicts
+    ]
+
+
+def test_python_identical_call_warnings_are_independent_for_different_arguments():
+    from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig
+
+    guard = LoopGuard(
+        LoopGuardConfig(
+            max_identical_calls=2, poll_tool_budget=100, ping_pong_window=100
+        )
+    )
+    guard._rust_impl = None
+    for arguments in ("first", "second"):
+        verdicts = [guard.check_call("calc", arguments) for _ in range(6)]
+        assert sum(v.warned for v in verdicts) == 1
+        assert verdicts[-1].blocked
 
 
 class TestLoopGuard:

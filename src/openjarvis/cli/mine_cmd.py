@@ -504,13 +504,13 @@ pearld_rpc_user = "{pearld_user}"
 pearld_rpc_password_env = "{pearld_password_env}"
 """
     if config_path.exists():
-        existing = config_path.read_text()
+        existing = config_path.read_text(encoding="utf-8")
         if "[mining]" in existing:
             click.echo("[mining] section already present; not overwriting.")
             return
-        config_path.write_text(existing.rstrip() + "\n" + section)
+        config_path.write_text(existing.rstrip() + "\n" + section, encoding="utf-8")
     else:
-        config_path.write_text(section.lstrip())
+        config_path.write_text(section.lstrip(), encoding="utf-8")
     load_config.cache_clear()
 
     if selected_provider == "vllm-pearl":

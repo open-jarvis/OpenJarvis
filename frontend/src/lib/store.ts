@@ -108,6 +108,8 @@ interface Settings {
   speechEnabled: boolean;
   voiceOutputEnabled: boolean;
   voiceAutoplay: boolean;
+  // IANA time zone for dates in answers; '' = this device's zone.
+  timeZone: string;
 }
 
 function loadSettings(): Settings {
@@ -123,6 +125,7 @@ function loadSettings(): Settings {
     speechEnabled: false,
     voiceOutputEnabled: false,
     voiceAutoplay: false,
+    timeZone: '',
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
