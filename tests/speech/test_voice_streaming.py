@@ -223,3 +223,125 @@ def test_prefetch_is_limited_to_one_pending_chunk(monkeypatch):
     speak(text, _Console(), _session(monkeypatch, backend))
     assert observed == [False]
     assert played == [sentence.encode() for sentence in chunks]
+
+
+def test_next_reply_waits_for_an_inflight_request_from_a_failed_reply(monkeypatch):
+    text = "The first sentence contains enough text. The old request is still busy."
+    chunks = _split_for_speech(text)
+    next_text = "This is the next complete reply."
+    old_started = threading.Event()
+    release = threading.Event()
+    next_started = threading.Event()
+    following_ready = threading.Event()
+
+    class BusyBackend(_Backend):
+        def __init__(self):
+            super().__init__("cartesia")
+            self.lock = threading.Lock()
+            self.active = 0
+            self.maximum = 0
+
+        def synthesize(self, text, **kwargs):
+            with self.lock:
+                self.active += 1
+                self.maximum = max(self.maximum, self.active)
+            try:
+                if text == chunks[1]:
+                    old_started.set()
+                    assert release.wait(5)
+                if text == next_text:
+                    next_started.set()
+                return super().synthesize(text, **kwargs)
+            finally:
+                with self.lock:
+                    self.active -= 1
+
+    backend = BusyBackend()
+    session = _session(monkeypatch, backend)
+
+    def play(audio, **kwargs):
+        if audio == chunks[0].encode():
+            assert old_started.wait(2)
+            raise RuntimeError("device failed")
+
+    monkeypatch.setattr("openjarvis.speech.voice_io.play_wav", play)
+    previous = set(threading.enumerate())
+    errors = []
+
+    def follow():
+        following_ready.set()
+        try:
+            speak(next_text, _Console(), session)
+        except BaseException as exc:
+            errors.append(exc)
+
+    following = threading.Thread(target=follow, daemon=True)
+    try:
+        speak(text, _Console(), session)
+        following.start()
+        assert following_ready.wait(2)
+        assert not next_started.wait(0.1)
+    finally:
+        producers = [
+            t
+            for t in threading.enumerate()
+            if t.name == "voice-tts" and t not in previous
+        ]
+        release.set()
+        if following.ident is not None:
+            following.join(timeout=3)
+        for producer in producers:
+            producer.join(timeout=3)
+    assert not following.is_alive()
+    assert all(not t.is_alive() for t in producers)
+    assert errors == []
+    assert backend.maximum == 1
+
+
+def test_cancelled_generation_exits_while_another_request_owns_the_slot(monkeypatch):
+    busy_started = threading.Event()
+    release = threading.Event()
+    waiting_ready = threading.Event()
+    waiting_finished = threading.Event()
+    cancel = threading.Event()
+    cancelled = []
+
+    class BusyBackend(_Backend):
+        def synthesize(self, text, **kwargs):
+            if text == "busy":
+                busy_started.set()
+                assert release.wait(5)
+            return super().synthesize(text, **kwargs)
+
+    backend = BusyBackend()
+    session = _session(monkeypatch, backend)
+    busy = threading.Thread(
+        target=lambda: session._synthesize(backend, "busy", {}), daemon=True
+    )
+
+    def queued():
+        waiting_ready.set()
+        try:
+            session._synthesize(backend, "queued", {}, cancel_event=cancel)
+        except RuntimeError as exc:
+            cancelled.append(str(exc))
+        finally:
+            waiting_finished.set()
+
+    waiting = threading.Thread(target=queued, daemon=True)
+    try:
+        busy.start()
+        assert busy_started.wait(2)
+        waiting.start()
+        assert waiting_ready.wait(2)
+        assert not waiting_finished.wait(0.05)
+        cancel.set()
+        assert waiting_finished.wait(1)
+    finally:
+        release.set()
+        busy.join(timeout=3)
+        if waiting.ident is not None:
+            waiting.join(timeout=3)
+    assert not busy.is_alive() and not waiting.is_alive()
+    assert cancelled == ["Speech synthesis cancelled"]
+    assert [text for text, _ in backend.spoken] == ["busy"]

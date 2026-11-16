@@ -149,7 +149,8 @@ local TTS backends receive warm-up syntheses.
 
 Replies play sentence by sentence, with at most one additional chunk prefetched.
 Ctrl+C interrupts playback and discards queued speech. A backend request already
-in progress may finish after the interrupt.
+in progress may finish after the interrupt; the session waits for it before
+starting another synthesis request.
 
 ## Troubleshooting
 

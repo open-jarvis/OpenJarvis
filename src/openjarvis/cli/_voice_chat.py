@@ -67,6 +67,28 @@ class VoiceSession:
         # mid warm-up waits for the loaded model instead of loading a second copy.
         self._stt_lock = threading.RLock()
         self._tts_lock = threading.RLock()
+        self._synthesis_lock = threading.Lock()
+
+    def _synthesize(
+        self,
+        backend: Any,
+        text: str,
+        synth_kwargs: dict[str, Any],
+        *,
+        cancel_event: threading.Event | None = None,
+    ) -> Any:
+        """Serialize generation across replies and cancel work waiting for a slot."""
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("Speech synthesis cancelled")
+            if self._synthesis_lock.acquire(timeout=0.05):
+                break
+        try:
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("Speech synthesis cancelled")
+            return backend.synthesize(text, **synth_kwargs)
+        finally:
+            self._synthesis_lock.release()
 
     def warm_up(self) -> None:
         """Load the STT and TTS models in a background thread.
@@ -91,7 +113,7 @@ class VoiceSession:
                 if getattr(backend, "backend_id", "") in _LOCAL_TTS_BACKENDS:
                     # A short synthesis also loads the language pipeline and
                     # voice tensor, not just the shared model.
-                    backend.synthesize("Ok.", **self.synth_kwargs_for(backend))
+                    self._synthesize(backend, "Ok.", self.synth_kwargs_for(backend))
             except Exception:
                 logger.debug("TTS warm-up failed", exc_info=True)
 
@@ -253,7 +275,7 @@ def speak(text: str, console: Any, session: VoiceSession | None = None) -> None:
             synth_kwargs = active_session.synth_kwargs_for(backend, console)
             # Only the first chunk decides whether this backend works; once it
             # is playing, falling back would restart the reply from the top.
-            first = backend.synthesize(chunks[0], **synth_kwargs)
+            first = active_session._synthesize(backend, chunks[0], synth_kwargs)
         except Exception as exc:
             console.print(
                 f"[dim yellow]Voice backend "
@@ -262,7 +284,9 @@ def speak(text: str, console: Any, session: VoiceSession | None = None) -> None:
             )
             active_session.discard_tts_backend()
             continue
-        _play_pipelined(backend, first, chunks[1:], synth_kwargs, console, play_wav)
+        _play_pipelined(
+            backend, first, chunks[1:], synth_kwargs, console, play_wav, active_session
+        )
         return
 
     console.print(
@@ -292,6 +316,7 @@ def _play_pipelined(
     synth_kwargs: dict[str, Any],
     console: Any,
     play_wav: Any,
+    session: VoiceSession,
 ) -> None:
     """Play ``first`` while prefetching at most one subsequent chunk.
 
@@ -314,7 +339,9 @@ def _play_pipelined(
                 if stop.is_set():
                     return
                 try:
-                    result = backend.synthesize(chunk, **synth_kwargs)
+                    result = session._synthesize(
+                        backend, chunk, synth_kwargs, cancel_event=stop
+                    )
                 except Exception as exc:
                     if not stop.is_set():
                         results.put(exc)
