@@ -686,13 +686,13 @@ class WebSearchTool(BaseTool):
             count += 1
         return "\n\n---\n\n".join(parts), count
 
-    @staticmethod
-    def _searchapi_error_message(response: Any) -> str | None:
+    def _searchapi_error_message(self, response: Any) -> str | None:
         """Pull the ``error`` string out of a SearchApi error body, if any.
 
         Non-2xx replies carry ``{"error": "..."}``, for example
         ``"Invalid API key."`` on 401. Anything else is ignored rather than
         echoed, so an unexpected body never reaches the fallback reason.
+        Redact the active credential before truncating a reflected error.
         """
         try:
             body = response.json()
@@ -700,6 +700,8 @@ class WebSearchTool(BaseTool):
             return None
         message = body.get("error") if isinstance(body, dict) else None
         if isinstance(message, str) and message.strip():
+            if self._searchapi_api_key:
+                message = message.replace(self._searchapi_api_key, "[REDACTED]")
             return message.strip()[:SEARCHAPI_ERROR_MESSAGE_CHARS]
         return None
 
@@ -715,6 +717,8 @@ class WebSearchTool(BaseTool):
         """
         import httpx
 
+        if not self._searchapi_api_key:
+            raise _WebSearchEngineError(f"{SEARCHAPI_API_KEY_ENV} is not set")
         params = {"engine": "google", "q": query}
         if self._searchapi_gl:
             params["gl"] = self._searchapi_gl

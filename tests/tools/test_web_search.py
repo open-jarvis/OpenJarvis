@@ -1942,6 +1942,38 @@ class TestSearchApiSearch:
         assert "HTTP 429" in reason
         assert "Monthly limit reached." in reason
 
+    @pytest.mark.parametrize("status", [401, 429, 500])
+    @pytest.mark.parametrize("key", ["sa-private-token", "sa-" + "x" * 400])
+    def test_reflected_credential_is_redacted_before_truncation(
+        self, monkeypatch, caplog, status, key
+    ):
+        monkeypatch.setenv("SEARCHAPI_API_KEY", key)
+        self._mock_get(
+            monkeypatch,
+            payload={"error": f"Request rejected for Bearer {key}. Try again."},
+            status=status,
+        )
+        self._mock_ddgs(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="q")
+
+        reason = result.metadata["fallback_reason"]
+        assert key not in reason + caplog.text
+        assert key[:40] not in reason + caplog.text
+        assert "[REDACTED]" in reason
+
+    def test_missing_key_falls_back_without_searchapi_request(self, monkeypatch):
+        import httpx
+
+        request = MagicMock()
+        monkeypatch.setattr(httpx, "get", request)
+        self._mock_ddgs(monkeypatch)
+
+        result = WebSearchTool(engine="searchapi").execute(query="q")
+
+        request.assert_not_called()
+        assert result.metadata["fallback_reason"] == "SEARCHAPI_API_KEY is not set"
+
     def test_unparseable_error_body_is_not_echoed(self, monkeypatch):
         import httpx
 
