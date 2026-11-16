@@ -185,15 +185,22 @@ class BaseAgent(ABC):
         system prompt and bypass ``_build_messages`` (and thus the prompt
         builder). This lets them honor the same persona files as one-shot
         ``jarvis ask`` (#376) by *appending* persona to — never replacing —
-        their specialized instructions. No-op when no ``prompt_builder`` is
-        wired or no persona files exist.
+        their specialized instructions. The user's current time section is
+        appended the same way. No-op when no ``prompt_builder`` is wired.
         """
         if self._prompt_builder is None:
             return system_prompt
-        persona = self._prompt_builder.persona_sections()
-        if not persona:
+        extra = "\n\n".join(
+            part
+            for part in (
+                self._prompt_builder.persona_sections(),
+                self._prompt_builder.current_time_section(),
+            )
+            if part
+        )
+        if not extra:
             return system_prompt
-        return f"{system_prompt}\n\n{persona}" if system_prompt else persona
+        return f"{system_prompt}\n\n{extra}" if system_prompt else extra
 
     def _build_messages(
         self,

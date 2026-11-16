@@ -55,15 +55,39 @@ class SystemPromptBuilder:
         if self._frozen_prefix is None:
             self._frozen_prefix = self._build_frozen_prefix()
         parts = [self._frozen_prefix]
+        time_section = self.current_time_section()
+        if time_section:
+            parts.append(f"\n\n{time_section}" if self._frozen_prefix else time_section)
         if self._session_context:
             parts.append(f"\n\n## Session Context\n\n{self._session_context}")
         if self._previous_state:
             parts.append(f"\n\n## Previous State\n\n{self._previous_state}")
         return "".join(parts)
 
+    def current_time_section(self) -> str:
+        """The user's time zone and local time, or "" when turned off.
+
+        Kept out of the frozen prefix so the cached prefix stays stable.
+        """
+        if not self._sp_config.include_current_time:
+            return ""
+        from openjarvis.prompt.time_context import current_time_section
+
+        return current_time_section(self._sp_config.timezone)
+
     def sections(self) -> list[PromptSection]:
         """Return prompt sections with lightweight cache/debug metadata."""
         sections = [*self._get_frozen_sections()]
+        time_section = self.current_time_section()
+        if time_section:
+            sections.append(
+                PromptSection(
+                    name="current_time",
+                    content=time_section,
+                    source="time_context",
+                    cache_segment="dynamic_suffix",
+                )
+            )
         if self._session_context:
             sections.append(
                 PromptSection(
