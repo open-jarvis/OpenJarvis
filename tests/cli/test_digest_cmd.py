@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import textwrap
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
@@ -212,3 +216,55 @@ def test_digest_waits_for_playback_to_finish(tmp_path, monkeypatch, fresh):
     assert not worker.is_alive()
     assert len(results) == 1
     assert results[0].exit_code == 0, results[0].output
+
+
+def test_digest_process_does_not_exit_before_playback_finishes(tmp_path):
+    script = textwrap.dedent("""
+        from contextlib import closing
+        from datetime import datetime, timezone
+        import importlib
+        from pathlib import Path
+        import sys
+        import time
+        root = Path(sys.argv[1])
+        home = root / "home"
+        home.mkdir()
+        (home / "config.toml").write_text("[analytics]\\nenabled = false\\n")
+        audio = root / "digest.wav"
+        audio.write_bytes(b"test audio")
+        from openjarvis.agents.digest_store import DigestArtifact, DigestStore
+        from openjarvis.cli import cli
+        module = importlib.import_module("openjarvis.cli.digest_cmd")
+        db = str(root / "digest.db")
+        with closing(DigestStore(db_path=db)) as store:
+            store.save(DigestArtifact(
+                text="Digest process lifecycle",
+                audio_path=audio,
+                sections={},
+                sources_used=[],
+                generated_at=datetime.now(timezone.utc),
+                model_used="test",
+                voice_used="test",
+            ))
+        def play(path):
+            time.sleep(0.2)
+            (root / "playback-finished").write_text("finished")
+        module._play_audio = play
+        cli.main(["digest", "--db-path", db], standalone_mode=True)
+    """)
+    root = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    env["OPENJARVIS_HOME"] = str(tmp_path / "home")
+    env["PYTHONPATH"] = str(root / "src")
+    env["PYTHONIOENCODING"] = "utf-8"
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "playback-finished").read_text() == "finished"
