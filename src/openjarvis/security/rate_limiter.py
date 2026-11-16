@@ -44,7 +44,11 @@ class TokenBucket:
                 self._tokens -= tokens
                 return True, 0.0
             else:
-                wait = (tokens - self._tokens) / self._rate
+                wait = (
+                    (tokens - self._tokens) / self._rate
+                    if self._rate > 0
+                    else float("inf")
+                )
                 return False, wait
 
     @property
@@ -60,6 +64,8 @@ class RateLimiter:
     """Rate limiter with per-key token buckets.
 
     Keys are typically "agent_id:tool_name" or just "agent_id".
+    Uses the native backend when available and thread-safe Python buckets
+    otherwise. An available backend that fails to initialize raises its error.
     """
 
     def __init__(self, config: Optional[RateLimitConfig] = None) -> None:
@@ -68,17 +74,14 @@ class RateLimiter:
         self._lock = threading.Lock()
         self._rust_impl = None
 
-        try:
-            from openjarvis._rust_bridge import RUST_AVAILABLE, get_rust_module
+        from openjarvis._rust_bridge import RUST_AVAILABLE, get_rust_module
 
-            if RUST_AVAILABLE:
-                _rust = get_rust_module()
-                self._rust_impl = _rust.RateLimiter(
-                    requests_per_minute=self._config.requests_per_minute,
-                    burst_size=self._config.burst_size,
-                )
-        except ImportError:
-            self._rust_impl = None
+        if RUST_AVAILABLE:
+            _rust = get_rust_module()
+            self._rust_impl = _rust.RateLimiter(
+                requests_per_minute=self._config.requests_per_minute,
+                burst_size=self._config.burst_size,
+            )
 
     def check(self, key: str) -> Tuple[bool, float]:
         """Check if request is allowed for key."""
@@ -105,7 +108,7 @@ class RateLimiter:
             self._rust_impl.reset(key)
             return
         with self._lock:
-            if key:
+            if key is not None:
                 self._buckets.pop(key, None)
             else:
                 self._buckets.clear()

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import logging
 from dataclasses import dataclass, field
@@ -11,6 +10,24 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _glob_match(pattern: str, text: str) -> bool:
+    """Match the native policy grammar: case-sensitive ``*`` wildcards only."""
+    if pattern == "*" or pattern == text:
+        return True
+    parts = pattern.split("*")
+    if len(parts) == 1:
+        return False
+    position = 0
+    for index, part in enumerate(parts):
+        if not part:
+            continue
+        found = text.find(part, position)
+        if found < 0 or (index == 0 and found != 0):
+            return False
+        position = found + len(part)
+    return not parts[-1] or text.endswith(parts[-1])
 
 
 class Capability(str, Enum):
@@ -54,6 +71,10 @@ class CapabilityPolicy:
     Default policy: if no explicit policy exists for an agent, all
     capabilities are granted (open by default). Set ``default_deny=True``
     to flip to deny-by-default.
+
+    Uses the native backend when available and equivalent Python checks
+    otherwise. Capability and resource patterns are case-sensitive, with
+    ``*`` as the only wildcard on every platform.
     """
 
     def __init__(
@@ -107,28 +128,18 @@ class CapabilityPolicy:
         dynamically-created managed-agent UUID ahead of time while preserving
         the invariant that an agent-specific denial always wins.
         """
+        if (
+            agent_id
+            and agent_id not in self._policies
+            and self._DEFAULT_AGENT in self._policies
+        ):
+            agent_id = self._DEFAULT_AGENT
         if self._rust_impl is not None:
-            if (
-                not agent_id
-                or agent_id == self._DEFAULT_AGENT
-                or agent_id in self._policies
-            ):
-                return self._rust_impl.check(agent_id, capability, resource)
-            if self._DEFAULT_AGENT in self._policies:
-                return self._rust_impl.check(self._DEFAULT_AGENT, capability, resource)
             return self._rust_impl.check(agent_id, capability, resource)
-
-        if not agent_id:
-            return not self._default_deny
-
-        if agent_id == self._DEFAULT_AGENT or agent_id in self._policies:
-            return self._check_python(agent_id, capability, resource)
-        if self._DEFAULT_AGENT in self._policies:
-            return self._check_python(self._DEFAULT_AGENT, capability, resource)
         return self._check_python(agent_id, capability, resource)
 
     def _check_python(self, agent_id: str, capability: str, resource: str = "") -> bool:
-        """Legacy Python check — kept for reference only."""
+        """Enforce the same grants and denials when the extension is unavailable."""
         policy = self._policies.get(agent_id)
         if policy is None:
             # No explicit policy — use default
@@ -136,14 +147,14 @@ class CapabilityPolicy:
 
         # Explicit denials take precedence
         for denied in policy.deny:
-            if fnmatch.fnmatch(capability, denied):
+            if _glob_match(denied, capability):
                 return False
 
         # Check grants
         for grant in policy.grants:
-            if fnmatch.fnmatch(capability, grant.capability):
+            if _glob_match(grant.capability, capability):
                 if resource and grant.pattern != "*":
-                    if fnmatch.fnmatch(resource, grant.pattern):
+                    if _glob_match(grant.pattern, resource):
                         return True
                 else:
                     return True
