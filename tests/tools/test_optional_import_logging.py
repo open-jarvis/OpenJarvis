@@ -1,75 +1,78 @@
-"""Verify that optional import failures emit debug logs."""
+"""Optional import failures must be logged by actual package initialization."""
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import logging
-from unittest.mock import patch
+
+import pytest
 
 
-def test_tool_import_error_logs_debug(caplog):
-    """When a built-in tool fails to import, a debug message is logged."""
-    import openjarvis.tools as tools_pkg
+@pytest.mark.parametrize(
+    "package_name,target,message",
+    [
+        (
+            "openjarvis.tools",
+            "openjarvis.tools.calculator",
+            "Optional tool calculator not loaded",
+        ),
+        (
+            "openjarvis.tools.storage",
+            "openjarvis.tools.storage.faiss_backend",
+            "Optional storage backend faiss_backend not loaded",
+        ),
+        (
+            "openjarvis.speech",
+            "openjarvis.speech.faster_whisper",
+            "Optional STT backend faster_whisper not loaded",
+        ),
+        (
+            "openjarvis.speech",
+            "openjarvis.speech.cartesia_tts",
+            "Optional TTS backend cartesia_tts not loaded",
+        ),
+    ],
+)
+def test_package_initialization_logs_optional_import_failure(
+    package_name, target, message, monkeypatch, caplog
+):
+    package = importlib.import_module(package_name)
+    original_import = importlib.import_module
+    attempted = []
 
-    err_msg = "Simulated missing optional library"
-    with caplog.at_level(logging.DEBUG, logger="openjarvis.tools"):
-        with patch("importlib.import_module", side_effect=ImportError(err_msg)):
-            for mod_name in tools_pkg._BUILTIN_TOOL_MODULES:
-                try:
-                    importlib = __import__("importlib")
-                    importlib.import_module(f"openjarvis.tools.{mod_name}")
-                except ImportError as exc:
-                    tools_pkg.logger.debug(
-                        "Optional tool %s not loaded: %s", mod_name, exc
-                    )
+    def controlled_import(name, package=None):
+        resolved = (
+            importlib.util.resolve_name(name, package) if name.startswith(".") else name
+        )
+        attempted.append(resolved)
+        if resolved == target:
+            raise ImportError("simulated optional dependency failure")
+        return original_import(name, package)
 
+    monkeypatch.setattr(importlib, "import_module", controlled_import)
+    with caplog.at_level(logging.DEBUG, logger=package_name):
+        importlib.reload(package)
+
+    assert target in attempted
     assert any(
-        f"Optional tool calculator not loaded: {err_msg}" in record.message
+        message in record.getMessage()
+        and "simulated optional dependency failure" in record.getMessage()
         for record in caplog.records
     )
+    assert attempted.index(target) < len(attempted) - 1
 
 
-def test_storage_import_error_logs_debug(caplog):
-    """When an optional storage backend fails to import, debug message is logged."""
-    import openjarvis.tools.storage as storage_pkg
+def test_optional_loader_does_not_swallow_programming_errors(monkeypatch):
+    import openjarvis.tools as package
 
-    err_msg = "Simulated missing faiss"
-    with caplog.at_level(logging.DEBUG, logger="openjarvis.tools.storage"):
-        with patch("importlib.import_module", side_effect=ImportError(err_msg)):
-            for backend in storage_pkg._OPTIONAL_STORAGE_BACKENDS:
-                try:
-                    importlib = __import__("importlib")
-                    importlib.import_module(f"openjarvis.tools.storage.{backend}")
-                except ImportError as exc:
-                    storage_pkg.logger.debug(
-                        "Optional storage backend %s not loaded: %s",
-                        backend,
-                        exc,
-                    )
+    original_import = importlib.import_module
 
-    assert any(
-        f"Optional storage backend faiss_backend not loaded: {err_msg}"
-        in record.message
-        for record in caplog.records
-    )
+    def broken_import(name, package=None):
+        if name == "openjarvis.tools.calculator":
+            raise RuntimeError("programming error")
+        return original_import(name, package)
 
-
-def test_speech_import_error_logs_debug(caplog):
-    """When an optional speech backend fails to import, debug message is logged."""
-    import openjarvis.speech as speech_pkg
-
-    err_msg = "Simulated missing whisper"
-    with caplog.at_level(logging.DEBUG, logger="openjarvis.speech"):
-        with patch("importlib.import_module", side_effect=ImportError(err_msg)):
-            for mod in ("faster_whisper", "cartesia_tts"):
-                try:
-                    importlib = __import__("importlib")
-                    importlib.import_module(f".{mod}", speech_pkg.__name__)
-                except ImportError as exc:
-                    speech_pkg.logger.debug(
-                        "Optional STT backend %s not loaded: %s", mod, exc
-                    )
-
-    assert any(
-        f"Optional STT backend faster_whisper not loaded: {err_msg}" in record.message
-        for record in caplog.records
-    )
+    monkeypatch.setattr(importlib, "import_module", broken_import)
+    with pytest.raises(RuntimeError, match="programming error"):
+        importlib.reload(package)
