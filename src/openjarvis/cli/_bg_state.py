@@ -58,12 +58,11 @@ def _read_model_markers(models_dir: Path, *, versioned: bool) -> Dict[str, str]:
         model_id = marker.name[: -len(marker.suffix)]
         if versioned:
             try:
-                contents = _safe_read(marker)
+                # Only metadata is needed here; failure details can be large.
+                with marker.open(encoding="utf-8", errors="replace") as stream:
+                    original_id = stream.readline(65536).rstrip("\r\n")
             except OSError:
                 continue
-            if not contents:
-                continue
-            original_id = contents.partition("\n")[0].rstrip("\r")
             if (
                 not original_id
                 or hashlib.sha256(original_id.encode()).hexdigest() != model_id
