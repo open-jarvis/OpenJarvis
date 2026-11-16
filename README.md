@@ -46,7 +46,7 @@ Pick your platform and run one command. Each installer handles [uv](https://docs
 |---|---|
 | **macOS · Linux · WSL2** | `curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh \| bash` |
 | **Native Windows** | `irm https://open-jarvis.github.io/OpenJarvis/install.ps1 \| iex` |
-| **Desktop GUI** | Download `.exe` / `.dmg` / `.deb` / `.rpm` / `.AppImage` from the [latest release](https://github.com/open-jarvis/OpenJarvis/releases) |
+| **Desktop GUI** | Download `.exe` / `.dmg` / `.deb` / `.rpm` / `.AppImage` from the [latest release](https://github.com/open-jarvis/OpenJarvis/releases/latest) |
 
 Then `jarvis` to start. The Rust extension and larger models continue downloading in the background; `jarvis doctor` shows status.
 
@@ -63,7 +63,7 @@ jarvis init --preset <name> --force  # replace config with a starter preset
 `jarvis gui` starts the local API server and frontend, then opens the graphical
 chat interface in your default browser. It requires Node.js 22+ and is
 available from a source checkout; packaged desktop installers are available
-from the [latest release](https://github.com/open-jarvis/OpenJarvis/releases).
+from the [latest release](https://github.com/open-jarvis/OpenJarvis/releases/latest).
 
 > Prefix `jarvis ...` with `uv run`, or `source .venv/bin/activate` first.
 
