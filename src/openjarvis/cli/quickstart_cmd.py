@@ -111,7 +111,7 @@ def quickstart(force: bool) -> None:
     else:
         toml_content = generate_default_toml(hw)
         DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        DEFAULT_CONFIG_PATH.write_text(toml_content)
+        DEFAULT_CONFIG_PATH.write_text(toml_content, encoding="utf-8")
         console.print(f"  [green]Config written to {DEFAULT_CONFIG_PATH}[/green]")
 
     # Step 3: Check engine

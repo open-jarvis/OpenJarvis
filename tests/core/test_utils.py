@@ -14,6 +14,7 @@ import pytest
 
 from openjarvis.core.utils import (
     _windows_process_alive,
+    open_browser,
     process_alive,
     terminate_process,
 )
@@ -185,3 +186,38 @@ class TestTerminateProcess:
                 check=False,
             ),
         ]
+
+
+class TestOpenBrowser:
+    OAUTH_URL = (
+        "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc"
+        "&redirect_uri=http%3A%2F%2Flocalhost%3A8789%2Fcallback"
+        "&response_type=code"
+    )
+
+    def test_windows_opens_full_url_without_cmd(self) -> None:
+        with (
+            patch("openjarvis.core.utils.platform.system", return_value="Windows"),
+            patch("openjarvis.core.utils.os.startfile", create=True) as startfile,
+            patch("openjarvis.core.utils.subprocess.run") as run,
+            patch("openjarvis.core.utils.webbrowser.open") as browser_open,
+        ):
+            open_browser(self.OAUTH_URL)
+
+        startfile.assert_called_once_with(self.OAUTH_URL)
+        run.assert_not_called()
+        browser_open.assert_not_called()
+
+    def test_windows_falls_back_to_webbrowser(self) -> None:
+        with (
+            patch("openjarvis.core.utils.platform.system", return_value="Windows"),
+            patch(
+                "openjarvis.core.utils.os.startfile",
+                create=True,
+                side_effect=OSError("no association"),
+            ),
+            patch("openjarvis.core.utils.webbrowser.open") as browser_open,
+        ):
+            open_browser(self.OAUTH_URL)
+
+        browser_open.assert_called_once_with(self.OAUTH_URL)

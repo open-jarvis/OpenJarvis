@@ -107,8 +107,35 @@ class TestKnowledgeSearchTool:
         assert result.success is False
         assert "No query provided" in result.content
 
-    def test_no_store(self):
-        """Missing store returns success=False."""
+    def test_no_store_falls_back_to_default_store(self, tmp_path, monkeypatch):
+        """Built with no arguments, the tool searches the default store.
+
+        The server, ``jarvis ask`` and the SDK instantiate registry tools
+        without arguments, while Data Sources and uploads write to the
+        default ``KnowledgeStore()``. The tool used to answer "No knowledge
+        store configured." although the documents were there.
+        """
+        monkeypatch.setattr("openjarvis.core.config.DEFAULT_CONFIG_DIR", tmp_path)
+        with KnowledgeStore() as default:
+            default.store(
+                "Quarterly budget review for the Phoenix project.",
+                source="upload",
+                doc_type="document",
+                title="Phoenix budget",
+            )
+
+        tool = KnowledgeSearchTool()
+        result = tool.execute(query="Phoenix")
+        assert result.success is True
+        assert "Phoenix" in result.content
+
+    def test_default_store_unavailable(self, monkeypatch):
+        """If the default store cannot be opened, the tool says so."""
+
+        def boom(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("openjarvis.tools.knowledge_search.KnowledgeStore", boom)
         tool = KnowledgeSearchTool()
         result = tool.execute(query="kubernetes")
         assert result.success is False
