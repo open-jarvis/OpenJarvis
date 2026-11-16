@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import wave
+from pathlib import Path
 
 _SAMPLE_RATE = 16000
 _CHANNELS = 1
@@ -90,6 +91,29 @@ def _frames_to_wav(frames: list[bytes], sample_rate: int) -> bytes:
     return buf.getvalue()
 
 
+def play_audio_file(path: str | Path) -> None:
+    """Decode and play an audio file using its own sample rate.
+
+    Decode errors propagate. Encoded or corrupt file bytes must never be
+    interpreted as raw PCM, unlike the raw-audio fallback in ``play_wav``.
+    """
+    try:
+        import sounddevice as sd
+        import soundfile as sf
+    except ImportError:
+        raise RuntimeError(
+            "sounddevice and soundfile are required for audio playback. "
+            "Install with: pip install 'openjarvis[speech]'"
+        ) from None
+
+    data, sample_rate = sf.read(str(path), dtype="float32")
+    try:
+        sd.play(data, sample_rate)
+        sd.wait()
+    finally:
+        sd.stop()
+
+
 def play_wav(audio: bytes, sample_rate: int = 24000) -> None:
     """Play raw WAV bytes through the default output device.
 
@@ -123,4 +147,4 @@ def play_wav(audio: bytes, sample_rate: int = 24000) -> None:
     sd.wait()
 
 
-__all__ = ["play_wav", "record_until_silence"]
+__all__ = ["play_audio_file", "play_wav", "record_until_silence"]
