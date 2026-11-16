@@ -449,7 +449,9 @@ def _engine_key_for_model(engine: Any, model: str) -> str | None:
     return None
 
 
-def _local_engine_advertises(engine: Any, model: str) -> bool:
+def _local_engine_advertises(
+    engine: Any, model: str, *, known_models: set[str] | None = None
+) -> bool:
     """Whether a non-cloud engine behind *engine* lists *model* verbatim.
 
     Local OpenAI-compatible servers such as LM Studio advertise
@@ -462,24 +464,33 @@ def _local_engine_advertises(engine: Any, model: str) -> bool:
     from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
 
     current = engine
-    while isinstance(current, (InstrumentedEngine, GuardrailsEngine)):
+    mapped_owner = False
+    while True:
         if isinstance(current, InstrumentedEngine):
             current = current._inner
-        else:
+        elif isinstance(current, GuardrailsEngine):
             current = current._engine
-    if isinstance(current, MultiEngine):
-        key = current.engine_key_for(model)
-        owner = next((eng for k, eng in current._engines if k == key), None)
-        return owner is not None and getattr(owner, "is_cloud", False) is not True
+        elif isinstance(current, MultiEngine):
+            key = current.engine_key_for(model)
+            current = next((eng for k, eng in current._engines if k == key), None)
+            if current is None:
+                return False
+            mapped_owner = True
+        else:
+            break
     if getattr(current, "is_cloud", False) is True:
         return False
+    if mapped_owner:
+        return True
+    if known_models is not None:
+        return model in known_models
     try:
         return model in current.list_models()
     except Exception:
         logging.getLogger("openjarvis.server").debug(
-            "Could not list models for the local-ownership check", exc_info=True
+            "Local model discovery failed; keeping ambiguous provider IDs local"
         )
-        return False
+        return "/" in model
 
 
 def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
@@ -497,6 +508,9 @@ def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
         # Do not make a blocking model-list HTTP request on every chat turn.
         provider = get_provider(model)
         return "/" not in model or model.startswith(f"{provider}/")
+    provider = get_provider(model)
+    if model.startswith(f"{provider}/"):
+        return True
     return not _local_engine_advertises(engine, model)
 
 
@@ -849,7 +863,7 @@ async def _handle_stream_tools(
     messages = _to_messages(req.messages)
     messages = _ensure_identity_prompt(messages, app_config)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-    use_cloud = _uses_direct_cloud_router(engine, model)
+    use_cloud = await asyncio.to_thread(_uses_direct_cloud_router, engine, model)
     telemetry_engine = (
         "cloud" if use_cloud else (_engine_key_for_model(engine, model) or "ollama")
     )
@@ -988,7 +1002,7 @@ async def _handle_stream(
 
     # Route directly to the right backend — bypasses engine routing entirely
     # so broken MultiEngine state can never misdirect requests.
-    use_cloud = _uses_direct_cloud_router(engine, model)
+    use_cloud = await asyncio.to_thread(_uses_direct_cloud_router, engine, model)
     telemetry_engine = (
         "cloud" if use_cloud else (_engine_key_for_model(engine, model) or "ollama")
     )
@@ -1163,11 +1177,13 @@ async def list_models(request: Request) -> ModelListResponse:
     # Fall back to direct Ollama query only when the engine returns nothing.
     engine = request.app.state.engine
     all_ids = await asyncio.to_thread(engine.list_models)
+    known_models = set(all_ids)
     model_ids = [
         m
         for m in all_ids
         if not is_cloud_model(m)
         or _engine_key_for_model(engine, m) in ("litellm", "nim")
+        or _local_engine_advertises(engine, m, known_models=known_models)
     ]
     if not model_ids:
         model_ids = await list_local_models()
