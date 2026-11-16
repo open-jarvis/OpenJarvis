@@ -141,6 +141,17 @@ jarvis ask -m deepseek-r1:14b "Hello"
 OPENJARVIS_MODEL=qwen3.5:9b jarvis ask "Hello"
 ```
 
+## Voice mode
+
+Run `jarvis chat --voice` to type a message or press Enter to record speech.
+In an interactive terminal, speech models warm up in the background. Only
+local TTS backends receive warm-up syntheses.
+
+Replies play sentence by sentence, with at most one additional chunk prefetched.
+Ctrl+C interrupts playback and discards queued speech. A backend request already
+in progress may finish after the interrupt; the session waits for it before
+starting another synthesis request.
+
 ## Troubleshooting
 
 **"No running engine found"** -- Make sure Ollama is running. Start it with `ollama serve` or open the Ollama desktop app.

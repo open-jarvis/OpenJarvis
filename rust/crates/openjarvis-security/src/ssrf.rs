@@ -20,6 +20,31 @@ fn embedded_ipv4(v6: &Ipv6Addr) -> Option<Ipv4Addr> {
     if let Some(v4) = v6.to_ipv4_mapped() {
         return Some(v4);
     }
+    let seg = v6.segments();
+    // NAT64 well-known prefix 64:ff9b::/96 (RFC 6052): IPv4 in the last 32 bits.
+    if seg[0] == 0x0064
+        && seg[1] == 0xff9b
+        && seg[2] == 0
+        && seg[3] == 0
+        && seg[4] == 0
+        && seg[5] == 0
+    {
+        return Some(Ipv4Addr::new(
+            (seg[6] >> 8) as u8,
+            (seg[6] & 0xff) as u8,
+            (seg[7] >> 8) as u8,
+            (seg[7] & 0xff) as u8,
+        ));
+    }
+    // 6to4 2002::/16 (RFC 3056): IPv4 in bits 16-47.
+    if seg[0] == 0x2002 {
+        return Some(Ipv4Addr::new(
+            (seg[1] >> 8) as u8,
+            (seg[1] & 0xff) as u8,
+            (seg[2] >> 8) as u8,
+            (seg[2] & 0xff) as u8,
+        ));
+    }
     // IPv4-compatible (::a.b.c.d) — RFC 4291 deprecated but still parseable.
     // Excludes `::` and `::1` which must be classified as IPv6.
     let segments = v6.segments();
@@ -56,6 +81,17 @@ pub fn is_private_ip(ip: &IpAddr) -> bool {
                 || v4.is_multicast()
                 // 0.0.0.0/8 — current network, routes to localhost on Linux
                 || v4.octets()[0] == 0
+                // 100.64.0.0/10 — shared address space (CGNAT). Alibaba's
+                // metadata service (100.100.100.200) lives here.
+                || is_in_cidr_v4(v4, Ipv4Addr::new(100, 64, 0, 0), 10)
+                // 192.0.0.0/24 — IETF protocol assignments
+                || (is_in_cidr_v4(v4, Ipv4Addr::new(192, 0, 0, 0), 24)
+                    && v4.octets() != [192, 0, 0, 9]
+                    && v4.octets() != [192, 0, 0, 10])
+                // 198.18.0.0/15 — benchmarking
+                || is_in_cidr_v4(v4, Ipv4Addr::new(198, 18, 0, 0), 15)
+                // 240.0.0.0/4 — reserved (includes 255.255.255.255)
+                || is_in_cidr_v4(v4, Ipv4Addr::new(240, 0, 0, 0), 4)
         }
         IpAddr::V6(v6) => {
             // IPv4-mapped (`::ffff:a.b.c.d`) and IPv4-compatible (`::a.b.c.d`)
@@ -70,6 +106,10 @@ pub fn is_private_ip(ip: &IpAddr) -> bool {
                 || v6.is_multicast()
                 || is_ula_v6(v6)
                 || is_link_local_v6(v6)
+                // RFC 8215 local-use translation prefix is not global space.
+                || (v6.segments()[0] == 0x64
+                    && v6.segments()[1] == 0xff9b
+                    && v6.segments()[2] == 1)
         }
     }
 }
@@ -116,9 +156,7 @@ pub fn check_ssrf(url_str: &str) -> Option<String> {
             // Normalize IPv4-mapped / IPv4-compatible IPv6 to embedded IPv4
             // so the `BLOCKED_HOSTS` and private-range checks below catch
             // them. This is the core SSRF fix.
-            embedded_ipv4(v6)
-                .map(IpAddr::V4)
-                .unwrap_or(IpAddr::V6(*v6)),
+            embedded_ipv4(v6).map(IpAddr::V4).unwrap_or(IpAddr::V6(*v6)),
         ),
         url::Host::Domain(_) => None,
     };
@@ -174,6 +212,49 @@ mod tests {
         assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
         assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))));
         assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::LOCALHOST)));
+    }
+
+    #[test]
+    fn test_cgnat_and_reserved_ranges_are_private() {
+        for (a, b, c, d) in [
+            (100, 100, 100, 200),
+            (100, 64, 0, 1),
+            (100, 127, 255, 255),
+            (198, 18, 0, 1),
+            (192, 0, 0, 192),
+            (240, 0, 0, 1),
+        ] {
+            assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(a, b, c, d))));
+        }
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(100, 128, 0, 1))));
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(198, 20, 0, 1))));
+        // Globally reachable PCP and TURN anycast exceptions in 192.0.0/24.
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(192, 0, 0, 9))));
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(192, 0, 0, 10))));
+    }
+
+    #[test]
+    fn test_nat64_and_6to4_use_embedded_ipv4() {
+        let nat64_loopback: Ipv6Addr = "64:ff9b::7f00:1".parse().unwrap();
+        let nat64_public: Ipv6Addr = "64:ff9b::808:808".parse().unwrap();
+        let sixtofour_loopback: Ipv6Addr = "2002:7f00:1::1".parse().unwrap();
+        let sixtofour_public: Ipv6Addr = "2002:808:808::1".parse().unwrap();
+        assert!(is_private_ip(&IpAddr::V6(nat64_loopback)));
+        assert!(!is_private_ip(&IpAddr::V6(nat64_public)));
+        assert!(is_private_ip(&IpAddr::V6(sixtofour_loopback)));
+        assert!(!is_private_ip(&IpAddr::V6(sixtofour_public)));
+    }
+
+    #[test]
+    fn test_local_use_nat64_prefix_is_blocked() {
+        for address in [
+            "64:ff9b:1::",
+            "64:ff9b:1::7f00:1",
+            "64:ff9b:1:ffff:ffff:ffff:ffff:ffff",
+        ] {
+            assert!(is_private_ip(&address.parse().unwrap()));
+        }
+        assert!(!is_private_ip(&"64:ff9b:2::1".parse().unwrap()));
     }
 
     #[test]
@@ -265,7 +346,10 @@ mod tests {
     #[test]
     fn test_check_ssrf_allows_ipv4_mapped_public() {
         let result = check_ssrf("http://[::ffff:8.8.8.8]/");
-        assert!(result.is_none(), "public IP wrapped as IPv6 must be allowed");
+        assert!(
+            result.is_none(),
+            "public IP wrapped as IPv6 must be allowed"
+        );
     }
 
     #[test]
@@ -273,7 +357,10 @@ mod tests {
         // ::ffff:100.100.100.200 — Alibaba metadata; not in any private CIDR,
         // so must be caught by `BLOCKED_HOSTS` lookup on the normalized IPv4.
         let result = check_ssrf("http://[::ffff:100.100.100.200]/");
-        assert!(result.is_some(), "Alibaba metadata via mapped form must be blocked");
+        assert!(
+            result.is_some(),
+            "Alibaba metadata via mapped form must be blocked"
+        );
         assert!(result.unwrap().contains("Blocked host"));
     }
 

@@ -220,3 +220,9 @@ The desktop and browser apps show an inline audio player when a digest is genera
 **GitHub 403** — Your personal access token needs the `notifications` permission under Account permissions (not Repository permissions).
 
 **Audio not playing** — Ensure `CARTESIA_API_KEY` or `OPENAI_API_KEY` is set. Check credits at https://play.cartesia.ai or https://platform.openai.com.
+
+On native Windows, install the playback dependencies with
+`pip install "openjarvis[speech]"`. If an external audio player is unavailable,
+the digest command decodes the saved file and plays it through PortAudio. The
+command shows the digest text first, waits for playback to finish, and reports
+playback errors. Use `--text-only` to skip audio or Ctrl+C to stop playback.
