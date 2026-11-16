@@ -361,6 +361,12 @@ We recommend creating **one Slack app** that handles both. The App Manifest belo
 
 **What it indexes:** Pages, databases, and their content.
 
+The connector uses the pinned Notion API version `2022-06-28`. Database sync
+reads every row-results page and refreshes rows during incremental syncs.
+Databases with multiple data sources require Notion's newer data-source API;
+that migration is separate from this connector's current database support.
+See [Notion's API upgrade guide](https://developers.notion.com/guides/get-started/upgrade-guide-2025-09-03).
+
 ### Setup
 
 1. **Create an internal integration:**
