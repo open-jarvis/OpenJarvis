@@ -140,6 +140,14 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Validate Rust workspace for shell execution
+        shell: bash
+        working-directory: rust
+        run: |
+          cargo fmt --all -- --check
+          cargo check --workspace --locked
+          cargo test --workspace --locked
+
       - name: Verify GUI process ownership and cleanup
         shell: bash
         run: uv run pytest tests/cli/test_gui_cmd.py tests/cli/test_gui_lifecycle.py -v
@@ -149,6 +157,10 @@ jobs:
         run: |
           uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
           uv run python -c "import openjarvis_rust; print('openjarvis_rust imports on Windows OK')"
+
+      - name: Run shell execution security tests
+        shell: bash
+        run: uv run pytest tests/tools/test_shell_exec.py tests/tools/test_shell_exec_security_contract.py -q
 
       - name: Smoke-test CLI
         shell: bash

@@ -1,56 +1,21 @@
-"""Shell execution tool — run shell commands with security constraints."""
+"""Shell execution tool with native-only secure execution."""
 
 from __future__ import annotations
 
-import os
-import subprocess
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
-# Maximum output size per stream (100 KB)
-_MAX_OUTPUT_BYTES = 102_400
-
-# Maximum allowed timeout (seconds)
 _MAX_TIMEOUT = 300
-
-# Default timeout (seconds)
 _DEFAULT_TIMEOUT = 30
-
-# Environment variables always passed through on every platform.
-_PORTABLE_ENV_KEYS = (
-    "PATH",
-    "HOME",
-    "USER",
-    "LANG",
-    "TERM",
-)
-
-# Windows needs these to bootstrap ordinary child processes: missing
-# SystemRoot breaks Winsock/DNS initialization, while missing LOCALAPPDATA
-# can make the Store Python launcher provision a fresh interpreter in cwd.
-# Keep them conditional so a POSIX host that happens to define similarly
-# named variables does not expand the tool's minimal environment.
-_WINDOWS_ENV_KEYS = (
-    "SystemRoot",
-    "SystemDrive",
-    "COMSPEC",
-    "PATHEXT",
-    "TEMP",
-    "TMP",
-    "USERPROFILE",
-    "LOCALAPPDATA",
-    "APPDATA",
-)
-_BASE_ENV_KEYS = _PORTABLE_ENV_KEYS + (_WINDOWS_ENV_KEYS if os.name == "nt" else ())
 
 
 @ToolRegistry.register("shell_exec")
 class ShellExecTool(BaseTool):
-    """Execute shell commands with a sanitised environment."""
+    """Execute shell commands only through the isolated native backend."""
 
     tool_id = "shell_exec"
 
@@ -59,66 +24,58 @@ class ShellExecTool(BaseTool):
         return ToolSpec(
             name="shell_exec",
             description=(
-                "Execute a shell command and return its stdout/stderr."
-                " Runs with a minimal environment for security."
+                "Execute a shell command through the native isolated backend."
+                " The child receives a minimal environment."
             ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "Shell command to execute.",
-                    },
+                    "command": {"type": "string", "description": "Shell command."},
                     "timeout": {
                         "type": "integer",
-                        "description": ("Timeout in seconds (default 30, max 300)."),
+                        "description": "Timeout in seconds (default 30, max 300).",
                     },
                     "working_dir": {
                         "type": "string",
-                        "description": (
-                            "Working directory for the command."
-                            " Must exist and be a directory."
-                        ),
-                    },
-                    "env_passthrough": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": (
-                            "Additional environment variable names"
-                            " to pass through from the host."
-                        ),
+                        "description": "Working directory for the command.",
                     },
                 },
                 "required": ["command"],
             },
             category="system",
             requires_confirmation=True,
-            timeout_seconds=60.0,
+            timeout_seconds=float(_DEFAULT_TIMEOUT),
             required_capabilities=["code:execute"],
         )
 
     def execute(self, **params: Any) -> ToolResult:
         command = params.get("command", "")
+        working_dir = params.get("working_dir")
+        timeout = params.get("timeout", _DEFAULT_TIMEOUT)
+        try:
+            timeout = int(timeout)
+        except (TypeError, ValueError, OverflowError):
+            timeout = _DEFAULT_TIMEOUT
+        timeout = min(max(timeout, 1), _MAX_TIMEOUT)
+
+        metadata = {
+            "returncode": -1,
+            "timeout_used": timeout,
+            "working_dir": working_dir,
+            "timed_out": False,
+            "output_limited": False,
+            "stdout_truncated": False,
+            "stderr_truncated": False,
+        }
+
         if not command:
             return ToolResult(
                 tool_name="shell_exec",
                 content="No command provided.",
                 success=False,
+                metadata=metadata,
             )
 
-        # Resolve timeout (capped at _MAX_TIMEOUT)
-        timeout = params.get("timeout", _DEFAULT_TIMEOUT)
-        try:
-            timeout = int(timeout)
-        except (TypeError, ValueError):
-            timeout = _DEFAULT_TIMEOUT
-        if timeout < 1:
-            timeout = 1
-        if timeout > _MAX_TIMEOUT:
-            timeout = _MAX_TIMEOUT
-
-        # Validate working_dir
-        working_dir = params.get("working_dir")
         if working_dir is not None:
             wd_path = Path(working_dir)
             if not wd_path.exists():
@@ -126,115 +83,81 @@ class ShellExecTool(BaseTool):
                     tool_name="shell_exec",
                     content=f"Working directory does not exist: {working_dir}",
                     success=False,
+                    metadata=metadata,
                 )
             if not wd_path.is_dir():
                 return ToolResult(
                     tool_name="shell_exec",
                     content=f"Working directory is not a directory: {working_dir}",
                     success=False,
+                    metadata=metadata,
                 )
-
-        # Build sanitised environment
-        env: dict[str, str] = {}
-        for key in _BASE_ENV_KEYS:
-            val = os.environ.get(key)
-            if val is not None:
-                env[key] = val
-
-        env_passthrough: List[str] = params.get("env_passthrough") or []
-        for key in env_passthrough:
-            val = os.environ.get(key)
-            if val is not None:
-                env[key] = val
 
         try:
             from openjarvis._rust_bridge import get_rust_module
 
-            _rust = get_rust_module()
-            output = _rust.ShellExecTool().execute(command, working_dir)
-            return ToolResult(
-                tool_name="shell_exec",
-                content=output or "(no output)",
-                success=True,
-                metadata={
-                    "returncode": 0,
-                    "timeout_used": timeout,
-                    "working_dir": working_dir,
-                },
+            output = (
+                get_rust_module()
+                .ShellExecTool()
+                .execute(
+                    command,
+                    working_dir,
+                    timeout,
+                )
             )
         except ImportError:
-            pass  # Fall through to subprocess below
-        except Exception as exc:
             return ToolResult(
                 tool_name="shell_exec",
-                content=str(exc),
+                content=(
+                    "Secure native shell execution is unavailable; "
+                    "command was not executed."
+                ),
                 success=False,
-                metadata={
-                    "returncode": -1,
-                    "timeout_used": timeout,
-                    "working_dir": working_dir,
-                },
-            )
-        try:
-            result = subprocess.run(
-                command,
-                # This tool executes shell commands after its confirmation gate.
-                shell=True,  # nosec B602
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=working_dir,
-                env=env,
-            )
-        except subprocess.TimeoutExpired:
-            return ToolResult(
-                tool_name="shell_exec",
-                content=f"Command timed out after {timeout} seconds.",
-                success=False,
-                metadata={
-                    "returncode": -1,
-                    "timeout_used": timeout,
-                    "working_dir": working_dir,
-                },
+                metadata=metadata,
             )
         except PermissionError as exc:
             return ToolResult(
                 tool_name="shell_exec",
                 content=f"Permission denied: {exc}",
                 success=False,
+                metadata=metadata,
             )
         except OSError as exc:
             return ToolResult(
                 tool_name="shell_exec",
                 content=f"OS error: {exc}",
                 success=False,
+                metadata=metadata,
+            )
+        except Exception as exc:
+            return ToolResult(
+                tool_name="shell_exec",
+                content=str(exc),
+                success=False,
+                metadata=metadata,
             )
 
-        # Truncate output if needed
-        stdout = result.stdout
-        stderr = result.stderr
-        if len(stdout) > _MAX_OUTPUT_BYTES:
-            stdout = stdout[:_MAX_OUTPUT_BYTES] + "\n... (stdout truncated)"
-        if len(stderr) > _MAX_OUTPUT_BYTES:
-            stderr = stderr[:_MAX_OUTPUT_BYTES] + "\n... (stderr truncated)"
-
-        # Format output
-        sections: list[str] = []
-        if stdout:
-            sections.append(f"=== STDOUT ===\n{stdout}")
-        if stderr:
-            sections.append(f"=== STDERR ===\n{stderr}")
-        content = "\n".join(sections) if sections else "(no output)"
-
+        metadata.update(
+            returncode=output.returncode,
+            timed_out=output.timed_out,
+            output_limited=getattr(
+                output,
+                "output_limited",
+                False,
+            ),
+            stdout_truncated=output.stdout_truncated,
+            stderr_truncated=output.stderr_truncated,
+        )
         return ToolResult(
             tool_name="shell_exec",
-            content=content,
-            success=result.returncode == 0,
-            metadata={
-                "returncode": result.returncode,
-                "timeout_used": timeout,
-                "working_dir": working_dir,
-            },
+            content=output.content or "(no output)",
+            success=bool(
+                output.success
+                and not output.timed_out
+                and not metadata["output_limited"]
+                and output.returncode == 0
+            ),
+            metadata=metadata,
         )
 
 

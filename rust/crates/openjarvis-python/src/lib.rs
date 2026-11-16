@@ -96,6 +96,7 @@ fn openjarvis_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<tools::PyFileReadTool>()?;
     m.add_class::<tools::PyFileWriteTool>()?;
     m.add_class::<tools::PyShellExecTool>()?;
+    m.add_class::<tools::PyShellExecResult>()?;
     m.add_class::<tools::PyHttpRequestTool>()?;
     m.add_class::<tools::PyGitStatusTool>()?;
     m.add_class::<tools::PyGitDiffTool>()?;
