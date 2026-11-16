@@ -30,15 +30,25 @@ class MultiEngine(InferenceEngine):
         self._refresh_map()
 
     def _refresh_map(self) -> None:
-        self._model_map.clear()
-        self._model_key_map.clear()
+        model_map: Dict[str, InferenceEngine] = {}
+        key_map: Dict[str, str] = {}
         for key, engine in self._engines:
             try:
-                for model_id in engine.list_models():
-                    self._model_map[model_id] = engine
-                    self._model_key_map[model_id] = key
+                model_ids = engine.list_models()
             except Exception as exc:
                 logger.debug("Failed to list models for %s: %s", key, exc)
+                # A transient discovery outage must not erase known ownership
+                # and let a private org/model request switch to a cloud route.
+                model_ids = [
+                    model
+                    for model, owner in self._model_map.items()
+                    if owner is engine and self._model_key_map.get(model) == key
+                ]
+            for model_id in model_ids:
+                model_map[model_id] = engine
+                key_map[model_id] = key
+        self._model_map = model_map
+        self._model_key_map = key_map
 
     _CLOUD_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "claude-", "gemini-", "openrouter/")
 
