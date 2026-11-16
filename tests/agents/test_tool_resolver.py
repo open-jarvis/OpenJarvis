@@ -152,6 +152,34 @@ def test_configured_tools_normalize_lists_and_comma_separated_strings(
     ]
 
 
+@pytest.mark.parametrize("custom_spec", [False, True])
+@pytest.mark.parametrize("invalid_policy", [False, True])
+def test_managed_file_tools_use_application_policy(
+    tmp_path, monkeypatch, custom_spec, invalid_policy
+):
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.tools.file_read import FileReadTool
+
+    cfg = JarvisConfig()
+    cfg.security.allowed_dirs = None if invalid_policy else [str(tmp_path / "allowed")]
+    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: JarvisConfig())
+    ToolRegistry.register_value("file_read", FileReadTool)
+    entry = (
+        {"type": "function", "function": {"name": "file_read"}}
+        if custom_spec
+        else "file_read"
+    )
+    resolved = tool_resolver.resolve_agent_tools(
+        {"config": {"tools": [entry]}}, engine=None, model="", app_config=cfg
+    )
+    if invalid_policy:
+        assert "file_read" not in resolved.by_name
+    else:
+        outside = tmp_path / "outside.txt"
+        outside.write_text("must stay outside")
+        assert not resolved.by_name["file_read"].execute(path=str(outside)).success
+
+
 def test_registered_tool_advertisement_matches_to_openai_function(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

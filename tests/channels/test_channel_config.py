@@ -195,3 +195,24 @@ bot_token = "slack-token"
             assert cfg.channel.slack.bot_token == "slack-token"
         finally:
             path.unlink()
+
+
+class TestBuildChannelKwargs:
+    """Config→kwargs mappers must forward every enforced field."""
+
+    def test_telegram_forwards_allowed_chat_ids(self):
+        from openjarvis.system._channel_kwargs import build_channel_kwargs
+
+        cfg = ChannelConfig()
+        cfg.telegram.bot_token = "tok"
+        cfg.telegram.allowed_chat_ids = "111, 222"
+        kwargs = build_channel_kwargs(cfg, "telegram")
+        assert kwargs.get("bot_token") == "tok"
+        assert kwargs.get("allowed_chat_ids") == "111, 222"
+
+    def test_telegram_omits_empty_allowed_chat_ids(self):
+        from openjarvis.system._channel_kwargs import build_channel_kwargs
+
+        cfg = ChannelConfig()
+        kwargs = build_channel_kwargs(cfg, "telegram")
+        assert "allowed_chat_ids" not in kwargs

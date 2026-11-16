@@ -12,7 +12,13 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from openjarvis.server.analytics_routes import router as analytics_router
+from openjarvis.server.analytics_routes import (
+    configure_analytics,
+    stop_analytics,
+)
+from openjarvis.server.analytics_routes import (
+    router as analytics_router,
+)
 from openjarvis.server.api_routes import include_all_routes
 from openjarvis.server.comparison import comparison_router
 from openjarvis.server.connectors_router import create_connectors_router
@@ -445,39 +451,16 @@ def create_app(
     app.state.analytics_client = None
     app.state.analytics_bridge = None
     try:
-        from openjarvis.analytics import (
-            AnalyticsClient,
-            EventBridge,
-            is_analytics_enabled,
-        )
         from openjarvis.core.config import load_config
 
         _cfg = config if config is not None else load_config()
-        if is_analytics_enabled(_cfg.analytics):
-            _client = AnalyticsClient(_cfg.analytics)
-            app.state.analytics_client = _client
-            _bus_ref = getattr(app.state, "bus", None)
-            if _bus_ref is not None:
-                _bridge = EventBridge(_bus_ref, _client)
-                _bridge.start()
-                app.state.analytics_bridge = _bridge
-
-            @app.on_event("shutdown")
-            async def _shutdown_analytics() -> None:
-                bridge = getattr(app.state, "analytics_bridge", None)
-                if bridge is not None:
-                    try:
-                        bridge.stop()
-                    except Exception:
-                        pass
-                client = getattr(app.state, "analytics_client", None)
-                if client is not None:
-                    try:
-                        client.shutdown()
-                    except Exception:
-                        pass
+        configure_analytics(app, _cfg)
     except Exception as _exc:
         logger.debug("Analytics init skipped: %s", _exc)
+
+    @app.on_event("shutdown")
+    async def _shutdown_analytics() -> None:
+        stop_analytics(app)
 
     # Stop the background memory service cleanly when the server shuts down.
     if memory_service is not None:

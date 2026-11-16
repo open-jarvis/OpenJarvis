@@ -264,7 +264,11 @@ def chat(
                                 if isinstance(tcls, type) and issubclass(
                                     tcls, BaseTool
                                 ):
-                                    tool_instances.append(tcls())
+                                    from openjarvis.tools._paths import file_tool_kwargs
+
+                                    tool_instances.append(
+                                        tcls(**file_tool_kwargs(tname, config))
+                                    )
                                 elif isinstance(tcls, BaseTool):
                                     tool_instances.append(tcls)
                     mcp_tools, mcp_clients = _load_mcp_tools(

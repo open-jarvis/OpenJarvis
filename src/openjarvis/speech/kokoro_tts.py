@@ -13,13 +13,19 @@ female (prefix ``z`` → ``lang_code="z"``).
 
 from __future__ import annotations
 
+import builtins
 import io
+import logging
+import sys
 import threading
+import types
 from collections import OrderedDict
 from typing import Any, Dict, List
 
 from openjarvis.core.registry import TTSRegistry
 from openjarvis.speech.tts import TTSBackend, TTSResult
+
+logger = logging.getLogger(__name__)
 
 # Kokoro's voice-prefix → ``lang_code`` mapping. Keep this in sync with
 # ``kokoro.pipeline.LANG_CODES``: Kokoro 0.9.x does not expose a Korean
@@ -38,6 +44,65 @@ _VOICE_PREFIX_TO_LANG: Dict[str, str] = {
 
 _DEFAULT_LANG_CODE = "a"
 _DEFAULT_VOICE_ID = "af_heart"
+_IMPORT_LOCK = threading.RLock()
+
+
+def _import_kokoro() -> Any:
+    """Import ``kokoro``, tolerating a spaCy install that cannot be loaded.
+
+    ``kokoro.pipeline`` imports ``misaki.en`` -- and with it spaCy -- for every
+    language, but only the English G2P (voices ``a*``/``b*``) uses spaCy.
+    Windows Smart App Control, for one, can refuse to load spaCy's unsigned
+    extension DLLs, which would otherwise take every Kokoro voice down with
+    it. When spaCy is the culprit, stub it so espeak-based voices (e.g.
+    ``pf_dora``) keep working; English pipelines then fail on first use.
+    """
+    # Serialize hook installation across backend instances. The replacement
+    # module is visible only to this thread, never through sys.modules.
+    with _IMPORT_LOCK:
+        try:
+            import kokoro
+        except ImportError as exc:
+            if exc.name == "kokoro" or sys.modules.get("spacy") is not None:
+                raise
+            try:
+                import spacy  # noqa: F401
+            except ImportError as spacy_exc:
+                spacy_error = spacy_exc
+            else:
+                raise exc from None
+            shim = types.ModuleType("spacy")
+            owner = threading.get_ident()
+            original_import = builtins.__import__
+            active = True
+
+            def fallback_import(name, globals=None, locals=None, fromlist=(), level=0):
+                if (
+                    active
+                    and threading.get_ident() == owner
+                    and name == "spacy"
+                    and level == 0
+                ):
+                    return shim
+                return original_import(name, globals, locals, fromlist, level)
+
+            builtins.__import__ = fallback_import
+            try:
+                import kokoro
+            finally:
+                # misaki.en may retain the private shim for non-English use,
+                # while unrelated threads always use the original importer.
+                # Deactivate even if another hook retained this wrapper.
+                active = False
+                if builtins.__import__ is fallback_import:
+                    builtins.__import__ = original_import
+            kokoro._openjarvis_spacy_error = str(spacy_error)
+            logger.warning(
+                "spaCy unavailable (%s); English Kokoro voices disabled, "
+                "other languages still work",
+                spacy_error,
+            )
+        return kokoro
 
 
 @TTSRegistry.register("kokoro")
@@ -86,11 +151,19 @@ class KokoroTTSBackend(TTSBackend):
                 self._pipelines.move_to_end(lang_code)
                 return pipeline
             try:
-                from kokoro import KPipeline
+                kokoro = _import_kokoro()
+                KPipeline = kokoro.KPipeline
             except ImportError as exc:
                 raise RuntimeError(
                     "kokoro package not installed. Install with: pip install kokoro"
                 ) from exc
+            if lang_code in {"a", "b"} and getattr(
+                kokoro, "_openjarvis_spacy_error", None
+            ):
+                raise RuntimeError(
+                    "English Kokoro voices require a working spaCy installation: "
+                    f"{kokoro._openjarvis_spacy_error}"
+                )
             try:
                 # KModel is language-blind and is by far the heaviest part of
                 # Kokoro. Reuse one model across every language pipeline.
@@ -128,7 +201,7 @@ class KokoroTTSBackend(TTSBackend):
             return self._model
 
         try:
-            from kokoro import KModel
+            KModel = _import_kokoro().KModel
         except ImportError as exc:
             raise RuntimeError(
                 "kokoro package not installed. Install with: pip install kokoro"
@@ -255,8 +328,13 @@ class KokoroTTSBackend(TTSBackend):
         ]
 
     def health(self) -> bool:
-        try:
-            self._ensure_pipeline(_DEFAULT_LANG_CODE)
-            return True
-        except RuntimeError:
-            return False
+        # Check the shared model, not the English pipeline: language-specific
+        # G2P problems surface at synthesis time for the voice actually used.
+        # Use the same lock as synthesis so concurrent health probes cannot
+        # allocate duplicate model weights or race with close().
+        with self._pipeline_lock:
+            try:
+                self._ensure_model()
+                return True
+            except RuntimeError:
+                return False

@@ -62,6 +62,7 @@ class MCPServer:
         capability_policy: Optional[Any] = None,
         rate_limiter: Optional[Any] = None,
         agent_id: str = _MCP_AGENT_ID,
+        allowed_dirs: Optional[List[str]] = None,
     ) -> None:
         """Create an MCP server with the same dispatch gates as other agents.
 
@@ -71,9 +72,13 @@ class MCPServer:
         pass its policy and limiter here; ``ToolExecutor`` then applies both
         declared and canonical built-in capability requirements before a tool
         can run.
+
+        ``allowed_dirs`` supplies the active configuration's filesystem policy
+        to auto-discovered file tools; explicitly supplied tools keep their own
+        constructor policy.
         """
         if tools is None:
-            tools = self._auto_discover_tools()
+            tools = self._auto_discover_tools(allowed_dirs=allowed_dirs)
         self._tools: Dict[str, BaseTool] = {t.spec.name: t for t in tools}
         self._executor = ToolExecutor(
             tools,
@@ -84,7 +89,9 @@ class MCPServer:
         )
 
     @staticmethod
-    def _auto_discover_tools() -> List[BaseTool]:
+    def _auto_discover_tools(
+        *, allowed_dirs: Optional[List[str]] = None
+    ) -> List[BaseTool]:
         """Auto-discover all built-in tools by direct import.
 
         Does not rely on ToolRegistry state — imports each tool class
@@ -187,7 +194,10 @@ class MCPServer:
 
         for cls in _tool_classes:
             try:
-                tools.append(cls())
+                if getattr(cls, "tool_id", None) in {"file_read", "file_write"}:
+                    tools.append(cls(allowed_dirs=allowed_dirs))
+                else:
+                    tools.append(cls())
             except Exception as exc:
                 logger.warning("Failed to instantiate tool from %r: %s", cls, exc)
 
@@ -199,7 +209,12 @@ class MCPServer:
             for key in ToolRegistry.keys():
                 if key not in known_names:
                     try:
-                        tool = ToolRegistry.create(key)
+                        kwargs = (
+                            {"allowed_dirs": allowed_dirs}
+                            if key in {"file_read", "file_write"}
+                            else {}
+                        )
+                        tool = ToolRegistry.create(key, **kwargs)
                         if isinstance(tool, BaseTool):
                             tools.append(tool)
                     except Exception as exc:

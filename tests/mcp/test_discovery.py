@@ -222,6 +222,7 @@ def test_builder_wires_security_context_into_internal_mcp_server() -> None:
     from openjarvis.system import SystemBuilder
 
     config = JarvisConfig()
+    config.security.allowed_dirs = ["/sandbox"]
     policy = object()
     limiter = object()
     bus = object()
@@ -244,6 +245,7 @@ def test_builder_wires_security_context_into_internal_mcp_server() -> None:
         capability_policy=policy,
         rate_limiter=limiter,
         agent_id="system:mcp",
+        allowed_dirs=["/sandbox"],
     )
 
 

@@ -18,7 +18,7 @@
  */
 
 import posthog from 'posthog-js';
-import { getBase } from './api';
+import { apiFetch } from './api';
 
 /**
  * Mirror of the Python event catalog (src/openjarvis/analytics/events.py
@@ -51,58 +51,92 @@ const KNOWN_EVENTS = new Set<string>([
 // TODO: wire to Vite define() so this comes from package.json at build time.
 const APP_VERSION = '0.1.0';
 
-interface AnalyticsIdentity {
+export interface AnalyticsIdentity {
   enabled: boolean;
   anon_id: string;
   host: string;
   key: string;
+  choice_recorded?: boolean;
 }
 
 let initialized = false;
 let enabledState = false;
 let cachedAnonId = '';
+let generation = 0;
+let sdkReady: Promise<void> | null = null;
+
+export async function fetchAnalyticsIdentity(): Promise<AnalyticsIdentity> {
+  const response = await apiFetch('/v1/analytics/identity');
+  if (!response.ok) throw new Error('Could not load the analytics setting.');
+  return response.json();
+}
+
+export async function saveAnalyticsPreference(enabled: boolean): Promise<void> {
+  if (!enabled) {
+    // Stop the browser sender before waiting for the persistence request.
+    generation += 1;
+    initialized = false;
+    enabledState = false;
+    cachedAnonId = '';
+    try { posthog.opt_out_capturing(); } catch { /* never break the UI */ }
+  }
+  const response = await apiFetch('/v1/analytics/preference', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!response.ok) throw new Error('Could not save your analytics choice. Please try again.');
+  const identity: AnalyticsIdentity = await response.json();
+  if (identity.enabled !== enabled) throw new Error('Analytics choice was not saved.');
+  if (enabled) {
+    await initAnalytics(true);
+  }
+}
 
 /**
  * Fetch identity from the backend and initialize the SDK.
  * Idempotent — safe to call multiple times.
  */
-export async function initAnalytics(): Promise<void> {
-  if (initialized) return;
+export async function initAnalytics(force = false): Promise<void> {
+  if (initialized && !force) return;
+  const currentGeneration = ++generation;
   initialized = true; // claim the slot even on failure paths
 
   try {
-    const base = getBase();
-    if (!base) return;
-
-    const resp = await fetch(`${base}/v1/analytics/identity`);
-    if (!resp.ok) return;
-
-    const identity: AnalyticsIdentity = await resp.json();
+    const identity = await fetchAnalyticsIdentity();
+    if (currentGeneration !== generation) return;
     if (!identity.enabled || !identity.key || !identity.anon_id) {
       return;
     }
 
     cachedAnonId = identity.anon_id;
 
-    posthog.init(identity.key, {
-      api_host: identity.host,
-      bootstrap: { distinctID: identity.anon_id },
-      // No surprise data collection — only events we call out by name.
-      autocapture: false,
-      capture_pageview: false,
-      capture_pageleave: false,
-      disable_session_recording: true,
-      // No /decide call for feature flags (saves a request, we don't use them yet).
-      advanced_disable_decide: true,
-      // No PostHog person profiles — we're not making accounts, just sending events.
-      person_profiles: 'never',
-      // Don't try to load IP geolocation; backend disables this too.
-      ip: false,
-      // Best-effort sending only.
-      loaded: () => {
-        enabledState = true;
-      },
-    });
+    // PostHog ignores repeated init() calls. Share the first initialization,
+    // then explicitly resume capture for every later opt-in.
+    if (!sdkReady) {
+      sdkReady = new Promise<void>((resolve) => {
+        posthog.init(identity.key, {
+          api_host: identity.host,
+          bootstrap: { distinctID: identity.anon_id },
+          // No surprise data collection — only events we call out by name.
+          autocapture: false,
+          capture_pageview: false,
+          capture_pageleave: false,
+          disable_session_recording: true,
+          // No /decide call for feature flags (saves a request, we don't use them yet).
+          advanced_disable_decide: true,
+          // No PostHog person profiles — we're not making accounts, just sending events.
+          person_profiles: 'never',
+          // Don't try to load IP geolocation; backend disables this too.
+          ip: false,
+          loaded: () => resolve(),
+        });
+      });
+    }
+    await sdkReady;
+    if (currentGeneration !== generation) return;
+    posthog.opt_in_capturing({ captureEventName: false });
+    enabledState = true;
 
     // Set distinct_id explicitly in case bootstrap raced.
     posthog.identify(identity.anon_id);

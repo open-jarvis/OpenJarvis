@@ -465,6 +465,23 @@ jarvis serve --host 127.0.0.1 --port 9000 --model qwen3:8b --agent simple
 
 ---
 
+### `[analytics]` — Optional External Usage Analytics
+
+External analytics default to off. Interactive Bash installation and `jarvis
+init` ask whether to share: **Press Enter or Y to consent, or N to decline**.
+Unattended runs do not consent automatically; `--analytics` explicitly enables
+sharing and `--no-analytics` declines it.
+
+```toml
+[analytics]
+enabled = false
+```
+
+Use `jarvis config set analytics.enabled true` to enable sharing or `false` to
+disable it, then restart the server and reload the frontend. This setting is
+independent of local telemetry and leaderboard participation. See
+[Telemetry](../telemetry.md) for the event catalog and sharing details.
+
 ### `[telemetry]` — Telemetry Persistence
 
 Controls whether inference telemetry is recorded and where it is stored.

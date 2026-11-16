@@ -1,6 +1,12 @@
 #!/usr/bin/env bats
 
+# Requires Python with tomlkit, as does the installed application. Set
+# OPENJARVIS_TEST_PYTHON to an existing project venv when running locally.
+
 setup() {
+    export OPENJARVIS_TEST_PYTHON="${OPENJARVIS_TEST_PYTHON:-$(command -v python3)}"
+    export PYTHONPATH="$BATS_TEST_DIRNAME/../../../src"
+    unset OPENJARVIS_CONFIG XDG_DATA_HOME
     TEST_TMPDIR=$(mktemp -d)
     export FAKE_HOME="$TEST_TMPDIR/home"
     mkdir -p "$FAKE_HOME"
@@ -16,6 +22,7 @@ setup() {
     export OLLAMA_STUB_LOG="$TEST_TMPDIR/ollama.log"
     export UV_STUB_LOG="$TEST_TMPDIR/uv.log"
     export CURL_STUB_LOG="$TEST_TMPDIR/curl.log"
+    export JARVIS_STUB_LOG="$TEST_TMPDIR/jarvis.log"
     : > "$GIT_STUB_LOG"
     : > "$OLLAMA_STUB_LOG"
     : > "$UV_STUB_LOG"
@@ -46,14 +53,20 @@ case "\$1" in
             cat > "\$venv_path/bin/jarvis" <<'EOJ'
 #!/usr/bin/env bash
 # fake jarvis for tests
+echo "\$@" >> "\$JARVIS_STUB_LOG"
+# Model the pre-consent CLI, which cannot validate the new schema key.
+if [[ "\$*" == 'config set analytics.choice_recorded true' ]]; then
+    echo "Error: Unknown config key: 'analytics.choice_recorded'" >&2
+    exit 1
+fi
 echo "fake jarvis: \$@"
 exit 0
 EOJ
             chmod +x "\$venv_path/bin/jarvis"
             cat > "\$venv_path/bin/python" <<'EOJ'
 #!/usr/bin/env bash
-# fake python that prints empty for the inline embedded scripts (recommend_model, etc.)
-exit 0
+# Run the real persistence code using an interpreter with app dependencies.
+exec "\$OPENJARVIS_TEST_PYTHON" "\$@"
 EOJ
             chmod +x "\$venv_path/bin/python"
         fi
@@ -74,6 +87,131 @@ EOF
 
 teardown() {
     [[ -n "${TEST_TMPDIR:-}" ]] && rm -rf "$TEST_TMPDIR"
+}
+
+assert_analytics_preference() {
+    "$OPENJARVIS_TEST_PYTHON" - "$1" "$2" "$3" <<'PY'
+import sys
+from pathlib import Path
+
+import tomlkit
+
+analytics = tomlkit.parse(Path(sys.argv[1]).read_text())["analytics"]
+assert bool(analytics["enabled"]) is (sys.argv[2] == "true")
+assert bool(analytics.get("choice_recorded", False)) is (sys.argv[3] == "true")
+PY
+}
+
+@test "unattended install sends no analytics and persists disabled" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal
+    [ "$status" -eq 0 ]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    [ ! -f "$OPENJARVIS_HOME/anon_id" ]
+    assert_analytics_preference "$OPENJARVIS_HOME/config.toml" false false
+}
+
+@test "explicit analytics flag sends beacons and persists enabled" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --analytics
+    [ "$status" -eq 0 ]
+    grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    [ -s "$OPENJARVIS_HOME/anon_id" ]
+    assert_analytics_preference "$OPENJARVIS_HOME/config.toml" true true
+}
+
+@test "Enter at dedicated terminal prompt consents before the first beacon" {
+    run python3 "$BATS_TEST_DIRNAME/run_installer_pty.py" "$SCRIPT" '["\n"]'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Press Enter or Y to consent, or N to decline"* ]]
+    grep -q '"event":"install_started"' "$CURL_STUB_LOG"
+    assert_analytics_preference "$OPENJARVIS_HOME/config.toml" true true
+}
+
+@test "N at terminal prompt declines every installer beacon" {
+    run python3 "$BATS_TEST_DIRNAME/run_installer_pty.py" "$SCRIPT" '["N\n"]'
+    [ "$status" -eq 0 ]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    [ ! -f "$OPENJARVIS_HOME/anon_id" ]
+    assert_analytics_preference "$OPENJARVIS_HOME/config.toml" false true
+}
+
+@test "invalid answer retries without silently consenting" {
+    run python3 "$BATS_TEST_DIRNAME/run_installer_pty.py" "$SCRIPT" '["invalid\n", "n\n"]'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Please press Enter, type Y, or type N."* ]]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+}
+
+@test "terminal EOF is different from pressing Enter" {
+    run python3 "$BATS_TEST_DIRNAME/run_installer_pty.py" "$SCRIPT" '["\u0004"]'
+    [ "$status" -eq 0 ]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    [ ! -f "$OPENJARVIS_HOME/anon_id" ]
+    assert_analytics_preference "$OPENJARVIS_HOME/config.toml" false false
+}
+
+@test "declining on a rerun persists despite skipped config creation" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --analytics
+    [ "$status" -eq 0 ]
+    : > "$JARVIS_STUB_LOG"
+    : > "$CURL_STUB_LOG"
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --no-analytics
+    [ "$status" -eq 0 ]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
+    ! grep -q '_bootstrap' "$JARVIS_STUB_LOG"
+    assert_analytics_preference "$OPENJARVIS_HOME/config.toml" false true
+}
+
+@test "rerun saves consent with an older CLI and preserves existing TOML" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal
+    [ "$status" -eq 0 ]
+    cat > "$OPENJARVIS_HOME/config.toml" <<'TOML'
+# Preserve user settings and comments.
+[engine]
+default = "ollama"
+[analytics]
+enabled = false # Previous choice.
+flush_at_size = 7
+TOML
+    run "$OPENJARVIS_HOME/.venv/bin/jarvis" config set analytics.choice_recorded true
+    [ "$status" -eq 1 ]
+    : > "$JARVIS_STUB_LOG"
+    : > "$UV_STUB_LOG"
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --analytics
+    [ "$status" -eq 0 ]
+    [ ! -s "$UV_STUB_LOG" ]
+    [ ! -s "$JARVIS_STUB_LOG" ]
+    assert_analytics_preference "$OPENJARVIS_HOME/config.toml" true true
+    grep -q '# Preserve user settings and comments.' "$OPENJARVIS_HOME/config.toml"
+    grep -q '# Previous choice.' "$OPENJARVIS_HOME/config.toml"
+    grep -q 'default = "ollama"' "$OPENJARVIS_HOME/config.toml"
+    grep -q 'flush_at_size = 7' "$OPENJARVIS_HOME/config.toml"
+}
+
+@test "consent respects OPENJARVIS_CONFIG instead of changing the default config" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --no-analytics
+    [ "$status" -eq 0 ]
+    export OPENJARVIS_CONFIG="$TEST_TMPDIR/custom config.toml"
+    printf '# Custom config\n[engine]\ndefault = "ollama"\n' > "$OPENJARVIS_CONFIG"
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --analytics
+    [ "$status" -eq 0 ]
+    assert_analytics_preference "$OPENJARVIS_CONFIG" true true
+    assert_analytics_preference "$OPENJARVIS_HOME/config.toml" false true
+    grep -q '# Custom config' "$OPENJARVIS_CONFIG"
+}
+
+@test "consent follows the runtime XDG path when OPENJARVIS_HOME is unset" {
+    unset OPENJARVIS_HOME
+    export XDG_DATA_HOME="$TEST_TMPDIR/xdg data"
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal --analytics
+    [ "$status" -eq 0 ]
+    assert_analytics_preference "$XDG_DATA_HOME/openjarvis/config.toml" true true
+    [ ! -f "$HOME/.openjarvis/config.toml" ]
+}
+
+@test "contradictory analytics flags are rejected" {
+    run bash "$SCRIPT" --analytics --no-analytics
+    [ "$status" -eq 2 ]
+    ! grep -q '/i/v0/e/' "$CURL_STUB_LOG"
 }
 
 @test "refuses to run as root" {

@@ -171,6 +171,50 @@ def test_executor_handles_missing_tools(tmp_path):
     mgr.close()
 
 
+@pytest.mark.parametrize("mode", ["tick", "ephemeral"])
+@pytest.mark.parametrize("invalid_policy", [False, True])
+def test_executor_file_tools_keep_application_directory_policy(
+    tmp_path, monkeypatch, mode, invalid_policy
+):
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.tools.file_read import FileReadTool
+
+    cfg = JarvisConfig()
+    cfg.security.allowed_dirs = None if invalid_policy else [str(tmp_path / "allowed")]
+    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: JarvisConfig())
+    ToolRegistry.register_value("file_read", FileReadTool)
+    AgentRegistry.register_value("monitor_operative", _CapturingToolAgent)
+    _CapturingToolAgent.captured_tools = []
+    system = FakeSystem(engine=FakeEngine([{"content": "unused"}]), config=cfg)
+    mgr = AgentManager(db_path=str(tmp_path / "agents.db"))
+    try:
+        executor = AgentExecutor(manager=mgr, event_bus=EventBus(), system=system)
+        if mode == "ephemeral":
+            if invalid_policy:
+                with pytest.raises(ValueError, match="allowed_dirs"):
+                    executor.run_ephemeral(
+                        "monitor_operative", "", "read", ["file_read"]
+                    )
+            else:
+                executor.run_ephemeral("monitor_operative", "", "read", ["file_read"])
+        else:
+            agent = mgr.create_agent(
+                "file policy",
+                agent_type="monitor_operative",
+                config={"tools": ["file_read"], "instruction": "read"},
+            )
+            executor.execute_tick(agent["id"])
+        tools = {tool.spec.name: tool for tool in _CapturingToolAgent.captured_tools}
+        if invalid_policy:
+            assert "file_read" not in tools
+        else:
+            outside = tmp_path / "outside.txt"
+            outside.write_text("must stay outside")
+            assert not tools["file_read"].execute(path=str(outside)).success
+    finally:
+        mgr.close()
+
+
 def test_executor_handles_string_tools(tmp_path):
     """Executor should handle comma-separated tool string as well as list."""
     _register_agent()

@@ -118,6 +118,47 @@ class _FinalOnlyEngine:
         yield StreamChunk(finish_reason="stop")
 
 
+@pytest.mark.asyncio
+async def test_sse_file_tools_keep_application_directory_policy(tmp_path, monkeypatch):
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.server.agent_manager_routes import _stream_managed_agent
+    from openjarvis.tools.file_read import FileReadTool
+
+    cfg = JarvisConfig()
+    cfg.security.allowed_dirs = [str(tmp_path / "allowed")]
+    cfg.tools.storage.enabled = False
+    monkeypatch.setattr("openjarvis.core.config.load_config", lambda: JarvisConfig())
+    ToolRegistry.register_value("file_read", FileReadTool)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("OUTSIDE_DIRECTORY_SENTINEL")
+    engine = _ToolCallingEngine("file_read", {"path": str(outside)})
+    manager = MagicMock()
+    manager.list_messages.return_value = []
+    response = await _stream_managed_agent(
+        manager=manager,
+        agent_record={
+            "id": "restricted-agent",
+            "name": "Restricted",
+            "agent_type": "simple",
+            "config": {
+                "model": "test-model",
+                "max_turns": 3,
+                "tools": ["file_read"],
+                "mcp_tools": False,
+            },
+        },
+        user_content="Read the file",
+        message_id="message-restricted",
+        engine=engine,
+        bus=None,
+        app_state=SimpleNamespace(config=cfg, memory_backend=None),
+    )
+    async for _ in response.body_iterator:
+        pass
+    assert "outside allowed directories" in engine.observed_tool_result
+    assert "OUTSIDE_DIRECTORY_SENTINEL" not in engine.observed_tool_result
+
+
 class _SyntheticHttpSink(BaseTool):
     """HTTP-shaped sink that records calls without performing network IO."""
 

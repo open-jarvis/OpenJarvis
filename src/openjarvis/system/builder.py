@@ -475,12 +475,14 @@ class SystemBuilder:
     ):
         """Resolve tool instances via MCPServer (primary) + external MCP servers."""
         from openjarvis.mcp.server import MCPServer
+        from openjarvis.tools._paths import validate_allowed_dirs
 
         internal_server = MCPServer(
             bus=bus,
             capability_policy=capability_policy,
             rate_limiter=rate_limiter,
             agent_id="system:mcp",
+            allowed_dirs=validate_allowed_dirs(config.security.allowed_dirs),
         )
         for tool in internal_server.get_tools():
             self._inject_tool_deps(tool, engine, model, memory_backend, channel_backend)

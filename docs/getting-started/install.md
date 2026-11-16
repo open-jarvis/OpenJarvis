@@ -31,6 +31,11 @@ model. **You don't need to install uv or any other prerequisite first.**
 
 About 3 minutes on a typical broadband connection. Type `jarvis` to start chatting.
 
+Before sending any installation analytics, the Bash installer displays a
+dedicated optional-sharing prompt: **Press Enter or Y to consent, or N to
+decline**. The choice also controls runtime analytics. No terminal, EOF, or
+cancelled input leaves sharing off. See [Telemetry](../telemetry.md) for details.
+
 ## What the installer does
 
 | Phase | Step | Where |
@@ -78,6 +83,8 @@ Local-first remains the default when no key is in env. Precedence is OpenRouter 
 | `--minimal` | Skip the foreground model pull. First chat will need to wait for the bg pull to finish. |
 | `--no-bg-orchestrator` | Don't detach the background work pipeline. (Mostly for testing.) |
 | `--force` | Re-run all steps even if `install-state.json` says they're done. |
+| `--analytics` | Consent to installation and runtime usage analytics without prompting. |
+| `--no-analytics` | Decline analytics without prompting. |
 
 ## Environment overrides
 

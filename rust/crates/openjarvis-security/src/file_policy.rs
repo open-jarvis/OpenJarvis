@@ -13,6 +13,14 @@ static SENSITIVE_PATTERNS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
         ".htpasswd",
         ".pgpass",
         ".netrc",
+        ".git-credentials",
+        "credentials",
+        "shadow",
+        "gshadow",
+        // Plain-text password files
+        "pass.txt",
+        "password.txt",
+        "passwords.txt",
     ])
 });
 
@@ -102,6 +110,22 @@ mod tests {
             panic!("failed to create test symlink: {error}");
         }
         true
+    }
+
+    #[test]
+    fn test_plaintext_password_files() {
+        for name in [
+            "pass.txt",
+            "password.txt",
+            "passwords.txt",
+            "shadow",
+            "gshadow",
+            "credentials",
+            ".git-credentials",
+        ] {
+            assert!(is_sensitive_file(Path::new(&format!("/srv/app/{name}"))));
+        }
+        assert!(!is_sensitive_file(Path::new("/home/user/notes.txt")));
     }
 
     #[test]

@@ -11,8 +11,10 @@ from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 
+from openjarvis.cli._analytics_consent import apply_analytics_choice
 from openjarvis.cli._banner import print_banner
 from openjarvis.cli._bootstrap import detect_cloud_keys
+from openjarvis.cli._presets import preset_search_paths, resolve_preset
 from openjarvis.cli.model import find_model_spec, hf_download, ollama_pull
 from openjarvis.cli.scan_cmd import PrivacyScanner
 from openjarvis.core.config import (
@@ -226,6 +228,11 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
 
 @click.command()
 @click.option(
+    "--analytics/--no-analytics",
+    default=None,
+    help="Consent to or decline external usage analytics without prompting.",
+)
+@click.option(
     "--force", is_flag=True, help="Overwrite existing config without prompting."
 )
 @click.option(
@@ -304,6 +311,7 @@ def init(
     enable_digest: bool = False,
     preset: Optional[str] = None,
     from_bare_jarvis: bool = False,
+    analytics: bool | None = None,
 ) -> None:
     """Detect hardware and generate ~/.openjarvis/config.toml."""
     print_banner(quiet=(ctx.obj or {}).get("quiet", False))
@@ -333,25 +341,21 @@ def init(
 
     # Handle --preset: copy a starter config and return early
     if preset:
-        examples_dir = (
-            Path(__file__).resolve().parents[2] / "configs" / "openjarvis" / "examples"
-        )
-        # Also check installed package location
-        if not examples_dir.exists():
-            examples_dir = (
-                Path(__file__).resolve().parents[3]
-                / "configs"
-                / "openjarvis"
-                / "examples"
-            )
-        preset_path = examples_dir / f"{preset}.toml"
-        if not preset_path.exists():
+        preset_path = resolve_preset(preset)
+        if preset_path is None:
             console.print(f"[red]Preset '{preset}' not found.[/red]")
-            console.print(f"  Looked in: {examples_dir}")
+            console.print("  Looked in:")
+            for directory in preset_search_paths():
+                console.print(f"    {directory}")
             raise SystemExit(1)
         DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         DEFAULT_CONFIG_PATH.write_text(
-            preset_path.read_text(encoding="utf-8"), encoding="utf-8"
+            apply_analytics_choice(
+                preset_path.read_text(encoding="utf-8"),
+                analytics,
+                prompt=not from_bare_jarvis,
+            ),
+            encoding="utf-8",
         )
         console.print(
             f"[green]Preset '{preset}' installed to {DEFAULT_CONFIG_PATH}[/green]"
@@ -462,6 +466,9 @@ def init(
     # ``--config`` selects an existing file to install; it is not an alternate
     # output path.  Always activate the selected/generated configuration at
     # the canonical location that subsequent ``jarvis`` commands load.
+    toml_content = apply_analytics_choice(
+        toml_content, analytics, prompt=not from_bare_jarvis
+    )
     DEFAULT_CONFIG_PATH.write_text(toml_content, encoding="utf-8")
 
     console.print()

@@ -19,6 +19,7 @@ def test_gui_custom_ports_use_project_root_and_same_origin_proxy(
     frontend = tmp_path / "frontend"
     frontend.mkdir()
     process = mock.Mock(spec=subprocess.Popen)
+    process.pid = 4321
     process.poll.return_value = None
     process.wait.return_value = 0
 
@@ -33,6 +34,8 @@ def test_gui_custom_ports_use_project_root_and_same_origin_proxy(
             gui_cmd.subprocess, "run", return_value=mock.Mock(returncode=0)
         ) as run,
         mock.patch.object(gui_cmd.subprocess, "Popen", return_value=process) as popen,
+        mock.patch.object(gui_cmd, "_FrontendOwner") as owner_type,
+        mock.patch.object(gui_cmd, "_api_healthy", return_value=False),
         mock.patch.object(
             gui_cmd, "_wait_for_port", return_value=True
         ) as wait_for_port,
@@ -76,9 +79,12 @@ def test_gui_custom_ports_use_project_root_and_same_origin_proxy(
     assert kwargs["cwd"] == frontend
     assert kwargs["env"]["OPENJARVIS_VITE_PROXY_TARGET"] == "http://127.0.0.1:8123"
     assert kwargs["env"]["VITE_API_URL"] == ""
-    wait_for_port.assert_called_once_with(process, "127.0.0.1", 5180)
+    wait_for_port.assert_called_once_with(
+        process, "127.0.0.1", 5180, on_poll=owner_type.return_value.refresh
+    )
     open_browser.assert_not_called()
-    process.wait.assert_called_once_with()
+    process.wait.assert_called_once_with(timeout=gui_cmd._API_POLL_SECONDS)
+    owner_type.return_value.shutdown.assert_called_once_with()
 
 
 def test_gui_rejects_occupied_frontend_port_before_launch(tmp_path: Path) -> None:
@@ -91,6 +97,7 @@ def test_gui_rejects_occupied_frontend_port_before_launch(tmp_path: Path) -> Non
         with (
             mock.patch.object(gui_cmd, "_frontend_dir", return_value=frontend),
             mock.patch.object(gui_cmd.shutil, "which", return_value="/bin/npm"),
+            mock.patch.object(gui_cmd, "_port_owner_pid", return_value=None),
             mock.patch.object(gui_cmd, "_ensure_frontend_dependencies") as ensure_deps,
             mock.patch.object(gui_cmd.subprocess, "Popen") as popen,
             mock.patch.object(gui_cmd.subprocess, "run") as run,

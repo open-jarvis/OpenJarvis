@@ -59,6 +59,10 @@ API_KEY_ENV_VARS = {
         {"cartesia", "text_to_speech"},
     ),
     "DEEPSEEK_API_KEY": ("DeepSeek cloud inference", {"deepseek"}),
+    "ELEVENLABS_API_KEY": (
+        "ElevenLabs cloud text-to-speech",
+        {"elevenlabs", "text_to_speech"},
+    ),
     "FXMACRODATA_API_KEY": (
         "FXMacroData macro and FX data lookup",
         {"fx_macro_data", "fxmacrodata"},
@@ -225,8 +229,9 @@ GENERIC_NETWORK_TOOLS = {"http_request"}
 WEATHER_TOOLS = {"get_weather"}
 MARKET_DATA_TOOLS = {"fx_macro_data"}
 CHANNEL_OUTBOUND_TOOLS = {"channel_send"}
+CONNECTOR_NETWORK_TOOLS = {"digest_collect", "execute_pending_actions"}
 CLOUD_MEDIA_TOOLS = {"audio_transcribe", "image_generate", "text_to_speech"}
-CLOUD_TTS_BACKENDS = {"cartesia", "openai", "openai_tts"}
+CLOUD_TTS_BACKENDS = {"cartesia", "elevenlabs", "openai", "openai_tts"}
 # Local knowledge chunks scanned by an inference engine (Deep Research path).
 KNOWLEDGE_ENGINE_TOOLS = {"scan_chunks"}
 # External egress surfaces (web, browser, HTTP, channels, media, knowledge LM).
@@ -237,6 +242,7 @@ EXTERNAL_TOOL_SURFACES = (
     | WEATHER_TOOLS
     | MARKET_DATA_TOOLS
     | CHANNEL_OUTBOUND_TOOLS
+    | CONNECTOR_NETWORK_TOOLS
     | CLOUD_MEDIA_TOOLS
     | KNOWLEDGE_ENGINE_TOOLS
 )
@@ -251,12 +257,14 @@ LOCAL_ACCESS_TOOLS = {
     "calendar_upcoming",
     "channel_list",
     "channel_status",
+    "check_permission",
     "code_interpreter",
     "code_interpreter_docker",
     "db_query",
     "docker_shell_exec",
     "file_read",
     "file_write",
+    "get_pending_actions",
     "git_commit",
     "git_diff",
     "git_log",
@@ -265,6 +273,7 @@ LOCAL_ACCESS_TOOLS = {
     "kg_add_relation",
     "kg_neighbors",
     "kg_query",
+    "knowledge_search",
     "knowledge_sql",
     "memory_index",
     "memory_manage",
@@ -272,6 +281,8 @@ LOCAL_ACCESS_TOOLS = {
     "memory_search",
     "memory_store",
     "pdf_extract",
+    "queue_action",
+    "record_decision",
     "repl",
     "retrieval",
     "shell_exec",
@@ -1051,6 +1062,28 @@ def _audit_tool_surfaces(config: Any, builder: _FindingBuilder) -> None:
             recommendation=(
                 "Review channel targets and message content before enabling outbound "
                 "messaging tools."
+            ),
+        )
+
+    connector_tools = tools & CONNECTOR_NETWORK_TOOLS
+    if connector_tools:
+        paths = []
+        if "digest_collect" in connector_tools:
+            paths.append("authenticated sync requests -> configured connector services")
+        if "execute_pending_actions" in connector_tools:
+            paths.append(
+                "queued action payloads -> Gmail, Google Calendar, or iMessage"
+            )
+        builder.add(
+            finding_id="connector-network-tools-configured",
+            status="warn",
+            title="Tools that contact connector services are configured",
+            potential_data_path="; ".join(paths),
+            evidence=f"configured tool(s) = {_format_tools(connector_tools)}",
+            recommendation=(
+                "Review connector destinations and queued action approvals; these "
+                "tools can contact external services even when digest and channel "
+                "automation are disabled."
             ),
         )
 

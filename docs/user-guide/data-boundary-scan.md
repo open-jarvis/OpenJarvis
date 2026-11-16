@@ -51,7 +51,7 @@ The current checks cover:
 - unset `security.profile` (informational)
 - web search, browser, local file, shell, code, knowledge chunk scanning, and MCP tool surfaces
 - local knowledge.db composition with cloud-capable Deep Research targets
-- server binding and unauthenticated A2A exposure
+- server binding and A2A configuration/authentication settings
 - channel enablement, channel credential fields, and channel credential env vars
 - skills, skill auto-sync, digest sources, and cloud speech/TTS backends such as Cartesia
 - local stores such as `knowledge.db`, `credentials.toml`, `memory.db`, `traces.db`,
@@ -64,6 +64,18 @@ The current checks cover:
 Configured database paths (for example `traces.db_path` or `memory.db_path`)
 are resolved from config when set, not only the default locations under the
 OpenJarvis home directory.
+
+### A2A configuration and the built-in server
+
+A2A findings describe configuration, rather than a probe of mounted network
+routes. The current `jarvis serve` application does not mount the `A2AServer`
+library's endpoints. Setting `[a2a] enabled = true` therefore does not add A2A
+discovery or task routes to that application.
+
+Applications that integrate `A2AServer` themselves control its transport and
+authentication explicitly. A scan finding about `a2a.enabled` or `a2a.auth_token`
+does not establish that such an integration is running, nor does it certify a
+particular A2A protocol version or transport.
 
 Static Deep Research targeting uses configuration only (no request overrides):
 `deep_research.engine` or `engine.default`, and `deep_research.model` or

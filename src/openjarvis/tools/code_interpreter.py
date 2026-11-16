@@ -116,6 +116,13 @@ def _child_limits() -> None:  # pragma: no cover - POSIX-only, runs in child
         pass
 
 
+# Small models otherwise invent a result when nothing was printed.
+_NO_OUTPUT = (
+    "(no output) Nothing was printed, so there is no result yet."
+    " Call print() on the value you need and run again; do not guess the answer."
+)
+
+
 @ToolRegistry.register("code_interpreter")
 class CodeInterpreterTool(BaseTool):
     """Execute Python code after AST validation, in a hardened subprocess."""
@@ -131,7 +138,8 @@ class CodeInterpreterTool(BaseTool):
         return ToolSpec(
             name="code_interpreter",
             description=(
-                "Execute Python code and return the output."
+                "Execute Python code and return what it prints"
+                " (use print() to see results)."
                 " Code is AST-validated and runs in a hardened, isolated"
                 " subprocess (no imports of os/sys/subprocess/network, no"
                 " file IO, no eval/exec)."
@@ -202,7 +210,7 @@ class CodeInterpreterTool(BaseTool):
                 output = output[: self._max_output] + "\n... (output truncated)"
             return ToolResult(
                 tool_name="code_interpreter",
-                content=output or "(no output)",
+                content=output or _NO_OUTPUT,
                 success=result.returncode == 0,
                 metadata={"returncode": result.returncode},
             )

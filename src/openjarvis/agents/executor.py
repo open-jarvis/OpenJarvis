@@ -180,7 +180,13 @@ class AgentExecutor:
             if isinstance(registered, BaseTool):
                 instances.append(registered)
             elif isinstance(registered, type) and issubclass(registered, BaseTool):
-                instances.append(registered())
+                from openjarvis.tools._paths import file_tool_kwargs
+
+                instances.append(
+                    registered(
+                        **file_tool_kwargs(name, getattr(self._system, "config", None))
+                    )
+                )
 
         execution_cls = (
             agent_cls
@@ -461,6 +467,7 @@ class AgentExecutor:
             mcp_tools=mcp_tools,
             mcp_clients=mcp_clients,
             knowledge_db_path=getattr(self._system, "knowledge_db_path", None),
+            app_config=getattr(self._system, "config", None),
         )
         self._toolkit_local.current = resolved_toolkit
         tool_instances = resolved_toolkit.instances
@@ -857,7 +864,11 @@ class AgentExecutor:
             if agent_data:
                 config = agent_data.get("config", {})
                 max_cost = config.get("max_cost", 0)
-                max_tokens = config.get("max_tokens", 0)
+                # Lifetime token budget. Deliberately not "max_tokens": that
+                # key is the per-response generation limit (agent templates
+                # and the agent chat route use it that way), so reading it
+                # here disabled agents after a few thousand tokens in total.
+                max_tokens = config.get("max_total_tokens", 0)
                 exceeded = False
                 if max_cost > 0 and agent_data["total_cost"] > max_cost:
                     exceeded = True

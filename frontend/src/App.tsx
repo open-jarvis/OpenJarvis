@@ -16,6 +16,7 @@ import { fetchModels, fetchServerInfo, fetchSavings, submitSavings, isTauri } fr
 import { OptInModal } from './components/OptInModal';
 import { UpdateChecker } from './components/Desktop/UpdateChecker';
 import { track, hashId } from './lib/analytics';
+import { offerAnalyticsChoice } from './lib/analytics-invitation';
 
 export default function App() {
   const [setupDone, setSetupDone] = useState(!isTauri());
@@ -64,20 +65,29 @@ export default function App() {
     return () => clearInterval(interval);
   }, [importOverlay]);
 
-  // Fetch models on mount
+  // Wait for desktop setup so a startup request cannot clear the models
+  // SetupScreen loaded before handing off to chat.
   useEffect(() => {
+    if (!setupDone) return;
+    let cancelled = false;
+    setModelsLoading(true);
     fetchModels()
       .then((m) => {
-        setModels(m);
+        if (!cancelled) setModels(m);
       })
-      .catch(() => setModels([]))
-      .finally(() => setModelsLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      // Preserve models already loaded by setup if this refresh fails.
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setModelsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [setupDone, setModels, setModelsLoading]);
 
   // Fetch server info
   useEffect(() => {
+    if (!setupDone) return;
     fetchServerInfo().then(setServerInfo).catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setupDone, setServerInfo]);
 
   // Poll savings and optionally share to Supabase
   useEffect(() => {
@@ -115,15 +125,15 @@ export default function App() {
     refresh();
     const interval = setInterval(refresh, 30000);
     return () => clearInterval(interval);
-  }, [optInEnabled, optInDisplayName, optInAnonId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [optInEnabled, optInDisplayName, optInEmail, optInAnonId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Show opt-in modal on first visit
-  useEffect(() => {
-    if (!optInModalSeen) {
-      setOptInModalOpen(true);
-      markOptInModalSeen();
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Wait for desktop setup before fetching identity or marking the dialog seen.
+  useEffect(() => offerAnalyticsChoice({
+    ready: setupDone,
+    sharingModalSeen: optInModalSeen,
+    open: () => setOptInModalOpen(true),
+    markSharingModalSeen: markOptInModalSeen,
+  }), [setupDone, optInModalSeen, setOptInModalOpen, markOptInModalSeen]);
 
   // Fire model_changed when the user switches models. First mount is
   // not a "change" — only emit when both prev and current are real and

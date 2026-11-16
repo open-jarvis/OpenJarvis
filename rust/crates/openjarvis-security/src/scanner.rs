@@ -9,6 +9,23 @@ struct PatternDef {
     regex: Regex,
     threat: ThreatLevel,
     description: &'static str,
+    /// Optional post-filter for matches the regex engine cannot express (no look-around).
+    check: Option<fn(&str, usize, usize) -> bool>,
+}
+
+/// True when `text[start..end]` is a real dotted-quad: every octet <= 255 and the match is not
+/// part of a longer dotted number (e.g. "2.432.902.008.176.640.000" or a version like "1.2.3.4.5").
+fn is_standalone_ipv4(text: &str, start: usize, end: usize) -> bool {
+    let m = &text[start..end];
+    if m.split('.')
+        .any(|o| o.parse::<u16>().map_or(true, |n| n > 255))
+    {
+        return false;
+    }
+    let b = text.as_bytes();
+    let joined_before = start >= 2 && b[start - 1] == b'.' && b[start - 2].is_ascii_digit();
+    let joined_after = end + 1 < b.len() && b[end] == b'.' && b[end + 1].is_ascii_digit();
+    !(joined_before || joined_after)
 }
 
 macro_rules! pattern {
@@ -18,6 +35,16 @@ macro_rules! pattern {
             regex: Regex::new($pat).unwrap(),
             threat: $threat,
             description: $desc,
+            check: None,
+        }
+    };
+    ($name:expr, $pat:expr, $threat:expr, $desc:expr, $check:expr) => {
+        PatternDef {
+            name: $name,
+            regex: Regex::new($pat).unwrap(),
+            threat: $threat,
+            description: $desc,
+            check: Some($check),
         }
     };
 }
@@ -129,7 +156,8 @@ static PII_PATTERNS: Lazy<Vec<PatternDef>> = Lazy::new(|| {
             "ipv4_address",
             r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
             ThreatLevel::Low,
-            "IPv4 address"
+            "IPv4 address",
+            is_standalone_ipv4
         ),
     ]
 });
@@ -138,6 +166,11 @@ fn scan_with_patterns(text: &str, patterns: &[PatternDef]) -> ScanResult {
     let mut findings = Vec::new();
     for p in patterns {
         for m in p.regex.find_iter(text) {
+            if let Some(check) = p.check {
+                if !check(text, m.start(), m.end()) {
+                    continue;
+                }
+            }
             findings.push(ScanFinding {
                 pattern_name: p.name.to_string(),
                 matched_text: m.as_str().to_string(),
@@ -154,10 +187,21 @@ fn scan_with_patterns(text: &str, patterns: &[PatternDef]) -> ScanResult {
 fn redact_with_patterns(text: &str, patterns: &[PatternDef]) -> String {
     let mut result = text.to_string();
     for p in patterns {
-        result = p
-            .regex
-            .replace_all(&result, format!("[REDACTED:{}]", p.name))
-            .to_string();
+        let marker = format!("[REDACTED:{}]", p.name);
+        let mut out = String::with_capacity(result.len());
+        let mut last = 0;
+        for m in p.regex.find_iter(&result) {
+            if let Some(check) = p.check {
+                if !check(&result, m.start(), m.end()) {
+                    continue;
+                }
+            }
+            out.push_str(&result[last..m.start()]);
+            out.push_str(&marker);
+            last = m.end();
+        }
+        out.push_str(&result[last..]);
+        result = out;
     }
     result
 }
@@ -245,6 +289,21 @@ mod tests {
         assert!(!result.clean());
         assert_eq!(result.findings[0].pattern_name, "us_ssn");
         assert_eq!(result.highest_threat(), Some(ThreatLevel::Critical));
+    }
+
+    #[test]
+    fn test_ipv4_real_and_false_positives() {
+        let scanner = PIIScanner::new();
+        assert!(!scanner.scan("server 200.10.20.30 ok").clean());
+        assert!(scanner
+            .scan("factorial of 21 is 51.090.942.171.709.440.000")
+            .clean());
+        assert!(scanner.scan("version 1.2.3.4.5").clean());
+        assert!(scanner.scan("999.1.1.1").clean());
+        assert_eq!(
+            scanner.redact("a 2.432.902.008.176.640.000 b 8.8.8.8"),
+            "a 2.432.902.008.176.640.000 b [REDACTED:ipv4_address]"
+        );
     }
 
     #[test]

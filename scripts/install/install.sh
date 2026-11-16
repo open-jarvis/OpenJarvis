@@ -8,6 +8,8 @@
 #   --no-bg-orchestrator   Skip the detached background orchestrator
 #   --minimal              Skip foreground model pull (no `qwen3.5:2b`)
 #   --force                Re-run all steps even if state file says done
+#   --analytics            Consent to install and runtime usage analytics
+#   --no-analytics         Decline analytics without an interactive prompt
 #
 # Environment overrides:
 #   OPENJARVIS_HOME        Install dir (default: $HOME/.openjarvis)
@@ -20,11 +22,20 @@ set -euo pipefail
 SKIP_BG=0
 MINIMAL=0
 FORCE=0
+ANALYTICS_ENABLED=0
+ANALYTICS_CHOICE=""
 for arg in "$@"; do
     case "$arg" in
         --no-bg-orchestrator) SKIP_BG=1 ;;
         --minimal) MINIMAL=1 ;;
         --force) FORCE=1 ;;
+        --analytics|--no-analytics)
+            if [[ -n "$ANALYTICS_CHOICE" && "$ANALYTICS_CHOICE" != "$arg" ]]; then
+                echo "install.sh: --analytics and --no-analytics cannot be combined" >&2
+                exit 2
+            fi
+            ANALYTICS_CHOICE="$arg"
+            ;;
         *) echo "install.sh: unknown arg: $arg" >&2; exit 2 ;;
     esac
 done
@@ -236,12 +247,12 @@ elif [[ -f /proc/sys/kernel/osrelease ]] && grep -qi "microsoft" /proc/sys/kerne
     WSL=1
 fi
 
-# ---- analytics beacon (anonymized install funnel) ----
+# ---- analytics consent and install beacons ----
 #
 # Posts a small JSON event to PostHog at each install stage so the
 # OpenJarvis team can see where users drop off during install.
-# No content, no IPs (handled by PostHog disable_geoip on server),
-# no hardware identifiers — just OS, arch, elapsed time, and stage name.
+# Install payloads contain OS, arch, elapsed time, stage name, and a
+# random installation ID. Beacons are disabled until consent is given.
 #
 ANALYTICS_HOST="${OPENJARVIS_ANALYTICS_HOST:-https://34.231.106.201.sslip.io}"
 ANALYTICS_KEY="${OPENJARVIS_ANALYTICS_KEY:-phc_ysKu72QaxzYNmDpHFcesD2ZZAe68zkdWJEKoYYkc5e3n}"
@@ -250,7 +261,90 @@ INSTALL_START_EPOCH="$(date +%s)"
 CURRENT_STAGE=""
 
 analytics_enabled() {
-    return 0
+    [[ "$ANALYTICS_ENABLED" -eq 1 ]]
+}
+
+choose_analytics() {
+    # The usual curl | bash entry point occupies stdin. Read a real
+    # controlling terminal instead; EOF/unattended runs never consent.
+    case "$ANALYTICS_CHOICE" in
+        --analytics) ANALYTICS_ENABLED=1; return ;;
+        --no-analytics) return ;;
+    esac
+    if [[ ! -t 2 ]] || ! { exec 3<> /dev/tty; } 2>/dev/null; then
+        echo "Analytics are off (no interactive terminal). Use --analytics to opt in." >&2
+        return
+    fi
+
+    cat >&3 <<'EOF'
+
+Help improve OpenJarvis by sharing optional install and usage statistics.
+Data includes installation and feature usage, timings, token counts, error
+categories, environment metadata, and a random installation ID.
+Recipient: the OpenJarvis team's PostHog analytics endpoint.
+Privacy details: https://open-jarvis.github.io/OpenJarvis/telemetry/
+You can disable sharing later: jarvis config set analytics.enabled false
+(then restart the server and reload the app).
+Declining does not change OpenJarvis functionality.
+EOF
+    printf 'Analytics destination: %s\n' "$ANALYTICS_HOST" >&3
+    local answer
+    while true; do
+        printf 'Press Enter or Y to consent, or N to decline: ' >&3
+        if ! IFS= read -r answer <&3; then
+            printf '\nAnalytics are off (no answer received).\n' >&3
+            break
+        fi
+        case "$answer" in
+            ""|y|Y|yes|YES|Yes)
+                ANALYTICS_ENABLED=1
+                ANALYTICS_CHOICE="--analytics"
+                break
+                ;;
+            n|N|no|NO|No) ANALYTICS_CHOICE="--no-analytics"; break ;;
+            *) printf 'Please press Enter, type Y, or type N.\n' >&3 ;;
+        esac
+    done
+    exec 3>&-
+}
+
+persist_analytics_choice() {
+    # Always run, including when the installer skips write_config on a
+    # rerun. Use the installed TOML editor directly: an older jarvis CLI
+    # rejects the new choice_recorded key before it can save the choice.
+    local enabled=false
+    if analytics_enabled; then
+        enabled=true
+    fi
+    "$VENV_DIR/bin/python" - "$enabled" "$ANALYTICS_CHOICE" <<'PYEOF'
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+import tomlkit
+
+from openjarvis.core.config import DEFAULT_CONFIG_PATH
+
+path = Path(os.environ.get("OPENJARVIS_CONFIG") or DEFAULT_CONFIG_PATH).expanduser().resolve()
+path.parent.mkdir(parents=True, exist_ok=True)
+doc = tomlkit.parse(path.read_text(encoding="utf-8")) if path.exists() else tomlkit.document()
+if "analytics" not in doc:
+    doc.add("analytics", tomlkit.table())
+doc["analytics"]["enabled"] = sys.argv[1] == "true"
+if sys.argv[2]:
+    doc["analytics"]["choice_recorded"] = True
+
+temporary = None
+try:
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+        temporary = Path(handle.name)
+        handle.write(tomlkit.dumps(doc))
+    temporary.replace(path)
+finally:
+    if temporary is not None:
+        temporary.unlink(missing_ok=True)
+PYEOF
 }
 
 detect_os() {
@@ -676,6 +770,7 @@ echo "  install dir: $OPENJARVIS_HOME"
 echo "  WSL2:        $WSL"
 echo
 
+choose_analytics
 beacon "install_started"
 
 step install_uv         "Install uv"            install_uv
@@ -687,6 +782,7 @@ step install_ollama     "Install Ollama"        install_ollama
 step start_ollama       "Start Ollama daemon"   start_ollama
 step pull_default_model "Pull qwen3.5:2b"       pull_default_model
 step write_config       "Write config.toml"     write_config
+persist_analytics_choice
 step install_symlinks   "Install symlinks"      install_symlinks
 step ensure_path        "Ensure PATH"           ensure_path
 step detach_bg_orchestrator "Detach background work" detach_bg_orchestrator

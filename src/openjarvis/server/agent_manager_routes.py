@@ -605,6 +605,7 @@ def _instantiate_managed_tool(
         model=model,
         memory_backend=memory_backend,
         channel_backend=channel_backend,
+        app_config=getattr(app_state, "config", None),
     )
 
 
@@ -959,6 +960,7 @@ async def _stream_managed_agent(
         mcp_tools=mcp_adapters.values(),
         mcp_clients=mcp_clients,
         knowledge_db_path=getattr(app_state, "knowledge_db_path", None),
+        app_config=app_config,
     )
 
     # Load prior conversation context (DESC order, reverse for chronological).

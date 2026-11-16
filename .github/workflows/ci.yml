@@ -22,7 +22,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.2.0
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
 
@@ -59,7 +59,7 @@ jobs:
           restore-keys: rust-${{ runner.os }}-
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.2.0
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
 
@@ -118,7 +118,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.2.0
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
 
@@ -135,10 +135,14 @@ jobs:
       - name: Run Windows-specific tests (hardware + CLI + daemon)
         shell: bash
         run: |
-          uv run pytest tests/hardware/test_hardware_profiles.py tests/cli/test_cli.py tests/cli/test_daemon_cmd.py tests/cli/test_daemon_state.py tests/core/test_utils.py -v -m "not live and not cloud"
+          uv run pytest tests/hardware/test_hardware_profiles.py tests/cli/test_cli.py tests/cli/test_daemon_cmd.py tests/cli/test_daemon_state.py tests/core/test_utils.py tests/install/test_windows_prerequisites.py -v -m "not live and not cloud"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify GUI process ownership and cleanup
+        shell: bash
+        run: uv run pytest tests/cli/test_gui_cmd.py tests/cli/test_gui_lifecycle.py -v
 
       - name: Build + import the PyO3 extension on Windows
         shell: bash

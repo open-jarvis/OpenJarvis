@@ -16,6 +16,8 @@
       4. Install uv (https://astral.sh/uv) if absent.
       5. Clone the OpenJarvis repository to $env:LOCALAPPDATA\OpenJarvis
          (override with $env:OPENJARVIS_HOME).
+      5b. Check for MSVC build tools and explain how to install them if absent - the mandatory
+         openjarvis-rust extension is compiled from source in step 6.
       6. Run `uv sync --extra desktop --group desktop-native` so the FastAPI
          server, speech backend, and native extension are importable.
       7. Optionally register the scheduled-task service (see
@@ -148,11 +150,28 @@ Write-Ok "Windows build $build"
 # ---------------------------------------------------------------------------
 
 function Get-PythonCommand {
-    # Prefer `python3` (matches our cross-platform helper convention),
-    # fall back to `python` (the Windows store / python.org default).
-    foreach ($name in @('python3', 'python')) {
-        $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
+    # A Store alias can point to installed Python or to the Store placeholder;
+    # its zero-byte file size does not distinguish them. Probe with an argument
+    # (which never opens the Store) and continue past failed/shadowing aliases.
+    $seen = @{}
+    foreach ($name in @('python', 'python3')) {
+        foreach ($cmd in @(Get-Command $name -All -CommandType Application -ErrorAction SilentlyContinue)) {
+            if (-not $cmd.Source -or $seen.ContainsKey($cmd.Source)) { continue }
+            $seen[$cmd.Source] = $true
+            try {
+                $version = & $cmd.Source --version 2>$null
+                $match = [regex]::Match(($version -join ' '), '^Python (\d+)\.(\d+)\.\d+')
+                if ($LASTEXITCODE -eq 0 -and $match.Success -and
+                    [int]$match.Groups[1].Value -eq 3 -and
+                    [int]$match.Groups[2].Value -ge 10 -and
+                    [int]$match.Groups[2].Value -le 13) {
+                    return $cmd.Source
+                }
+            } catch {
+                # PS 5.1 can turn a native stderr message into an exception.
+            }
+            Write-Warn2 "  Ignoring unavailable or unsupported Python at $($cmd.Source)"
+        }
     }
     return $null
 }
@@ -161,7 +180,9 @@ Write-Info "Checking Python (3.10 - 3.13)..."
 $pythonExe = Get-PythonCommand
 if (-not $pythonExe) {
     Write-Info "Python not on PATH - attempting auto-install via winget..."
-    $pythonExe = Install-WithWinget -WingetId 'Python.Python.3.13' -CommandName 'python'
+    $null = Install-WithWinget -WingetId 'Python.Python.3.13' -CommandName 'python'
+    # Refreshing PATH can still leave a failed Store alias ahead of python.org.
+    $pythonExe = Get-PythonCommand
     if (-not $pythonExe) {
         Write-Fail @"
 Python 3.10 - 3.13 not found and auto-install via winget failed.
@@ -285,6 +306,73 @@ if (Test-Path (Join-Path $srcDir '.git')) {
     }
     if ($LASTEXITCODE -ne 0) { Write-Fail "git clone failed" }
     Write-Ok "Cloned to $srcDir"
+}
+
+# ---------------------------------------------------------------------------
+# 5b. MSVC build tools - required by the mandatory Rust extension
+# ---------------------------------------------------------------------------
+
+# `--group desktop-native` builds openjarvis-rust from source via maturin
+# (pyproject.toml pins it to a local path; it is not published to PyPI), and
+# src/openjarvis/_rust_bridge.py raises a hard ImportError when the module is
+# missing - there is no pure-Python fallback. maturin will bootstrap a Rust
+# toolchain into a temp dir if cargo is absent, which is why this failure is
+# so confusing: cargo appears to run fine and then every build script dies at
+# `error: linker 'link.exe' not found`. The x86_64-pc-windows-msvc target
+# needs the MSVC linker, which no earlier step installs (#1060).
+function Test-MsvcLinker {
+    # Git/MSYS can put an unrelated GNU link.exe on PATH. Only Microsoft's
+    # linker satisfies the native extension's MSVC prerequisite.
+    foreach ($cmd in @(Get-Command link.exe -All -CommandType Application -ErrorAction SilentlyContinue)) {
+        $item = Get-Item -LiteralPath $cmd.Source -ErrorAction SilentlyContinue
+        if ($item -and $item.VersionInfo.CompanyName -match '^Microsoft' -and
+            $item.VersionInfo.OriginalFilename -ieq 'link.exe') {
+            return $true
+        }
+    }
+    # link.exe is only on PATH inside a Developer Command Prompt, so probe
+    # the install root via vswhere (shipped with any VS 2017+ installer).
+    if (-not ${env:ProgramFiles(x86)}) { return $false }
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere)) { return $false }
+    $found = & $vswhere -latest -products * `
+        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+        -find 'VC\Tools\MSVC\**\bin\Host*\*\link.exe' 2>$null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    foreach ($linker in $found) {
+        if (Test-Path -LiteralPath $linker -PathType Leaf) { return $true }
+    }
+    return $false
+}
+
+Write-Info "Checking MSVC build tools (needed to compile the native extension)..."
+if (Test-MsvcLinker) {
+    Write-Ok "MSVC build tools present"
+} else {
+    # Detect and instruct only. Installing the Build Tools is a multi-GB
+    # download behind a UAC prompt, which is not something an installer
+    # should start on the user's behalf without asking.
+    Write-Fail @"
+MSVC build tools not found.
+
+The next step compiles the mandatory openjarvis-rust extension, which
+needs the MSVC linker (link.exe). Without it every cargo build script
+fails with "error: linker ``link.exe`` not found".
+
+Install via winget - expect a multi-GB download and a UAC prompt:
+
+    winget install --id Microsoft.VisualStudio.2022.BuildTools ``
+        --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+
+--override is load-bearing: the default Build Tools install ships no
+workload at all, so VCTools has to be requested explicitly.
+
+Alternatively download "Build Tools for Visual Studio" from
+https://visualstudio.microsoft.com/downloads/ and select the
+"Desktop development with C++" workload.
+
+Then re-run this installer.
+"@
 }
 
 # ---------------------------------------------------------------------------

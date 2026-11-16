@@ -37,10 +37,14 @@ class AnalyticsClient:
 
     def __init__(self, config: AnalyticsConfig, anon_id: str | None = None) -> None:
         self.config = config
-        self.anon_id = anon_id or get_or_create_anon_id(config.anon_id_path)
+        self._enabled = is_analytics_enabled(config)
+        self.anon_id = (
+            anon_id or get_or_create_anon_id(config.anon_id_path)
+            if self._enabled
+            else ""
+        )
         self._lock = threading.Lock()
         self._posthog: Any = None
-        self._enabled = is_analytics_enabled(config)
         if self._enabled:
             self._init_sdk()
 
@@ -110,18 +114,33 @@ class AnalyticsClient:
         except Exception:
             pass
 
-    def shutdown(self) -> None:
-        """Flush and close the SDK. Call once on process exit."""
+    def disable(self) -> None:
+        """Stop accepting events without waiting for network delivery."""
         with self._lock:
-            if self._posthog is None:
-                return
-            try:
-                self._posthog.flush()
-                self._posthog.shutdown()
-            except Exception:
-                pass
+            self._enabled = False
+
+    def shutdown(self, *, wait: bool = True) -> None:
+        """Close the SDK, optionally moving network cleanup off the caller."""
+        with self._lock:
+            sdk = self._posthog
             self._posthog = None
             self._enabled = False
+        if sdk is None:
+            return
+
+        def close_sdk() -> None:
+            try:
+                sdk.flush()
+                sdk.shutdown()
+            except Exception:
+                pass
+
+        if wait:
+            close_sdk()
+        else:
+            threading.Thread(
+                target=close_sdk, name="analytics-shutdown", daemon=True
+            ).start()
 
 
 __all__ = ["AnalyticsClient"]

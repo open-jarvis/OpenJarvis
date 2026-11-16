@@ -252,7 +252,10 @@ class TestBrowserNavigateTool:
         page.goto.side_effect = Exception("net::ERR_NAME_NOT_RESOLVED")
         session = _make_mock_session(page)
 
-        with patch("openjarvis.tools.browser._session", session):
+        with (
+            patch("openjarvis.security.ssrf.check_ssrf", return_value=None),
+            patch("openjarvis.tools.browser._session", session),
+        ):
             tool = BrowserNavigateTool()
             result = tool.execute(url="https://nonexistent.example")
 

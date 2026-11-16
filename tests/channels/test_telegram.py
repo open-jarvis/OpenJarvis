@@ -30,6 +30,70 @@ TestCommonChannel = make_common_channel_tests(
 )
 
 
+@pytest.mark.parametrize(
+    ("allowlist", "accepted"),
+    [("111, -222", ["111", "-222"]), ("", ["999", "111", "-222"])],
+)
+def test_configured_allowlist_gates_handlers_and_events(
+    tmp_path, monkeypatch, allowlist, accepted
+):
+    """Follow TOML -> builder -> adapter -> inbound dispatch without a bot API."""
+    from openjarvis.core.config import load_config
+    from openjarvis.system.builder import SystemBuilder
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[channel]\nenabled = true\ndefault_channel = "telegram"\n'
+        '[channel.telegram]\nbot_token = "test-token"\n'
+        f'allowed_chat_ids = "{allowlist}"\n'
+    )
+    cfg = load_config(config_path)
+    bus = EventBus(record_history=True)
+    channel = SystemBuilder(config=cfg)._resolve_channel(cfg, bus)
+    assert isinstance(channel, TelegramChannel)
+    received = []
+    channel.on_message(received.append)
+
+    handlers = []
+    app = SimpleNamespace(add_handler=handlers.append)
+    builder = MagicMock()
+    builder.token.return_value = builder
+    builder.build.return_value = app
+    telegram_ext = SimpleNamespace(
+        ApplicationBuilder=lambda: builder,
+        MessageHandler=lambda _filters, callback: SimpleNamespace(callback=callback),
+        filters=SimpleNamespace(TEXT=object()),
+    )
+    monkeypatch.setitem(sys.modules, "telegram.ext", telegram_ext)
+
+    async def deliver_updates(_app, _stop):
+        assert len(handlers) == 1
+        for chat_id in (999, 111, -222):
+            # An allowed sender ID must not authorize an unlisted chat.
+            update = SimpleNamespace(
+                message=SimpleNamespace(
+                    from_user=SimpleNamespace(id=111),
+                    text=f"chat-{chat_id}",
+                    message_id=1,
+                    chat=SimpleNamespace(id=chat_id),
+                )
+            )
+            await handlers[0].callback(update, None)
+
+    monkeypatch.setattr(channel, "_run_polling_lifecycle", deliver_updates)
+    channel._poll_loop()
+
+    assert [message.conversation_id for message in received] == accepted
+    inbound = [
+        event
+        for event in bus.history
+        if event.event_type == EventType.CHANNEL_MESSAGE_RECEIVED
+    ]
+    assert [event.data["content"] for event in inbound] == [
+        f"chat-{chat_id}" for chat_id in accepted
+    ]
+
+
 class TestInit:
     def test_defaults(self):
         ch = TelegramChannel()

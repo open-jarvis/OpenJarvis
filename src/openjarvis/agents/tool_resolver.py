@@ -235,6 +235,7 @@ def instantiate_registered_tool(
     model: str,
     memory_backend: Any = None,
     channel_backend: Any = None,
+    app_config: Any = None,
 ) -> Any:
     """Instantiate a registry tool with its runtime dependencies."""
 
@@ -256,7 +257,9 @@ def instantiate_registered_tool(
         return tool_cls(channel=channel_backend)
     if name == "llm":
         return tool_cls(engine=engine, model=model)
-    return tool_cls()
+    from openjarvis.tools._paths import file_tool_kwargs
+
+    return tool_cls(**file_tool_kwargs(name, app_config))
 
 
 def build_deep_research_tools(
@@ -319,6 +322,7 @@ def resolve_agent_tools(
     mcp_tools: Iterable[Any] = (),
     mcp_clients: Iterable[Any] = (),
     knowledge_db_path: str | Path | None = None,
+    app_config: Any = None,
 ) -> ResolvedAgentTools:
     """Resolve the effective live toolkit for a managed agent.
 
@@ -397,6 +401,7 @@ def resolve_agent_tools(
                             model=model,
                             memory_backend=memory_backend,
                             channel_backend=channel_backend,
+                            app_config=app_config,
                         )
                     except Exception as exc:
                         logger.warning(
@@ -444,6 +449,7 @@ def resolve_agent_tools(
                         model=model,
                         memory_backend=memory_backend,
                         channel_backend=channel_backend,
+                        app_config=app_config,
                     )
                 )
             except Exception as exc:

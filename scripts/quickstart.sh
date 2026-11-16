@@ -27,7 +27,9 @@ CLEANUP_PIDS=()
 cleanup() {
   echo ""
   info "Shutting down..."
-  for pid in "${CLEANUP_PIDS[@]}"; do
+  # The "${arr[@]+...}" guard is needed: bash 3.2 (macOS system bash) expands
+  # an empty array to an unbound-variable error under `set -u`.
+  for pid in ${CLEANUP_PIDS[@]+"${CLEANUP_PIDS[@]}"}; do
     kill "$pid" 2>/dev/null || true
   done
   wait 2>/dev/null || true
@@ -66,6 +68,82 @@ else
   fail "Python 3.10+ required (found $PY_VERSION)"
 fi
 
+version_at_least() {
+  "$PY_CMD" - "$1" "$2" <<'PY'
+import re
+import sys
+
+def version(text):
+    match = re.fullmatch(r"v?(\d+)\.(\d+)(?:\.(\d+))?", text)
+    return tuple(int(part or 0) for part in match.groups()) if match else None
+
+actual, minimum = map(version, sys.argv[1:])
+sys.exit(0 if actual is not None and minimum is not None and actual >= minimum else 1)
+PY
+}
+
+# Read the frontend's pins so this preflight stays aligned with engine-strict.
+FRONTEND_VERSIONS=$("$PY_CMD" - "$REPO_ROOT/frontend/package.json" <<'PY'
+import json
+import re
+import sys
+
+with open(sys.argv[1]) as handle:
+    package = json.load(handle)
+node = re.fullmatch(r">=(\d+\.\d+(?:\.\d+)?)", package["engines"]["node"])
+npm = re.fullmatch(r"npm@(\d+\.\d+\.\d+)", package["packageManager"])
+if node is None or npm is None:
+    sys.exit("Unsupported frontend engine pins; update the quickstart preflight.")
+print(node.group(1), npm.group(1))
+PY
+)
+read -r NODE_MIN_VERSION NPM_TARGET_VERSION <<< "$FRONTEND_VERSIONS"
+
+RUST_TOOLCHAIN=$("$PY_CMD" - "$REPO_ROOT/rust/rust-toolchain.toml" <<'PY'
+import re
+import sys
+
+with open(sys.argv[1]) as handle:
+    match = re.search(r'^channel\s*=\s*"(\d+\.\d+(?:\.\d+)?)"', handle.read(), re.M)
+if match is None:
+    sys.exit("The quickstart requires a versioned Rust toolchain pin.")
+print(match.group(1))
+PY
+)
+
+rust_toolchain_ready() {
+  command -v rustc &>/dev/null && command -v cargo &>/dev/null || return 1
+  RUST_VERSION=$(cd "$REPO_ROOT/rust" && rustc --version 2>/dev/null) || return 1
+  (cd "$REPO_ROOT/rust" && cargo --version) &>/dev/null || return 1
+  version_at_least "$(echo "$RUST_VERSION" | cut -d' ' -f2)" "$RUST_TOOLCHAIN"
+}
+
+node_toolchain_supported() {
+  "$PY_CMD" - "$1" "$REPO_ROOT/frontend/package-lock.json" <<'PY'
+import json
+import re
+import sys
+
+actual = tuple(map(int, sys.argv[1].lstrip("v").split(".")))
+with open(sys.argv[2]) as handle:
+    lock = json.load(handle)
+requirement = lock.get("packages", {}).get("node_modules/vitest", {}).get("engines", {}).get("node")
+if not requirement:
+    sys.exit(0)
+# The locked test runner excludes some non-LTS Node releases even when they
+# satisfy package.json's minimum. Honor its caret / minimum alternatives.
+for alternative in requirement.split("||"):
+    match = re.fullmatch(r"\s*(\^|>=)(\d+)\.(\d+)\.(\d+)\s*", alternative)
+    if match is None:
+        sys.exit(f"Unsupported locked Node.js requirement: {requirement}")
+    operator, *parts = match.groups()
+    minimum = tuple(map(int, parts))
+    if actual >= minimum and (operator == ">=" or actual[0] == minimum[0]):
+        sys.exit(0)
+sys.exit(f"The locked frontend toolchain requires Node.js {requirement}.")
+PY
+}
+
 # ── 2. Check / install uv ───────────────────────────────────────────
 info "Checking uv..."
 if command -v uv &>/dev/null; then
@@ -77,18 +155,57 @@ else
   ok "uv installed"
 fi
 
+# ── 2b. Check / install Rust ────────────────────────────────────────
+# The Rust extension (step 7b) is mandatory: memory/storage backends fail
+# without the compiled openjarvis_rust module.
+info "Checking Rust toolchain..."
+if rust_toolchain_ready; then
+  ok "$RUST_VERSION"
+else
+  warn "Rust $RUST_TOOLCHAIN or newer was not found — installing the pinned toolchain..."
+  if command -v rustup &>/dev/null; then
+    rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+  else
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+  fi
+  export PATH="$HOME/.cargo/bin:$PATH"
+  rust_toolchain_ready \
+    || fail "Rust installation did not provide working rustc/cargo $RUST_TOOLCHAIN commands."
+  ok "$RUST_VERSION"
+fi
+
 # ── 3. Check Node.js ────────────────────────────────────────────────
 info "Checking Node.js..."
 if command -v node &>/dev/null; then
   NODE_VERSION=$(node --version)
-  NODE_MAJOR=$(echo "$NODE_VERSION" | sed 's/v//' | cut -d. -f1)
-  if [ "$NODE_MAJOR" -ge 18 ]; then
+  if version_at_least "$NODE_VERSION" "$NODE_MIN_VERSION" \
+      && node_toolchain_supported "$NODE_VERSION"; then
     ok "Node.js $NODE_VERSION"
   else
-    fail "Node.js 18+ required (found $NODE_VERSION). Install from https://nodejs.org"
+    fail "Node.js $NODE_MIN_VERSION or newer and a frontend-compatible release are required (found $NODE_VERSION). Install a compatible LTS release from https://nodejs.org"
   fi
 else
   fail "Node.js not found. Install from https://nodejs.org"
+fi
+
+# The frontend pins npm in its engines field with engine-strict, so bundled
+# npm versions below the pin hard-fail `npm install` (node 24.x bundles 11.12).
+info "Checking npm..."
+NPM_VERSION=$(npm --version 2>/dev/null || echo 0)
+if [ "${NPM_VERSION%%.*}" = "${NPM_TARGET_VERSION%%.*}" ] \
+    && version_at_least "$NPM_VERSION" "$NPM_TARGET_VERSION"; then
+  ok "npm $NPM_VERSION"
+else
+  warn "npm $NPM_VERSION does not match the frontend's pin — installing npm $NPM_TARGET_VERSION..."
+  npm install -g "npm@$NPM_TARGET_VERSION" \
+    || fail "Could not install npm $NPM_TARGET_VERSION. Install it manually: https://nodejs.org"
+  NPM_VERSION=$(npm --version)
+  if [ "${NPM_VERSION%%.*}" != "${NPM_TARGET_VERSION%%.*}" ] \
+      || ! version_at_least "$NPM_VERSION" "$NPM_TARGET_VERSION"; then
+    fail "npm $NPM_TARGET_VERSION was installed but npm $NPM_VERSION is still on PATH. Open a fresh terminal and re-run quickstart."
+  fi
+  ok "npm $NPM_VERSION"
 fi
 
 # ── 4. Check / install Ollama ────────────────────────────────────────
@@ -154,8 +271,8 @@ ok "Python dependencies installed"
 
 # ── 7b. Build Rust extension ──────────────────────────────────────
 info "Building Rust extension..."
-uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml --quiet 2>/dev/null \
-  || uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
+(cd rust && uv run maturin develop -m crates/openjarvis-python/Cargo.toml --quiet 2>/dev/null \
+  || uv run maturin develop -m crates/openjarvis-python/Cargo.toml)
 ok "Rust extension built"
 
 # ── 8. Install frontend dependencies ────────────────────────────────

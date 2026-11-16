@@ -63,9 +63,23 @@ python -c "from openjarvis.core.config import load_config; print(load_config().t
 | `code_interpreter` | Python in a subprocess, behind a coarse pattern blocklist. |
 
 `file_read` and `file_write` take an `allowed_dirs` argument that limits them to
-a set of directories, but no config key populates it. When it's empty every path
-is allowed. If you want a filesystem jail today, use the container sandbox
-instead of relying on these tools to enforce one.
+a set of directories. When the argument is not passed they use
+`[security] allowed_dirs` from `config.toml`:
+
+```toml
+[security]
+allowed_dirs = ["/home/user/workspace"]
+```
+
+When the list is empty (the default) every path is allowed. This restricts only
+these two tools; `shell_exec`, `apply_patch` and `code_interpreter` are not
+affected, so use the container sandbox if you need a real filesystem jail.
+Relative file names resolve inside the first allowed directory. Paths using
+`..` or symlinks must still resolve within an allowed directory. Use an array
+of non-empty directory paths; invalid or unreadable configuration prevents the
+file tools from loading instead of removing their restrictions. Explicit
+configuration supplied to the CLI, SDK, or system builder uses the same policy,
+including managed-agent streaming, scheduled ticks, and ephemeral turns.
 
 ### Sensitive filenames
 

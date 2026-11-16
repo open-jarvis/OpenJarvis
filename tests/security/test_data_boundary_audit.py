@@ -13,6 +13,7 @@ from openjarvis.security.data_boundary_audit import (
     CHANNEL_REFERENCE_ENV_VARS,
     CHANNEL_SECRET_ENV_VARS,
     CLOUD_MEDIA_TOOLS,
+    CONNECTOR_NETWORK_TOOLS,
     EXTERNAL_TOOL_SURFACES,
     GENERIC_CREDENTIAL_ENV_VARS,
     GENERIC_NETWORK_TOOLS,
@@ -39,6 +40,7 @@ EXPECTED_GENERIC_NETWORK_TOOLS = {"http_request"}
 EXPECTED_WEATHER_TOOLS = {"get_weather"}
 EXPECTED_MARKET_DATA_TOOLS = {"fx_macro_data"}
 EXPECTED_CHANNEL_OUTBOUND_TOOLS = {"channel_send"}
+EXPECTED_CONNECTOR_NETWORK_TOOLS = {"digest_collect", "execute_pending_actions"}
 EXPECTED_CLOUD_MEDIA_TOOLS = {
     "audio_transcribe",
     "image_generate",
@@ -51,10 +53,15 @@ EXPECTED_LOCAL_ACCESS_TOOLS = {
     "apply_patch",
     "calendar_search",
     "calendar_upcoming",
+    "check_permission",
     "docker_shell_exec",
     "db_query",
+    "get_pending_actions",
+    "knowledge_search",
     "knowledge_sql",
     "memory_manage",
+    "queue_action",
+    "record_decision",
     "repl",
     "code_interpreter_docker",
     "git_status",
@@ -96,6 +103,7 @@ CLASSIFIED_TOOLS = (
     | WEATHER_TOOLS
     | MARKET_DATA_TOOLS
     | CHANNEL_OUTBOUND_TOOLS
+    | CONNECTOR_NETWORK_TOOLS
     | CLOUD_MEDIA_TOOLS
     | KNOWLEDGE_ENGINE_TOOLS
     | LOCAL_ACCESS_TOOLS
@@ -748,17 +756,43 @@ def test_required_registered_tool_names_are_classified():
     assert EXPECTED_GENERIC_NETWORK_TOOLS <= GENERIC_NETWORK_TOOLS
     assert EXPECTED_WEATHER_TOOLS <= WEATHER_TOOLS
     assert EXPECTED_CHANNEL_OUTBOUND_TOOLS <= CHANNEL_OUTBOUND_TOOLS
+    assert EXPECTED_CONNECTOR_NETWORK_TOOLS <= CONNECTOR_NETWORK_TOOLS
     assert EXPECTED_CLOUD_MEDIA_TOOLS <= CLOUD_MEDIA_TOOLS
     assert EXPECTED_KNOWLEDGE_ENGINE_TOOLS <= KNOWLEDGE_ENGINE_TOOLS
     assert (
         EXPECTED_GENERIC_NETWORK_TOOLS
         | EXPECTED_WEATHER_TOOLS
         | EXPECTED_CHANNEL_OUTBOUND_TOOLS
+        | EXPECTED_CONNECTOR_NETWORK_TOOLS
         | EXPECTED_CLOUD_MEDIA_TOOLS
         | EXPECTED_BROWSER_TOOLS
         | EXPECTED_KNOWLEDGE_ENGINE_TOOLS
     ) <= OUTBOUND_TOOL_SURFACES
     assert EXPECTED_KNOWLEDGE_ENGINE_TOOLS <= EXTERNAL_TOOL_SURFACES
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "destination"),
+    [
+        ("digest_collect", "configured connector services"),
+        ("execute_pending_actions", "Gmail, Google Calendar, or iMessage"),
+    ],
+)
+def test_registered_connector_tools_warn_without_channel_or_digest_automation(
+    tmp_path, tool_name, destination
+):
+    config = _low_noise_config()
+    config.tools.enabled = tool_name
+    assert not config.digest.enabled
+    assert not config.channel.enabled
+
+    report = build_data_boundary_report(config, tmp_path)
+    findings = {finding.id: finding for finding in report.findings}
+    finding = findings["connector-network-tools-configured"]
+    assert finding.status == "warn"
+    assert tool_name in finding.evidence
+    assert destination in finding.potential_data_path
+    assert "local-access-tools-configured" not in findings
 
 
 @pytest.mark.parametrize("tool_name", sorted(EXPECTED_WEATHER_TOOLS))

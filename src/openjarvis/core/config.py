@@ -1216,11 +1216,13 @@ class AnalyticsConfig:
     usage events sent to the OpenJarvis team's PostHog instance to
     measure setup success, retention, feature usage, and churn.
 
-    No chat content, prompts, model outputs, file paths, emails, IPs,
-    or hardware identifiers are ever sent. See ``docs/telemetry.md``.
+    Backend properties are limited to declared usage metadata; external
+    SDKs may add environment metadata. See ``docs/telemetry.md`` for the
+    safeguards, destination, and sharing controls.
     """
 
-    enabled: bool = True
+    enabled: bool = False
+    choice_recorded: bool = False
     host: str = "https://34.231.106.201.sslip.io"
     key: str = "phc_ysKu72QaxzYNmDpHFcesD2ZZAe68zkdWJEKoYYkc5e3n"
     anon_id_path: str = field(default_factory=lambda: str(get_config_dir() / "anon_id"))
@@ -1449,6 +1451,8 @@ class SecurityConfig:
     local_engine_bypass: bool = False
     local_tool_bypass: bool = False
     profile: str = ""
+    # Directories file_read/file_write may touch; empty means unrestricted.
+    allowed_dirs: List[str] = field(default_factory=list)
     vault_key_path: str = field(
         default_factory=lambda: str(get_config_dir() / ".vault_key")
     )
@@ -1591,7 +1595,12 @@ class SessionConfig:
 
 @dataclass(slots=True)
 class A2AConfig:
-    """Agent-to-Agent protocol settings."""
+    """Settings for A2A integrations and configuration diagnostics.
+
+    The built-in ``jarvis serve`` app does not mount A2A endpoints; ``enabled``
+    does not change that app's route surface. Library integrations using
+    ``A2AServer`` must configure their transport and authentication explicitly.
+    """
 
     enabled: bool = False
     # Bearer token required for inbound A2A requests. Empty = unauthenticated
@@ -1624,7 +1633,7 @@ class SpeechConfig:
     # back to a different backend that backend's own default voice is used.
     # Kokoro IDs: bm_george / bm_lewis (British male), bf_emma / bf_isabella
     # (British female), af_* / am_* (American).
-    tts_backend: str = "kokoro"  # "kokoro", "openai_tts", "cartesia"
+    tts_backend: str = "kokoro"  # "kokoro", "openai_tts", "cartesia", "elevenlabs"
     voice_id: str = "bm_george"
     voice_speed: float = 1.0
 
@@ -1801,6 +1810,20 @@ class JarvisConfig:
     @_config_dir.setter
     def _config_dir(self, value: Path) -> None:
         self.__dict__["_config_source_dir"] = Path(value)
+
+    @property
+    def _config_path(self) -> Path:
+        """Loaded config file, or the configured default for new instances."""
+        source = self.__dict__.get("_config_source_path")
+        if source is not None:
+            return source
+        if custom_path := os.environ.get("OPENJARVIS_CONFIG"):
+            return Path(custom_path).expanduser().resolve()
+        return get_config_path()
+
+    @_config_path.setter
+    def _config_path(self, value: Path) -> None:
+        self.__dict__["_config_source_path"] = Path(value)
 
     @property
     def memory(self) -> StorageConfig:
@@ -2068,6 +2091,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         config_path = Path(os.environ["OPENJARVIS_CONFIG"]).expanduser().resolve()
     else:
         config_path = get_config_path()
+    cfg._config_path = config_path
     cfg._config_dir = config_path.parent
     if config_path.exists():
         with open(config_path, "rb") as fh:
@@ -2159,7 +2183,7 @@ def generate_minimal_toml(
         mem_label = "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
         gpu_comment = f"\n# GPU: {hw.gpu.name} ({hw.gpu.vram_gb} GB {mem_label})"
     if host:
-        engine_host_section = f'\n[engine.{engine}]\nhost = "{host}"\n'
+        engine_host_section = f'\n[engine.{engine}]\nhost = "{_toml_escape(host)}"\n'
     else:
         engine_host_section = (
             f"\n[engine.{engine}]\n"
@@ -2183,6 +2207,63 @@ default_agent = "simple"
 [tools]
 enabled = ["code_interpreter", "web_search", "file_read", "shell_exec"]
 """
+
+
+def _toml_escape(value: str) -> str:
+    """Escape *value* for a TOML basic string."""
+    import json
+
+    # JSON escapes the same C0 controls as TOML. Keep Unicode characters intact
+    # to avoid surrogate-pair escapes, which TOML rejects, and also escape DEL.
+    return json.dumps(value, ensure_ascii=False)[1:-1].replace("\x7f", "\\u007f")
+
+
+def _set_toml_host(toml_text: str, engine: str, host: str) -> str:
+    """Return *toml_text* with ``host`` set inside ``[engine.<engine>]``.
+
+    Written line-wise rather than as one regex over the whole document. The
+    previous version matched ``[engine.X]`` followed *immediately* by the host
+    line, which made the generated template's layout load-bearing: adding a
+    comment between the two silently stopped the substitution, and an engine
+    whose section is commented out or absent (nexa, uzu, apple_fm) kept the
+    template's localhost while reporting success. A host the caller asked for
+    being quietly discarded is the failure that matters here.
+
+    It also fixes two narrower faults: the host was interpolated into a
+    ``re.sub`` *replacement*, so a backslash in it raised ``PatternError``
+    ("invalid group reference"), and it was never escaped for TOML, so a
+    quote produced an unparseable file.
+
+    The key is replaced in place when present, inserted under the header when
+    the section exists without it, and the section is appended when missing.
+    """
+    header = f"[engine.{engine}]"
+    host_line = f'host = "{_toml_escape(host)}"'
+
+    lines = toml_text.splitlines()
+    in_section = False
+    section_start = None
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_section:
+                # Left the section without finding a host key: add one.
+                lines.insert(section_start + 1, host_line)
+                return "\n".join(lines) + ("\n" if toml_text.endswith("\n") else "")
+            in_section = stripped == header
+            if in_section:
+                section_start = index
+            continue
+        if in_section and stripped.split("=")[0].strip() == "host":
+            lines[index] = host_line
+            return "\n".join(lines) + ("\n" if toml_text.endswith("\n") else "")
+
+    if in_section and section_start is not None:
+        lines.insert(section_start + 1, host_line)
+    else:
+        # No such section: the engine's block is commented out or absent.
+        lines.extend(["", header, host_line])
+    return "\n".join(lines) + ("\n" if toml_text.endswith("\n") else "")
 
 
 def generate_default_toml(
@@ -2418,11 +2499,7 @@ ssrf_protection = true
 # assistant_has_own_number = false
 """
     if host:
-        import re as _re
-
-        pattern = _re.escape(f"[engine.{engine}]") + r"\nhost = \"[^\"]*\""
-        replacement = f'[engine.{engine}]\\nhost = "{host}"'
-        result = _re.sub(pattern, replacement, result)
+        result = _set_toml_host(result, engine, host)
     return result
 
 

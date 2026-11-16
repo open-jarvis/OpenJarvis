@@ -21,7 +21,9 @@ jobs:
       - name: Install bats-core
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats
+          sudo apt-get install -y bats python3-tomlkit
 
       - name: Run bats tests
+        env:
+          OPENJARVIS_TEST_PYTHON: /usr/bin/python3
         run: bats tests/install/bash/

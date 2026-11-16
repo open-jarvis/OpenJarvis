@@ -49,6 +49,15 @@ def test_browser_meta_group():
     assert "browser_navigate" not in names
 
 
+def test_tools_endpoint_includes_knowledge_search_and_proactive_tools():
+    from openjarvis.server.agent_manager_routes import build_tools_list
+
+    tools = build_tools_list()
+    names = {t["name"] for t in tools}
+    assert "knowledge_search" in names
+    assert "check_permission" in names
+
+
 def test_web_search_available_without_tavily_key(monkeypatch):
     """DuckDuckGo fallback keeps web search usable without Tavily."""
     from openjarvis.server.agent_manager_routes import build_tools_list

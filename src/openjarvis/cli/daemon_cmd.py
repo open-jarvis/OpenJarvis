@@ -185,10 +185,11 @@ def _registered_pid_alive(pid: int) -> bool:
 
 
 @contextmanager
-def _state_lock() -> Iterator[None]:
+def _state_lock(state_file: Path | None = None) -> Iterator[None]:
     """Serialize daemon bookkeeping across launching and supervised processes."""
-    _PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with _PID_FILE.with_suffix(".lock").open("a+b") as lock:
+    path = _PID_FILE if state_file is None else state_file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix(".lock").open("a+b") as lock:
         if os.name == "nt":
             import msvcrt
 
@@ -414,13 +415,18 @@ def start(
     # names the parameter ``unused_start_new_session`` and ignores it. Relying
     # on it there leaves the server sharing its parent's console, so closing
     # that console — or logging off — delivers CTRL_CLOSE_EVENT and kills the
-    # daemon. DETACHED_PROCESS gives it no console at all; the new process
-    # group additionally stops a Ctrl-C in the parent reaching it.
+    # daemon. CREATE_NO_WINDOW gives it its own hidden console, which its
+    # children inherit. DETACHED_PROCESS (no console at all) is not enough for a
+    # venv install: ``jarvis.exe``/``python.exe`` there are launcher stubs that
+    # spawn the real interpreter, and that child, finding no console to inherit,
+    # allocates a NEW visible one (a terminal window) that kills the server when
+    # closed. The new process group additionally stops a Ctrl-C in the parent
+    # reaching it.
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     spawn_kwargs: dict = {}
     if sys.platform == "win32":
         spawn_kwargs["creationflags"] = (
-            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
         )
     else:
         spawn_kwargs["start_new_session"] = True
@@ -472,10 +478,22 @@ def start(
 def stop() -> None:
     """Stop the running OpenJarvis server daemon."""
     console = Console(stderr=True)
+    # Stop the graphical frontend too. It is a sibling process, not a child of
+    # the daemon, so it otherwise outlives `stop` and keeps holding its port —
+    # leaving both a GUI that serves pages but fails every request, and a next
+    # `jarvis gui` that dies on "Frontend port 5173 is unavailable".
+    # Imported here rather than at module scope: gui_cmd is a sibling CLI
+    # module and only `stop` needs it.
+    from openjarvis.cli.gui_cmd import stop_frontend
+
+    frontend_pid = stop_frontend()
+    if frontend_pid is not None:
+        console.print(f"[green]Frontend stopped[/green] (PID {frontend_pid}).")
+
     pid = _read_pid()
     if pid is None:
         console.print("[yellow]No running server found.[/yellow]")
-        sys.exit(1)
+        sys.exit(0 if frontend_pid is not None else 1)
 
     # Graceful shutdown (SIGTERM / taskkill), escalating to a forced kill after
     # 10s if still running. Cross-platform — no POSIX-only os.kill/SIGKILL.

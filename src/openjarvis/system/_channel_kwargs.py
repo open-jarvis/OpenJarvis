@@ -11,6 +11,10 @@ def _telegram(c: Any) -> Dict[str, Any]:
         kw["bot_token"] = c.bot_token
     if c.parse_mode:
         kw["parse_mode"] = c.parse_mode
+    # Forward the configured DM allowlist; without this the
+    # allowed_chat_ids setting was silently ignored.
+    if getattr(c, "allowed_chat_ids", ""):
+        kw["allowed_chat_ids"] = c.allowed_chat_ids
     return kw
 
 
