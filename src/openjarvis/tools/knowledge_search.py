@@ -95,6 +95,14 @@ class KnowledgeSearchTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         if self._store is None and self._retriever is None:
+            # Built with no arguments (the server, ``jarvis ask`` and the SDK
+            # instantiate registry tools that way): use the default store,
+            # the one Data Sources and uploads write to.
+            try:
+                self._store = KnowledgeStore()
+            except Exception:
+                self._store = None
+        if self._store is None and self._retriever is None:
             return ToolResult(
                 tool_name="knowledge_search",
                 content="No knowledge store configured.",

@@ -64,6 +64,9 @@
     "fsevents": false
   },
   "overrides": {
-    "katex": "$katex"
+    "katex": "$katex",
+    "workbox-build": {
+      "glob": "^14.0.4"
+    }
   }
 }
