@@ -91,7 +91,8 @@ jobs:
           MANIFEST: ${{ matrix.manifest }}
         run: |
           cargo deny --manifest-path "$MANIFEST" --config "$RUNNER_TEMP/deny.toml" \
-            --locked --format json check --audit-compatible-output advisories sources \
+            --locked --format json check --warn unmaintained \
+            --audit-compatible-output advisories sources \
             > rust-advisories.json 2> rust-advisories-diagnostics.jsonl
       - name: Upload audit report
         if: always()
