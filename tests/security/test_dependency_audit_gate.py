@@ -92,6 +92,73 @@ def test_network_failure_cannot_be_clean_result(monkeypatch):
         gate.request_osv([])
 
 
+def test_audit_client_uses_fixed_verified_https_and_a_bounded_response(monkeypatch):
+    calls = []
+
+    class Response:
+        status = 200
+
+        def read(self, limit):
+            assert limit == gate.MAX_RESPONSE_BYTES + 1
+            return b'{"results":[{}]}'
+
+    class Connection:
+        def __init__(self, host, *, timeout, context):
+            assert host == "api.osv.dev"
+            assert timeout == 30
+            assert context.check_hostname
+            assert context.verify_mode == gate.ssl.CERT_REQUIRED
+
+        def request(self, method, path, *, body, headers):
+            assert (method, path) == ("POST", "/v1/querybatch")
+            assert headers["Content-Type"] == "application/json"
+            calls.append(json.loads(body))
+
+        def getresponse(self):
+            return Response()
+
+        def close(self):
+            calls.append("closed")
+
+    monkeypatch.setattr(gate.http.client, "HTTPSConnection", Connection)
+    queries = [
+        {
+            "package": {"name": "https://other.invalid/", "ecosystem": "PyPI"},
+            "version": "1",
+        }
+    ]
+    assert gate.request_osv(queries) == {"results": [{}]}
+    assert calls == [{"queries": queries}, "closed"]
+
+
+@pytest.mark.parametrize("status,body", [(302, b"{}"), (200, b"oversize")])
+def test_redirects_and_oversized_responses_fail_closed(monkeypatch, status, body):
+    class Connection:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def request(self, *args, **kwargs):
+            pass
+
+        def getresponse(self):
+            class Response:
+                def read(self, limit):
+                    return body
+
+            response = Response()
+            response.status = status
+            return response
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(gate.http.client, "HTTPSConnection", Connection)
+    monkeypatch.setattr(gate.time, "sleep", lambda _: None)
+    monkeypatch.setattr(gate, "MAX_RESPONSE_BYTES", 3)
+    with pytest.raises(gate.AuditError):
+        gate.request_osv([])
+
+
 def test_known_exception_does_not_allow_new_advisory_or_version():
     entries = [exception()]
     accepted = {
