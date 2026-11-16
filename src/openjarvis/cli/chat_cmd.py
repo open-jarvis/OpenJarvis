@@ -29,6 +29,45 @@ def _safe_rich_label(value: object) -> str:
     return escape(sanitize_model_id(str(value)))
 
 
+def _load_mcp_tools(
+    config, tool_names: List[str], existing: list, console: Console
+) -> tuple[list, list]:
+    """Load external MCP tools for chat the same way ``ask``/``serve`` do.
+
+    Returns ``(new_tools, clients)``; callers must keep ``clients`` alive for
+    the session and close them on exit.  Never fatal: chat keeps working with
+    its built-in tools when an MCP server is unreachable.
+    """
+    try:
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+        mcp_tools, mcp_clients = load_mcp_tools_from_config(
+            config.tools.mcp,
+            allowed_names=set(tool_names) if tool_names else None,
+            config_dir=config._config_dir,
+        )
+    except Exception as exc:
+        console.print(f"[yellow]MCP tools unavailable: {escape(str(exc))}[/yellow]")
+        return [], []
+
+    # A built-in tool always wins over an MCP tool with the same name.
+    names = {tool.spec.name for tool in existing}
+    new_tools = []
+    for tool in mcp_tools:
+        if tool.spec.name not in names:
+            names.add(tool.spec.name)
+            new_tools.append(tool)
+    return new_tools, mcp_clients
+
+
+def _close_mcp_clients(clients: list) -> None:
+    for client in clients:
+        try:
+            client.close()
+        except Exception as exc:  # best-effort cleanup on exit
+            logger.debug("Failed to close MCP client: %s", exc)
+
+
 def _read_input(prompt: str = "You> ") -> Optional[str]:
     """Read user input with graceful EOF handling."""
     try:
@@ -196,6 +235,9 @@ def chat(
 
     # Resolve agent (optional)
     agent = None
+    mcp_clients: list = []
+    context = click.get_current_context()
+    context.call_on_close(lambda: _close_mcp_clients(mcp_clients))
     agent_key = agent_name or config.agent.default_agent
     if agent_key and agent_key != "none":
         try:
@@ -212,12 +254,12 @@ def chat(
                         getattr(config.tools, "enabled", None),
                         getattr(config.agent, "tools", None),
                     )
+                    tool_instances = []
                     if tool_names_list:
                         import openjarvis.tools  # noqa: F401 — trigger registration
                         from openjarvis.core.registry import ToolRegistry
                         from openjarvis.tools._stubs import BaseTool
 
-                        tool_instances = []
                         for tname in tool_names_list:
                             if ToolRegistry.contains(tname):
                                 tcls = ToolRegistry.get(tname)
@@ -231,8 +273,12 @@ def chat(
                                     )
                                 elif isinstance(tcls, BaseTool):
                                     tool_instances.append(tcls)
-                        if tool_instances:
-                            kwargs["tools"] = tool_instances
+                    mcp_tools, mcp_clients = _load_mcp_tools(
+                        config, tool_names_list, tool_instances, console
+                    )
+                    tool_instances.extend(mcp_tools)
+                    if tool_instances:
+                        kwargs["tools"] = tool_instances
                     kwargs["max_turns"] = config.agent.max_turns
 
                     def _confirm(prompt: str) -> bool:
@@ -290,10 +336,17 @@ def chat(
                 f"[yellow]Agent '{_safe_rich_label(agent_key)}' failed: "
                 f"{escape(str(exc))}[/yellow]"
             )
+            # Chat falls back to the bare engine; don't keep MCP servers open.
+            _close_mcp_clients(mcp_clients)
+            mcp_clients = []
 
     # Keep voice state outside the core chat path so picker/runtime changes can
     # be layered independently. Loaded speech models live for this session.
     voice_session = VoiceSession(config) if voice_mode else None
+    if voice_session is not None and sys.stdin.isatty():
+        # Overlap model loading with the user's first utterance instead of
+        # paying for it inside the first turn.
+        voice_session.warm_up()
 
     # Print banner
     voice_hint = (
@@ -332,6 +385,7 @@ def chat(
 
         memory_service = build_memory_service(config, engine, model, event_bus=bus)
         if memory_service is not None:
+            context.call_on_close(memory_service.stop)
             memory_service.start()
             console.print("[dim]  Memory: active[/dim]")
     except Exception as exc:
@@ -512,9 +566,6 @@ def chat(
             console.print("\n[dim]Generation interrupted.[/dim]")
         except Exception as exc:
             console.print(f"\n[red]Error: {exc}[/red]\n")
-
-    if memory_service is not None:
-        memory_service.stop()
 
 
 __all__ = ["chat"]

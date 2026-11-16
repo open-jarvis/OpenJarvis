@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -32,3 +34,18 @@ def tmp_openjarvis_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     # "pending"/"failed" to "ready" behind their backs.
     monkeypatch.setattr("openjarvis._rust_bridge.RUST_AVAILABLE", False)
     return home
+
+
+@pytest.fixture
+def write_model_marker(tmp_openjarvis_home: Path) -> Callable[[str, str], Path]:
+    """Write a portable model-state marker and return its path."""
+
+    def write(model_id: str, state: str) -> Path:
+        key = hashlib.sha256(model_id.encode("utf-8")).hexdigest()
+        marker_dir = tmp_openjarvis_home / ".state" / "models" / "v1"
+        marker_dir.mkdir(exist_ok=True)
+        marker = marker_dir / f"{key}.{state}"
+        marker.write_text(model_id + "\n", encoding="utf-8")
+        return marker
+
+    return write

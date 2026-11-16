@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import re as _re
 import threading
@@ -44,7 +45,7 @@ def _get_runtime_event_bus(runtime: Any = None) -> Any:
 
 
 def _start_managed_worker(app_state: Any, target: Any, *, name: str) -> Any:
-    """Start and track a managed-agent worker for orderly app shutdown."""
+    """Start a tracked worker with an isolated copy of the caller's context."""
 
     lock = getattr(app_state, "_managed_worker_lock", None)
     if lock is None:
@@ -56,10 +57,11 @@ def _start_managed_worker(app_state: Any, target: Any, *, name: str) -> Any:
         app_state._managed_workers = workers
 
     thread: threading.Thread
+    context = contextvars.copy_context()
 
     def _run() -> None:
         try:
-            target()
+            context.run(target)
         finally:
             with lock:
                 workers.discard(thread)

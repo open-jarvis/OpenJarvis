@@ -6,6 +6,8 @@ import threading
 import time
 from unittest.mock import MagicMock
 
+import pytest
+
 from openjarvis.agents._stubs import AgentContext
 from openjarvis.agents.orchestrator import OrchestratorAgent
 from openjarvis.core.events import EventBus, EventType
@@ -138,6 +140,11 @@ def _make_engine_multi_tool() -> MagicMock:
         },
     ]
     return engine
+
+
+class _InvalidDecision:
+    def __bool__(self):
+        raise AssertionError("Governance decisions must not invoke truthiness")
 
 
 # ---------------------------------------------------------------------------
@@ -924,3 +931,112 @@ class TestOrchestratorGovernanceHook:
         assert calls == []
         assert result.tool_results[0].success is False
         assert "not an object" in result.tool_results[0].content
+
+    @pytest.mark.parametrize(
+        "decision",
+        [
+            "deny",
+            "BLOCK",
+            {"decision": "block"},
+            1,
+            object(),
+            None,
+            False,
+            0,
+            "",
+            [],
+            _InvalidDecision(),
+        ],
+        ids=[
+            "str-deny",
+            "str-block",
+            "dict",
+            "int",
+            "object",
+            "none",
+            "false",
+            "zero",
+            "empty-string",
+            "empty-list",
+            "bad-bool",
+        ],
+    )
+    @pytest.mark.parametrize("execution_mode", ["serial", "parallel", "structured"])
+    def test_non_bool_truthy_return_fails_closed(
+        self, decision, execution_mode, caplog
+    ):
+        """Every dispatch path denies non-True decisions before tool side effects."""
+        engine = (
+            _make_engine_multi_tool()
+            if execution_mode == "parallel"
+            else _make_engine_with_tool_call()
+        )
+        if execution_mode == "structured":
+            engine.generate.side_effect = [
+                {
+                    "content": (
+                        "THOUGHT: Calculate.\nTOOL: calculator\n"
+                        'INPUT: {"expression":"2+2"}'
+                    )
+                },
+                {"content": "FINAL_ANSWER: Blocked."},
+            ]
+        tools = [_CalculatorStub(), _ThinkStub()]
+        for tool in tools:
+            tool.execute = MagicMock(wraps=tool.execute)
+        agent = OrchestratorAgent(
+            engine,
+            "test-model",
+            tools=tools,
+            mode="structured" if execution_mode == "structured" else "function_calling",
+            parallel_tools=execution_mode == "parallel",
+            before_tool_call=lambda name, args: decision,
+        )
+
+        result = agent.run("What is 2+2?")
+
+        assert len(result.tool_results) == (2 if execution_mode == "parallel" else 1)
+        assert all(
+            not tr.success and "[Governance]" in tr.content
+            for tr in result.tool_results
+        )
+        for tool in tools:
+            tool.execute.assert_not_called()
+        assert ("hook returned non-bool" in caplog.text) == (type(decision) is not bool)
+
+
+class TestOrchestratorLoopGuardPerRun:
+    """A server reuses one agent for many requests; loop detection must not
+    carry identical tool calls over from earlier, unrelated runs."""
+
+    def test_same_tool_call_allowed_across_separate_runs(self):
+        tool_turn = {
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "name": "calculator",
+                    "arguments": '{"expression":"2+2"}',
+                }
+            ],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+            "model": "test-model",
+            "finish_reason": "tool_calls",
+        }
+        final_turn = {
+            "content": "The answer is 4.",
+            "usage": {"prompt_tokens": 15, "completion_tokens": 5, "total_tokens": 20},
+            "model": "test-model",
+            "finish_reason": "stop",
+        }
+        runs = 5  # more than LoopGuardConfig.max_identical_calls (3)
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.side_effect = [tool_turn, final_turn] * runs
+        agent = OrchestratorAgent(engine, "test-model", tools=[_CalculatorStub()])
+        assert agent._loop_guard is not None
+
+        for _ in range(runs):
+            result = agent.run("What is 2+2?")
+            assert result.tool_results[0].success is True
+            assert result.tool_results[0].content == "4"
