@@ -26,7 +26,7 @@ cd OpenJarvis
 
 The script handles everything:
 
-1. Checks for Python 3.10+ and Node.js 18+
+1. Checks for Python 3.11–3.13 and compatible Node/npm versions
 2. Installs Ollama if not present and pulls a starter model
 3. Installs Python and frontend dependencies
 4. Starts the backend API server and frontend dev server
@@ -340,7 +340,7 @@ environment and whichever inference engine you install.
 
 | Requirement | Version | Install | Notes |
 |-------------|---------|---------|-------|
-| Python | 3.10–3.13 | [python.org](https://www.python.org/downloads/) | Required. 3.14+ not yet supported (a core dependency lacks 3.14 wheels). |
+| Python | 3.11–3.13 | [python.org](https://www.python.org/downloads/) | Required. 3.14+ not yet supported (a core dependency lacks 3.14 wheels). |
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` or `brew install uv` (macOS) | Python package & project manager |
 | Git | any | [git-scm.com](https://git-scm.com/) or `brew install git` (macOS) | Required |
 | Rust | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` | Required for the Rust extension |

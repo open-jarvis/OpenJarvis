@@ -15,7 +15,7 @@ irm https://open-jarvis.github.io/OpenJarvis/install.ps1 | iex
 What it does:
 
 1. Refuses non-Windows hosts and Windows < 10 1809.
-2. Checks Python 3.10 – 3.13 (3.14 has no numpy wheels yet — see #432).
+2. Checks Python 3.11 – 3.13 (3.14 has no numpy wheels yet — see #432).
 3. Checks `git` on PATH.
 4. Installs `uv` (https://astral.sh/uv) if absent.
 5. Clones the OpenJarvis repository to `%LOCALAPPDATA%\OpenJarvis`

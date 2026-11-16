@@ -7,7 +7,7 @@
 # image digest is the integrity check, and the copy is architecture-agnostic.
 FROM node:22.23.0-slim@sha256:d9f850096136edbc402debdd8729579a288aac64574ada0ff4db26b6ae58b0b2 AS node
 
-FROM python:3.12.13-slim-bookworm@sha256:76d4b7b6305788c6b4c6a19d6a22a3921bf802e9af4d5e1e5bd771208dba74bf AS builder
+FROM python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df AS builder
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends build-essential ca-certificates curl && \
@@ -45,7 +45,7 @@ RUN uv pip install --system --no-deps . && \
     python3 -m pip uninstall -y maturin && \
     rm -rf /tmp/openjarvis-rust-wheel rust/target
 
-FROM python:3.12.13-slim-bookworm@sha256:76d4b7b6305788c6b4c6a19d6a22a3921bf802e9af4d5e1e5bd771208dba74bf
+FROM python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
 
 # libstdc++6 + ca-certificates are the only runtime requirements of the Node
 # binary copied below (the python slim image already provides libc/libgcc).
