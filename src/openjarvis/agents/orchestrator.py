@@ -152,8 +152,10 @@ class OrchestratorAgent(ToolUsingAgent):
         """Call before_tool_call hook if set.
 
         Returns None to allow execution, or a denial ToolResult to inject
-        instead of running the tool. Invalid arguments and hook failures deny
-        execution so a governance integration cannot fail open.
+        instead of running the tool. Only a literal ``True`` allows; any other
+        return value (including truthy non-bools such as ``"deny"`` or a
+        decision object), invalid arguments, and hook failures deny execution
+        so a governance integration cannot fail open.
         """
         if self._before_tool_call is None:
             return None
@@ -170,8 +172,14 @@ class OrchestratorAgent(ToolUsingAgent):
         except Exception:
             logger.exception("before_tool_call hook failed for tool %s", tc.name)
             return self._governance_denial(tc.name, "governance check failed")
-        if allowed:
+        if allowed is True:
             return None
+        if not isinstance(allowed, bool):
+            logger.warning(
+                "before_tool_call hook returned non-bool %s for tool %s; denying",
+                type(allowed).__name__,
+                tc.name,
+            )
         return self._governance_denial(tc.name, "policy denied the call")
 
     # ------------------------------------------------------------------
