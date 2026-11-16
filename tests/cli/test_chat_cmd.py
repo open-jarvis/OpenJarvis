@@ -878,3 +878,52 @@ class TestChatMcpTools:
         # Closed right after the failure, not kept open for the whole session
         assert closed_before_prompt == [True]
         client.close.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "failure", [RuntimeError("terminal failed"), KeyboardInterrupt()]
+    )
+    def test_clients_and_memory_close_when_input_aborts(self, tmp_path, failure):
+        AgentRegistry.register_value("mcp_chat_agent", _McpChatAgent)
+        client = MagicMock()
+        service = MagicMock()
+        loader = MagicMock(return_value=([_McpStateTool()], [client]))
+        with (
+            patch("openjarvis.cli.chat_cmd._read_input", side_effect=failure),
+            patch("openjarvis.memory.build_memory_service", return_value=service),
+        ):
+            result = self._invoke(self._config(tmp_path), "mcp_chat_agent", loader)
+
+        assert result.exit_code != 0
+        client.close.assert_called_once()
+        service.start.assert_called_once()
+        service.stop.assert_called_once()
+
+    def test_clients_close_when_prompt_setup_fails(self, tmp_path):
+        AgentRegistry.register_value("mcp_chat_agent", _McpChatAgent)
+        client = MagicMock()
+        service = MagicMock()
+        loader = MagicMock(return_value=([_McpStateTool()], [client]))
+        with (
+            patch(
+                "openjarvis.prompt.builder.SystemPromptBuilder.build",
+                side_effect=RuntimeError("prompt setup failed"),
+            ),
+            patch("openjarvis.memory.build_memory_service", return_value=service),
+        ):
+            result = self._invoke(self._config(tmp_path), "mcp_chat_agent", loader)
+
+        assert result.exit_code != 0
+        client.close.assert_called_once()
+        service.stop.assert_called_once()
+
+    def test_failure_closing_one_client_does_not_skip_other_clients(self, tmp_path):
+        AgentRegistry.register_value("mcp_chat_agent", _McpChatAgent)
+        first, second = MagicMock(), MagicMock()
+        first.close.side_effect = RuntimeError("close failed")
+        loader = MagicMock(return_value=([_McpStateTool()], [first, second]))
+
+        result = self._invoke(self._config(tmp_path), "mcp_chat_agent", loader)
+
+        assert result.exit_code == 0, result.output
+        first.close.assert_called_once()
+        second.close.assert_called_once()

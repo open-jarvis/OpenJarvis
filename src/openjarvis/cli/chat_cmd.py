@@ -236,6 +236,8 @@ def chat(
     # Resolve agent (optional)
     agent = None
     mcp_clients: list = []
+    context = click.get_current_context()
+    context.call_on_close(lambda: _close_mcp_clients(mcp_clients))
     agent_key = agent_name or config.agent.default_agent
     if agent_key and agent_key != "none":
         try:
@@ -379,6 +381,7 @@ def chat(
 
         memory_service = build_memory_service(config, engine, model, event_bus=bus)
         if memory_service is not None:
+            context.call_on_close(memory_service.stop)
             memory_service.start()
             console.print("[dim]  Memory: active[/dim]")
     except Exception as exc:
@@ -559,10 +562,6 @@ def chat(
             console.print("\n[dim]Generation interrupted.[/dim]")
         except Exception as exc:
             console.print(f"\n[red]Error: {exc}[/red]\n")
-
-    if memory_service is not None:
-        memory_service.stop()
-    _close_mcp_clients(mcp_clients)
 
 
 __all__ = ["chat"]
