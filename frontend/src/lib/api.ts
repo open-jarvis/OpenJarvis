@@ -1,6 +1,7 @@
 import type { ModelInfo, SavingsData, ServerInfo } from '../types';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
 import { serializeToolCallArguments } from './tool-call';
+import { timeZoneHeaders } from './timezone';
 
 // ---------------------------------------------------------------------------
 // Supabase config
@@ -609,18 +610,15 @@ export async function bindAgentChannel(
   channelType: string,
   config?: Record<string, unknown>,
 ): Promise<ChannelBinding> {
-  const res = await fetch(
-    `${getBase()}/v1/managed-agents/${agentId}/channels`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        channel_type: channelType,
-        config: config || {},
-        routing_mode: 'dedicated',
-      }),
-    },
-  );
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/channels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      channel_type: channelType,
+      config: config || {},
+      routing_mode: 'dedicated',
+    }),
+  });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -629,10 +627,9 @@ export async function unbindAgentChannel(
   agentId: string,
   bindingId: string,
 ): Promise<void> {
-  const res = await fetch(
-    `${getBase()}/v1/managed-agents/${agentId}/channels/${bindingId}`,
-    { method: 'DELETE' },
-  );
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/channels/${bindingId}`, {
+    method: 'DELETE',
+  });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
@@ -712,7 +709,10 @@ export async function fetchTemplates(): Promise<AgentTemplate[]> {
 }
 
 export async function runManagedAgent(agentId: string): Promise<void> {
-  const res = await apiFetch(`/v1/managed-agents/${agentId}/run`, { method: 'POST' });
+  const res = await apiFetch(`/v1/managed-agents/${agentId}/run`, {
+    method: 'POST',
+    headers: timeZoneHeaders(),
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || `Failed: ${res.status}`);
@@ -766,7 +766,7 @@ export async function sendAgentMessage(
 ): Promise<AgentMessage> {
   const res = await apiFetch(`/v1/managed-agents/${agentId}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...timeZoneHeaders() },
     body: JSON.stringify({ content, mode, stream: true }),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -881,7 +881,7 @@ export async function sendAgentMessage(
 export async function askAgent(agentId: string, content: string): Promise<AgentMessage> {
   const res = await apiFetch(`/v1/managed-agents/${agentId}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...timeZoneHeaders() },
     body: JSON.stringify({ content, mode: 'immediate', stream: false }),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);

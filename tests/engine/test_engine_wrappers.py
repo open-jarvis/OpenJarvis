@@ -15,6 +15,30 @@ from openjarvis.engine.multi import MultiEngine
 from openjarvis.security.guardrails import GuardrailsEngine
 from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
 
+
+def test_multi_engine_preserves_known_owner_when_discovery_fails(monkeypatch):
+    engine = _FakeStreamFullEngine([])
+    monkeypatch.setattr(engine, "list_models", lambda: ["private/model"])
+    multi = MultiEngine([("local", engine)])
+
+    def unavailable():
+        raise RuntimeError("metadata unavailable")
+
+    monkeypatch.setattr(engine, "list_models", unavailable)
+    multi._refresh_map()
+    assert multi.engine_key_for("private/model") == "local"
+    assert multi._engine_for("private/model") is engine
+
+
+def test_multi_engine_honors_healthy_model_removal(monkeypatch):
+    engine = _FakeStreamFullEngine([])
+    monkeypatch.setattr(engine, "list_models", lambda: ["private/model"])
+    multi = MultiEngine([("local", engine)])
+    monkeypatch.setattr(engine, "list_models", lambda: [])
+    multi._refresh_map()
+    assert multi.engine_key_for("private/model") is None
+
+
 # ---------------------------------------------------------------------------
 # Fake engine that yields predetermined StreamChunks via stream_full
 # ---------------------------------------------------------------------------

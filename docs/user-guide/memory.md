@@ -248,6 +248,11 @@ The `ingest_path()` function reads files or recursively walks directories, produ
 | Markdown | `.md`, `.markdown`, `.mdx`                                  |
 | Code     | `.py`, `.js`, `.ts`, `.rs`, `.go`, `.java`, `.c`, `.cpp`, `.rb`, `.sh`, `.yaml`, `.json`, `.html`, `.css`, and more |
 | PDF      | `.pdf` (requires `pdfplumber`: `uv sync --extra memory-pdf`) |
+| Word     | `.docx` (paragraphs and table-cell text; no extra dependency) |
+
+Word ingestion reads the main document body. Images, headers, and footers are
+not extracted. Unreadable documents and document bodies larger than 64 MiB
+are skipped during folder indexing.
 
 ### Automatic Skipping
 
@@ -257,6 +262,11 @@ The ingestion pipeline automatically skips:
 - Common non-content directories: `__pycache__`, `node_modules`, `.venv`, `.git`, etc.
 - Binary files: images, audio, video, archives, compiled files
 - Files that cannot be read (permission errors, encoding issues)
+
+Folder indexing also checks the first 8 KiB for NUL bytes to skip unsupported
+binary formats such as `.doc`, `.xlsx`, and `.pptx`. This check also skips
+UTF-16 text files; convert those to UTF-8 before indexing. PDF and `.docx`
+files use their dedicated readers instead of this check.
 
 ### Usage
 

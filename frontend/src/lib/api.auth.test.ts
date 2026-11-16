@@ -90,6 +90,50 @@ describe('authHeaders', () => {
   });
 });
 
+describe('managed agent channels', () => {
+  beforeEach(() => {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ apiUrl: 'https://jarvis.example', apiKey: 'test-key' }),
+    );
+  });
+
+  it('authenticates channel binding against the configured server', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+    const { bindAgentChannel } = await freshApi();
+
+    await bindAgentChannel('agent-1', 'sendblue', { phone: '+15555550123' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://jarvis.example/v1/managed-agents/agent-1/channels',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer test-key',
+        },
+        body: JSON.stringify({
+          channel_type: 'sendblue',
+          config: { phone: '+15555550123' },
+          routing_mode: 'dedicated',
+        }),
+      },
+    );
+  });
+
+  it('authenticates channel removal', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    const { unbindAgentChannel } = await freshApi();
+
+    await unbindAgentChannel('agent-1', 'binding-1');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://jarvis.example/v1/managed-agents/agent-1/channels/binding-1',
+      { method: 'DELETE', headers: { Authorization: 'Bearer test-key' } },
+    );
+  });
+});
+
 describe('tool credentials', () => {
   it('reads credential status from the local server', async () => {
     fetchMock.mockResolvedValue(

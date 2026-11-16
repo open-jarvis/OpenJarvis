@@ -497,6 +497,11 @@ def create_app(
     except Exception as exc:
         logger.debug("Security middleware init skipped: %s", exc)
 
+    # Per-request user time zone for prompts (X-OpenJarvis-Timezone)
+    from openjarvis.server.timezone_middleware import TimezoneMiddleware
+
+    app.add_middleware(TimezoneMiddleware)
+
     # API key authentication middleware
     if api_key:
         try:
