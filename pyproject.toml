@@ -42,6 +42,8 @@ dependencies = [
     "rich>=13",
     "tomli>=2.0; python_version < '3.11'",
     "tomlkit>=0.12",
+    # IANA time-zone fallback for Windows and minimal container images.
+    "tzdata>=2025.3",
     "websockets>=15.0.1",
 ]
 

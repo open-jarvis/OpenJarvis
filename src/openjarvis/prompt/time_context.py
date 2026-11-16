@@ -9,10 +9,11 @@ The zone comes from, in order:
 1. the request, via the ``X-OpenJarvis-Timezone`` header the web UI sends
    with chat and agent requests (the device's zone, or the one picked in
    Settings);
-2. the last zone the UI sent, for agent runs with no request behind them
-   (scheduled or queued work on this single-user server);
-3. ``[system_prompt] timezone`` in config.toml;
-4. the server machine's local zone.
+2. ``[system_prompt] timezone`` in config.toml;
+3. the server machine's local zone.
+
+Scheduled and queued work without a request uses the configured default.
+One browser's zone is never retained as a process-wide preference.
 """
 
 from __future__ import annotations
@@ -27,7 +28,6 @@ TIMEZONE_HEADER = "x-openjarvis-timezone"
 _request_timezone: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "openjarvis_request_timezone", default=None
 )
-_last_client_timezone: Optional[str] = None
 
 
 def valid_timezone(name: Optional[str]) -> Optional[str]:
@@ -42,11 +42,7 @@ def valid_timezone(name: Optional[str]) -> Optional[str]:
 
 
 def set_request_timezone(name: Optional[str]) -> contextvars.Token:
-    global _last_client_timezone
-    zone = valid_timezone(name)
-    if zone:
-        _last_client_timezone = zone
-    return _request_timezone.set(zone)
+    return _request_timezone.set(valid_timezone(name))
 
 
 def reset_request_timezone(token: contextvars.Token) -> None:
@@ -55,9 +51,7 @@ def reset_request_timezone(token: contextvars.Token) -> None:
 
 def resolve_timezone(configured: str = "") -> tuple[Optional[str], tzinfo]:
     """Return the zone's IANA name (None for an unnamed local zone) and tzinfo."""
-    name = (
-        _request_timezone.get() or _last_client_timezone or valid_timezone(configured)
-    )
+    name = _request_timezone.get() or valid_timezone(configured)
     if name:
         return name, ZoneInfo(name)
     local = datetime.now().astimezone().tzinfo
@@ -83,7 +77,7 @@ def current_time_section(configured: str = "", now: Optional[datetime] = None) -
         "## Current Time\n\n"
         f"The user's time zone is {label}. "
         f"Their current local time is {local.strftime('%A %Y-%m-%d %H:%M')}. "
-        "When you show dates or times, including ones a tool returns in UTC "
-        "or another zone, convert them to the user's time zone and do not "
-        "label them UTC."
+        "Unless the user asks otherwise, convert timestamps from tools to "
+        "the user's time zone and label them with that zone or UTC offset. "
+        "Preserve date-only values and all-day event dates."
     )

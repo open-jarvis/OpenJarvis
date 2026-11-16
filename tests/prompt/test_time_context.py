@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 import pytest
 
 from openjarvis.core.config import SystemPromptConfig
-from openjarvis.prompt import time_context
 from openjarvis.prompt.builder import SystemPromptBuilder
 from openjarvis.prompt.time_context import (
     current_time_section,
@@ -17,11 +16,6 @@ from openjarvis.prompt.time_context import (
 )
 
 NOW = datetime(2026, 11, 6, 8, 54, tzinfo=timezone.utc)
-
-
-@pytest.fixture(autouse=True)
-def _no_remembered_zone(monkeypatch):
-    monkeypatch.setattr(time_context, "_last_client_timezone", None)
 
 
 @pytest.fixture
@@ -41,7 +35,8 @@ def test_request_zone_converts_utc_to_local(request_tz) -> None:
     section = current_time_section(now=NOW)
     assert "Africa/Cairo (UTC+02:00)" in section
     assert "2026-11-06 10:54" in section
-    assert "do not label them UTC" in section
+    assert "Unless the user asks otherwise" in section
+    assert "Preserve date-only values and all-day event dates" in section
 
 
 def test_request_zone_beats_config(request_tz) -> None:
@@ -81,8 +76,43 @@ def test_builder_can_turn_time_off() -> None:
     assert builder.current_time_section() == ""
 
 
-def test_background_runs_use_the_last_zone_the_ui_sent() -> None:
+@pytest.mark.parametrize("enabled", [True, False])
+def test_time_settings_loaded_from_config(tmp_path, enabled):
+    from openjarvis.core.config import load_config
+
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[system_prompt]\ntimezone = "America/New_York"\n'
+        f"include_current_time = {str(enabled).lower()}\n"
+    )
+    config = load_config(path)
+    builder = SystemPromptBuilder("Jarvis", system_prompt_config=config.system_prompt)
+    if enabled:
+        assert "America/New_York" in builder.current_time_section()
+    else:
+        assert builder.build() == "Jarvis"
+
+
+def test_background_runs_use_config_without_a_request() -> None:
     token = set_request_timezone("Africa/Cairo")
     reset_request_timezone(token)
-    # No request now (a queued or scheduled agent run): Cairo is remembered.
-    assert "Africa/Cairo" in current_time_section("Europe/Berlin", now=NOW)
+    assert "Europe/Berlin" in current_time_section("Europe/Berlin", now=NOW)
+
+
+@pytest.mark.parametrize(
+    ("zone", "now", "offset", "local"),
+    [
+        (
+            "America/New_York",
+            datetime(2026, 7, 6, 8, 54, tzinfo=timezone.utc),
+            "UTC-04:00",
+            "2026-07-06 04:54",
+        ),
+        ("Asia/Kolkata", NOW, "UTC+05:30", "2026-11-06 14:24"),
+        ("America/St_Johns", NOW, "UTC-03:30", "2026-11-06 05:24"),
+    ],
+)
+def test_dst_and_fractional_offsets(zone, now, offset, local):
+    section = current_time_section(zone, now=now)
+    assert offset in section
+    assert local in section

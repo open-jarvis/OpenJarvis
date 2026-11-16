@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from openjarvis.prompt import time_context
-from openjarvis.prompt.time_context import resolve_timezone
+from openjarvis.prompt.time_context import (
+    reset_request_timezone,
+    resolve_timezone,
+    set_request_timezone,
+)
 from openjarvis.server.timezone_middleware import TimezoneMiddleware
-
-
-@pytest.fixture(autouse=True)
-def _no_remembered_zone(monkeypatch):
-    monkeypatch.setattr(time_context, "_last_client_timezone", None)
 
 
 def _app() -> FastAPI:
@@ -42,3 +42,64 @@ def test_missing_or_bad_header_falls_back_to_config(monkeypatch) -> None:
     assert client.get("/tz").json() == {"zone": "Europe/Paris"}
     bad = client.get("/tz", headers={"X-OpenJarvis-Timezone": "Mars/Base"})
     assert bad.json() == {"zone": "Europe/Paris"}
+
+
+def test_previous_request_cannot_override_the_configured_zone() -> None:
+    client = TestClient(_app())
+    assert client.get(
+        "/tz", headers={"X-OpenJarvis-Timezone": "Asia/Tokyo"}
+    ).json() == {"zone": "Asia/Tokyo"}
+    assert client.get("/tz").json() == {"zone": "Europe/Paris"}
+    assert client.get("/tz", headers={"X-OpenJarvis-Timezone": "Mars/Base"}).json() == {
+        "zone": "Europe/Paris"
+    }
+
+
+def test_managed_workers_keep_their_own_request_context() -> None:
+    from openjarvis.server.agent_manager_routes import _start_managed_worker
+
+    state = SimpleNamespace()
+    release = threading.Event()
+    observed = {}
+    workers = []
+
+    def read_zone(name):
+        assert release.wait(2)
+        observed[name] = resolve_timezone("Europe/Paris")[0]
+
+    try:
+        for zone in ("Asia/Tokyo", "Africa/Cairo"):
+            token = set_request_timezone(zone)
+            try:
+                workers.append(
+                    _start_managed_worker(
+                        state, lambda name=zone: read_zone(name), name="timezone-test"
+                    )
+                )
+            finally:
+                reset_request_timezone(token)
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(timeout=2)
+    assert all(not worker.is_alive() for worker in workers)
+    assert observed == {"Asia/Tokyo": "Asia/Tokyo", "Africa/Cairo": "Africa/Cairo"}
+    assert resolve_timezone("Europe/Paris")[0] == "Europe/Paris"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_requests_keep_their_own_zone() -> None:
+    import httpx
+
+    transport = httpx.ASGITransport(app=_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        responses = await asyncio.gather(
+            client.get("/tz", headers={"X-OpenJarvis-Timezone": "Asia/Tokyo"}),
+            client.get("/tz", headers={"X-OpenJarvis-Timezone": "Africa/Cairo"}),
+            client.get("/tz"),
+        )
+    assert [r.json()["zone"] for r in responses] == [
+        "Asia/Tokyo",
+        "Africa/Cairo",
+        "Europe/Paris",
+    ]
