@@ -10,6 +10,10 @@ on:
       - "uv.lock"
       - "rust/**"
       - "frontend/**"
+      - "src/**"
+      - "scripts/install/**"
+      - "configs/openjarvis/examples/**"
+      - "deploy/windows/**"
   workflow_dispatch:
 
 permissions:
