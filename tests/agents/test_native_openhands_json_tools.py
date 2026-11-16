@@ -113,8 +113,9 @@ def test_unrelated_json_is_not_reparsed_as_action_text(agent):
 class _CountingTool(BaseTool):
     tool_id = "counting_tool"
 
-    def __init__(self):
+    def __init__(self, require_confirmation=False):
         self.calls = []
+        self.require_confirmation = require_confirmation
 
     @property
     def spec(self):
@@ -123,6 +124,7 @@ class _CountingTool(BaseTool):
             description="Record arguments in memory.",
             parameters={"type": "object", "properties": {"value": {"type": "string"}}},
             required_capabilities=["file:write"],
+            requires_confirmation=self.require_confirmation,
         )
 
     def execute(self, **params):
@@ -216,3 +218,59 @@ def test_last_turn_json_call_reports_exhaustion_without_the_raw_envelope():
     assert result.metadata["max_turns_exceeded"] is True
     assert len(result.tool_results) == 1
     assert result.tool_results[0].content == "recorded"
+
+
+@pytest.mark.parametrize("prefix", ["", "<think>plan</think>\n", "plan</think>\n"])
+def test_json_argument_literals_survive_reasoning_cleanup(prefix):
+    tool = _CountingTool()
+    value = "<think>literal user data</think>"
+    payload = prefix + json.dumps({"name": tool.tool_id, "arguments": {"value": value}})
+    engine = MagicMock()
+    engine.engine_id = "mock"
+    engine.generate.side_effect = [{"content": payload}, {"content": "Done."}]
+    instance = NativeOpenHandsAgent(engine, "test-model", tools=[tool], max_turns=2)
+    instance.run("Record the literal string.")
+    assert tool.calls == [{"value": value}]
+
+
+@pytest.mark.parametrize(
+    "payload", [json.dumps(["Action: file_read"]), json.dumps("<think>literal</think>")]
+)
+def test_non_object_json_answers_remain_data(payload):
+    engine = MagicMock()
+    engine.engine_id = "mock"
+    engine.generate.return_value = {"content": payload}
+    result = NativeOpenHandsAgent(engine, "test-model", tools=[]).run("Return JSON.")
+    assert result.content == payload
+    assert result.tool_results == []
+
+
+@pytest.mark.parametrize("gate", ["confirmation", "rate_limit"])
+def test_json_dispatch_keeps_confirmation_and_rate_limit_gates(gate):
+    tool = _CountingTool(require_confirmation=gate == "confirmation")
+    engine = MagicMock()
+    engine.engine_id = "mock"
+    engine.generate.side_effect = [
+        {"content": json.dumps({"name": tool.tool_id, "arguments": {"value": "test"}})},
+        {"content": "Done."},
+    ]
+    control = MagicMock()
+    if gate == "confirmation":
+        control.return_value = False
+        kwargs = {"interactive": True, "confirm_callback": control}
+    else:
+        control.check.return_value = (False, 1.0)
+        kwargs = {"rate_limiter": control}
+    result = NativeOpenHandsAgent(
+        engine, "test-model", tools=[tool], max_turns=2, **kwargs
+    ).run("Record the value.")
+    assert len(result.tool_results) == 1
+    assert result.tool_results[0].success is False
+    assert tool.calls == []
+    assert control.called if gate == "confirmation" else control.check.called
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "1e400"])
+def test_nonfinite_json_arguments_are_not_dispatched(agent, value):
+    payload = f'{{"name":"file_read","arguments":{{"path":{value}}}}}'
+    assert agent._extract_tool_call(payload) is None
