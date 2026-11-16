@@ -9,8 +9,9 @@ FROM node:22.23.0-slim@sha256:d9f850096136edbc402debdd8729579a288aac64574ada0ff4
 ARG OPENJARVIS_LEADERBOARD_PUBLIC_ANON=
 
 WORKDIR /frontend
-COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm ci --ignore-scripts 2>/dev/null || npm install
+COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
+RUN npm install --global "$(node -p 'require("./package.json").packageManager')" && \
+    npm ci --ignore-scripts
 COPY frontend/ .
 RUN VITE_SUPABASE_ANON_KEY="${OPENJARVIS_LEADERBOARD_PUBLIC_ANON}" npm run build
 
@@ -25,8 +26,8 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
         sh -s -- -y --profile minimal --default-toolchain none && \
-    rustup toolchain install 1.88 --profile minimal && \
-    rustup default 1.88
+    rustup toolchain install 1.89 --profile minimal && \
+    rustup default 1.89
 
 WORKDIR /app
 

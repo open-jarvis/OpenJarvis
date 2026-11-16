@@ -6,6 +6,8 @@ import threading
 import time
 from unittest.mock import MagicMock
 
+import pytest
+
 from openjarvis.agents._stubs import AgentContext
 from openjarvis.agents.orchestrator import OrchestratorAgent
 from openjarvis.core.events import EventBus, EventType
@@ -138,6 +140,11 @@ def _make_engine_multi_tool() -> MagicMock:
         },
     ]
     return engine
+
+
+class _InvalidDecision:
+    def __bool__(self):
+        raise AssertionError("Governance decisions must not invoke truthiness")
 
 
 # ---------------------------------------------------------------------------
@@ -924,6 +931,78 @@ class TestOrchestratorGovernanceHook:
         assert calls == []
         assert result.tool_results[0].success is False
         assert "not an object" in result.tool_results[0].content
+
+    @pytest.mark.parametrize(
+        "decision",
+        [
+            "deny",
+            "BLOCK",
+            {"decision": "block"},
+            1,
+            object(),
+            None,
+            False,
+            0,
+            "",
+            [],
+            _InvalidDecision(),
+        ],
+        ids=[
+            "str-deny",
+            "str-block",
+            "dict",
+            "int",
+            "object",
+            "none",
+            "false",
+            "zero",
+            "empty-string",
+            "empty-list",
+            "bad-bool",
+        ],
+    )
+    @pytest.mark.parametrize("execution_mode", ["serial", "parallel", "structured"])
+    def test_non_bool_truthy_return_fails_closed(
+        self, decision, execution_mode, caplog
+    ):
+        """Every dispatch path denies non-True decisions before tool side effects."""
+        engine = (
+            _make_engine_multi_tool()
+            if execution_mode == "parallel"
+            else _make_engine_with_tool_call()
+        )
+        if execution_mode == "structured":
+            engine.generate.side_effect = [
+                {
+                    "content": (
+                        "THOUGHT: Calculate.\nTOOL: calculator\n"
+                        'INPUT: {"expression":"2+2"}'
+                    )
+                },
+                {"content": "FINAL_ANSWER: Blocked."},
+            ]
+        tools = [_CalculatorStub(), _ThinkStub()]
+        for tool in tools:
+            tool.execute = MagicMock(wraps=tool.execute)
+        agent = OrchestratorAgent(
+            engine,
+            "test-model",
+            tools=tools,
+            mode="structured" if execution_mode == "structured" else "function_calling",
+            parallel_tools=execution_mode == "parallel",
+            before_tool_call=lambda name, args: decision,
+        )
+
+        result = agent.run("What is 2+2?")
+
+        assert len(result.tool_results) == (2 if execution_mode == "parallel" else 1)
+        assert all(
+            not tr.success and "[Governance]" in tr.content
+            for tr in result.tool_results
+        )
+        for tool in tools:
+            tool.execute.assert_not_called()
+        assert ("hook returned non-bool" in caplog.text) == (type(decision) is not bool)
 
 
 class TestOrchestratorLoopGuardPerRun:

@@ -150,6 +150,14 @@ jobs:
           uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
           uv run python -c "import openjarvis_rust; print('openjarvis_rust imports on Windows OK')"
 
+      - name: Verify file aliases and network address policy
+        shell: bash
+        run: uv run pytest tests/security/test_file_policy.py tests/security/test_ssrf.py -q
+
+      - name: Verify capability and rate-limit backend parity
+        shell: bash
+        run: uv run pytest tests/security/test_capabilities.py tests/security/test_rate_limiter.py tests/security/test_optional_native_security.py -q
+
       - name: Smoke-test CLI
         shell: bash
         run: |
@@ -158,6 +166,10 @@ jobs:
       - name: Verify time zones and managed-worker context
         shell: bash
         run: uv run pytest tests/prompt/test_time_context.py tests/server/test_timezone_middleware.py -q
+
+      - name: Verify digest audio playback
+        shell: bash
+        run: uv run pytest tests/cli/test_digest_cmd.py tests/speech/test_voice_io.py -q
 
   rust:
     runs-on: ubuntu-latest
