@@ -80,7 +80,8 @@ def test_cartesia_model_env_override(monkeypatch):
     assert CartesiaTTSBackend(api_key="fake-key", model="sonic-2")._model == "sonic-2"
 
 
-def test_cartesia_request_sends_current_model_and_api_version():
+@pytest.mark.parametrize("speed", [1.0, 1.25])
+def test_cartesia_request_sends_current_model_and_api_version(speed):
     from openjarvis.speech import cartesia_tts
 
     captured: dict = {}
@@ -96,12 +97,17 @@ def test_cartesia_request_sends_current_model_and_api_version():
         return _Resp()
 
     with patch.object(cartesia_tts.httpx, "post", side_effect=fake_post):
-        out = cartesia_tts._cartesia_synthesize("fake-key", "Hello", "voice-1")
+        out = cartesia_tts._cartesia_synthesize(
+            "fake-key", "Hello", "voice-1", speed=speed
+        )
 
     assert out == b"audio-bytes"
     assert captured["url"].endswith("/tts/bytes")
     assert captured["json"]["model_id"] == "sonic-3"
     assert captured["headers"]["Cartesia-Version"] == "2025-04-16"
+    assert "speed" not in captured["json"]
+    if speed != 1.0:
+        assert captured["json"]["generation_config"] == {"speed": speed}
 
 
 # ---------------------------------------------------------------------------

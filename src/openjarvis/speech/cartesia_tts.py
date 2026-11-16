@@ -18,7 +18,7 @@ _CARTESIA_API_BASE = "https://api.cartesia.ai"
 
 # Cartesia retired the original ``sonic`` model id: the API now answers
 # ``400 Model sunsetted`` for it, which surfaced as a silent "Audio not
-# playing" digest. ``sonic-3`` is the current generation. ``CARTESIA_MODEL``
+# playing" digest. ``sonic-3`` is a supported baseline. ``CARTESIA_MODEL``
 # lets users follow the next rotation without a code change.
 _DEFAULT_MODEL = "sonic-3"
 _CARTESIA_VERSION = "2025-04-16"
@@ -54,7 +54,7 @@ def _cartesia_synthesize(
                 "encoding": "mp3" if output_format == "mp3" else "pcm_f32le",
             },
             "language": language,
-            **({"speed": speed} if speed != 1.0 else {}),
+            **({"generation_config": {"speed": speed}} if speed != 1.0 else {}),
         },
         timeout=120.0,
     )
