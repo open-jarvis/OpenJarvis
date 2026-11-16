@@ -204,7 +204,8 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             # Do not reinterpret quoted examples as legacy Action/XML syntax.
             return None
         except (ValueError, TypeError):
-            pass
+            if text.lstrip().startswith("{"):
+                return None
 
         # Format 1: Action / Action Input
         action_match = re.search(r"Action:\s*(.+)", text, re.IGNORECASE)
@@ -326,6 +327,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         all_tool_results: list[ToolResult] = []
         turns = 0
         last_content = ""
+        last_json_call = False
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
         # Build OpenAI-format tool schemas for native function calling
@@ -360,6 +362,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             # Strip think tags so they don't interfere with parsing
             content = self._strip_think_tags(content)
             last_content = content
+            last_json_call = False
 
             # --- Native function-calling path (OpenAI, Anthropic, etc.) ---
             raw_tool_calls = result.get("tool_calls", [])
@@ -402,7 +405,8 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             # --- Text-based fallback (CodeAct / Action-Input format) ---
 
             # Try to extract code
-            code = self._extract_code(content)
+            json_object = content.lstrip().startswith("{")
+            code = None if json_object else self._extract_code(content)
             if code:
                 messages.append(Message(role=Role.ASSISTANT, content=content))
 
@@ -426,6 +430,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             tool_info = self._extract_tool_call(content)
             if tool_info:
                 action, action_input = tool_info
+                last_json_call = json_object
                 messages.append(Message(role=Role.ASSISTANT, content=content))
 
                 tool_call = ToolCall(
@@ -443,7 +448,8 @@ class NativeOpenHandsAgent(ToolUsingAgent):
 
             # No code or tool call -- this is the final answer
             content = self._strip_think_tags(content)
-            content = self._strip_tool_call_text(content)
+            if not json_object:
+                content = self._strip_tool_call_text(content)
             self._emit_turn_end(turns=turns)
             return AgentResult(
                 content=content,
@@ -453,7 +459,11 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             )
 
         # Max turns
-        final = self._strip_think_tags(last_content) or "Maximum turns reached."
+        final = (
+            ""
+            if last_json_call
+            else self._strip_think_tags(last_content) or "Maximum turns reached."
+        )
         final = self._strip_tool_call_text(final)
         result = self._max_turns_result(all_tool_results, turns, content=final)
         result.metadata.update(total_usage)

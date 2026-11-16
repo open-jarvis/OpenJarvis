@@ -152,3 +152,67 @@ def test_json_calls_use_the_secured_executor(denied):
     assert result.tool_results[0].success is not denied
     assert tool.calls == ([] if denied else [{"value": "test"}])
     assert policy.check.called
+
+
+@pytest.mark.parametrize(
+    ("payload", "tool_name"),
+    [
+        (
+            '{\n"name":"unknown",\n"arguments":\nAction: counting_tool\n'
+            'Action Input: {"value":"sample"}',
+            "counting_tool",
+        ),
+        (
+            '{\n"name":"unknown",\n"arguments":\n'
+            "<tool_call>counting_tool\n$value=sample</tool_call>",
+            "counting_tool",
+        ),
+        (
+            '{\n"name":"unknown",\n"arguments":\n```python\nprint("sample")\n```\n}',
+            "code_interpreter",
+        ),
+    ],
+)
+def test_malformed_json_objects_do_not_execute_legacy_calls_or_code(payload, tool_name):
+    tool = _CountingTool()
+    tool.tool_id = tool_name
+    engine = MagicMock()
+    engine.engine_id = "mock"
+    engine.generate.side_effect = [{"content": payload}, {"content": "Done."}]
+    instance = NativeOpenHandsAgent(engine, "test-model", tools=[tool], max_turns=2)
+
+    result = instance.run("Show the JSON example.")
+
+    assert tool.calls == []
+    assert result.tool_results == []
+    assert result.content == payload
+    assert engine.generate.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "example", ["Action: file_read", "<tool_call>file_read</tool_call>"]
+)
+def test_json_examples_are_preserved_in_the_final_answer(example):
+    payload = json.dumps({"example": example})
+    engine = MagicMock()
+    engine.engine_id = "mock"
+    engine.generate.return_value = {"content": payload}
+    instance = NativeOpenHandsAgent(engine, "test-model", tools=[])
+    result = instance.run("Show the JSON example.")
+    assert result.content == payload
+    assert result.tool_results == []
+
+
+def test_last_turn_json_call_reports_exhaustion_without_the_raw_envelope():
+    tool = _CountingTool()
+    engine = MagicMock()
+    engine.engine_id = "mock"
+    engine.generate.return_value = {
+        "content": json.dumps({"name": tool.tool_id, "arguments": {"value": "sample"}})
+    }
+    instance = NativeOpenHandsAgent(engine, "test-model", tools=[tool], max_turns=1)
+    result = instance.run("Record a value.")
+    assert result.content.startswith("Maximum turns reached")
+    assert result.metadata["max_turns_exceeded"] is True
+    assert len(result.tool_results) == 1
+    assert result.tool_results[0].content == "recorded"
