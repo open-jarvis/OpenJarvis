@@ -5,12 +5,11 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import hashlib
+import http.client
 import json
 import re
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 try:
@@ -18,7 +17,7 @@ try:
 except ImportError:  # Python 3.10 compatibility for local checks.
     import tomli as tomllib
 
-OSV_BATCH_URL = "https://api.osv.dev/v1/querybatch"
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 LOCKFILES = {"uv.lock", "rust/Cargo.lock", "frontend/src-tauri/Cargo.lock"}
 
 
@@ -42,6 +41,17 @@ def read_policy(path: Path, today: dt.date | None = None) -> list[dict]:
     for entry in entries:
         if not isinstance(entry, dict):
             raise AuditError("Exception must be an object")
+        if set(entry) - {
+            "lockfile",
+            "package",
+            "version",
+            "advisories",
+            "reason",
+            "upstream",
+            "expires",
+            "only_parents",
+        }:
+            raise AuditError("Unrecognized exception policy field")
         scope, name, version = (
             entry.get(k) for k in ("lockfile", "package", "version")
         )
@@ -52,6 +62,22 @@ def read_policy(path: Path, today: dt.date | None = None) -> list[dict]:
             r"[0-9][A-Za-z0-9.+_-]*", version
         ):
             raise AuditError("Exception versions must be exact")
+        parents = entry.get("only_parents")
+        if parents is not None and (
+            scope != "uv.lock"
+            or not isinstance(parents, dict)
+            or not parents
+            or not all(
+                isinstance(k, str)
+                and k
+                and isinstance(v, str)
+                and re.fullmatch(r"[0-9][A-Za-z0-9.+_-]*", v)
+                for k, v in parents.items()
+            )
+        ):
+            raise AuditError(
+                "Exception parent conditions must use exact Python versions"
+            )
         if (
             not isinstance(ids, list)
             or not ids
@@ -136,25 +162,52 @@ def scoped_exceptions(
 
 
 def request_osv(queries: list[dict]) -> dict:
-    request = urllib.request.Request(
-        OSV_BATCH_URL,
-        data=json.dumps({"queries": queries}).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": "OpenJarvis-dependency-audit",
-        },
-    )
     for attempt in range(3):
+        connection = None
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.load(response)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            # A fixed HTTPS destination, verified TLS, and no redirects.
+            connection = http.client.HTTPSConnection("api.osv.dev", timeout=30)
+            connection.request(
+                "POST",
+                "/v1/querybatch",
+                body=json.dumps({"queries": queries}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            if response.status != 200:
+                raise http.client.HTTPException(f"OSV returned HTTP {response.status}")
+            body = response.read(MAX_RESPONSE_BYTES + 1)
+            if len(body) > MAX_RESPONSE_BYTES:
+                raise AuditError("OSV response exceeds the audit size limit")
+            return json.loads(body)
+        except (OSError, http.client.HTTPException, ValueError) as exc:
             if attempt == 2:
                 raise AuditError(
                     "OSV audit request failed; refusing an incomplete audit"
                 ) from exc
             time.sleep(attempt + 1)
+        finally:
+            if connection is not None:
+                connection.close()
     raise AssertionError("unreachable")
+
+
+def validate_parent_conditions(entries: list[dict], lockfile: Path) -> None:
+    guarded = [e for e in entries if "only_parents" in e]
+    if not guarded:
+        return
+    packages = tomllib.loads(lockfile.read_text(encoding="utf-8"))["package"]
+    for entry in guarded:
+        actual = {
+            (package["name"], package.get("version"))
+            for package in packages
+            if any(
+                d.get("name") == entry["package"]
+                for d in package.get("dependencies", [])
+            )
+        }
+        if actual != set(entry["only_parents"].items()):
+            raise AuditError(f"Exception parent conditions changed: {entry['package']}")
 
 
 def python_findings(packages: list[dict], query=request_osv) -> list[dict]:
@@ -250,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         policy = read_policy(Path(args.policy))
         packages = lock_packages(Path(args.lockfile), args.lockfile)
         entries = scoped_exceptions(policy, packages, args.lockfile)
+        validate_parent_conditions(entries, Path(args.lockfile))
         if args.mode == "cargo-config":
             output.write_text(cargo_config(entries), encoding="utf-8")
             return 0

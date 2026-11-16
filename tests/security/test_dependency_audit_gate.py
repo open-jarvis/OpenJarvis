@@ -83,12 +83,10 @@ def test_incomplete_or_malformed_query_fails_closed(response):
 
 
 def test_network_failure_cannot_be_clean_result(monkeypatch):
-    import urllib.error
-
     def offline(*args, **kwargs):
-        raise urllib.error.URLError("offline")
+        raise OSError("offline")
 
-    monkeypatch.setattr(gate.urllib.request, "urlopen", offline)
+    monkeypatch.setattr(gate.http.client, "HTTPSConnection", offline)
     monkeypatch.setattr(gate.time, "sleep", lambda _: None)
     with pytest.raises(gate.AuditError, match="incomplete audit"):
         gate.request_osv([])
@@ -126,6 +124,8 @@ def test_removed_advisory_requires_exception_cleanup():
         {"reason": "ignore"},
         {"upstream": "http://example.org"},
         {"lockfile": "elsewhere.lock"},
+        {"unknown_guard": True},
+        {"only_parents": {"dspy": "*"}},
     ],
 )
 def test_invalid_or_expired_exception_is_rejected(tmp_path, change):
@@ -233,6 +233,32 @@ def test_cargo_exception_is_rendered_only_after_validation(tmp_path):
     config = gate.tomllib.loads(gate.cargo_config(policy))
     assert config["advisories"]["ignore"][0]["id"] == "RUSTSEC-2024-0429"
     assert "2026-12-01" in config["advisories"]["ignore"][0]["reason"]
+
+
+def test_new_parent_cannot_reuse_a_mitigated_dependency_exception(tmp_path):
+    path = tmp_path / "uv.lock"
+    parent = (
+        '[[package]]\nname="dspy"\nversion="3.5.0"\ndependencies=[{name="diskcache"}]\n'
+    )
+    path.write_text(parent)
+    entry = exception(package="diskcache", only_parents={"dspy": "3.5.0"})
+    gate.validate_parent_conditions([entry], path)
+    path.write_text(
+        parent + '[[package]]\nname="other"\nversion="1.0"\n'
+        'dependencies=[{name="diskcache"}]\n'
+    )
+    with pytest.raises(gate.AuditError, match="parent conditions"):
+        gate.validate_parent_conditions([entry], path)
+
+
+def test_parent_version_change_requires_review_of_the_mitigation(tmp_path):
+    path = tmp_path / "uv.lock"
+    path.write_text(
+        '[[package]]\nname="dspy"\nversion="3.6.0"\ndependencies=[{name="diskcache"}]\n'
+    )
+    entry = exception(package="diskcache", only_parents={"dspy": "3.5.0"})
+    with pytest.raises(gate.AuditError, match="parent conditions"):
+        gate.validate_parent_conditions([entry], path)
 
 
 def test_cli_records_audit_failure_and_returns_nonzero(tmp_path, monkeypatch):

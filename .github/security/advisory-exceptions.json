@@ -5,9 +5,37 @@
       "lockfile": "frontend/src-tauri/Cargo.lock",
       "package": "glib",
       "version": "0.18.5",
-      "advisories": ["RUSTSEC-2024-0429"],
+      "advisories": [
+        "RUSTSEC-2024-0429"
+      ],
       "reason": "Tauri's Linux GTK3 dependency requires glib 0.18; the upstream fix starts at 0.20 and cannot be substituted without a GTK migration. OpenJarvis does not directly use VariantStrIter. This Linux-only upstream risk remains visible and must be reviewed again before expiry.",
       "upstream": "https://rustsec.org/advisories/RUSTSEC-2024-0429.html",
+      "expires": "2026-12-16"
+    },
+    {
+      "lockfile": "uv.lock",
+      "package": "diskcache",
+      "version": "5.6.3",
+      "only_parents": {"dspy": "3.5.0"},
+      "advisories": [
+        "GHSA-w8v5-vhqr-4h9v",
+        "PYSEC-2026-2447"
+      ],
+      "reason": "No patched DiskCache release exists. Its only locked parent is DSPy. OpenJarvis loads DSPy lazily and disables the disk cache before constructing or running any optimizer, retaining only memory caching. Tests reject SDKs without these cache controls. This exact dependency remains tracked until upstream patches or removes it.",
+      "upstream": "https://github.com/advisories/GHSA-w8v5-vhqr-4h9v",
+      "expires": "2026-12-16"
+    },
+    {
+      "lockfile": "uv.lock",
+      "package": "setuptools",
+      "version": "80.10.2",
+      "advisories": [
+        "GHSA-h35f-9h28-mq5c",
+        "GHSA-xmj3-9gf7-h52w",
+        "PYSEC-2026-3447"
+      ],
+      "reason": "The patched vLLM 0.32 release still requires Setuptools below 81 on Python 3.12+. These findings affect source-distribution construction and the legacy Windows wheel installer. OpenJarvis does not expose either API to untrusted archives; its build uses isolated Hatch/Maturin tooling. Forcing Setuptools 84 would violate the upstream GPU package requirements. Re-review this build-tool exception before expiry.",
+      "upstream": "https://pypi.org/pypi/vllm/0.32.0/json",
       "expires": "2026-12-16"
     }
   ]
