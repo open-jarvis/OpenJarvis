@@ -12,7 +12,8 @@ package sources, and partial advisory pages fail the check.
 
 Cargo Deny checks both Rust dependency graphs with the lockfiles unchanged. It
 rejects vulnerabilities, unsoundness, yanked releases, and unknown registry/Git
-sources. Unmaintained-package notices remain visible as maintenance warnings.
+sources. Existing upstream maintenance-only notices are listed as exact,
+expiring exceptions too; a new maintenance advisory is not automatically allowed.
 
 Semgrep rejects new static security findings relative to the trusted PR base
 or previous main commit. A manual workflow dispatch performs a full scan.

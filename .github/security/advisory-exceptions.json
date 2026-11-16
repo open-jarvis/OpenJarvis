@@ -16,7 +16,9 @@
       "lockfile": "uv.lock",
       "package": "diskcache",
       "version": "5.6.3",
-      "only_parents": {"dspy": "3.5.0"},
+      "only_parents": {
+        "dspy": "3.5.0"
+      },
       "advisories": [
         "GHSA-w8v5-vhqr-4h9v",
         "PYSEC-2026-2447"
@@ -36,6 +38,61 @@
       ],
       "reason": "The patched vLLM 0.32 release still requires Setuptools below 81 on Python 3.12+. These findings affect source-distribution construction and the legacy Windows wheel installer. OpenJarvis does not expose either API to untrusted archives; its build uses isolated Hatch/Maturin tooling. Forcing Setuptools 84 would violate the upstream GPU package requirements. Re-review this build-tool exception before expiry.",
       "upstream": "https://pypi.org/pypi/vllm/0.32.0/json",
+      "expires": "2026-12-16"
+    },
+    {
+      "lockfile": "rust/Cargo.lock",
+      "package": "pin-utils",
+      "version": "0.1.0",
+      "advisories": [
+        "RUSTSEC-2026-0441"
+      ],
+      "reason": "The maintained futures dependency graph still includes this macro-only crate. RustSec reports an unmaintained-package notice, not a vulnerability or unsoundness. Track this exact transitive version until upstream removes it.",
+      "upstream": "https://rustsec.org/advisories/RUSTSEC-2026-0441.html",
+      "expires": "2026-12-16"
+    },
+    {
+      "lockfile": "frontend/src-tauri/Cargo.lock",
+      "package": "proc-macro-error",
+      "version": "1.0.4",
+      "advisories": [
+        "RUSTSEC-2024-0370"
+      ],
+      "reason": "The supported GTK3 build stack requires this procedural macro crate. This is a maintenance-only notice with no compatible replacement in that stack; do not replace the desktop framework as part of this dependency patch.",
+      "upstream": "https://rustsec.org/advisories/RUSTSEC-2024-0370.html",
+      "expires": "2026-12-16"
+    },
+    {
+      "lockfile": "frontend/src-tauri/Cargo.lock",
+      "package": "zvariant",
+      "version": "5.12.0",
+      "advisories": [
+        "RUSTSEC-2026-0370"
+      ],
+      "reason": "The current OS credential-store backend requires the Zbus 5 wire-format stack. This maintenance-only notice reflects its move into Zbus 6, and removing it requires a separate credential-backend migration.",
+      "upstream": "https://rustsec.org/advisories/RUSTSEC-2026-0370.html",
+      "expires": "2026-12-16"
+    },
+    {
+      "lockfile": "frontend/src-tauri/Cargo.lock",
+      "package": "zbus_names",
+      "version": "4.3.2",
+      "advisories": [
+        "RUSTSEC-2026-0371"
+      ],
+      "reason": "The current OS credential-store backend requires Zbus 5 name types. This is a maintenance-only migration notice; retain the working credential backend until a separately validated Zbus 6 migration.",
+      "upstream": "https://rustsec.org/advisories/RUSTSEC-2026-0371.html",
+      "expires": "2026-12-16"
+    },
+    {
+      "lockfile": "frontend/src-tauri/Cargo.lock",
+      "package": "zvariant_derive",
+      "version": "5.12.0",
+      "advisories": [
+        "RUSTSEC-2026-0372"
+      ],
+      "reason": "The current OS credential-store backend requires Zbus 5 derive macros. This is a maintenance-only migration notice, not a vulnerability; changing the backend requires separate credential persistence validation.",
+      "upstream": "https://rustsec.org/advisories/RUSTSEC-2026-0372.html",
       "expires": "2026-12-16"
     }
   ]
