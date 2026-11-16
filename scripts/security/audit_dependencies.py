@@ -8,6 +8,7 @@ import hashlib
 import http.client
 import json
 import re
+import ssl
 import sys
 import time
 from pathlib import Path
@@ -165,8 +166,12 @@ def request_osv(queries: list[dict]) -> dict:
     for attempt in range(3):
         connection = None
         try:
-            # A fixed HTTPS destination, verified TLS, and no redirects.
-            connection = http.client.HTTPSConnection("api.osv.dev", timeout=30)
+            # Explicit verified TLS on Python 3.11+, not the pre-3.4.3 behavior
+            # covered by this compatibility audit rule. The host is fixed.
+            # nosemgrep: python.lang.security.audit.httpsconnection-detected.httpsconnection-detected  # noqa: E501
+            connection = http.client.HTTPSConnection(
+                "api.osv.dev", timeout=30, context=ssl.create_default_context()
+            )
             connection.request(
                 "POST",
                 "/v1/querybatch",
