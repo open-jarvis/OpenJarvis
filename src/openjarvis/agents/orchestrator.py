@@ -28,6 +28,39 @@ from openjarvis.tools._stubs import BaseTool
 logger = logging.getLogger(__name__)
 
 
+def _protocol_marker_view(text: str) -> str:
+    """Mask fenced THOUGHT/INPUT examples without changing character offsets."""
+    field = ""
+    fence: tuple[str, int] | None = None
+    lines = []
+    for line in text.splitlines(keepends=True):
+        stripped = line.lstrip(" \t")
+        if fence is not None:
+            char, length = fence
+            if re.fullmatch(
+                rf"{re.escape(char)}{{{length},}}[ \t]*", stripped.rstrip("\r\n")
+            ):
+                fence = None
+            else:
+                line = re.sub(r"[^\r\n]", " ", line)
+        else:
+            marker = re.match(
+                r"(THOUGHT|TOOL|INPUT|FINAL[_ ]?ANSWER):[ \t]*",
+                stripped,
+                re.IGNORECASE,
+            )
+            if marker:
+                field = marker.group(1).upper()
+                stripped = stripped[marker.end() :]
+            if field in {"THOUGHT", "INPUT"}:
+                opening = re.match(r"(`{3,}|~{3,})", stripped)
+                if opening:
+                    value = opening.group(1)
+                    fence = (value[0], len(value))
+        lines.append(line)
+    return "".join(lines)
+
+
 @AgentRegistry.register("orchestrator")
 class OrchestratorAgent(ToolUsingAgent):
     """Multi-turn agent that routes between tools and the LLM.
@@ -204,7 +237,22 @@ class OrchestratorAgent(ToolUsingAgent):
                 if denial is not None:
                     tool_result = denial
                 else:
-                    tool_result = self._executor.execute(tool_call)
+                    # Same loop-guard check as function-calling mode: without
+                    # it a model repeating one call was only stopped by
+                    # max_turns.
+                    verdict = (
+                        self._loop_guard.check_call(tool_call.name, tool_call.arguments)
+                        if self._loop_guard
+                        else None
+                    )
+                    if verdict is not None and verdict.blocked:
+                        tool_result = ToolResult(
+                            tool_name=tool_call.name,
+                            content=f"Loop guard: {verdict.reason}",
+                            success=False,
+                        )
+                    else:
+                        tool_result = self._executor.execute(tool_call)
                 all_tool_results.append(tool_result)
 
                 if tool_result.success:
@@ -306,35 +354,49 @@ class OrchestratorAgent(ToolUsingAgent):
             "input": "",
             "final_answer": "",
         }
+        markers = _protocol_marker_view(text)
 
+        def field_value(match: re.Match) -> str:
+            start, end = match.span(1)
+            return text[start:end].strip()
+
+        next_field = r"(?=^[ \t]*(?:THOUGHT|TOOL|INPUT|FINAL[_ ]?ANSWER):|\Z)"
+        flags = re.DOTALL | re.IGNORECASE | re.MULTILINE
         thought_match = re.search(
-            r"THOUGHT:\s*(.+?)(?=\nTOOL:|\nFINAL[_ ]?ANSWER:|\Z)",
-            text,
-            re.DOTALL | re.IGNORECASE,
+            rf"^[ \t]*THOUGHT:[ \t]*(.*?){next_field}",
+            markers,
+            flags,
         )
         if thought_match:
-            result["thought"] = thought_match.group(1).strip()
+            result["thought"] = field_value(thought_match)
 
+        # Field markers only count at the start of a line. Unanchored, prose
+        # inside THOUGHT such as "I need a tool: search" or "before the final
+        # answer: ..." was parsed as a real TOOL / FINAL_ANSWER field.
         final_match = re.search(
-            r"FINAL[_ ]?ANSWER:\s*(.+)",
-            text,
-            re.DOTALL | re.IGNORECASE,
+            r"^[ \t]*FINAL[_ ]?ANSWER:[ \t]*(.*)",
+            markers,
+            flags,
         )
         if final_match:
-            result["final_answer"] = final_match.group(1).strip()
+            result["final_answer"] = field_value(final_match)
             return result
 
-        tool_match = re.search(r"TOOL:\s*(.+)", text, re.IGNORECASE)
+        tool_match = re.search(
+            r"^[ \t]*TOOL:[ \t]*([^\r\n]*)",
+            markers,
+            re.IGNORECASE | re.MULTILINE,
+        )
         if tool_match:
-            result["tool"] = tool_match.group(1).strip()
+            result["tool"] = field_value(tool_match)
 
         input_match = re.search(
-            r"INPUT:\s*(.+?)(?=\nTHOUGHT:|\nTOOL:|\nFINAL|\Z)",
-            text,
-            re.DOTALL | re.IGNORECASE,
+            rf"^[ \t]*INPUT:[ \t]*(.*?){next_field}",
+            markers,
+            flags,
         )
         if input_match:
-            result["input"] = input_match.group(1).strip()
+            result["input"] = field_value(input_match)
 
         return result
 

@@ -20,6 +20,13 @@ DEFAULT_SENSITIVE_PATTERNS: frozenset[str] = frozenset(
         "*.jks",
         "id_rsa",
         "id_ed25519",
+        "id_ecdsa",
+        "id_dsa",
+        "id_ecdsa_sk",
+        "id_ed25519_sk",
+        "*.kdbx",
+        ".npmrc",
+        ".pypirc",
         ".htpasswd",
         ".pgpass",
         ".netrc",
@@ -78,10 +85,16 @@ def _is_sensitive_file_py(path_str: str) -> bool:
     """Pure-Python fallback for sensitive file detection."""
     import fnmatch
 
+    # Compare case-insensitively: on macOS and Windows ".ENV" or "Id_Rsa" name
+    # the same file as ".env" / "id_rsa". The patterns are all lowercase.
     p = Path(path_str)
-    name = p.name
+    name = p.name.lower()
+    # Match both the literal name and its Win32-compatible basename. NTFS
+    # streams and trailing dots/spaces must not hide a credential filename.
+    alias = name.partition(":")[0].rstrip(" .")
+    full = str(p).lower()
     for pattern in DEFAULT_SENSITIVE_PATTERNS:
-        if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(str(p), pattern):
+        if any(fnmatch.fnmatchcase(value, pattern) for value in (name, alias, full)):
             return True
     return False
 
