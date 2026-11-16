@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
@@ -32,6 +32,45 @@ class TestAgentCmd:
         assert result.exception is None, result.output
         # The raw message (brackets intact) is surfaced to the user.
         assert "DB locked at [/var/run/x] not a [valid] tag" in result.output
+
+    def test_agent_list_status_without_style_renders_plain(self) -> None:
+        """A status with no entry in the style map must not break the table.
+
+        ``budget_exceeded`` and ``needs_attention`` are real agent statuses
+        that have no style. The cell used to be built as ``[]status[/]``,
+        which Rich rejects ("closing tag '[/]' ... has nothing to close"),
+        so the whole listing failed as soon as one agent needed attention.
+        """
+        mgr = MagicMock()
+        mgr.list_agents.return_value = [
+            {
+                "id": "a1",
+                "name": "digest",
+                "agent_type": "monitor_operative",
+                "status": "budget_exceeded",
+            },
+            {
+                "id": "a2",
+                "name": "watcher",
+                "agent_type": "monitor_operative",
+                "status": "needs_attention",
+            },
+            {
+                "id": "a3",
+                "name": "idler",
+                "agent_type": "monitor_operative",
+                "status": "idle",
+            },
+        ]
+        mgr.list_tasks.return_value = []
+        mgr.list_channel_bindings.return_value = []
+        with patch("openjarvis.cli.agent_cmd._get_manager", return_value=mgr):
+            result = CliRunner().invoke(cli, ["agents", "list"])
+        assert result.exception is None, result.output
+        assert result.exit_code == 0
+        assert "Error:" not in result.output
+        for status in ("budget_exceeded", "needs_attention", "idle"):
+            assert status in result.output
 
     def test_agent_info_help(self) -> None:
         result = CliRunner().invoke(cli, ["agents", "info", "--help"])

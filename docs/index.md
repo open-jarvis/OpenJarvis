@@ -66,9 +66,9 @@ OpenJarvis is that stack. It is a framework for local-first personal AI, built a
 
     **Step 2.** Download and open the desktop app:
 
-    [Download for macOS](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_universal.dmg){ .md-button .md-button--primary }
+    [Download for macOS](https://github.com/open-jarvis/OpenJarvis/releases/latest/download/OpenJarvis_universal.dmg){ .md-button .md-button--primary }
 
-    Also available for [Windows](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_x64-setup.exe), [Linux (DEB)](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_amd64.deb), and [Linux (RPM)](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis-1.0.1-1.x86_64.rpm). See the [Downloads](downloads.md) page for details.
+    Also available for [Windows](https://github.com/open-jarvis/OpenJarvis/releases/latest/download/OpenJarvis_x64-setup.exe), [Linux (DEB)](https://github.com/open-jarvis/OpenJarvis/releases/latest/download/OpenJarvis_amd64.deb), and [Linux (RPM)](https://github.com/open-jarvis/OpenJarvis/releases/latest/download/OpenJarvis_x86_64.rpm). See the [Downloads](downloads.md) page for details.
 
     The app connects to `http://localhost:8000` automatically.
 
