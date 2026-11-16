@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import platform
+
 import pytest
 
 from openjarvis.tools.code_interpreter import _validate_ast
@@ -43,6 +45,10 @@ class TestCodeInterpreterValidation:
     def test_safe_code_allowed(self, code):
         _validate_ast(code)  # must not raise
 
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason="resource limits and os.setsid are POSIX-only",
+    )
     def test_limit_failure_does_not_skip_later_hardening(self, monkeypatch):
         import sys
         from types import SimpleNamespace
