@@ -77,14 +77,15 @@ def _time_ago(ts: datetime) -> str:
     return f"{days}d ago"
 
 
+# No "%-d" or "%-I": the Windows C runtime rejects that glibc flag with ValueError.
 def _format_date(ts: datetime) -> str:
     """Format a datetime as 'April 1' style."""
-    return ts.strftime("%B %-d") if hasattr(ts, "strftime") else str(ts)
+    return f"{ts:%B} {ts.day}" if hasattr(ts, "strftime") else str(ts)
 
 
 def _format_time(ts: datetime) -> str:
     """Format a datetime as '10:30 AM' style."""
-    return ts.strftime("%-I:%M %p") if hasattr(ts, "strftime") else str(ts)
+    return f"{ts.hour % 12 or 12}:{ts:%M %p}" if hasattr(ts, "strftime") else str(ts)
 
 
 def _parse_content_json(doc: Document) -> Dict[str, Any]:

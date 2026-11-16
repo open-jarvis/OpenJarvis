@@ -148,6 +148,10 @@ The `sections` list controls what the digest covers, in order of priority:
 
 ### TTS Voices
 
+Cartesia uses `sonic-3` by default. Set `CARTESIA_MODEL` to use another
+supported model; an explicit backend constructor model takes precedence.
+For example: `CARTESIA_MODEL=sonic-3.5 jarvis digest --fresh`.
+
 **Cartesia** (recommended — natural, expressive):
 | Voice | ID | Description |
 |-------|----|-------------|

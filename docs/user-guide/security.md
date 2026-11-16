@@ -295,10 +295,10 @@ print(clean)  # Token: [REDACTED:openai_key]
 | `credit_card_amex` | CRITICAL | Amex numbers (15 digits starting with 34 or 37) |
 | `email` | MEDIUM | Standard email addresses |
 | `us_phone` | MEDIUM | US phone numbers in common formats |
-| `ipv4_public` | LOW | Public IPv4 addresses (excludes RFC1918 ranges) |
+| `ipv4_address` | LOW | IPv4 addresses (every octet 0–255, not part of a longer dotted number) |
 
 !!! note "Private IP addresses"
-    The `ipv4_public` pattern intentionally excludes private ranges (10.x.x.x, 172.16–31.x.x, 192.168.x.x, 127.x.x.x). Internal IP addresses are not considered sensitive by default.
+    The `ipv4_address` pattern does not exclude private ranges (10.x.x.x, 172.16–31.x.x, 192.168.x.x, 127.x.x.x). Internal addresses are reported and redacted like any other IPv4 address. The same pattern set is used by the native scanner and by the pure-Python fallback that runs when the Rust extension is unavailable.
 
 ### Direct Usage
 

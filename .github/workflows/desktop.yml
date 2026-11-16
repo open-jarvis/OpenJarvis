@@ -9,6 +9,9 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'rust/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
       - '.github/workflows/desktop.yml'
   workflow_dispatch:
     inputs:
@@ -27,6 +30,95 @@ permissions:
   contents: write
 
 jobs:
+  # Build an unsigned test installer on PRs; this job never publishes releases
+  # or uses signing credentials. Exercise the existing x64 backend on ARM too.
+  test-windows-arm64:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-11-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Use the reviewed npm toolchain
+        run: npm install --global npm@11.19.0
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            frontend/src-tauri -> target
+            rust -> target
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Verify existing backend on Windows ARM64
+        shell: bash
+        env:
+          UV_PYTHON: cpython-3.12-windows-x86_64-none
+          CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+          RUSTUP_TOOLCHAIN: stable
+          PYO3_CROSS_PYTHON_VERSION: '3.12'
+          PYO3_CROSS_PYTHON_IMPLEMENTATION: CPython
+        run: |
+          uv sync --locked --extra dev --extra desktop --extra inference-cloud --extra inference-google --group desktop-native
+          uv run python -c "import sysconfig, openjarvis_rust; assert sysconfig.get_platform() == 'win-amd64'; print('x64 backend and Rust extension import OK')"
+          uv run jarvis --version
+          uv run pytest tests/hardware/test_hardware_profiles.py tests/core/test_utils.py -q
+
+      - name: Download ARM64 Ollama and stage test bundle
+        shell: bash
+        run: |
+          frontend/src-tauri/scripts/download-ollama.sh aarch64-pc-windows-msvc
+          node <<'NODE'
+          const { writeFileSync } = require('node:fs');
+          writeFileSync('frontend/src-tauri/tauri.arm64-test.conf.json', JSON.stringify({
+            bundle: {
+              targets: ['nsis'],
+              externalBin: ['binaries/ollama'],
+              resources: { 'binaries/ollama-runtime-aarch64-pc-windows-msvc/': './' },
+            },
+          }));
+          NODE
+
+      - name: Build ARM64 test installer
+        working-directory: frontend
+        run: npx tauri build --target aarch64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.arm64-test.conf.json
+
+      - name: Verify native ARM64 executables
+        shell: bash
+        run: |
+          node frontend/src-tauri/scripts/verify-arm64-pe.mjs \
+            frontend/src-tauri/target/aarch64-pc-windows-msvc/release/openjarvis-desktop.exe \
+            frontend/src-tauri/binaries/ollama-aarch64-pc-windows-msvc.exe \
+            frontend/src-tauri/binaries/ollama-runtime-aarch64-pc-windows-msvc/lib/ollama/llama-server.exe
+          frontend/src-tauri/binaries/ollama-aarch64-pc-windows-msvc.exe --version
+          frontend/src-tauri/binaries/ollama-runtime-aarch64-pc-windows-msvc/lib/ollama/llama-server.exe --version
+
+      - name: Upload ARM64 test installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-arm64-test-installer
+          path: frontend/src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/**/*.exe
+          if-no-files-found: error
+
   validate:
     runs-on: ubuntu-22.04
 
@@ -86,7 +178,26 @@ jobs:
     needs: [validate]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    outputs:
+      stable_release_id: ${{ steps.stable-draft.outputs.id }}
     steps:
+      - name: Prepare a shared draft for stable builds
+        id: stable-draft
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STABLE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+              --title "Desktop $STABLE_TAG" --notes "Desktop application built from $GITHUB_SHA"
+          fi
+          release_id=$(gh release view "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,isDraft --jq 'select(.isDraft) | .databaseId')
+          test -n "$release_id" || { echo "::error::Expected a draft for $STABLE_TAG"; exit 1; }
+          echo "id=$release_id" >> "$GITHUB_OUTPUT"
+
       - name: Delete old assets from desktop-edge
         if: "!startsWith(github.ref, 'refs/tags/desktop-v')"
         env:
@@ -132,10 +243,16 @@ jobs:
         include:
           - platform: ubuntu-22.04
             args: ''
-          - platform: macos-14
+          - platform: macos-15
             args: '--target universal-apple-darwin'
           - platform: windows-latest
             args: ''
+            target: x86_64-pc-windows-msvc
+            updater-platform: windows-x86_64
+          - platform: windows-11-arm
+            args: '--target aarch64-pc-windows-msvc --bundles nsis'
+            target: aarch64-pc-windows-msvc
+            updater-platform: windows-aarch64
 
     runs-on: ${{ matrix.platform }}
 
@@ -162,7 +279,7 @@ jobs:
       # `xcrun` is preinstalled on macOS runners, hence placement before the
       # toolchain steps rather than next to "Configure Apple signing".
       - name: Preflight Apple notarization credentials
-        if: matrix.platform == 'macos-14'
+        if: matrix.platform == 'macos-15'
         env:
           CERT: ${{ secrets.APPLE_CERTIFICATE }}
           A_ID: ${{ secrets.APPLE_ID }}
@@ -195,12 +312,17 @@ jobs:
           # first definitive answer rather than retrying into the same wall.
           attempt=1
           while [ "$attempt" -le 3 ]; do
-            out=$(xcrun notarytool history \
+            # GitHub invokes bash with -e: capture failure in a conditional
+            # so credential errors reach the diagnostics below.
+            if out=$(xcrun notarytool history \
               --apple-id "$A_ID" \
               --team-id "$A_TEAM" \
               --password "$A_PASS" \
-              --output-format json 2>&1)
-            rc=$?
+              --output-format json 2>&1); then
+              rc=0
+            else
+              rc=$?
+            fi
 
             if [ $rc -eq 0 ]; then
               echo "Apple notarization preflight OK — credentials valid, team reachable, agreements in effect."
@@ -261,7 +383,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-14' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.platform == 'macos-15' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -282,9 +404,11 @@ jobs:
 
       - name: Download Ollama sidecar
         shell: bash
+        env:
+          OLLAMA_TARGET: ${{ matrix.target }}
         run: |
           cd frontend/src-tauri/scripts && chmod +x download-ollama.sh
-          if [[ "${{ matrix.platform }}" == "macos-14" ]]; then
+          if [[ "${{ matrix.platform }}" == "macos-15" ]]; then
             # Tauri builds each architecture first, then bundles the universal
             # app. Ollama's darwin archive already contains both slices, so
             # download it once and supply all three names Tauri looks for.
@@ -302,7 +426,7 @@ jobs:
               fi
             done
           else
-            ./download-ollama.sh
+            ./download-ollama.sh "$OLLAMA_TARGET"
           fi
 
       - name: Determine release info
@@ -382,6 +506,7 @@ jobs:
         shell: bash
         env:
           TAURI_VERSION: ${{ steps.release-info.outputs.tauri_version }}
+          OLLAMA_TARGET: ${{ matrix.target }}
         run: |
           # The CLI and tauri-action both read --config. An environment-only
           # TAURI_CONFIG override leaves the action's version at tauri.conf.json.
@@ -391,13 +516,17 @@ jobs:
           assert.match(process.env.TAURI_VERSION,
             /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/,
             'Tauri release version must be SemVer');
-          writeFileSync('frontend/src-tauri/tauri.release.conf.json', JSON.stringify({
+          const config = {
             version: process.env.TAURI_VERSION,
             bundle: {
               createUpdaterArtifacts: true,
               externalBin: ['binaries/ollama'],
             },
-          }));
+          };
+          if (process.env.OLLAMA_TARGET === 'aarch64-pc-windows-msvc') {
+            config.bundle.resources = { 'binaries/ollama-runtime-aarch64-pc-windows-msvc/': './' };
+          }
+          writeFileSync('frontend/src-tauri/tauri.release.conf.json', JSON.stringify(config));
           NODE
 
       - name: Configure Apple signing
@@ -442,10 +571,13 @@ jobs:
         with:
           projectPath: frontend
           tauriScript: npx tauri
+          releaseId: ${{ needs.clean-release.outputs.stable_release_id }}
           tagName: ${{ steps.release-info.outputs.tag }}
           releaseName: ${{ steps.release-info.outputs.name }}
           releaseBody: 'Desktop application built from ${{ github.sha }}'
-          releaseDraft: false
+          # Publish stable builds only after every platform and updater
+          # manifest has passed verification.
+          releaseDraft: ${{ startsWith(github.ref, 'refs/tags/desktop-v') }}
           prerelease: ${{ steps.release-info.outputs.prerelease }}
           uploadUpdaterJson: true
           args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
@@ -456,6 +588,7 @@ jobs:
           EXPECTED_VERSION: ${{ steps.release-info.outputs.tauri_version }}
           BUILT_VERSION: ${{ steps.tauri-build.outputs.appVersion }}
           ARTIFACT_PATHS: ${{ steps.tauri-build.outputs.artifactPaths }}
+          EXPECTED_UPDATER_PLATFORM: ${{ matrix.updater-platform }}
         run: |
           node <<'NODE'
           const assert = require('node:assert/strict');
@@ -474,17 +607,27 @@ jobs:
           assert.ok(existsSync('latest.json'), 'tauri-action did not generate latest.json');
           const latest = JSON.parse(readFileSync('latest.json', 'utf8'));
           assert.equal(latest.version, expected, 'latest.json version');
-          const prefix = { Linux: 'linux-', macOS: 'darwin-', Windows: 'windows-' }[process.env.RUNNER_OS];
+          const prefix = process.env.EXPECTED_UPDATER_PLATFORM ||
+            { Linux: 'linux-', macOS: 'darwin-' }[process.env.RUNNER_OS];
           assert.ok(Object.entries(latest.platforms || {}).some(([platform, entry]) =>
             platform.startsWith(prefix) && entry.signature?.trim() && entry.url),
             `No signed ${process.env.RUNNER_OS} updater in latest.json`);
           NODE
 
+      - name: Verify native ARM64 release executables
+        if: matrix.platform == 'windows-11-arm'
+        shell: bash
+        run: |
+          node frontend/src-tauri/scripts/verify-arm64-pe.mjs \
+            frontend/src-tauri/target/aarch64-pc-windows-msvc/release/openjarvis-desktop.exe \
+            frontend/src-tauri/binaries/ollama-aarch64-pc-windows-msvc.exe \
+            frontend/src-tauri/binaries/ollama-runtime-aarch64-pc-windows-msvc/lib/ollama/llama-server.exe
+
   verify-release:
     needs: [build-and-release]
     runs-on: ubuntu-latest
     steps:
-      - name: Verify published updater manifest
+      - name: Verify release updater manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ needs.build-and-release.outputs.tag }}
@@ -500,7 +643,10 @@ jobs:
             sleep 3
           done
           test -s "$RUNNER_TEMP/desktop-release-check/latest.json"
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.id')
+          # The REST lookup by tag only finds published releases. gh release
+          # view also resolves a draft by its pending tag.
+          release_id=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId --jq .databaseId)
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
             --paginate --slurp > "$RUNNER_TEMP/desktop-release-check/assets.json"
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
@@ -515,7 +661,7 @@ jobs:
           const assetsByUrl = new Map(assets.map(asset => [asset.url, asset]));
           const assetsByName = new Map(assets.map(asset => [asset.name, asset]));
           assert.equal(latest.version, process.env.EXPECTED_VERSION);
-          for (const platform of ['darwin-aarch64', 'darwin-x86_64', 'linux-x86_64', 'windows-x86_64']) {
+          for (const platform of ['darwin-aarch64', 'darwin-x86_64', 'linux-x86_64', 'windows-x86_64', 'windows-aarch64']) {
             const entry = latest.platforms?.[platform];
             assert.ok(entry?.signature?.trim() && entry?.url, `Missing signed updater for ${platform}`);
             const asset = assetsByUrl.get(entry.url);
@@ -531,13 +677,48 @@ jobs:
           }
           NODE
 
+  publish-stable-release:
+    needs: [verify-release]
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add stable download aliases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STABLE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${STABLE_TAG#desktop-v}"
+          DOWNLOAD_DIR="$RUNNER_TEMP/stable-downloads"
+          mkdir -p "$DOWNLOAD_DIR"
+          while read -r source alias; do
+            gh release download "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --pattern "$source" --dir "$DOWNLOAD_DIR" --clobber
+            mv "$DOWNLOAD_DIR/$source" "$DOWNLOAD_DIR/$alias"
+            gh release upload "$STABLE_TAG" "$DOWNLOAD_DIR/$alias" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          done <<EOF
+          OpenJarvis_${VERSION}_universal.dmg OpenJarvis_universal.dmg
+          OpenJarvis_${VERSION}_x64-setup.exe OpenJarvis_x64-setup.exe
+          OpenJarvis_${VERSION}_arm64-setup.exe OpenJarvis_arm64-setup.exe
+          OpenJarvis_${VERSION}_amd64.deb OpenJarvis_amd64.deb
+          OpenJarvis-${VERSION}-1.x86_64.rpm OpenJarvis_x86_64.rpm
+          OpenJarvis_${VERSION}_amd64.AppImage OpenJarvis_amd64.AppImage
+          EOF
+
+      - name: Publish verified stable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STABLE_TAG: ${{ github.ref_name }}
+        run: gh release edit "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+
   # When a stable `desktop-v*` release is published, repoint the
   # `desktop-latest` auto-update channel (the endpoint the installed app
   # polls) at it. The stable release's own `latest.json` already references
   # this release's signed assets, so we copy it verbatim — installed apps are
   # only ever offered vetted stable builds, never `desktop-edge` dev builds.
   refresh-stable-channel:
-    needs: [verify-release]
+    needs: [publish-stable-release]
     if: startsWith(github.ref, 'refs/tags/desktop-v')
     runs-on: ubuntu-latest
     steps:

@@ -150,19 +150,26 @@ class TestDetectAgentIntent:
 
 class TestRunAgentPersonaWiring:
     @staticmethod
-    def _run(system_prompt: Optional[str]) -> Dict[str, Any]:
+    def _run(
+        system_prompt: Optional[str], configured_prompt: str = ""
+    ) -> Dict[str, Any]:
         seen: Dict[str, Any] = {}
 
         class _Agent:
             mode = "function_calling"
 
-            def __init__(self, engine, model, *, prompt_builder=None, **_):
+            def __init__(
+                self, engine, model, *, prompt_builder=None, system_prompt=None, **_
+            ):
                 seen["prompt_builder"] = prompt_builder
+                seen["system_prompt"] = system_prompt
 
             def run(self, *_, **__):
                 return AgentResult(content="hi", turns=1)
 
-        orch = QueryOrchestrator(_FakeSystem())
+        system = _FakeSystem()
+        system.config.agent.system_prompt = configured_prompt
+        orch = QueryOrchestrator(system)
         with patch("openjarvis.core.registry.AgentRegistry.get", return_value=_Agent):
             orch._run_agent(
                 "hi",
@@ -179,4 +186,22 @@ class TestRunAgentPersonaWiring:
         assert self._run(None)["prompt_builder"] is not None
 
     def test_explicit_system_prompt_is_not_replaced(self):
-        assert self._run("custom prompt")["prompt_builder"] is None
+        seen = self._run("custom prompt", "configured prompt")
+        assert seen["prompt_builder"] is None
+        assert seen["system_prompt"] == "custom prompt"
+
+    def test_configured_system_prompt_reaches_agent(self):
+        seen = self._run(None, "Configured channel persona")
+        assert seen["system_prompt"] == "Configured channel persona"
+        assert seen["prompt_builder"] is None
+
+    @pytest.mark.parametrize("configured_prompt", ["", " \t\n"])
+    def test_blank_config_preserves_persona_builder(self, configured_prompt):
+        seen = self._run(None, configured_prompt)
+        assert seen["system_prompt"] is None
+        assert seen["prompt_builder"] is not None
+
+    def test_explicit_empty_prompt_overrides_config(self):
+        seen = self._run("", "configured prompt")
+        assert seen["system_prompt"] == ""
+        assert seen["prompt_builder"] is None

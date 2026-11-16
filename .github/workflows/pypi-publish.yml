@@ -24,6 +24,8 @@ permissions:
 
 jobs:
   publish:
+    # GitHub emits a published event for desktop installers as well as Python releases.
+    if: ${{ github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'desktop-') }}
     runs-on: ubuntu-latest
     environment: pypi
     steps:
@@ -45,7 +47,7 @@ jobs:
           ref: ${{ steps.ref.outputs.ref }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.2.0
+        uses: astral-sh/setup-uv@v10.3.3
 
       - name: Setup Node.js
         uses: actions/setup-node@v7

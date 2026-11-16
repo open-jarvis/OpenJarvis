@@ -23,6 +23,13 @@ DEFAULT_SENSITIVE_PATTERNS: frozenset[str] = frozenset(
         ".htpasswd",
         ".pgpass",
         ".netrc",
+        ".git-credentials",
+        "credentials",
+        "shadow",
+        "gshadow",
+        "pass.txt",
+        "password.txt",
+        "passwords.txt",
     }
 )
 
