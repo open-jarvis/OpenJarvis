@@ -61,6 +61,77 @@ def _resolve_allowed_tools(config: object) -> tuple[set[str], bool]:
     return allowed, True
 
 
+def _inject_serve_tool_deps(
+    tools: list,
+    *,
+    engine: object,
+    model_name: str,
+    memory_backend: object = None,
+    channel_backend: object = None,
+) -> None:
+    """Inject runtime dependencies into resolved ``jarvis serve`` tools."""
+    if not tools:
+        return
+    from openjarvis.system.builder import SystemBuilder
+
+    for tool in tools:
+        SystemBuilder._inject_tool_deps(
+            tool,
+            engine,
+            model_name,
+            memory_backend,
+            channel_backend,
+        )
+
+
+def _build_serve_tools(
+    config: object,
+    *,
+    engine: object,
+    model_name: str,
+    memory_backend: object = None,
+    channel_backend: object = None,
+    managed_mcp_tools: list | None = None,
+) -> list:
+    """Instantiate configured tools for ``jarvis serve`` and wire dependencies."""
+    import openjarvis.tools  # noqa: F401  # trigger registration
+    from openjarvis.core.registry import ToolRegistry
+    from openjarvis.tools._paths import file_tool_kwargs
+    from openjarvis.tools._stubs import BaseTool
+
+    allowed, tools_configured = _resolve_allowed_tools(config)
+
+    tools = []
+    for name in ToolRegistry.keys():
+        if name not in allowed:
+            continue
+        tool_cls = ToolRegistry.get(name)
+        if isinstance(tool_cls, type) and issubclass(tool_cls, BaseTool):
+            tools.append(tool_cls(**file_tool_kwargs(name, config)))
+        elif isinstance(tool_cls, BaseTool):
+            tools.append(tool_cls)
+
+    _inject_serve_tool_deps(
+        tools,
+        engine=engine,
+        model_name=model_name,
+        memory_backend=memory_backend,
+        channel_backend=channel_backend,
+    )
+
+    mcp_tools = managed_mcp_tools or []
+    if tools_configured:
+        mcp_tools = [tool for tool in mcp_tools if tool.spec.name in allowed]
+    if mcp_tools:
+        existing = {t.spec.name for t in tools}
+        for t in mcp_tools:
+            if t.spec.name not in existing:
+                tools.append(t)
+                existing.add(t.spec.name)
+
+    return tools
+
+
 def _unique_model_ids(model_ids: list[str]) -> list[str]:
     """Return model ids in first-seen order without duplicates."""
     unique: list[str] = []
@@ -304,6 +375,26 @@ def serve(
         )
         sys.exit(1)
 
+    # Set up the memory backend before resolving agent and channel tools so
+    # storage/retrieval tools receive a live backend. ``context_from_memory``
+    # controls only prompt-context injection, so disabling it must not leave
+    # explicit memory_* tools with a null backend. Built before the scheduler so
+    # AgentExecutor can reuse it.
+    memory_backend = None
+    try:
+        import openjarvis.tools.storage  # noqa: F401
+        from openjarvis.core.registry import MemoryRegistry
+
+        mem_key = config.memory.default_backend
+        if MemoryRegistry.contains(mem_key):
+            memory_backend = MemoryRegistry.create(
+                mem_key,
+                db_path=config.memory.db_path,
+            )
+            console.print("  Memory:    [cyan]active[/cyan]")
+    except Exception as exc:
+        logger.debug("Memory backend init failed: %s", exc)
+
     # Resolve agent
     agent = None
     agent_key = agent_name or config.server.agent
@@ -337,41 +428,13 @@ def serve(
                         agent_kwargs["capability_policy"] = sec.capability_policy
                     if sec.rate_limiter is not None:
                         agent_kwargs["rate_limiter"] = sec.rate_limiter
-                    import openjarvis.tools  # noqa: F401  # trigger registration
-                    from openjarvis.core.registry import ToolRegistry
-                    from openjarvis.tools._stubs import BaseTool
-
-                    allowed, tools_configured = _resolve_allowed_tools(config)
-
-                    tools = []
-                    for name in ToolRegistry.keys():
-                        if name not in allowed:
-                            continue
-                        tool_cls = ToolRegistry.get(name)
-                        if isinstance(tool_cls, type) and issubclass(
-                            tool_cls, BaseTool
-                        ):
-                            from openjarvis.tools._paths import file_tool_kwargs
-
-                            tools.append(tool_cls(**file_tool_kwargs(name, config)))
-                        elif isinstance(tool_cls, BaseTool):
-                            tools.append(tool_cls)
-
-                    # MCP server tools from config.tools.mcp.servers
-                    # (#461 — these were silently dropped).
-                    mcp_tools = managed_mcp_tools
-                    if tools_configured:
-                        mcp_tools = [
-                            tool
-                            for tool in managed_mcp_tools
-                            if tool.spec.name in allowed
-                        ]
-                    if mcp_tools:
-                        existing = {t.spec.name for t in tools}
-                        for t in mcp_tools:
-                            if t.spec.name not in existing:
-                                tools.append(t)
-                                existing.add(t.spec.name)
+                    tools = _build_serve_tools(
+                        config,
+                        engine=engine,
+                        model_name=model_name,
+                        memory_backend=memory_backend,
+                        managed_mcp_tools=managed_mcp_tools,
+                    )
 
                     if tools:
                         agent_kwargs["tools"] = tools
@@ -454,6 +517,14 @@ def serve(
 
     # Wire channel messages → agent / engine (per-chat session isolation)
     if channel_bridge is not None:
+        _inject_serve_tool_deps(
+            resolved_tools,
+            engine=engine,
+            model_name=model_name,
+            memory_backend=memory_backend,
+            channel_backend=channel_bridge,
+        )
+
         from openjarvis.system import JarvisSystem
 
         channel_agent = config.channel.default_agent or agent_key or "simple"
@@ -461,46 +532,20 @@ def serve(
         _channel_tools: list = []
         if channel_agent:
             try:
-                import openjarvis.agents
+                import openjarvis.agents  # noqa: F401
                 from openjarvis.core.registry import AgentRegistry
 
                 if AgentRegistry.contains(channel_agent):
                     _ch_cls = AgentRegistry.get(channel_agent)
                     if getattr(_ch_cls, "accepts_tools", False):
-                        import openjarvis.tools
-                        from openjarvis.core.registry import ToolRegistry
-                        from openjarvis.tools._stubs import BaseTool
-
-                        _allowed, _tools_configured = _resolve_allowed_tools(config)
-
-                        for _tname in ToolRegistry.keys():
-                            if _tname not in _allowed:
-                                continue
-                            _tcls = ToolRegistry.get(_tname)
-                            if isinstance(_tcls, type) and issubclass(_tcls, BaseTool):
-                                from openjarvis.tools._paths import file_tool_kwargs
-
-                                _channel_tools.append(
-                                    _tcls(**file_tool_kwargs(_tname, config))
-                                )
-                            elif isinstance(_tcls, BaseTool):
-                                _channel_tools.append(_tcls)
-
-                        # Reuse the process-owned MCP pool so channels do not
-                        # open a second transport to every configured server.
-                        _ch_mcp_tools = managed_mcp_tools
-                        if _tools_configured:
-                            _ch_mcp_tools = [
-                                tool
-                                for tool in managed_mcp_tools
-                                if tool.spec.name in _allowed
-                            ]
-                        if _ch_mcp_tools:
-                            _existing = {t.spec.name for t in _channel_tools}
-                            for t in _ch_mcp_tools:
-                                if t.spec.name not in _existing:
-                                    _channel_tools.append(t)
-                                    _existing.add(t.spec.name)
+                        _channel_tools = _build_serve_tools(
+                            config,
+                            engine=engine,
+                            model_name=model_name,
+                            memory_backend=memory_backend,
+                            channel_backend=channel_bridge,
+                            managed_mcp_tools=managed_mcp_tools,
+                        )
             except Exception as exc:
                 logger.warning("Channel tools failed to load: %s", exc)
 
@@ -513,6 +558,7 @@ def serve(
             agent_name=channel_agent,
             tools=_channel_tools,
             mcp_tools=managed_mcp_tools,
+            memory_backend=memory_backend,
             _mcp_clients=mcp_clients,
             capability_policy=sec.capability_policy,
             audit_logger=sec.audit_logger,
@@ -533,25 +579,6 @@ def serve(
 
     # Create app
     from openjarvis.server.app import create_app
-
-    # Set up the memory backend for storage tools, API routes, and optional
-    # prompt-context injection. ``context_from_memory`` controls only the last
-    # of those, so disabling it must not leave explicit memory_* tools with a
-    # null backend. Built before the scheduler so AgentExecutor can reuse it.
-    memory_backend = None
-    try:
-        import openjarvis.tools.storage  # noqa: F401
-        from openjarvis.core.registry import MemoryRegistry
-
-        mem_key = config.memory.default_backend
-        if MemoryRegistry.contains(mem_key):
-            memory_backend = MemoryRegistry.create(
-                mem_key,
-                db_path=config.memory.db_path,
-            )
-            console.print("  Memory:    [cyan]active[/cyan]")
-    except Exception as exc:
-        logger.debug("Memory backend init failed: %s", exc)
 
     # Automatic long-term memory service (background fact extraction).
     memory_service = None

@@ -3,11 +3,14 @@
 #
 # Usage: pull-model.sh <model-id>
 #
-# State files written under $OPENJARVIS_HOME/.state/models/:
-#   <model>.downloading  — created on start
-#   <model>.ready        — on success (atomic rename)
-#   <model>.failed       — on failure after retries
-#   <model>.log          — captured stderr
+# State files written under $OPENJARVIS_HOME/.state/models/v1/ use a
+# lowercase SHA-256 key so long IDs and path-special characters work across
+# filesystems, including case-insensitive ones. The first line of each state
+# marker holds the original model ID:
+#   <encoded-model>.downloading  — created on start
+#   <encoded-model>.ready        — on success (atomic rename)
+#   <encoded-model>.failed       — on failure after retries
+#   <encoded-model>.log          — captured stderr
 
 set -euo pipefail
 
@@ -19,16 +22,22 @@ fi
 
 OPENJARVIS_HOME="${OPENJARVIS_HOME:-$HOME/.openjarvis}"
 STATE_DIR="$OPENJARVIS_HOME/.state/models"
-mkdir -p "$STATE_DIR"
+MODEL_STATE_DIR="$STATE_DIR/v1"
+mkdir -p "$MODEL_STATE_DIR"
 
-DOWNLOADING="$STATE_DIR/${MODEL}.downloading"
-READY="$STATE_DIR/${MODEL}.ready"
-FAILED="$STATE_DIR/${MODEL}.failed"
-LOG="$STATE_DIR/${MODEL}.log"
+if command -v sha256sum >/dev/null 2>&1; then
+    MODEL_KEY="$(printf '%s' "$MODEL" | sha256sum | cut -d ' ' -f 1)"
+else
+    MODEL_KEY="$(printf '%s' "$MODEL" | shasum -a 256 | cut -d ' ' -f 1)"
+fi
+DOWNLOADING="$MODEL_STATE_DIR/${MODEL_KEY}.downloading"
+READY="$MODEL_STATE_DIR/${MODEL_KEY}.ready"
+FAILED="$MODEL_STATE_DIR/${MODEL_KEY}.failed"
+LOG="$MODEL_STATE_DIR/${MODEL_KEY}.log"
 
 # Cleanup any prior state for this model.
 rm -f "$READY" "$FAILED"
-touch "$DOWNLOADING"
+printf '%s\n' "$MODEL" > "$DOWNLOADING"
 
 MAX_RETRIES=3
 attempt=0
@@ -38,8 +47,8 @@ while [[ $attempt -lt $MAX_RETRIES ]]; do
     attempt=$((attempt + 1))
     if ollama pull "$MODEL" >>"$LOG" 2>&1; then
         # Atomic rename: write to .tmp then mv.
-        tmp="$STATE_DIR/${MODEL}.ready.tmp"
-        date -u +"%Y-%m-%dT%H:%M:%SZ" > "$tmp"
+        tmp="$MODEL_STATE_DIR/${MODEL_KEY}.ready.tmp"
+        { printf '%s\n' "$MODEL"; date -u +"%Y-%m-%dT%H:%M:%SZ"; } > "$tmp"
         mv "$tmp" "$READY"
         rm -f "$DOWNLOADING"
         exit 0
@@ -50,6 +59,7 @@ done
 
 # All retries exhausted.
 {
+    printf '%s\n' "$MODEL"
     echo "pull-model.sh: $MODEL failed after $MAX_RETRIES attempts (exit=$last_exit)"
     tail -n 50 "$LOG" 2>/dev/null || true
 } > "$FAILED"

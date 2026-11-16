@@ -87,6 +87,12 @@ class NIMEngine(InferenceEngine):
             raise EngineConnectionError(
                 f"NIM engine not reachable at {self._host}"
             ) from exc
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (502, 503, 504):
+                raise EngineConnectionError(
+                    f"NIM engine at {self._host} returned {exc.response.status_code}"
+                ) from exc
+            raise
         data = resp.json()
         choices = data.get("choices", [])
         if not choices:
@@ -174,6 +180,12 @@ class NIMEngine(InferenceEngine):
             raise EngineConnectionError(
                 f"NIM engine not reachable at {self._host}"
             ) from exc
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (502, 503, 504):
+                raise EngineConnectionError(
+                    f"NIM engine at {self._host} returned {exc.response.status_code}"
+                ) from exc
+            raise
 
     async def stream_full(
         self,
@@ -236,6 +248,12 @@ class NIMEngine(InferenceEngine):
             raise EngineConnectionError(
                 f"NIM engine not reachable at {self._host}"
             ) from exc
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (502, 503, 504):
+                raise EngineConnectionError(
+                    f"NIM engine at {self._host} returned {exc.response.status_code}"
+                ) from exc
+            raise
 
     def list_models(self) -> List[str]:
         try:

@@ -203,15 +203,16 @@ def digest(
 
         audio_path = str(artifact.audio_path)
         console.print(f"[dim]Audio path: '{audio_path}'[/dim]")
-        has_audio = bool(audio_path) and artifact.audio_path.exists()
+        # An empty Path is "."; only a real file is playable audio.
+        has_audio = artifact.audio_path.is_file()
         console.print(f"[dim]Audio available: {has_audio}[/dim]")
-        if has_audio:
+        if not text_only and has_audio:
             audio_thread = threading.Thread(
                 target=_play_audio, args=(audio_path,), daemon=True
             )
             audio_thread.start()
             console.print("[dim]Playing audio...[/dim]")
-        else:
+        elif not text_only:
             console.print("[yellow]Audio unavailable — TTS failed.[/yellow]")
             console.print("[yellow]Check OPENAI_API_KEY is set.[/yellow]")
 
@@ -247,7 +248,7 @@ def digest(
 
     # Play audio in background while text renders
     audio_path = str(artifact.audio_path)
-    if not text_only and audio_path and artifact.audio_path.exists():
+    if not text_only and artifact.audio_path.is_file():
         audio_thread = threading.Thread(
             target=_play_audio, args=(audio_path,), daemon=True
         )
