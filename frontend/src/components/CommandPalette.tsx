@@ -57,9 +57,9 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'Google',
     envKey: 'GEMINI_API_KEY',
     models: [
-      { id: 'gemini-2.5-pro', desc: 'Gemini 2.5 Pro — flagship' },
-      { id: 'gemini-2.5-flash', desc: 'Gemini 2.5 Flash — fast' },
-      { id: 'gemini-3-pro', desc: 'Gemini 3 Pro — latest' },
+      { id: 'gemini-3.8-flash', desc: 'Gemini 3.8 Flash — fast' },
+      { id: 'gemini-3.1-pro-preview', desc: 'Gemini 3.1 Pro Preview — reasoning' },
+      { id: 'gemini-3.1-flash-lite', desc: 'Gemini 3.1 Flash Lite — lightweight' },
     ],
   },
   {
@@ -67,8 +67,8 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     envKey: 'OPENROUTER_API_KEY',
     models: [
       { id: 'openrouter/auto', desc: 'Auto — best model for the task' },
-      { id: 'openrouter/anthropic/claude-sonnet-4', desc: 'Claude Sonnet 4 via OpenRouter' },
-      { id: 'openrouter/deepseek/deepseek-r1', desc: 'DeepSeek R1 via OpenRouter' },
+      { id: 'openrouter/anthropic/claude-sonnet-4.5', desc: 'Claude Sonnet 4.5 via OpenRouter' },
+      { id: 'openrouter/deepseek/deepseek-r1-0528', desc: 'DeepSeek R1 via OpenRouter' },
     ],
   },
   {

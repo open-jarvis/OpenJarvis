@@ -257,6 +257,25 @@ context_from_memory = true
 
 ---
 
+### `[system_prompt]` — Current Time and Time Zone
+
+```toml
+[system_prompt]
+include_current_time = true
+timezone = "America/New_York"
+```
+
+When enabled, prompts include the current local time and zone after the cached
+prefix. The web UI sends the device's zone, or the choice in **Settings →
+Appearance → Time zone**, with chat and managed-agent requests. That zone applies
+to the request and immediate workers it starts. Unknown zones are ignored.
+
+Queued and scheduled runs without a request use `timezone` from this section,
+then the server's local zone if it is unset. A previous browser request does not
+change this default. Set `include_current_time = false` to omit the time section.
+
+---
+
 ### `[learning]` — Learning Policies
 
 Controls whether the learning system is enabled and configures per-primitive policies through nested sub-sections.

@@ -23,27 +23,47 @@ _BLOCKED_CIDR = [
     ipaddress.ip_network("192.168.0.0/16"),
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("169.254.0.0/16"),  # link-local
+    # Shared address space (CGNAT). Alibaba's metadata service lives here
+    # (100.100.100.200), so a hostname resolving into this range must be
+    # blocked, not only the literal address in _BLOCKED_HOSTS.
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("192.0.0.0/24"),  # IETF protocol assignments
+    ipaddress.ip_network("198.18.0.0/15"),  # benchmarking
     ipaddress.ip_network("224.0.0.0/4"),  # multicast
+    ipaddress.ip_network("240.0.0.0/4"),  # reserved (incl. 255.255.255.255)
     ipaddress.ip_network("255.255.255.255/32"),  # broadcast
     ipaddress.ip_network("::/128"),  # IPv6 unspecified
     ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("64:ff9b:1::/48"),  # local-use translation, RFC 8215
     ipaddress.ip_network("fc00::/7"),  # unique local
     ipaddress.ip_network("fe80::/10"),  # link-local v6
     ipaddress.ip_network("ff00::/8"),  # IPv6 multicast
 ]
 
+# IANA lists these two protocol anycast endpoints as globally reachable.
+_PUBLIC_PROTOCOL_IPS = frozenset(
+    ipaddress.ip_address(ip) for ip in ("192.0.0.9", "192.0.0.10")
+)
+
 
 def _embedded_ipv4(addr: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
-    """Return the embedded IPv4 for IPv4-mapped (`::ffff:a.b.c.d`) and
-    IPv4-compatible (`::a.b.c.d`, deprecated) IPv6 addresses, else None.
+    """Return the embedded IPv4 for IPv4-mapped (`::ffff:a.b.c.d`),
+    IPv4-compatible (`::a.b.c.d`, deprecated), NAT64 (`64:ff9b::/96`) and
+    6to4 (`2002::/16`) IPv6 addresses, else None.
     Excludes `::` and `::1` so they remain classified as IPv6.
     """
     mapped = addr.ipv4_mapped
     if mapped is not None:
         return mapped
+    packed = addr.packed
+    # NAT64 well-known prefix (RFC 6052): IPv4 in the last 32 bits.
+    if packed[:12] == bytes.fromhex("0064ff9b0000000000000000"):
+        return ipaddress.IPv4Address(packed[12:])
+    # 6to4 (RFC 3056): IPv4 in bits 16-47.
+    if packed[:2] == b"\x20\x02":
+        return ipaddress.IPv4Address(packed[2:6])
     # IPv4-compatible (RFC 4291 §2.5.5.1) — first 80 bits zero, next 16 bits
     # zero, embedded in last 32. Skip `::` (unspecified) and `::1` (loopback).
-    packed = addr.packed
     if (
         packed[:12] == b"\x00" * 12
         and addr != ipaddress.IPv6Address("::")
@@ -66,7 +86,9 @@ def is_private_ip(ip_str: str) -> bool:
         embedded = _embedded_ipv4(addr)
         if embedded is not None:
             addr = embedded
-    return any(addr in net for net in _BLOCKED_CIDR)
+    return addr not in _PUBLIC_PROTOCOL_IPS and any(
+        addr in net for net in _BLOCKED_CIDR
+    )
 
 
 def check_ssrf(url: str) -> Optional[str]:

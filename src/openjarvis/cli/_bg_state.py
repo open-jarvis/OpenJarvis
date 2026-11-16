@@ -7,6 +7,7 @@ between every chat turn.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional
@@ -35,9 +36,52 @@ class BgStatus:
 def _safe_read(path: Path) -> Optional[str]:
     """Read a file, returning None if it disappears mid-read (race)."""
     try:
-        return path.read_text()
+        return path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
         return None
+
+
+def _read_model_markers(models_dir: Path, *, versioned: bool) -> Dict[str, str]:
+    """Read model state markers from one directory."""
+    seen: Dict[str, str] = {}
+    if not models_dir.is_dir():
+        return seen
+
+    for marker in models_dir.iterdir():
+        if not marker.is_file() or marker.suffix not in (
+            ".downloading",
+            ".ready",
+            ".failed",
+        ):
+            continue
+
+        model_id = marker.name[: -len(marker.suffix)]
+        if versioned:
+            try:
+                # Only metadata is needed here; failure details can be large.
+                with marker.open(encoding="utf-8", errors="replace") as stream:
+                    original_id = stream.readline(65536).rstrip("\r\n")
+            except OSError:
+                continue
+            if (
+                not original_id
+                or hashlib.sha256(original_id.encode()).hexdigest() != model_id
+            ):
+                continue
+            model_id = original_id
+
+        new_state = marker.suffix.lstrip(".")
+        current = seen.get(model_id, "")
+        # Precedence: ready > failed > downloading.
+        if current == "ready":
+            continue
+        if new_state == "ready":
+            seen[model_id] = "ready"
+        elif new_state == "failed" and current != "ready":
+            seen[model_id] = "failed"
+        elif new_state == "downloading" and current == "":
+            seen[model_id] = "downloading"
+    return seen
 
 
 def get_status(home: Optional[Path] = None) -> BgStatus:
@@ -64,25 +108,11 @@ def get_status(home: Optional[Path] = None) -> BgStatus:
             status.rust_extension = "failed"
             status.rust_error = contents
 
-    # Models: parse files in models_dir; .ready supersedes .downloading and .failed.
-    if models_dir.is_dir():
-        # First pass: capture every model id we see.
-        seen: Dict[str, str] = {}
-        for f in models_dir.iterdir():
-            if f.suffix not in (".downloading", ".ready", ".failed"):
-                continue
-            model_id = f.name[: -len(f.suffix)]
-            new_state = f.suffix.lstrip(".")
-            current = seen.get(model_id, "")
-            # Precedence: ready > failed > downloading
-            if current == "ready":
-                continue
-            if new_state == "ready":
-                seen[model_id] = "ready"
-            elif new_state == "failed" and current != "ready":
-                seen[model_id] = "failed"
-            elif new_state == "downloading" and current == "":
-                seen[model_id] = "downloading"
-        status.models = seen
+    # Legacy markers keep their original names. Versioned markers use fixed-size
+    # lowercase hashes, avoiding reserved characters and case-fold collisions.
+    seen = _read_model_markers(models_dir, versioned=False)
+    # Once a model has versioned state, it supersedes stale legacy markers.
+    seen.update(_read_model_markers(models_dir / "v1", versioned=True))
+    status.models = seen
 
     return status

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -232,3 +233,66 @@ class TestFilterSensitivePaths:
 
     def test_filter_empty(self) -> None:
         assert filter_sensitive_paths([]) == []
+
+
+class TestCaseInsensitiveAndExtraNames:
+    """Regression: matching was case-sensitive and missed common secret files.
+
+    Runs against both the default backend and the pure-Python fallback.
+    """
+
+    NAMES = [
+        ".ENV",
+        "Id_Rsa",
+        "server.PEM",
+        ".Env.Local",
+        "id_ecdsa",
+        "id_dsa",
+        "id_ecdsa_sk",
+        "id_ed25519_sk",
+        ".npmrc",
+        ".pypirc",
+        "vault.KDBX",
+        "production.env",
+        "PRODUCTION.ENV",
+        "id_rsa::$DATA",
+        ".npmrc.",
+        ".pypirc ",
+        "vault.kdbx:backup:$DATA",
+        "normal:secret.pem",
+    ]
+    SAFE = [
+        "environment.py",
+        "README.md",
+        "id_rsa.pub",
+        "keyboard.py",
+        "production.env.example",
+        ".npmrc.example",
+        "id_rsa.pub::$DATA",
+    ]
+
+    def _check(self) -> None:
+        for name in self.NAMES:
+            assert is_sensitive_file(f"/srv/app/{name}") is True, name
+        for name in self.SAFE:
+            assert is_sensitive_file(f"/srv/app/{name}") is False, name
+
+    def test_default_backend(self) -> None:
+        self._check()
+
+    def test_python_fallback(self, monkeypatch) -> None:
+        def unavailable():
+            raise ImportError("exercise the Python fallback")
+
+        monkeypatch.setattr("openjarvis._rust_bridge.get_rust_module", unavailable)
+        self._check()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires Win32 filename aliases")
+@pytest.mark.parametrize("suffix", ["::$DATA", ".", " "])
+def test_windows_aliases_of_secret_files_are_blocked(tmp_path, policy_backend, suffix):
+    secret = tmp_path / "id_ecdsa_sk"
+    secret.write_bytes(b"not-a-real-key")
+    alias = Path(str(secret) + suffix)
+    assert alias.read_bytes() == secret.read_bytes()
+    assert is_sensitive_file(alias)
