@@ -864,7 +864,11 @@ class AgentExecutor:
             if agent_data:
                 config = agent_data.get("config", {})
                 max_cost = config.get("max_cost", 0)
-                max_tokens = config.get("max_tokens", 0)
+                # Lifetime token budget. Deliberately not "max_tokens": that
+                # key is the per-response generation limit (agent templates
+                # and the agent chat route use it that way), so reading it
+                # here disabled agents after a few thousand tokens in total.
+                max_tokens = config.get("max_total_tokens", 0)
                 exceeded = False
                 if max_cost > 0 and agent_data["total_cost"] > max_cost:
                     exceeded = True
