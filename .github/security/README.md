@@ -27,3 +27,27 @@ within 90 days. Expired, stale, duplicate, wildcard, and malformed exceptions
 fail CI. A new advisory on an excepted package is still rejected. Remove an
 exception when its package is patched; do not renew it without reviewing the
 remaining risk.
+
+The runtime-related exceptions currently cover the Linux GTK3 GLib iterator
+issue, Setuptools build/legacy-installer paths constrained by upstream GPU
+packaging, and DiskCache. The OpenJarvis DSPy optimizer disables disk caching
+before use; its waiver is invalid if another package starts using DiskCache or
+the validated DSPy version changes. Five other entries are upstream
+maintenance-only notices. None is a blanket exception for future advisories.
+
+## Repository merge enforcement
+
+After the workflow changes are merged, a repository owner should require the
+`lint` check from GitHub Actions and require branches to be up to date. The
+prepared additive rule is `required-checks.json`; it preserves the existing
+review/linear-history rules. An account with repository Administration access
+can apply it once with:
+
+```sh
+gh api --method POST repos/open-jarvis/OpenJarvis/rulesets \
+  --input .github/security/required-checks.json
+```
+
+The current Maintain account could not activate that rule (GitHub returned
+HTTP 404). The workflow itself still fails on rejected findings; mandatory
+merge enforcement needs this separate owner step.
