@@ -65,10 +65,12 @@ class CapabilityPolicy:
         self._policies: Dict[str, AgentPolicy] = {}
         self._default_deny = default_deny
 
-        from openjarvis._rust_bridge import get_rust_module
+        from openjarvis._rust_bridge import RUST_AVAILABLE, get_rust_module
 
-        _rust = get_rust_module()
-        self._rust_impl = _rust.CapabilityPolicy(default_deny=default_deny)
+        self._rust_impl = None
+        if RUST_AVAILABLE:
+            _rust = get_rust_module()
+            self._rust_impl = _rust.CapabilityPolicy(default_deny=default_deny)
 
         if policy_path:
             self._load_file(Path(policy_path))
@@ -80,7 +82,8 @@ class CapabilityPolicy:
             AgentPolicy(agent_id=agent_id),
         )
         policy.grants.append(CapabilityGrant(capability=capability, pattern=pattern))
-        self._rust_impl.grant(agent_id, capability, pattern)
+        if self._rust_impl is not None:
+            self._rust_impl.grant(agent_id, capability, pattern)
 
     def deny(self, agent_id: str, capability: str) -> None:
         """Explicitly deny a capability to an agent."""
@@ -89,7 +92,8 @@ class CapabilityPolicy:
             AgentPolicy(agent_id=agent_id),
         )
         policy.deny.append(capability)
-        self._rust_impl.deny(agent_id, capability)
+        if self._rust_impl is not None:
+            self._rust_impl.deny(agent_id, capability)
 
     _DEFAULT_AGENT = "_default"
 
@@ -103,15 +107,25 @@ class CapabilityPolicy:
         dynamically-created managed-agent UUID ahead of time while preserving
         the invariant that an agent-specific denial always wins.
         """
-        if (
-            not agent_id
-            or agent_id == self._DEFAULT_AGENT
-            or agent_id in self._policies
-        ):
+        if self._rust_impl is not None:
+            if (
+                not agent_id
+                or agent_id == self._DEFAULT_AGENT
+                or agent_id in self._policies
+            ):
+                return self._rust_impl.check(agent_id, capability, resource)
+            if self._DEFAULT_AGENT in self._policies:
+                return self._rust_impl.check(self._DEFAULT_AGENT, capability, resource)
             return self._rust_impl.check(agent_id, capability, resource)
+
+        if not agent_id:
+            return not self._default_deny
+
+        if agent_id == self._DEFAULT_AGENT or agent_id in self._policies:
+            return self._check_python(agent_id, capability, resource)
         if self._DEFAULT_AGENT in self._policies:
-            return self._rust_impl.check(self._DEFAULT_AGENT, capability, resource)
-        return self._rust_impl.check(agent_id, capability, resource)
+            return self._check_python(self._DEFAULT_AGENT, capability, resource)
+        return self._check_python(agent_id, capability, resource)
 
     def _check_python(self, agent_id: str, capability: str, resource: str = "") -> bool:
         """Legacy Python check — kept for reference only."""
