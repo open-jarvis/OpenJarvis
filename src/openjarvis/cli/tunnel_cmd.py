@@ -57,7 +57,7 @@ def status() -> None:
         click.echo("No config file found.")
         return
 
-    content = config_path.read_text()
+    content = config_path.read_text(encoding="utf-8")
     if "public_url" in content:
         for line in content.splitlines():
             if "public_url" in line:

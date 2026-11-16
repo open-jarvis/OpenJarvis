@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from openjarvis.core.events import EventBus, EventType
@@ -29,6 +29,7 @@ class LoopVerdict:
     blocked: bool = False
     reason: str = ""
     warned: bool = False
+    _warn_key: str = field(default="", repr=False, compare=False)
 
 
 class LoopGuard:
@@ -78,6 +79,7 @@ class LoopGuard:
             elif rust_result is not None:
                 self._emit_triggered("rust_guard", tool_name)
                 verdict = LoopVerdict(blocked=True, reason=rust_result)
+                verdict._warn_key = f"tool:{tool_name}"
             else:
                 verdict = LoopVerdict()
         else:
@@ -85,7 +87,7 @@ class LoopGuard:
 
         # Wrap with warn-before-block logic
         if verdict.blocked and self._config.warn_before_block:
-            cycle_key = verdict.reason
+            cycle_key = verdict._warn_key or verdict.reason
             if cycle_key not in self._warned_cycles:
                 self._warned_cycles.add(cycle_key)
                 return LoopVerdict(blocked=False, warned=True, reason=verdict.reason)
@@ -98,7 +100,7 @@ class LoopGuard:
         self._call_counts[call_hash] = self._call_counts.get(call_hash, 0) + 1
         if self._call_counts[call_hash] > self._config.max_identical_calls:
             self._emit_triggered("identical_call", tool_name)
-            return LoopVerdict(
+            verdict = LoopVerdict(
                 blocked=True,
                 reason=(
                     f"Identical call to '{tool_name}' repeated "
@@ -106,28 +108,34 @@ class LoopGuard:
                     f"(max {self._config.max_identical_calls})."
                 ),
             )
+            verdict._warn_key = f"identical:{call_hash}"
+            return verdict
 
         # 2. Per-tool budget (polling tools)
         self._per_tool_counts[tool_name] = self._per_tool_counts.get(tool_name, 0) + 1
         if self._per_tool_counts[tool_name] > self._config.poll_tool_budget:
             self._emit_triggered("poll_budget", tool_name)
-            return LoopVerdict(
+            verdict = LoopVerdict(
                 blocked=True,
                 reason=(
                     f"Tool '{tool_name}' exceeded poll budget "
                     f"({self._config.poll_tool_budget})."
                 ),
             )
+            verdict._warn_key = f"poll:{tool_name}"
+            return verdict
 
         # 3. Ping-pong detection
         self._tool_sequence.append(tool_name)
         if len(self._tool_sequence) >= self._config.ping_pong_window:
             if self._detect_ping_pong():
                 self._emit_triggered("ping_pong", tool_name)
-                return LoopVerdict(
+                verdict = LoopVerdict(
                     blocked=True,
                     reason="Repetitive tool-calling pattern detected (ping-pong).",
                 )
+                verdict._warn_key = "ping_pong"
+                return verdict
 
         return LoopVerdict()
 
