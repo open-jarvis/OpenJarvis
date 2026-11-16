@@ -17,9 +17,9 @@ exit 0
 EOF
     cat > "$OPENJARVIS_HOME/.scripts/pull-model.sh" <<EOF
 #!/usr/bin/env bash
-key=\$(printf '%s' "\$1" | base64 | tr '+/' '-_' | tr -d '=\r\n')
+key=\$(printf '%s' "\$1" | (command -v sha256sum >/dev/null && sha256sum || shasum -a 256) | cut -d ' ' -f 1)
 mkdir -p "\$OPENJARVIS_HOME/.state/models/v1"
-touch "\$OPENJARVIS_HOME/.state/models/v1/\${key}.ready"
+printf '%s\\n' "\$1" > "\$OPENJARVIS_HOME/.state/models/v1/\${key}.ready"
 exit 0
 EOF
     chmod +x "$OPENJARVIS_HOME/.scripts/"*.sh
@@ -28,7 +28,7 @@ EOF
 
 model_marker() {
     local model_id="$1" state="$2" key
-    key=$(printf '%s' "$model_id" | base64 | tr '+/' '-_' | tr -d '=\r\n')
+    key=$(printf '%s' "$model_id" | (command -v sha256sum >/dev/null && sha256sum || shasum -a 256) | cut -d ' ' -f 1)
     printf '%s/.state/models/v1/%s.%s' "$OPENJARVIS_HOME" "$key" "$state"
 }
 

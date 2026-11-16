@@ -7,8 +7,7 @@ between every chat turn.
 
 from __future__ import annotations
 
-import base64
-import binascii
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional
@@ -37,12 +36,12 @@ class BgStatus:
 def _safe_read(path: Path) -> Optional[str]:
     """Read a file, returning None if it disappears mid-read (race)."""
     try:
-        return path.read_text()
+        return path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
         return None
 
 
-def _read_model_markers(models_dir: Path, *, encoded: bool) -> Dict[str, str]:
+def _read_model_markers(models_dir: Path, *, versioned: bool) -> Dict[str, str]:
     """Read model state markers from one directory."""
     seen: Dict[str, str] = {}
     if not models_dir.is_dir():
@@ -57,22 +56,20 @@ def _read_model_markers(models_dir: Path, *, encoded: bool) -> Dict[str, str]:
             continue
 
         model_id = marker.name[: -len(marker.suffix)]
-        if encoded:
+        if versioned:
             try:
-                token = model_id.encode("ascii")
-                decoded = base64.b64decode(
-                    token + b"=" * (-len(token) % 4),
-                    altchars=b"-_",
-                    validate=True,
-                ).decode("utf-8")
-            except (binascii.Error, UnicodeDecodeError, UnicodeEncodeError):
+                contents = _safe_read(marker)
+            except OSError:
                 continue
+            if not contents:
+                continue
+            original_id = contents.partition("\n")[0].rstrip("\r")
             if (
-                base64.urlsafe_b64encode(decoded.encode("utf-8")).decode().rstrip("=")
-                != model_id
+                not original_id
+                or hashlib.sha256(original_id.encode()).hexdigest() != model_id
             ):
                 continue
-            model_id = decoded
+            model_id = original_id
 
         new_state = marker.suffix.lstrip(".")
         current = seen.get(model_id, "")
@@ -112,20 +109,11 @@ def get_status(home: Optional[Path] = None) -> BgStatus:
             status.rust_extension = "failed"
             status.rust_error = contents
 
-    # Keep reading legacy root markers; v1 stores encoded IDs so names such as
-    # "qwen3.5:9b" remain portable to filesystems that forbid colons.
-    seen = _read_model_markers(models_dir, encoded=False)
-    portable_models = _read_model_markers(models_dir / "v1", encoded=True)
-    for model_id, model_state in portable_models.items():
-        current = seen.get(model_id, "")
-        if current == "ready":
-            continue
-        if model_state == "ready":
-            seen[model_id] = "ready"
-        elif model_state == "failed" and current != "ready":
-            seen[model_id] = "failed"
-        elif model_state == "downloading" and current == "":
-            seen[model_id] = "downloading"
+    # Legacy markers keep their original names. Versioned markers use fixed-size
+    # lowercase hashes, avoiding reserved characters and case-fold collisions.
+    seen = _read_model_markers(models_dir, versioned=False)
+    # Once a model has versioned state, it supersedes stale legacy markers.
+    seen.update(_read_model_markers(models_dir / "v1", versioned=True))
     status.models = seen
 
     return status

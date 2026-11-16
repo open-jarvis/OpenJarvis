@@ -14,7 +14,7 @@ setup() {
 
 model_marker() {
     local model_id="$1" state="$2" key
-    key=$(printf '%s' "$model_id" | base64 | tr '+/' '-_' | tr -d '=\r\n')
+    key=$(printf '%s' "$model_id" | (command -v sha256sum >/dev/null && sha256sum || shasum -a 256) | cut -d ' ' -f 1)
     printf '%s/.state/models/v1/%s.%s' "$OPENJARVIS_HOME" "$key" "$state"
 }
 
@@ -51,4 +51,19 @@ teardown() {
     OLLAMA_STUB_EXIT=0 run bash "$SCRIPT" qwen3.5:2b
     leftover=$(find "$OPENJARVIS_HOME/.state/models" -name "*.tmp" 2>/dev/null | wc -l)
     [ "$leftover" -eq 0 ]
+}
+
+@test "model IDs cannot remove files outside the marker directory" {
+    local sentinel="$OPENJARVIS_HOME/.state/outside.ready"
+    touch "$sentinel"
+    OLLAMA_STUB_EXIT=0 run bash "$SCRIPT" ../outside
+    [ "$status" -eq 0 ]
+    [ -f "$sentinel" ]
+    [ -f "$(model_marker ../outside ready)" ]
+}
+
+@test "provider-qualified model names use one portable marker filename" {
+    OLLAMA_STUB_EXIT=0 run bash "$SCRIPT" hf.co/team/model:tag
+    [ "$status" -eq 0 ]
+    [ -f "$(model_marker hf.co/team/model:tag ready)" ]
 }
