@@ -7,8 +7,8 @@ within the same session.
 
 from __future__ import annotations
 
-import ctypes
 import io
+import sys
 import threading
 import time
 import uuid
@@ -128,23 +128,8 @@ class _ReplSession:
     execution_count: int = 0
 
 
-def _stop_runaway_thread(thread: threading.Thread) -> None:
-    """Raise SystemExit in a timed-out thread so a busy loop cannot keep running.
-
-    Python cannot kill a thread directly. The async exception is delivered at the
-    next bytecode boundary, so pure-Python loops such as ``while True: pass`` stop.
-    Blocking C calls such as ``time.sleep`` finish their wait first.
-    """
-    if thread.ident is None:
-        return
-    # Idents can be reused after a thread exits, so this is best-effort. A return
-    # value above 1 means several thread states matched; undo the request.
-    matched = ctypes.pythonapi.PyThreadState_SetAsyncExc(
-        ctypes.c_ulong(thread.ident),
-        ctypes.py_object(SystemExit),
-    )
-    if matched > 1:
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread.ident), None)
+class _ReplTimedOut(BaseException):
+    """Cooperative deadline reached while executing a REPL-owned frame."""
 
 
 # ---------------------------------------------------------------------------
@@ -308,16 +293,31 @@ class ReplTool(BaseTool):
         code: str,
         session: _ReplSession,
     ) -> tuple[str, bool]:
-        """Execute code in a daemon thread with timeout.
+        """Execute code with a deadline checked in REPL-owned Python frames.
+
+        Native blocking calls may finish later. Cancellation never injects an
+        exception into library or context-manager cleanup frames.
 
         Returns (output, success).
         """
         result_holder: Dict[str, Any] = {"output": "", "success": True}
+        cancelled = threading.Event()
+        deadline = time.perf_counter() + self._timeout
+
+        def _check_deadline(frame, event, arg):
+            # Never interrupt library or context-manager cleanup frames.
+            if frame.f_code.co_filename != "<repl>":
+                return None
+            if cancelled.is_set() or time.perf_counter() >= deadline:
+                raise _ReplTimedOut
+            return _check_deadline
 
         def _run() -> None:
             stdout_buf = io.StringIO()
             stderr_buf = io.StringIO()
+            previous_trace = sys.gettrace()
             try:
+                sys.settrace(_check_deadline)
                 with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
                     # Try eval first for expression display (REPL-like behavior)
                     try:
@@ -329,13 +329,18 @@ class ReplTool(BaseTool):
                         # Not an expression — execute as statements
                         compiled = compile(code, "<repl>", "exec")
                         exec(compiled, session.namespace)  # noqa: S102
-            except SystemExit:
-                # Raised by _stop_runaway_thread after the caller already timed out.
+            except _ReplTimedOut:
+                result_holder["output"] = (
+                    f"Execution timed out after {self._timeout} seconds."
+                )
+                result_holder["success"] = False
                 return
             except Exception as exc:
                 result_holder["output"] = f"{type(exc).__name__}: {exc}"
                 result_holder["success"] = False
                 return
+            finally:
+                sys.settrace(previous_trace)
 
             output = stdout_buf.getvalue()
             err = stderr_buf.getvalue()
@@ -343,12 +348,17 @@ class ReplTool(BaseTool):
                 output += ("\n" if output else "") + err
             result_holder["output"] = output
 
-        thread = threading.Thread(target=_run, daemon=True)
+        thread = threading.Thread(
+            target=_run, daemon=True, name=f"openjarvis-repl-{session.session_id}"
+        )
         thread.start()
         thread.join(timeout=self._timeout)
 
         if thread.is_alive():
-            _stop_runaway_thread(thread)
+            cancelled.set()
+            # Ordinary Python loops exit promptly. Blocking native calls may
+            # finish later; do not inject exceptions into arbitrary thread code.
+            thread.join(timeout=0.1)
             return (
                 f"Execution timed out after {self._timeout} seconds.",
                 False,

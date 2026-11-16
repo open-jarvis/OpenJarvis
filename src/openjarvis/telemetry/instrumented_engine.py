@@ -97,7 +97,8 @@ class InstrumentedEngine(InferenceEngine):
 
         gpu_sample: Optional[GpuSample] = None
         energy_sample: Optional[Any] = None
-        # perf_counter: time.time() is ~16 ms on Windows; short calls read as 0 s.
+        timestamp = time.time()
+        # Use a duration clock independently of wall-clock record timestamps.
         t0 = time.perf_counter()
 
         # Prefer EnergyMonitor over legacy GpuMonitor
@@ -217,7 +218,7 @@ class InstrumentedEngine(InferenceEngine):
 
         prompt_tok = usage.get("prompt_tokens", 0)
         record = TelemetryRecord(
-            timestamp=time.time() - latency,
+            timestamp=timestamp,
             model_id=model,
             prompt_tokens=prompt_tok,
             prompt_tokens_evaluated=prompt_tokens_evaluated or prompt_tok,
@@ -321,6 +322,7 @@ class InstrumentedEngine(InferenceEngine):
         *,
         model: str,
         t0: float,
+        timestamp: float,
         token_timestamps: list[float],
         fallback_token_count: int,
         energy_sample: Optional[Any],
@@ -427,7 +429,7 @@ class InstrumentedEngine(InferenceEngine):
 
         engine_id = getattr(self._inner, "engine_id", "unknown")
         record = TelemetryRecord(
-            timestamp=time.time() - latency,
+            timestamp=timestamp,
             model_id=model,
             prompt_tokens=prompt_tokens,
             prompt_tokens_evaluated=prompt_tokens_evaluated,
@@ -506,6 +508,7 @@ class InstrumentedEngine(InferenceEngine):
             },
         )
 
+        timestamp = time.time()
         t0 = time.perf_counter()
         token_timestamps: list[float] = []
         token_count = 0
@@ -552,6 +555,7 @@ class InstrumentedEngine(InferenceEngine):
         self._publish_stream_telemetry(
             model=model,
             t0=t0,
+            timestamp=timestamp,
             token_timestamps=token_timestamps,
             fallback_token_count=token_count,
             energy_sample=energy_sample,
@@ -580,6 +584,7 @@ class InstrumentedEngine(InferenceEngine):
             },
         )
 
+        timestamp = time.time()
         t0 = time.perf_counter()
         token_timestamps: list[float] = []
         content_chunk_count = 0
@@ -635,6 +640,7 @@ class InstrumentedEngine(InferenceEngine):
         self._publish_stream_telemetry(
             model=model,
             t0=t0,
+            timestamp=timestamp,
             token_timestamps=token_timestamps,
             fallback_token_count=content_chunk_count,
             energy_sample=energy_sample,

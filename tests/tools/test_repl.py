@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 
 from openjarvis.core.registry import ToolRegistry
@@ -231,14 +232,56 @@ class TestReplSecurity:
 
 class TestReplTimeout:
     def test_sleep_timeout(self):
-        tool = ReplTool(timeout=1)
-        result = tool.execute(code="import time\ntime.sleep(10)")
-        assert not result.success
-        assert "timed out" in result.content
+        tool = ReplTool(timeout=0.05)
+        release = threading.Event()
+        session = tool._resolve_session(None)
+        session.namespace["native_wait"] = release.wait
+        try:
+            result = tool.execute(code="native_wait()", session_id=session.session_id)
+            assert not result.success
+            assert "timed out" in result.content
+        finally:
+            release.set()
+            for thread in threading.enumerate():
+                if thread.name == f"openjarvis-repl-{session.session_id}":
+                    thread.join(timeout=2)
 
     def test_infinite_loop_timeout(self):
         tool = ReplTool(timeout=1)
         result = tool.execute(code="while True: pass")
+        assert not result.success
+        assert "timed out" in result.content
+
+    def test_busy_loop_exits_without_stopping_an_unrelated_thread(self):
+        done = threading.Event()
+        unrelated = threading.Thread(target=done.wait, daemon=True)
+        unrelated.start()
+        tool = ReplTool(timeout=0.05)
+
+        try:
+            result = tool.execute(code="while True: pass")
+            assert not result.success
+            assert "timed out" in result.content
+            name = f"openjarvis-repl-{result.metadata['session_id']}"
+            workers = [t for t in threading.enumerate() if t.name == name]
+            for worker in workers:
+                worker.join(timeout=2)
+            assert not any(t.is_alive() for t in workers)
+            assert unrelated.is_alive()
+        finally:
+            done.set()
+            unrelated.join(timeout=2)
+
+    def test_ordinary_exception_handler_cannot_swallow_the_deadline(self):
+        tool = ReplTool(timeout=0.05)
+        code = """\
+while True:
+    try:
+        pass
+    except Exception:
+        pass
+"""
+        result = tool.execute(code=code)
         assert not result.success
         assert "timed out" in result.content
 
