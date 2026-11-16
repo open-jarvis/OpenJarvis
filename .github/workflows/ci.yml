@@ -159,6 +159,10 @@ jobs:
         shell: bash
         run: uv run pytest tests/prompt/test_time_context.py tests/server/test_timezone_middleware.py -q
 
+      - name: Verify digest audio playback
+        shell: bash
+        run: uv run pytest tests/cli/test_digest_cmd.py tests/speech/test_voice_io.py -q
+
   rust:
     runs-on: ubuntu-latest
     defaults:
