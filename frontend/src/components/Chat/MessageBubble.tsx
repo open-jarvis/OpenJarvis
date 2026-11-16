@@ -35,7 +35,7 @@ function getTextContent(node: any): string {
 
 // Each block picks its own direction from its first strong character, so an
 // Arabic paragraph next to English text renders right-to-left with its
-// punctuation in place. Code blocks keep the default left-to-right.
+// punctuation in place. Code blocks explicitly stay left-to-right.
 const AUTO_DIR_TAGS = ['p', 'li', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'th', 'td'] as const;
 
 const autoDirComponents = Object.fromEntries(
@@ -62,6 +62,7 @@ function CodeBlockPre({ children, ...props }: any) {
   return (
     <div
       className="code-block-wrapper relative my-3"
+      dir="ltr"
       style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden' }}
     >
       <div

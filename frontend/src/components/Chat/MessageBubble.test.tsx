@@ -29,4 +29,27 @@ describe('message text direction', () => {
   it('lets the user bubble pick its direction', () => {
     expect(render({ role: 'user', content: 'إيه آخر إيميل عندي؟' })).toContain('dir="auto"');
   });
+
+  it('keeps code left-to-right inside a right-to-left blockquote', () => {
+    const html = render({
+      role: 'assistant',
+      content: '> فقرة عربية\n>\n> ```js\n> const value = 1;\n> ```',
+    });
+
+    expect(html).toMatch(/<blockquote dir="auto">/);
+    expect(html).toMatch(/<blockquote dir="auto">[\s\S]*<div[^>]*dir="ltr"/);
+    expect(html).toContain('const value = 1;');
+  });
+
+  it('lets mixed-language table cells choose their direction independently', () => {
+    const html = render({
+      role: 'assistant',
+      content: '| العنوان | Name |\n| --- | --- |\n| محتوى | English |',
+    });
+
+    expect(html).toContain('<th dir="auto">العنوان</th>');
+    expect(html).toContain('<th dir="auto">Name</th>');
+    expect(html).toContain('<td dir="auto">محتوى</td>');
+    expect(html).toContain('<td dir="auto">English</td>');
+  });
 });
