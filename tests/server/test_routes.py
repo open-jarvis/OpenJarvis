@@ -1680,11 +1680,17 @@ class TestModelsEndpoint:
         assert [item["id"] for item in resp.json()["data"]] == [model]
         assert resp.json()["data"][0]["owned_by"] == "nim"
 
-    def test_nim_provider_model_streams_through_active_engine(self):
+    @pytest.mark.parametrize("multi", [False, True])
+    def test_nim_provider_model_streams_through_active_engine(self, multi):
         """A NIM ``org/model`` ID must not bypass its engine to OpenRouter."""
         model = "meta/llama-3.1-70b-instruct"
         engine = _make_engine(models=[model])
         engine.engine_id = "nim"
+        engine.is_cloud = False
+        if multi:
+            from openjarvis.engine.multi import MultiEngine
+
+            engine = MultiEngine([("nim", engine)])
         app = create_app(
             engine,
             model,
@@ -1713,6 +1719,20 @@ class TestModelsEndpoint:
         stream_cloud.assert_not_called()
         assert "Hello" in resp.text
         assert '"engine": "nim"' in resp.text
+
+    @pytest.mark.parametrize("multi", [False, True])
+    def test_nim_does_not_capture_unrelated_cloud_models(self, multi):
+        from openjarvis.server.routes import _uses_direct_cloud_router
+
+        engine = _make_engine(models=["meta/llama-3.1-70b-instruct"])
+        engine.engine_id = "nim"
+        if multi:
+            from openjarvis.engine.multi import MultiEngine
+
+            engine = MultiEngine([("nim", engine)])
+
+        assert _uses_direct_cloud_router(engine, "openrouter/auto") is True
+        assert _uses_direct_cloud_router(engine, "gpt-4o") is True
 
 
 # ---------------------------------------------------------------------------

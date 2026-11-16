@@ -453,10 +453,16 @@ def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
     """Whether *model* should bypass the configured engine for direct cloud."""
     from openjarvis.server.cloud_router import is_cloud_model
 
-    return is_cloud_model(model) and _engine_key_for_model(engine, model) not in (
-        "litellm",
-        "nim",
-    )
+    if not is_cloud_model(model):
+        return False
+    engine_key = _engine_key_for_model(engine, model)
+    if engine_key == "litellm":
+        return False
+    if engine_key == "nim":
+        # A single engine's key identifies the backend, not ownership of every
+        # requested model. Keep unrelated Cloud Models selections working.
+        return model not in engine.list_models()
+    return True
 
 
 def _handle_direct(
