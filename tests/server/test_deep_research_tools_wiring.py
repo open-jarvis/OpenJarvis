@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -264,6 +265,13 @@ async def test_server_deep_research_merges_and_executes_all_tool_sources(
     assert start_worker.call_args.kwargs["name"].startswith(
         "managed-agent-deep-research-"
     )
+    # The worker queues DONE before its finally block unregisters it. Let the
+    # event loop settle that notification while joining the owned worker; an
+    # actual leaked worker still fails the empty-tracking assertion below.
+    with app_state._managed_worker_lock:
+        workers = tuple(app_state._managed_workers)
+    for worker in workers:
+        await asyncio.to_thread(worker.join, timeout=2)
     assert app_state._managed_workers == set()
 
     manager.store_agent_response.assert_called_once()
