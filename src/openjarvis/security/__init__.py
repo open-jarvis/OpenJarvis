@@ -59,7 +59,9 @@ def setup_security(
                 bus=bus,
             )
     except Exception as exc:
-        logger.debug("Failed to set up security scanners: %s", exc)
+        if config.security.profile in {"shared", "server"}:
+            raise RuntimeError("Security scanner initialization failed") from exc
+        logger.warning("Failed to set up security scanners: %s", exc)
 
     # Capability policy
     cap_policy = None

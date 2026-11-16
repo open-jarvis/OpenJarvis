@@ -7,6 +7,7 @@ from typing import Optional
 
 import click
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 
@@ -75,11 +76,20 @@ def list_agents() -> None:
                 "error": "red",
                 "archived": "dim strike",
             }.get(a["status"], "")
+            # Statuses outside the map (budget_exceeded, needs_attention, ...)
+            # have no style: "[]status[/]" is invalid Rich markup, so only
+            # wrap the cell when there is a style to apply.
+            status_text = escape(str(a["status"]))
+            status_cell = (
+                f"[{status_style}]{status_text}[/{status_style}]"
+                if status_style
+                else status_text
+            )
             table.add_row(
                 a["id"],
                 a["name"],
                 a["agent_type"],
-                f"[{status_style}]{a['status']}[/{status_style}]",
+                status_cell,
                 str(len(tasks)),
                 str(len(bindings)),
             )
@@ -89,8 +99,6 @@ def list_agents() -> None:
         # arguments as markup, so an exception message containing "[...]"
         # raises a secondary MarkupError (see #297). Keep the static
         # "Error:" label styled; render the message literally.
-        from rich.markup import escape
-
         console.print(f"[red]Error:[/red] {escape(str(exc))}")
 
 

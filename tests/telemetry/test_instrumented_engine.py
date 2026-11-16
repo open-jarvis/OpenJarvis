@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -11,6 +12,44 @@ from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import TOKEN_COUNTING_VERSION, Message, Role
 from openjarvis.engine._stubs import StreamChunk
 from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["generate", "stream", "stream_full"])
+async def test_duration_clock_does_not_replace_wall_timestamp(
+    mock_engine, bus, monkeypatch, method
+):
+    ticks = iter((100.0, 100.001, 100.002, 100.003))
+    clock = SimpleNamespace(time=lambda: 1700000000.0, perf_counter=lambda: next(ticks))
+    monkeypatch.setattr("openjarvis.telemetry.instrumented_engine.time", clock)
+
+    async def stream(*args, **kwargs):
+        yield "Hello"
+        yield " world"
+
+    async def stream_full(*args, **kwargs):
+        yield StreamChunk(content="Hello")
+        yield StreamChunk(content=" world")
+
+    mock_engine.stream = stream
+    mock_engine.stream_full = stream_full
+    engine = InstrumentedEngine(mock_engine, bus)
+    messages = [Message(role=Role.USER, content="Hi")]
+    if method == "generate":
+        engine.generate(messages, model="test")
+    else:
+        async for _ in getattr(engine, method)(messages, model="test"):
+            pass
+
+    records = [
+        e.data["record"]
+        for e in bus.history
+        if e.event_type == EventType.TELEMETRY_RECORD
+    ]
+    assert len(records) == 1
+    assert records[0].timestamp == 1700000000.0
+    ended = next(e for e in bus.history if e.event_type == EventType.INFERENCE_END)
+    assert ended.data["latency"] > 0
 
 
 @pytest.fixture

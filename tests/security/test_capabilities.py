@@ -18,6 +18,50 @@ from openjarvis.security.capabilities import (
 from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
 
 
+@pytest.fixture(params=["native", "python"], autouse=True)
+def security_backend(request, monkeypatch):
+    import openjarvis._rust_bridge as bridge
+
+    if request.param == "native" and not bridge.RUST_AVAILABLE:
+        pytest.skip("native extension unavailable")
+    monkeypatch.setattr(bridge, "RUST_AVAILABLE", request.param == "native")
+
+
+@pytest.mark.parametrize(
+    "pattern,resource,allowed",
+    [
+        ("/safe/*", "/safe/report.txt", True),
+        ("/safe/*", "/other/report.txt", False),
+        ("report?.txt", "report1.txt", False),
+        ("report?.txt", "report?.txt", True),
+        ("report[12].txt", "report1.txt", False),
+        ("report[12].txt", "report[12].txt", True),
+        ("/Safe/*", "/safe/report.txt", False),
+        ("*.txt", "report.TXT", False),
+        ("*a*b", "aaab", True),
+        ("*a*b", "aaabc", False),
+        ("*", "line\nbreak", True),
+    ],
+)
+def test_resource_pattern_semantics_match_native(pattern, resource, allowed):
+    policy = CapabilityPolicy(default_deny=True)
+    policy.grant("agent", "file:read", pattern)
+    assert policy.check("agent", "file:read", resource) is allowed
+
+
+def test_empty_agent_explicit_denial_is_enforced():
+    policy = CapabilityPolicy()
+    policy.deny("", "*")
+    assert policy.check("", "file:read") is False
+
+
+def test_capability_question_mark_is_literal():
+    policy = CapabilityPolicy(default_deny=True)
+    policy.grant("agent", "file:rea?")
+    assert policy.check("agent", "file:read") is False
+    assert policy.check("agent", "file:rea?") is True
+
+
 class TestCapability:
     def test_capability_values(self):
         assert Capability.FILE_READ == "file:read"

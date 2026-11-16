@@ -560,6 +560,27 @@ result = agent.run("Generate today's report")
 jarvis ask --agent operative "Check system status"
 ```
 
+### Managed-agent budgets
+
+For agents created through `AgentManager`, budget settings belong in the
+individual agent's `config` dictionary:
+
+| Setting | Meaning |
+|---------|---------|
+| `max_tokens` | Generation limit for one response |
+| `max_total_tokens` | Cumulative token budget across ticks; `0` or omitted means unlimited |
+| `max_cost` | Cumulative cost budget; `0` or omitted means unlimited |
+
+For example, `config={"max_tokens": 4096, "max_total_tokens": 100000}` keeps the
+response limit separate from the agent's lifetime budget. Budgets are checked
+after each tick. Once cumulative usage exceeds either budget, the agent enters
+`budget_exceeded` and the scheduler stops running it.
+
+Earlier versions also interpreted `max_tokens` as a lifetime budget, which
+could stop agents created from bundled templates after their first few ticks.
+If you intentionally used that setting as a lifetime cap, move the cap to
+`max_total_tokens`; `max_tokens` now controls generation only.
+
 ---
 
 ## MonitorOperativeAgent

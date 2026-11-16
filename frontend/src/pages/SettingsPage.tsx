@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Palette,
   Globe,
@@ -19,6 +19,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
+import { deviceTimeZone, listTimeZones, resolveTimeZone, utcOffsetLabel } from '../lib/timezone';
 import {
   checkHealth,
   fetchSpeechHealth,
@@ -287,6 +288,7 @@ const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
 
 export function SettingsPage() {
   const settings = useAppStore((s) => s.settings);
+  const timeZones = useMemo(listTimeZones, []);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const conversations = useAppStore((s) => s.conversations);
   const serverInfo = useAppStore((s) => s.serverInfo);
@@ -514,6 +516,27 @@ export function SettingsPage() {
                 <option value="small">Small</option>
                 <option value="default">Default</option>
                 <option value="large">Large</option>
+              </select>
+            </SettingRow>
+            <SettingRow
+              label="Time zone"
+              description={`Dates and times in answers use this zone. Now: ${resolveTimeZone(settings.timeZone)} (${utcOffsetLabel(resolveTimeZone(settings.timeZone))})`}
+            >
+              <select
+                aria-label="Time zone"
+                value={settings.timeZone}
+                onChange={(e) => { updateSettings({ timeZone: e.target.value }); showSaved(); }}
+                className="text-sm px-3 py-1.5 rounded-lg outline-none cursor-pointer max-w-[14rem]"
+                style={{
+                  background: 'var(--color-bg-secondary)',
+                  color: 'var(--color-text)',
+                  border: '1px solid var(--color-border)',
+                }}
+              >
+                <option value="">Automatic ({deviceTimeZone()})</option>
+                {timeZones.map((zone) => (
+                  <option key={zone} value={zone}>{zone}</option>
+                ))}
               </select>
             </SettingRow>
           </Section>
