@@ -37,11 +37,11 @@ class _RegexScanner(BaseScanner):
                     _rust_bridge.get_rust_module(), self._rust_class_name
                 )
                 self._rust_impl = rust_class()
-            except Exception:  # noqa: BLE001 - Python scanner remains available
+            except Exception as exc:  # noqa: BLE001 - Python scanner remains available
                 logger.warning(
-                    "Rust %s unavailable; using Python fallback",
+                    "Rust %s unavailable (%s); using Python fallback",
                     self.scanner_id,
-                    exc_info=True,
+                    type(exc).__name__,
                 )
 
     @staticmethod
@@ -99,11 +99,11 @@ class _RegexScanner(BaseScanner):
         if self._rust_impl is not None:
             try:
                 return _rust_bridge.scan_result_from_json(self._rust_impl.scan(text))
-            except Exception:  # noqa: BLE001 - fail over to equivalent patterns
+            except Exception as exc:  # noqa: BLE001 - fail over to equivalent patterns
                 logger.warning(
-                    "Rust %s scan failed; using Python fallback",
+                    "Rust %s scan failed (%s); using Python fallback",
                     self.scanner_id,
-                    exc_info=True,
+                    type(exc).__name__,
                 )
                 self._rust_impl = None
         return self._scan_python(text)
@@ -113,11 +113,11 @@ class _RegexScanner(BaseScanner):
         if self._rust_impl is not None:
             try:
                 return self._rust_impl.redact(text)
-            except Exception:  # noqa: BLE001 - fail over to equivalent patterns
+            except Exception as exc:  # noqa: BLE001 - fail over to equivalent patterns
                 logger.warning(
-                    "Rust %s redaction failed; using Python fallback",
+                    "Rust %s redaction failed (%s); using Python fallback",
                     self.scanner_id,
-                    exc_info=True,
+                    type(exc).__name__,
                 )
                 self._rust_impl = None
         return self._redact_python(text)

@@ -2,9 +2,94 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from collections import Counter
+
+import pytest
+
 import openjarvis.security.scanner as scanner_module
 from openjarvis.security.scanner import PIIScanner, SecretScanner
 from openjarvis.security.types import ThreatLevel
+
+
+@pytest.mark.parametrize("scanner_class", [SecretScanner, PIIScanner])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ordinary text without sensitive values",
+        "sk-" + "a" * 24 + " sk-ant-" + "b" * 24,
+        "AKIA" + "A" * 16 + " ghp_" + "x" * 36,
+        "xoxb-1234567890abcdef sk_test_" + "a" * 24,
+        "password = 'example-password' api_key='example-api-token'",
+        "postgres://user:password@db.example/database",
+        "-----BEGIN RSA PRIVATE KEY-----",
+        "email first.last+tag@example.com and first.last+tag@example.com",
+        "🙂 user@example.com 001.002.003.004 8.8.8.8 192.168.1.1",
+        "invalid 999.1.1.1 and version 1.2.3.4.5 and ١.٢.٣.٤",
+        "123-45-6789 4242 4242 4242 4242 202-555-0123",
+    ],
+)
+def test_fallback_matches_native_findings_and_redaction(
+    scanner_class, text, monkeypatch
+):
+    if not scanner_module._rust_bridge.RUST_AVAILABLE:
+        pytest.skip("Native comparison requires the Rust extension")
+    native = scanner_class()
+    assert native._rust_impl is not None
+    monkeypatch.setattr(scanner_module._rust_bridge, "RUST_AVAILABLE", False)
+    fallback = scanner_class()
+
+    def findings(scanner):
+        return Counter(
+            (f.pattern_name, f.matched_text, f.threat_level)
+            for f in scanner.scan(text).findings
+        )
+
+    assert findings(fallback) == findings(native)
+    assert fallback.redact(text) == native.redact(text)
+
+
+@pytest.mark.parametrize("scanner_class", [SecretScanner, PIIScanner])
+@pytest.mark.parametrize("operation", ["scan", "redact"])
+def test_native_failure_does_not_log_the_scanned_payload(
+    scanner_class, operation, caplog
+):
+    key = "sk-" + "a" * 24
+    email = "private-user@example.com"
+    text = f"key {key} email {email}"
+
+    class BrokenNative:
+        def scan(self, value):
+            raise RuntimeError(value)
+
+        def redact(self, value):
+            raise RuntimeError(value)
+
+    scanner = scanner_class()
+    scanner._rust_impl = BrokenNative()
+    result = getattr(scanner, operation)(text)
+    if operation == "scan":
+        assert not result.clean
+    else:
+        sensitive = key if scanner_class is SecretScanner else email
+        assert sensitive not in result
+    assert "using Python fallback" in caplog.text
+    assert key not in caplog.text
+    assert email not in caplog.text
+
+
+def test_long_non_email_input_does_not_stall_the_fallback():
+    code = """\
+from openjarvis import _rust_bridge
+_rust_bridge.RUST_AVAILABLE = False
+from openjarvis.security.scanner import PIIScanner
+assert PIIScanner().scan('a' * 100000).clean
+"""
+    subprocess.run(
+        [sys.executable, "-c", code], check=True, capture_output=True, timeout=10
+    )
+
 
 # ---------------------------------------------------------------------------
 # SecretScanner tests
