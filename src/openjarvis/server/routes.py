@@ -483,18 +483,21 @@ def _local_engine_advertises(engine: Any, model: str) -> bool:
 
 
 def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
-    """Whether *model* should bypass the configured engine for direct cloud.
+    """Whether *model* should bypass the configured engine for direct cloud."""
+    from openjarvis.server.cloud_router import get_provider, is_cloud_model
 
-    A model a local engine advertises is never sent to a cloud provider, even
-    when its ``org/model`` shape matches the OpenRouter name heuristic.
-    """
-    from openjarvis.server.cloud_router import is_cloud_model
-
-    return (
-        is_cloud_model(model)
-        and _engine_key_for_model(engine, model) != "litellm"
-        and not _local_engine_advertises(engine, model)
-    )
+    if not is_cloud_model(model):
+        return False
+    engine_key = _engine_key_for_model(engine, model)
+    if engine_key == "litellm":
+        return False
+    if engine_key == "nim":
+        # Bare org/model IDs belong to the configured NIM backend. Explicit
+        # cloud-provider namespaces and native cloud IDs retain their route.
+        # Do not make a blocking model-list HTTP request on every chat turn.
+        provider = get_provider(model)
+        return "/" not in model or model.startswith(f"{provider}/")
+    return not _local_engine_advertises(engine, model)
 
 
 def _handle_direct(
@@ -1156,14 +1159,15 @@ async def list_models(request: Request) -> ModelListResponse:
 
     # Prefer engine.list_models() so mock engines work in tests.
     # Filter out direct-cloud model IDs that may appear via MultiEngine, but
-    # retain provider-qualified IDs owned by the configured LiteLLM engine.
+    # retain provider-qualified IDs owned by configured engines like LiteLLM or NIM.
     # Fall back to direct Ollama query only when the engine returns nothing.
     engine = request.app.state.engine
     all_ids = await asyncio.to_thread(engine.list_models)
     model_ids = [
         m
         for m in all_ids
-        if not is_cloud_model(m) or _engine_key_for_model(engine, m) == "litellm"
+        if not is_cloud_model(m)
+        or _engine_key_for_model(engine, m) in ("litellm", "nim")
     ]
     if not model_ids:
         model_ids = await list_local_models()
@@ -1178,8 +1182,8 @@ async def list_models(request: Request) -> ModelListResponse:
             ModelObject(
                 id=mid,
                 owned_by=(
-                    "litellm"
-                    if _engine_key_for_model(engine, mid) == "litellm"
+                    _engine_key_for_model(engine, mid)
+                    if _engine_key_for_model(engine, mid) in ("litellm", "nim")
                     else "openjarvis"
                 ),
             )
@@ -1288,11 +1292,17 @@ async def reload_cloud_engine(request: Request):
         # Compatibility fallback for non-desktop/manual configurations.
         keys_path = get_config_dir() / "cloud-keys.env"
         if keys_path.exists():
-            for raw_line in keys_path.read_text().splitlines():
+            for raw_line in keys_path.read_text(encoding="utf-8").splitlines():
                 line = raw_line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
-                    os.environ[k.strip()] = v.strip()
+                    val = v.strip()
+                    if (val.startswith('"') and val.endswith('"')) or (
+                        val.startswith("'") and val.endswith("'")
+                    ):
+                        if len(val) >= 2:
+                            val = val[1:-1]
+                    os.environ[k.strip()] = val
 
     # Try to build a fresh CloudEngine.
     try:

@@ -46,11 +46,17 @@ def _load_keys() -> dict[str, str]:
     keys: dict[str, str] = {}
     # File first, then fall back to process environment
     if _CLOUD_ENV_FILE.exists():
-        for raw in _CLOUD_ENV_FILE.read_text().splitlines():
+        for raw in _CLOUD_ENV_FILE.read_text(encoding="utf-8").splitlines():
             line = raw.strip()
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
-                keys[k.strip()] = v.strip()
+                val = v.strip()
+                if (val.startswith('"') and val.endswith('"')) or (
+                    val.startswith("'") and val.endswith("'")
+                ):
+                    if len(val) >= 2:
+                        val = val[1:-1]
+                keys[k.strip()] = val
     # Process env can override (e.g. during testing)
     for name in (
         "OPENAI_API_KEY",
@@ -69,6 +75,10 @@ def _load_keys() -> dict[str, str]:
 
 def get_provider(model: str) -> str | None:
     """Return the provider for a model name, or None if it's a local model."""
+    # Bare GPT-OSS names and Ollama tags are local, despite the "gpt-" prefix.
+    # Provider-qualified IDs (e.g. "openai/gpt-oss-20b") still route to cloud.
+    if model == "gpt-oss" or model.startswith(("gpt-oss:", "gpt-oss-")):
+        return None
     if any(model.startswith(p) for p in _OPENAI_PREFIXES):
         return "openai"
     if any(model.startswith(p) for p in _ANTHROPIC_PREFIXES):
