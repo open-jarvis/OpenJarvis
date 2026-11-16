@@ -451,7 +451,7 @@ def _engine_key_for_model(engine: Any, model: str) -> str | None:
 
 def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
     """Whether *model* should bypass the configured engine for direct cloud."""
-    from openjarvis.server.cloud_router import is_cloud_model
+    from openjarvis.server.cloud_router import get_provider, is_cloud_model
 
     if not is_cloud_model(model):
         return False
@@ -459,9 +459,11 @@ def _uses_direct_cloud_router(engine: Any, model: str) -> bool:
     if engine_key == "litellm":
         return False
     if engine_key == "nim":
-        # A single engine's key identifies the backend, not ownership of every
-        # requested model. Keep unrelated Cloud Models selections working.
-        return model not in engine.list_models()
+        # Bare org/model IDs belong to the configured NIM backend. Explicit
+        # cloud-provider namespaces and native cloud IDs retain their route.
+        # Do not make a blocking model-list HTTP request on every chat turn.
+        provider = get_provider(model)
+        return "/" not in model or model.startswith(f"{provider}/")
     return True
 
 

@@ -1733,6 +1733,20 @@ class TestModelsEndpoint:
 
         assert _uses_direct_cloud_router(engine, "openrouter/auto") is True
         assert _uses_direct_cloud_router(engine, "gpt-4o") is True
+        assert (
+            _uses_direct_cloud_router(engine, "atlascloud/openai/gpt-4.1-mini") is True
+        )
+
+    def test_nim_routing_does_not_query_models_on_each_chat_turn(self):
+        from openjarvis.server.routes import _uses_direct_cloud_router
+
+        engine = _make_engine(models=["meta/llama-3.1-70b-instruct"])
+        engine.engine_id = "nim"
+        engine.list_models.side_effect = AssertionError("Blocking model-list request")
+
+        assert _uses_direct_cloud_router(engine, "meta/llama-3.1-70b-instruct") is False
+        assert _uses_direct_cloud_router(engine, "openrouter/auto") is True
+        engine.list_models.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
