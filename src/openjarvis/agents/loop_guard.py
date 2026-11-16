@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from openjarvis.core.events import EventBus, EventType
@@ -22,13 +22,14 @@ class LoopGuardConfig:
     warn_before_block: bool = True  # warn on first cycle, block on second
 
 
-@dataclass
+@dataclass(slots=True)
 class LoopVerdict:
     """Result of a loop guard check."""
 
     blocked: bool = False
     reason: str = ""
     warned: bool = False
+    _warn_key: str = field(default="", repr=False, compare=False)
 
 
 class LoopGuard:
@@ -53,9 +54,6 @@ class LoopGuard:
         self._per_tool_counts: dict[str, int] = {}
         # Track cycle keys that have already been warned (for warn-before-block)
         self._warned_cycles: set[str] = set()
-        # Stable warn-once keys for detectors whose reason text embeds a
-        # changing counter (identical-call repeats, poll budget, ping-pong)
-        self._warned_keys: set[str] = set()
 
         try:
             from openjarvis._rust_bridge import get_rust_module
@@ -89,12 +87,9 @@ class LoopGuard:
 
         # Wrap with warn-before-block logic
         if verdict.blocked and self._config.warn_before_block:
-            cycle_key = getattr(verdict, "_warn_key", None) or verdict.reason
-            warned = (
-                self._warned_keys if hasattr(verdict, "_warn_key") else self._warned_cycles
-            )
-            if cycle_key not in warned:
-                warned.add(cycle_key)
+            cycle_key = verdict._warn_key or verdict.reason
+            if cycle_key not in self._warned_cycles:
+                self._warned_cycles.add(cycle_key)
                 return LoopVerdict(blocked=False, warned=True, reason=verdict.reason)
         return verdict
 
@@ -228,7 +223,6 @@ class LoopGuard:
         self._tool_sequence.clear()
         self._per_tool_counts.clear()
         self._warned_cycles.clear()
-        self._warned_keys.clear()
         if self._rust_impl is not None:
             self._rust_impl.reset()
 
