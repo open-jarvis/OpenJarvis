@@ -58,7 +58,12 @@ def preflight(tmp_path):
     bindir.mkdir()
     # Preflight uses only the standard library; avoid unrelated site hooks in
     # the developer's test environment on each subprocess invocation.
-    _executable(bindir / "python3", f'exec {shlex.quote(sys.executable)} -S "$@"\n')
+    _executable(
+        bindir / "python3",
+        'if [ "$1" = -c ] && [ -n "${TEST_PYTHON_VERSION:-}" ]; then\n'
+        '  echo "$TEST_PYTHON_VERSION"; exit 0\nfi\n'
+        f'exec {shlex.quote(sys.executable)} -S "$@"\n',
+    )
     _executable(bindir / "uv", "echo 'uv 0.13.0'\n")
     _executable(bindir / "node", 'echo "v$TEST_NODE_VERSION"\n')
     for command in ("rustc", "cargo"):
@@ -127,6 +132,14 @@ def test_unsupported_node_is_rejected_before_npm_changes(preflight, node):
     assert "Node.js 22.22 or newer" in result.stdout
     assert commands == ""
     assert "unbound variable" not in result.stderr
+
+
+@pytest.mark.parametrize("version", ["3.10", "3.14", "4.11"])
+def test_unsupported_python_is_rejected_before_any_install(preflight, version):
+    result, commands = preflight(TEST_PYTHON_VERSION=version)
+    assert result.returncode == 1
+    assert "Python 3.11 - 3.13 required" in result.stdout
+    assert commands == ""
 
 
 @pytest.mark.parametrize("node", ["22.22.0", "24.0.0", "26.0.0", "27.0.0"])
@@ -213,7 +226,7 @@ def test_native_build_runs_under_the_pinned_workspace_toolchain(tmp_path):
         ("darwin", "x86_64", "3.13", True),
         ("darwin", "arm64", "3.13", False),
         ("linux", "x86_64", "3.13", False),
-        ("darwin", "arm64", "3.10", True),
+        ("darwin", "arm64", "3.11", False),
     ],
 )
 def test_onnxruntime_cap_only_applies_to_platforms_without_new_wheels(
