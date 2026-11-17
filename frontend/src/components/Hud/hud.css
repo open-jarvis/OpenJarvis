@@ -1,0 +1,622 @@
+/*
+ * Sistema visual del HUD. Todo cuelga de .hud-root para no afectar al resto
+ * de la aplicación; el color de acento cambia con la fase de la sesión.
+ */
+.hud-root {
+  --hud-bg: #030a14;
+  --hud-panel: rgba(9, 30, 48, 0.58);
+  --hud-cyan: #38d6ff;
+  --hud-amber: #ffb547;
+  --hud-red: #ff6b78;
+  --hud-text: #d9f5ff;
+  --hud-dim: #7ba6bd;
+  --hud-accent: var(--hud-cyan);
+  --hud-line: color-mix(in srgb, var(--hud-accent) 30%, transparent);
+  --hud-mono: ui-monospace, 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+  /* Los componentes reutilizados (aprobaciones) leen los tokens de la app. */
+  --color-bg: var(--hud-bg);
+  --color-bg-secondary: #0a2236;
+  --color-bg-tertiary: #103049;
+  --color-surface: #071a2b;
+  --color-border: var(--hud-line);
+  --color-border-subtle: color-mix(in srgb, var(--hud-accent) 14%, transparent);
+  --color-text: var(--hud-text);
+  --color-text-secondary: var(--hud-dim);
+  --color-text-tertiary: #55798f;
+  --color-accent: var(--hud-cyan);
+  --color-accent-subtle: color-mix(in srgb, var(--hud-cyan) 12%, transparent);
+  --color-warning: var(--hud-amber);
+  --color-error: var(--hud-red);
+
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 400px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'header header header'
+    'left center right'
+    'footer footer footer';
+  gap: 16px;
+  padding: 16px 20px;
+  overflow: hidden;
+  color: var(--hud-text);
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(24, 96, 140, 0.32), transparent 62%),
+    linear-gradient(rgba(56, 214, 255, 0.045) 1px, transparent 1px) 0 0 / 100% 44px,
+    linear-gradient(90deg, rgba(56, 214, 255, 0.045) 1px, transparent 1px) 0 0 / 44px 100%,
+    var(--hud-bg);
+}
+
+.hud-root[data-phase='standby'] {
+  --hud-accent: #4f7f9c;
+}
+.hud-root[data-phase='transcribing'],
+.hud-root[data-phase='thinking'] {
+  --hud-accent: var(--hud-amber);
+}
+
+/* ---------- Cabecera ---------- */
+.hud-header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--hud-line);
+}
+.hud-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-family: var(--hud-mono);
+  letter-spacing: 0.32em;
+}
+.hud-brand strong {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--hud-accent);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--hud-accent) 70%, transparent);
+}
+.hud-status {
+  font-size: 0.68rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--hud-dim);
+}
+.hud-status::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--hud-accent);
+  box-shadow: 0 0 10px var(--hud-accent);
+}
+.hud-status.is-offline {
+  color: var(--hud-red);
+}
+.hud-status.is-offline::before {
+  background: var(--hud-red);
+  box-shadow: 0 0 10px var(--hud-red);
+}
+.hud-clock {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-family: var(--hud-mono);
+  font-variant-numeric: tabular-nums;
+}
+.hud-clock strong {
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+}
+.hud-clock span {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--hud-dim);
+}
+.hud-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* ApprovalBell se ancla con position: fixed a la esquina de la ventana; aquí
+   se devuelve al flujo para que no tape los demás controles. */
+.hud-approvals > .fixed {
+  position: relative;
+  top: auto;
+  right: auto;
+}
+.hud-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 1px solid var(--hud-line);
+  border-radius: 4px;
+  color: var(--hud-dim);
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.hud-icon-button:hover,
+.hud-icon-button:focus-visible {
+  color: var(--hud-accent);
+  border-color: var(--hud-accent);
+  background: color-mix(in srgb, var(--hud-accent) 10%, transparent);
+  outline: none;
+}
+
+/* ---------- Columnas y paneles ---------- */
+.hud-column {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+.hud-left {
+  grid-area: left;
+  overflow-y: auto;
+}
+.hud-right {
+  grid-area: right;
+}
+.hud-panel {
+  position: relative;
+  /* Esquinas rectas: las esquinas reforzadas no encajan con un borde redondeado. */
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--hud-line);
+  background: var(--hud-panel);
+  backdrop-filter: blur(6px);
+}
+/* Esquinas reforzadas, el rasgo que da el aire de instrumento. */
+.hud-panel::before,
+.hud-panel::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--hud-accent);
+  pointer-events: none;
+}
+.hud-panel::before {
+  top: -1px;
+  left: -1px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.hud-panel::after {
+  right: -1px;
+  bottom: -1px;
+  border-top: 0;
+  border-left: 0;
+}
+.hud-panel-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hud-line);
+  font-family: var(--hud-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--hud-accent);
+}
+.hud-panel-tag {
+  color: var(--hud-dim);
+}
+.hud-panel-body {
+  min-height: 0;
+  padding: 10px 12px;
+  overflow-y: auto;
+}
+.hud-empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--hud-dim);
+}
+
+.hud-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+}
+.hud-readout-label {
+  font-family: var(--hud-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--hud-dim);
+}
+.hud-readout-value {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--hud-mono);
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-readout-value small {
+  margin-left: 4px;
+  font-size: 0.66rem;
+  color: var(--hud-dim);
+}
+
+/* ---------- Actividad ---------- */
+.hud-activity {
+  flex: 0 1 34%;
+}
+.hud-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hud-activity-item {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  font-family: var(--hud-mono);
+  font-size: 0.74rem;
+}
+.hud-activity-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-activity-meta {
+  font-size: 0.66rem;
+  color: var(--hud-dim);
+}
+.hud-activity-glyph {
+  color: var(--hud-cyan);
+}
+.hud-activity-item.is-running .hud-activity-glyph {
+  color: var(--hud-amber);
+  animation: hud-blink 0.9s steps(2) infinite;
+}
+.hud-activity-item.is-error {
+  color: var(--hud-red);
+}
+.hud-activity-item.is-error .hud-activity-glyph {
+  color: var(--hud-red);
+}
+.hud-activity-item.is-ignored {
+  color: var(--hud-dim);
+}
+
+/* ---------- Proyección ---------- */
+.hud-projection {
+  flex: 1 1 0;
+}
+.hud-projection .hud-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hud-card {
+  border: 1px solid var(--hud-line);
+  border-left: 3px solid var(--hud-cyan);
+  background: rgba(3, 14, 24, 0.72);
+  animation: hud-rise 0.35s ease-out;
+}
+.hud-card.is-failed {
+  border-left-color: var(--hud-red);
+}
+.hud-card-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 6px 6px 10px;
+  border-bottom: 1px solid var(--hud-line);
+}
+.hud-card-header .hud-icon-button {
+  width: 24px;
+  height: 24px;
+  border-color: transparent;
+}
+.hud-card-source {
+  font-family: var(--hud-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--hud-cyan);
+}
+.hud-card-title {
+  overflow: hidden;
+  font-size: 0.8rem;
+  color: var(--hud-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-card-metric {
+  margin: 0;
+  padding: 12px 10px;
+  font-family: var(--hud-mono);
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  color: var(--hud-text);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--hud-cyan) 55%, transparent);
+}
+.hud-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 10px 10px 30px;
+  font-size: 0.82rem;
+}
+.hud-card-list ::marker {
+  font-family: var(--hud-mono);
+  font-size: 0.7rem;
+  color: var(--hud-dim);
+}
+.hud-card-list a {
+  color: var(--hud-cyan);
+  text-decoration: none;
+}
+.hud-card-list a:hover,
+.hud-card-list a:focus-visible {
+  text-decoration: underline;
+}
+.hud-card-list p {
+  display: -webkit-box;
+  margin: 3px 0 0;
+  overflow: hidden;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--hud-dim);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.hud-card-code,
+.hud-card-output,
+.hud-card-text {
+  margin: 0;
+  padding: 10px;
+  font-family: var(--hud-mono);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.hud-card-code {
+  border-bottom: 1px dashed var(--hud-line);
+  color: var(--hud-cyan);
+}
+.hud-card-text {
+  font-family: inherit;
+  font-size: 0.82rem;
+}
+.hud-card-document {
+  padding: 4px 12px 10px;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+/* La hoja base de la app quita los marcadores de lista; aquí se restauran. */
+.hud-card-document ol,
+.hud-card-document ul {
+  margin: 6px 0;
+  padding-left: 1.5em;
+}
+.hud-card-document ol {
+  list-style: decimal;
+}
+.hud-card-document ul {
+  list-style: disc;
+}
+.hud-card-document p {
+  margin: 6px 0;
+}
+.hud-card-document pre {
+  padding: 10px;
+  overflow-x: auto;
+  border: 1px solid var(--hud-line);
+  background: rgba(2, 9, 16, 0.85);
+  font-family: var(--hud-mono);
+  font-size: 0.76rem;
+}
+.hud-card-document table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.hud-card-document th,
+.hud-card-document td {
+  padding: 4px 8px;
+  border: 1px solid var(--hud-line);
+  text-align: left;
+}
+.hud-card-document a {
+  color: var(--hud-cyan);
+}
+
+/* ---------- Centro ---------- */
+.hud-center {
+  grid-area: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 0;
+  text-align: center;
+}
+.hud-core {
+  position: relative;
+  flex: 0 1 auto;
+  width: min(100%, 62vh, 560px);
+  aspect-ratio: 1;
+  min-height: 0;
+}
+.hud-core-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.hud-start {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  padding: 12px 22px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--hud-cyan);
+  color: var(--hud-cyan);
+  background: rgba(3, 14, 24, 0.85);
+  font-family: var(--hud-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 0 28px color-mix(in srgb, var(--hud-cyan) 35%, transparent);
+  transition: background 0.2s, color 0.2s;
+}
+.hud-start:hover,
+.hud-start:focus-visible {
+  color: var(--hud-bg);
+  background: var(--hud-cyan);
+  outline: none;
+}
+.hud-phase {
+  margin: 0;
+  font-family: var(--hud-mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--hud-accent);
+}
+.hud-heard {
+  min-height: 1.5em;
+  margin: 0;
+  max-width: 46ch;
+  font-size: 1rem;
+  color: var(--hud-text);
+}
+.hud-hint {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--hud-dim);
+}
+
+/* ---------- Pie: subtítulos y orden por texto ---------- */
+.hud-footer {
+  grid-area: footer;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 320px);
+  gap: 16px;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--hud-line);
+}
+.hud-caption {
+  /* Tres líneas como máximo: lo largo se lee completo en la proyección. */
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  min-height: 1.6em;
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.45;
+  color: var(--hud-text);
+}
+.hud-caption:not(:empty)::before {
+  content: '> ';
+  font-family: var(--hud-mono);
+  color: var(--hud-accent);
+}
+.hud-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--hud-line);
+  background: rgba(3, 14, 24, 0.6);
+  font-family: var(--hud-mono);
+  color: var(--hud-accent);
+}
+.hud-command:focus-within {
+  border-color: var(--hud-accent);
+}
+.hud-command input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  color: var(--hud-text);
+  background: transparent;
+  font: inherit;
+  font-size: 0.82rem;
+}
+.hud-command input::placeholder {
+  color: var(--hud-dim);
+}
+
+@keyframes hud-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+@keyframes hud-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* En pantallas angostas las tres columnas se apilan y la página desplaza. */
+@media (max-width: 960px) {
+  .hud-root {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    grid-template-areas: 'header' 'center' 'footer' 'right' 'left';
+    padding: 12px 16px;
+    overflow-y: auto;
+  }
+  .hud-core {
+    width: min(100%, 320px);
+  }
+  .hud-left,
+  .hud-right {
+    overflow: visible;
+  }
+  .hud-activity .hud-panel-body {
+    max-height: 200px;
+  }
+  .hud-footer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .hud-clock span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-card,
+  .hud-activity-item.is-running .hud-activity-glyph {
+    animation: none;
+  }
+}

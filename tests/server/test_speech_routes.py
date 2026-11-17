@@ -99,6 +99,45 @@ def test_transcribe_endpoint_surfaces_backend_error(client, mock_speech_backend)
     assert "missing cublas64_12.dll" in response.json()["detail"]
 
 
+def _transcribe_language(client, mock_speech_backend, **post_kwargs):
+    """Envía un audio y devuelve el idioma con que se llamó al backend."""
+    response = client.post(
+        "/v1/speech/transcribe",
+        files={"file": ("test.wav", b"fake audio data", "audio/wav")},
+        **post_kwargs,
+    )
+    assert response.status_code == 200
+    return mock_speech_backend.transcribe.call_args.kwargs["language"]
+
+
+def test_transcribe_defaults_to_configured_language(
+    client, app_with_speech, mock_speech_backend
+):
+    app_with_speech.state.config = SimpleNamespace(
+        speech=SimpleNamespace(language="es")
+    )
+    assert _transcribe_language(client, mock_speech_backend) == "es"
+
+
+def test_transcribe_request_language_overrides_config(
+    client, app_with_speech, mock_speech_backend
+):
+    app_with_speech.state.config = SimpleNamespace(
+        speech=SimpleNamespace(language="es")
+    )
+    language = _transcribe_language(
+        client, mock_speech_backend, data={"language": "en"}
+    )
+    assert language == "en"
+
+
+def test_transcribe_auto_detects_without_configured_language(
+    client, app_with_speech, mock_speech_backend
+):
+    app_with_speech.state.config = SimpleNamespace(speech=SimpleNamespace(language=""))
+    assert _transcribe_language(client, mock_speech_backend) is None
+
+
 def test_transcribe_no_file(client):
     response = client.post("/v1/speech/transcribe")
     assert response.status_code == 400 or response.status_code == 422

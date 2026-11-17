@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
+from typing import Callable, Optional, Tuple, TypeVar
 
 import click
 from rich.console import Console
@@ -187,6 +189,35 @@ def _resolve_server_model(
     return available[0] if available else ""
 
 
+_Resolved = TypeVar("_Resolved")
+ENGINE_WAIT_POLL_SECONDS = 5.0
+
+
+def _resolve_engine_with_wait(
+    resolve: Callable[[], Optional[_Resolved]],
+    *,
+    wait_seconds: float,
+    poll_seconds: float = ENGINE_WAIT_POLL_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> Optional[_Resolved]:
+    """Reintenta ``resolve`` hasta obtener un motor o agotar ``wait_seconds``.
+
+    Con ``wait_seconds`` en 0 hace un solo intento, como antes. El último
+    intento ocurre justo al cumplirse el plazo, para no rendirse un instante
+    antes de que el motor termine de arrancar.
+    """
+    deadline = monotonic() + max(0.0, wait_seconds)
+    while True:
+        resolved = resolve()
+        if resolved is not None:
+            return resolved
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return None
+        sleep(min(poll_seconds, remaining))
+
+
 @click.command()
 @click.option("--host", default=None, help="Bind address (default: config).")
 @click.option(
@@ -265,7 +296,15 @@ def serve(
     selection_model = (
         model_name or config.server.model or config.intelligence.default_model or None
     )
-    resolved = get_engine(config, engine_key, model=selection_model)
+    wait_seconds = config.server.engine_wait_seconds
+    if wait_seconds > 0:
+        console.print(
+            f"Waiting up to {wait_seconds}s for an inference engine to come up..."
+        )
+    resolved: Optional[Tuple[str, object]] = _resolve_engine_with_wait(
+        lambda: get_engine(config, engine_key, model=selection_model),
+        wait_seconds=wait_seconds,
+    )
     if resolved is None:
         console.print(
             "[red bold]No inference engine available.[/red bold]\n\n"

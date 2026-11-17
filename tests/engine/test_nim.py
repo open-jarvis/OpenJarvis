@@ -178,3 +178,33 @@ def test_health_falls_back_to_models(respx_mock) -> None:
     assert engine.health() is True
     assert models.called
     engine.close()
+
+
+def test_hosted_endpoint_without_key_is_unhealthy(respx_mock, monkeypatch) -> None:
+    """El catálogo público responde sin clave, pero generar exige NIM_API_KEY.
+
+    Si contara como sano, el servidor lo elegiría como respaldo cuando el motor
+    local está caído y cada respuesta fallaría con un 404.
+    """
+    monkeypatch.delenv("NIM_API_KEY", raising=False)
+    monkeypatch.delenv("NIM_HOST", raising=False)
+    models = respx_mock.get("https://integrate.api.nvidia.com/v1/models").mock(
+        return_value=httpx.Response(200, json={"data": [{"id": "public-model"}]})
+    )
+    engine = NIMEngine()
+
+    assert engine.health() is False
+    assert not models.called
+    engine.close()
+
+
+def test_hosted_endpoint_with_api_key_checks_health(respx_mock, monkeypatch) -> None:
+    monkeypatch.setenv("NIM_API_KEY", "test-key")
+    monkeypatch.delenv("NIM_HOST", raising=False)
+    respx_mock.get("https://integrate.api.nvidia.com/v1/health/ready").mock(
+        return_value=httpx.Response(200)
+    )
+    engine = NIMEngine()
+
+    assert engine.health() is True
+    engine.close()
