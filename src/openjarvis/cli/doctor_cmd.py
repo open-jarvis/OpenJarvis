@@ -40,12 +40,14 @@ class _EngineProbe:
 
 
 def _check_python_version() -> CheckResult:
-    """Check that Python version is >= 3.10."""
+    """Check the supported Python 3.11–3.13 range."""
     ver = sys.version_info
     version_str = f"{ver.major}.{ver.minor}.{ver.micro}"
-    if (ver.major, ver.minor) >= (3, 10):
+    if (3, 11) <= (ver.major, ver.minor) < (3, 14):
         return CheckResult("Python version", "ok", version_str)
-    return CheckResult("Python version", "fail", f"{version_str} (requires >= 3.10)")
+    return CheckResult(
+        "Python version", "fail", f"{version_str} (requires Python 3.11–3.13)"
+    )
 
 
 def _check_config_exists() -> CheckResult:

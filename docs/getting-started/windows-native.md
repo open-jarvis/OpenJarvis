@@ -72,7 +72,7 @@ performance on physical Windows ARM hardware.
 ## What you need
 
 - Windows 10 1809+ or Windows 11.
-- Python 3.10 – 3.13 (Python 3.14 has no numpy Windows wheels yet —
+- Python 3.11 – 3.13 (Python 3.14 has no numpy Windows wheels yet —
   see [#432](https://github.com/open-jarvis/OpenJarvis/issues/432)).
 - `git` on PATH.
 - ~5 GB free disk on `%LOCALAPPDATA%`.
@@ -88,7 +88,7 @@ irm https://open-jarvis.github.io/OpenJarvis/install.ps1 | iex
 The installer will:
 
 1. Refuse non-Windows hosts and old Windows builds.
-2. Confirm Python 3.10 – 3.13.
+2. Confirm Python 3.11 – 3.13.
 3. Confirm `git`.
 4. Install `uv` if absent (via the official `astral.sh/uv` PowerShell
    installer).

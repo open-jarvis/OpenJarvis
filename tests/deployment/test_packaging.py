@@ -40,9 +40,16 @@ def test_openjarvis_rust_not_in_published_desktop_extra() -> None:
     )
 
 
-def test_python310_speech_extras_use_installable_onnxruntime() -> None:
+def test_security_patch_python_floor_and_intel_mac_speech_wheels() -> None:
+    from packaging.specifiers import SpecifierSet
+
+    supported = SpecifierSet(_pyproject()["project"]["requires-python"])
+    assert all(v in supported for v in ["3.11", "3.12", "3.13"])
+    assert all(v not in supported for v in ["3.10", "3.14"])
     extras = _pyproject()["project"]["optional-dependencies"]
-    constraint = "onnxruntime<1.24; python_version < '3.11'"
+    constraint = (
+        "onnxruntime<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'"
+    )
 
     assert constraint in extras["desktop"]
     assert constraint in extras["speech"]

@@ -10,7 +10,7 @@
 
     Steps:
       1. Refuse non-Windows / Windows < 10.
-      2. Check Python 3.10 - 3.13 on PATH (3.14 has no numpy wheels yet,
+      2. Check Python 3.11 - 3.13 on PATH (3.14 has no numpy wheels yet,
          see #432).
       3. Check git on PATH.
       4. Install uv (https://astral.sh/uv) if absent.
@@ -163,7 +163,7 @@ function Get-PythonCommand {
                 $match = [regex]::Match(($version -join ' '), '^Python (\d+)\.(\d+)\.\d+')
                 if ($LASTEXITCODE -eq 0 -and $match.Success -and
                     [int]$match.Groups[1].Value -eq 3 -and
-                    [int]$match.Groups[2].Value -ge 10 -and
+                    [int]$match.Groups[2].Value -ge 11 -and
                     [int]$match.Groups[2].Value -le 13) {
                     return $cmd.Source
                 }
@@ -176,7 +176,7 @@ function Get-PythonCommand {
     return $null
 }
 
-Write-Info "Checking Python (3.10 - 3.13)..."
+Write-Info "Checking Python (3.11 - 3.13)..."
 $pythonExe = Get-PythonCommand
 if (-not $pythonExe) {
     Write-Info "Python not on PATH - attempting auto-install via winget..."
@@ -185,7 +185,7 @@ if (-not $pythonExe) {
     $pythonExe = Get-PythonCommand
     if (-not $pythonExe) {
         Write-Fail @"
-Python 3.10 - 3.13 not found and auto-install via winget failed.
+Python 3.11 - 3.13 not found and auto-install via winget failed.
 
 Install manually from https://python.org (check 'Add python.exe to PATH'
 during install) or via winget:
@@ -204,10 +204,10 @@ if (-not $verMatch.Success) {
 }
 $pyMajor = [int]$verMatch.Groups[1].Value
 $pyMinor = [int]$verMatch.Groups[2].Value
-if ($pyMajor -ne 3 -or $pyMinor -lt 10 -or $pyMinor -gt 13) {
+if ($pyMajor -ne 3 -or $pyMinor -lt 11 -or $pyMinor -gt 13) {
     Write-Fail @"
 Found Python $pyMajor.$pyMinor at $pythonExe, but OpenJarvis requires
-3.10 - 3.13. Python 3.14 has no numpy Windows wheels yet (#432, will
+3.11 - 3.13. Python 3.14 has no numpy Windows wheels yet (#432, will
 re-open once numpy ships cp314).
 "@
 }
