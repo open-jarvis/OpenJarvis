@@ -11,7 +11,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 rusqlite = { workspace = true }
 parking_lot = { workspace = true }
-chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
