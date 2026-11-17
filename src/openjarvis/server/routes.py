@@ -1193,6 +1193,14 @@ async def list_models(request: Request) -> ModelListResponse:
     # the UI auto-select nomic-embed-text and fail every generation with 400.
     model_ids = [m for m in model_ids if not is_embed_only_model(m)]
 
+    # Put the server's configured model first. The web UI auto-selects
+    # chatModels[0] when it has no stored preference, so without this the
+    # picker lands on whatever the engine happens to list first (e.g. a 1B
+    # model) instead of [intelligence] default_model.
+    active_model = getattr(request.app.state, "model", "")
+    if active_model and active_model in model_ids:
+        model_ids = [active_model] + [m for m in model_ids if m != active_model]
+
     return ModelListResponse(
         data=[
             ModelObject(
