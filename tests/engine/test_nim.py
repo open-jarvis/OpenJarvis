@@ -178,3 +178,44 @@ def test_health_falls_back_to_models(respx_mock) -> None:
     assert engine.health() is True
     assert models.called
     engine.close()
+
+
+class TestCloudReporting:
+    """Whether NIM declares itself a cloud engine.
+
+    Engine fallback prefers a replacement on the same local/cloud boundary.
+    NIMEngine inherited ``is_cloud = False`` from the base class while
+    defaulting to NVIDIA's hosted API, so the check read False and a remote
+    endpoint counted as local: with the preferred engine unavailable, `nim`
+    beat `ollama` on alphabetical order and the server answered from a
+    hosted model while a healthy local Ollama sat unused.
+    """
+
+    def test_the_default_host_is_reported_as_cloud(self, monkeypatch) -> None:
+        monkeypatch.delenv("NIM_HOST", raising=False)
+
+        assert NIMEngine().is_cloud is True
+
+    def test_the_class_default_is_cloud_before_instantiation(self) -> None:
+        # Fallback may consult the class rather than an instance.
+        assert NIMEngine.is_cloud is True
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://[::1]:8000",
+            "http://nim.local",
+        ],
+    )
+    def test_a_self_hosted_nim_is_not_cloud(self, host: str) -> None:
+        assert NIMEngine(host=host).is_cloud is False
+
+    def test_a_remote_host_is_cloud(self) -> None:
+        assert NIMEngine(host="https://integrate.api.nvidia.com").is_cloud is True
+
+    def test_the_env_host_is_honoured(self, monkeypatch) -> None:
+        monkeypatch.setenv("NIM_HOST", "http://localhost:9000")
+
+        assert NIMEngine().is_cloud is False
