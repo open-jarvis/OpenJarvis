@@ -18,6 +18,24 @@ from openjarvis.cli.model import model
 model_module = importlib.import_module("openjarvis.cli.model")
 
 
+def _symlinks_supported() -> bool:
+    """Windows needs Developer Mode or admin to create directory symlinks."""
+    import os
+    import tempfile
+
+    if not hasattr(os, "symlink"):
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.symlink(Path(tmp), Path(tmp) / "link", target_is_directory=True)
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+_SYMLINKS_SUPPORTED = _symlinks_supported()
+
+
 class TestModelConvert:
     """Tests for the convert command."""
 
@@ -273,7 +291,10 @@ class TestModelConvert:
         ]
         assert (output_dir / "some--repo.q4_k_m.gguf").read_bytes() == b"quantized"
         assert "jarvis host" in result.output
-        assert "--backend llamacpp" in result.output
+        # Rich wraps inside the panel border on narrow terminals, so assert the
+        # two tokens rather than the full phrase.
+        assert "--backend" in result.output
+        assert "llamacpp" in result.output
 
     def test_convert_gguf_missing_tool(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -470,6 +491,9 @@ class TestModelConvert:
         assert staged.joinpath("new.bin").read_bytes() == b"new"
         assert list(tmp_path.glob(".model.backup-*")) == []
 
+    @pytest.mark.skipif(
+        not _SYMLINKS_SUPPORTED, reason="requires symlink privilege (Developer Mode)"
+    )
     def test_force_replaces_symlink_without_touching_target(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -518,6 +542,9 @@ class TestModelConvert:
         assert (output_dir / "config.json").is_file()
         assert sentinel.read_text(encoding="utf-8") == "keep"
 
+    @pytest.mark.skipif(
+        not _SYMLINKS_SUPPORTED, reason="requires symlink privilege (Developer Mode)"
+    )
     def test_convert_refuses_empty_directory_symlink_without_force(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

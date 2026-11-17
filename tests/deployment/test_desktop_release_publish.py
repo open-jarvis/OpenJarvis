@@ -2,9 +2,11 @@
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +28,9 @@ def test_stable_publication_waits_for_every_build_and_manifest():
     assert jobs["refresh-stable-channel"]["needs"] == ["publish-stable-release"]
 
 
+@pytest.mark.skipif(
+    shutil.which("bash") is None, reason="requires bash to run the release script"
+)
 def test_download_aliases_copy_the_verified_versioned_files(tmp_path):
     jobs = yaml.safe_load((ROOT / ".github/workflows/desktop.yml").read_text())["jobs"]
     script = next(

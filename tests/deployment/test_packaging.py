@@ -89,7 +89,7 @@ def test_windows_installer_failure_does_not_exit_interactive_host() -> None:
 
 
 def test_quickstart_installs_web_search_dependencies() -> None:
-    quickstart = QUICKSTART_SH.read_text()
+    quickstart = QUICKSTART_SH.read_text(encoding="utf-8")
     assert "--extra tools-search" in quickstart
     assert "already running on port 8000" in quickstart
 
@@ -195,6 +195,5 @@ def test_sdist_omits_desktop_binaries_and_rebuilds_runtime_wheel(tmp_path) -> No
         else:
             for path in (project / source).rglob("*"):
                 if path.is_file():
-                    assert f"{destination}/{path.relative_to(project / source)}" in (
-                        wheel_files
-                    )
+                    relative = path.relative_to(project / source).as_posix()
+                    assert f"{destination}/{relative}" in wheel_files

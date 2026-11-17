@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+
+# The preflight step under test is a bash script run by the macOS release job.
+pytestmark = pytest.mark.skipif(
+    sys.platform != "darwin", reason="macOS notarization workflow"
+)
 
 
 @pytest.mark.parametrize(

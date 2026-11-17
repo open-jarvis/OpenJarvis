@@ -8,6 +8,7 @@ templates must not allow command injection through parameter substitution.
 from __future__ import annotations
 
 import os
+import sys
 
 import pytest
 
@@ -74,12 +75,16 @@ def test_shell_action_neutralizes_injection(tmp_path) -> None:
     tmpl = ToolTemplate(
         {
             "name": "echoer",
-            "action": {"type": "shell", "command": "echo {msg}"},
+            "action": {
+                "type": "shell",
+                "command": '{py} -c "import sys; print(sys.argv[1])" {msg}',
+            },
         }
     )
-    result = tmpl.execute(msg=f"hello; touch {marker}")
+    payload = f"hello; touch {marker}"
+    result = tmpl.execute(py=sys.executable, msg=payload)
     # The injected command text is echoed back literally, not executed.
-    assert "hello" in result.content
+    assert payload in result.content
     assert not marker.exists(), "command injection executed — marker was created"
 
 
@@ -88,10 +93,13 @@ def test_shell_action_passes_values_as_single_argument() -> None:
     tmpl = ToolTemplate(
         {
             "name": "echoer",
-            "action": {"type": "shell", "command": "echo {msg}"},
+            "action": {
+                "type": "shell",
+                "command": '{py} -c "import sys; print(sys.argv[1])" {msg}',
+            },
         }
     )
-    result = tmpl.execute(msg="a b c")
+    result = tmpl.execute(py=sys.executable, msg="a b c")
     assert result.content == "a b c"
 
 

@@ -3,8 +3,10 @@
 import json
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 from openjarvis.cli.serve import serve
@@ -12,6 +14,11 @@ from openjarvis.cli.serve import serve
 RENDER_BLUEPRINT = Path(__file__).resolve().parents[2] / "render.yaml"
 RENDER_DOC = Path(__file__).resolve().parents[2] / "docs/deployment/render.md"
 DOCKERFILE = Path(__file__).resolve().parents[2] / "deploy/docker/Dockerfile"
+
+# The fake entrypoint below is a `#!/bin/sh` script, which Windows cannot exec.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="executes a POSIX shell entrypoint"
+)
 
 
 def _service() -> dict:

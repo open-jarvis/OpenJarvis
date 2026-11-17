@@ -15,6 +15,13 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "frontend/src-tauri/scripts"
 ARM_TARGET = "aarch64-pc-windows-msvc"
 
+# The staging scripts are bash + POSIX tools (curl, uname, unzip); native
+# Windows only has them through Git Bash.
+pytestmark = pytest.mark.skipif(
+    shutil.which("bash") is None,
+    reason="requires bash (Git Bash on Windows) for the ARM64 staging scripts",
+)
+
 
 def pe_executable(machine: int) -> bytes:
     header = bytearray(128)
@@ -119,6 +126,7 @@ def test_explicit_x64_target_wins_over_arm_host(sidecar_download):
     assert Path(env["TEST_URL"]).read_text().endswith("/ollama-windows-amd64.zip")
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="requires Node.js")
 @pytest.mark.parametrize(
     ("payload", "valid"),
     [

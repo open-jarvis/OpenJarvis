@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -11,6 +12,11 @@ import pytest
 from click.testing import CliRunner
 
 from openjarvis.cli import daemon_cmd
+
+# The identity scheme under test is procfs + setsid based; Windows has neither.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX daemon identity (procfs, setsid)"
+)
 
 
 @pytest.fixture

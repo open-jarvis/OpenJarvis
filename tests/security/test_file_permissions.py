@@ -7,6 +7,14 @@ import stat
 import tempfile
 from pathlib import Path
 
+import pytest
+
+# Windows reports synthesized 0o666/0o777 bits and enforces access through
+# ACLs, so the POSIX mode assertions below cannot hold there.
+pytestmark = pytest.mark.skipif(
+    os.name != "posix", reason="POSIX permission bits; Windows uses ACLs"
+)
+
 
 class TestSecureMkdir:
     """secure_mkdir should create directories with 0o700."""
