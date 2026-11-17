@@ -75,12 +75,13 @@ export function ApprovalBell() {
   const count = approvals.length;
 
   return (
-    <div ref={containerRef} className="fixed top-2 right-3 z-40">
+    <div ref={containerRef} className="fixed top-2 right-12 z-40">
       {/* Bell trigger */}
       <button
         onClick={() => setOpen(o => !o)}
         className="relative p-2 rounded-lg transition-colors cursor-pointer"
         title="Agent approvals"
+        aria-label="Agent approvals"
         style={{
           color: count > 0 ? 'var(--color-text)' : 'var(--color-text-secondary)',
           background: open
