@@ -97,6 +97,13 @@
   background: var(--hud-accent);
   box-shadow: 0 0 10px var(--hud-accent);
 }
+.hud-status.is-offline {
+  color: var(--hud-red);
+}
+.hud-status.is-offline::before {
+  background: var(--hud-red);
+  box-shadow: 0 0 10px var(--hud-red);
+}
 .hud-clock {
   display: flex;
   align-items: baseline;

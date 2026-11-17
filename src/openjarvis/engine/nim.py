@@ -272,7 +272,16 @@ class NIMEngine(InferenceEngine):
         data = resp.json()
         return [m["id"] for m in data.get("data", [])]
 
+    def _requires_api_key(self) -> bool:
+        """El endpoint alojado por NVIDIA exige clave; uno propio puede no hacerlo."""
+        return self._host == self._default_host
+
     def health(self) -> bool:
+        # Sin clave, el catálogo público de NVIDIA responde 200 pero cualquier
+        # generación falla. Darlo por sano lo volvía el respaldo elegido cuando
+        # el motor local está caído, con un 404 en cada respuesta.
+        if self._requires_api_key() and not self._api_key:
+            return False
         try:
             resp = self._client.get(
                 f"{self._api_prefix}/health/ready",

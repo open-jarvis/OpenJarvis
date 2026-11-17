@@ -91,7 +91,9 @@ export function HudPage() {
       <header className="hud-header">
         <div className="hud-brand">
           <strong>JARVIS</strong>
-          <span className="hud-status">{active ? 'En línea' : 'En espera'}</span>
+          <span className={`hud-status${session.serverOnline === false ? ' is-offline' : ''}`}>
+            {session.serverOnline === false ? 'Servidor desconectado' : active ? 'En línea' : 'En espera'}
+          </span>
         </div>
         <HudClock />
         <nav className="hud-header-actions" aria-label="Controles">

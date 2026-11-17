@@ -1167,6 +1167,11 @@ class ServerConfig:
     agent: str = "orchestrator"
     model: str = ""
     workers: int = 1
+    # Segundos que el servidor espera a que aparezca un motor de inferencia
+    # antes de rendirse. Útil cuando arranca al iniciar sesión junto con
+    # Ollama y puede ganarle la carrera. 0 = un solo intento (comportamiento
+    # original).
+    engine_wait_seconds: int = 0
     cors_origins: list = field(
         default_factory=lambda: [
             "http://localhost:3000",

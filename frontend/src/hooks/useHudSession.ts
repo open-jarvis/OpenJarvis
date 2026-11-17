@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchTtsHealth, transcribeAudio } from '../lib/api';
+import { checkHealth, fetchModels, fetchServerInfo, fetchTtsHealth, transcribeAudio } from '../lib/api';
 import { stripThinkTags, toSpeakableText } from '../lib/message-text';
 import { streamChat } from '../lib/sse';
 import { useAppStore } from '../lib/store';
@@ -44,8 +44,21 @@ const SPEAKING_SENSITIVITY_FACTOR = 3;
 const GREETING = 'Sistemas en línea, señor.';
 const ACKNOWLEDGEMENT = '¿Sí, señor?';
 
+/** Cada cuánto se comprueba que el servidor responde. */
+const HEALTH_POLL_MS = 4000;
+const SERVER_UNREACHABLE = 'Sin conexión con el servidor de Jarvis';
+
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${(idCounter += 1)}`;
+
+/**
+ * Texto de error para el registro. `fetch` rechaza con TypeError ("Failed to
+ * fetch") cuando no hubo respuesta: el servidor está apagado o se cayó.
+ */
+function describeError(error: unknown): string {
+  if (error instanceof TypeError) return SERVER_UNREACHABLE;
+  return error instanceof Error ? error.message : String(error);
+}
 
 /** Extrae el texto nuevo de un fragmento de `chat.completion.chunk`. */
 function parseContentDelta(data: string): string {
@@ -111,6 +124,10 @@ export function useHudSession() {
   const selectedModel = useAppStore((s) => s.selectedModel);
   const serverModel = useAppStore((s) => s.serverInfo?.model);
   const model = selectedModel || serverModel || '';
+  const setServerInfo = useAppStore((s) => s.setServerInfo);
+  const setModels = useAppStore((s) => s.setModels);
+  /** null mientras no se ha comprobado. */
+  const [serverOnline, setServerOnline] = useState<boolean | null>(null);
 
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [voiceOutput, setVoiceOutput] = useState(false);
@@ -165,8 +182,19 @@ export function useHudSession() {
       const command = text.trim();
       if (!command) return;
       if (!modelRef.current) {
-        addActivity({ kind: 'error', label: 'No hay un modelo disponible', status: 'error' });
-        return;
+        // La página pudo cargarse con el servidor apagado: se pregunta otra vez.
+        const info = await fetchServerInfo().catch(() => null);
+        if (info?.model) {
+          setServerInfo(info);
+          modelRef.current = info.model;
+        } else {
+          addActivity({
+            kind: 'error',
+            label: info ? 'El servidor no tiene un modelo configurado' : SERVER_UNREACHABLE,
+            status: 'error',
+          });
+          return;
+        }
       }
 
       interrupt();
@@ -200,8 +228,7 @@ export function useHudSession() {
         say(splitter.flush());
       } catch (error) {
         if (!controller.signal.aborted) {
-          const message = error instanceof Error ? error.message : String(error);
-          addActivity({ kind: 'error', label: `Consulta fallida · ${message}`, status: 'error' });
+          addActivity({ kind: 'error', label: `Consulta fallida · ${describeError(error)}`, status: 'error' });
           setCaption('No pude completar la solicitud, señor.');
         }
       } finally {
@@ -218,7 +245,7 @@ export function useHudSession() {
       addCard(buildAnswerCard(nextId('answer'), visibleAnswer, Date.now(), command));
       if (!speechQueueRef.current) followUpUntilRef.current = Date.now() + FOLLOW_UP_WINDOW_MS;
     },
-    [addActivity, addCard, interrupt],
+    [addActivity, addCard, interrupt, setServerInfo],
   );
 
   /** Decide qué hacer con una frase ya transcrita. */
@@ -265,8 +292,11 @@ export function useHudSession() {
           const { text } = await transcribeAudio(wav, 'utterance.wav');
           routeTranscript(text.trim(), manual, capturedWhileBusy);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          addActivity({ kind: 'error', label: `Transcripción fallida · ${message}`, status: 'error' });
+          addActivity({
+            kind: 'error',
+            label: `Transcripción fallida · ${describeError(error)}`,
+            status: 'error',
+          });
         } finally {
           setTranscribing(false);
         }
@@ -392,6 +422,27 @@ export function useHudSession() {
     });
   }, [addCard]);
 
+  // Si la página cargó antes que el servidor, las consultas iniciales de la app
+  // fallaron sin reintento; aquí se repiten en cuanto el servidor responde.
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      const online = await checkHealth();
+      if (cancelled) return;
+      setServerOnline(online);
+      if (online && !modelRef.current) {
+        fetchServerInfo().then((info) => !cancelled && setServerInfo(info)).catch(() => {});
+        fetchModels().then((models) => !cancelled && setModels(models)).catch(() => {});
+      }
+    };
+    void poll();
+    const timer = setInterval(poll, HEALTH_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [setModels, setServerInfo]);
+
   const active = audioContext !== null;
   const phase: HudPhase = useMemo(() => {
     if (!active) return 'standby';
@@ -412,6 +463,7 @@ export function useHudSession() {
   return {
     phase,
     active,
+    serverOnline,
     model,
     micStatus: voice.status,
     voiceOutput,
