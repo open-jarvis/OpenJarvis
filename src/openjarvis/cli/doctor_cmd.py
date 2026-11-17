@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from openjarvis.core._network import endpoint_is_loopback
 from openjarvis.core.config import DEFAULT_CONFIG_PATH, load_config
 
 
@@ -92,33 +94,34 @@ def _get_config() -> Any:
         return JarvisConfig()
 
 
-_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]")
-
-
 def _is_local_endpoint(engine: Any) -> bool:
-    """Return True when the engine talks to this machine.
+    """Recognize on-device endpoints without DNS or network requests."""
+    try:
+        host = getattr(engine, "_host", None) or getattr(engine, "host", None)
+        if host is not None:
+            return endpoint_is_loopback(host)
+        # Hostless in-process engines are local; cloud SDK engines are not.
+        return not bool(getattr(engine, "is_cloud", True))
+    except Exception:
+        return False
 
-    Engines default to remote endpoints (``nim`` ships
-    ``https://integrate.api.nvidia.com``), so probing every registered engine
-    reached third-party APIs just for running ``jarvis doctor``. Diagnostics
-    stay on-device unless the user asks otherwise with ``--probe-remote``.
-    """
-    host = getattr(engine, "_host", None) or getattr(engine, "host", None)
-    if not isinstance(host, str) or not host:
-        # Only skip when a remote hostname is positively identified; an
-        # unreadable host is probed as before.
-        return True
-    without_scheme = host.split("://", 1)[-1]
-    hostname = without_scheme.split("/", 1)[0].rsplit("@", 1)[-1]
-    if hostname.startswith("["):
-        # Bracketed IPv6, optionally followed by :port. Counting colons
-        # cannot separate the port here: "[::1]:8000" has three.
-        closing = hostname.find("]")
-        if closing != -1:
-            hostname = hostname[: closing + 1]
-    elif hostname.count(":") == 1:
-        hostname = hostname.rsplit(":", 1)[0]
-    return hostname in _LOCAL_HOSTS or hostname.endswith(".local")
+
+def _configured_endpoint_is_local(key: str, config: Any) -> bool:
+    """Check factory configuration before constructing a remote client."""
+    from openjarvis.core.registry import EngineRegistry
+    from openjarvis.engine._discovery import _HOST_MAP
+
+    cls = EngineRegistry.get(key)
+    host_attr = _HOST_MAP.get(key)
+    host = getattr(config.engine, host_attr, None) if host_attr else None
+    if not host:
+        prefix = getattr(cls, "engine_id", key).upper().replace("-", "_")
+        host = os.environ.get(f"{prefix}_HOST") or getattr(
+            cls, "_default_host", getattr(cls, "_DEFAULT_HOST", None)
+        )
+    if host is not None:
+        return endpoint_is_loopback(host)
+    return not bool(getattr(cls, "is_cloud", True))
 
 
 def _probe_engines(
@@ -137,17 +140,24 @@ def _probe_engines(
     keys = sorted(EngineRegistry.keys())
 
     def probe(key: str) -> tuple[str, _EngineProbe]:
+        engine = None
         try:
+            if not probe_remote and not _configured_endpoint_is_local(
+                key, resolved_config
+            ):
+                return key, _EngineProbe(engine=None, healthy=False, skipped=True)
             engine = _discovery._make_engine(key, resolved_config)
             if not probe_remote and not _is_local_endpoint(engine):
                 return key, _EngineProbe(engine=engine, healthy=False, skipped=True)
             return key, _EngineProbe(engine=engine, healthy=bool(engine.health()))
         except Exception as exc:
-            return key, _EngineProbe(engine=None, healthy=False, error=str(exc))
+            return key, _EngineProbe(
+                engine=engine, healthy=False, error=type(exc).__name__
+            )
 
     if not keys:
         return {}
-    with ThreadPoolExecutor(max_workers=len(keys)) as pool:
+    with ThreadPoolExecutor(max_workers=min(8, len(keys))) as pool:
         return dict(pool.map(probe, keys))
 
 
@@ -165,7 +175,7 @@ def _check_engines(
                 CheckResult(
                     f"Engine: {key}",
                     "info",
-                    "Remote endpoint — not probed (use --probe-remote)",
+                    "Remote or unknown endpoint — not probed (use --probe-remote)",
                 )
             )
         elif probe.healthy:
@@ -242,6 +252,13 @@ def _check_default_model(
 
     preferred = config.intelligence.preferred_engine or config.engine.default
     resolved_probes = probes if probes is not None else _probe_engines(config)
+    preferred_probe = resolved_probes.get(preferred)
+    if preferred_probe is not None and preferred_probe.skipped:
+        return CheckResult(
+            "Default model",
+            "info",
+            f"{default_model} not checked (use --probe-remote)",
+        )
     check_order = []
     if preferred:
         check_order.append(preferred)
@@ -265,7 +282,7 @@ def _check_default_model(
     return CheckResult(
         "Default model",
         "warn",
-        f"{default_model} not found on any engine",
+        f"{default_model} not found on probed engines",
     )
 
 
@@ -409,6 +426,7 @@ def _check_nodejs() -> CheckResult:
 
 _STATUS_ICONS = {
     "ok": "[green]\u2713[/green]",
+    "info": "[blue]i[/blue]",
     "warn": "[yellow]![/yellow]",
     "fail": "[red]\u2717[/red]",
 }
@@ -421,9 +439,17 @@ def _run_all_checks(*, probe_remote: bool = False) -> List[CheckResult]:
     checks.append(_check_config_exists())
     checks.append(_check_config_parses())
     engine_probes = _probe_engines(probe_remote=probe_remote)
-    checks.extend(_check_engines(engine_probes))
-    checks.extend(_check_models(engine_probes))
-    checks.append(_check_default_model(engine_probes))
+    try:
+        checks.extend(_check_engines(engine_probes))
+        checks.extend(_check_models(engine_probes))
+        checks.append(_check_default_model(engine_probes))
+    finally:
+        for probe in engine_probes.values():
+            if probe.engine is not None:
+                try:
+                    probe.engine.close()
+                except Exception:
+                    pass
     checks.extend(_check_optional_deps())
     checks.append(_check_speech_backend())
     checks.append(_check_nodejs())
@@ -441,7 +467,7 @@ def _results_to_dicts(checks: List[CheckResult]) -> List[Dict[str, Any]]:
 @click.option(
     "--probe-remote",
     is_flag=True,
-    help="Also health-check engines pointing at remote endpoints.",
+    help="Also probe engines outside this device (including LAN endpoints).",
 )
 def doctor(as_json: bool, probe_remote: bool) -> None:
     """Run diagnostic checks on your OpenJarvis installation."""
