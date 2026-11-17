@@ -61,6 +61,19 @@ def build_safe_env(
 
 def kill_process_tree(pid: int) -> None:
     """Kill a process and all its children (best effort)."""
+    if os.name != "posix":
+        # Windows has no process groups reachable through os.kill; taskkill
+        # walks the child tree itself.
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except OSError as exc:
+            logger.debug("Failed to terminate process %d: %s", pid, exc)
+        return
     try:
         os.killpg(os.getpgid(pid), signal.SIGTERM)
     except (OSError, ProcessLookupError) as exc:
@@ -92,6 +105,13 @@ def run_sandboxed(
     cwd = working_dir if working_dir and os.path.isdir(working_dir) else None
 
     result = SandboxResult()
+    # A new process group is what makes kill_process_tree able to take the
+    # whole tree down; the primitive differs per platform.
+    group_kwargs: Dict[str, object] = (
+        {"preexec_fn": os.setsid}
+        if os.name == "posix"
+        else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    )
     try:
         proc = subprocess.Popen(
             command,
@@ -102,7 +122,7 @@ def run_sandboxed(
             text=True,
             env=env,
             cwd=cwd,
-            preexec_fn=os.setsid,  # New process group
+            **group_kwargs,
         )
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
