@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+import pytest
 
 from openjarvis.connectors.apple_calendar import (
     AppleCalendarConnector,
@@ -102,7 +106,9 @@ def test_recurring_master_outside_window_yields_distinct_occurrences(tmp_path):
     conn.commit()
     conn.close()
 
-    documents = list(AppleCalendarConnector(db_path=str(db)).sync())
+    documents = list(
+        AppleCalendarConnector(db_path=str(db)).sync(since=now - timedelta(days=1))
+    )
     assert [document.title for document in documents] == [
         "Weekly standup",
         "Weekly standup",
@@ -219,3 +225,100 @@ def test_stale_past_event_is_still_filtered_out_by_since(tmp_path):
     connector = AppleCalendarConnector(db_path=str(db))
     assert list(connector.sync(since=now - timedelta(hours=24))) == []
     assert len(list(connector.sync())) == 1
+
+
+@pytest.mark.skipif(
+    not hasattr(time, "tzset"), reason="requires process-local TZ support"
+)
+@pytest.mark.parametrize("local_zone", ["America/Los_Angeles", "Asia/Tokyo"])
+def test_since_keeps_current_events_using_calendar_time_semantics(
+    tmp_path, monkeypatch, local_zone
+):
+    import openjarvis.connectors.apple_calendar as calendar_module
+
+    frozen = datetime(2026, 11, 17, 18, tzinfo=timezone.utc)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen.astimezone(tz) if tz else frozen.replace(tzinfo=None)
+
+    monkeypatch.setattr(calendar_module, "datetime", FrozenDateTime)
+    # Use a process-local zone and restore it even if assertions fail.
+    old_tz = os.environ.get("TZ")
+    monkeypatch.setenv("TZ", local_zone)
+    time.tzset()
+    try:
+        db = tmp_path / "calendar.sqlite"
+        conn = _make_calendar_db(db)
+        old_edit = frozen - timedelta(days=30)
+        wall_now = frozen.astimezone().replace(tzinfo=timezone.utc)
+        events = [
+            (
+                "Ongoing",
+                frozen - timedelta(minutes=30),
+                frozen + timedelta(minutes=30),
+                "UTC",
+                False,
+            ),
+            (
+                "Floating future",
+                wall_now + timedelta(hours=1),
+                wall_now + timedelta(hours=2),
+                "_float",
+                False,
+            ),
+            (
+                "Floating past",
+                wall_now - timedelta(hours=2),
+                wall_now - timedelta(hours=1),
+                "_float",
+                False,
+            ),
+            (
+                "All day today",
+                wall_now.replace(hour=0),
+                (wall_now + timedelta(days=1)).replace(hour=0),
+                "UTC",
+                True,
+            ),
+            (
+                "All day yesterday",
+                (wall_now - timedelta(days=1)).replace(hour=0),
+                wall_now.replace(hour=0),
+                "UTC",
+                True,
+            ),
+            (
+                "Finished",
+                frozen - timedelta(hours=2),
+                frozen - timedelta(hours=1),
+                "UTC",
+                False,
+            ),
+        ]
+        for i, (title, start, end, zone, all_day) in enumerate(events, 1):
+            _insert_event(
+                conn,
+                rowid=i,
+                summary=title,
+                start=start,
+                end=end,
+                tz=zone,
+                last_modified=old_edit,
+            )
+            if all_day:
+                conn.execute(
+                    "UPDATE CalendarItem SET all_day = 1 WHERE ROWID = ?", (i,)
+                )
+        conn.commit()
+        conn.close()
+        connector = AppleCalendarConnector(db_path=str(db), days_behind=2)
+        titles = {doc.title for doc in connector.sync(since=frozen - timedelta(days=1))}
+        assert titles == {"Ongoing", "Floating future", "All day today"}
+    finally:
+        if old_tz is None:
+            monkeypatch.delenv("TZ", raising=False)
+        else:
+            monkeypatch.setenv("TZ", old_tz)
+        time.tzset()

@@ -345,6 +345,9 @@ class AppleCalendarConnector(BaseConnector):
                 ) = row
 
                 timestamp = _apple_ts(last_mod) if last_mod else _apple_ts(start_date)
+                start_dt, end_dt = self._display_datetimes(
+                    start_date, end_date, start_tz, bool(all_day)
+                )
                 if since is not None:
                     since_utc = (
                         since if since.tzinfo else since.replace(tzinfo=timezone.utc)
@@ -353,19 +356,28 @@ class AppleCalendarConnector(BaseConnector):
                     # sync but not a briefing: tomorrow's meeting, created a
                     # month ago, has an old last_modified and was dropped, so
                     # the calendar section came back empty while the connector
-                    # held the event. An event that has not happened yet is
-                    # kept even when it was not touched since `since`.
-                    event_start = _apple_ts(start_date) if start_date else None
-                    still_upcoming = event_start is not None and event_start >= now
-                    if timestamp < since_utc and not still_upcoming:
+                    # held the event. Keep ongoing/upcoming events in the
+                    # configured window, respecting floating wall times and
+                    # all-day dates (whose end date is exclusive).
+                    local_now = now.astimezone().replace(tzinfo=None)
+                    if all_day:
+                        current_or_upcoming = (
+                            end_dt.date() > local_now.date()
+                            if end_dt is not None and end_dt > start_dt
+                            else start_dt.date() >= local_now.date()
+                        )
+                    else:
+                        reference = now if start_dt.tzinfo else local_now
+                        current_or_upcoming = (
+                            end_dt > reference
+                            if end_dt is not None and end_dt > start_dt
+                            else start_dt >= reference
+                        )
+                    if timestamp < since_utc and not current_or_upcoming:
                         continue
 
                 location = self._fetch_location(conn, loc_id)
                 content = self._build_content(row, location)
-                start_dt, _ = self._display_datetimes(
-                    start_date, end_date, start_tz, bool(all_day)
-                )
-
                 meta: Dict[str, Any] = {
                     "summary": summary,
                     "calendar": cal_title,
