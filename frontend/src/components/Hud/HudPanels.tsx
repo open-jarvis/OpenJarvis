@@ -59,7 +59,8 @@ interface SystemPanelProps {
   model: string;
   stats: InferenceStats;
   micStatus: MicStatus;
-  voiceOutput: boolean;
+  /** Voz activa ("NAVEGADOR · nombre"); vacía si Jarvis solo escribe. */
+  voiceOutput: string;
   active: boolean;
 }
 
@@ -111,7 +112,7 @@ export function SystemPanel({ model, stats, micStatus, voiceOutput, active }: Sy
       </HudPanel>
       <HudPanel title="Voz">
         <Readout label="Micrófono" value={MIC_LABELS[micStatus]} />
-        <Readout label="Síntesis" value={!active ? UNKNOWN : voiceOutput ? 'ACTIVA' : 'SOLO TEXTO'} />
+        <Readout label="Síntesis" value={!active ? UNKNOWN : voiceOutput || 'SOLO TEXTO'} />
       </HudPanel>
     </>
   );

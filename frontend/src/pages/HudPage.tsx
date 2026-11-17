@@ -59,12 +59,15 @@ export function HudPage() {
   // Espacio mantenido = hablar sin decir "Jarvis"; Escape = interrumpir.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Esc interrumpe siempre, también justo después de escribir una orden.
+      if (event.key === 'Escape') {
+        interrupt();
+        return;
+      }
       if (isTypingTarget(event.target)) return;
       if (event.code === 'Space' && !event.repeat) {
         event.preventDefault();
         startPushToTalk();
-      } else if (event.key === 'Escape') {
-        interrupt();
       }
     };
     const handleKeyUp = (event: KeyboardEvent) => {

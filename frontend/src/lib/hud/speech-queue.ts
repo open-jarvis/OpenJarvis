@@ -15,6 +15,15 @@ export interface SpeechQueueCallbacks {
   onError?: (message: string) => void;
 }
 
+/** Lo que el HUD necesita de una voz, venga del servidor o del navegador. */
+export interface VoiceOutput {
+  enqueue(text: string): void;
+  /** Silencia de inmediato y descarta lo pendiente. */
+  stop(): void;
+  /** Nivel actual de la voz (0..1) para la animación. */
+  getLevel(): number;
+}
+
 interface QueueItem {
   text: string;
   audio: Promise<AudioBuffer | null> | null;
@@ -25,7 +34,7 @@ const PREFETCH_DEPTH = 2;
 /** Muestras que se leen para medir el nivel de la voz. */
 const ANALYSER_SIZE = 1024;
 
-export class SpeechQueue {
+export class SpeechQueue implements VoiceOutput {
   private readonly analyser: AnalyserNode;
   private readonly levelBuffer = new Float32Array(ANALYSER_SIZE);
   private items: QueueItem[] = [];

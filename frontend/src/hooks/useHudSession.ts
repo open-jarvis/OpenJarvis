@@ -5,7 +5,9 @@ import { streamChat } from '../lib/sse';
 import { useAppStore } from '../lib/store';
 import { buildWsProtocols, buildWsUrl } from '../lib/useAgentEvents';
 import type { AgentEvent } from '../lib/useAgentEvents';
+import { BrowserSpeechQueue } from '../lib/hud/browser-speech-queue';
 import { SpeechQueue } from '../lib/hud/speech-queue';
+import type { SpeechQueueCallbacks, VoiceOutput } from '../lib/hud/speech-queue';
 import { createSentenceSplitter, matchWakeWord } from '../lib/hud/speech-text';
 import { buildAnswerCard, buildToolCard, describeToolCall } from '../lib/hud/tool-cards';
 import type { HudCard } from '../lib/hud/tool-cards';
@@ -123,14 +125,17 @@ function subscribeAgentEvents(onEvent: (event: AgentEvent) => void): () => void 
 export function useHudSession() {
   const selectedModel = useAppStore((s) => s.selectedModel);
   const serverModel = useAppStore((s) => s.serverInfo?.model);
-  const model = selectedModel || serverModel || '';
+  // Primero el modelo del servidor: es el que se configura para Jarvis. La
+  // selección del chat puede apuntar a otro (por ejemplo, uno local y lento).
+  const model = serverModel || selectedModel || '';
   const setServerInfo = useAppStore((s) => s.setServerInfo);
   const setModels = useAppStore((s) => s.setModels);
   /** null mientras no se ha comprobado. */
   const [serverOnline, setServerOnline] = useState<boolean | null>(null);
 
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
-  const [voiceOutput, setVoiceOutput] = useState(false);
+  /** Descripción de la voz activa para el panel; vacía si Jarvis solo escribe. */
+  const [voiceOutput, setVoiceOutput] = useState('');
   const [requestActive, setRequestActive] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [speaking, setSpeaking] = useState(false);
@@ -140,7 +145,7 @@ export function useHudSession() {
   const [cards, setCards] = useState<HudCard[]>([]);
   const [stats, setStats] = useState<InferenceStats>({});
 
-  const speechQueueRef = useRef<SpeechQueue | null>(null);
+  const speechQueueRef = useRef<VoiceOutput | null>(null);
   const messagesRef = useRef<Array<{ role: string; content: string }>>([]);
   const abortRef = useRef<AbortController | null>(null);
   const transcriptionChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -317,25 +322,34 @@ export function useHudSession() {
     const context = new AudioContext();
     await context.resume();
 
-    const tts = await fetchTtsHealth().catch(() => ({ available: false }));
-    if (tts.available) {
-      speechQueueRef.current = new SpeechQueue(context, {
-        onSentenceStart: setCaption,
-        onSpeakingChange: (isSpeaking) => {
-          setSpeaking(isSpeaking);
-          if (!isSpeaking) {
-            speechEndedAtRef.current = Date.now();
-            followUpUntilRef.current = Date.now() + FOLLOW_UP_WINDOW_MS;
-          }
-        },
-        onError: (message) =>
-          addActivity({ kind: 'error', label: `Voz no disponible · ${message}`, status: 'error' }),
-      });
-      speechQueueRef.current.enqueue(GREETING);
+    const callbacks: SpeechQueueCallbacks = {
+      onSentenceStart: setCaption,
+      onSpeakingChange: (isSpeaking) => {
+        setSpeaking(isSpeaking);
+        if (!isSpeaking) {
+          speechEndedAtRef.current = Date.now();
+          followUpUntilRef.current = Date.now() + FOLLOW_UP_WINDOW_MS;
+        }
+      },
+      onError: (message) =>
+        addActivity({ kind: 'error', label: `Voz no disponible · ${message}`, status: 'error' }),
+    };
+
+    // Primero la voz del navegador: gratis, instantánea y sin gastar memoria
+    // del servidor. La del servidor (Kokoro, ElevenLabs…) queda de respaldo.
+    const browserVoice = await BrowserSpeechQueue.create(callbacks);
+    if (browserVoice) {
+      speechQueueRef.current = browserVoice;
+      setVoiceOutput(`NAVEGADOR · ${browserVoice.voice.name}`);
     } else {
-      setCaption(GREETING);
+      const tts = await fetchTtsHealth().catch(() => ({ available: false, backend: undefined }));
+      if (tts.available) {
+        speechQueueRef.current = new SpeechQueue(context, callbacks);
+        setVoiceOutput(`SERVIDOR · ${tts.backend ?? ''}`.trim());
+      }
     }
-    setVoiceOutput(tts.available);
+    if (speechQueueRef.current) speechQueueRef.current.enqueue(GREETING);
+    else setCaption(GREETING);
     setAudioContext(context);
   }, [addActivity, audioContext]);
 
@@ -344,7 +358,7 @@ export function useHudSession() {
     speechQueueRef.current = null;
     void audioContext?.close();
     setAudioContext(null);
-    setVoiceOutput(false);
+    setVoiceOutput('');
     setSpeaking(false);
     setCaption('');
     setHeardText('');
