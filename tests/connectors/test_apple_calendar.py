@@ -74,7 +74,7 @@ def test_timezone_is_converted_before_display(tmp_path):
 
     document = list(AppleCalendarConnector(db_path=str(db)).sync())[0]
     local_start = start.astimezone(ZoneInfo("America/Los_Angeles"))
-    assert local_start.strftime("%-I:%M %p") in document.content
+    assert f"{local_start.hour % 12 or 12}:{local_start:%M %p}" in document.content
     assert document.metadata["start"] == local_start.isoformat()
 
 

@@ -60,6 +60,11 @@ def _to_apple_ts(dt: datetime) -> float:
     return (dt - _APPLE_EPOCH).total_seconds()
 
 
+def _hour12(dt: datetime) -> int:
+    """Hour on a 12-hour clock without a leading zero (``%-I`` equivalent)."""
+    return dt.hour % 12 or 12
+
+
 def _open_db(path: Path) -> sqlite3.Connection | None:
     try:
         return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
@@ -239,12 +244,17 @@ class AppleCalendarConnector(BaseConnector):
             start_ts, end_ts, start_tz, bool(all_day)
         )
 
+        # ``%-d`` / ``%-I`` are GNU extensions and raise ValueError on Windows,
+        # so the unpadded day/hour are formatted manually.
         if all_day:
-            date_str = start_dt.strftime("%A, %B %-d %Y (all day)")
+            date_str = f"{start_dt:%A, %B} {start_dt.day} {start_dt:%Y} (all day)"
         else:
-            date_str = start_dt.strftime("%A, %B %-d %Y at %-I:%M %p")
+            date_str = (
+                f"{start_dt:%A, %B} {start_dt.day} {start_dt:%Y} at "
+                f"{_hour12(start_dt)}:{start_dt:%M %p}"
+            )
             if end_dt:
-                date_str += end_dt.strftime(" – %-I:%M %p")
+                date_str += f" – {_hour12(end_dt)}:{end_dt:%M %p}"
             if start_tz and start_tz != "_float":
                 date_str += f" ({start_tz})"
 
