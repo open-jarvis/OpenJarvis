@@ -15,7 +15,6 @@ parking_lot = { workspace = true }
 async-trait = { workspace = true }
 tokio-stream = { workspace = true }
 futures = { workspace = true }
-chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
