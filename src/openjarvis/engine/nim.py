@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 
 import httpx
 
+from openjarvis.core._network import endpoint_is_local_network
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message
 from openjarvis.engine._base import (
@@ -22,21 +23,10 @@ from openjarvis.engine._stubs import StreamChunk
 
 logger = logging.getLogger(__name__)
 
-_LOCAL_HOSTNAMES = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]")
-
 
 def _host_is_local(host: str) -> bool:
     """Return True when *host* points at this machine or the local network."""
-    hostname = host.split("://", 1)[-1].split("/", 1)[0].rsplit("@", 1)[-1]
-    if hostname.startswith("["):
-        # Bracketed IPv6, optionally followed by :port. Counting colons
-        # cannot separate the port here: "[::1]:8000" has three.
-        closing = hostname.find("]")
-        if closing != -1:
-            hostname = hostname[: closing + 1]
-    elif hostname.count(":") == 1:
-        hostname = hostname.rsplit(":", 1)[0]
-    return hostname in _LOCAL_HOSTNAMES or hostname.endswith(".local")
+    return endpoint_is_local_network(host)
 
 
 @EngineRegistry.register("nim")
@@ -51,8 +41,8 @@ class NIMEngine(InferenceEngine):
     _default_host = "https://integrate.api.nvidia.com"
     _api_prefix = "/v1"
     # Conservative class-level default: an unconfigured NIM talks to NVIDIA's
-    # hosted endpoint. Engine fallback uses this flag to avoid substituting a
-    # cloud engine for a local one, and without it a healthy local Ollama lost
+    # hosted endpoint. Engine fallback uses this flag to prefer the same
+    # boundary, and without it a healthy local Ollama lost
     # to a remote API whenever the preferred engine was unavailable. The
     # instance value below reflects the host actually in use, so a self-hosted
     # NIM is still recognised as local.

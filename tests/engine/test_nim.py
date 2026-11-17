@@ -183,7 +183,7 @@ def test_health_falls_back_to_models(respx_mock) -> None:
 class TestCloudReporting:
     """Whether NIM declares itself a cloud engine.
 
-    Engine fallback refuses to substitute a cloud engine for a local one.
+    Engine fallback prefers a replacement on the same local/cloud boundary.
     NIMEngine inherited ``is_cloud = False`` from the base class while
     defaulting to NVIDIA's hosted API, so the check read False and a remote
     endpoint counted as local: with the preferred engine unavailable, `nim`

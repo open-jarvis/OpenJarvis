@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable, Literal
 from urllib.parse import urlparse
 
+from openjarvis.core._network import endpoint_is_local_network
 from openjarvis.core.credentials import TOOL_CREDENTIALS
 
 Status = Literal["fail", "warn", "info"]
@@ -53,6 +54,7 @@ LOCAL_ENGINE_KEYS = {
 }
 
 API_KEY_ENV_VARS = {
+    "NIM_API_KEY": ("NVIDIA NIM authentication", {"nim"}),
     "ANTHROPIC_API_KEY": ("Anthropic cloud inference", {"anthropic", "claude"}),
     "CARTESIA_API_KEY": (
         "Cartesia cloud text-to-speech",
@@ -1747,6 +1749,10 @@ def _is_cloud_value(value: Any) -> bool:
     if value is None:
         return False
     text = str(value).strip().lower()
+    if text == "nim":
+        return not endpoint_is_local_network(
+            os.environ.get("NIM_HOST") or "https://integrate.api.nvidia.com"
+        )
     if not text or text in LOCAL_ENGINE_KEYS:
         return False
     return any(key in text for key in CLOUD_PROVIDER_KEYS)
@@ -1756,6 +1762,8 @@ def _is_local_engine_value(value: Any) -> bool:
     if value is None:
         return False
     text = str(value).strip().lower().replace("-", "_")
+    if text == "nim":
+        return not _is_cloud_value(text)
     return text in LOCAL_ENGINE_KEYS
 
 
