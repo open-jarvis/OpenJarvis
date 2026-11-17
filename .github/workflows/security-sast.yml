@@ -1,10 +1,9 @@
 name: security-sast
 
-# Static application-security testing for Python code and locked dependencies.
+# Called by the core lint job's dependency. Audits cannot be skipped or
+# turned into green checks by suppressing scanner failures.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -25,76 +24,115 @@ jobs:
       - name: Reject high/high findings
         run: bandit -r src/openjarvis -lll -iii -f screen
 
-  pip-audit:
-    name: pip-audit (${{ matrix.profile }}, Linux/Python 3.12)
+  python-advisories:
+    name: Python locked dependency advisories
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        profile: [core, server, desktop, voice, inference-cloud, inference-litellm]
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v10.3.3
-        with:
-          version: "0.12.19"
-      - run: python -m pip install "pip-audit==2.10.1"
-      # uv.lock contains all optional dependencies. Export each supported
-      # installed profile with hashes so pip-audit checks its exact versions.
-      - name: Export locked dependencies
-        env:
-          PROFILE: ${{ matrix.profile }}
-        run: |
-          if [ "$PROFILE" = core ]; then
-            uv export --locked --no-dev --no-emit-project --no-header > requirements.txt
-          else
-            uv export --locked --no-dev --no-emit-project --no-header --extra "$PROFILE" > requirements.txt
-          fi
-          test -s requirements.txt
-      # Existing advisories remain report-only. A failed export or incomplete
-      # audit still fails the job, and the JSON report is retained for review.
-      - name: Audit pinned dependencies
-        run: |
-          set +e
-          pip-audit -r requirements.txt --disable-pip --require-hashes --strict \
-            --progress-spinner off --format json --output pip-audit.json
-          audit_exit=$?
-          set -e
-          if [ ! -s pip-audit.json ]; then
-            echo "pip-audit did not produce a report (exit $audit_exit)" >&2
-            exit 1
-          fi
-          python - <<'PY'
-          import json
-
-          with open("pip-audit.json", encoding="utf-8") as report_file:
-              report = json.load(report_file)
-          dependencies = report["dependencies"]
-          if not dependencies:
-              raise SystemExit("pip-audit reported no dependencies")
-          vulnerable = sum(bool(dependency["vulns"]) for dependency in dependencies)
-          print(f"Audited {len(dependencies)} packages; {vulnerable} have known advisories")
-          PY
-          if [ "$audit_exit" -ne 0 ] && [ "$audit_exit" -ne 1 ]; then
-            exit "$audit_exit"
-          fi
+      - name: Reject unaccepted advisories in every locked Python extra/platform
+        run: >-
+          python scripts/security/audit_dependencies.py python
+          --lockfile uv.lock --output python-lock-audit.json
       - name: Upload audit report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: pip-audit-${{ matrix.profile }}
-          path: pip-audit.json
-          if-no-files-found: ignore
+          name: python-lock-audit
+          path: python-lock-audit.json
+          if-no-files-found: error
+
+  rust-advisories:
+    name: Rust advisories (${{ matrix.manifest }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - manifest: rust/Cargo.toml
+            lockfile: rust/Cargo.lock
+            artifact: backend
+          - manifest: frontend/src-tauri/Cargo.toml
+            lockfile: frontend/src-tauri/Cargo.lock
+            artifact: desktop
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/bin/cargo-deny
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: cargo-deny-${{ runner.os }}-0.21.0
+      - name: Install the reviewed audit tool
+        shell: bash
+        run: |
+          if ! cargo deny --version 2>/dev/null | grep -qx 'cargo-deny 0.21.0'; then
+            cargo install cargo-deny --version 0.21.0 --locked --force
+          fi
+      - name: Validate exact exception versions and expiration
+        env:
+          LOCKFILE: ${{ matrix.lockfile }}
+        run: >-
+          python scripts/security/audit_dependencies.py cargo-config
+          --lockfile "$LOCKFILE" --output "$RUNNER_TEMP/deny.toml"
+      - name: Reject vulnerabilities, unsoundness, yanked crates and unknown sources
+        env:
+          MANIFEST: ${{ matrix.manifest }}
+        run: |
+          cargo deny --manifest-path "$MANIFEST" --config "$RUNNER_TEMP/deny.toml" \
+            --locked --format json check --audit-compatible-output advisories sources \
+            > rust-advisories.json 2> rust-advisories-diagnostics.jsonl
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-advisories-${{ matrix.artifact }}
+          path: |
+            rust-advisories.json
+            rust-advisories-diagnostics.jsonl
+          if-no-files-found: error
 
   semgrep:
     name: Semgrep (rules)
     runs-on: ubuntu-latest
     container:
-      image: semgrep/semgrep
+      image: semgrep/semgrep:1.185.0@sha256:67518c174185a2043fdbed16c70631b79209499b3671178e7194379b48295a0d
     steps:
       - uses: actions/checkout@v7
-      - name: Run Semgrep (audit ruleset)
-        continue-on-error: true
-        run: semgrep --config=p/python --config=p/security-audit --error --skip-unknown-extensions src/openjarvis
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reject new static security findings
+        env:
+          BASELINE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        shell: bash
+        run: |
+          # checkout uses a temporary HOME; trust only this ephemeral checkout
+          # in the scanner container's actual Git configuration as well.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          args=()
+          if [ -n "$BASELINE" ] && [ "$BASELINE" != 0000000000000000000000000000000000000000 ]; then
+            git cat-file -e "$BASELINE^{commit}"
+            args+=(--baseline-commit "$BASELINE")
+          fi
+          semgrep scan --config=p/python --config=p/security-audit --error --strict \
+            --metrics=off --disable-version-check --skip-unknown-extensions \
+            --json --output semgrep.json "${args[@]}" src/openjarvis scripts/security
+      - name: Upload static security report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: semgrep-security
+          path: semgrep.json
+          if-no-files-found: error

@@ -10,10 +10,23 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  security:
+    uses: ./.github/workflows/security-sast.yml
+
   lint:
+    needs: security
+    if: always()
     runs-on: ubuntu-latest
     steps:
+      - name: Require a complete successful security audit
+        env:
+          SECURITY_RESULT: ${{ needs.security.result }}
+        run: test "$SECURITY_RESULT" = success
+
       - uses: actions/checkout@v7
 
       - name: Set up Python
@@ -36,14 +49,19 @@ jobs:
         run: uv run ruff format --check src/ tests/
 
   test:
+    name: ${{ matrix.python == '3.12' && 'test' || 'test (Python 3.11)' }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -74,7 +92,7 @@ jobs:
         # which is dramatically cheaper than the default C trace function.
         # -n auto fans the suite out across all runner cores via pytest-xdist.
         env:
-          COVERAGE_CORE: sysmon
+          COVERAGE_CORE: ${{ matrix.python == '3.12' && 'sysmon' || 'ctrace' }}
         run: |
           uv run pytest tests/ -n auto -q --tb=short -m "not live and not cloud and not hub" \
             --cov=openjarvis \
@@ -88,7 +106,7 @@ jobs:
         timeout-minutes: 5
         uses: actions/upload-artifact@v7
         with:
-          name: coverage-xml
+          name: coverage-xml-${{ matrix.python }}
           path: coverage.xml
           if-no-files-found: warn
 

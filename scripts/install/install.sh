@@ -557,7 +557,7 @@ copy_scripts() {
 }
 
 # Parse pyproject.toml's requires-python and return the newest minor
-# version usable. E.g. ">=3.10,<3.14" → "3.13". Falls back to the
+# version usable. E.g. ">=3.11,<3.14" → "3.13". Falls back to the
 # previous hardcoded "3.11" if pyproject can't be read or the spec
 # can't be parsed (#476 — installer should track the project's allowed
 # range instead of hardcoding 3.11).
@@ -595,7 +595,7 @@ parse_requires_python() {
     major="${max%.*}"
     minor="${max#*.}"
     minor=$((minor - 1))
-    if (( minor < 10 )); then
+    if (( minor < 11 )); then
         echo "$fallback"
     else
         echo "${major}.${minor}"

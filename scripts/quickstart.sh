@@ -62,10 +62,10 @@ fi
 PY_VERSION=$("$PY_CMD" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
 PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 10 ]; then
+if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 11 ] && [ "$PY_MINOR" -le 13 ]; then
   ok "Python $PY_VERSION ($PY_CMD)"
 else
-  fail "Python 3.10+ required (found $PY_VERSION)"
+  fail "Python 3.11 - 3.13 required (found $PY_VERSION)"
 fi
 
 version_at_least() {

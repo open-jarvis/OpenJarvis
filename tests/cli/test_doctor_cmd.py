@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from openjarvis.cli import cli
@@ -85,6 +87,23 @@ class TestDoctorJsonOutput:
 
 
 class TestCheckPythonVersion:
+    @pytest.mark.parametrize(
+        "major,minor,status",
+        [
+            (3, 10, "fail"),
+            (3, 11, "ok"),
+            (3, 13, "ok"),
+            (3, 14, "fail"),
+            (4, 11, "fail"),
+        ],
+    )
+    def test_supported_range(self, major, minor, status):
+        with patch(
+            "openjarvis.cli.doctor_cmd.sys.version_info",
+            SimpleNamespace(major=major, minor=minor, micro=0),
+        ):
+            assert _check_python_version().status == status
+
     def test_check_python_version(self) -> None:
         """Python version check passes on any supported Python."""
         result = _check_python_version()
