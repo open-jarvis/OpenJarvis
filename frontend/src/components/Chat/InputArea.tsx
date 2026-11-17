@@ -3,10 +3,11 @@ import { Send, Square, Paperclip, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat, streamResearch } from '../../lib/sse';
-import { fetchSavings, getBase, authHeaders } from '../../lib/api';
+import { fetchSavings } from '../../lib/api';
 import { listConnectors, getSyncStatus } from '../../lib/connectors-api';
 import { serializeToolCallArguments } from '../../lib/tool-call';
 import {
+  audioFromCompletionChunk,
   engineFromCompletionChunk,
   resolveChatEngine,
 } from '../../lib/chat-telemetry';
@@ -223,6 +224,7 @@ export function InputArea() {
     let accumulatedContent = '';
     let usage: TokenUsage | undefined;
     let complexity: { score: number; tier: string; suggested_max_tokens: number } | undefined;
+    let audioMeta: { url: string } | undefined;
     let routedEngine: string | undefined;
     const toolCalls: ToolCallInfo[] = [];
     const researchTraces: ResearchSearchTrace[] = [];
@@ -432,6 +434,7 @@ export function InputArea() {
             const delta = data.choices?.[0]?.delta;
             if (data.usage) usage = data.usage;
             if (data.complexity) complexity = data.complexity;
+            audioMeta = audioFromCompletionChunk(data) ?? audioMeta;
             routedEngine = engineFromCompletionChunk(data) ?? routedEngine;
             if (delta?.content) {
               if (!ttftMs) ttftMs = Date.now() - startTime;
@@ -494,19 +497,8 @@ export function InputArea() {
         complexity_tier: complexity?.tier,
         suggested_max_tokens: complexity?.suggested_max_tokens,
       };
-      // Check if the response has digest audio available
-      let audioMeta: { url: string } | undefined;
-      try {
-        const digestRes = await fetch(`${getBase()}/api/digest`, { headers: authHeaders() });
-        if (digestRes.ok) {
-          const digest = await digestRes.json();
-          if (digest.audio_available) {
-            audioMeta = { url: `${getBase()}/api/digest/audio` };
-          }
-        }
-      } catch {
-        // Not a digest response or server unavailable — skip
-      }
+      // audioMeta comes from the completion itself, above: the server sets it
+      // only when this run produced audio.
 
       updateLastAssistant(
         convId,
