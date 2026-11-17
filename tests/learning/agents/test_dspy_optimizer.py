@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +30,21 @@ class TestDSPyOptimizerConfig:
 
 
 class TestDSPyOptimizerTraceConversion:
+    def test_missing_safe_cache_controls_fail_before_model_use(self, monkeypatch):
+        import openjarvis.learning.agents.dspy_optimizer as mod
+        from openjarvis.core.config import DSPyOptimizerConfig
+
+        model = MagicMock()
+        monkeypatch.setattr(mod, "HAS_DSPY", True)
+        monkeypatch.setattr(mod, "dspy", SimpleNamespace(ChainOfThought=model))
+        store = SimpleNamespace(list_traces=lambda **kwargs: [SimpleNamespace()])
+        optimizer = mod.DSPyAgentOptimizer(DSPyOptimizerConfig(min_traces=1))
+
+        result = optimizer.optimize(store)
+
+        assert result["status"] == "error"
+        model.assert_not_called()
+
     def test_too_few_traces_skipped(self) -> None:
         from openjarvis.core.config import DSPyOptimizerConfig
         from openjarvis.learning.agents.dspy_optimizer import DSPyAgentOptimizer
@@ -97,6 +116,11 @@ class TestDSPyOptimizerTraceConversion:
 
         class FakeExample:
             def __init__(self, *, question: str, answer: str) -> None:
+                fake_dspy.configure_cache.assert_called_once_with(
+                    enable_disk_cache=False,
+                    enable_memory_cache=True,
+                    restrict_pickle=True,
+                )
                 self.question = question
                 self.answer = answer
 
@@ -128,6 +152,7 @@ class TestDSPyOptimizerTraceConversion:
             Module=FakeModule,
             ChainOfThought=FakeChainOfThought,
             BootstrapFewShot=FakeBootstrapFewShot,
+            configure_cache=MagicMock(),
         )
         monkeypatch.setattr(mod, "dspy", fake_dspy)
         monkeypatch.setattr(mod, "HAS_DSPY", True)
@@ -141,6 +166,32 @@ class TestDSPyOptimizerTraceConversion:
         result = optimizer.optimize(store)
 
         assert result["status"] == "completed"
+        fake_dspy.configure_cache.assert_called_once_with(
+            enable_disk_cache=False,
+            enable_memory_cache=True,
+            restrict_pickle=True,
+        )
         assert result["config_updates"]["few_shot_examples"] == [
             {"input": "How are you?", "output": "Well"}
         ]
+
+
+def test_importing_optimizer_does_not_load_optional_sdk(tmp_path):
+    (tmp_path / "dspy.py").write_text(
+        "raise AssertionError('SDK imported at startup')\n"
+    )
+    source = Path(__file__).resolve().parents[3] / "src"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; "
+            "from openjarvis.learning.agents import dspy_optimizer as m; "
+            "assert m.HAS_DSPY; assert 'dspy' not in sys.modules",
+        ],
+        env={**os.environ, "PYTHONPATH": str(tmp_path) + os.pathsep + str(source)},
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr

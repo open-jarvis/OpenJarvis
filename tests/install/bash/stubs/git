@@ -48,7 +48,7 @@ EOF2
 [project]
 name = "OpenJarvis"
 version = "0.1.1"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 EOF2
         ;;
     pull)
