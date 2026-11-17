@@ -141,3 +141,42 @@ class TestSectionMapping:
             for cid in ids:
                 assert cid not in seen, f"{cid} in {seen[cid]} and {section}"
                 seen[cid] = section
+
+
+def test_native_calendar_and_contacts_reach_their_briefing_sections():
+    from openjarvis.tools.digest_collect import DigestCollectTool
+
+    docs = {
+        source: [
+            Document(
+                doc_id=source,
+                source=source,
+                doc_type="test",
+                content=title,
+                title=title,
+            )
+        ]
+        for source, title in {
+            "apple_calendar": "Tomorrow planning meeting",
+            "apple_contacts": "Alice native contact",
+            "gcontacts": "Bob Google contact",
+        }.items()
+    }
+    factories = {}
+    for source, documents in docs.items():
+        factory = MagicMock()
+        factory.return_value.is_connected.return_value = True
+        factory.return_value.sync.return_value = documents
+        factories[source] = factory
+    with (
+        patch.object(ConnectorRegistry, "contains", return_value=True),
+        patch.object(ConnectorRegistry, "get", side_effect=factories.__getitem__),
+    ):
+        result = DigestCollectTool().execute(sources=list(docs))
+    messages, calendar = result.content.split("=== CALENDAR ===")
+    assert "=== MESSAGES ===" in messages
+    assert "Alice native contact" in messages
+    assert "Bob Google contact" in messages
+    assert "Tomorrow planning meeting" in calendar
+    assert "=== OTHER ===" not in result.content
+    assert result.metadata["total_items"] == 3
