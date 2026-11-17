@@ -1569,3 +1569,46 @@ class TestWebSearchDestination:
                 assert labels[resolved] in _web_search_destination(), (
                     f"set={set_vars} engine={engine}"
                 )
+
+
+@pytest.mark.parametrize(
+    "host,is_cloud",
+    [
+        (None, True),
+        ("https://api.example.com?@localhost", True),
+        ("http://127.0.0.1:8000", False),
+        ("http://192.168.1.20:8000", False),
+    ],
+)
+def test_nim_boundary_matches_its_effective_endpoint(
+    tmp_path, monkeypatch, host, is_cloud
+):
+    from openjarvis.engine.nim import NIMEngine
+
+    monkeypatch.delenv("NIM_API_KEY", raising=False)
+    if host is None:
+        monkeypatch.delenv("NIM_HOST", raising=False)
+    else:
+        monkeypatch.setenv("NIM_HOST", host)
+    config = _low_noise_config()
+    config.engine.default = "nim"
+    config.intelligence.default_model = "openai/gpt-oss-20b"
+    config.agent.context_from_memory = True
+    engine = NIMEngine()
+    try:
+        findings = _ids(build_data_boundary_report(config, tmp_path))
+        assert engine.is_cloud is is_cloud
+        assert ("cloud-default-engine-configured" in findings) is is_cloud
+        assert ("cloud-default-model-configured" in findings) is is_cloud
+        assert ("memory-context-to-cloud-risk" in findings) is is_cloud
+    finally:
+        engine.close()
+
+
+def test_nim_credentials_are_presence_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("NIM_API_KEY", "private-nim-secret-value")
+    config = _low_noise_config()
+    report = build_data_boundary_report(config, tmp_path)
+    findings = {finding.id: finding for finding in report.findings}
+    assert "NIM_API_KEY is set" in findings["env-credential-nim_api_key"].evidence
+    assert "private-nim-secret-value" not in str(report.to_dict())
