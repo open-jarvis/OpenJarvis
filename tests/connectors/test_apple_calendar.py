@@ -106,9 +106,10 @@ def test_recurring_master_outside_window_yields_distinct_occurrences(tmp_path):
     conn.commit()
     conn.close()
 
-    documents = list(
-        AppleCalendarConnector(db_path=str(db)).sync(since=now - timedelta(days=1))
-    )
+    # No `since`: this test is about occurrence expansion, not about the
+    # incremental watermark.  Passing one here only passed while the
+    # connector kept upcoming events regardless of it.
+    documents = list(AppleCalendarConnector(db_path=str(db)).sync())
     assert [document.title for document in documents] == [
         "Weekly standup",
         "Weekly standup",
@@ -177,7 +178,7 @@ def test_calendar_tools_are_registered_and_executable(tmp_path, monkeypatch):
     assert search.success and "Planning session" in search.content
 
 
-def test_upcoming_event_survives_a_since_filter_older_than_its_last_edit(tmp_path):
+def test_snapshot_keeps_an_upcoming_event_older_than_the_since_filter(tmp_path):
     """An untouched future event must still reach a caller passing ``since``.
 
     The morning digest asks every connector for ``since = now - 24h``.  Filtering
@@ -200,13 +201,15 @@ def test_upcoming_event_survives_a_since_filter_older_than_its_last_edit(tmp_pat
     conn.close()
 
     connector = AppleCalendarConnector(db_path=str(db))
-    recent = list(connector.sync(since=now - timedelta(hours=24)))
+    recent = list(
+        connector.sync(since=now - timedelta(hours=24), include_upcoming=True)
+    )
     assert len(recent) == 1
     assert "Dentist" in str(recent[0].content)
     assert len(recent) == len(list(connector.sync()))
 
 
-def test_stale_past_event_is_still_filtered_out_by_since(tmp_path):
+def test_snapshot_still_filters_out_a_stale_past_event(tmp_path):
     """``since`` must keep working for events that have already happened."""
     db = tmp_path / "calendar.sqlite"
     conn = _make_calendar_db(db)
@@ -223,7 +226,10 @@ def test_stale_past_event_is_still_filtered_out_by_since(tmp_path):
     conn.close()
 
     connector = AppleCalendarConnector(db_path=str(db))
-    assert list(connector.sync(since=now - timedelta(hours=24))) == []
+    assert (
+        list(connector.sync(since=now - timedelta(hours=24), include_upcoming=True))
+        == []
+    )
     assert len(list(connector.sync())) == 1
 
 
@@ -314,7 +320,12 @@ def test_since_keeps_current_events_using_calendar_time_semantics(
         conn.commit()
         conn.close()
         connector = AppleCalendarConnector(db_path=str(db), days_behind=2)
-        titles = {doc.title for doc in connector.sync(since=frozen - timedelta(days=1))}
+        titles = {
+            doc.title
+            for doc in connector.sync(
+                since=frozen - timedelta(days=1), include_upcoming=True
+            )
+        }
         assert titles == {"Ongoing", "Floating future", "All day today"}
     finally:
         if old_tz is None:
@@ -322,3 +333,73 @@ def test_since_keeps_current_events_using_calendar_time_semantics(
         else:
             monkeypatch.setenv("TZ", old_tz)
         time.tzset()
+
+
+def test_incremental_sync_is_empty_when_nothing_changed(tmp_path):
+    """The default must honour the shared ``since`` contract.
+
+    BaseConnector.sync documents that ``since`` returns only items created
+    or modified after that time, and SyncEngine passes the last successful
+    checkpoint as that watermark.  Keeping upcoming events by default
+    broke that for every caller: an untouched event came back on every
+    run, so an unchanged second sync re-processed it forever.
+    """
+    db = tmp_path / "calendar.sqlite"
+    conn = _make_calendar_db(db)
+    now = datetime.now(tz=timezone.utc)
+    _insert_event(
+        conn,
+        rowid=1,
+        summary="Quarterly review",
+        start=now + timedelta(days=3),
+        end=now + timedelta(days=3, hours=1),
+        last_modified=now - timedelta(days=30),
+    )
+    conn.commit()
+    conn.close()
+
+    connector = AppleCalendarConnector(db_path=str(db))
+
+    first = list(connector.sync())
+    assert len(first) == 1
+
+    checkpoint = datetime.now(tz=timezone.utc)
+    assert list(connector.sync(since=checkpoint)) == []
+
+
+def test_digest_collection_keeps_an_old_created_upcoming_event(tmp_path):
+    """The briefing must still get tomorrow's meeting.
+
+    The connector no longer bends ``since`` on its own, so this asserts
+    that the digest asks for the snapshot explicitly -- the behaviour the
+    briefing actually depends on, at the layer that now owns it.
+    """
+    from openjarvis.core.registry import ConnectorRegistry
+    from openjarvis.tools.digest_collect import DigestCollectTool
+
+    db = tmp_path / "calendar.sqlite"
+    conn = _make_calendar_db(db)
+    now = datetime.now(tz=timezone.utc)
+    _insert_event(
+        conn,
+        rowid=1,
+        summary="Dentist",
+        start=now + timedelta(days=3),
+        end=now + timedelta(days=3, hours=1),
+        last_modified=now - timedelta(days=30),
+    )
+    conn.commit()
+    conn.close()
+
+    def factory():
+        return AppleCalendarConnector(db_path=str(db))
+
+    import unittest.mock as mock
+
+    with (
+        mock.patch.object(ConnectorRegistry, "contains", return_value=True),
+        mock.patch.object(ConnectorRegistry, "get", return_value=factory),
+    ):
+        result = DigestCollectTool().execute(sources=["apple_calendar"])
+
+    assert "Dentist" in result.content
