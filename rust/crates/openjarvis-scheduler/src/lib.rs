@@ -1,10 +1,10 @@
 //! OpenJarvis Scheduler — task scheduling with cron, interval, and one-shot
 //! triggers backed by SQLite persistence.
 
-use chrono::{Datelike, Timelike};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use time::UtcDateTime;
 
 // ---------------------------------------------------------------------------
 // Schedule / status enums
@@ -151,13 +151,16 @@ pub fn parse_cron_next(expr: &str, after: f64) -> Option<f64> {
 
     for i in 0..525_960i64 {
         let ts = start_ts + i * 60;
-        let dt = chrono::DateTime::from_timestamp(ts, 0)?;
+        let dt = UtcDateTime::from_unix_timestamp(ts).ok()?;
 
-        let matches = cron_field_matches(cron.fields[0], dt.minute())
-            && cron_field_matches(cron.fields[1], dt.hour())
-            && cron_field_matches(cron.fields[2], dt.day())
-            && cron_field_matches(cron.fields[3], dt.month())
-            && cron_field_matches(cron.fields[4], dt.weekday().num_days_from_sunday());
+        let matches = cron_field_matches(cron.fields[0], u32::from(dt.minute()))
+            && cron_field_matches(cron.fields[1], u32::from(dt.hour()))
+            && cron_field_matches(cron.fields[2], u32::from(dt.day()))
+            && cron_field_matches(cron.fields[3], u32::from(u8::from(dt.month())))
+            && cron_field_matches(
+                cron.fields[4],
+                u32::from(dt.weekday().number_days_from_sunday()),
+            );
 
         if matches {
             return Some(ts as f64);
@@ -223,7 +226,14 @@ impl SchedulerStore {
                 "INSERT INTO scheduled_tasks
                     (id, name, schedule_type, schedule_value, status, next_run, created_at)
                  VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6)",
-                params![id, name, schedule_type.as_str(), schedule_value, next_run, now],
+                params![
+                    id,
+                    name,
+                    schedule_type.as_str(),
+                    schedule_value,
+                    next_run,
+                    now
+                ],
             )
             .expect("Failed to insert task");
 
@@ -363,15 +373,10 @@ mod tests {
         let task = store.create_task("check", ScheduleType::Once, "1700000000");
 
         assert!(store.update_status(&task.id, TaskStatus::Paused));
-        assert_eq!(
-            store.get_task(&task.id).unwrap().status,
-            TaskStatus::Paused
-        );
+        assert_eq!(store.get_task(&task.id).unwrap().status, TaskStatus::Paused);
 
         assert!(store.record_run(&task.id, 1700000100.0));
-        assert!(
-            (store.get_task(&task.id).unwrap().last_run.unwrap() - 1700000100.0).abs() < 1e-3
-        );
+        assert!((store.get_task(&task.id).unwrap().last_run.unwrap() - 1700000100.0).abs() < 1e-3);
 
         assert!(!store.update_status("nonexistent", TaskStatus::Cancelled));
         assert!(!store.record_run("nonexistent", 0.0));
@@ -382,7 +387,7 @@ mod tests {
         // "0 9 * * *" = every day at 09:00
         let base = 1_700_000_000.0; // 2023-11-14 ~22:13 UTC
         let next = parse_cron_next("0 9 * * *", base).unwrap();
-        let dt = chrono::DateTime::from_timestamp(next as i64, 0).unwrap();
+        let dt = UtcDateTime::from_unix_timestamp(next as i64).unwrap();
         assert_eq!(dt.hour(), 9);
         assert_eq!(dt.minute(), 0);
         assert!(next > base);
@@ -393,9 +398,34 @@ mod tests {
         // "30 14 * * *" = every day at 14:30
         let base = 1_700_000_000.0;
         let next = parse_cron_next("30 14 * * *", base).unwrap();
-        let dt = chrono::DateTime::from_timestamp(next as i64, 0).unwrap();
+        let dt = UtcDateTime::from_unix_timestamp(next as i64).unwrap();
         assert_eq!(dt.hour(), 14);
         assert_eq!(dt.minute(), 30);
+    }
+
+    #[test]
+    fn test_cron_calendar_boundaries_keep_utc_and_sunday_zero() {
+        // Exact expected timestamps, independent of the replacement date API.
+        // 2024-02-28 23:59 UTC -> leap day midnight.
+        assert_eq!(
+            parse_cron_next("0 0 29 2 *", 1_709_164_740.0),
+            Some(1_709_164_800.0)
+        );
+        // Saturday 2024-01-06 23:59 UTC -> Sunday (cron weekday 0).
+        assert_eq!(
+            parse_cron_next("0 0 * * 0", 1_704_585_540.0),
+            Some(1_704_585_600.0)
+        );
+        // New Year rollover, including post-2038 timestamps.
+        assert_eq!(
+            parse_cron_next("0 0 1 1 *", 2_208_988_740.0),
+            Some(2_208_988_800.0)
+        );
+        // A match at the starting minute is skipped; search is strictly after.
+        assert_eq!(
+            parse_cron_next("* * * * *", 1_704_585_600.0),
+            Some(1_704_585_660.0)
+        );
     }
 
     #[test]
@@ -407,7 +437,11 @@ mod tests {
 
     #[test]
     fn test_schedule_type_roundtrip() {
-        for st in [ScheduleType::Cron, ScheduleType::Interval, ScheduleType::Once] {
+        for st in [
+            ScheduleType::Cron,
+            ScheduleType::Interval,
+            ScheduleType::Once,
+        ] {
             let json = serde_json::to_string(&st).unwrap();
             let parsed: ScheduleType = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, st);
