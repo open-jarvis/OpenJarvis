@@ -363,6 +363,6 @@ IDEOF
     run bash "$SCRIPT" --no-bg-orchestrator --minimal
     [ "$status" -eq 0 ]
     # uv stub logs every invocation. We should see `venv --python 3.13 ...`
-    # (the upper bound of >=3.10,<3.14 is 3.14, so the highest usable is 3.13).
+    # (the upper bound of >=3.11,<3.14 is 3.14, so the highest usable is 3.13).
     grep -q '^venv --python 3.13' "$UV_STUB_LOG"
 }

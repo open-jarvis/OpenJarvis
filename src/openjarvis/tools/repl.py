@@ -309,6 +309,10 @@ class ReplTool(BaseTool):
             # Only REPL-compiled code is traced; library frames are left alone.
             if frame.f_code.co_filename != "<repl>":
                 return None
+            # CPython 3.11 can omit repeated line events for a one-line busy
+            # loop. Opcode events keep its deadline observable too. External
+            # library frames remain untraced and are never interrupted here.
+            frame.f_trace_opcodes = True
             if cancelled.is_set() or time.perf_counter() >= deadline:
                 raise _ReplTimedOut
             return _check_deadline

@@ -41,10 +41,16 @@ WORKDIR /app
 # Install dependencies from the committed lockfile (#567). See deploy/docker/Dockerfile
 # for the rationale behind the frozen export + --no-deps install.
 COPY pyproject.toml uv.lock README.md ./
-RUN pip install --no-cache-dir uv && \
-    uv export --frozen --no-dev --extra server --no-emit-project > requirements.txt && \
-    uv pip install --system --no-deps -r requirements.txt && \
-    uv pip install --system --no-deps "maturin>=1.12.6,<2"
+ENV UV_PYTHON_INSTALL_DIR=/opt/openjarvis/python
+RUN pip install --no-cache-dir "uv==0.13.8" && \
+    uv python install 3.12.16 && \
+    uv venv --python 3.12.16 /opt/openjarvis/venv
+ENV VIRTUAL_ENV=/opt/openjarvis/venv
+ENV PATH="/opt/openjarvis/venv/bin:${PATH}"
+
+RUN uv export --frozen --no-dev --extra server --no-emit-project > requirements.txt && \
+    uv pip install --python /opt/openjarvis/venv/bin/python --no-deps -r requirements.txt && \
+    uv pip install --python /opt/openjarvis/venv/bin/python --no-deps "maturin>=1.12.6,<2"
 
 COPY src/ src/
 COPY rust/ rust/
@@ -54,26 +60,28 @@ COPY configs/openjarvis/examples configs/openjarvis/examples
 
 COPY --from=frontend /src/openjarvis/server/static src/openjarvis/server/static/
 
-RUN uv pip install --system --no-deps . && \
+RUN uv pip install --python /opt/openjarvis/venv/bin/python --no-deps . && \
     maturin build --release \
         --manifest-path rust/crates/openjarvis-python/Cargo.toml \
-        --interpreter python3 \
+        --interpreter /opt/openjarvis/venv/bin/python \
         --out /tmp/openjarvis-rust-wheel && \
-    uv pip install --system --no-deps /tmp/openjarvis-rust-wheel/*.whl && \
+    uv pip install --python /opt/openjarvis/venv/bin/python --no-deps /tmp/openjarvis-rust-wheel/*.whl && \
     python3 -c "import openjarvis_rust; print('openjarvis_rust ok')" && \
-    python3 -m pip uninstall -y maturin && \
+    uv pip uninstall --python /opt/openjarvis/venv/bin/python maturin && \
     rm -rf /tmp/openjarvis-rust-wheel rust
 
 # Stage 3: Runtime
 FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04@sha256:af8bd179ed3bf69d4b63b19a763662a6141f0f62ef099283f68d0b14b4bab0e3
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3 python3-pip && \
+    apt-get install -y --no-install-recommends ca-certificates libstdc++6 python3 python3-pip && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local /usr/local
+COPY --from=builder /opt/openjarvis /opt/openjarvis
 COPY --from=builder /app /app
 WORKDIR /app
+ENV PATH="/opt/openjarvis/venv/bin:${PATH}"
 
 # Run as an unprivileged user (#565). NVIDIA device nodes (/dev/nvidia*) are
 # world-accessible, so GPU workloads do not require root.
