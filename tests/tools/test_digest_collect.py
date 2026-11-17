@@ -127,11 +127,20 @@ class TestSectionMapping:
             == (_CONNECTOR_TO_SECTION["gcalendar"])
         )
 
-    def test_contact_connectors_are_mapped(self):
+    def test_contact_connectors_stay_out_of_messages(self):
+        """An address book is not message activity.
+
+        Both contact connectors ignore ``since`` -- ``GContactsConnector``
+        says so in its own docstring, because the People API cannot filter
+        connections by date server-side.  Mapping them into MESSAGES puts
+        the whole address book into a one-hour briefing: the section opens
+        with a contact nobody touched.  Leaving them unmapped is the
+        deliberate choice, not an oversight.
+        """
         from openjarvis.tools.digest_collect import _CONNECTOR_TO_SECTION
 
         for connector in ("gcontacts", "apple_contacts"):
-            assert connector in _CONNECTOR_TO_SECTION, connector
+            assert _CONNECTOR_TO_SECTION.get(connector) != "MESSAGES", connector
 
     def test_no_connector_is_mapped_to_two_sections(self):
         from openjarvis.tools.digest_collect import _SECTION_ORDER
@@ -143,40 +152,67 @@ class TestSectionMapping:
                 seen[cid] = section
 
 
-def test_native_calendar_and_contacts_reach_their_briefing_sections():
+def test_apple_calendar_event_reaches_the_briefing_with_when_and_where():
+    """The briefing must carry the event, not just its name.
+
+    This asserts the text the model actually receives.  Section mapping
+    alone passed while the event still arrived as ``[apple_calendar] Board
+    meeting``: classified correctly and stripped of everything that makes
+    it useful.
+    """
     from openjarvis.tools.digest_collect import DigestCollectTool
 
-    docs = {
-        source: [
-            Document(
-                doc_id=source,
-                source=source,
-                doc_type="test",
-                content=title,
-                title=title,
-            )
-        ]
-        for source, title in {
-            "apple_calendar": "Tomorrow planning meeting",
-            "apple_contacts": "Alice native contact",
-            "gcontacts": "Bob Google contact",
-        }.items()
-    }
-    factories = {}
-    for source, documents in docs.items():
-        factory = MagicMock()
-        factory.return_value.is_connected.return_value = True
-        factory.return_value.sync.return_value = documents
-        factories[source] = factory
+    event = Document(
+        doc_id="apple_calendar:1",
+        source="apple_calendar",
+        doc_type="calendar_event",
+        content="Board meeting\nDate: Thursday, November 20 2026 at 9:30 AM",
+        title="Board meeting",
+        timestamp=datetime(2026, 10, 1, 8, 0),
+        metadata={
+            "summary": "Board meeting",
+            "calendar": "Work",
+            "start": "2026-11-20T09:30:00",
+            "all_day": False,
+            "location": "Room 4",
+        },
+    )
+
+    factory = MagicMock()
+    factory.return_value.is_connected.return_value = True
+    factory.return_value.sync.return_value = [event]
     with (
         patch.object(ConnectorRegistry, "contains", return_value=True),
-        patch.object(ConnectorRegistry, "get", side_effect=factories.__getitem__),
+        patch.object(ConnectorRegistry, "get", return_value=factory),
     ):
-        result = DigestCollectTool().execute(sources=list(docs))
-    messages, calendar = result.content.split("=== CALENDAR ===")
-    assert "=== MESSAGES ===" in messages
-    assert "Alice native contact" in messages
-    assert "Bob Google contact" in messages
-    assert "Tomorrow planning meeting" in calendar
-    assert "=== OTHER ===" not in result.content
-    assert result.metadata["total_items"] == 3
+        result = DigestCollectTool().execute(sources=["apple_calendar"])
+
+    assert "=== CALENDAR ===" in result.content
+    line = next(ln for ln in result.content.splitlines() if "Board meeting" in ln)
+    assert "Nov 20" in line
+    assert "9:30 AM" in line
+    assert "Room 4" in line
+
+
+def test_contacts_do_not_open_the_messages_section():
+    """A contact nobody touched must not show up as recent activity."""
+    from openjarvis.tools.digest_collect import DigestCollectTool
+
+    contact = Document(
+        doc_id="gcontacts:1",
+        source="gcontacts",
+        doc_type="contact",
+        content="An unrelated old contact",
+        title="An unrelated old contact",
+    )
+
+    factory = MagicMock()
+    factory.return_value.is_connected.return_value = True
+    factory.return_value.sync.return_value = [contact]
+    with (
+        patch.object(ConnectorRegistry, "contains", return_value=True),
+        patch.object(ConnectorRegistry, "get", return_value=factory),
+    ):
+        result = DigestCollectTool().execute(sources=["gcontacts"])
+
+    assert "=== MESSAGES ===" not in result.content
