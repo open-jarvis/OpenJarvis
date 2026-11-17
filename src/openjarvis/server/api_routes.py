@@ -990,6 +990,17 @@ async def learning_policy(request: Request):
 speech_router = APIRouter(prefix="/v1/speech", tags=["speech"])
 
 
+def _configured_speech_language(request: Request) -> Optional[str]:
+    """Idioma de ``speech.language``; None deja la detección automática.
+
+    Las frases cortas (una orden de voz) se detectan mal de forma automática,
+    así que el idioma configurado es el valor por defecto de la transcripción.
+    """
+    config = getattr(request.app.state, "config", None)
+    speech = getattr(config, "speech", None)
+    return (getattr(speech, "language", "") or "").strip() or None
+
+
 @speech_router.post("/transcribe")
 async def transcribe_speech(request: Request):
     """Transcribe uploaded audio to text."""
@@ -1003,7 +1014,8 @@ async def transcribe_speech(request: Request):
         raise HTTPException(status_code=400, detail="Missing 'file' field")
 
     audio_bytes = await audio_file.read()
-    language = form.get("language")
+    # El idioma de la petición tiene prioridad sobre el configurado.
+    language = form.get("language") or _configured_speech_language(request)
 
     # Detect format from filename
     filename = getattr(audio_file, "filename", "audio.wav")
