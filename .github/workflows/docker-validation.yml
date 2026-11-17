@@ -56,3 +56,44 @@ jobs:
           assert available_presets(), "starter presets must be bundled"
           print("Container runtime smoke checks passed")
           '
+
+  build-gpu-images:
+    # These builds need no GPU. Run them explicitly when changing the GPU
+    # Python/runtime packaging; avoid pulling both large bases on every PR.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: nvidia
+            dockerfile: deploy/docker/Dockerfile.gpu
+          - variant: rocm
+            dockerfile: deploy/docker/Dockerfile.gpu.rocm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build a GPU image from tracked source
+        env:
+          IMAGE: openjarvis-validation:${{ matrix.variant }}-${{ github.sha }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+        run: |
+          git archive --format=tar HEAD | docker build \
+            --progress=plain --file "$DOCKERFILE" --tag "$IMAGE" -
+      - name: Verify the supported Python and installed runtime
+        env:
+          IMAGE: openjarvis-validation:${{ matrix.variant }}-${{ github.sha }}
+        run: |
+          docker run --rm --network none --env NVIDIA_DISABLE_REQUIRE=true "$IMAGE" --version
+          docker run --rm --network none --entrypoint python "$IMAGE" -c '
+          import os, sys
+          from pathlib import Path
+          import datasets, lxml.etree, openjarvis_rust
+          assert (3, 11) <= sys.version_info[:2] < (3, 14)
+          assert sys.prefix == "/opt/openjarvis/venv"
+          assert os.getuid() != 0
+          assert os.access(Path.home(), os.W_OK)
+          print("GPU image Python/native runtime checks passed without GPU hardware")
+          '
