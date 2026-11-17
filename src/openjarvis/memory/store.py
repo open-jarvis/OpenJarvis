@@ -71,6 +71,32 @@ def _unlock_windows(file_obj: Any, *, locking_api: Any | None = None) -> None:
     locking_api.locking(file_obj.fileno(), locking_api.LK_UNLCK, 1)
 
 
+_REPLACE_RETRY_SECONDS = 0.05
+_REPLACE_RETRY_TIMEOUT = 5.0
+
+
+def _replace_with_retry(
+    src: str, dst: Path, *, timeout: float = _REPLACE_RETRY_TIMEOUT
+) -> None:
+    """``os.replace`` with a bounded retry on Windows sharing violations.
+
+    On Windows a virus scanner or the search indexer can briefly hold the
+    freshly written temp file open, and the rename then fails with
+    ``PermissionError``. Without a retry the write is lost silently: callers
+    such as the background memory extractor run in worker threads, where
+    nothing surfaces the exception.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if os.name != "nt" or time.monotonic() >= deadline:
+                raise
+            time.sleep(_REPLACE_RETRY_SECONDS)
+
+
 def _default_fact_path() -> Path:
     """Return the env-aware default JSONL path for automatic memory facts."""
     return get_config_dir() / "memory_facts.jsonl"
@@ -287,7 +313,7 @@ class LocalFactStore(FactStore):
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as tmp_f:
                 tmp_f.write(payload)
-            os.replace(tmp_name, self._path)
+            _replace_with_retry(tmp_name, self._path)
         except BaseException:
             try:
                 os.unlink(tmp_name)

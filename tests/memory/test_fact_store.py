@@ -167,11 +167,15 @@ def test_concurrent_instances_do_not_lose_writes(tmp_path):
     path = tmp_path / "facts.jsonl"
     n_workers = 8
     n_per_worker = 15
+    errors: list[BaseException] = []
 
     def worker(worker_id: int) -> None:
         store = LocalFactStore(path)
         for j in range(n_per_worker):
-            store.add(f"fact-{worker_id}-{j}")
+            try:
+                store.add(f"fact-{worker_id}-{j}")
+            except BaseException as exc:  # surface instead of losing the thread
+                errors.append(exc)
 
     threads = [threading.Thread(target=worker, args=(i,)) for i in range(n_workers)]
     for t in threads:
@@ -180,6 +184,7 @@ def test_concurrent_instances_do_not_lose_writes(tmp_path):
         t.join(timeout=30)
         assert not t.is_alive(), "worker thread hung"
 
+    assert not errors, errors
     final = LocalFactStore(path)
     assert final.count() == n_workers * n_per_worker
 
