@@ -270,12 +270,18 @@ class IMAPConnector(GmailIMAPConnector):
         since: Optional[datetime] = None,
         cursor: Optional[str] = None,
     ) -> Iterator[Document]:
-        for doc in super().sync(since=since, cursor=cursor):
-            doc.source = self.connector_id
-            doc.doc_id = doc.doc_id.replace("gmail:", f"{self.connector_id}:", 1)
-            # A generic mailbox must not link every result to Gmail.
-            doc.url = ""
-            yield doc
+        inner = super().sync(since=since, cursor=cursor)
+        try:
+            for doc in inner:
+                doc.source = self.connector_id
+                doc.doc_id = doc.doc_id.replace("gmail:", f"{self.connector_id}:", 1)
+                # A generic mailbox must not link every result to Gmail.
+                doc.url = ""
+                yield doc
+        finally:
+            # Close the parent generator explicitly so its ``finally`` block
+            # logs out of IMAP even when the consumer stops iterating early.
+            inner.close()
 
     def mcp_tools(self) -> list:
         """Do not expose Gmail-branded live tools for non-Gmail mailboxes."""
