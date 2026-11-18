@@ -61,11 +61,20 @@ interface SystemPanelProps {
   micStatus: MicStatus;
   /** Voz activa ("NAVEGADOR · nombre"); vacía si Jarvis solo escribe. */
   voiceOutput: string;
+  /** Quién transcribe lo que dice el usuario; vacío si el micrófono está apagado. */
+  recognizer: string;
   active: boolean;
 }
 
 /** Estado del sistema: modelo, rendimiento de la última inferencia, sesión y voz. */
-export function SystemPanel({ model, stats, micStatus, voiceOutput, active }: SystemPanelProps) {
+export function SystemPanel({
+  model,
+  stats,
+  micStatus,
+  voiceOutput,
+  recognizer,
+  active,
+}: SystemPanelProps) {
   const serverInfo = useAppStore((s) => s.serverInfo);
   const savings = useAppStore((s) => s.savings);
   const [memoryEntries, setMemoryEntries] = useState<number | undefined>();
@@ -112,6 +121,7 @@ export function SystemPanel({ model, stats, micStatus, voiceOutput, active }: Sy
       </HudPanel>
       <HudPanel title="Voz">
         <Readout label="Micrófono" value={MIC_LABELS[micStatus]} />
+        <Readout label="Oído" value={recognizer || UNKNOWN} />
         <Readout label="Síntesis" value={!active ? UNKNOWN : voiceOutput || 'SOLO TEXTO'} />
       </HudPanel>
     </>

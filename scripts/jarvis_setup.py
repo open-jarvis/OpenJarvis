@@ -11,6 +11,7 @@ Gemini; esa la guarda el instalador en las variables del usuario.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shutil
 from pathlib import Path
@@ -20,9 +21,31 @@ import tomlkit
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PERSONA_NAME = "jarvis"
 PERSONA_SOURCE = REPO_ROOT / "configs" / "jarvis" / "personas" / PERSONA_NAME
+# Huellas de versiones anteriores que publicamos. Un archivo idéntico a una de
+# ellas no fue editado por el usuario y se puede actualizar sin perder nada.
+SHIPPED_PERSONA_HASHES = {
+    "SOUL.md": {"24e6a29be1d5813aae391eaa390c63dba94798c504420d5321c059253543b5d6"},
+}
 
 # Herramientas que alimentan las tarjetas del HUD; se suman a las ya activas.
-EXTRA_TOOLS = ["web_search", "get_weather", "calculator", "think", "memory_store", "memory_search"]
+EXTRA_TOOLS = [
+    "web_search",
+    "get_weather",
+    "calculator",
+    "think",
+    "memory_store",
+    "memory_search",
+    # Que recuerde datos del usuario entre conversaciones (actualiza USER.md).
+    "user_profile_manage",
+    # Acciones en el PC (tools/pc_control.py).
+    "open_app",
+    "open_website",
+    "play_youtube",
+    "media_control",
+    "open_folder",
+    "whatsapp_message",
+    "lock_computer",
+]
 
 
 def jarvis_settings(model: str) -> list[tuple[str, str, str | int]]:
@@ -64,8 +87,13 @@ def update_config(config_path: Path, model: str) -> list[str]:
     return changes
 
 
+def _fingerprint(path: Path) -> str:
+    # Sin distinguir saltos de línea de Windows y de Linux.
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def install_persona(config_dir: Path) -> list[str]:
-    """Copia la personalidad sin pisar archivos que el usuario ya haya editado."""
+    """Instala o actualiza la personalidad sin pisar lo que el usuario haya editado."""
     target = config_dir / "personas" / PERSONA_NAME
     target.mkdir(parents=True, exist_ok=True)
     copied = []
@@ -74,6 +102,9 @@ def install_persona(config_dir: Path) -> list[str]:
         if not destination.exists():
             shutil.copyfile(source, destination)
             copied.append(source.name)
+        elif _fingerprint(destination) in SHIPPED_PERSONA_HASHES.get(source.name, ()):
+            shutil.copyfile(source, destination)
+            copied.append(f"{source.name} (actualizado)")
     return copied
 
 
@@ -89,14 +120,18 @@ def download_transcription_model(size: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True, help="Modelo Gemini del cerebro")
-    parser.add_argument("--skip-download", action="store_true", help="No descargar Whisper")
+    parser.add_argument(
+        "--skip-download", action="store_true", help="No descargar Whisper"
+    )
     args = parser.parse_args()
 
     from openjarvis.core.config import get_config_dir, get_config_path
 
     config_path = Path(get_config_path())
     if not config_path.is_file():
-        raise SystemExit(f"No existe {config_path}. Ejecute primero: uv run jarvis init")
+        raise SystemExit(
+            f"No existe {config_path}. Ejecute primero: uv run jarvis init"
+        )
 
     changes = update_config(config_path, args.model)
     print(f"  Configuración: {'; '.join(changes) if changes else 'ya estaba al día'}")

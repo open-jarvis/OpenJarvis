@@ -126,6 +126,7 @@ export function HudPage() {
           stats={session.stats}
           micStatus={session.micStatus}
           voiceOutput={session.voiceOutput}
+          recognizer={session.recognizer}
           active={active}
         />
       </aside>

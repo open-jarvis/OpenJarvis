@@ -11,6 +11,7 @@ import type { SpeechQueueCallbacks, VoiceOutput } from '../lib/hud/speech-queue'
 import { createSentenceSplitter, matchWakeWord } from '../lib/hud/speech-text';
 import { buildAnswerCard, buildToolCard, describeToolCall } from '../lib/hud/tool-cards';
 import type { HudCard } from '../lib/hud/tool-cards';
+import { useBrowserRecognition } from './useBrowserRecognition';
 import { useVoiceActivity } from './useVoiceActivity';
 
 export type HudPhase = 'standby' | 'idle' | 'hearing' | 'transcribing' | 'thinking' | 'speaking';
@@ -44,6 +45,10 @@ const ECHO_GUARD_MS = 700;
 /** Mientras Jarvis habla, solo una voz claramente más fuerte lo interrumpe. */
 const SPEAKING_SENSITIVITY_FACTOR = 3;
 const GREETING = 'Sistemas en línea, señor.';
+/** Idioma del reconocimiento del navegador. */
+const RECOGNITION_LANG = 'es-CO';
+/** Tras soltar Espacio, la frase grabada va por Whisper; se ignora el duplicado del navegador. */
+const PUSH_TO_TALK_GRACE_MS = 1500;
 const ACKNOWLEDGEMENT = '¿Sí, señor?';
 
 /** Cada cuánto se comprueba que el servidor responde. */
@@ -147,6 +152,8 @@ export function useHudSession() {
   const [transcribing, setTranscribing] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [heardText, setHeardText] = useState('');
+  /** Lo que el navegador va entendiendo mientras el usuario habla. */
+  const [liveText, setLiveText] = useState('');
   const [caption, setCaption] = useState('');
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [cards, setCards] = useState<HudCard[]>([]);
@@ -307,8 +314,14 @@ export function useHudSession() {
     [addActivity, interrupt, submit],
   );
 
+  // Ambos se leen desde manejadores de eventos: van en refs para no quedar viejos.
+  const browserSttRef = useRef(false);
+  const pushToTalkUntilRef = useRef(0);
+
   const handleUtterance = useCallback(
     (wav: Blob, manual: boolean) => {
+      // Con el oído del navegador activo, Whisper solo transcribe lo grabado con Espacio.
+      if (browserSttRef.current && !manual) return;
       // Lo captado mientras Jarvis hablaba (o justo después) puede ser su eco:
       // solo se acepta si trae la palabra de activación.
       const capturedWhileBusy =
@@ -338,6 +351,36 @@ export function useHudSession() {
     sensitivityFactor: speaking ? SPEAKING_SENSITIVITY_FACTOR : 1,
     onUtterance: handleUtterance,
   });
+
+  const handleRecognized = useCallback(
+    (text: string) => {
+      setLiveText('');
+      // Mientras se usa Espacio, esa misma frase llega por Whisper.
+      if (Date.now() < pushToTalkUntilRef.current) return;
+      const capturedWhileBusy =
+        busyRef.current || Date.now() - speechEndedAtRef.current < ECHO_GUARD_MS;
+      routeTranscript(text, false, capturedWhileBusy);
+    },
+    [routeTranscript],
+  );
+
+  const recognition = useBrowserRecognition({
+    enabled: audioContext !== null,
+    lang: RECOGNITION_LANG,
+    onFinal: handleRecognized,
+    onInterim: setLiveText,
+  });
+  browserSttRef.current = recognition.status === 'listening';
+
+  const { startManual, stopManual } = voice;
+  const startPushToTalk = useCallback(() => {
+    pushToTalkUntilRef.current = Number.POSITIVE_INFINITY;
+    startManual();
+  }, [startManual]);
+  const stopPushToTalk = useCallback(() => {
+    pushToTalkUntilRef.current = Date.now() + PUSH_TO_TALK_GRACE_MS;
+    stopManual();
+  }, [stopManual]);
 
   /** Debe llamarse desde un clic: el navegador exige un gesto para audio y micrófono. */
   const activate = useCallback(async () => {
@@ -503,8 +546,10 @@ export function useHudSession() {
     serverOnline,
     model,
     micStatus: voice.status,
+    recognizer:
+      recognition.status === 'listening' ? 'NAVEGADOR (NUBE)' : audioContext ? 'WHISPER (LOCAL)' : '',
     voiceOutput,
-    heardText,
+    heardText: liveText || heardText,
     caption,
     activity,
     cards,
@@ -515,7 +560,7 @@ export function useHudSession() {
     submit,
     interrupt,
     dismissCard,
-    startPushToTalk: voice.startManual,
-    stopPushToTalk: voice.stopManual,
+    startPushToTalk,
+    stopPushToTalk,
   };
 }

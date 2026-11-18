@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # individual tool modules are created or if optional dependencies are missing.
 _BUILTIN_TOOL_MODULES = (
     "calculator",
+    "pc_control",
     "think",
     "retrieval",
     "llm_tool",
