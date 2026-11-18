@@ -99,6 +99,9 @@ _ANTHROPIC_FIXED_SAMPLING_PREFIXES = (
     "claude-fable-5",
     "claude-haiku-5-5",
 )
+# Límite por petición a Gemini, en milisegundos.
+_GOOGLE_TIMEOUT_MS = 60_000
+
 _GOOGLE_MODELS = [
     "gemini-2.5-pro",
     "gemini-2.5-flash",
@@ -450,8 +453,14 @@ class CloudEngine(InferenceEngine):
         if gemini_key:
             try:
                 from google import genai
+                from google.genai import types as genai_types
 
-                self._google_client = genai.Client(api_key=gemini_key)
+                # Sin límite, una conexión trabada con Gemini dejaba al agente
+                # esperando para siempre y el HUD en "Procesando" sin fin.
+                self._google_client = genai.Client(
+                    api_key=gemini_key,
+                    http_options=genai_types.HttpOptions(timeout=_GOOGLE_TIMEOUT_MS),
+                )
             except ImportError:
                 pass
         openrouter_key = os.environ.get("OPENROUTER_API_KEY")

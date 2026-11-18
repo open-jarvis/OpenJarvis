@@ -649,3 +649,31 @@ class TestPricingTable:
 
     def test_zero_tokens_zero_cost(self) -> None:
         assert estimate_cost("gpt-5-mini", 0, 0) == 0.0
+
+
+def test_google_client_has_request_timeout(monkeypatch):
+    """Sin límite, una conexión trabada con Gemini colgaba al agente sin fin."""
+    pytest.importorskip("google.genai")
+    from openjarvis.engine.cloud import _GOOGLE_TIMEOUT_MS, CloudEngine
+
+    for name in (
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GOOGLE_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    captured = {}
+
+    import google.genai as genai
+
+    class FakeClient:
+        def __init__(self, *, api_key, http_options=None):
+            captured["api_key"] = api_key
+            captured["timeout"] = getattr(http_options, "timeout", None)
+
+    monkeypatch.setattr(genai, "Client", FakeClient)
+    CloudEngine()
+
+    assert captured == {"api_key": "test-key", "timeout": _GOOGLE_TIMEOUT_MS}
