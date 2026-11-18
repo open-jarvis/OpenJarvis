@@ -69,6 +69,19 @@ def _message_estimated_chars(message: Message) -> int:
     return sum(len(part) for part in parts)
 
 
+def _tool_call_to_dict(tc: Any) -> Dict[str, Any]:
+    """Llamada a herramienta en formato OpenAI, con los datos extra del proveedor."""
+    d: Dict[str, Any] = {
+        "id": tc.id,
+        "type": "function",
+        "function": {"name": tc.name, "arguments": tc.arguments},
+    }
+    extra = getattr(tc, "extra", None)
+    if extra:
+        d["extra_content"] = extra
+    return d
+
+
 def messages_to_dicts(messages: Sequence[Message]) -> List[Dict[str, Any]]:
     """Convert ``Message`` objects to OpenAI-format dicts."""
     out: List[Dict[str, Any]] = []
@@ -77,17 +90,7 @@ def messages_to_dicts(messages: Sequence[Message]) -> List[Dict[str, Any]]:
         if m.name:
             d["name"] = m.name
         if m.tool_calls:
-            d["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.name,
-                        "arguments": tc.arguments,
-                    },
-                }
-                for tc in m.tool_calls
-            ]
+            d["tool_calls"] = [_tool_call_to_dict(tc) for tc in m.tool_calls]
         if m.tool_call_id:
             d["tool_call_id"] = m.tool_call_id
         # Vision: forward base64 images to the engine. Ollama's /api/chat

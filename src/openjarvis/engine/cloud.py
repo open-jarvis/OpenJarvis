@@ -101,6 +101,10 @@ _ANTHROPIC_FIXED_SAMPLING_PREFIXES = (
 )
 # Límite por petición a Gemini, en milisegundos.
 _GOOGLE_TIMEOUT_MS = 60_000
+# API de Gemini compatible con OpenAI. Con GEMINI_OPENAI_COMPAT=1 los modelos
+# Gemini van por aquí: recibe las herramientas en formato OpenAI y evita los
+# 400 "Invalid JSON payload" de la API nativa con algunos esquemas.
+_GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 _GOOGLE_MODELS = [
     "gemini-2.5-pro",
@@ -411,6 +415,23 @@ def _convert_tools_to_google(
     return declarations
 
 
+def _openai_tool_call_to_dict(tc: Any) -> Dict[str, Any]:
+    """Llamada a herramienta de una respuesta OpenAI, conservando los campos extra.
+
+    Gemini (API compatible) agrega ``extra_content`` con la "thought_signature",
+    que hay que devolverle en el turno siguiente o responde 400.
+    """
+    call: Dict[str, Any] = {
+        "id": tc.id,
+        "name": tc.function.name,
+        "arguments": tc.function.arguments,
+    }
+    extra = (getattr(tc, "model_extra", None) or {}).get("extra_content")
+    if extra:
+        call["extra_content"] = extra
+    return call
+
+
 @EngineRegistry.register("cloud")
 class CloudEngine(InferenceEngine):
     """Cloud inference via OpenAI, Anthropic, Google, MiniMax, DeepSeek, and
@@ -418,6 +439,8 @@ class CloudEngine(InferenceEngine):
 
     engine_id = "cloud"
     is_cloud = True
+    # Valor de clase: también existe en instancias creadas sin __init__ (pruebas).
+    _gemini_compat_client: Any = None
 
     def __init__(self) -> None:
         self._openai_client: Any = None
@@ -427,6 +450,7 @@ class CloudEngine(InferenceEngine):
         self._atlascloud_client: Any = None
         self._minimax_client: Any = None
         self._deepseek_client: Any = None
+        self._gemini_compat_client: Any = None
         self._codex_client: Any = None
         # Gemini thought_signatures: tool_call_id -> signature bytes
         self._thought_sigs: Dict[str, bytes] = {}
@@ -463,6 +487,21 @@ class CloudEngine(InferenceEngine):
                 )
             except ImportError:
                 pass
+            if os.environ.get("GEMINI_OPENAI_COMPAT", "").lower() in (
+                "1",
+                "true",
+                "yes",
+            ):
+                try:
+                    import openai
+
+                    self._gemini_compat_client = openai.OpenAI(
+                        api_key=gemini_key,
+                        base_url=_GEMINI_OPENAI_BASE_URL,
+                        timeout=_GOOGLE_TIMEOUT_MS / 1000,
+                    )
+                except ImportError:
+                    pass
         openrouter_key = os.environ.get("OPENROUTER_API_KEY")
         if openrouter_key:
             try:
@@ -682,9 +721,13 @@ class CloudEngine(InferenceEngine):
         model: str,
         temperature: float,
         max_tokens: int,
+        client: Any = None,
+        provider: str = "OpenAI",
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        if self._openai_client is None:
+        # Otro proveedor compatible con OpenAI (Gemini) puede pasar su cliente.
+        client = client or self._openai_client
+        if client is None:
             raise EngineConnectionError(
                 "OpenAI client not available — set "
                 "OPENAI_API_KEY and install "
@@ -721,11 +764,9 @@ class CloudEngine(InferenceEngine):
                 create_kwargs["response_format"] = response_format
 
         t0 = time.monotonic()
-        resp = _chat_completion_with_temperature_retry(
-            self._openai_client, create_kwargs
-        )
+        resp = _chat_completion_with_temperature_retry(client, create_kwargs)
         elapsed = time.monotonic() - t0
-        choice = _first_choice_or_raise(resp, provider="OpenAI", model=model)
+        choice = _first_choice_or_raise(resp, provider=provider, model=model)
         usage = resp.usage
         prompt_tokens = usage.prompt_tokens if usage else 0
         completion_tokens = usage.completion_tokens if usage else 0
@@ -745,12 +786,7 @@ class CloudEngine(InferenceEngine):
         # Extract tool_calls if present
         if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
             result["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "name": tc.function.name,
-                    "arguments": tc.function.arguments,
-                }
-                for tc in choice.message.tool_calls
+                _openai_tool_call_to_dict(tc) for tc in choice.message.tool_calls
             ]
 
         return result
@@ -1307,6 +1343,10 @@ class CloudEngine(InferenceEngine):
         if _is_anthropic_model(model):
             return self._generate_anthropic(messages, **kw)
         if _is_google_model(model):
+            if self._gemini_compat_client is not None:
+                return self._generate_openai(
+                    messages, client=self._gemini_compat_client, provider="Gemini", **kw
+                )
             return self._generate_google(messages, **kw)
         return self._generate_openai(messages, **kw)
 
@@ -1342,6 +1382,11 @@ class CloudEngine(InferenceEngine):
                 yield token
         elif _is_anthropic_model(model):
             async for token in self._stream_anthropic(messages, **kw):
+                yield token
+        elif _is_google_model(model) and self._gemini_compat_client is not None:
+            async for token in self._stream_openai(
+                messages, client=self._gemini_compat_client, **kw
+            ):
                 yield token
         elif _is_google_model(model):
             async for token in self._stream_google(messages, **kw):
@@ -1413,9 +1458,11 @@ class CloudEngine(InferenceEngine):
         model: str,
         temperature: float,
         max_tokens: int,
+        client: Any = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        if self._openai_client is None:
+        client = client or self._openai_client
+        if client is None:
             raise EngineConnectionError("OpenAI client not available")
         create_kwargs: Dict[str, Any] = {
             "model": model,
@@ -1426,9 +1473,7 @@ class CloudEngine(InferenceEngine):
         }
         if not _is_openai_reasoning_model(model):
             create_kwargs["temperature"] = temperature
-        resp = _chat_completion_with_temperature_retry(
-            self._openai_client, create_kwargs
-        )
+        resp = _chat_completion_with_temperature_retry(client, create_kwargs)
         for chunk in resp:
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta and delta.content:
@@ -2019,7 +2064,7 @@ class CloudEngine(InferenceEngine):
             models.extend(_OPENAI_MODELS)
         if self._anthropic_client is not None:
             models.extend(_ANTHROPIC_MODELS)
-        if self._google_client is not None:
+        if self._google_client is not None or self._gemini_compat_client is not None:
             models.extend(_GOOGLE_MODELS)
         if self._openrouter_client is not None:
             models.extend(_OPENROUTER_POPULAR)
@@ -2059,7 +2104,7 @@ class CloudEngine(InferenceEngine):
         if _is_anthropic_model(model):
             return self._anthropic_client
         if _is_google_model(model):
-            return self._google_client
+            return self._gemini_compat_client or self._google_client
         if _is_openai_model(model):
             return self._openai_client
         return None
@@ -2082,6 +2127,7 @@ class CloudEngine(InferenceEngine):
             self._openai_client is not None
             or self._anthropic_client is not None
             or self._google_client is not None
+            or self._gemini_compat_client is not None
             or self._openrouter_client is not None
             or self._atlascloud_client is not None
             or self._minimax_client is not None

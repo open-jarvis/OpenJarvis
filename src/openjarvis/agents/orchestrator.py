@@ -478,6 +478,7 @@ class OrchestratorAgent(ToolUsingAgent):
                     id=tc.get("id", f"call_{i}"),
                     name=tc.get("name", ""),
                     arguments=tc.get("arguments", "{}"),
+                    extra=tc.get("extra_content"),
                 )
                 for i, tc in enumerate(raw_tool_calls)
             ]

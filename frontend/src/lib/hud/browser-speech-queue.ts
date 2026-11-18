@@ -7,26 +7,26 @@
 import type { SpeechQueueCallbacks, VoiceOutput } from './speech-queue';
 import { pickSpanishVoice } from './browser-voice';
 
-/** Las voces se cargan de forma asíncrona; no se espera más que esto. */
-const VOICES_TIMEOUT_MS = 1500;
+/**
+ * Edge carga sus voces neuronales desde internet y pueden tardar unos segundos
+ * en aparecer; mientras tanto solo ofrece las locales (a veces ninguna en español).
+ */
+const SPANISH_VOICE_TIMEOUT_MS = 6000;
+const VOICE_POLL_MS = 250;
 /** El navegador no expone el audio: la animación usa un nivel simulado. */
 const BASE_LEVEL = 0.06;
 const WORD_PULSE = 0.07;
 const PULSE_DECAY_MS = 180;
 
-/** Espera a que el navegador publique sus voces (en Chrome llegan tras un evento). */
-function loadVoices(synth: SpeechSynthesis): Promise<SpeechSynthesisVoice[]> {
-  const ready = synth.getVoices();
-  if (ready.length > 0) return Promise.resolve(ready);
-  return new Promise((resolve) => {
-    const finish = () => {
-      synth.removeEventListener('voiceschanged', finish);
-      clearTimeout(timer);
-      resolve(synth.getVoices());
-    };
-    const timer = setTimeout(finish, VOICES_TIMEOUT_MS);
-    synth.addEventListener('voiceschanged', finish);
-  });
+/** Espera a que el navegador ofrezca una voz en español, o se rinde al vencer el plazo. */
+async function waitForSpanishVoice(synth: SpeechSynthesis): Promise<SpeechSynthesisVoice | null> {
+  const deadline = Date.now() + SPANISH_VOICE_TIMEOUT_MS;
+  // getVoices() se consulta en bucle: el evento "voiceschanged" no llega en todos los navegadores.
+  for (;;) {
+    const voice = pickSpanishVoice(synth.getVoices());
+    if (voice || Date.now() >= deadline) return voice;
+    await new Promise((resolve) => setTimeout(resolve, VOICE_POLL_MS));
+  }
 }
 
 export class BrowserSpeechQueue implements VoiceOutput {
@@ -48,7 +48,7 @@ export class BrowserSpeechQueue implements VoiceOutput {
   static async create(callbacks: SpeechQueueCallbacks = {}): Promise<BrowserSpeechQueue | null> {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
     const synth = window.speechSynthesis;
-    const voice = pickSpanishVoice(await loadVoices(synth));
+    const voice = await waitForSpanishVoice(synth);
     return voice ? new BrowserSpeechQueue(synth, voice, callbacks) : null;
   }
 

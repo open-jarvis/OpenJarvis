@@ -677,3 +677,119 @@ def test_google_client_has_request_timeout(monkeypatch):
     CloudEngine()
 
     assert captured == {"api_key": "test-key", "timeout": _GOOGLE_TIMEOUT_MS}
+
+
+class _FakeCompletions:
+    def __init__(self, sink):
+        self._sink = sink
+
+    def create(self, **kwargs):
+        self._sink.append(kwargs)
+        message = SimpleNamespace(content="listo", tool_calls=None)
+        choice = SimpleNamespace(message=message, finish_reason="stop")
+        usage = SimpleNamespace(prompt_tokens=3, completion_tokens=1, total_tokens=4)
+        return SimpleNamespace(choices=[choice], usage=usage, model=kwargs["model"])
+
+
+def _engine_with_gemini_compat(monkeypatch, compat: str):
+    """CloudEngine con solo la clave de Gemini y un cliente OpenAI falso."""
+    import openai
+
+    for name in (
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GOOGLE_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+    monkeypatch.setenv("GEMINI_OPENAI_COMPAT", compat)
+    clients = []
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.calls = []
+            self.chat = SimpleNamespace(completions=_FakeCompletions(self.calls))
+            clients.append(self)
+
+    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
+    from openjarvis.engine.cloud import CloudEngine
+
+    return CloudEngine(), clients
+
+
+def test_gemini_compat_routes_through_openai_endpoint(monkeypatch):
+    from openjarvis.engine.cloud import _GEMINI_OPENAI_BASE_URL
+
+    engine, clients = _engine_with_gemini_compat(monkeypatch, "1")
+    tools = [{"type": "function", "function": {"name": "calculator", "parameters": {}}}]
+
+    result = engine.generate(
+        [Message(role=Role.USER, content="hola")],
+        model="gemini-3.1-flash-lite-preview",
+        tools=tools,
+    )
+
+    compat = [c for c in clients if c.kwargs.get("base_url") == _GEMINI_OPENAI_BASE_URL]
+    assert len(compat) == 1
+    assert compat[0].kwargs["api_key"] == "gemini-key"
+    assert compat[0].calls[0]["tools"] == tools
+    assert result["content"] == "listo"
+    assert engine.can_serve("gemini-3.1-flash-lite-preview")
+    assert "gemini-3.1-flash-lite-preview" in engine.list_models()
+
+
+def test_gemini_compat_is_off_by_default(monkeypatch):
+    engine, clients = _engine_with_gemini_compat(monkeypatch, "")
+
+    assert all("base_url" not in c.kwargs for c in clients)
+
+
+def test_tool_call_extra_content_round_trips():
+    """Gemini 3 exige recibir de vuelta la "thought_signature" de cada llamada."""
+    from openjarvis.core.types import ToolCall
+    from openjarvis.engine._base import messages_to_dicts
+
+    extra = {"google": {"thought_signature": "firma"}}
+    message = Message(
+        role=Role.ASSISTANT,
+        content="",
+        tool_calls=[ToolCall(id="c1", name="calculator", arguments="{}", extra=extra)],
+    )
+    plain = Message(
+        role=Role.ASSISTANT,
+        content="",
+        tool_calls=[ToolCall(id="c2", name="calculator", arguments="{}")],
+    )
+
+    with_extra, without_extra = messages_to_dicts([message, plain])
+
+    assert with_extra["tool_calls"][0]["extra_content"] == extra
+    assert "extra_content" not in without_extra["tool_calls"][0]
+
+
+def test_generate_openai_keeps_tool_call_extra_content(monkeypatch):
+    engine, clients = _engine_with_gemini_compat(monkeypatch, "1")
+    compat = next(c for c in clients if "base_url" in c.kwargs)
+    signature = {"google": {"thought_signature": "firma"}}
+
+    def create(**kwargs):
+        tool_call = SimpleNamespace(
+            id="c1",
+            function=SimpleNamespace(
+                name="calculator", arguments='{"expression": "2+2"}'
+            ),
+            model_extra={"extra_content": signature},
+        )
+        message = SimpleNamespace(content=None, tool_calls=[tool_call])
+        choice = SimpleNamespace(message=message, finish_reason="tool_calls")
+        usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2)
+        return SimpleNamespace(choices=[choice], usage=usage, model=kwargs["model"])
+
+    compat.chat.completions.create = create
+    result = engine.generate(
+        [Message(role=Role.USER, content="2+2")], model="gemini-3.1-flash-lite-preview"
+    )
+
+    assert result["tool_calls"][0]["extra_content"] == signature

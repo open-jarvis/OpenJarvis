@@ -49,6 +49,13 @@ const ACKNOWLEDGEMENT = '¿Sí, señor?';
 /** Cada cuánto se comprueba que el servidor responde. */
 const HEALTH_POLL_MS = 4000;
 const SERVER_UNREACHABLE = 'Sin conexión con el servidor de Jarvis';
+/**
+ * Cuando el agente falla, el servidor manda el error como si fuera la respuesta.
+ * Se reconoce por este prefijo para no leerlo en voz alta.
+ */
+const SERVER_ERROR_PREFIX = 'Sorry, an error occurred:';
+const SPOKEN_ERROR = 'Lo siento, señor, no pude completar la solicitud.';
+const MAX_ERROR_LABEL_CHARS = 160;
 
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${(idCounter += 1)}`;
@@ -215,6 +222,7 @@ export function useHudSession() {
       messagesRef.current = history;
 
       const splitter = createSentenceSplitter();
+      let serverError = '';
       const say = (sentences: string[]) =>
         sentences.forEach((sentence) => speechQueueRef.current?.enqueue(sentence));
       let answer = '';
@@ -226,6 +234,10 @@ export function useHudSession() {
           if (event.event) continue;
           const delta = parseContentDelta(event.data);
           if (!delta) continue;
+          if (!answer && delta.startsWith(SERVER_ERROR_PREFIX)) {
+            serverError = delta.slice(SERVER_ERROR_PREFIX.length).trim();
+            continue;
+          }
           answer += delta;
           say(splitter.push(delta));
           if (!speechQueueRef.current) setCaption(toSpeakableText(answer));
@@ -242,6 +254,17 @@ export function useHudSession() {
           abortRef.current = null;
           setRequestActive(false);
         }
+      }
+      if (serverError && !controller.signal.aborted) {
+        // El detalle técnico va al registro; en voz, una frase corta.
+        addActivity({
+          kind: 'error',
+          label: `Error del servidor · ${serverError.slice(0, MAX_ERROR_LABEL_CHARS)}`,
+          status: 'error',
+        });
+        setCaption(SPOKEN_ERROR);
+        speechQueueRef.current?.enqueue(SPOKEN_ERROR);
+        return;
       }
       if (controller.signal.aborted || !answer) return;
 

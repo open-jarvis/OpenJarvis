@@ -56,6 +56,9 @@ class ToolCall:
     id: str
     name: str
     arguments: str  # JSON string
+    # Datos propios del proveedor que hay que devolverle tal cual en el turno
+    # siguiente; p. ej. la "thought_signature" que exige Gemini 3.
+    extra: Optional[Dict[str, Any]] = None
 
 
 @dataclass(slots=True)

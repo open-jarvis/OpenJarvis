@@ -110,8 +110,11 @@ function Install-JarvisHud {
     # Variables del usuario: el servidor y la tarea de inicio automático las heredan.
     [Environment]::SetEnvironmentVariable('GEMINI_API_KEY', $key, 'User')
     [Environment]::SetEnvironmentVariable('HF_HUB_DISABLE_XET', '1', 'User')
+    # Gemini por su API compatible con OpenAI: la nativa rechazaba las herramientas de Jarvis.
+    [Environment]::SetEnvironmentVariable('GEMINI_OPENAI_COMPAT', '1', 'User')
     $env:GEMINI_API_KEY = $key
     $env:HF_HUB_DISABLE_XET = '1'
+    $env:GEMINI_OPENAI_COMPAT = '1'
     switch ($check.Status) {
         'ok' { Ok "Gemini desde este PC: $($check.Detail)" }
         'quota' { Warn "Gemini: $($check.Detail). Funcionará cuando se renueve el cupo." }
