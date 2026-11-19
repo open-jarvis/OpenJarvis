@@ -779,6 +779,24 @@ class TestBrowserScreenshotTool:
         with open(save_path, "rb") as f:
             assert f.read() == fake_png
 
+    def test_execute_screenshot_rejects_path_outside_allowed_dirs(self, tmp_path):
+        from openjarvis.tools.browser import BrowserScreenshotTool
+
+        allowed = tmp_path / "allowed"
+        allowed.mkdir()
+        outside = tmp_path / "outside.png"
+        page = _make_mock_page()
+        page.screenshot.return_value = b"\x89PNGoutside"
+        session = _make_mock_session(page)
+
+        with patch("openjarvis.tools.browser._session", session):
+            tool = BrowserScreenshotTool(allowed_dirs=[str(allowed)])
+            result = tool.execute(path=str(outside))
+
+        assert result.success is False
+        assert "outside allowed directories" in result.content
+        assert not outside.exists()
+
     def test_execute_screenshot_error(self):
         from openjarvis.tools.browser import BrowserScreenshotTool
 
