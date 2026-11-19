@@ -360,9 +360,7 @@ class QueryOrchestrator:
                     "file_write",
                     "apply_patch",
                     "browser_screenshot",
-                } and ToolRegistry.contains(
-                    name
-                ):
+                } and ToolRegistry.contains(name):
                     from openjarvis.tools._paths import file_tool_kwargs
 
                     tools.append(

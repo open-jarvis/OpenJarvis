@@ -74,8 +74,8 @@ class MCPServer:
         can run.
 
         ``allowed_dirs`` supplies the active configuration's filesystem policy
-        to auto-discovered file tools; explicitly supplied tools keep their own
-        constructor policy.
+        to auto-discovered filesystem tools; explicitly supplied tools keep
+        their own constructor policy.
         """
         if tools is None:
             tools = self._auto_discover_tools(allowed_dirs=allowed_dirs)
@@ -194,7 +194,12 @@ class MCPServer:
 
         for cls in _tool_classes:
             try:
-                if getattr(cls, "tool_id", None) in {"file_read", "file_write"}:
+                if getattr(cls, "tool_id", None) in {
+                    "file_read",
+                    "file_write",
+                    "apply_patch",
+                    "browser_screenshot",
+                }:
                     tools.append(cls(allowed_dirs=allowed_dirs))
                 else:
                     tools.append(cls())
@@ -211,7 +216,13 @@ class MCPServer:
                     try:
                         kwargs = (
                             {"allowed_dirs": allowed_dirs}
-                            if key in {"file_read", "file_write"}
+                            if key
+                            in {
+                                "file_read",
+                                "file_write",
+                                "apply_patch",
+                                "browser_screenshot",
+                            }
                             else {}
                         )
                         tool = ToolRegistry.create(key, **kwargs)

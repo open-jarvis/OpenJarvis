@@ -205,8 +205,7 @@ class ApplyPatchTool(BaseTool):
             return True
         resolved = path.resolve()
         return any(
-            resolved == d or resolved.is_relative_to(d)
-            for d in self._allowed_dirs
+            resolved == d or resolved.is_relative_to(d) for d in self._allowed_dirs
         )
 
     @property
@@ -279,14 +278,6 @@ class ApplyPatchTool(BaseTool):
         path = Path(target)
         if not path.is_absolute() and self._allowed_dirs:
             path = self._allowed_dirs[0] / path
-        path = path.resolve()
-
-        if not self._is_path_allowed(path):
-            return ToolResult(
-                tool_name="apply_patch",
-                content=f"Access denied: {target} is outside allowed directories.",
-                success=False,
-            )
 
         # Block sensitive files
         from openjarvis.security.file_policy import is_sensitive_file
@@ -295,6 +286,14 @@ class ApplyPatchTool(BaseTool):
             return ToolResult(
                 tool_name="apply_patch",
                 content=f"Access denied: {target} is a sensitive file.",
+                success=False,
+            )
+
+        path = path.resolve()
+        if not self._is_path_allowed(path):
+            return ToolResult(
+                tool_name="apply_patch",
+                content=f"Access denied: {target} is outside allowed directories.",
                 success=False,
             )
 

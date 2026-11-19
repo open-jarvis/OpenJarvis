@@ -530,6 +530,16 @@ class BrowserScreenshotTool(BaseTool):
                 save_path = Path(path).expanduser()
                 if not save_path.is_absolute() and self._allowed_dirs:
                     save_path = self._allowed_dirs[0] / save_path
+
+                from openjarvis.security.file_policy import is_sensitive_file
+
+                if is_sensitive_file(save_path):
+                    return ToolResult(
+                        tool_name="browser_screenshot",
+                        content=f"Access denied: {path} is a sensitive file.",
+                        success=False,
+                    )
+
                 save_path = save_path.resolve()
 
                 if self._allowed_dirs and not any(
@@ -543,8 +553,6 @@ class BrowserScreenshotTool(BaseTool):
                         ),
                         success=False,
                     )
-
-                from openjarvis.security.file_policy import is_sensitive_file
 
                 if is_sensitive_file(save_path):
                     return ToolResult(

@@ -797,6 +797,30 @@ class TestBrowserScreenshotTool:
         assert "outside allowed directories" in result.content
         assert not outside.exists()
 
+    def test_execute_screenshot_rejects_sensitive_symlink_alias(self, tmp_path):
+        from openjarvis.tools.browser import BrowserScreenshotTool
+
+        target = tmp_path / "notes.png"
+        target.write_bytes(b"existing")
+        alias = tmp_path / ".env"
+        try:
+            alias.symlink_to(target)
+        except OSError:
+            pytest.skip("filesystem does not permit creating symlinks")
+
+        page = _make_mock_page()
+        page.screenshot.return_value = b"\x89PNGnew"
+        session = _make_mock_session(page)
+
+        with patch("openjarvis.tools.browser._session", session):
+            result = BrowserScreenshotTool(allowed_dirs=[str(tmp_path)]).execute(
+                path=str(alias)
+            )
+
+        assert result.success is False
+        assert "sensitive" in result.content.lower()
+        assert target.read_bytes() == b"existing"
+
     def test_execute_screenshot_error(self):
         from openjarvis.tools.browser import BrowserScreenshotTool
 
