@@ -110,15 +110,26 @@ export function CommandPalette() {
   const desktopKeyStorage = isTauri();
 
   const refreshCloudKeyStatus = useCallback(async () => {
-    if (!desktopKeyStorage) {
-      setCloudKeyStatus({});
-      return;
-    }
-    try {
-      setCloudKeyStatus(await getCloudKeyStatus());
-      setCloudKeyError(null);
-    } catch (e: any) {
-      setCloudKeyError(e?.message || 'Failed to read cloud key status');
+    if (desktopKeyStorage) {
+      try {
+        setCloudKeyStatus(await getCloudKeyStatus());
+        setCloudKeyError(null);
+      } catch (e: any) {
+        setCloudKeyError(e?.message || 'Failed to read cloud key status');
+      }
+    } else {
+      // In browser, check localStorage for cloud provider keys
+      try {
+        const status: Record<string, boolean> = {};
+        CLOUD_PROVIDERS.forEach((p) => {
+          const stored = localStorage.getItem(`openjarvis-cloud-key-${p.envKey}`);
+          status[p.envKey] = !!stored;
+        });
+        setCloudKeyStatus(status);
+        setCloudKeyError(null);
+      } catch {
+        setCloudKeyStatus({});
+      }
     }
   }, [desktopKeyStorage]);
 
@@ -233,7 +244,17 @@ export function CommandPalette() {
     setCloudKeyError(null);
 
     try {
-      await saveCloudKey(provider.envKey, keyValue);
+      if (desktopKeyStorage) {
+        await saveCloudKey(provider.envKey, keyValue);
+      } else {
+        // In browser, store in localStorage
+        const storageKey = `openjarvis-cloud-key-${provider.envKey}`;
+        if (keyValue) {
+          localStorage.setItem(storageKey, keyValue);
+        } else {
+          localStorage.removeItem(storageKey);
+        }
+      }
       setApiKeys((prev) => ({ ...prev, [provider.envKey]: '' }));
       await refreshCloudKeyStatus();
       useAppStore.getState().addLogEntry({
