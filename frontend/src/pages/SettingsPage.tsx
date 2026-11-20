@@ -691,6 +691,9 @@ export function SettingsPage() {
                 <CloudProviderStatus label="Google" keyName="GEMINI_API_KEY" />
                 <CloudProviderStatus label="OpenRouter" keyName="OPENROUTER_API_KEY" />
                 <CloudProviderStatus label="Atlas Cloud" keyName="ATLASCLOUD_API_KEY" />
+                <CloudProviderStatus label="Ollama Cloud" keyName="OLLAMA_API_KEY" />
+                <CloudProviderStatus label="Groq" keyName="GROQ_API_KEY" />
+                <CloudProviderStatus label="NVIDIA" keyName="NVIDIA_API_KEY" />
               </div>
             </SettingRow>
           </Section>
@@ -711,6 +714,15 @@ export function SettingsPage() {
             </SettingRow>
             <SettingRow label="Atlas Cloud" description="Models routed through Atlas Cloud">
               <ApiKeyInput keyName="ATLASCLOUD_API_KEY" placeholder="Atlas Cloud API key" />
+            </SettingRow>
+            <SettingRow label="Ollama Cloud" description="Ollama cloud models">
+              <ApiKeyInput keyName="OLLAMA_API_KEY" placeholder="ollama key..." />
+            </SettingRow>
+            <SettingRow label="Groq" description="Fast inference (Llama, Mixtral, Gemma)">
+              <ApiKeyInput keyName="GROQ_API_KEY" placeholder="gsk_..." />
+            </SettingRow>
+            <SettingRow label="NVIDIA" description="Nemotron, Llama Nemotron models">
+              <ApiKeyInput keyName="NVIDIA_API_KEY" placeholder="nvapi-..." />
             </SettingRow>
           </Section>
 

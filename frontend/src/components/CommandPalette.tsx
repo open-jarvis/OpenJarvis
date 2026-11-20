@@ -80,6 +80,34 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
       { id: 'atlascloud/Qwen/Qwen3-235B-A22B-Instruct-2507', desc: 'Qwen3 235B via Atlas Cloud' },
     ],
   },
+  {
+    name: 'Ollama Cloud',
+    envKey: 'OLLAMA_API_KEY',
+    models: [
+      { id: 'ollama/qwen2.5:7b', desc: 'Qwen 2.5 7B via Ollama Cloud' },
+      { id: 'ollama/llama3.3:8b', desc: 'Llama 3.3 8B via Ollama Cloud' },
+      { id: 'ollama/mistral:7b', desc: 'Mistral 7B via Ollama Cloud' },
+    ],
+  },
+  {
+    name: 'Groq',
+    envKey: 'GROQ_API_KEY',
+    models: [
+      { id: 'groq/llama-3.3-70b-versatile', desc: 'Llama 3.3 70B — versatile' },
+      { id: 'groq/llama-3.1-8b-instant', desc: 'Llama 3.1 8B — instant' },
+      { id: 'groq/mixtral-8x7b-32768', desc: 'Mixtral 8x7B — 32K context' },
+      { id: 'groq/gemma2-9b-it', desc: 'Gemma 2 9B — instruction tuned' },
+    ],
+  },
+  {
+    name: 'NVIDIA',
+    envKey: 'NVIDIA_API_KEY',
+    models: [
+      { id: 'nvidia/nemotron-3-ultra', desc: 'Nemotron 3 Ultra — reasoning' },
+      { id: 'nvidia/nemotron-4-340b', desc: 'Nemotron 4 340B — large' },
+      { id: 'nvidia/llama-3.1-nemotron-70b', desc: 'Llama 3.1 Nemotron 70B' },
+    ],
+  },
 ];
 
 type Tab = 'installed' | 'catalogue' | 'cloud';
