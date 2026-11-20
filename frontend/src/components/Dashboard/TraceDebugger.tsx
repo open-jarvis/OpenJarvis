@@ -144,21 +144,56 @@ export function TraceDebugger() {
 
   if (error) {
     return (
-      <div className="hud-panel p-6">
-        <h3 className="hud-label flex items-center gap-2 mb-4">
+      <div
+        className="p-6"
+        style={{
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-lg)',
+        }}
+      >
+        <h3
+          className="flex items-center gap-2 mb-4"
+          style={{
+            fontWeight: 500,
+            fontSize: '0.75rem',
+            color: 'var(--color-text-tertiary)',
+          }}
+        >
           <GitBranch size={12} style={{ color: 'var(--color-accent)' }} />
           Trace Debugger
         </h3>
         <div className="h-48 flex items-center justify-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-          <span className="hud-mono">{error}</span>
+          <span
+            style={{
+              fontVariantNumeric: 'tabular-nums',
+              fontFamily: 'var(--font-hud)',
+            }}
+          >
+            {error}
+          </span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="hud-panel p-6">
-      <h3 className="hud-label flex items-center gap-2 mb-4">
+    <div
+      className="p-6"
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-lg)',
+      }}
+    >
+      <h3
+        className="flex items-center gap-2 mb-4"
+        style={{
+          fontWeight: 500,
+          fontSize: '0.75rem',
+          color: 'var(--color-text-tertiary)',
+        }}
+      >
         <GitBranch size={12} style={{ color: 'var(--color-accent)' }} />
         Trace Debugger
       </h3>

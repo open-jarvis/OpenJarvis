@@ -47,15 +47,45 @@ function StatCard({
   unit?: string;
 }) {
   return (
-    <div className="hud-panel p-4">
+    <div
+      className="p-4"
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-lg)',
+      }}
+    >
       <div className="flex items-center gap-2 mb-2">
         <Icon size={12} style={{ color: 'var(--color-accent)' }} />
-        <span className="hud-label">{label}</span>
+        <span
+          style={{
+            fontWeight: 500,
+            fontSize: '0.75rem',
+            color: 'var(--color-text-tertiary)',
+          }}
+        >
+          {label}
+        </span>
       </div>
-      <div className="hud-mono text-2xl font-semibold truncate" style={{ color: 'var(--color-text)' }}>
+      <div
+        style={{
+          fontVariantNumeric: 'tabular-nums',
+          fontFamily: 'var(--font-hud)',
+          fontSize: '1.5rem',
+          fontWeight: 600,
+          color: 'var(--color-text)',
+        }}
+      >
         {value}
         {unit && (
-          <span className="hud-label ml-1" style={{ fontSize: '0.625rem', letterSpacing: '0.18em' }}>
+          <span
+            style={{
+              fontSize: '0.625rem',
+              letterSpacing: '0.18em',
+              color: 'var(--color-text-tertiary)',
+              marginLeft: '4px',
+            }}
+          >
             {unit}
           </span>
         )}
@@ -113,21 +143,56 @@ export function EnergyDashboard() {
 
   if (error || !energy) {
     return (
-      <div className="hud-panel p-6">
-        <h3 className="hud-label flex items-center gap-2 mb-4">
+      <div
+        className="p-6"
+        style={{
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-lg)',
+        }}
+      >
+        <h3
+          className="flex items-center gap-2 mb-4"
+          style={{
+            fontWeight: 500,
+            fontSize: '0.75rem',
+            color: 'var(--color-text-tertiary)',
+          }}
+        >
           <Zap size={12} style={{ color: 'var(--color-accent)' }} />
           Energy Monitoring
         </h3>
         <div className="h-48 flex items-center justify-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-          <span className="hud-mono">{error || 'awaiting telemetry stream…'}</span>
+          <span
+            style={{
+              fontVariantNumeric: 'tabular-nums',
+              fontFamily: 'var(--font-hud)',
+            }}
+          >
+            {error || 'awaiting telemetry stream…'}
+          </span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="hud-panel p-6">
-      <h3 className="hud-label flex items-center gap-2 mb-4">
+    <div
+      className="p-6"
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-lg)',
+      }}
+    >
+      <h3
+        className="flex items-center gap-2 mb-4"
+        style={{
+          fontWeight: 500,
+          fontSize: '0.75rem',
+          color: 'var(--color-text-tertiary)',
+        }}
+      >
         <Zap size={12} style={{ color: 'var(--color-accent)' }} />
         Energy Monitoring
       </h3>

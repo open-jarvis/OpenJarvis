@@ -12,13 +12,34 @@ export function CostComparison() {
 
   if (!savings || savings.total_tokens === 0) {
     return (
-      <div className="hud-panel p-6">
-        <h3 className="hud-label flex items-center gap-2 mb-4">
+      <div
+        className="p-6"
+        style={{
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-lg)',
+        }}
+      >
+        <h3
+          className="flex items-center gap-2 mb-4"
+          style={{
+            fontWeight: 500,
+            fontSize: '0.75rem',
+            color: 'var(--color-text-tertiary)',
+          }}
+        >
           <DollarSign size={12} style={{ color: 'var(--color-success)' }} />
           Cost Comparison
         </h3>
         <div className="h-48 flex items-center justify-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-          <span className="hud-mono">awaiting first inference…</span>
+          <span
+            style={{
+              fontVariantNumeric: 'tabular-nums',
+              fontFamily: 'var(--font-hud)',
+            }}
+          >
+            awaiting first inference…
+          </span>
         </div>
       </div>
     );
@@ -28,8 +49,22 @@ export function CostComparison() {
   const completionK = savings.total_completion_tokens / 1000;
 
   return (
-    <div className="hud-panel p-6">
-      <h3 className="hud-label flex items-center gap-2 mb-4">
+    <div
+      className="p-6"
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-lg)',
+      }}
+    >
+      <h3
+        className="flex items-center gap-2 mb-4"
+        style={{
+          fontWeight: 500,
+          fontSize: '0.75rem',
+          color: 'var(--color-text-tertiary)',
+        }}
+      >
         <DollarSign size={12} style={{ color: 'var(--color-success)' }} />
         Cost Comparison*
       </h3>
