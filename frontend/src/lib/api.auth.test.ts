@@ -90,6 +90,56 @@ describe('authHeaders', () => {
   });
 });
 
+describe('apiFetch', () => {
+  it('sends request with Bearer authorization and prefixes base url for relative paths', async () => {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ apiUrl: 'https://jarvis.example', apiKey: 'sk-local-123' }),
+    );
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+    const { apiFetch } = await freshApi();
+
+    await apiFetch('/api/digest');
+
+    expect(fetchMock).toHaveBeenCalledWith('https://jarvis.example/api/digest', {
+      headers: { Authorization: 'Bearer sk-local-123' },
+    });
+  });
+
+  it('preserves full http/https URLs and does not duplicate base url', async () => {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ apiUrl: 'https://jarvis.example', apiKey: 'sk-local-123' }),
+    );
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+    const { apiFetch } = await freshApi();
+
+    await apiFetch('http://127.0.0.1:8000/api/digest/audio');
+
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:8000/api/digest/audio', {
+      headers: { Authorization: 'Bearer sk-local-123' },
+    });
+  });
+
+  it('merges caller-specified headers with authHeaders', async () => {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ apiUrl: 'https://jarvis.example', apiKey: 'sk-local-123' }),
+    );
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+    const { apiFetch } = await freshApi();
+
+    await apiFetch('/api/digest', { headers: { 'Custom-Header': '1' } });
+
+    expect(fetchMock).toHaveBeenCalledWith('https://jarvis.example/api/digest', {
+      headers: {
+        'Custom-Header': '1',
+        Authorization: 'Bearer sk-local-123',
+      },
+    });
+  });
+});
+
 describe('managed agent channels', () => {
   beforeEach(() => {
     localStorage.setItem(
