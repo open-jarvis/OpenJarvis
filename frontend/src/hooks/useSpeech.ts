@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { transcribeAudio, fetchSpeechHealth } from '../lib/api';
+import { NO_AUDIO_MESSAGE, isDigitalSilence, startLevelMeter, type LevelMeter } from '../lib/mic-level';
 
 export type SpeechState = 'idle' | 'recording' | 'transcribing';
 
@@ -10,6 +11,7 @@ export function useSpeech() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const meterRef = useRef<LevelMeter | null>(null);
 
   // Check if speech backend is available on mount
   useEffect(() => {
@@ -29,6 +31,7 @@ export function useSpeech() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      meterRef.current = startLevelMeter(stream);
 
       const recorder = new MediaRecorder(stream);
       chunksRef.current = [];
@@ -41,6 +44,8 @@ export function useSpeech() {
       mediaRecorderRef.current = recorder;
       setState('recording');
     } catch (err) {
+      meterRef.current?.stop();
+      meterRef.current = null;
       setError('Microphone access denied');
       setState('idle');
     }
@@ -60,9 +65,22 @@ export function useSpeech() {
         // Stop all audio tracks
         streamRef.current?.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
+        const meter = meterRef.current;
+        meterRef.current = null;
+        meter?.stop();
 
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
         chunksRef.current = [];
+
+        // A live track that delivered only digital silence (stuck or muted
+        // device) yields a header-only file the server cannot decode. Report
+        // the real cause instead of sending it.
+        if (blob.size === 0 || isDigitalSilence(meter)) {
+          setState('idle');
+          setError(NO_AUDIO_MESSAGE);
+          reject(new Error(NO_AUDIO_MESSAGE));
+          return;
+        }
 
         try {
           const result = await transcribeAudio(blob);
