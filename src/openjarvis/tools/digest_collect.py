@@ -33,7 +33,12 @@ _SECTION_ORDER: List[tuple] = [
             "github_notifications",
         },
     ),
-    ("CALENDAR", {"gcalendar"}),
+    # apple_calendar belongs here with gcalendar.  Left out, its events
+    # fell through to OTHER, so a briefing built from the CALENDAR section
+    # never saw them even though the connector had returned them.  The
+    # other Apple connectors are mapped (apple_health, apple_music), so
+    # this was an omission rather than a decision.
+    ("CALENDAR", {"gcalendar", "apple_calendar"}),
     ("WORLD", {"weather", "hackernews", "news_rss"}),
     ("MUSIC", {"spotify", "apple_music"}),
 ]
@@ -280,6 +285,46 @@ def _format_gcalendar(doc: Document) -> str:
     return f"[gcalendar id={doc.doc_id}] {time_str} — {title}{time_range}"
 
 
+def _format_apple_calendar(doc: Document) -> str:
+    """Format an Apple Calendar event document.
+
+    Without a formatter of its own an event fell through to the generic
+    fallback, which emits the connector name and the title and nothing
+    else: a meeting reached the model as ``[apple_calendar] Board
+    meeting``, with the date, time and location collected by the connector
+    and then dropped one step before the model could read them.
+
+    The connector's metadata already carries ``start`` as a display
+    wall-time, plus ``all_day`` and ``location``, so read those instead of
+    re-parsing the rendered content.  ``doc.timestamp`` is the event's
+    last-modified time, not when it happens, and is deliberately unused.
+    """
+    title = doc.title or "(No title)"
+    meta = doc.metadata or {}
+
+    when = ""
+    start_raw = meta.get("start")
+    if isinstance(start_raw, str) and start_raw:
+        try:
+            start = datetime.fromisoformat(start_raw)
+        except ValueError:
+            when = ""
+        else:
+            when = (
+                start.strftime("%a %b %-d (all day)")
+                if meta.get("all_day")
+                else f"{start:%a %b %-d} {_format_time(start)}"
+            )
+
+    line = f"[apple_calendar] {when} — {title}" if when else f"[apple_calendar] {title}"
+
+    location = meta.get("location")
+    if isinstance(location, str) and location.strip():
+        line += f" @ {location.strip()}"
+
+    return line
+
+
 def _format_spotify(doc: Document) -> str:
     """Format a Spotify recently-played track — returns 'Track — Artist'."""
     # doc.title is already "Track — Artist" from the connector
@@ -348,6 +393,7 @@ _FORMATTERS: Dict[str, Any] = {
     "outlook": _format_outlook,
     "notion": _format_notion,
     "gcalendar": _format_gcalendar,
+    "apple_calendar": _format_apple_calendar,
     "weather": _format_weather,
     "github_notifications": _format_github_notifications,
     "hackernews": _format_hackernews,
