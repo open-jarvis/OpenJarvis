@@ -3411,6 +3411,45 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Windows WebView2 does not grant the microphone (or camera)
+            // getUserMedia permission unless the host explicitly allows it:
+            // wry leaves such requests at their default (unhandled → not
+            // granted). Without this, the in-webview recorder (useSpeech.ts)
+            // never opens the capture device — Windows never attributes a mic
+            // access to the app (so it never appears under Privacy →
+            // Microphone → desktop apps), and transcription receives an empty
+            // EOF audio file. Grant mic + camera for our own first-party UI.
+            // macOS/Linux webviews defer to the OS-level (TCC / PipeWire)
+            // prompt instead, so this is Windows-only.
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                use webview2_com::Microsoft::Web::WebView2::Win32::*;
+                use webview2_com::PermissionRequestedEventHandler;
+                if let Err(e) = window.with_webview(|webview| unsafe {
+                    let core = match webview.controller().CoreWebView2() {
+                        Ok(core) => core,
+                        Err(_) => return,
+                    };
+                    let mut token = Default::default();
+                    let _ = core.add_PermissionRequested(
+                        &PermissionRequestedEventHandler::create(Box::new(|_, args| {
+                            let Some(args) = args else { return Ok(()) };
+                            let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+                            args.PermissionKind(&mut kind)?;
+                            if kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE
+                                || kind == COREWEBVIEW2_PERMISSION_KIND_CAMERA
+                            {
+                                args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
+                            }
+                            Ok(())
+                        })),
+                        &mut token,
+                    );
+                }) {
+                    eprintln!("Warning: could not install WebView2 mic permission handler: {e}");
+                }
+            }
+
             // Create native macOS overlay panel
             #[cfg(target_os = "macos")]
             unsafe {

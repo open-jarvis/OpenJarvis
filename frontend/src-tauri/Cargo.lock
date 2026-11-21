@@ -2836,6 +2836,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "toml_edit 0.25.18+spec-1.1.0",
+ "webview2-com",
 ]
 
 [[package]]
