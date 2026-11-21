@@ -20,8 +20,8 @@ from openjarvis.speech.tts import TTSBackend, TTSResult
 
 _ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1"
 
-# "George" — warm British male premade voice, Jarvis-like
-_DEFAULT_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"
+# OpenJarvis default ElevenLabs voice.
+_DEFAULT_VOICE_ID = "EitqXD7jgIy0K5Z1zGGp"
 
 # Kokoro-style IDs ("bm_george", "pf_dora"). SpeechConfig.voice_id defaults to
 # a Kokoro voice, so it can reach this backend; ElevenLabs would 404 on it.

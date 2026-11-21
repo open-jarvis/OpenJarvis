@@ -22,6 +22,9 @@ persona = "jarvis"
 honorific = "sir"
 tts_backend = "openai"
 voice_id = "onyx"
+# ElevenLabs alternative:
+# tts_backend = "elevenlabs"
+# voice_id = "EitqXD7jgIy0K5Z1zGGp"
 sections = ["messages", "calendar"]
 
 [digest.messages]
