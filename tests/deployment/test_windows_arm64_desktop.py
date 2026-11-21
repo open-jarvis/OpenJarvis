@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import struct
 import subprocess
@@ -51,10 +52,23 @@ def _find_posix_shell() -> str | None:
     return None
 
 
+def _posix_has(shell: str, tool: str) -> bool:
+    try:
+        completed = subprocess.run(
+            [shell, "-c", f"command -v {tool}"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    return completed.returncode == 0
+
+
 POSIX_SHELL = _find_posix_shell()
+SIDECAR_TOOLING = POSIX_SHELL is not None and _posix_has(POSIX_SHELL, "unzip")
 needs_posix_shell = pytest.mark.skipif(
-    POSIX_SHELL is None,
-    reason="staging scripts need Git Bash (WSL's bash cannot run MSYS paths)",
+    not SIDECAR_TOOLING,
+    reason="staging scripts need Git Bash with unzip (WSL cannot run MSYS paths)",
 )
 
 
@@ -96,6 +110,19 @@ def sidecar_download(tmp_path):
         '#!/bin/bash\ncase "$1" in -m) echo x86_64;; -s) echo MINGW64_NT;; esac\n'
     )
     uname.chmod(0o755)
+    if POSIX_SHELL is not None:
+        # Python's os.chmod cannot set the MSYS execute bit on Windows; the
+        # shell can, and the stubs are extensionless by design.
+        subprocess.run(
+            [
+                POSIX_SHELL,
+                "-c",
+                "chmod +x "
+                + " ".join(shlex.quote(str(path)) for path in (curl, uname)),
+            ],
+            check=False,
+            capture_output=True,
+        )
     env = {
         **os.environ,
         "PATH": f"{stubs}{os.pathsep}{os.environ['PATH']}",
