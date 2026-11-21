@@ -73,8 +73,10 @@ def test_timezone_is_converted_before_display(tmp_path):
     conn.close()
 
     document = list(AppleCalendarConnector(db_path=str(db)).sync())[0]
+    from openjarvis.core.utils import strftime_unpadded
+
     local_start = start.astimezone(ZoneInfo("America/Los_Angeles"))
-    assert local_start.strftime("%-I:%M %p") in document.content
+    assert strftime_unpadded(local_start, "%-I:%M %p") in document.content
     assert document.metadata["start"] == local_start.isoformat()
 
 
