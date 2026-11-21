@@ -1539,6 +1539,13 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             // `desktop` extra) so pip installs from PyPI don't require it (#584).
             "--group",
             "desktop-native",
+            // Install what is missing, but never remove packages outside the
+            // extras above. Optional features are opt-in installs on top of
+            // this set: spoken replies need `uv sync --extra voice` (Kokoro),
+            // and Kokoro downloads its spaCy English model at first use. An
+            // exact sync would uninstall both on every app launch, so voice
+            // output would silently disappear again after each restart.
+            "--inexact",
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
