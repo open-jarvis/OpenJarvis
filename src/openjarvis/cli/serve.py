@@ -344,7 +344,10 @@ def serve(
     if len(multi_entries) > 1:
         from openjarvis.engine.multi import MultiEngine
 
-        engine = MultiEngine(multi_entries)
+        preferred_name = (
+            config.intelligence.preferred_engine or config.engine.default or engine_name
+        )
+        engine = MultiEngine(multi_entries, preferred_engine=preferred_name)
         engine_name = "multi"
         all_models[engine_name] = engine.list_models()
         merge_discovered_models(engine_name, all_models[engine_name])

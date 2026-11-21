@@ -75,6 +75,20 @@ class TestDiscoverEngines:
             result = discover_engines(cfg)
         assert result[0][0] == "b"
 
+    def test_preferred_engine_first_over_default(self) -> None:
+        _reg("a", "a")
+        _reg("b", "b")
+
+        cfg = JarvisConfig()
+        cfg.engine.default = "a"
+        cfg.intelligence.preferred_engine = "b"
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=lambda k, c: _FakeEngine(healthy=True),
+        ):
+            result = discover_engines(cfg)
+        assert result[0][0] == "b"
+
     def test_health_checks_run_concurrently(self) -> None:
         """Regression for #263 — discovery must probe engines in parallel.
 
@@ -149,6 +163,46 @@ class TestLiteLLMDiscovery:
         engine = _make_engine("litellm", cfg)
 
         assert engine.list_models() == ["groq/llama-3.3-70b-versatile"]
+
+    def test_unqualified_default_model_not_advertised_when_litellm_not_preferred(
+        self,
+    ) -> None:
+        """Fix #1328: Unqualified local models (e.g. qwen3.5:0.8b) are not
+        advertised by LiteLLM."""
+        cfg = JarvisConfig()
+        cfg.engine.default = "ollama"
+        cfg.intelligence.preferred_engine = "ollama"
+        cfg.intelligence.default_model = "qwen3.5:0.8b"
+        EngineRegistry.register_value("litellm", LiteLLMEngine)
+
+        engine = _make_engine("litellm", cfg)
+
+        assert engine.list_models() == []
+
+    def test_unqualified_default_model_advertised_when_litellm_is_default(self) -> None:
+        """When LiteLLM is the default engine, its default model is advertised."""
+        cfg = JarvisConfig()
+        cfg.engine.default = "litellm"
+        cfg.intelligence.default_model = "qwen3.5:0.8b"
+        EngineRegistry.register_value("litellm", LiteLLMEngine)
+
+        engine = _make_engine("litellm", cfg)
+
+        assert engine.list_models() == ["qwen3.5:0.8b"]
+
+    def test_unqualified_default_model_advertised_when_litellm_is_preferred(
+        self,
+    ) -> None:
+        """When LiteLLM is the preferred engine, its default model is advertised."""
+        cfg = JarvisConfig()
+        cfg.engine.default = "ollama"
+        cfg.intelligence.preferred_engine = "litellm"
+        cfg.intelligence.default_model = "custom-model"
+        EngineRegistry.register_value("litellm", LiteLLMEngine)
+
+        engine = _make_engine("litellm", cfg)
+
+        assert engine.list_models() == ["custom-model"]
 
 
 class TestGetEngine:
