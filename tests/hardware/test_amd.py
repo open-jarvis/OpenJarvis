@@ -20,6 +20,93 @@ pytestmark = pytest.mark.amd
 # Detection / rocm-smi parsing
 # ---------------------------------------------------------------------------
 
+# `rocm-smi --showproductname` from a Ryzen AI MAX+ PRO 395 (Strix Halo,
+# gfx1151), banner rules abridged to fit the line limit. Note the banner,
+# the section header, the failed name probe and the "N/A" series -- the
+# naive "first line" parse turned the banner into a GPU name.
+STRIX_HALO_PRODUCTNAME = """\
+
+=================== ROCm System Management Interface ===================
+============================= Product Info =============================
+GPU[0]\t\t: get_name, Failed to load a library
+GPU[0]\t\t: Card Series: \t\tN/A
+GPU[0]\t\t: Card Model: \t\t0x1586
+GPU[0]\t\t: Card Vendor: \t\tAdvanced Micro Devices, Inc. [AMD/ATI]
+GPU[0]\t\t: Card SKU: \t\tSTRXLGEN
+GPU[0]\t\t: GFX Version: \t\tgfx1151
+========================================================================
+"""
+
+# An APU reports a small UMA frame-buffer carveout next to a large GTT
+# aperture. Models are allocated out of GTT.
+STRIX_HALO_MEMINFO = """\
+GPU[0]\t\t: VRAM Total Memory (B): 536870912
+GPU[0]\t\t: VRAM Total Used Memory (B): 483176448
+GPU[0]\t\t: GTT Total Memory (B): 107374182400
+GPU[0]\t\t: GTT Total Used Memory (B): 1776222208
+"""
+
+
+class TestAMDUnifiedMemoryDetection:
+    """Regression tests for APU (unified memory) detection.
+
+    A Strix Halo was detected as a 0.5 GB GPU named "==== ROCm System
+    Management Interface ====", because the name was read off line 0 and the
+    capacity was read from the UMA carveout rather than GTT. `jarvis init`
+    then recommended a 2B model on a machine comfortably running a 35B.
+    """
+
+    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
+    @patch(
+        "openjarvis.core.config._run_cmd",
+        side_effect=[STRIX_HALO_PRODUCTNAME, STRIX_HALO_MEMINFO, "GPU[0] : info"],
+    )
+    def test_banner_is_never_used_as_the_gpu_name(self, mock_run, mock_which):
+        gpu = _detect_amd_gpu()
+        assert gpu is not None
+        assert "ROCm System Management" not in gpu.name
+        assert "=" not in gpu.name
+        assert gpu.name == "STRXLGEN"
+
+    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
+    @patch(
+        "openjarvis.core.config._run_cmd",
+        side_effect=[STRIX_HALO_PRODUCTNAME, STRIX_HALO_MEMINFO, "GPU[0] : info"],
+    )
+    def test_gtt_is_reported_as_capacity_on_an_apu(self, mock_run, mock_which):
+        gpu = _detect_amd_gpu()
+        assert gpu is not None
+        # 107374182400 B = 100 GB of GTT, not the 0.5 GB carveout.
+        assert gpu.vram_gb == 100.0
+
+    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
+    @patch(
+        "openjarvis.core.config._run_cmd",
+        side_effect=[STRIX_HALO_PRODUCTNAME, STRIX_HALO_MEMINFO, "GPU[0] : info"],
+    )
+    def test_gfx_version_is_captured(self, mock_run, mock_which):
+        gpu = _detect_amd_gpu()
+        assert gpu is not None
+        assert gpu.compute_capability == "gfx1151"
+
+    @patch("openjarvis.core.config.shutil.which", return_value="/usr/bin/rocm-smi")
+    @patch(
+        "openjarvis.core.config._run_cmd",
+        side_effect=[
+            "GPU[0]\t\t: Card Series: \t\tAMD Instinct MI300X",
+            # Discrete card: real VRAM, plus a GTT host aperture that must NOT
+            # be mistaken for capacity.
+            "GPU[0]\t\t: VRAM Total Memory (B): 206158430208\n"
+            "GPU[0]\t\t: GTT Total Memory (B): 549755813888",
+            "GPU[0] : info",
+        ],
+    )
+    def test_discrete_card_keeps_its_own_vram(self, mock_run, mock_which):
+        """GTT must only win when VRAM is implausibly small for a real card."""
+        gpu = _detect_amd_gpu()
+        assert gpu is not None
+        assert gpu.vram_gb == 192.0
+
 
 class TestAMDDetection:
     """Tests for _detect_amd_gpu() against various rocm-smi outputs."""
