@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Square, Paperclip, Search } from 'lucide-react';
+import { Send, Square, Paperclip, Search, Image, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat, streamResearch } from '../../lib/sse';
@@ -81,6 +81,8 @@ function useResearchCorpusSync(enabled: boolean): {
 
 export function InputArea() {
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -611,7 +613,7 @@ export function InputArea() {
           placeholder={selectedModel ? 'Message OpenJarvis...' : 'Pick a model first (⌘K)...'}
           rows={1}
           className="flex-1 bg-transparent outline-none resize-none text-sm leading-relaxed"
-          style={{ color: 'var(--color-text)', maxHeight: '200px' }}
+          style={{ color: 'var(--color-text)' }}
           disabled={streamState.isStreaming || modelLoading}
         />
         {isCurrentChatStreaming ? (
@@ -638,7 +640,7 @@ export function InputArea() {
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
               style={{
                 background: input.trim() ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
-                color: input.trim() ? 'white' : 'var(--color-text-tertiary)',
+                color: input.trim() ? 'var(--color-text-inverse)' : 'var(--color-text-tertiary)',
               }}
             >
               <Send size={16} />

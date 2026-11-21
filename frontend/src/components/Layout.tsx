@@ -25,8 +25,7 @@ export function Layout() {
   const navigate = useNavigate();
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden relative" style={{ paddingTop: '3px' }}>
-      <div className="hud-backdrop" aria-hidden="true" />
+    <div className="flex flex-col h-full w-full overflow-hidden relative">
       <SystemPulse apiReachable={apiReachable} />
       <ApprovalBell />
 

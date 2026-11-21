@@ -8,13 +8,11 @@ import {
   Search,
   PanelLeftClose,
   PanelLeft,
-  Cpu,
   Rocket,
   Bot,
   Sun,
   Moon,
   Monitor,
-  Loader2,
   ScrollText,
   Database,
 } from 'lucide-react';
@@ -33,7 +31,6 @@ export function Sidebar() {
   const serverInfo = useAppStore((s) => s.serverInfo);
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
   const modelLoading = useAppStore((s) => s.modelLoading);
-  const deepResearch = useAppStore((s) => s.deepResearch);
 
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
@@ -85,8 +82,6 @@ export function Sidebar() {
         `}
         style={{
           background: 'var(--color-sidebar)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
           borderRight: sidebarOpen ? '1px solid var(--color-border)' : 'none',
         }}
       >
@@ -129,7 +124,7 @@ export function Sidebar() {
           {/* Model badge */}
           <button
             onClick={() => setCommandPaletteOpen(true)}
-            className="mx-3 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer"
+            className="mx-3 mb-2 flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer"
             style={{
               background: 'var(--color-bg-secondary)',
               color: 'var(--color-text-secondary)',
@@ -138,34 +133,20 @@ export function Sidebar() {
             onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
             onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--color-bg-secondary)')}
           >
-            {modelLoading ? (
-              <Loader2 size={14} className="animate-spin" style={{ color: 'var(--color-accent)' }} />
-            ) : (
-              <Cpu size={14} />
-            )}
-            <div className="flex-1 min-w-0">
-              <span
-                className="truncate block text-left"
-                style={{ color: deepResearch ? 'var(--color-accent)' : 'var(--color-text)' }}
-              >
-                {deepResearch
-                  ? 'Deep Research'
-                  : selectedModel || serverInfo?.model || 'Select model'}
+            <span className="truncate" style={{ color: 'var(--color-text)' }}>
+              {selectedModel || serverInfo?.model || 'Select model'}
+            </span>
+            {modelLoading && (
+              <span className="text-[10px] ml-2" style={{ color: 'var(--color-accent)' }}>
+                Loading...
               </span>
-              {modelLoading && (
-                <span className="text-[10px] block text-left" style={{ color: 'var(--color-accent)' }}>
-                  Loading model...
-                </span>
-              )}
-            </div>
-            {!modelLoading && (
-              <kbd
-                className="text-[10px] px-1.5 py-0.5 rounded font-mono"
-                style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-tertiary)' }}
-              >
-                ⌘K
-              </kbd>
             )}
+            <kbd
+              className="text-[10px] px-1.5 py-0.5 rounded font-mono ml-2 shrink-0"
+              style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-tertiary)' }}
+            >
+              ⌘K
+            </kbd>
           </button>
 
           {/* Search */}
@@ -212,17 +193,7 @@ export function Sidebar() {
                     if (!isActive) e.currentTarget.style.background = 'transparent';
                   }}
                 >
-                  {isActive && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full"
-                      style={{
-                        background: 'var(--color-accent)',
-                        boxShadow: '0 0 8px var(--color-accent-glow)',
-                      }}
-                    />
-                  )}
-                  <item.icon size={16} style={isActive ? { color: 'var(--color-accent)' } : undefined} />
+                  <item.icon size={16} style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text-secondary)' }} />
                   {item.label}
                 </button>
               );

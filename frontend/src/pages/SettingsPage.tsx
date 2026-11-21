@@ -77,22 +77,38 @@ function ApiKeyInput({
   const [error, setError] = useState('');
   const desktopKeyStorage = isTauri();
   const serverToolStorage = !desktopKeyStorage && !!toolName;
-  const canManage = desktopKeyStorage || serverToolStorage;
+  const isCloudProvider = !toolName && !desktopKeyStorage;
+  const canManage = desktopKeyStorage || serverToolStorage || isCloudProvider;
+
+  const storageKey = `openjarvis-cloud-key-${keyName}`;
 
   const refresh = useCallback(async () => {
-    if (!canManage) {
+    if (desktopKeyStorage) {
+      try {
+        const status = await getCloudKeyStatus();
+        setHasKey(!!status[keyName]);
+      } catch {
+        setHasKey(false);
+      }
+    } else if (serverToolStorage) {
+      try {
+        const status = await fetchToolCredentialStatus(toolName!);
+        setHasKey(!!status[keyName]);
+      } catch {
+        setHasKey(false);
+      }
+    } else if (isCloudProvider) {
+      // In browser, check localStorage for cloud provider keys
+      try {
+        const stored = localStorage.getItem(storageKey);
+        setHasKey(!!stored);
+      } catch {
+        setHasKey(false);
+      }
+    } else {
       setHasKey(false);
-      return;
     }
-    try {
-      const status = desktopKeyStorage
-        ? await getCloudKeyStatus()
-        : await fetchToolCredentialStatus(toolName!);
-      setHasKey(!!status[keyName]);
-    } catch {
-      setHasKey(false);
-    }
-  }, [canManage, desktopKeyStorage, keyName, toolName]);
+  }, [desktopKeyStorage, serverToolStorage, isCloudProvider, keyName, toolName, storageKey]);
 
   useEffect(() => {
     void refresh();
@@ -107,8 +123,11 @@ function ApiKeyInput({
     try {
       if (desktopKeyStorage) {
         await saveCloudKey(keyName, next);
-      } else if (toolName) {
+      } else if (serverToolStorage) {
         await saveToolCredentials(toolName, { [keyName]: next });
+      } else if (isCloudProvider) {
+        // Store in localStorage for browser
+        localStorage.setItem(storageKey, next);
       } else {
         return;
       }
@@ -127,8 +146,10 @@ function ApiKeyInput({
     try {
       if (desktopKeyStorage) {
         await saveCloudKey(keyName, '');
-      } else if (toolName) {
+      } else if (serverToolStorage) {
         await deleteToolCredential(toolName, keyName);
+      } else if (isCloudProvider) {
+        localStorage.removeItem(storageKey);
       } else {
         return;
       }
@@ -149,7 +170,13 @@ function ApiKeyInput({
         value={value}
         onChange={e => setValue(e.target.value)}
         onBlur={() => { if (value.trim()) void save(value); }}
-        placeholder={hasKey ? (desktopKeyStorage ? 'Saved in secure storage' : 'Saved by local server') : placeholder}
+        placeholder={hasKey
+          ? desktopKeyStorage
+            ? 'Saved in secure storage'
+            : serverToolStorage
+            ? 'Saved by local server'
+            : 'Saved in browser (configure on server for use)'
+          : placeholder}
         disabled={!canManage}
         className="w-48 px-2 py-1 rounded text-xs"
         style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
@@ -164,6 +191,11 @@ function ApiKeyInput({
       )}
       {saved && <span className="text-[10px]" style={{ color: 'var(--color-success)' }}>Saved</span>}
       {error && <span className="text-[10px]" style={{ color: 'var(--color-error)' }}>{error}</span>}
+      {isCloudProvider && hasKey && (
+        <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+          Set on server to enable
+        </span>
+      )}
     </div>
   );
 }
@@ -171,19 +203,26 @@ function ApiKeyInput({
 function CloudProviderStatus({ label, keyName }: { label: string; keyName: string }) {
   const [hasKey, setHasKey] = useState(false);
   const desktopKeyStorage = isTauri();
+  const storageKey = `openjarvis-cloud-key-${keyName}`;
 
   const refresh = useCallback(async () => {
-    if (!desktopKeyStorage) {
-      setHasKey(false);
-      return;
+    if (desktopKeyStorage) {
+      try {
+        const status = await getCloudKeyStatus();
+        setHasKey(!!status[keyName]);
+      } catch {
+        setHasKey(false);
+      }
+    } else {
+      // In browser, check localStorage for cloud provider keys
+      try {
+        const stored = localStorage.getItem(storageKey);
+        setHasKey(!!stored);
+      } catch {
+        setHasKey(false);
+      }
     }
-    try {
-      const status = await getCloudKeyStatus();
-      setHasKey(!!status[keyName]);
-    } catch {
-      setHasKey(false);
-    }
-  }, [desktopKeyStorage, keyName]);
+  }, [desktopKeyStorage, keyName, storageKey]);
 
   useEffect(() => {
     void refresh();
@@ -652,6 +691,9 @@ export function SettingsPage() {
                 <CloudProviderStatus label="Google" keyName="GEMINI_API_KEY" />
                 <CloudProviderStatus label="OpenRouter" keyName="OPENROUTER_API_KEY" />
                 <CloudProviderStatus label="Atlas Cloud" keyName="ATLASCLOUD_API_KEY" />
+                <CloudProviderStatus label="Ollama Cloud" keyName="OLLAMA_API_KEY" />
+                <CloudProviderStatus label="Groq" keyName="GROQ_API_KEY" />
+                <CloudProviderStatus label="NVIDIA" keyName="NVIDIA_API_KEY" />
               </div>
             </SettingRow>
           </Section>
@@ -672,6 +714,15 @@ export function SettingsPage() {
             </SettingRow>
             <SettingRow label="Atlas Cloud" description="Models routed through Atlas Cloud">
               <ApiKeyInput keyName="ATLASCLOUD_API_KEY" placeholder="Atlas Cloud API key" />
+            </SettingRow>
+            <SettingRow label="Ollama Cloud" description="Ollama cloud models">
+              <ApiKeyInput keyName="OLLAMA_API_KEY" placeholder="ollama key..." />
+            </SettingRow>
+            <SettingRow label="Groq" description="Fast inference (Llama, Mixtral, Gemma)">
+              <ApiKeyInput keyName="GROQ_API_KEY" placeholder="gsk_..." />
+            </SettingRow>
+            <SettingRow label="NVIDIA" description="Nemotron, Llama Nemotron models">
+              <ApiKeyInput keyName="NVIDIA_API_KEY" placeholder="nvapi-..." />
             </SettingRow>
           </Section>
 

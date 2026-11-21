@@ -152,26 +152,35 @@ export function MessageBubble({ message, isLive = false }: Props) {
 
   return (
     <div className="group mb-6">
-      {/* Deep Research timeline (steps + status) */}
-      {(message.isResearch || (message.researchTraces && message.researchTraces.length > 0)) && (
-        <ResearchTimeline
-          traces={message.researchTraces ?? []}
-          isLive={isLive}
-          hasContent={cleanContent.length > 0}
-        />
-      )}
-
-      {/* Tool calls */}
-      {message.toolCalls && message.toolCalls.length > 0 && (
-        <div className="mb-3 flex flex-col gap-2">
-          {message.toolCalls.map((tc) => (
-            <ToolCallCard key={tc.id} toolCall={tc} />
-          ))}
+      {/* Deep Research timeline (steps + status) + Tool calls + Audio player */}
+      {(message.isResearch || (message.researchTraces && message.researchTraces.length > 0) ||
+        (message.toolCalls && message.toolCalls.length > 0) ||
+        message.audio?.url) && (
+        <div
+          style={{
+            borderLeft: '2px solid var(--color-accent)',
+            paddingLeft: '12px',
+            marginLeft: '4px',
+            marginBottom: '12px',
+          }}
+        >
+          {(message.isResearch || (message.researchTraces && message.researchTraces.length > 0)) && (
+            <ResearchTimeline
+              traces={message.researchTraces ?? []}
+              isLive={isLive}
+              hasContent={cleanContent.length > 0}
+            />
+          )}
+          {message.toolCalls && message.toolCalls.length > 0 && (
+            <div className="mb-3 flex flex-col gap-2">
+              {message.toolCalls.map((tc) => (
+                <ToolCallCard key={tc.id} toolCall={tc} />
+              ))}
+            </div>
+          )}
+          {message.audio?.url && <AudioPlayer src={message.audio.url} />}
         </div>
       )}
-
-      {/* Audio player (e.g. morning digest) */}
-      {message.audio?.url && <AudioPlayer src={message.audio.url} />}
 
       {/* Assistant message */}
       {cleanContent && (

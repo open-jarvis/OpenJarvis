@@ -1050,20 +1050,41 @@ function DataSourcesSection() {
     return (
       <div className="flex flex-col gap-5">
         <section>
-          <div className="hud-label mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
+          <div
+            style={{
+              fontWeight: 500,
+              fontSize: '0.75rem',
+              color: 'var(--color-text-tertiary)',
+              marginBottom: '0.5rem',
+            }}
+          >
             Loading sources…
           </div>
           <div className="flex flex-col gap-2">
             {[0, 1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="hud-panel data-skeleton"
                 style={{
                   padding: '14px 18px',
                   height: 60,
                   opacity: 0.6 - i * 0.08,
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-lg)',
+                  overflow: 'hidden',
+                  position: 'relative',
                 }}
-              />
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--color-text) 6%, transparent) 50%, transparent 100%)',
+                    backgroundSize: '200% 100%',
+                    animation: 'hud-sweep 1.6s linear infinite',
+                  }}
+                />
+              </div>
             ))}
           </div>
         </section>
@@ -1076,7 +1097,14 @@ function DataSourcesSection() {
       {/* Connected sources */}
       {connected.length > 0 && (
         <section>
-          <div className="hud-label mb-2 flex items-center gap-2">
+          <div
+            className="flex items-center gap-2 mb-2"
+            style={{
+              fontWeight: 500,
+              fontSize: '0.75rem',
+              color: 'var(--color-text-tertiary)',
+            }}
+          >
             <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 999, background: 'var(--color-success)' }} />
             Connected · {connected.length}
           </div>
@@ -1089,8 +1117,10 @@ function DataSourcesSection() {
             return (
               <div
                 key={c.connector_id}
-                className="hud-panel"
                 style={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-lg)',
                   borderColor: hasError
                     ? 'color-mix(in srgb, var(--color-error) 28%, transparent)'
                     : 'var(--color-border)',
@@ -1121,7 +1151,6 @@ function DataSourcesSection() {
                   <button
                     onClick={() => handleDisconnect(c.connector_id)}
                     disabled={connectorActionsBusy}
-                    className="hud-label"
                     style={{
                       padding: '6px 12px',
                       background: 'transparent',
@@ -1131,6 +1160,8 @@ function DataSourcesSection() {
                       cursor: connectorActionsBusy ? 'default' : 'pointer',
                       letterSpacing: '0.15em',
                       opacity: connectorActionsBusy ? 0.5 : 1,
+                      fontWeight: 500,
+                      fontSize: '0.75rem',
                     }}
                   >
                     {disconnectingId === c.connector_id
@@ -1148,7 +1179,14 @@ function DataSourcesSection() {
       {/* Not connected list */}
       {notConnected.length > 0 && (
         <section>
-          <div className="hud-label mb-2 flex items-center gap-2">
+          <div
+            className="flex items-center gap-2 mb-2"
+            style={{
+              fontWeight: 500,
+              fontSize: '0.75rem',
+              color: 'var(--color-text-tertiary)',
+            }}
+          >
             <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 999, background: 'var(--color-text-tertiary)' }} />
             Available · {notConnected.length}
           </div>
@@ -1160,8 +1198,10 @@ function DataSourcesSection() {
             return (
               <div
                 key={c.connector_id}
-                className="hud-panel"
                 style={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-lg)',
                   gridColumn: isExpanded ? '1 / -1' : undefined,
                   opacity: isExpanded ? 1 : 0.85,
                   borderStyle: isExpanded ? 'solid' : 'dashed',

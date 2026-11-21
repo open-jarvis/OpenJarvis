@@ -80,6 +80,34 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
       { id: 'atlascloud/Qwen/Qwen3-235B-A22B-Instruct-2507', desc: 'Qwen3 235B via Atlas Cloud' },
     ],
   },
+  {
+    name: 'Ollama Cloud',
+    envKey: 'OLLAMA_API_KEY',
+    models: [
+      { id: 'ollama/qwen2.5:7b', desc: 'Qwen 2.5 7B via Ollama Cloud' },
+      { id: 'ollama/llama3.3:8b', desc: 'Llama 3.3 8B via Ollama Cloud' },
+      { id: 'ollama/mistral:7b', desc: 'Mistral 7B via Ollama Cloud' },
+    ],
+  },
+  {
+    name: 'Groq',
+    envKey: 'GROQ_API_KEY',
+    models: [
+      { id: 'groq/llama-3.3-70b-versatile', desc: 'Llama 3.3 70B — versatile' },
+      { id: 'groq/llama-3.1-8b-instant', desc: 'Llama 3.1 8B — instant' },
+      { id: 'groq/mixtral-8x7b-32768', desc: 'Mixtral 8x7B — 32K context' },
+      { id: 'groq/gemma2-9b-it', desc: 'Gemma 2 9B — instruction tuned' },
+    ],
+  },
+  {
+    name: 'NVIDIA',
+    envKey: 'NVIDIA_API_KEY',
+    models: [
+      { id: 'nvidia/nemotron-3-ultra', desc: 'Nemotron 3 Ultra — reasoning' },
+      { id: 'nvidia/nemotron-4-340b', desc: 'Nemotron 4 340B — large' },
+      { id: 'nvidia/llama-3.1-nemotron-70b', desc: 'Llama 3.1 Nemotron 70B' },
+    ],
+  },
 ];
 
 type Tab = 'installed' | 'catalogue' | 'cloud';
@@ -110,15 +138,26 @@ export function CommandPalette() {
   const desktopKeyStorage = isTauri();
 
   const refreshCloudKeyStatus = useCallback(async () => {
-    if (!desktopKeyStorage) {
-      setCloudKeyStatus({});
-      return;
-    }
-    try {
-      setCloudKeyStatus(await getCloudKeyStatus());
-      setCloudKeyError(null);
-    } catch (e: any) {
-      setCloudKeyError(e?.message || 'Failed to read cloud key status');
+    if (desktopKeyStorage) {
+      try {
+        setCloudKeyStatus(await getCloudKeyStatus());
+        setCloudKeyError(null);
+      } catch (e: any) {
+        setCloudKeyError(e?.message || 'Failed to read cloud key status');
+      }
+    } else {
+      // In browser, check localStorage for cloud provider keys
+      try {
+        const status: Record<string, boolean> = {};
+        CLOUD_PROVIDERS.forEach((p) => {
+          const stored = localStorage.getItem(`openjarvis-cloud-key-${p.envKey}`);
+          status[p.envKey] = !!stored;
+        });
+        setCloudKeyStatus(status);
+        setCloudKeyError(null);
+      } catch {
+        setCloudKeyStatus({});
+      }
     }
   }, [desktopKeyStorage]);
 
@@ -233,7 +272,17 @@ export function CommandPalette() {
     setCloudKeyError(null);
 
     try {
-      await saveCloudKey(provider.envKey, keyValue);
+      if (desktopKeyStorage) {
+        await saveCloudKey(provider.envKey, keyValue);
+      } else {
+        // In browser, store in localStorage
+        const storageKey = `openjarvis-cloud-key-${provider.envKey}`;
+        if (keyValue) {
+          localStorage.setItem(storageKey, keyValue);
+        } else {
+          localStorage.removeItem(storageKey);
+        }
+      }
       setApiKeys((prev) => ({ ...prev, [provider.envKey]: '' }));
       await refreshCloudKeyStatus();
       useAppStore.getState().addLogEntry({
