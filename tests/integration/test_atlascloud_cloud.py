@@ -94,7 +94,7 @@ class TestAtlasCloudIntegration:
             ],
         )
         assert result["tool_calls"], "Expected the model to call get_weather"
-        assert result["tool_calls"][0]["function"]["name"] == "get_weather"
+        assert result["tool_calls"][0]["name"] == "get_weather"
 
     def test_health_and_list_models(self, engine: CloudEngine) -> None:
         assert engine.health() is True

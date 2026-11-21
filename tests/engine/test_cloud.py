@@ -727,8 +727,79 @@ class TestOpenRouterToolForwarding:
 
         # tool_calls from the response are parsed back into the result
         assert result["tool_calls"][0]["id"] == "call_1"
-        assert result["tool_calls"][0]["function"]["name"] == "get_weather"
-        assert result["tool_calls"][0]["function"]["arguments"] == '{"city": "NYC"}'
+        # Flat shape shared by every engine (agents and the server read
+        # tc["name"] / tc["arguments"]).
+        assert result["tool_calls"][0]["name"] == "get_weather"
+        assert result["tool_calls"][0]["arguments"] == '{"city": "NYC"}'
+
+
+class TestOpenAICompatGatewayToolCallShape:
+    """#1088: OpenRouter and Atlas Cloud returned tool_calls in the nested
+    OpenAI wire shape (``{"function": {"name": ...}}``) while every other
+    engine — and every consumer (agents, ``server/routes.py``) — uses the flat
+    internal shape ``{"id", "name", "arguments"}``. Agents therefore saw an
+    empty tool name and the next request was rejected by the provider.
+    """
+
+    @pytest.mark.parametrize(
+        ("model", "client_attr"),
+        [
+            ("openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", "_openrouter_client"),
+            ("atlascloud/openai/gpt-4.1-mini", "_atlascloud_client"),
+        ],
+    )
+    @pytest.mark.parametrize("n_calls", [0, 1, 2])
+    def test_tool_calls_use_flat_shape(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        model: str,
+        client_attr: str,
+        n_calls: int,
+    ) -> None:
+        for var in CLOUD_KEY_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+
+        fake_tcs = [
+            SimpleNamespace(
+                id=f"call_{i}",
+                type="function",
+                function=SimpleNamespace(name=f"tool_{i}", arguments=f'{{"i": {i}}}'),
+            )
+            for i in range(n_calls)
+        ]
+        fake_resp = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="" if n_calls else "done",
+                        tool_calls=fake_tcs or None,
+                    ),
+                    finish_reason="tool_calls" if n_calls else "stop",
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=3, completion_tokens=2, total_tokens=5),
+            model=model.split("/", 1)[1],
+        )
+        fake_client = mock.MagicMock()
+        fake_client.chat.completions.create.return_value = fake_resp
+
+        EngineRegistry.register_value("cloud", CloudEngine)
+        engine = CloudEngine()
+        setattr(engine, client_attr, fake_client)
+
+        result = engine.generate(
+            [Message(role=Role.USER, content="hi")],
+            model=model,
+            tools=[{"type": "function", "function": {"name": "tool_0"}}],
+        )
+
+        if not n_calls:
+            assert "tool_calls" not in result
+            return
+        assert result["tool_calls"] == [
+            {"id": f"call_{i}", "name": f"tool_{i}", "arguments": f'{{"i": {i}}}'}
+            for i in range(n_calls)
+        ]
 
 
 class TestCloudEngineCanServe:

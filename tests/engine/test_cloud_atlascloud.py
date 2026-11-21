@@ -333,12 +333,9 @@ class TestAtlasCloudGenerate:
             [Message(role=Role.USER, content="Hi")], model=_DEFAULT_MODEL
         )
 
+        # Flat internal shape shared by every engine (#1088).
         assert result["tool_calls"] == [
-            {
-                "id": "call_1",
-                "type": "function",
-                "function": {"name": "search", "arguments": '{"q":"x"}'},
-            }
+            {"id": "call_1", "name": "search", "arguments": '{"q":"x"}'}
         ]
 
 
