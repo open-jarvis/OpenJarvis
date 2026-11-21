@@ -18,7 +18,26 @@ from openjarvis.cli._runtime_panel import (
     tty_wants_runtime_panel,
 )
 from openjarvis.cli.chat_cmd import chat
+import pytest
+
 from openjarvis.core.config import JarvisConfig
+
+
+@pytest.fixture(autouse=True)
+def _no_security_wrapper(monkeypatch):
+    """Same isolation as test_chat_cmd: mock engines must reach the picker."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "openjarvis.security.setup_security",
+        lambda config, engine, bus: SimpleNamespace(
+            engine=engine,
+            capability_policy=None,
+            rate_limiter=None,
+        ),
+    )
+
+
 
 
 def _chat_patches(engine: MagicMock, config: JarvisConfig | None = None):

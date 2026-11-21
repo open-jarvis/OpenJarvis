@@ -34,6 +34,27 @@ from openjarvis.memory.store import LocalFactStore
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 
+@pytest.fixture(autouse=True)
+def _no_security_wrapper(monkeypatch):
+    """Keep chat tests independent of whether Rust guardrails are installed.
+
+    With the native extension present, ``setup_security`` wraps the mocked
+    engine and the output scanner rejects ``MagicMock`` content. These tests
+    cover chat behaviour, not security wiring; the dedicated security test
+    patches ``setup_security`` itself.
+    """
+    monkeypatch.setattr(
+        "openjarvis.security.setup_security",
+        lambda config, engine, bus: SimpleNamespace(
+            engine=engine,
+            capability_policy=None,
+            rate_limiter=None,
+        ),
+    )
+
+
+
+
 class _SimpleChatAgent(BaseAgent):
     agent_id = "simple_chat_agent"
 
