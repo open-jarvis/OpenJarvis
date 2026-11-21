@@ -48,8 +48,21 @@ impl AgentEnum {
     }
 }
 
-fn make_adapter(engine_key: &str, model: &str) -> PyResult<DefaultAdapter> {
-    let config = openjarvis_core::JarvisConfig::default();
+fn make_adapter(engine_key: &str, host: &str, model: &str) -> PyResult<DefaultAdapter> {
+    let mut config = openjarvis_core::JarvisConfig::default();
+    match engine_key {
+        "ollama" => config.engine.ollama.host = host.to_string(),
+        "vllm" => config.engine.vllm.host = host.to_string(),
+        "sglang" => config.engine.sglang.host = host.to_string(),
+        "llamacpp" => config.engine.llamacpp.host = host.to_string(),
+        "mlx" => config.engine.mlx.host = host.to_string(),
+        "lmstudio" => config.engine.lmstudio.host = host.to_string(),
+        "exo" => config.engine.exo.host = host.to_string(),
+        "nexa" => config.engine.nexa.host = host.to_string(),
+        "uzu" => config.engine.uzu.host = host.to_string(),
+        "apple_fm" => config.engine.apple_fm.host = host.to_string(),
+        _ => config.engine.ollama.host = host.to_string(),
+    }
     let engine = openjarvis_engine::get_engine_static(&config, Some(engine_key))
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
     Ok(RigModelAdapter::new(Arc::new(engine), model.to_string()))
@@ -71,7 +84,8 @@ impl PySimpleAgent {
         system_prompt: &str,
         temperature: f64,
     ) -> PyResult<Self> {
-        let adapter = make_adapter(engine_key, model)?;
+        let _guard = crate::RUNTIME.enter();
+        let adapter = make_adapter(engine_key, host, model)?;
         let agent = openjarvis_agents::SimpleAgent::new(adapter, system_prompt, temperature);
         Ok(Self { inner: AgentEnum::Simple(agent) })
     }
@@ -112,7 +126,8 @@ impl PyOrchestratorAgent {
         max_turns: usize,
         temperature: f64,
     ) -> PyResult<Self> {
-        let adapter = make_adapter(engine_key, model)?;
+        let _guard = crate::RUNTIME.enter();
+        let adapter = make_adapter(engine_key, host, model)?;
         let executor = Arc::new(openjarvis_tools::ToolExecutor::new(None, None));
         let agent = openjarvis_agents::OrchestratorAgent::new(
             adapter, system_prompt, executor, max_turns, temperature,
@@ -155,7 +170,8 @@ impl PyNativeReActAgent {
         max_turns: usize,
         temperature: f64,
     ) -> PyResult<Self> {
-        let adapter = make_adapter(engine_key, model)?;
+        let _guard = crate::RUNTIME.enter();
+        let adapter = make_adapter(engine_key, host, model)?;
         let executor = Arc::new(openjarvis_tools::ToolExecutor::new(None, None));
         let agent = openjarvis_agents::NativeReActAgent::new(
             adapter, executor, max_turns, temperature,
@@ -199,13 +215,8 @@ impl PyNativeOpenHandsAgent {
         max_turns: usize,
         temperature: f64,
     ) -> PyResult<Self> {
-        let config = openjarvis_core::JarvisConfig::default();
-        let engine = openjarvis_engine::get_engine_static(&config, Some(engine_key))
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-        let adapter = openjarvis_engine::rig_adapter::RigModelAdapter::new(
-            Arc::new(engine),
-            model.to_string(),
-        );
+        let _guard = crate::RUNTIME.enter();
+        let adapter = make_adapter(engine_key, host, model)?;
         let executor = Arc::new(openjarvis_tools::ToolExecutor::new(None, None));
         let agent = openjarvis_agents::NativeOpenHandsAgent::new(
             adapter,
@@ -280,13 +291,8 @@ impl PyMonitorOperativeAgent {
         compression_threshold: usize,
         truncation_limit: usize,
     ) -> PyResult<Self> {
-        let config = openjarvis_core::JarvisConfig::default();
-        let engine = openjarvis_engine::get_engine_static(&config, Some(engine_key))
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-        let adapter = openjarvis_engine::rig_adapter::RigModelAdapter::new(
-            Arc::new(engine),
-            model.to_string(),
-        );
+        let _guard = crate::RUNTIME.enter();
+        let adapter = make_adapter(engine_key, host, model)?;
         let executor = Arc::new(openjarvis_tools::ToolExecutor::new(None, None));
 
         let mem_ext = match memory_extraction {
