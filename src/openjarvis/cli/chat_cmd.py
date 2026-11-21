@@ -1171,8 +1171,10 @@ def chat(
             continue
 
         # Deterministic quick commands (no LLM): time, lock, open apps, volume.
-        # Matched before the engine so they answer instantly and offline.
-        if agent is None and _env_flag("JARVIS_QUICK_COMMANDS", True):
+        # Matched before the engine so they answer instantly and offline. They
+        # are narrow and unambiguous, so they run even when an agent is
+        # configured (the default), not only in direct-to-engine mode.
+        if _env_flag("JARVIS_QUICK_COMMANDS", True):
             from openjarvis.speech.quick_commands import handle_quick_command
 
             quick_reply = handle_quick_command(user_input)

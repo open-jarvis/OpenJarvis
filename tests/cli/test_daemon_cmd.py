@@ -408,3 +408,8 @@ finally:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=5)
+
+class TestDaemonLogUnbuffered:
+    def test_child_gets_pythonunbuffered(self) -> None:
+        kwargs = TestDaemonDetachment._spawn_kwargs("win32")
+        assert kwargs["env"]["PYTHONUNBUFFERED"] == "1"

@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import platform
 import subprocess
 from pathlib import Path
 
 import click
+
+
+def _require_service_manager() -> None:
+    """Fail cleanly where systemd/launchd do not exist (Windows)."""
+    if platform.system() == "Windows":
+        raise click.ClickException(
+            "The gateway service manager (systemd/launchd) is not available on "
+            "Windows. Run the gateway in the foreground with `jarvis gateway "
+            "start` without --install."
+        )
 
 
 @click.group()
@@ -22,6 +33,7 @@ def gateway() -> None:
 def start(install: bool) -> None:
     """Start the gateway daemon."""
     if install:
+        _require_service_manager()
         import platform as plat
 
         from openjarvis.daemon.service import (
@@ -61,6 +73,7 @@ def start(install: bool) -> None:
 @gateway.command()
 def stop() -> None:
     """Stop the gateway daemon."""
+    _require_service_manager()
     import platform as plat
 
     if plat.system() == "Darwin":
@@ -79,6 +92,7 @@ def stop() -> None:
 @gateway.command()
 def status() -> None:
     """Check gateway status."""
+    _require_service_manager()
     import platform as plat
 
     if plat.system() == "Darwin":
@@ -96,6 +110,7 @@ def status() -> None:
 @gateway.command()
 def logs() -> None:
     """View gateway logs."""
+    _require_service_manager()
     import platform as plat
 
     if plat.system() == "Darwin":

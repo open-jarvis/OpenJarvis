@@ -589,16 +589,39 @@ async def remove_skill(skill_name: str, request: Request):
 sessions_router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
 
 
+def _session_to_dict(session: Any) -> Dict[str, Any]:
+    """Serialize a ``Session`` dataclass for the REST API."""
+    identity = getattr(session, "identity", None)
+    return {
+        "session_id": getattr(session, "session_id", ""),
+        "user_id": getattr(identity, "user_id", "") if identity else "",
+        "created_at": getattr(session, "created_at", 0.0),
+        "last_activity": getattr(session, "last_activity", 0.0),
+        "messages": [
+            {
+                "role": message.role,
+                "content": message.content,
+                "channel": message.channel,
+                "timestamp": message.timestamp,
+            }
+            for message in getattr(session, "messages", [])
+        ],
+        "metadata": getattr(session, "metadata", {}),
+    }
+
+
 @sessions_router.get("")
 async def list_sessions(request: Request, limit: int = 20):
     """List active sessions."""
     try:
-        from openjarvis.sessions.store import SessionStore
+        from openjarvis.sessions.session import SessionStore
 
         store = SessionStore()
-        sessions = store.recent(limit=limit)
-        items = [s.to_dict() if hasattr(s, "to_dict") else str(s) for s in sessions]
-        return {"sessions": items}
+        try:
+            sessions = store.list_sessions(limit=limit)
+        finally:
+            store.close()
+        return {"sessions": [_session_to_dict(s) for s in sessions]}
     except Exception as exc:
         return {"sessions": [], "error": str(exc)}
 
@@ -607,13 +630,17 @@ async def list_sessions(request: Request, limit: int = 20):
 async def get_session(session_id: str, request: Request):
     """Get a specific session."""
     try:
-        from openjarvis.sessions.store import SessionStore
+        from openjarvis.sessions.session import SessionStore
 
         store = SessionStore()
-        session = store.get(session_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail="Session not found")
-        return session.to_dict() if hasattr(session, "to_dict") else {"id": session_id}
+        try:
+            sessions = store.list_sessions(active_only=False, limit=1000)
+        finally:
+            store.close()
+        for session in sessions:
+            if session.session_id == session_id:
+                return _session_to_dict(session)
+        raise HTTPException(status_code=404, detail="Session not found")
     except HTTPException:
         raise
     except Exception as exc:

@@ -443,7 +443,14 @@ def start(
                     cmd,
                     stdout=log_fh,
                     stderr=log_fh,
-                    env={**os.environ, _LAUNCH_TOKEN_ENV: launch_token},
+                    env={
+                        **os.environ,
+                        _LAUNCH_TOKEN_ENV: launch_token,
+                        # Without this the child block-buffers stdout to the
+                        # log file: a startup crash leaves server.log empty
+                        # until ~4 KB accumulate, hiding the actual error.
+                        "PYTHONUNBUFFERED": "1",
+                    },
                     **spawn_kwargs,
                 )
             try:

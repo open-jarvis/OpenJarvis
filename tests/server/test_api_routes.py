@@ -386,3 +386,36 @@ class TestTraceRoutes:
         client = TestClient(_make_app())
         resp = client.get("/v1/traces")
         assert resp.status_code == 200
+
+def test_list_sessions_has_no_error_key(monkeypatch):
+    """Regression: the route imported ``openjarvis.sessions.store`` (missing)."""
+    from openjarvis.sessions import session as session_mod
+
+    class _Store:
+        def list_sessions(self, **_kwargs):
+            return []
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(session_mod, "SessionStore", _Store)
+    client = TestClient(_make_app())
+    body = client.get("/v1/sessions").json()
+
+    assert body == {"sessions": []}
+
+
+def test_get_unknown_session_returns_404(monkeypatch):
+    from openjarvis.sessions import session as session_mod
+
+    class _Store:
+        def list_sessions(self, **_kwargs):
+            return []
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(session_mod, "SessionStore", _Store)
+    client = TestClient(_make_app())
+
+    assert client.get("/v1/sessions/does-not-exist").status_code == 404

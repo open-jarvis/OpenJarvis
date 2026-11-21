@@ -262,3 +262,24 @@ def test_memory_clear_empty(tmp_path: Path, monkeypatch):
     result = CliRunner().invoke(cli, ["memory", "clear"])
     assert result.exit_code == 0
     assert "No memory facts to clear" in result.output
+
+def test_memory_stats_reports_missing_backend_cleanly(monkeypatch):
+    """A missing Rust extension must be a Click error, not a traceback."""
+    from openjarvis.tools.storage._stubs import MemoryBackendUnavailable
+
+    _register_sqlite()
+    mod = importlib.import_module("openjarvis.cli.memory_cmd")
+
+    def unavailable(*args, **kwargs):
+        raise MemoryBackendUnavailable(
+            "Memory backend unavailable: the native `openjarvis_rust` extension "
+            "is not installed."
+        )
+
+    monkeypatch.setattr(mod.MemoryRegistry, "create", unavailable)
+
+    result = CliRunner().invoke(cli, ["memory", "stats"])
+
+    assert result.exit_code != 0
+    assert "openjarvis_rust" in result.output
+    assert "Traceback" not in result.output

@@ -12,6 +12,7 @@ from rich.table import Table
 
 from openjarvis.core.config import load_config
 from openjarvis.core.registry import MemoryRegistry
+from openjarvis.tools.storage._stubs import MemoryBackendUnavailable
 from openjarvis.tools.storage.chunking import ChunkConfig
 from openjarvis.tools.storage.ingest import ingest_path
 
@@ -30,9 +31,24 @@ def _get_backend(backend_key: str | None = None):
             f"Available: {', '.join(MemoryRegistry.keys())}"
         )
 
-    if key == "sqlite":
-        return MemoryRegistry.create(key, db_path=config.memory.db_path)
-    return MemoryRegistry.create(key)
+    try:
+        if key == "sqlite":
+            return MemoryRegistry.create(key, db_path=config.memory.db_path)
+        return MemoryRegistry.create(key)
+    except MemoryBackendUnavailable as exc:
+        # The backend already explains how to install the native extension.
+        raise click.ClickException(str(exc)) from exc
+    except ImportError as exc:
+        raise click.ClickException(
+            "Memory backend unavailable: the native `openjarvis_rust` extension "
+            "is not installed. Build it with `uv run maturin develop -m "
+            "rust/crates/openjarvis-python/Cargo.toml` (rustc >= 1.88), then "
+            "restart."
+        ) from exc
+    except OSError as exc:
+        raise click.ClickException(
+            f"Memory backend '{key}' could not be opened: {exc}"
+        ) from exc
 
 
 @click.group()

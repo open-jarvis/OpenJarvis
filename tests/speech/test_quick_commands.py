@@ -90,3 +90,20 @@ def test_time_without_city_stays_local() -> None:
 def test_open_command_rejects_arbitrary_apps() -> None:
     # "ouvre" with an app outside the known list must NOT launch anything.
     assert handle_quick_command("ouvre le gestionnaire de tâches") is None
+
+def test_city_time_with_trailing_punctuation() -> None:
+    """Typed questions end with '?'; the city still has to be recognised."""
+    reply = handle_quick_command(
+        "quelle heure est-il à Tokyo ?", now_fn=_fixed_time
+    )
+    assert reply is not None
+    assert "Tokyo" in reply
+
+
+def test_city_time_without_accent_or_space_before_mark() -> None:
+    assert "Tokyo" in (handle_quick_command("quelle heure à tokyo?") or "")
+
+
+def test_plain_time_question_still_local() -> None:
+    reply = handle_quick_command("quelle heure est-il ?", now_fn=_fixed_time)
+    assert reply == "Il est 09h05 — samedi 14 novembre 2026."

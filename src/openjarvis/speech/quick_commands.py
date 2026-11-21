@@ -148,6 +148,9 @@ def _set_volume(level: str) -> str:
 
 def _extract_city(text: str) -> Optional[str]:
     """Return a known city mentioned after à/in/de/at, or None."""
+    # Typed and dictated questions normally end with punctuation; the city
+    # pattern anchors on the end of the string, so strip it first.
+    text = text.rstrip(" \t?.!,;:")
     match = re.search(
         r"\b(?:à|in|at|de)\s+([a-zà-ÿ0-9' -]{2,30})\s*$",
         text,
