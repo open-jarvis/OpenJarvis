@@ -167,3 +167,61 @@ async def test_multi_routes_stream_full_by_model():
         result_b.append(chunk)
 
     assert result_b[0].content == "from B"
+
+
+def test_multi_engine_first_engine_wins_on_conflicting_model():
+    """When multiple engines advertise the same model, the earlier engine wins."""
+    engine_ollama = _FakeStreamFullEngine([StreamChunk(content="from ollama")])
+    engine_ollama.list_models = lambda: ["qwen3.5:0.8b", "ollama-exclusive"]
+
+    engine_litellm = _FakeStreamFullEngine([StreamChunk(content="from litellm")])
+    engine_litellm.list_models = lambda: ["qwen3.5:0.8b", "litellm-exclusive"]
+
+    multi = MultiEngine([("ollama", engine_ollama), ("litellm", engine_litellm)])
+    assert multi.engine_key_for("qwen3.5:0.8b") == "ollama"
+    assert multi._engine_for("qwen3.5:0.8b") is engine_ollama
+    assert multi.engine_key_for("ollama-exclusive") == "ollama"
+    assert multi.engine_key_for("litellm-exclusive") == "litellm"
+
+
+def test_multi_engine_preferred_engine_takes_precedence_on_conflicting_model():
+    """An explicit preferred_engine is prioritized first regardless of list order."""
+    engine_a = _FakeStreamFullEngine([])
+    engine_a.list_models = lambda: ["shared-model"]
+
+    engine_b = _FakeStreamFullEngine([])
+    engine_b.list_models = lambda: ["shared-model"]
+
+    multi = MultiEngine(
+        [("a", engine_a), ("b", engine_b)],
+        preferred_engine="b",
+    )
+    assert multi.engine_key_for("shared-model") == "b"
+    assert multi._engine_for("shared-model") is engine_b
+
+
+def test_multi_engine_generate_routes_to_priority_engine():
+    """MultiEngine.generate calls priority engine for overlapping models."""
+    calls_a = []
+    calls_b = []
+
+    engine_a = _FakeStreamFullEngine([])
+    engine_a.list_models = lambda: ["shared-model"]
+    engine_a.generate = lambda messages, *, model, **kwargs: (
+        calls_a.append((model, kwargs)) or {"content": "from A", "usage": {}}
+    )
+
+    engine_b = _FakeStreamFullEngine([])
+    engine_b.list_models = lambda: ["shared-model"]
+    engine_b.generate = lambda messages, *, model, **kwargs: (
+        calls_b.append((model, kwargs)) or {"content": "from B", "usage": {}}
+    )
+
+    multi = MultiEngine([("ollama", engine_a), ("litellm", engine_b)])
+    resp = multi.generate(
+        [Message(role=Role.USER, content="hi")],
+        model="shared-model",
+    )
+    assert resp["content"] == "from A"
+    assert len(calls_a) == 1
+    assert len(calls_b) == 0

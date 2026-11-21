@@ -23,8 +23,19 @@ class MultiEngine(InferenceEngine):
 
     engine_id = "multi"
 
-    def __init__(self, engines: list[tuple[str, InferenceEngine]]) -> None:
+    def __init__(
+        self,
+        engines: list[tuple[str, InferenceEngine]],
+        *,
+        preferred_engine: str | None = None,
+    ) -> None:
+        if preferred_engine:
+            engines = sorted(
+                engines,
+                key=lambda item: 0 if item[0] == preferred_engine else 1,
+            )
         self._engines = engines
+        self._preferred_engine = preferred_engine
         self._model_map: Dict[str, InferenceEngine] = {}
         self._model_key_map: Dict[str, str] = {}
         self._refresh_map()
@@ -45,8 +56,17 @@ class MultiEngine(InferenceEngine):
                     if owner is engine and self._model_key_map.get(model) == key
                 ]
             for model_id in model_ids:
-                model_map[model_id] = engine
-                key_map[model_id] = key
+                if model_id not in model_map:
+                    model_map[model_id] = engine
+                    key_map[model_id] = key
+                else:
+                    logger.debug(
+                        "Model %r already mapped to %r; "
+                        "skipping duplicate registration from %r",
+                        model_id,
+                        key_map[model_id],
+                        key,
+                    )
         self._model_map = model_map
         self._model_key_map = key_map
 

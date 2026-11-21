@@ -41,7 +41,18 @@ def _make_engine(key: str, config: JarvisConfig) -> InferenceEngine:
     # list_models() contract therefore advertises the configured default
     # model, which must be supplied when discovery constructs the engine.
     if key == "litellm":
-        return cls(default_model=config.intelligence.default_model or None)
+        candidate = config.intelligence.default_model or None
+        is_litellm_configured = (
+            config.engine.default == "litellm"
+            or getattr(config.intelligence, "preferred_engine", "") == "litellm"
+        )
+        # Only advertise default_model on LiteLLM if LiteLLM is the configured
+        # default/preferred engine, or if candidate is explicitly provider-qualified
+        # (contains '/'). An unqualified model like "qwen3.5:0.8b" belongs to a local
+        # engine and cannot be served directly by LiteLLM without provider routing.
+        if candidate and not is_litellm_configured and "/" not in candidate:
+            candidate = None
+        return cls(default_model=candidate)
 
     # gemma_cpp: pass config fields instead of host
     if key == "gemma_cpp":
@@ -150,10 +161,10 @@ def discover_engines(config: JarvisConfig) -> List[Tuple[str, InferenceEngine]]:
                 if result is not None:
                     healthy.append(result)
 
-    default_key = config.engine.default
+    preferred_key = config.intelligence.preferred_engine or config.engine.default
 
     def sort_key(item: Tuple[str, Any]) -> Tuple[int, str]:
-        return (0 if item[0] == default_key else 1, item[0])
+        return (0 if item[0] == preferred_key else 1, item[0])
 
     healthy.sort(key=sort_key)
     return healthy
@@ -215,23 +226,23 @@ def get_engine(
         )
         return None
 
-    default_key = config.engine.default
+    preferred_key = config.intelligence.preferred_engine or config.engine.default
     default_is_cloud: bool | None = None
-    if default_key and EngineRegistry.contains(default_key):
-        default_cls = EngineRegistry.get(default_key)
+    if preferred_key and EngineRegistry.contains(preferred_key):
+        default_cls = EngineRegistry.get(preferred_key)
         default_is_cloud = bool(getattr(default_cls, "is_cloud", False))
         try:
-            engine = _make_engine(default_key, config)
+            engine = _make_engine(preferred_key, config)
             default_is_cloud = bool(getattr(engine, "is_cloud", default_is_cloud))
             if _usable(engine):
-                return (default_key, engine)
+                return (preferred_key, engine)
         except Exception as exc:
-            logger.debug("Engine %r health check failed: %s", default_key, exc)
+            logger.debug("Engine %r health check failed: %s", preferred_key, exc)
 
     candidates = [
         (key, engine)
         for key, engine in discover_engines(config)
-        if key != default_key and (model is None or engine.can_serve(model))
+        if key != preferred_key and (model is None or engine.can_serve(model))
     ]
     if not candidates:
         return None
@@ -255,7 +266,7 @@ def get_engine(
     )
     logger.warning(
         "Default engine %r is unavailable; using %r%s",
-        default_key,
+        preferred_key,
         chosen[0],
         boundary,
     )
