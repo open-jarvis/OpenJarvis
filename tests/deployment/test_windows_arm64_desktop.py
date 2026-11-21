@@ -131,6 +131,19 @@ def sidecar_download(tmp_path):
         "PROCESSOR_ARCHITECTURE": "AMD64",
         "PROCESSOR_ARCHITEW6432": "ARM64",
     }
+    if POSIX_SHELL is not None:
+        # Some Git Bash builds refuse to execute extensionless shebang files
+        # (notably GitHub-hosted runners). Without working stubs the script
+        # would hit the real network and download the true Ollama archive, so
+        # skip instead of asserting on unrelated data.
+        probe = subprocess.run(
+            [POSIX_SHELL, "-c", "uname -m"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        if probe.returncode != 0 or "x86_64" not in probe.stdout:
+            pytest.skip("Git Bash cannot execute the extensionless test stubs")
     return script, archive, env
 
 
