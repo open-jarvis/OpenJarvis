@@ -363,13 +363,19 @@ export interface SpeechHealth {
   reason?: string;
 }
 
-export async function transcribeAudio(audioBlob: Blob, filename = 'recording.webm'): Promise<TranscriptionResult> {
+export async function transcribeAudio(
+  audioBlob: Blob,
+  filename = 'recording.webm',
+  opts: { hotwords?: string; language?: string } = {},
+): Promise<TranscriptionResult> {
   if (isTauri()) {
     try {
       const buffer = await audioBlob.arrayBuffer();
       return await tauriInvoke<TranscriptionResult>('transcribe_audio', {
         audioData: Array.from(new Uint8Array(buffer)),
         filename,
+        hotwords: opts.hotwords ?? null,
+        language: opts.language ?? null,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -378,6 +384,8 @@ export async function transcribeAudio(audioBlob: Blob, filename = 'recording.web
   }
   const formData = new FormData();
   formData.append('file', audioBlob, filename);
+  if (opts.hotwords) formData.append('hotwords', opts.hotwords);
+  if (opts.language) formData.append('language', opts.language);
   const res = await apiFetch(`/v1/speech/transcribe`, {
     method: 'POST',
     body: formData,

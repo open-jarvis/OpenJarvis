@@ -1004,6 +1004,11 @@ async def transcribe_speech(request: Request):
 
     audio_bytes = await audio_file.read()
     language = form.get("language")
+    # Optional vocabulary hint (e.g. the wake word in hands-free mode). Only
+    # forwarded when present, so backends written against the original
+    # transcribe() signature keep working.
+    hotwords = str(form.get("hotwords") or "").strip()[:200]
+    extra = {"hotwords": hotwords} if hotwords else {}
 
     # Detect format from filename
     filename = getattr(audio_file, "filename", "audio.wav")
@@ -1015,6 +1020,7 @@ async def transcribe_speech(request: Request):
             audio_bytes,
             format=ext,
             language=language or None,
+            **extra,
         )
     except Exception as exc:
         logger.exception("Speech transcription failed")
