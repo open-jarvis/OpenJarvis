@@ -15,6 +15,7 @@ import { HandsFreeToggle } from './HandsFreeToggle';
 import { useSpeech } from '../../hooks/useSpeech';
 import { useHandsFree } from '../../hooks/useHandsFree';
 import { useTtsStore } from '../../lib/tts';
+import { resolveVoiceLanguage } from '../../lib/voice/language';
 import type {
   ChatMessage,
   MessageTelemetry,
@@ -101,6 +102,7 @@ export function InputArea() {
   const speechEnabled = useAppStore((s) => s.settings.speechEnabled);
   const handsFreeEnabled = useAppStore((s) => s.settings.handsFreeEnabled);
   const wakeWord = useAppStore((s) => s.settings.wakeWord);
+  const voiceLanguage = useAppStore((s) => s.settings.voiceLanguage);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const maxTokens = useAppStore((s) => s.settings.maxTokens);
   const temperature = useAppStore((s) => s.settings.temperature);
@@ -588,6 +590,7 @@ export function InputArea() {
   const handsFree = useHandsFree({
     enabled: handsFreeEnabled && speechAvailable,
     wakeWord: wakeWord || 'jarvis',
+    language: resolveVoiceLanguage(voiceLanguage),
     onCommand: async (command, signal) => {
       // Fence the reply off from read-aloud autoplay: hands-free speaks it.
       useTtsStore.getState().stop();
@@ -637,6 +640,7 @@ export function InputArea() {
             mode={handsFree.mode}
             transcribing={handsFree.transcribing}
             level={handsFree.level}
+            heard={handsFree.heard}
             onToggle={() => updateSettings({ handsFreeEnabled: !handsFreeEnabled })}
             onStop={handsFree.stopTurn}
           />

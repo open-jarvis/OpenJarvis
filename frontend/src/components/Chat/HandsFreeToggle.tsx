@@ -10,6 +10,8 @@ interface HandsFreeToggleProps {
   transcribing: boolean;
   /** Current mic RMS level, drives the pulse while listening. */
   level: number;
+  /** Last transcript, shown on hover so a misheard wake word is visible. */
+  heard?: string;
   onToggle: () => void;
   onStop: () => void;
 }
@@ -49,6 +51,7 @@ export function HandsFreeToggle({
   mode,
   transcribing,
   level,
+  heard,
   onToggle,
   onStop,
 }: HandsFreeToggleProps) {
@@ -94,7 +97,7 @@ export function HandsFreeToggle({
           : busy
             ? 'Stop the current reply'
             : active
-              ? 'Hands-free voice: on (click to turn off)'
+              ? `Hands-free voice: on (click to turn off)${heard ? `\nLast heard: "${heard}"` : ''}`
               : `Hands-free voice: off — turn on to talk by saying "${capitalize(wakeWord)}"`
       }
     >

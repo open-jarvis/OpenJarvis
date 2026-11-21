@@ -174,3 +174,18 @@ describe('splitForSpeech', () => {
     expect(chunks.join(' ')).toBe(`${first} It landed four days later.`);
   });
 });
+
+describe('voice language', () => {
+  it('defaults to the system language', async () => {
+    const { resolveVoiceLanguage } = await import('./language');
+    expect(resolveVoiceLanguage('', 'en-US')).toBe('en');
+    expect(resolveVoiceLanguage('', 'sv-SE')).toBe('sv');
+  });
+
+  it('honours an explicit language or auto-detect', async () => {
+    const { resolveVoiceLanguage } = await import('./language');
+    expect(resolveVoiceLanguage('fa', 'en-US')).toBe('fa');
+    expect(resolveVoiceLanguage('auto', 'en-US')).toBeUndefined();
+    expect(resolveVoiceLanguage('', '')).toBeUndefined();
+  });
+});

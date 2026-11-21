@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { VOICE_LANGUAGES, systemLanguage } from '../lib/voice/language';
 import {
   Palette,
   Globe,
@@ -294,6 +295,10 @@ export function SettingsPage() {
   const serverInfo = useAppStore((s) => s.serverInfo);
   const [healthy, setHealthy] = useState<boolean | null>(null);
   const [speechBackendAvailable, setSpeechBackendAvailable] = useState<boolean | null>(null);
+  const systemLanguageName = (() => {
+    const code = systemLanguage();
+    return VOICE_LANGUAGES.find(([c]) => c === code)?.[1] ?? code;
+  })();
   const [ttsBackend, setTtsBackend] = useState<{ available: boolean; backend?: string; voice_id?: string } | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -899,6 +904,24 @@ export function SettingsPage() {
                   color: 'var(--color-text)',
                 }}
               />
+            </SettingRow>
+            <SettingRow label="Voice language" description="The language you speak in hands-free mode. Short commands like a bare wake word are misheard when the language is auto-detected">
+              <select
+                value={settings.voiceLanguage}
+                onChange={(e) => { updateSettings({ voiceLanguage: e.target.value }); showSaved(); }}
+                className="px-2 py-1 rounded-md text-xs outline-none cursor-pointer"
+                style={{
+                  background: 'var(--color-input-bg)',
+                  border: '1px solid var(--color-input-border)',
+                  color: 'var(--color-text)',
+                }}
+              >
+                <option value="">Match system{systemLanguageName ? ` (${systemLanguageName})` : ''}</option>
+                <option value="auto">Auto-detect</option>
+                {VOICE_LANGUAGES.map(([code, name]) => (
+                  <option key={code} value={code}>{name}</option>
+                ))}
+              </select>
             </SettingRow>
             <SettingRow label="Voice" description="Backend and voice used for spoken replies">
               <div className="flex items-center gap-2">

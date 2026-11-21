@@ -27,6 +27,8 @@ export type HandsFreeMode = 'off' | 'starting' | 'sleeping' | 'listening' | 'thi
 export interface HandsFreeOptions {
   enabled: boolean;
   wakeWord: string;
+  /** Language code sent with each utterance; undefined lets the backend detect it. */
+  language?: string;
   /** Run one turn through the chat. Resolves with the reply text, or null if it did not run. */
   onCommand: (command: string, signal: AbortSignal) => Promise<string | null>;
   /** How long to keep listening for a follow-up without the wake word. */
@@ -41,8 +43,24 @@ const BARGE_IN_SCALE = 2.5;
 /** Ignore the mic briefly after our own audio stops, so its echo tail is not heard. */
 const ECHO_TAIL_MS = 350;
 const isBusy = (m: HandsFreeMode) => m === 'thinking' || m === 'speaking';
+/** Spoken when the user says only the wake word. */
+const ACK_PHRASE = 'Yes?';
 
-export function useHandsFree({ enabled, wakeWord, onCommand, followUpMs = 8000 }: HandsFreeOptions) {
+/**
+ * Recent transcripts and clips, kept in memory only, for diagnosing wake-word
+ * misses from the devtools console: `window.__openjarvisVoiceDebug`.
+ */
+interface VoiceDebug {
+  transcripts: Array<{ at: string; mode: HandsFreeMode; text: string; woke: boolean; command: string }>;
+  clips: Blob[];
+}
+function voiceDebug(): VoiceDebug {
+  const w = window as unknown as { __openjarvisVoiceDebug?: VoiceDebug };
+  w.__openjarvisVoiceDebug ??= { transcripts: [], clips: [] };
+  return w.__openjarvisVoiceDebug;
+}
+
+export function useHandsFree({ enabled, wakeWord, language, onCommand, followUpMs = 8000 }: HandsFreeOptions) {
   const [mode, setModeState] = useState<HandsFreeMode>('off');
   const [transcribing, setTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +72,8 @@ export function useHandsFree({ enabled, wakeWord, onCommand, followUpMs = 8000 }
   onCommandRef.current = onCommand;
   const wakeWordRef = useRef(wakeWord);
   wakeWordRef.current = wakeWord;
+  const languageRef = useRef(language);
+  languageRef.current = language;
 
   const detectorRef = useRef<UtteranceDetector | null>(null);
   const speakerRef = useRef<ReplySpeaker | null>(null);
@@ -63,6 +83,8 @@ export function useHandsFree({ enabled, wakeWord, onCommand, followUpMs = 8000 }
   const queueRef = useRef<Promise<void>>(Promise.resolve());
   /** performance.now() until which mic frames are dropped (echo tail). */
   const muteUntilRef = useRef(0);
+  /** Pre-synthesized "Yes?" so the acknowledgement plays instantly. */
+  const ackUrlRef = useRef<string | null>(null);
 
   const setMode = useCallback((m: HandsFreeMode) => {
     if (modeRef.current === 'speaking' && m !== 'speaking') {
@@ -98,6 +120,23 @@ export function useHandsFree({ enabled, wakeWord, onCommand, followUpMs = 8000 }
     osc.stop(t + 0.22);
     muteUntilRef.current = performance.now() + 220 + ECHO_TAIL_MS;
   }, []);
+
+  /** Answer a bare wake word out loud ("Yes?"), or chime if no voice is available. */
+  const acknowledge = useCallback(() => {
+    const url = ackUrlRef.current;
+    if (!url) {
+      chime(true);
+      return;
+    }
+    const el = new Audio(url);
+    muteUntilRef.current = performance.now() + 1200;
+    el.onloadedmetadata = () => {
+      if (Number.isFinite(el.duration)) {
+        muteUntilRef.current = performance.now() + el.duration * 1000 + ECHO_TAIL_MS;
+      }
+    };
+    el.play().catch(() => chime(true));
+  }, [chime]);
 
   const startFollowUp = useCallback(() => {
     clearFollowUp();
@@ -156,12 +195,15 @@ export function useHandsFree({ enabled, wakeWord, onCommand, followUpMs = 8000 }
       // otherwise the tail of its own voice could be taken as a follow-up.
       const current = isBusy(startMode) && !isBusy(modeRef.current) ? startMode : modeRef.current;
       const match = parseWakeCommand(text, wakeWordRef.current);
+      const debug = voiceDebug();
+      debug.transcripts.push({ at: new Date().toISOString(), mode: current, text, woke: match.woke, command: match.command });
+      if (debug.transcripts.length > 30) debug.transcripts.shift();
+      setHeard(text);
 
       if (current === 'sleeping') {
         if (!match.woke) return;
-        setHeard(text);
         if (!match.command) {
-          chime(true);
+          acknowledge();
           startFollowUp();
         } else if (isDismissal(match.command, wakeWordRef.current) || isStopCommand(match.command)) {
           chime(false);
@@ -174,9 +216,8 @@ export function useHandsFree({ enabled, wakeWord, onCommand, followUpMs = 8000 }
       if (current === 'listening') {
         if (isLikelyHallucination(text)) return;
         const command = match.woke ? match.command : text.trim();
-        setHeard(text);
         if (!command) {
-          chime(true);
+          acknowledge();
           startFollowUp();
         } else if (isDismissal(command, wakeWordRef.current) || isStopCommand(command)) {
           clearFollowUp();
@@ -192,7 +233,6 @@ export function useHandsFree({ enabled, wakeWord, onCommand, followUpMs = 8000 }
         // Only an explicit "Jarvis, ..." may interrupt -- anything else heard
         // here is most likely the assistant's own voice.
         if (!match.woke) return;
-        setHeard(text);
         if (!match.command || isStopCommand(match.command)) {
           interrupt();
           chime(true);
@@ -206,7 +246,7 @@ export function useHandsFree({ enabled, wakeWord, onCommand, followUpMs = 8000 }
         }
       }
     },
-    [chime, interrupt, runTurn, setMode, startFollowUp],
+    [acknowledge, chime, interrupt, runTurn, setMode, startFollowUp],
   );
 
   const handleUtterance = useCallback(
@@ -216,7 +256,17 @@ export function useHandsFree({ enabled, wakeWord, onCommand, followUpMs = 8000 }
         if (modeRef.current === 'off' || modeRef.current === 'error') return;
         setTranscribing(true);
         try {
-          const result = await transcribeAudio(encodeUtteranceWav(samples, sampleRate), 'utterance.wav');
+          const wav = encodeUtteranceWav(samples, sampleRate);
+          const debug = voiceDebug();
+          debug.clips.push(wav);
+          if (debug.clips.length > 8) debug.clips.shift();
+          // Hint the wake word: without it Whisper often hears "Jarvis" as
+          // "Charis", "Service" or "George".
+          const wake = wakeWordRef.current;
+          const result = await transcribeAudio(wav, 'utterance.wav', {
+            hotwords: wake ? wake[0].toUpperCase() + wake.slice(1) : undefined,
+            language: languageRef.current,
+          });
           const text = (result.text ?? '').trim();
           if (text) handleTranscript(text, startMode);
         } catch (err) {
@@ -291,6 +341,14 @@ export function useHandsFree({ enabled, wakeWord, onCommand, followUpMs = 8000 }
         }, DEAD_MIC_MS);
         levelTimer = setInterval(() => setLevel(detector.lastLevel), 120);
         setMode('sleeping');
+        // Prepare the acknowledgement in the background; the chime covers
+        // the gap (or a missing TTS backend).
+        synthesizeSpeech(ACK_PHRASE)
+          .then((blob) => {
+            if (cancelled) return;
+            ackUrlRef.current = URL.createObjectURL(blob);
+          })
+          .catch(() => {});
       } catch (err) {
         if (cancelled) return;
         const name = err instanceof DOMException ? err.name : '';
@@ -317,6 +375,8 @@ export function useHandsFree({ enabled, wakeWord, onCommand, followUpMs = 8000 }
       ctx?.close().catch(() => {});
       audioCtxRef.current = null;
       detectorRef.current = null;
+      if (ackUrlRef.current) URL.revokeObjectURL(ackUrlRef.current);
+      ackUrlRef.current = null;
       setLevel(0);
       setMode('off');
     };
