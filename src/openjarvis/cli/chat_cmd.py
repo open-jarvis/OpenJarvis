@@ -528,7 +528,7 @@ def _handle_news(
     if not headlines:
         console.print("[dim]No headlines available right now.[/dim]")
         return
-    lines = [f"[bold]Actualités[/bold] ([cyan]{category or 'général'}[/cyan]):"]
+    lines = [f"**Actualités** *({category or 'général'})* :"]
     spoken = ["Voici les titres."]
     for i, title in enumerate(headlines, 1):
         lines.append(f"  {i}. {title}")
@@ -551,7 +551,7 @@ def _handle_markets(
             f"[red]Market data unavailable: {_safe_rich_label(exc)}[/red]"
         )
         return
-    lines = ["[bold]Marchés[/bold]:"]
+    lines = ["**Marchés** :"]
     spoken = []
     for name, price in prices.items():
         lines.append(f"  {name}: {price:,.2f} EUR")

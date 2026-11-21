@@ -77,7 +77,15 @@ def test_empty_prefix_leaves_prompt_unchanged(memory_dir: Path):
             system_prompt_config=SystemPromptConfig(prefix=prefix),
         )
 
-    assert _make("").build() == _make("").build()
+    import re
+
+    def _without_clock(prompt: str) -> str:
+        return re.sub(
+            r"\n\n## Current Date and Time\n\n.*", "", prompt, flags=re.S
+        )
+
+    assert _without_clock(_make("").build()) == _without_clock(_make("").build())
+    assert "Current Date and Time" in _make("").build()
     # No 'prefix' section is emitted when prefix is empty.
     assert "prefix" not in [s.name for s in _make("").sections()]
     # And the first section is the agent template, as before.
@@ -180,7 +188,9 @@ def test_sections_expose_prompt_metadata(memory_dir: Path):
         "user",
         "session_context",
         "previous_state",
+        "current_time",
     ]
+    assert sections[-1].cache_segment == "dynamic_suffix"
     assert sections[1].source == str(memory_dir / "SOUL.md")
     assert sections[1].cache_segment == "frozen_prefix"
     assert sections[-1].cache_segment == "dynamic_suffix"

@@ -64,6 +64,75 @@ _VOLUME_DOWN_PATTERNS = ("volume plus bas", "baisse le volume", "volume bas")
 _VOLUME_UP_PATTERNS = ("volume plus haut", "monte le volume", "volume haut")
 _VOLUME_MUTE_PATTERNS = ("coupe le son", "muet", "mute", "couper le son")
 
+# Natural-language requests for live headlines. Kept narrow: the RSS handler
+# answers with real sources instead of letting a local model hallucinate news.
+_NEWS_PATTERNS = (
+    "dernières nouvelles",
+    "dernieres nouvelles",
+    "les actualités",
+    "les actualites",
+    "l'actualité",
+    "l'actualite",
+    "actualités du jour",
+    "actualites du jour",
+    "nouvelles du monde",
+    "actualités du monde",
+    "actualites du monde",
+    "actualité mondiale",
+    "actualite mondiale",
+    "quoi de neuf",
+    "news du jour",
+    "les infos du jour",
+    "world news",
+    "latest news",
+)
+
+# Country -> city used by the world-clock command. Only countries whose
+# capital (or largest city already in CITY_TZ_MAP) is mapped there.
+_COUNTRY_CAPITALS = {
+    "allemagne": "Berlin",
+    "espagne": "Madrid",
+    "italie": "Rome",
+    "royaume-uni": "Londres",
+    "angleterre": "Londres",
+    "japon": "Tokyo",
+    "chine": "Pékin",
+    "australie": "Sydney",
+    "canada": "Toronto",
+    "états-unis": "New York",
+    "etats-unis": "New York",
+    "usa": "New York",
+    "brésil": "Rio",
+    "bresil": "Rio",
+    "mexique": "Mexico",
+    "inde": "Mumbai",
+    "russie": "Moscou",
+    "turquie": "Istanbul",
+    "égypte": "Le Caire",
+    "egypte": "Le Caire",
+    "maroc": "Casablanca",
+    "tunisie": "Tunis",
+    "sénégal": "Dakar",
+    "senegal": "Dakar",
+    "suisse": "Genève",
+    "belgique": "Bruxelles",
+    "pays-bas": "Amsterdam",
+    "suède": "Stockholm",
+    "suede": "Stockholm",
+    "norvège": "Oslo",
+    "norvege": "Oslo",
+    "finlande": "Helsinki",
+    "grèce": "Athènes",
+    "grece": "Athènes",
+    "portugal": "Lisbonne",
+    "corée du sud": "Séoul",
+    "coree du sud": "Séoul",
+    "thaïlande": "Bangkok",
+    "thailande": "Bangkok",
+    "indonésie": "Jakarta",
+    "indonesie": "Jakarta",
+}
+
 
 def _french_time(now_fn: Callable[[], time.struct_time]) -> str:
     """Return the current date/time in French."""
@@ -147,23 +216,44 @@ def _set_volume(level: str) -> str:
 
 
 def _extract_city(text: str) -> Optional[str]:
-    """Return a known city mentioned after à/in/de/at, or None."""
-    # Typed and dictated questions normally end with punctuation; the city
-    # pattern anchors on the end of the string, so strip it first.
+    """Return a known city/country mentioned after à/en/au/in/de/at, or None."""
+    # Typed and dictated questions normally end with punctuation; the patterns
+    # anchor on the end of the string, so strip it first.
     text = text.rstrip(" \t?.!,;:")
+    from openjarvis.tools.net import CITY_TZ_MAP, _normalize_city
+
     match = re.search(
         r"\b(?:à|in|at|de)\s+([a-zà-ÿ0-9' -]{2,30})\s*$",
         text,
     )
-    if match is None:
-        return None
-    candidate = match.group(1).strip()
-    from openjarvis.tools.net import CITY_TZ_MAP, _normalize_city
+    if match is not None:
+        candidate = match.group(1).strip()
+        if _normalize_city(candidate) in CITY_TZ_MAP:
+            # Preserve a display-friendly casing ("new york" → "New York").
+            return candidate.title()
 
-    if _normalize_city(candidate) not in CITY_TZ_MAP:
+    # "quelle heure est-il en Allemagne / au Japon / aux États-Unis ?"
+    country = re.search(r"\b(?:en|au|aux|in)\s+([a-zà-ÿ-]{3,30})\s*$", text)
+    if country is not None:
+        capital = _COUNTRY_CAPITALS.get(country.group(1).strip())
+        if capital and _normalize_city(capital) in CITY_TZ_MAP:
+            return capital
+    return None
+
+
+def _news_reply(limit: int = 8) -> Optional[str]:
+    """Fetch live RSS headlines; None when the network/feeds are unavailable."""
+    try:
+        from openjarvis.tools.net import headlines_for
+
+        headlines = headlines_for("", limit=limit)
+    except Exception:  # noqa: BLE001 - fall through to the LLM on failure
         return None
-    # Preserve a display-friendly casing ("new york" → "New York").
-    return candidate.title()
+    if not headlines:
+        return None
+    lines = ["Voici les derniers titres :"]
+    lines.extend(f"{index}. {title}" for index, title in enumerate(headlines, 1))
+    return "\n".join(lines)
 
 
 def time_text() -> str:
@@ -198,6 +288,11 @@ def handle_quick_command(
             except Exception:  # noqa: BLE001 — unknown tz falls back locally
                 pass
         return _french_time(now_fn)
+
+    if any(pattern in lowered for pattern in _NEWS_PATTERNS):
+        news = _news_reply()
+        if news is not None:
+            return news
 
     for app_name, executable in _KNOWN_APPS.items():
         for prefix in ("ouvre ", "lance "):

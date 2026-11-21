@@ -59,7 +59,59 @@ class SystemPromptBuilder:
             parts.append(f"\n\n## Session Context\n\n{self._session_context}")
         if self._previous_state:
             parts.append(f"\n\n## Previous State\n\n{self._previous_state}")
+        parts.append(f"\n\n{self._current_time_section()}")
         return "".join(parts)
+
+    @staticmethod
+    def _current_time_section() -> str:
+        """Current date/time, rebuilt per turn so long sessions stay accurate."""
+        from datetime import datetime
+
+        now = datetime.now().astimezone()
+        offset = now.utcoffset()
+        total_minutes = int(offset.total_seconds() // 60) if offset else 0
+        sign = "+" if total_minutes >= 0 else "-"
+        total_minutes = abs(total_minutes)
+        offset_text = f"UTC{sign}{total_minutes // 60:02d}:{total_minutes % 60:02d}"
+        zone = now.tzname() or offset_text
+        french_days = (
+            "lundi",
+            "mardi",
+            "mercredi",
+            "jeudi",
+            "vendredi",
+            "samedi",
+            "dimanche",
+        )
+        french_months = (
+            "janvier",
+            "février",
+            "mars",
+            "avril",
+            "mai",
+            "juin",
+            "juillet",
+            "août",
+            "septembre",
+            "octobre",
+            "novembre",
+            "décembre",
+        )
+        french_date = (
+            f"{french_days[now.weekday()]} {now.day} "
+            f"{french_months[now.month - 1]} {now.year}"
+        )
+        return (
+            "## Current Date and Time\n\n"
+            f"{now.strftime('%Y-%m-%d %H:%M')} "
+            f"({now.strftime('%A')}, {zone}, {offset_text})\n"
+            f"Date in French: {french_date}\n\n"
+            "This is the real current date and time when this prompt was built. "
+            "Use it for any question about today's date, the day of the week or "
+            "the current time; never guess or reuse an older date. The weekday "
+            "must match the values above. For another city, convert from the UTC "
+            "offset above."
+        )
 
     def sections(self) -> list[PromptSection]:
         """Return prompt sections with lightweight cache/debug metadata."""
@@ -82,6 +134,14 @@ class SystemPromptBuilder:
                     cache_segment="dynamic_suffix",
                 )
             )
+        sections.append(
+            PromptSection(
+                name="current_time",
+                content=self._current_time_section(),
+                source="clock",
+                cache_segment="dynamic_suffix",
+            )
+        )
         return sections
 
     def _get_frozen_sections(self) -> list[PromptSection]:

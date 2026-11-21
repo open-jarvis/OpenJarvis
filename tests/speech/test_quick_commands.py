@@ -107,3 +107,36 @@ def test_city_time_without_accent_or_space_before_mark() -> None:
 def test_plain_time_question_still_local() -> None:
     reply = handle_quick_command("quelle heure est-il ?", now_fn=_fixed_time)
     assert reply == "Il est 09h05 — samedi 14 novembre 2026."
+
+
+def test_news_command_returns_live_headlines(monkeypatch) -> None:
+    import openjarvis.tools.net as net
+
+    monkeypatch.setattr(
+        net, "headlines_for", lambda category="", limit=8: ["Titre A", "Titre B"]
+    )
+    reply = handle_quick_command("quelles sont les dernières nouvelles ?")
+    assert reply is not None
+    assert "Titre A" in reply and "Titre B" in reply
+
+
+def test_news_command_falls_through_when_feeds_fail(monkeypatch) -> None:
+    import openjarvis.tools.net as net
+
+    def boom(*args, **kwargs):
+        raise OSError("offline")
+
+    monkeypatch.setattr(net, "headlines_for", boom)
+    assert handle_quick_command("les dernières nouvelles") is None
+
+
+def test_country_name_resolves_to_capital(monkeypatch) -> None:
+    # No network: city_time is patched to echo its argument.
+    import openjarvis.tools.net as net
+
+    monkeypatch.setattr(net, "city_time", lambda city: f"heure de {city}")
+    assert "Berlin" in (handle_quick_command("quelle heure est-il en Allemagne ?") or "")
+    assert "Tokyo" in (handle_quick_command("quelle heure est-il au Japon ?") or "")
+    assert "New York" in (
+        handle_quick_command("quelle heure est-il aux États-Unis ?") or ""
+    )

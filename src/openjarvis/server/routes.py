@@ -33,6 +33,30 @@ from openjarvis.server.models import (
 router = APIRouter()
 
 
+async def _quick_stream(text: str, model: str):
+    """SSE stream for a deterministic quick reply (no engine involved)."""
+    completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    first = ChatCompletionChunk(
+        id=completion_id,
+        model=model,
+        choices=[StreamChoice(delta=DeltaMessage(role="assistant"))],
+    )
+    yield f"data: {first.model_dump_json()}\n\n"
+    body = ChatCompletionChunk(
+        id=completion_id,
+        model=model,
+        choices=[StreamChoice(delta=DeltaMessage(content=text))],
+    )
+    yield f"data: {body.model_dump_json()}\n\n"
+    done = ChatCompletionChunk(
+        id=completion_id,
+        model=model,
+        choices=[StreamChoice(delta=DeltaMessage(), finish_reason="stop")],
+    )
+    yield f"data: {done.model_dump_json()}\n\n"
+    yield "data: [DONE]\n\n"
+
+
 def _to_messages(chat_messages) -> list[Message]:
     """Convert Pydantic ChatMessage objects to core Message objects."""
     messages = []
@@ -161,6 +185,36 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     engine = request.app.state.engine
     agent = getattr(request.app.state, "agent", None)
     model = request_body.model
+
+    # Deterministic local answers (time, date, news, ...) before any engine or
+    # memory work: a local 2B model cannot read the clock or fetch headlines.
+    if not request_body.tools:
+        last_user = next(
+            (
+                message.content
+                for message in reversed(request_body.messages)
+                if message.role == "user" and message.content
+            ),
+            "",
+        )
+        if last_user:
+            try:
+                from openjarvis.speech.quick_commands import handle_quick_command
+
+                quick_reply = handle_quick_command(last_user)
+            except Exception:  # noqa: BLE001 - never fail a request on this path
+                quick_reply = None
+            if quick_reply is not None:
+                if request_body.stream:
+                    return StreamingResponse(
+                        _quick_stream(quick_reply, model),
+                        media_type="text/event-stream",
+                    )
+                return ChatCompletionResponse(
+                    model=model,
+                    choices=[Choice(message=ChoiceMessage(content=quick_reply))],
+                )
+
     use_server_agent = (
         agent is not None
         and not request_body.tools

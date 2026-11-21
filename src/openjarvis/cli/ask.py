@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json as json_mod
 import logging
+import os
 import sys
 import time
 
@@ -824,6 +825,26 @@ def ask(
     print_banner(quiet=quiet)
     console = Console(stderr=True)
     query_text = " ".join(query)
+
+    # Deterministic local answers (time, date, news, lock, volume, app
+    # launching) must not reach the LLM: without this, `jarvis ask "quelle
+    # heure est-il ?"` hallucinated a date and refused to read the clock.
+    quick_enabled = os.environ.get(
+        "JARVIS_QUICK_COMMANDS", "1"
+    ).strip().lower() not in ("0", "false", "no", "off")
+    if (
+        quick_enabled
+        and not image_paths
+        and not capture_screen
+        and not research_mode
+        and not output_json
+    ):
+        from openjarvis.speech.quick_commands import handle_quick_command
+
+        quick_reply = handle_quick_command(query_text)
+        if quick_reply is not None:
+            console.print(quick_reply)
+            return
 
     # Vision: collect base64 images from --image files and/or --screen.
     image_b64: list[str] = []

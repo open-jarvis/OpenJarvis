@@ -83,6 +83,32 @@ def client_with_agent():
     return TestClient(app)
 
 
+class TestQuickReplies:
+    def test_chat_time_does_not_reach_the_engine(self, client) -> None:
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "quelle heure est-il ?"}],
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["choices"][0]["message"]["content"].startswith("Il est ")
+
+    def test_chat_time_stream(self, client) -> None:
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "quelle heure est-il ?"}],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        assert "Il est " in resp.text
+        assert "[DONE]" in resp.text
+
+
 # ---------------------------------------------------------------------------
 # Chat completions tests
 # ---------------------------------------------------------------------------
