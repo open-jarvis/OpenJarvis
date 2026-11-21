@@ -110,7 +110,7 @@ desktop = [
     "av>=11,<19",
     # 1.24+ dropped macOS x86_64 wheels (arm64-only from 1.24.0 on), leaving
     # Intel Macs with no installable wheel; 1.23.2 is the last universal one.
-    "onnxruntime<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "onnxruntime<1.33; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "numpy>=1.24",
     "sounddevice>=0.5",
     "soundfile>=0.12",
@@ -184,7 +184,7 @@ speech = [
     # faster-whisper 1.2.1 passes metadata_errors to av.open(), which PyAV 19 removed (#1077).
     "av>=11,<19",
     # Same Intel Mac floor as the desktop extra above.
-    "onnxruntime<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "onnxruntime<1.33; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "numpy>=1.24",
     "sounddevice>=0.5",
     "soundfile>=0.12",
