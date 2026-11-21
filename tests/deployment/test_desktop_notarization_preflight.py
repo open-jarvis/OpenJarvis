@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+
+pytestmark = pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="notarytool is a macOS tool",
+)
 
 
 @pytest.mark.parametrize(
