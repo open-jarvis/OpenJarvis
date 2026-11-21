@@ -87,6 +87,18 @@ def test_transcribe_endpoint_offloads_backend_work(client, mock_speech_backend):
     assert response.json()["text"] == "Offloaded"
 
 
+def test_transcribe_endpoint_forwards_hotwords(client, mock_speech_backend):
+    """The optional wake-word hint reaches the backend."""
+    response = client.post(
+        "/v1/speech/transcribe",
+        files={"file": ("u.wav", b"fake audio data", "audio/wav")},
+        data={"hotwords": "  Jarvis "},
+    )
+    assert response.status_code == 200
+    kwargs = mock_speech_backend.transcribe.call_args.kwargs
+    assert kwargs["hotwords"] == "Jarvis"
+
+
 def test_transcribe_endpoint_surfaces_backend_error(client, mock_speech_backend):
     mock_speech_backend.transcribe.side_effect = RuntimeError("missing cublas64_12.dll")
 

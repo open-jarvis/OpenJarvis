@@ -1539,6 +1539,13 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             // `desktop` extra) so pip installs from PyPI don't require it (#584).
             "--group",
             "desktop-native",
+            // Install what is missing, but never remove packages outside the
+            // extras above. Optional features are opt-in installs on top of
+            // this set: spoken replies need `uv sync --extra voice` (Kokoro),
+            // and Kokoro downloads its spaCy English model at first use. An
+            // exact sync would uninstall both on every app launch, so voice
+            // output would silently disappear again after each restart.
+            "--inexact",
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -2077,6 +2084,8 @@ async fn transcribe_audio(
     api_url: String,
     audio_data: Vec<u8>,
     filename: String,
+    hotwords: Option<String>,
+    language: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let url = format!("{}/v1/speech/transcribe", api_url);
     let client = reqwest::Client::new();
@@ -2086,7 +2095,14 @@ async fn transcribe_audio(
         .mime_str("audio/webm")
         .map_err(|e| format!("Failed to create multipart: {}", e))?;
 
-    let form = reqwest::multipart::Form::new().part("file", part);
+    let mut form = reqwest::multipart::Form::new().part("file", part);
+    // Optional vocabulary hint, e.g. the wake word in hands-free mode.
+    if let Some(words) = hotwords.filter(|w| !w.trim().is_empty()) {
+        form = form.text("hotwords", words);
+    }
+    if let Some(lang) = language.filter(|l| !l.trim().is_empty()) {
+        form = form.text("language", lang);
+    }
 
     let resp = client
         .post(&url)
@@ -3410,6 +3426,45 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+
+            // Windows WebView2 does not grant the microphone (or camera)
+            // getUserMedia permission unless the host explicitly allows it:
+            // wry leaves such requests at their default (unhandled → not
+            // granted). Without this, the in-webview recorder (useSpeech.ts)
+            // never opens the capture device — Windows never attributes a mic
+            // access to the app (so it never appears under Privacy →
+            // Microphone → desktop apps), and transcription receives an empty
+            // EOF audio file. Grant mic + camera for our own first-party UI.
+            // macOS/Linux webviews defer to the OS-level (TCC / PipeWire)
+            // prompt instead, so this is Windows-only.
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                use webview2_com::Microsoft::Web::WebView2::Win32::*;
+                use webview2_com::PermissionRequestedEventHandler;
+                if let Err(e) = window.with_webview(|webview| unsafe {
+                    let core = match webview.controller().CoreWebView2() {
+                        Ok(core) => core,
+                        Err(_) => return,
+                    };
+                    let mut token = Default::default();
+                    let _ = core.add_PermissionRequested(
+                        &PermissionRequestedEventHandler::create(Box::new(|_, args| {
+                            let Some(args) = args else { return Ok(()) };
+                            let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+                            args.PermissionKind(&mut kind)?;
+                            if kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE
+                                || kind == COREWEBVIEW2_PERMISSION_KIND_CAMERA
+                            {
+                                args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
+                            }
+                            Ok(())
+                        })),
+                        &mut token,
+                    );
+                }) {
+                    eprintln!("Warning: could not install WebView2 mic permission handler: {e}");
+                }
+            }
 
             // Create native macOS overlay panel
             #[cfg(target_os = "macos")]

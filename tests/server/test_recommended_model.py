@@ -89,3 +89,38 @@ def test_is_embed_only_model():
     assert is_embed_only_model("hf.co/BAAI/bge-m3:latest")
     assert not is_embed_only_model("qwen3.5:4b")
     assert not is_embed_only_model("codegemma:7b")
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
+def test_recommended_model_prefers_configured_model():
+    """The server's configured model wins over the size heuristic.
+
+    Regression: with an NVIDIA NIM key, the catalog adds ids like
+    "bigcode/starcoder2-15b" (no ":<n>b" tag, so 0B), and the heuristic
+    recommended that code model over the configured local qwen.
+    """
+    from openjarvis.server.agent_manager_routes import _pick_recommended_model
+
+    models = ["qwen3.5:2b", "bigcode/starcoder2-15b", "google/gemma-3-4b-it"]
+    result = _pick_recommended_model(models, configured="qwen3.5:2b")
+    assert result == {"model": "qwen3.5:2b", "reason": "Configured default model"}
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
+def test_recommended_model_ignores_unavailable_configured_model():
+    """A configured model the engine does not list falls back to the heuristic."""
+    from openjarvis.server.agent_manager_routes import _pick_recommended_model
+
+    models = ["qwen3.5:4b", "qwen3.5:9b"]
+    result = _pick_recommended_model(models, configured="llama3:70b")
+    assert result["model"] == "qwen3.5:4b"
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
+def test_recommended_model_never_configured_embedder():
+    """Even when configured, an embed-only model is not recommended for chat."""
+    from openjarvis.server.agent_manager_routes import _pick_recommended_model
+
+    models = ["nomic-embed-text", "qwen3.5:4b"]
+    result = _pick_recommended_model(models, configured="nomic-embed-text")
+    assert result["model"] == "qwen3.5:4b"

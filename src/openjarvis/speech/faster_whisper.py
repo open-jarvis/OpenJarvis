@@ -101,6 +101,7 @@ class FasterWhisperBackend(SpeechBackend):
         *,
         format: str = "wav",
         language: Optional[str] = None,
+        hotwords: Optional[str] = None,
     ) -> TranscriptionResult:
         """Transcribe audio bytes using Faster-Whisper."""
         try:
@@ -116,9 +117,16 @@ class FasterWhisperBackend(SpeechBackend):
                 with tmp:
                     tmp.write(audio)
 
-                kwargs = {}
+                kwargs: dict = {}
                 if language:
                     kwargs["language"] = language
+                if hotwords:
+                    # A vocabulary hint fixes names Whisper otherwise
+                    # mishears ("Jarvis" -> "Charis", "Service"). On its own
+                    # it can make the model "hear" the hinted word in noise,
+                    # so it always comes with the VAD filter (#1301).
+                    kwargs["hotwords"] = hotwords
+                    kwargs["vad_filter"] = True
 
                 segments_iter, info = model.transcribe(tmp.name, **kwargs)
                 segments_list = list(segments_iter)

@@ -40,8 +40,13 @@ class SpeechBackend(ABC):
         *,
         format: str = "wav",
         language: Optional[str] = None,
+        hotwords: Optional[str] = None,
     ) -> TranscriptionResult:
-        """Transcribe audio bytes to text."""
+        """Transcribe audio bytes to text.
+
+        ``hotwords`` is an optional vocabulary hint, e.g. the assistant's name
+        for wake-word detection. Backends without hint support ignore it.
+        """
 
     @abstractmethod
     def health(self) -> bool:
