@@ -109,8 +109,8 @@ export const authHeaders = (
 // Centralized fetch for the local server: prepends getBase() and injects the
 // Bearer auth header (when a key is set) on every call. Using this everywhere
 // guarantees no /v1 or /api request is sent without auth — the bug in #266 was
-// that direct fetch() calls omitted the header and 401'd. `path` is the
-// server-relative path (e.g. "/v1/savings").
+// that direct fetch() calls omitted the header and 401'd. `path` can be a
+// server-relative path (e.g. "/v1/savings") or a full HTTP(S) URL.
 export const apiFetch = (
   path: string,
   init: RequestInit = {},
@@ -118,7 +118,11 @@ export const apiFetch = (
   const headers = authHeaders(
     (init.headers as Record<string, string> | undefined) ?? {},
   );
-  return fetch(`${getBase()}${path}`, { ...init, headers });
+  const url =
+    path.startsWith('http://') || path.startsWith('https://')
+      ? path
+      : `${getBase()}${path.startsWith('/') ? '' : '/'}${path}`;
+  return fetch(url, { ...init, headers });
 };
 
 async function tauriInvoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
