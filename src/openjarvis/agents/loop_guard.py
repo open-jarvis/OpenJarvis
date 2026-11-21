@@ -79,7 +79,17 @@ class LoopGuard:
             elif rust_result is not None:
                 self._emit_triggered("rust_guard", tool_name)
                 verdict = LoopVerdict(blocked=True, reason=rust_result)
-                verdict._warn_key = f"tool:{tool_name}"
+                if "identical" in rust_result.lower():
+                    call_hash = hashlib.sha256(
+                        f"{tool_name}:{arguments}".encode()
+                    ).hexdigest()[:16]
+                    verdict._warn_key = f"identical:{call_hash}"
+                elif "poll budget" in rust_result.lower():
+                    verdict._warn_key = f"poll:{tool_name}"
+                elif "ping-pong" in rust_result.lower():
+                    verdict._warn_key = "ping_pong"
+                else:
+                    verdict._warn_key = f"tool:{tool_name}"
             else:
                 verdict = LoopVerdict()
         else:
