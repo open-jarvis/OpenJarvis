@@ -471,6 +471,18 @@ def doctor(as_json: bool) -> None:
     from openjarvis.core.paths import get_config_dir
 
     scripts_dir = get_config_dir() / ".scripts"
+
+    def _rust_build_hint() -> str:
+        """Prefer the installer scripts when present, else the repo command."""
+        if (scripts_dir / "build-extension.sh").exists():
+            return (
+                f"{scripts_dir}/install-rust.sh && "
+                f"{scripts_dir}/build-extension.sh"
+            )
+        return (
+            "uv run maturin develop -m "
+            "rust/crates/openjarvis-python/Cargo.toml"
+        )
     console.print("[bold]Background tasks[/bold]")
     bg = get_status()
     bg_failed = False
@@ -479,15 +491,13 @@ def doctor(as_json: bool) -> None:
         console.print("  [green]✓[/green] Rust extension: ready")
     elif bg.rust_extension == "failed":
         console.print(f"  [red]✗[/red] Rust extension: failed — {bg.rust_error[:80]}")
-        console.print(
-            f"    retry: {scripts_dir}/install-rust.sh && "
-            f"{scripts_dir}/build-extension.sh"
-        )
+        console.print(f"    retry: {_rust_build_hint()}")
         bg_failed = True
     else:
         console.print(
-            "  [yellow]…[/yellow] Rust extension: building (run in background)"
+            "  [yellow]…[/yellow] Rust extension: not installed"
         )
+        console.print(f"    build: {_rust_build_hint()}")
 
     if not bg.models:
         console.print("  [dim]no model downloads tracked[/dim]")

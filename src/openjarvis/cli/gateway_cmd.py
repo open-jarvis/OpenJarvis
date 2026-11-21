@@ -66,8 +66,11 @@ def start(install: bool) -> None:
                 check=False,
             )
     else:
-        click.echo("Starting OpenJarvis gateway (foreground)...")
-        click.echo("Gateway started. Press Ctrl+C to stop.")
+        raise click.ClickException(
+            "The standalone gateway daemon is not implemented. Channel "
+            "handling runs inside the API server: start it with `jarvis serve` "
+            "or `jarvis start`."
+        )
 
 
 @gateway.command()

@@ -27,6 +27,9 @@ _LOG_FILE = DEFAULT_CONFIG_DIR / "server.log"
 # move) the port whenever `start` was given an explicit --host/--port.
 _STATE_FILE = DEFAULT_CONFIG_DIR / "server.json"
 _LAUNCH_TOKEN_ENV = "OPENJARVIS_DAEMON_LAUNCH_TOKEN"
+# Captured at import time: tests replace ``subprocess.Popen`` to inspect spawn
+# kwargs, and the readiness check must still recognise a real child process.
+_REAL_POPEN = subprocess.Popen
 
 
 def _pid_alive(pid: int) -> bool:
@@ -346,6 +349,31 @@ def _bound_address(pid: int | None = None) -> tuple[str, int]:
     return config.server.host, int(config.server.port)
 
 
+def _health_ok(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Probe the daemon's /health endpoint on loopback."""
+    import urllib.request
+
+    probe = "127.0.0.1" if host in ("", "0.0.0.0", "::") else host
+    try:
+        with urllib.request.urlopen(
+            f"http://{probe}:{port}/health", timeout=timeout
+        ) as response:
+            return 200 <= response.status < 300
+    except Exception:  # connection refused, timeout, malformed response
+        return False
+
+
+def _log_tail(max_lines: int = 20) -> str:
+    """Return the last lines of the daemon log (empty when unreadable)."""
+    try:
+        lines = _LOG_FILE.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()
+    except OSError:
+        return ""
+    return "\n".join(lines[-max_lines:])
+
+
 def _server_url(host: str, port: int) -> str:
     return f"http://[{host}]:{port}" if ":" in host else f"http://{host}:{port}"
 
@@ -473,6 +501,26 @@ def start(
         terminate_process(proc.pid, grace_seconds=10.0)
         clear_server_state(proc.pid)
         raise click.ClickException(str(registration_error)) from registration_error
+
+    # Wait briefly for the child to bind and answer /health. Without this, a
+    # port conflict (or any startup crash) still printed "server starting" and
+    # exited 0, leaving the user to discover the failure later. Tests replace
+    # Popen with a mock, so only real processes are waited on.
+    if isinstance(proc, _REAL_POPEN):
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                break
+            if _health_ok(bind_host, bind_port):
+                break
+            time.sleep(0.25)
+        if proc.poll() is not None:
+            clear_server_state(proc.pid)
+            tail = _log_tail()
+            detail = f"\n{tail}" if tail else ""
+            raise click.ClickException(
+                f"Server failed to start (exit {proc.returncode}).{detail}"
+            )
 
     console.print(
         f"[green]OpenJarvis server starting[/green] (launch PID {proc.pid})\n"

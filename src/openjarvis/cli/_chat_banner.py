@@ -13,7 +13,10 @@ def render_startup_banner(status: BgStatus) -> str:
     parts: list[str] = []
 
     if status.rust_extension == "pending":
-        parts.append("Rust extension building")
+        # "pending" only means no marker was found; on a native Windows
+        # install no background build exists, so claiming "building" forever
+        # was misleading.
+        parts.append("Rust extension not installed (run `jarvis doctor`)")
     elif status.rust_extension == "failed":
         parts.append("⚠ Rust extension failed (run `jarvis doctor`)")
 

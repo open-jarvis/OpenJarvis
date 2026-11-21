@@ -8,26 +8,34 @@ from openjarvis.cli import _bg_state
 from openjarvis.cli._chat_banner import render_startup_banner
 
 
+def _model_state(home: Path, model_id: str, state: str) -> Path:
+    models_dir = home / ".state" / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    path = models_dir / f"{_bg_state.encode_model_id(model_id)}.{state}"
+    path.write_text("")
+    return path
+
+
 def test_banner_empty_when_all_ready(tmp_openjarvis_home: Path) -> None:
     (tmp_openjarvis_home / ".state" / "extension-built").write_text("")
-    (tmp_openjarvis_home / ".state" / "models" / "qwen3.5:9b.ready").write_text("")
+    _model_state(tmp_openjarvis_home, "qwen3.5:9b", "ready")
     s = _bg_state.get_status()
     banner = render_startup_banner(s)
     assert banner == ""
 
 
-def test_banner_shows_rust_building(tmp_openjarvis_home: Path) -> None:
-    """Pending rust ext (no marker file) is shown as 'building'."""
+def test_banner_reports_missing_rust_extension(tmp_openjarvis_home: Path) -> None:
+    """No marker and no import means "not installed", not "building"."""
     s = _bg_state.get_status()  # all pending
     banner = render_startup_banner(s)
     assert "Rust extension" in banner
-    assert "building" in banner.lower()
+    assert "not installed" in banner.lower()
+    assert "building" not in banner.lower()
 
 
 def test_banner_shows_model_downloading(tmp_openjarvis_home: Path) -> None:
     (tmp_openjarvis_home / ".state" / "extension-built").write_text("")
-    models_dir = tmp_openjarvis_home / ".state" / "models"
-    (models_dir / "qwen3.5:9b.downloading").write_text("")
+    _model_state(tmp_openjarvis_home, "qwen3.5:9b", "downloading")
     s = _bg_state.get_status()
     banner = render_startup_banner(s)
     assert "qwen3.5:9b" in banner
