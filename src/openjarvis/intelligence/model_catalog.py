@@ -136,7 +136,12 @@ BUILTIN_MODELS: List[ModelSpec] = [
         metadata={
             "architecture": "dense",
             "hf_repo": "Qwen/Qwen3.5-9B",
-            "gguf_file": "qwen3.5-9b-q4_k_m.gguf",
+            "gguf_repo": "unsloth/Qwen3.5-9B-GGUF",
+            "gguf_file": "Qwen3.5-9B-Q4_K_M.gguf",
+            "gguf_size_gb": 5.7,
+            "mmproj_file": "mmproj-F16.gguf",
+            "mmproj_size_gb": 0.9,
+            "modalities": ["text", "image"],
             "mlx_repo": "mlx-community/Qwen3.5-9B-MLX-4bit",
         },
     ),

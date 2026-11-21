@@ -66,11 +66,15 @@ The built-in model catalog is defined in `intelligence/model_catalog.py` as the 
 | Model ID | Name | Parameters | Context | Supported Engines |
 |----------|------|-----------|---------|-------------------|
 | `qwen3:8b` | Qwen3 8B | 8.2B | 32K | vLLM, Ollama, llama.cpp, SGLang |
+| `qwen3.5:9b` | Qwen3.5 9B (vision) | 9B | 128K | vLLM, Ollama, llama.cpp, SGLang, MLX |
 | `qwen3:32b` | Qwen3 32B | 32B | 32K | Ollama, vLLM |
 | `llama3.3:70b` | Llama 3.3 70B | 70B | 128K | Ollama, vLLM |
 | `llama3.2:3b` | Llama 3.2 3B | 3B | 128K | Ollama, vLLM, llama.cpp |
 | `deepseek-coder-v2:16b` | DeepSeek Coder V2 16B | 16B | 128K | Ollama, vLLM |
 | `mistral:7b` | Mistral 7B | 7B | 32K | Ollama, vLLM, llama.cpp |
+
+The Qwen3.5 9B llama.cpp download uses the Q4_K_M GGUF (5.7 GB) and automatically
+downloads its F16 vision projector (0.9 GB) from the same Hugging Face repository.
 
 ### Local Models -- Mixture of Experts (MoE)
 

@@ -95,6 +95,47 @@ pub static BUILTIN_MODELS: Lazy<Vec<ModelSpec>> = Lazy::new(|| {
             requires_api_key: false,
             metadata: HashMap::new(),
         },
+        ModelSpec {
+            model_id: "qwen3.5:9b".into(),
+            name: "Qwen3.5 9B".into(),
+            parameter_count_b: 9.0,
+            context_length: 131072,
+            active_parameter_count_b: None,
+            quantization: Quantization::GgufQ4,
+            min_vram_gb: 8.0,
+            supported_engines: vec![
+                "ollama".into(),
+                "vllm".into(),
+                "llamacpp".into(),
+                "sglang".into(),
+                "mlx".into(),
+            ],
+            provider: "alibaba".into(),
+            requires_api_key: false,
+            metadata: HashMap::from([
+                ("architecture".into(), serde_json::json!("dense")),
+                (
+                    "hf_repo".into(),
+                    serde_json::json!("Qwen/Qwen3.5-9B"),
+                ),
+                (
+                    "gguf_repo".into(),
+                    serde_json::json!("unsloth/Qwen3.5-9B-GGUF"),
+                ),
+                (
+                    "gguf_file".into(),
+                    serde_json::json!("Qwen3.5-9B-Q4_K_M.gguf"),
+                ),
+                ("gguf_size_gb".into(), serde_json::json!(5.7)),
+                ("mmproj_file".into(), serde_json::json!("mmproj-F16.gguf")),
+                ("mmproj_size_gb".into(), serde_json::json!(0.9)),
+                ("modalities".into(), serde_json::json!(["text", "image"])),
+                (
+                    "mlx_repo".into(),
+                    serde_json::json!("mlx-community/Qwen3.5-9B-MLX-4bit"),
+                ),
+            ]),
+        },
         // Llama
         ModelSpec {
             model_id: "llama3.3:latest".into(),
