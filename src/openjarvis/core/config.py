@@ -1657,13 +1657,18 @@ class SpeechConfig:
     # Audio-level wake word (openWakeWord, always-listening). Falls back to
     # the transcript-based check when the openwakeword package is unavailable.
     audio_wake_word: bool = True
+    # Confidence required from openWakeWord before the mic opens. 0.5 is the
+    # package default but produced false positives on ordinary speech; 0.7
+    # requires a much clearer "Jarvis".
+    wake_word_threshold: float = 0.7
     # Barge-in: stop Jarvis's speech (and generation) when the user starts
     # talking over the answer.
     barge_in: bool = True
     # Conversation mode: after the wake word fires, keep listening across
     # turns without re-saying the wake word until an exit phrase
-    # (e.g. "merci jarvis") or Ctrl-C.
+    # (e.g. "merci jarvis"), Ctrl-C or this many seconds without a command.
     conversation_mode: bool = True
+    conversation_timeout_seconds: float = 60.0
     # Push-to-talk: activate the mic with a global hotkey (F8) instead of the
     # wake word. Requires the optional ``keyboard`` package.
     push_to_talk: bool = False

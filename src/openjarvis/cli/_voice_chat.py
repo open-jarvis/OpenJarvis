@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from typing import Any, Callable, Optional, Tuple
 
 from rich.markup import escape
@@ -64,6 +65,7 @@ class VoiceSession:
         self._voice_prefs: tuple[str, str, float] | None = None
         self._voice_warned: set[str] = set()
         self._conversation_active = False
+        self._conversation_deadline: float | None = None
         self._voice_muted = False
 
     def get_stt_backend(self) -> Any:
@@ -136,18 +138,49 @@ class VoiceSession:
 
     # -- conversation mode ---------------------------------------------------
 
+    def _conversation_timeout(self) -> float:
+        """Seconds of silence after which conversation mode expires."""
+        config = self._config
+        speech = getattr(config, "speech", None) if config is not None else None
+        try:
+            value = float(getattr(speech, "conversation_timeout_seconds", 60.0))
+        except (TypeError, ValueError):
+            value = 60.0
+        return max(5.0, value)
+
     @property
     def conversation_active(self) -> bool:
         """True while multi-turn listening is active (no wake word needed)."""
-        return self._conversation_active
+        if not self._conversation_active:
+            return False
+        if (
+            self._conversation_deadline is not None
+            and time.monotonic() >= self._conversation_deadline
+        ):
+            # No command within the timeout: stop accepting ambient speech.
+            self._conversation_active = False
+            self._conversation_deadline = None
+            return False
+        return True
 
     def enter_conversation(self) -> None:
-        """Start multi-turn listening after the wake word fired."""
+        """Start (or renew) multi-turn listening after the wake word fired."""
         self._conversation_active = True
+        self._conversation_deadline = (
+            time.monotonic() + self._conversation_timeout()
+        )
+
+    def touch_conversation(self) -> None:
+        """Renew the inactivity timeout after an accepted voice turn."""
+        if self._conversation_active:
+            self._conversation_deadline = (
+                time.monotonic() + self._conversation_timeout()
+            )
 
     def leave_conversation(self) -> None:
-        """End multi-turn listening (exit phrase or Ctrl-C)."""
+        """End multi-turn listening (exit phrase, timeout or Ctrl-C)."""
         self._conversation_active = False
+        self._conversation_deadline = None
 
     # -- voice control -------------------------------------------------------
 
@@ -342,6 +375,7 @@ def record_voice(
         console.print(
             f"[bold]You (voice):[/bold] {_terminal_safe_text(transcript)}"
         )
+        active_session.touch_conversation()
         return (transcript, SOURCE_VOICE_WAKE)
 
     # Push-to-talk: a global hotkey (F8) opens the mic instead of the wake
@@ -373,6 +407,7 @@ def record_voice(
             console.print(
                 f"[bold]You (voice):[/bold] {_terminal_safe_text(transcript)}"
             )
+            active_session.touch_conversation()
             return (transcript, SOURCE_VOICE_WAKE)
 
     # Audio-level wake word (openWakeWord): always-listening, no push-to-talk.
@@ -382,7 +417,14 @@ def record_voice(
     ):
         from openjarvis.speech.audio_wake import build_detector
 
-        detector = build_detector(timeout=30.0)
+        try:
+            threshold = float(
+                getattr(config.speech, "wake_word_threshold", 0.7)
+            )
+        except (TypeError, ValueError):
+            threshold = 0.7
+        threshold = min(0.99, max(0.05, threshold))
+        detector = build_detector(threshold=threshold, timeout=30.0)
         if detector is not None:
             console.print(
                 "[dim cyan]Listening for the wake word…[/dim cyan] "
@@ -414,6 +456,7 @@ def record_voice(
             console.print(
                 f"[bold]You (voice):[/bold] {_terminal_safe_text(transcript)}"
             )
+            active_session.touch_conversation()
             return (transcript, SOURCE_VOICE_WAKE)
         console.print(
             "[dim]Audio wake word unavailable — using transcript-based "
@@ -443,6 +486,7 @@ def record_voice(
         # If there's still text after the wake word, return it;
         # otherwise prompt for a command
         if text:
+            active_session.touch_conversation()
             return (text, SOURCE_VOICE_WAKE)
         console.print(
             "[dim]Please give a command after the wake word.[/dim]"
