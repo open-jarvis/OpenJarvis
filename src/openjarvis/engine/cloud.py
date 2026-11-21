@@ -1,6 +1,6 @@
 """Cloud inference engine.
 
-OpenAI, Anthropic, Google, MiniMax, DeepSeek, and Atlas Cloud API backends.
+OpenAI, Anthropic, Google, MiniMax, DeepSeek, Atlas Cloud, and PopNow API backends.
 """
 
 from __future__ import annotations
@@ -68,6 +68,15 @@ PRICING: Dict[str, tuple[float, float]] = {
     "atlascloud/zai-org/GLM-4.6": (0.60, 2.20),
     "atlascloud/moonshotai/kimi-k2.5": (0.49, 2.50),
     "atlascloud/minimaxai/minimax-m2.5": (0.295, 1.20),
+    # PopNow — also an aggregator, so keys carry the "popnow/" routing prefix.
+    # Rates are USD per 1M tokens, from the "usd" field of GET
+    # https://api.popnow.ai/v1/models (the catalog is at popnow.ai/api/models).
+    "popnow/openai/gpt-6.1-terra/chat": (1.0, 5.0),
+    "popnow/anthropic/claude-sonnet-5.5/chat": (2.0, 10.0),
+    "popnow/google/gemini-3.7-flash/chat": (0.675, 3.375),
+    "popnow/deepseek/v4-flash/chat": (0.44, 1.32),
+    "popnow/deepseek/v4-pro/chat": (1.32, 3.96),
+    "popnow/moonshot/kimi-k3/chat": (2.7, 13.5),
 }
 
 _MINIMAX_M3_LONG_CONTEXT_THRESHOLD = 512_000
@@ -149,6 +158,18 @@ _ATLASCLOUD_POPULAR = [
     "atlascloud/minimaxai/minimax-m2.5",
 ]
 
+# PopNow models — prefixed with "popnow/" for the same reason as Atlas Cloud.
+# PopNow's own IDs are "vendor/model/task", and only "/chat" IDs are served by
+# the OpenAI-compatible endpoint this engine uses.
+_POPNOW_POPULAR = [
+    "popnow/openai/gpt-6.1-terra/chat",
+    "popnow/anthropic/claude-sonnet-5.5/chat",
+    "popnow/google/gemini-3.7-flash/chat",
+    "popnow/deepseek/v4-flash/chat",
+    "popnow/deepseek/v4-pro/chat",
+    "popnow/moonshot/kimi-k3/chat",
+]
+
 # Codex models — prefixed with "codex/" for ChatGPT Plus/Pro subscribers.
 # Uses the Responses API at chatgpt.com, not the standard OpenAI API.
 _CODEX_MODELS = [
@@ -176,6 +197,10 @@ def _is_atlascloud_model(model: str) -> bool:
     return model.startswith("atlascloud/")
 
 
+def _is_popnow_model(model: str) -> bool:
+    return model.startswith("popnow/")
+
+
 def _is_codex_model(model: str) -> bool:
     return model.startswith("codex/")
 
@@ -187,6 +212,7 @@ def _is_anthropic_model(model: str) -> bool:
         "claude" in model.lower()
         and not _is_openrouter_model(model)
         and not _is_atlascloud_model(model)
+        and not _is_popnow_model(model)
     )
 
 
@@ -195,6 +221,7 @@ def _is_google_model(model: str) -> bool:
         "gemini" in model.lower()
         and not _is_openrouter_model(model)
         and not _is_atlascloud_model(model)
+        and not _is_popnow_model(model)
     )
 
 
@@ -422,6 +449,7 @@ class CloudEngine(InferenceEngine):
         self._google_client: Any = None
         self._openrouter_client: Any = None
         self._atlascloud_client: Any = None
+        self._popnow_client: Any = None
         self._minimax_client: Any = None
         self._deepseek_client: Any = None
         self._codex_client: Any = None
@@ -473,6 +501,17 @@ class CloudEngine(InferenceEngine):
                 self._atlascloud_client = openai.OpenAI(
                     base_url="https://api.atlascloud.ai/v1",
                     api_key=atlascloud_key,
+                )
+            except ImportError:
+                pass
+        popnow_key = os.environ.get("POPNOW_API_KEY")
+        if popnow_key:
+            try:
+                import openai
+
+                self._popnow_client = openai.OpenAI(
+                    base_url="https://api.popnow.ai/v1",
+                    api_key=popnow_key,
                 )
             except ImportError:
                 pass
@@ -1163,6 +1202,77 @@ class CloudEngine(InferenceEngine):
             ]
         return result
 
+    def _generate_popnow(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        if self._popnow_client is None:
+            raise EngineConnectionError(
+                "PopNow client not available — set POPNOW_API_KEY"
+            )
+        # Strip the "popnow/" prefix to get the gateway's own model ID.
+        actual_model = model.removeprefix("popnow/")
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        # PopNow is OpenAI-compatible: response_format, tools and
+        # tool_choice all pass straight through.
+        response_format = kwargs.pop("response_format", None)
+        if response_format is not None:
+            create_kwargs["response_format"] = response_format
+        tools = kwargs.pop("tools", None)
+        if tools:
+            create_kwargs["tools"] = tools
+        tool_choice = kwargs.pop("tool_choice", None)
+        if tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
+        t0 = time.monotonic()
+        resp = _chat_completion_with_temperature_retry(
+            self._popnow_client, create_kwargs
+        )
+        elapsed = time.monotonic() - t0
+        choice = _first_choice_or_raise(
+            resp, provider="PopNow", model=actual_model
+        )
+        usage = resp.usage
+        prompt_tokens = usage.prompt_tokens if usage else 0
+        completion_tokens = usage.completion_tokens if usage else 0
+        result: Dict[str, Any] = {
+            "content": choice.message.content or "",
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (usage.total_tokens if usage else 0),
+            },
+            "model": resp.model,
+            "finish_reason": choice.finish_reason or "stop",
+            # Cost is keyed on the prefixed ID so PRICING stays unambiguous
+            # between "popnow/deepseek/v4-flash/chat" and DeepSeek direct.
+            "cost_usd": estimate_cost(model, prompt_tokens, completion_tokens),
+            "ttft": elapsed,
+        }
+        if getattr(choice.message, "tool_calls", None):
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in choice.message.tool_calls
+            ]
+        return result
+
     def _generate_minimax(
         self,
         messages: Sequence[Message],
@@ -1291,6 +1401,8 @@ class CloudEngine(InferenceEngine):
             return self._generate_openrouter(messages, **kw)
         if _is_atlascloud_model(model):
             return self._generate_atlascloud(messages, **kw)
+        if _is_popnow_model(model):
+            return self._generate_popnow(messages, **kw)
         if _is_minimax_model(model):
             return self._generate_minimax(messages, **kw)
         if _is_deepseek_model(model):
@@ -1324,6 +1436,9 @@ class CloudEngine(InferenceEngine):
                 yield token
         elif _is_atlascloud_model(model):
             async for token in self._stream_atlascloud(messages, **kw):
+                yield token
+        elif _is_popnow_model(model):
+            async for token in self._stream_popnow(messages, **kw):
                 yield token
         elif _is_minimax_model(model):
             async for token in self._stream_minimax(messages, **kw):
@@ -1717,6 +1832,40 @@ class CloudEngine(InferenceEngine):
             if delta and delta.content:
                 yield delta.content
 
+    async def _stream_popnow(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        if self._popnow_client is None:
+            raise EngineConnectionError("PopNow client not available")
+        actual_model = model.removeprefix("popnow/")
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        # Forward tools / tool_choice (PopNow is OpenAI-compatible).
+        tools = kwargs.pop("tools", None)
+        if tools:
+            create_kwargs["tools"] = tools
+        tool_choice = kwargs.pop("tool_choice", None)
+        if tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
+        resp = _chat_completion_with_temperature_retry(
+            self._popnow_client, create_kwargs
+        )
+        for chunk in resp:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+
     async def _stream_minimax(
         self,
         messages: Sequence[Message],
@@ -1784,7 +1933,8 @@ class CloudEngine(InferenceEngine):
     ) -> AsyncIterator[StreamChunk]:
         """Yield StreamChunks from an OpenAI-compatible streaming response.
 
-        Works for OpenAI, OpenRouter, Atlas Cloud, MiniMax, DeepSeek, and Codex.
+        Works for OpenAI, OpenRouter, Atlas Cloud, PopNow, MiniMax, DeepSeek, and
+        Codex.
         """
         if _is_codex_model(model):
             # Codex uses Responses API — fall back to base stream_full wrapper
@@ -1816,6 +1966,18 @@ class CloudEngine(InferenceEngine):
                 raise EngineConnectionError("Atlas Cloud client not available")
             create_kwargs = {
                 "model": model.removeprefix("atlascloud/"),
+                "messages": messages_to_dicts(messages),
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+                **kwargs,
+            }
+        elif _is_popnow_model(model):
+            client = self._popnow_client
+            if client is None:
+                raise EngineConnectionError("PopNow client not available")
+            create_kwargs = {
+                "model": model.removeprefix("popnow/"),
                 "messages": messages_to_dicts(messages),
                 "max_tokens": max_tokens,
                 "temperature": temperature,
@@ -2016,6 +2178,8 @@ class CloudEngine(InferenceEngine):
             models.extend(_OPENROUTER_POPULAR)
         if self._atlascloud_client is not None:
             models.extend(_ATLASCLOUD_POPULAR)
+        if self._popnow_client is not None:
+            models.extend(_POPNOW_POPULAR)
         if self._minimax_client is not None:
             models.extend(_MINIMAX_MODELS)
         if self._deepseek_client is not None:
@@ -2043,6 +2207,8 @@ class CloudEngine(InferenceEngine):
             return self._openrouter_client
         if _is_atlascloud_model(model):
             return self._atlascloud_client
+        if _is_popnow_model(model):
+            return self._popnow_client
         if _is_minimax_model(model):
             return self._minimax_client
         if _is_deepseek_model(model):
@@ -2075,6 +2241,7 @@ class CloudEngine(InferenceEngine):
             or self._google_client is not None
             or self._openrouter_client is not None
             or self._atlascloud_client is not None
+            or self._popnow_client is not None
             or self._minimax_client is not None
             or self._deepseek_client is not None
             or self._codex_client is not None
@@ -2099,6 +2266,10 @@ class CloudEngine(InferenceEngine):
             if hasattr(self._atlascloud_client, "close"):
                 self._atlascloud_client.close()
             self._atlascloud_client = None
+        if self._popnow_client is not None:
+            if hasattr(self._popnow_client, "close"):
+                self._popnow_client.close()
+            self._popnow_client = None
         if self._minimax_client is not None:
             if hasattr(self._minimax_client, "close"):
                 self._minimax_client.close()
