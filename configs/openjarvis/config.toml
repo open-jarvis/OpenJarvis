@@ -113,6 +113,15 @@ steady_state_threshold = 0.05            # Coefficient of variation threshold fo
 enabled = true                            # Record traces for analysis
 db_path = "~/.openjarvis/traces.db"
 
+[speech]
+tts_backend = "kokoro"
+voice_id = "bm_george"
+voice_speed = 1.0
+# ElevenLabs alternative:
+# tts_backend = "elevenlabs"
+# voice_id = "EitqXD7jgIy0K5Z1zGGp"
+# ELEVENLABS_API_KEY must be set in the environment; never place it in this file.
+
 [server]
 # Bind to loopback by default so the API is not exposed to the local network.
 # To serve other devices on your LAN, set host = "0.0.0.0" AND set an API key

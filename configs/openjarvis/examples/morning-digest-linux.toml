@@ -32,7 +32,7 @@ schedule = "0 7 * * *"
 timezone = "America/New_York"      # Change to your timezone
 persona = "jarvis"
 honorific = "sir"
-tts_backend = "openai"             # OpenAI TTS works everywhere
+tts_backend = "openai"             # OpenAI TTS works everywhere; use "elevenlabs" for the requested voice
 voice_id = "onyx"                  # Deep male voice
 voice_speed = 1.1
 

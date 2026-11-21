@@ -25,7 +25,7 @@ BACKEND_DEFAULT_VOICE = {
     "kokoro": "bm_george",  # British male
     "openai_tts": "onyx",  # deepest OpenAI preset
     "cartesia": "",  # no safe static default; let Cartesia choose
-    "elevenlabs": "JBFqnCBsd6RMkjVDRZzb",  # "George", British male
+    "elevenlabs": "EitqXD7jgIy0K5Z1zGGp",
 }
 
 

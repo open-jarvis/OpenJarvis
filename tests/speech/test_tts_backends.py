@@ -864,6 +864,21 @@ def test_elevenlabs_health_requires_key(monkeypatch):
     assert ElevenLabsTTSBackend(api_key="fake-key").health() is True
 
 
+def test_elevenlabs_default_voice_is_openjarvis_voice(monkeypatch):
+    from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
+
+    monkeypatch.delenv("ELEVENLABS_VOICE_ID", raising=False)
+    backend = ElevenLabsTTSBackend(api_key="fake-key")
+    with patch(
+        "openjarvis.speech.elevenlabs_tts._elevenlabs_synthesize",
+        return_value=b"fake-mp3",
+    ) as synth:
+        result = backend.synthesize("Hello")
+
+    assert synth.call_args.kwargs["voice_id"] == "EitqXD7jgIy0K5Z1zGGp"
+    assert result.voice_id == "EitqXD7jgIy0K5Z1zGGp"
+
+
 def test_elevenlabs_synthesize_mp3():
     from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
 

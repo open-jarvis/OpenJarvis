@@ -28,7 +28,7 @@ schedule = "0 7 * * *"             # 7 AM daily
 timezone = "America/Los_Angeles"   # Change to your timezone
 persona = "jarvis"
 honorific = "sir"                  # "sir", "ma'am", "boss", or any custom
-tts_backend = "cartesia"           # "cartesia" or "openai"
+tts_backend = "cartesia"           # "cartesia", "openai", or "elevenlabs"
 voice_id = "c8f7835e-28a3-4f0c-80d7-c1302ac62aae"  # Alistair (British male)
 voice_speed = 1.2                  # 1.0 = normal, 1.2 = 20% faster
 
