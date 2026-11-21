@@ -50,3 +50,9 @@ fnmatch-regex = "0.2"
 url = "2"
 rig-core = "0.31"
 schemars = "1"
+
+# Disable stripping in the release profile. Cargo 1.77+ strips debuginfo by default,
+# which invokes an external strip tool on macOS that can produce misaligned Mach-O
+# LINKEDIT string pools on Apple Silicon, preventing dyld from loading the cdylib (#1291).
+[profile.release]
+strip = "none"
