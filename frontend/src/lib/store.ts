@@ -108,6 +108,10 @@ interface Settings {
   speechEnabled: boolean;
   voiceOutputEnabled: boolean;
   voiceAutoplay: boolean;
+  // Hands-free voice: keep the mic open and answer out loud whenever the
+  // user addresses the assistant by `wakeWord`.
+  handsFreeEnabled: boolean;
+  wakeWord: string;
   // IANA time zone for dates in answers; '' = this device's zone.
   timeZone: string;
 }
@@ -125,6 +129,8 @@ function loadSettings(): Settings {
     speechEnabled: false,
     voiceOutputEnabled: false,
     voiceAutoplay: false,
+    handsFreeEnabled: false,
+    wakeWord: 'jarvis',
     timeZone: '',
   };
   try {
