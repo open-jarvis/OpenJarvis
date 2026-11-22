@@ -147,34 +147,9 @@ class ShellExecTool(BaseTool):
             if val is not None:
                 env[key] = val
 
-        try:
-            from openjarvis._rust_bridge import get_rust_module
-
-            _rust = get_rust_module()
-            output = _rust.ShellExecTool().execute(command, working_dir)
-            return ToolResult(
-                tool_name="shell_exec",
-                content=output or "(no output)",
-                success=True,
-                metadata={
-                    "returncode": 0,
-                    "timeout_used": timeout,
-                    "working_dir": working_dir,
-                },
-            )
-        except ImportError:
-            pass  # Fall through to subprocess below
-        except Exception as exc:
-            return ToolResult(
-                tool_name="shell_exec",
-                content=str(exc),
-                success=False,
-                metadata={
-                    "returncode": -1,
-                    "timeout_used": timeout,
-                    "working_dir": working_dir,
-                },
-            )
+        # No Rust fast path here on purpose: the Rust ShellExecTool takes no
+        # timeout or env and hides the exit code, so it skipped all three of
+        # the checks above (#1332). Bring it back once the binding has parity.
         try:
             result = subprocess.run(
                 command,

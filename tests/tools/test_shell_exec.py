@@ -1,8 +1,8 @@
 """Tests for the shell_exec tool.
 
-Tests mock the Rust backend to verify the Python wrapper handles
-the Rust output format correctly:
-    "Exit code: {code}\\n--- stdout ---\\n{stdout}\\n--- stderr ---\\n{stderr}"
+Most tests run real commands through the subprocess path. A mocked Rust
+extension is only used to check that it is NOT called: the Rust
+ShellExecTool has no timeout, env allowlist or exit code yet (#1332).
 """
 
 from __future__ import annotations
@@ -39,6 +39,14 @@ def _make_mock_rust(side_effect=None, return_value=None):
     return mock_mod
 
 
+def _python_cmd(code: str) -> str:
+    """Shell command that runs *code* with Python, quoted for sh or cmd."""
+    args = [get_python_executable(), "-c", code]
+    if os.name == "nt":
+        return subprocess.list2cmdline(args)
+    return shlex.join(args)
+
+
 class TestShellExecTool:
     def test_registered_via_tools_package_import(self):
         import openjarvis.tools as tools_pkg
@@ -72,67 +80,42 @@ class TestShellExecTool:
         assert "No command" in result.content
 
     def test_simple_echo(self):
-        mock_mod = _make_mock_rust(
-            return_value=_rust_output(stdout="hello\n"),
-        )
         tool = ShellExecTool()
-        with patch(
-            "openjarvis._rust_bridge.get_rust_module",
-            return_value=mock_mod,
-        ):
-            result = tool.execute(command="echo hello")
+        result = tool.execute(command="echo hello")
         assert result.success is True
         assert "hello" in result.content
-        assert "--- stdout ---" in result.content
+        assert "=== STDOUT ===" in result.content
 
     def test_capture_stderr(self):
-        mock_mod = _make_mock_rust(
-            return_value=_rust_output(stderr="error_msg\n"),
-        )
         tool = ShellExecTool()
-        with patch(
-            "openjarvis._rust_bridge.get_rust_module",
-            return_value=mock_mod,
-        ):
-            result = tool.execute(command="echo error_msg >&2")
+        result = tool.execute(command="echo error_msg >&2")
         assert "error_msg" in result.content
-        assert "--- stderr ---" in result.content
+        assert "=== STDERR ===" in result.content
 
-    @pytest.mark.skip(
-        reason="Rust backend has no timeout — Command::output() blocks",
-    )
     def test_timeout_exceeded(self):
         tool = ShellExecTool()
-        result = tool.execute(command="sleep 60", timeout=1)
+        # sleep is short on purpose: on Windows the killed shell can leave
+        # the child holding the pipes until it exits by itself
+        result = tool.execute(
+            command=_python_cmd("import time; time.sleep(5)"), timeout=1
+        )
         assert result.success is False
         assert "timed out" in result.content
         assert result.metadata["returncode"] == -1
         assert result.metadata["timeout_used"] == 1
 
     def test_timeout_capped_at_max(self):
-        """timeout param is still capped in Python; Rust ignores it."""
-        mock_mod = _make_mock_rust(
-            return_value=_rust_output(stdout="ok\n"),
-        )
         tool = ShellExecTool()
-        with patch(
-            "openjarvis._rust_bridge.get_rust_module",
-            return_value=mock_mod,
-        ):
-            result = tool.execute(command="echo ok", timeout=999)
+        result = tool.execute(command="echo ok", timeout=999)
         assert result.success is True
         assert result.metadata["timeout_used"] == 300
 
     def test_working_dir(self, tmp_path):
-        mock_mod = _make_mock_rust(
-            return_value=_rust_output(stdout=str(tmp_path) + "\n"),
-        )
         tool = ShellExecTool()
-        with patch(
-            "openjarvis._rust_bridge.get_rust_module",
-            return_value=mock_mod,
-        ):
-            result = tool.execute(command="pwd", working_dir=str(tmp_path))
+        result = tool.execute(
+            command=_python_cmd("import os; print(os.getcwd())"),
+            working_dir=str(tmp_path),
+        )
         assert result.success is True
         assert str(tmp_path) in result.content
         assert result.metadata["working_dir"] == str(tmp_path)
@@ -151,22 +134,29 @@ class TestShellExecTool:
         assert result.success is False
         assert "not a directory" in result.content
 
-    @pytest.mark.skip(reason="Rust backend inherits parent env — no env isolation")
     def test_env_clearing(self):
-        """Verify that arbitrary env vars are NOT passed through."""
+        """Verify that arbitrary env vars are NOT passed through, also when
+        the Rust extension is installed (it inherits the full env)."""
         marker = "OPENJARVIS_TEST_SECRET_12345"
         os.environ[marker] = "leaked"
+        # what the Rust path printed for the same command before #1332
+        mock_mod = _make_mock_rust(return_value=_rust_output(stdout="leaked\n"))
         try:
             tool = ShellExecTool()
-            result = tool.execute(command=f"echo ${marker}")
+            with patch(
+                "openjarvis._rust_bridge.get_rust_module",
+                return_value=mock_mod,
+            ):
+                result = tool.execute(
+                    command=_python_cmd(
+                        f"import os; print(os.environ.get('{marker}'))"
+                    ),
+                )
             assert result.success is True
             assert "leaked" not in result.content
         finally:
             os.environ.pop(marker, None)
 
-    @pytest.mark.skip(
-        reason="Rust backend inherits parent env — no env_passthrough",
-    )
     def test_env_passthrough(self):
         """Verify that explicitly listed env vars ARE passed through."""
         marker = "OPENJARVIS_TEST_PASSTHROUGH_67890"
@@ -174,7 +164,7 @@ class TestShellExecTool:
         try:
             tool = ShellExecTool()
             result = tool.execute(
-                command=f"echo ${marker}",
+                command=_python_cmd(f"import os; print(os.environ.get('{marker}'))"),
                 env_passthrough=[marker],
             )
             assert result.success is True
@@ -183,23 +173,15 @@ class TestShellExecTool:
             os.environ.pop(marker, None)
 
     def test_returncode_in_metadata(self):
-        mock_mod = _make_mock_rust(
-            return_value=_rust_output(stdout="ok\n"),
-        )
         tool = ShellExecTool()
-        with patch(
-            "openjarvis._rust_bridge.get_rust_module",
-            return_value=mock_mod,
-        ):
-            result = tool.execute(command="echo ok")
+        result = tool.execute(command="echo ok")
         assert result.success is True
         assert result.metadata["returncode"] == 0
 
     def test_nonzero_returncode(self):
-        """Non-zero exit in Rust returns ToolResult::failure() but PyO3 binding
-        returns Ok(content).  The Python wrapper currently treats that as
-        success=True (it only sets success=False on exception).  The Rust
-        output still contains the exit code in the formatted string."""
+        """The real exit code comes back even when the Rust extension is
+        installed. The Rust path used to report success=True and
+        returncode 0 for every command (#1332)."""
         mock_mod = _make_mock_rust(
             return_value=_rust_output(code=42),
         )
@@ -209,38 +191,21 @@ class TestShellExecTool:
             return_value=mock_mod,
         ):
             result = tool.execute(command="exit 42")
-        # PyO3 binding returns content for both success/failure ToolResults,
-        # so Python wrapper sets success=True and returncode=0.
-        assert result.success is True
-        assert "Exit code: 42" in result.content
+        assert result.success is False
+        assert result.metadata["returncode"] == 42
 
-    @pytest.mark.skip(reason="Rust backend has no output truncation")
     def test_max_output_truncation(self, tmp_path):
         """Stdout exceeding 100 KB is truncated."""
         tool = ShellExecTool()
-        result = tool.execute(
-            command=(
-                f"{shlex.quote(get_python_executable())} -c \"print('A' * 200000)\""
-            ),
-        )
+        result = tool.execute(command=_python_cmd("print('A' * 200000)"))
         assert "truncated" in result.content
         assert len(result.content) < 200_000
 
     def test_no_output(self):
-        """Rust always returns the format string even when stdout/stderr are empty."""
-        mock_mod = _make_mock_rust(
-            return_value=_rust_output(),
-        )
         tool = ShellExecTool()
-        with patch(
-            "openjarvis._rust_bridge.get_rust_module",
-            return_value=mock_mod,
-        ):
-            result = tool.execute(command="true")
+        result = tool.execute(command="exit 0")
         assert result.success is True
-        assert "Exit code: 0" in result.content
-        assert "--- stdout ---" in result.content
-        assert "--- stderr ---" in result.content
+        assert result.content == "(no output)"
 
     def test_tool_id(self):
         tool = ShellExecTool()
@@ -254,30 +219,9 @@ class TestShellExecTool:
         assert "command" in fn["function"]["parameters"]["properties"]
 
     def test_default_timeout_metadata(self):
-        mock_mod = _make_mock_rust(
-            return_value=_rust_output(stdout="ok\n"),
-        )
         tool = ShellExecTool()
-        with patch(
-            "openjarvis._rust_bridge.get_rust_module",
-            return_value=mock_mod,
-        ):
-            result = tool.execute(command="echo ok")
+        result = tool.execute(command="echo ok")
         assert result.metadata["timeout_used"] == 30
-
-    def test_rust_exception_sets_failure(self):
-        """When the Rust backend raises an exception, Python sets success=False."""
-        mock_mod = _make_mock_rust(
-            side_effect=RuntimeError("Failed to execute: No such file or directory"),
-        )
-        tool = ShellExecTool()
-        with patch(
-            "openjarvis._rust_bridge.get_rust_module",
-            return_value=mock_mod,
-        ):
-            result = tool.execute(command="/nonexistent_binary")
-        assert result.success is False
-        assert result.metadata["returncode"] == -1
 
 
 class TestSanitizedEnvWindowsKeys:
