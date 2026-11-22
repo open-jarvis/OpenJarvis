@@ -47,16 +47,9 @@ class ScheduleTaskTool(BaseTool):
                             "interval, or ISO datetime for once."
                         ),
                     },
-                    "agent": {
+                    "timezone": {
                         "type": "string",
-                        "description": "Agent to use for execution (default: simple).",
-                    },
-                    "tools": {
-                        "type": "string",
-                        "description": (
-                            "Comma-separated tool names for agent "
-                            "(e.g. 'calculator,think')."
-                        ),
+                        "description": "IANA timezone for cron (default: UTC).",
                     },
                 },
                 "required": ["prompt", "schedule_type", "schedule_value"],
@@ -83,13 +76,29 @@ class ScheduleTaskTool(BaseTool):
                 ),
                 success=False,
             )
+        # This tool has no trustworthy view of the caller's tool permissions.
+        # Restrict agent-created tasks to the built-in, tool-free SimpleAgent.
+        if params.get("agent", "simple") != "simple" or params.get("tools"):
+            return ToolResult(
+                tool_name="schedule_task",
+                content="Agent-created tasks must use the simple agent without tools.",
+                success=False,
+            )
+        timezone_name = params.get("timezone")
+        if timezone_name is not None and schedule_type != "cron":
+            return ToolResult(
+                tool_name="schedule_task",
+                content="Timezone is only valid for cron schedules.",
+                success=False,
+            )
         try:
             task = self._scheduler.create_task(
                 prompt=prompt,
                 schedule_type=schedule_type,
                 schedule_value=schedule_value,
-                agent=params.get("agent", "simple"),
-                tools=params.get("tools", ""),
+                agent="simple",
+                tools="",
+                metadata={"timezone": timezone_name} if timezone_name else {},
             )
             return ToolResult(
                 tool_name="schedule_task",

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import signal
-import sys
+import threading
 from typing import Optional
+from zoneinfo import ZoneInfoNotFoundError
 
 import click
 from rich.console import Console
@@ -13,14 +14,10 @@ from rich.table import Table
 
 def _get_store() -> "SchedulerStore":  # noqa: F821
     """Build a SchedulerStore from user config."""
-    from openjarvis.core.config import DEFAULT_CONFIG_DIR, load_config
+    from openjarvis.core.config import load_config
     from openjarvis.scheduler.store import SchedulerStore
 
-    config = load_config()
-    db_path = getattr(getattr(config, "scheduler", None), "db_path", None) or str(
-        DEFAULT_CONFIG_DIR / "scheduler.db"
-    )
-    return SchedulerStore(db_path)
+    return SchedulerStore.from_config(load_config())
 
 
 def _get_scheduler(store: "SchedulerStore") -> "TaskScheduler":  # noqa: F821
@@ -52,14 +49,22 @@ def scheduler() -> None:
 )
 @click.option("--agent", default="simple", help="Agent to use for execution.")
 @click.option("--tools", default="", help="Comma-separated tool names.")
+@click.option(
+    "--timezone", "timezone_name", help="IANA timezone for cron (default: UTC)."
+)
 def scheduler_create(
     prompt: str,
     schedule_type: str,
     schedule_value: str,
     agent: str,
     tools: str,
+    timezone_name: str | None,
 ) -> None:
     """Create a new scheduled task."""
+    if timezone_name is not None and schedule_type != "cron":
+        raise click.BadParameter(
+            "only valid for cron schedules", param_hint="--timezone"
+        )
     console = Console()
     store = _get_store()
     try:
@@ -70,6 +75,7 @@ def scheduler_create(
             schedule_value=schedule_value,
             agent=agent,
             tools=tools,
+            metadata={"timezone": timezone_name} if timezone_name else {},
         )
         console.print(f"[green]Created task {task.id}[/green]")
         console.print(f"  Type: {task.schedule_type}")
@@ -78,6 +84,12 @@ def scheduler_create(
         console.print(f"  Agent: {task.agent}")
         if task.tools:
             console.print(f"  Tools: {task.tools}")
+    except ZoneInfoNotFoundError as exc:
+        raise click.BadParameter(
+            "unknown IANA timezone", param_hint="--timezone"
+        ) from exc
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     finally:
         store.close()
 
@@ -298,39 +310,49 @@ def scheduler_run_task(agent_name: str, dry_run: bool) -> None:
 @scheduler.command("start")
 @click.option(
     "--poll-interval",
-    default=60,
-    type=int,
-    help="Seconds between poll cycles.",
+    type=click.IntRange(min=1),
+    help="Seconds between poll cycles (defaults to scheduler configuration).",
 )
-def scheduler_start(poll_interval: int) -> None:
+def scheduler_start(poll_interval: int | None) -> None:
     """Start the scheduler daemon (foreground)."""
-    console = Console()
-    store = _get_store()
-
+    from openjarvis.core.config import load_config
     from openjarvis.scheduler.scheduler import TaskScheduler
+    from openjarvis.scheduler.store import SchedulerStore
+    from openjarvis.system import SystemBuilder
 
-    sched = TaskScheduler(store, poll_interval=poll_interval)
-    sched.start()
-    console.print(
-        f"[green]Scheduler running (poll every {poll_interval}s). "
-        "Press Ctrl+C to stop.[/green]"
+    console = Console()
+    config = load_config()
+    interval = (
+        config.scheduler.poll_interval if poll_interval is None else poll_interval
     )
+    store = system = sched = None
+    stop = threading.Event()
+    previous_handlers = {}
 
     def _handle_signal(signum: int, frame: object) -> None:
-        sched.stop()
-        store.close()
-        console.print("\n[yellow]Scheduler stopped.[/yellow]")
-        sys.exit(0)
+        stop.set()
 
-    signal.signal(signal.SIGINT, _handle_signal)
-    signal.signal(signal.SIGTERM, _handle_signal)
-
-    # Block main thread until the daemon thread dies
     try:
-        signal.pause()
-    except AttributeError:
-        # signal.pause() not available on Windows
-        import time
-
-        while True:
-            time.sleep(1)
+        store = SchedulerStore.from_config(config)
+        system = SystemBuilder(config).scheduler(False).build()
+        sched = TaskScheduler(store, system, poll_interval=interval, bus=system.bus)
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            previous_handlers[sig] = signal.signal(sig, _handle_signal)
+        sched.start()
+        console.print(
+            f"[green]Scheduler running (poll every {interval}s). "
+            "Press Ctrl+C to stop.[/green]"
+        )
+        stop.wait()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    finally:
+        for sig, handler in previous_handlers.items():
+            signal.signal(sig, handler)
+        if sched is None or sched.stop(timeout=10):
+            if store is not None:
+                store.close()
+            if system is not None:
+                system.close()
+        else:
+            console.print("[yellow]Scheduler worker did not stop in time.[/yellow]")

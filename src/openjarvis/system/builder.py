@@ -262,7 +262,6 @@ class SystemBuilder:
                 logger.warning("Failed to initialize skills: %s", exc)
 
         container_runner = self._setup_sandbox(config)
-        scheduler_store, task_scheduler = self._setup_scheduler(config, bus)
         workflow_engine = self._setup_workflow(config, bus)
         session_store = self._setup_sessions(config)
 
@@ -346,8 +345,6 @@ class SystemBuilder:
             telemetry_store=telemetry_store,
             trace_store=trace_store,
             gpu_monitor=gpu_monitor,
-            scheduler_store=scheduler_store,
-            scheduler=task_scheduler,
             container_runner=container_runner,
             workflow_engine=workflow_engine,
             session_store=session_store,
@@ -363,6 +360,7 @@ class SystemBuilder:
         system._learning_orchestrator = learning_orchestrator
         system._skill_few_shot_examples = skill_few_shot_examples
         system._mcp_clients = list(getattr(self, "_mcp_clients", []))
+        system.scheduler_store, system.scheduler = self._setup_scheduler(config, system)
         if system.agent_executor is not None:
             system.agent_executor.set_system(system)
         return system
@@ -579,34 +577,28 @@ class SystemBuilder:
             logger.warning("Failed to set up container sandbox: %s", exc)
             return None
 
-    def _setup_scheduler(self, config, bus):
+    def _setup_scheduler(self, config, system):
         scheduler_enabled = (
             self._scheduler if self._scheduler is not None else config.scheduler.enabled
         )
         if not scheduler_enabled:
             return None, None
+        store = None
         try:
+            from openjarvis.scheduler.scheduler import TaskScheduler
             from openjarvis.scheduler.store import SchedulerStore
 
-            db_path = config.scheduler.db_path or str(
-                config.hardware.platform  # unused, just for fallback
-            )
-            if not config.scheduler.db_path:
-                from openjarvis.core.config import DEFAULT_CONFIG_DIR
-
-                db_path = str(DEFAULT_CONFIG_DIR / "scheduler.db")
-
-            store = SchedulerStore(db_path=db_path)
-
-            from openjarvis.scheduler.scheduler import TaskScheduler
-
+            store = SchedulerStore.from_config(config)
             sched = TaskScheduler(
                 store,
+                system,
                 poll_interval=config.scheduler.poll_interval,
-                bus=bus,
+                bus=system.bus,
             )
             return store, sched
         except Exception as exc:
+            if store is not None:
+                store.close()
             logger.warning("Failed to set up task scheduler: %s", exc)
             return None, None
 

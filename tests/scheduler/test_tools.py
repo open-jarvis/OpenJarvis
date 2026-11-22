@@ -108,7 +108,44 @@ class TestWithScheduler:
         )
         assert result.success
         assert "t123" in result.content
-        mock_sched.create_task.assert_called_once()
+        mock_sched.create_task.assert_called_once_with(
+            prompt="hello",
+            schedule_type="once",
+            schedule_value="2026-01-01T00:00:00",
+            agent="simple",
+            tools="",
+            metadata={},
+        )
+
+    def test_schedule_task_cannot_request_execution_privileges(self):
+        tool = ScheduleTaskTool()
+        tool._scheduler = MagicMock()
+        for overrides in ({"agent": "orchestrator"}, {"tools": "calculator"}):
+            result = tool.execute(
+                prompt="hello",
+                schedule_type="interval",
+                schedule_value="3600",
+                **overrides,
+            )
+            assert not result.success
+        tool._scheduler.create_task.assert_not_called()
+
+    def test_schedule_task_passes_cron_timezone(self):
+        tool = ScheduleTaskTool()
+        tool._scheduler = MagicMock()
+        tool._scheduler.create_task.return_value = ScheduledTask(
+            id="t123", prompt="hello", schedule_type="cron", schedule_value="0 8 * * *"
+        )
+        result = tool.execute(
+            prompt="hello",
+            schedule_type="cron",
+            schedule_value="0 8 * * *",
+            timezone="Europe/Madrid",
+        )
+        assert result.success
+        assert tool._scheduler.create_task.call_args.kwargs["metadata"] == {
+            "timezone": "Europe/Madrid"
+        }
 
     def test_list_scheduled_tasks(self):
         mock_sched = MagicMock()

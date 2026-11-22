@@ -112,6 +112,18 @@ class TestDueTasks:
         due = store.get_due_tasks("2026-06-01T00:00:00+00:00")
         assert len(due) == 0
 
+    def test_due_tasks_compare_legacy_offsets_and_fractional_seconds(self, store):
+        for name, stamp in {
+            "already_due": "2026-01-01T17:40:00+01:00",
+            "not_yet_due": "2026-01-01T13:40:00-05:00",
+            "naive": "2026-01-01T16:40:00",
+            "fractional": "2026-01-01T16:40:00.000001+00:00",
+            "malformed": "not a timestamp",
+        }.items():
+            store.save_task(_make_task(name, next_run=stamp))
+        due = store.get_due_tasks("2026-01-01T16:40:00Z")
+        assert {task["id"] for task in due} == {"already_due", "naive"}
+
 
 # -- Run logs ----------------------------------------------------------------
 

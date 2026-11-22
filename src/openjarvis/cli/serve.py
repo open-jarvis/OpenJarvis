@@ -711,7 +711,7 @@ def serve(
                 ):
                     agent_scheduler.register_agent(ag["id"])
             agent_scheduler.start()
-            console.print("  Scheduler: [cyan]active[/cyan]")
+            console.print("  Agent scheduler: [cyan]active[/cyan]")
         except Exception as exc:
             logger.debug("Agent scheduler init failed: %s", exc)
 
@@ -777,6 +777,26 @@ def serve(
             logger.debug("ChannelBridge init skipped: %s", exc)
 
     cors_origins = _resolve_server_cors_origins(config.server.cors_origins)
+    task_system = None
+    if config.scheduler.enabled:
+        from openjarvis.system import JarvisSystem
+
+        # Reuse the already initialized runtime. Task scheduling does not
+        # depend on the managed-agent subsystem being enabled.
+        task_system = JarvisSystem(
+            config=config,
+            bus=bus,
+            engine=engine,
+            engine_key=engine_name,
+            model=model_name,
+            agent_name=agent_key or "simple",
+            tools=resolved_tools,
+            mcp_tools=managed_mcp_tools,
+            memory_backend=memory_backend,
+            capability_policy=sec.capability_policy,
+            rate_limiter=sec.rate_limiter,
+            audit_logger=sec.audit_logger,
+        )
     app = create_app(
         engine,
         model_name,
@@ -792,6 +812,7 @@ def serve(
         speech_backend=speech_backend,
         agent_manager=agent_manager,
         agent_scheduler=agent_scheduler,
+        task_system=task_system,
         mcp_tools=managed_mcp_tools,
         mcp_clients=mcp_clients,
         capability_policy=sec.capability_policy,
