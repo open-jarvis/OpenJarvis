@@ -39,6 +39,7 @@ _SUPPORTED_ENGINES = [
     "lmstudio",
     "exo",
     "nexa",
+    "rapidmlx",
 ]
 
 
@@ -55,15 +56,30 @@ def _detect_running_engines() -> list[str]:
         "lmstudio": "http://localhost:1234/v1/models",
         "exo": "http://localhost:52415/v1/models",
         "nexa": "http://localhost:18181/v1/models",
+        "rapidmlx": "http://localhost:8000/v1/models",
     }
     running: list[str] = []
     for key, url in _PROBES.items():
         try:
             resp = httpx.get(url, timeout=2.0)
+            if key == "rapidmlx":
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                if not isinstance(data, dict) or not any(
+                    isinstance(model, dict) and model.get("owned_by") == "rapid-mlx"
+                    for model in data.get("data", [])
+                ):
+                    continue
             if resp.status_code < 500:
                 running.append(key)
         except Exception:
             pass
+    # A positively identified Rapid-MLX server also answers the vLLM probe on
+    # the shared port; list it first so init picks the specific engine.
+    if "rapidmlx" in running and "vllm" in running:
+        running.remove("rapidmlx")
+        running.insert(running.index("vllm"), "rapidmlx")
     return running
 
 
@@ -164,6 +180,13 @@ def _next_steps_text(engine: str, model: str = "") -> str:
             "  2. Try it out:\n"
             '     jarvis ask "Hello"\n\n'
             "  Run `jarvis doctor` to verify your setup."
+        ),
+        "rapidmlx": (
+            "Next steps:\n\n"
+            "  1. Install and start Rapid-MLX (Apple Silicon):\n"
+            "     pip install rapid-mlx\n"
+            "     rapid-mlx serve mlx-community/Qwen3.5-4B-MLX-4bit\n\n"
+            '  2. Try it out: jarvis ask "Hello"\n'
         ),
         "lemonade": (
             "Next steps:\n\n"

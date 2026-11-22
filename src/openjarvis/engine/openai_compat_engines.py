@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.engine._openai_compat import _OpenAICompatibleEngine
+
+logger = logging.getLogger(__name__)
 
 _ENGINES = {
     "vllm": ("VLLMEngine", "http://localhost:8000", "/v1"),
@@ -26,6 +30,34 @@ for _key, (_cls_name, _default_host, _api_prefix) in _ENGINES.items():
     )
     EngineRegistry.register(_key)(_cls)
     globals()[_cls_name] = _cls
+
+
+@EngineRegistry.register("rapidmlx")
+class RapidMLXEngine(_OpenAICompatibleEngine):
+    """Rapid-MLX server, identified by its model ownership metadata."""
+
+    engine_id = "rapidmlx"
+    _default_host = "http://localhost:8000"
+    _api_prefix = "/v1"
+
+    def health(self) -> bool:
+        try:
+            resp = self._client.get(f"{self._api_prefix}/models", timeout=2.0)
+            if resp.status_code != 200:
+                return False
+            data = resp.json()
+            return isinstance(data, dict) and any(
+                isinstance(model, dict) and model.get("owned_by") == "rapid-mlx"
+                for model in data.get("data", [])
+            )
+        except Exception as exc:
+            logger.debug(
+                "%s health check failed at %s: %s",
+                self.engine_id,
+                self._host,
+                exc,
+            )
+            return False
 
 
 def normalize_openai_base_url(url: str) -> str:
@@ -56,6 +88,7 @@ class OpenAICompatEngine(_OpenAICompatibleEngine):
 
 
 __all__ = [name for name, _, _ in _ENGINES.values()] + [
+    "RapidMLXEngine",
     "OpenAICompatEngine",
     "normalize_openai_base_url",
 ]

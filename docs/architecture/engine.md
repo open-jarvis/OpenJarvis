@@ -116,6 +116,7 @@ All providers produce the same output format consumed by agents:
 | **LM Studio** | `lmstudio` | OpenAI-compatible | 1234 | No (GPU optional) | Desktop GUI, easy model management |
 | **Exo** | `exo` | OpenAI-compatible | 52415 | No (distributed) | Distributed inference across heterogeneous devices |
 | **Nexa** | `nexa` | OpenAI-compatible | 18181 | No (CPU/GPU) | On-device inference with GGUF models |
+| **Rapid-MLX** | `rapidmlx` | OpenAI-compatible | 8000 | Apple Silicon | Local MLX model serving |
 | **Lemonade** | `lemonade` | OpenAI-compatible | 13305 | AMD GPU/NPU | AMD consumer GPUs (RDNA), Ryzen AI NPUs |
 | **Uzu** | `uzu` | OpenAI-compatible | 8000 | Varies | Uzu inference runtime |
 | **Apple FM (shim)** | `apple_fm` | OpenAI-compatible | 8079 | Apple Silicon | Apple Foundation Models over HTTP, for external OpenAI clients |
@@ -200,6 +201,15 @@ The Nexa backend connects to the Nexa SDK on-device inference server via a FastA
 - **Health check:** `GET /v1/models`
 - **Install:** `pip install nexaai`
 - **Best for:** On-device inference with GGUF models on Apple Silicon or CPU
+
+### Rapid-MLX
+
+Install with `pip install rapid-mlx`, then run
+`rapid-mlx serve mlx-community/Qwen3.5-4B-MLX-4bit` on Apple Silicon.
+Select `default = "rapidmlx"` under `[engine]`; `[engine.rapidmlx]` accepts
+`host = "http://localhost:8000"`. Requests use `/v1/models` and
+`/v1/chat/completions`, including streaming. Discovery identifies Rapid-MLX
+by model entries with `owned_by = "rapid-mlx"`.
 
 ### Lemonade
 
@@ -396,6 +406,7 @@ The `EngineConfig` dataclass and its per-engine sub-dataclasses map these settin
 | `SGLangEngineConfig` | `host` | `http://localhost:30000` | SGLang server URL |
 | `LlamaCppEngineConfig` | `host` | `http://localhost:8080` | llama.cpp server URL |
 | `LlamaCppEngineConfig` | `binary_path` | `""` | Path to llama.cpp binary (for managed mode) |
+| `RapidMLXEngineConfig` | `host` | `http://localhost:8000` | Rapid-MLX server URL |
 | `LemonadeEngineConfig` | `host` | `http://localhost:13305` | Lemonade server URL |
 
 !!! note "Backward compatibility"

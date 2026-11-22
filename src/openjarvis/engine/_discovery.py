@@ -30,6 +30,7 @@ _HOST_MAP: Dict[str, str | None] = {
     "gemma_cpp": None,
     # In-process: drives the Apple FM SDK directly, so there is no host.
     "afm": None,
+    "rapidmlx": "rapidmlx_host",
 }
 
 

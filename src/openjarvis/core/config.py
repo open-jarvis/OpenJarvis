@@ -473,6 +473,13 @@ class LemonadeEngineConfig:
     host: str = "http://localhost:13305"
 
 
+@dataclass(slots=True)
+class RapidMLXEngineConfig:
+    """Per-engine config for Rapid-MLX."""
+
+    host: str = "http://localhost:8000"
+
+
 @dataclass
 class EngineConfig:
     """Inference engine settings with nested per-engine configs."""
@@ -491,6 +498,7 @@ class EngineConfig:
     afm: AfmEngineConfig = field(default_factory=AfmEngineConfig)
     gemma_cpp: GemmaCppEngineConfig = field(default_factory=GemmaCppEngineConfig)
     lemonade: LemonadeEngineConfig = field(default_factory=LemonadeEngineConfig)
+    rapidmlx: RapidMLXEngineConfig = field(default_factory=RapidMLXEngineConfig)
 
     # Backward-compat properties for old flat attribute names
     @property
@@ -600,6 +608,15 @@ class EngineConfig:
     @lemonade_host.setter
     def lemonade_host(self, value: str) -> None:
         self.lemonade.host = value
+
+    @property
+    def rapidmlx_host(self) -> str:
+        """Deprecated: use ``engine.rapidmlx.host``."""
+        return self.rapidmlx.host
+
+    @rapidmlx_host.setter
+    def rapidmlx_host(self, value: str) -> None:
+        self.rapidmlx.host = value
 
 
 @dataclass(slots=True)
@@ -2324,6 +2341,9 @@ host = "http://localhost:8080"
 
 # [engine.uzu]
 # host = "http://localhost:8080"
+
+# [engine.rapidmlx]
+# host = "http://localhost:8000"
 
 # [engine.apple_fm]
 # host = "http://localhost:8079"
