@@ -75,7 +75,7 @@ class TestDockerFiles:
 
         # The project itself is built by the final `--no-deps .` install (#567);
         # the force-includes must be present before that step.
-        install_marker = "uv pip install --system --no-deps ."
+        install_marker = "--no-deps ."
         wheel_dockerfiles = [
             p
             for p in _dockerfiles()
