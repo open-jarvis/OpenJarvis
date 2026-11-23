@@ -73,7 +73,7 @@ backend.close()
 
 **Registry key:** `faiss`
 
-Dense neural retrieval using Facebook AI Similarity Search. Embeds documents and queries into dense vectors and retrieves by cosine similarity.
+Dense neural retrieval using Facebook AI Similarity Search. Embeds documents and queries into dense vectors and retrieves by cosine similarity. Candidate searches expand only when soft-deleted documents hide live results, avoiding unnecessary over-fetching.
 
 - **Scoring:** Cosine similarity via inner-product search on L2-normalized vectors
 - **Persistence:** In-memory only (data is lost on restart)

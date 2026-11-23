@@ -220,6 +220,7 @@ class TestCapabilityPolicy:
 
     def test_default_tool_capabilities(self):
         assert "file:read" in DEFAULT_TOOL_CAPABILITIES.get("file_read", [])
+        assert "file:read" in DEFAULT_TOOL_CAPABILITIES.get("file_list", [])
         assert "network:fetch" in DEFAULT_TOOL_CAPABILITIES.get("web_search", [])
         assert "code:execute" in DEFAULT_TOOL_CAPABILITIES.get("code_interpreter", [])
 
