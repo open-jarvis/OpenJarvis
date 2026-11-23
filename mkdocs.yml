@@ -149,6 +149,7 @@ nav:
       - Installation: getting-started/installation.md
       - macOS Guide: getting-started/macos.md
       - Quick Start: getting-started/quickstart.md
+      - Offline: getting-started/offline.md
       - Code Snippets: getting-started/snippets.md
       - Configuration: getting-started/configuration.md
   - Showcase:
