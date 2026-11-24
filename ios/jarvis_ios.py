@@ -214,6 +214,68 @@ def configure_ios_pythonpath(repo_root: Path | str | None = None) -> Path | None
     return src_dir
 
 
+def _patch_apple_fm_default_host() -> str:
+    """Ensure ``apple_fm`` defaults to the local iOS bridge instead of localhost:8079."""
+    target_host = os.environ.get("OPENJARVIS_APPLE_FM_HOST", "http://127.0.0.1:8085")
+    try:
+        from openjarvis.core import config as cfg_mod
+
+        if hasattr(cfg_mod, "AppleFmEngineConfig"):
+            cfg_mod.AppleFmEngineConfig.host = target_host
+        if hasattr(cfg_mod, "EngineConfig"):
+            orig_load = cfg_mod.load_config
+
+            def _ios_load_config(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+                cfg = orig_load(*args, **kwargs)
+                if os.environ.get("OPENJARVIS_APPLE_FM_HOST"):
+                    cfg.engine.apple_fm.host = os.environ["OPENJARVIS_APPLE_FM_HOST"]
+                elif cfg.engine.apple_fm.host == "http://localhost:8079":
+                    cfg.engine.apple_fm.host = target_host
+                return cfg
+
+            cfg_mod.load_config = _ios_load_config  # type: ignore[assignment]
+    except Exception:
+        pass
+    return target_host
+
+
+def _maybe_start_inline_bridge(target_host: str) -> object | None:
+    """Start an in-process AskAFM HTTP bridge if none is listening yet."""
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "version", "config"):
+        return None
+
+    import urllib.request
+    from urllib.parse import urlparse
+
+    parsed = urlparse(target_host)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 8085
+
+    try:
+        with urllib.request.urlopen(f"http://{host}:{port}/v1/models", timeout=0.4) as resp:
+            if resp.status == 200:
+                return None
+    except Exception:
+        pass
+
+    try:
+        import importlib.util
+        import threading
+        from http.server import ThreadingHTTPServer
+
+        server_path = Path(__file__).resolve().with_name("jarvis_server.py")
+        spec = importlib.util.spec_from_file_location("jarvis_server", server_path)
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        srv = ThreadingHTTPServer((host, port), mod.JarvisBridgeHandler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv
+    except Exception:
+        return None
+
+
 def main(argv: list[str] | None = None) -> None:
     """Bootstrap iOS mocks and invoke the OpenJarvis CLI."""
     configure_ios_pythonpath()
@@ -223,9 +285,20 @@ def main(argv: list[str] | None = None) -> None:
     if argv is not None:
         sys.argv = ["jarvis", *argv]
 
+    target_host = _patch_apple_fm_default_host()
+    inline_srv = _maybe_start_inline_bridge(target_host)
+
     from openjarvis.cli import main as cli_main
 
-    cli_main()
+    try:
+        cli_main()
+    finally:
+        if inline_srv is not None:
+            try:
+                inline_srv.shutdown()  # type: ignore[attr-defined]
+                inline_srv.server_close()  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

@@ -622,6 +622,7 @@ async def start_backend_server_async(
         if not prompt:
             return web.json_response({"error": "Missing 'prompt'"}, status=400)
         try:
+            os.environ["OPENJARVIS_APPLE_FM_HOST"] = f"http://{host}:{bound_port}"
             answer = await asyncio.to_thread(run_cli_ask, model, prompt)
             return web.json_response({"model": model, "response": answer})
         except Exception as exc:
