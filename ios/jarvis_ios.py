@@ -220,9 +220,7 @@ def _patch_apple_fm_default_host() -> str:
     try:
         from openjarvis.core import config as cfg_mod
 
-        if hasattr(cfg_mod, "AppleFmEngineConfig"):
-            cfg_mod.AppleFmEngineConfig.host = target_host
-        if hasattr(cfg_mod, "EngineConfig"):
+        if hasattr(cfg_mod, "load_config"):
             orig_load = cfg_mod.load_config
 
             def _ios_load_config(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
