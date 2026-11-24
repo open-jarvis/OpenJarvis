@@ -337,10 +337,14 @@ def ask_afm_via_clipboard(
     )
 
 
-def run_cli_ask(model: str, prompt: str) -> str:
-    """Execute ``jarvis_ios.py ask --model <model> <prompt>`` and return output."""
+def run_cli_ask(model: str, prompt: str, *, engine: str | None = None) -> str:
+    """Execute ``jarvis_ios.py ask --engine <engine> --model <model> <prompt>`` and return output."""
     launcher = Path(__file__).resolve().with_name("jarvis_ios.py")
-    cmd = [sys.executable, str(launcher), "ask", "--model", model, prompt]
+    selected_engine = engine or ("apple_fm" if "askafm" in model.lower() else None)
+    cmd = [sys.executable, str(launcher), "ask"]
+    if selected_engine:
+        cmd.extend(["--engine", selected_engine])
+    cmd.extend(["--model", model, prompt])
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         detail = proc.stderr.strip() or proc.stdout.strip() or f"exit code {proc.returncode}"

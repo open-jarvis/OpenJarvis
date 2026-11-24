@@ -155,11 +155,19 @@ def install_ios_mocks(*, force: bool = False) -> list[str]:
     return installed
 
 
-def configure_ios_environment() -> None:
-    """Default ``OPENJARVIS_CONFIG`` to ``~/Library/openjarvis/config.toml``."""
+def configure_ios_environment(repo_root: Path | str | None = None) -> None:
+    """Default ``OPENJARVIS_CONFIG`` to ``~/Library/openjarvis/config.toml`` or ``ios/config.toml``."""
+    if os.environ.get("OPENJARVIS_CONFIG"):
+        return
     ios_config = Path.home() / "Library" / "openjarvis" / "config.toml"
-    if "OPENJARVIS_CONFIG" not in os.environ and ios_config.exists():
+    if ios_config.is_file():
         os.environ["OPENJARVIS_CONFIG"] = str(ios_config)
+        return
+    src_dir = _find_repo_src(repo_root)
+    if src_dir is not None:
+        repo_cfg = src_dir.parent / "ios" / "config.toml"
+        if repo_cfg.is_file():
+            os.environ["OPENJARVIS_CONFIG"] = str(repo_cfg)
 
 
 def _find_repo_src(repo_root: Path | str | None = None) -> Path | None:
@@ -208,8 +216,8 @@ def configure_ios_pythonpath(repo_root: Path | str | None = None) -> Path | None
 
 def main(argv: list[str] | None = None) -> None:
     """Bootstrap iOS mocks and invoke the OpenJarvis CLI."""
-    configure_ios_environment()
     configure_ios_pythonpath()
+    configure_ios_environment()
     install_ios_mocks()
 
     if argv is not None:
