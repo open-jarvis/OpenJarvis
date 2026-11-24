@@ -1,0 +1,42 @@
+# OpenJarvis iPadOS (a-Shell) Configuration
+# Target location on iPadOS: ~/Library/openjarvis/config.toml
+
+[intelligence]
+default_model = "AskAFM"
+fallback_model = "AskAFMCloud"
+preferred_engine = "apple_fm"
+provider = "local"
+temperature = 0.2
+max_tokens = 2048
+
+[agent]
+default_agent = "native_openhands"
+max_turns = 8
+tools = "file_read,calculator,think"
+objective = "Answer questions accurately using available tools"
+context_from_memory = false
+
+[tools.storage]
+default_backend = "sqlite"
+db_path = "~/Library/openjarvis/memory.db"
+
+[tools.mcp]
+enabled = false
+
+[engine]
+default = "apple_fm"
+
+[engine.apple_fm]
+# Points OpenJarvis to the local a-Shell HTTP <-> AskAFM clipboard bridge
+host = "http://127.0.0.1:8085"
+
+[telemetry]
+enabled = false
+gpu_metrics = false
+
+[traces]
+enabled = false
+
+[server]
+host = "127.0.0.1"
+port = 8000
