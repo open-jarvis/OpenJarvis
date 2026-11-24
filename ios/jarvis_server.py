@@ -345,10 +345,10 @@ def ask_afm_via_clipboard(
 
 
 def run_cli_ask(model: str, prompt: str, *, engine: str | None = None) -> str:
-    """Execute ``jarvis_ios.py ask --engine <engine> --model <model> <prompt>`` and return output."""
+    """Execute ``jarvis_ios.py --quiet ask --engine <engine> --model <model> <prompt>``."""
     launcher = Path(__file__).resolve().with_name("jarvis_ios.py")
     selected_engine = engine or ("apple_fm" if "askafm" in model.lower() else None)
-    cmd = [sys.executable, str(launcher), "ask"]
+    cmd = [sys.executable, str(launcher), "--quiet", "ask"]
     if selected_engine:
         cmd.extend(["--engine", selected_engine])
     cmd.extend(["--model", model, prompt])
@@ -533,9 +533,15 @@ class JarvisBridgeHandler(BaseHTTPRequestHandler):
             if not prompt:
                 self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Missing 'prompt'"})
                 return
+            use_agent = bool(body.get("use_agent")) or os.environ.get("JARVIS_IOS_USE_AGENT") == "1"
             try:
-                answer = run_cli_ask(model, prompt)
+                if use_agent:
+                    answer = run_cli_ask(model, prompt)
+                else:
+                    answer = ask_afm_via_clipboard(prompt, mode=resolve_mode(model))
                 self._send_json(HTTPStatus.OK, {"model": model, "response": answer})
+            except TimeoutError as exc:
+                self._send_json(HTTPStatus.GATEWAY_TIMEOUT, {"error": str(exc)})
             except Exception as exc:
                 self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
             return
@@ -628,10 +634,18 @@ async def start_backend_server_async(
         prompt = str(body.get("prompt") or "").strip()
         if not prompt:
             return web.json_response({"error": "Missing 'prompt'"}, status=400)
+        use_agent = bool(body.get("use_agent")) or os.environ.get("JARVIS_IOS_USE_AGENT") == "1"
         try:
-            os.environ["OPENJARVIS_APPLE_FM_HOST"] = f"http://{host}:{bound_port}"
-            answer = await asyncio.to_thread(run_cli_ask, model, prompt)
+            if use_agent:
+                os.environ["OPENJARVIS_APPLE_FM_HOST"] = f"http://{host}:{bound_port}"
+                answer = await asyncio.to_thread(run_cli_ask, model, prompt)
+            else:
+                answer = await asyncio.to_thread(
+                    ask_afm_via_clipboard, prompt, mode=resolve_mode(model)
+                )
             return web.json_response({"model": model, "response": answer})
+        except TimeoutError as exc:
+            return web.json_response({"error": str(exc)}, status=504)
         except Exception as exc:
             return web.json_response({"error": str(exc)}, status=500)
 

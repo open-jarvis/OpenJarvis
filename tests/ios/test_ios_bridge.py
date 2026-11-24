@@ -86,10 +86,23 @@ def test_http_bridge_endpoints():
                 data = json.loads(resp.read().decode("utf-8"))
                 assert data["choices"][0]["message"]["content"] == "Mocked AFM reply"
 
-        with patch.object(jarvis_server, "run_cli_ask", return_value="CLI reply"):
+        with patch.object(jarvis_server, "ask_afm_via_clipboard", return_value="Fast AFM reply"):
             req = urllib.request.Request(
                 f"{base}/api/chat",
                 data=json.dumps({"model": "AskAFM", "prompt": "Summarize"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                assert data == {"model": "AskAFM", "response": "Fast AFM reply"}
+
+        with patch.object(jarvis_server, "run_cli_ask", return_value="CLI reply"):
+            req = urllib.request.Request(
+                f"{base}/api/chat",
+                data=json.dumps(
+                    {"model": "AskAFM", "prompt": "Summarize", "use_agent": True}
+                ).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
