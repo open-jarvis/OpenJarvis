@@ -179,7 +179,12 @@ _MOBILE_UI_HTML = """<!DOCTYPE html>
     .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
     .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
     .msg.assistant { align-self: flex-start; background: var(--card); border: 1px solid var(--border); }
-    form { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); background: var(--card); }
+    form { display: flex; flex-direction: column; gap: 6px; padding: 10px 16px 12px; border-top: 1px solid var(--border); background: var(--card); }
+    .file-chip { display: none; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); font-size: 0.8rem; color: var(--muted); }
+    .file-chip.visible { display: flex; }
+    .file-chip button { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 4px; }
+    .composer-row { display: flex; gap: 8px; align-items: stretch; }
+    .attach-btn { border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 12px; padding: 0 12px; font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
     textarea { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font: inherit; background: var(--bg); color: var(--text); min-height: 44px; max-height: 140px; }
     button[type="submit"] { background: var(--accent); color: #fff; border: none; border-radius: 12px; padding: 0 18px; font-weight: 600; cursor: pointer; }
     button:disabled { opacity: 0.55; }
@@ -196,16 +201,51 @@ _MOBILE_UI_HTML = """<!DOCTYPE html>
   </header>
   <main id="chat"></main>
   <form id="composer">
-    <textarea id="prompt" rows="1" placeholder="Ask OpenJarvis..." required></textarea>
-    <button id="send" type="submit">Send</button>
+    <div id="file-chip" class="file-chip">
+      <span id="file-label"></span>
+      <button id="file-clear" type="button" aria-label="Remove file">&times;</button>
+    </div>
+    <div class="composer-row">
+      <input id="file-input" type="file" hidden />
+      <button id="btn-attach" class="attach-btn" type="button">+ File</button>
+      <textarea id="prompt" rows="1" placeholder="Ask OpenJarvis..." required></textarea>
+      <button id="send" type="submit">Send</button>
+    </div>
   </form>
   <script>
     let selectedModel = "AskAFM";
+    let attachedFile = null;
     const chat = document.getElementById("chat");
     const promptEl = document.getElementById("prompt");
     const sendBtn = document.getElementById("send");
     const btnLocal = document.getElementById("btn-local");
     const btnCloud = document.getElementById("btn-cloud");
+    const fileInput = document.getElementById("file-input");
+    const fileChip = document.getElementById("file-chip");
+    const fileLabel = document.getElementById("file-label");
+
+    function clearAttachment() {
+      attachedFile = null;
+      fileInput.value = "";
+      fileChip.classList.remove("visible");
+      fileLabel.textContent = "";
+    }
+
+    document.getElementById("btn-attach").onclick = () => fileInput.click();
+    document.getElementById("file-clear").onclick = clearAttachment;
+    fileInput.onchange = async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        attachedFile = { name: file.name, text };
+        fileLabel.textContent = file.name + " (" + file.size + " B)";
+        fileChip.classList.add("visible");
+      } catch (err) {
+        addMsg("Could not read file: " + err, "assistant");
+        clearAttachment();
+      }
+    };
 
     function setModel(model) {
       selectedModel = model;
@@ -232,15 +272,20 @@ _MOBILE_UI_HTML = """<!DOCTYPE html>
       e.preventDefault();
       const text = promptEl.value.trim();
       if (!text) return;
+      const file = attachedFile;
+      const fullPrompt = file
+        ? text + "\n\n[File: " + file.name + "]\n" + file.text
+        : text;
       promptEl.value = "";
-      addMsg(text, "user");
+      clearAttachment();
+      addMsg(file ? text + "\n[" + file.name + "]" : text, "user");
       const pending = addMsg("Thinking (" + selectedModel + ")...", "assistant");
       sendBtn.disabled = true;
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model: selectedModel, prompt: text })
+          body: JSON.stringify({ model: selectedModel, prompt: fullPrompt })
         });
         const data = await res.json();
         pending.textContent = data.response || data.error || JSON.stringify(data);
