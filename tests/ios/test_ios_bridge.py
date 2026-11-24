@@ -99,3 +99,62 @@ def test_http_bridge_endpoints():
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_static_spa_and_gzip_serving(tmp_path):
+    import gzip
+
+    (tmp_path / "index.html").write_text("<html><body>SPA Root</body></html>", encoding="utf-8")
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    js_bytes = b"console.log('openjarvis');"
+    (assets / "app.js").write_bytes(js_bytes)
+    (assets / "app.js.gz").write_bytes(gzip.compress(js_bytes))
+
+    jarvis_server.JarvisBridgeHandler.static_dir = tmp_path
+    server = ThreadingHTTPServer(("127.0.0.1", 0), jarvis_server.JarvisBridgeHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{port}"
+
+    try:
+        with urllib.request.urlopen(f"{base}/dashboard/overview") as resp:
+            assert resp.status == 200
+            assert "SPA Root" in resp.read().decode("utf-8")
+            assert resp.headers.get("Access-Control-Allow-Origin") == "*"
+
+        req = urllib.request.Request(
+            f"{base}/assets/app.js",
+            headers={"Accept-Encoding": "gzip"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+            assert resp.headers.get("Content-Encoding") == "gzip"
+            assert gzip.decompress(resp.read()) == js_bytes
+    finally:
+        jarvis_server.JarvisBridgeHandler.static_dir = None
+        server.shutdown()
+        server.server_close()
+
+
+def test_ashell_detection_and_internal_browser(monkeypatch):
+    monkeypatch.setenv("TERM_PROGRAM", "a-Shell")
+    assert jarvis_server.is_ashell() is True
+
+    called: list[bytes] = []
+    monkeypatch.setattr(jarvis_server, "_get_ios_system", lambda: lambda cmd: called.append(cmd) or 0)
+    assert jarvis_server.open_in_internal_browser("http://127.0.0.1:8085/") is True
+    assert called == [b"internalbrowser 'http://127.0.0.1:8085/'"]
+
+
+def test_configure_ios_pythonpath(monkeypatch):
+    src_str = str(REPO_ROOT / "src")
+    monkeypatch.setenv("OPENJARVIS_REPO_ROOT", str(REPO_ROOT))
+    if src_str in sys.path:
+        sys.path.remove(src_str)
+    resolved = jarvis_ios.configure_ios_pythonpath()
+    assert resolved == (REPO_ROOT / "src").resolve()
+    assert sys.path[0] == str(resolved)
+
+

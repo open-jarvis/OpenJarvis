@@ -162,9 +162,54 @@ def configure_ios_environment() -> None:
         os.environ["OPENJARVIS_CONFIG"] = str(ios_config)
 
 
+def _find_repo_src(repo_root: Path | str | None = None) -> Path | None:
+    """Locate the ``src`` directory containing ``openjarvis``."""
+    candidates: list[Path] = []
+    if repo_root is not None:
+        candidates.append(Path(repo_root))
+
+    env_root = os.environ.get("OPENJARVIS_REPO_ROOT")
+    if env_root:
+        candidates.append(Path(env_root).expanduser())
+
+    marker = Path(__file__).resolve().with_name("repo_root.txt")
+    if marker.is_file():
+        saved = marker.read_text(encoding="utf-8").strip()
+        if saved:
+            candidates.append(Path(saved).expanduser())
+
+    # Works when running directly from <repo>/ios/jarvis_ios.py
+    candidates.append(Path(__file__).resolve().parents[1])
+    candidates.append(Path.cwd())
+    docs = Path.home() / "Documents"
+    candidates.extend([docs / "OpenJarvis", docs / "GitHub" / "OpenJarvis"])
+
+    seen: set[Path] = set()
+    for root in candidates:
+        resolved = root.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        src_dir = resolved / "src"
+        if (src_dir / "openjarvis" / "__init__.py").is_file():
+            return src_dir
+    return None
+
+
+def configure_ios_pythonpath(repo_root: Path | str | None = None) -> Path | None:
+    """Ensure ``<repo_root>/src`` is on ``sys.path`` so ``openjarvis`` imports work in a-Shell."""
+    src_dir = _find_repo_src(repo_root)
+    if src_dir is not None:
+        src_str = str(src_dir)
+        if src_str not in sys.path:
+            sys.path.insert(0, src_str)
+    return src_dir
+
+
 def main(argv: list[str] | None = None) -> None:
     """Bootstrap iOS mocks and invoke the OpenJarvis CLI."""
     configure_ios_environment()
+    configure_ios_pythonpath()
     install_ios_mocks()
 
     if argv is not None:

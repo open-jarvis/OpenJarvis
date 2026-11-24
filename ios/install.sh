@@ -15,6 +15,7 @@ mkdir -p "$IOS_DEST" "$CFG_DIR"
 cp "$SCRIPT_DIR/jarvis_ios.py" "$IOS_DEST/jarvis_ios.py"
 cp "$SCRIPT_DIR/jarvis_server.py" "$IOS_DEST/jarvis_server.py"
 cp "$SCRIPT_DIR/start_jarvis.sh" "$IOS_DEST/start_jarvis.sh"
+printf '%s\n' "$REPO_ROOT" > "$IOS_DEST/repo_root.txt"
 chmod +x "$IOS_DEST/start_jarvis.sh"
 
 if [ ! -f "$CFG_DEST" ]; then
@@ -25,13 +26,16 @@ else
 fi
 
 echo "Installing OpenJarvis (pure-Python, --no-deps) from $REPO_ROOT ..."
-pip install --no-deps -e "$REPO_ROOT"
+pip install --no-deps --no-build-isolation -e "$REPO_ROOT" 2>/dev/null \
+  || pip install --no-deps -e "$REPO_ROOT" 2>/dev/null \
+  || echo "Editable pip install skipped; jarvis_ios.py will load from $REPO_ROOT/src"
 
 if [ ! -f "$PROFILE" ] || ! grep -q "OPENJARVIS_CONFIG" "$PROFILE"; then
   {
     echo ""
     echo "# OpenJarvis iPadOS (a-Shell)"
     echo "export OPENJARVIS_CONFIG=\"$CFG_DEST\""
+    echo "export OPENJARVIS_REPO_ROOT=\"$REPO_ROOT\""
     echo "alias jarvis=\"python3 $IOS_DEST/jarvis_ios.py\""
     echo "alias start_jarvis=\"sh $IOS_DEST/start_jarvis.sh\""
   } >> "$PROFILE"
