@@ -119,6 +119,24 @@ def test_explicit_x64_target_wins_over_arm_host(sidecar_download):
     assert Path(env["TEST_URL"]).read_text().endswith("/ollama-windows-amd64.zip")
 
 
+def test_stages_x64_windows_inference_runtime(sidecar_download):
+    script, archive, env = sidecar_download
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("ollama.exe", pe_executable(0x8664))
+        bundle.writestr("lib/ollama/llama-server.exe", pe_executable(0x8664))
+        bundle.writestr("lib/ollama/ggml-cpu.dll", b"x64 runtime")
+
+    result = download(script, env, "x86_64-pc-windows-msvc")
+
+    assert result.returncode == 0, result.stderr
+    runtime = (
+        script.parent.parent
+        / "binaries/ollama-runtime-x86_64-pc-windows-msvc/lib/ollama"
+    )
+    assert (runtime / "llama-server.exe").is_file()
+    assert (runtime / "ggml-cpu.dll").read_bytes() == b"x64 runtime"
+
+
 @pytest.mark.parametrize(
     ("payload", "valid"),
     [

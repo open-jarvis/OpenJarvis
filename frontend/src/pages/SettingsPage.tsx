@@ -357,7 +357,10 @@ export function SettingsPage() {
       if (srcKind === 'custom') {
         await setInferenceSource({ kind: 'custom', host: customHost, model: customModel, engine: customEngine, apiKey: customKey || undefined });
       } else {
-        await setInferenceSource({ kind: 'ollama' });
+        await setInferenceSource({
+          kind: 'ollama',
+          model: customModel || undefined,
+        });
       }
       setSrcMsg('Saved — restart the app to apply.');
     } catch (e: any) {

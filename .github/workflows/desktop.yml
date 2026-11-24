@@ -523,8 +523,10 @@ jobs:
               externalBin: ['binaries/ollama'],
             },
           };
-          if (process.env.OLLAMA_TARGET === 'aarch64-pc-windows-msvc') {
-            config.bundle.resources = { 'binaries/ollama-runtime-aarch64-pc-windows-msvc/': './' };
+          if (process.env.OLLAMA_TARGET.includes('windows')) {
+            config.bundle.resources = {
+              [`binaries/ollama-runtime-${process.env.OLLAMA_TARGET}/`]: './',
+            };
           }
           writeFileSync('frontend/src-tauri/tauri.release.conf.json', JSON.stringify(config));
           NODE
@@ -622,6 +624,16 @@ jobs:
             frontend/src-tauri/target/aarch64-pc-windows-msvc/release/openjarvis-desktop.exe \
             frontend/src-tauri/binaries/ollama-aarch64-pc-windows-msvc.exe \
             frontend/src-tauri/binaries/ollama-runtime-aarch64-pc-windows-msvc/lib/ollama/llama-server.exe
+
+      - name: Verify Windows Ollama runtime
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          OLLAMA_TARGET: ${{ matrix.target }}
+        run: |
+          test -f "frontend/src-tauri/binaries/ollama-runtime-${OLLAMA_TARGET}/lib/ollama/llama-server.exe"
+          "frontend/src-tauri/binaries/ollama-${OLLAMA_TARGET}.exe" --version
+          "frontend/src-tauri/binaries/ollama-runtime-${OLLAMA_TARGET}/lib/ollama/llama-server.exe" --version
 
   verify-release:
     needs: [build-and-release]

@@ -65,8 +65,8 @@ esac
 OUT_FILE="$BINARIES_DIR/ollama-${TARGET}${SUFFIX}"
 RUNTIME_DIR="$BINARIES_DIR/ollama-runtime-${TARGET}"
 
-# ARM64 inference also needs the archive's DLLs and lib/ollama runners.
-if [ -f "$OUT_FILE" ] && { [ "$TARGET" != "aarch64-pc-windows-msvc" ] || [ -d "$RUNTIME_DIR/lib/ollama" ]; }; then
+# Windows inference also needs the archive's DLLs and lib/ollama runners.
+if [ -f "$OUT_FILE" ] && { [[ "$TARGET" != *windows* ]] || [ -d "$RUNTIME_DIR/lib/ollama" ]; }; then
     echo "Already exists: $OUT_FILE"
     echo "Delete it first to re-download."
     exit 0
@@ -151,7 +151,7 @@ if [ "$TARGET" = "universal-apple-darwin" ]; then
     fi
 fi
 
-if [ "$TARGET" = "aarch64-pc-windows-msvc" ]; then
+if [[ "$TARGET" == *windows* ]]; then
     if [ ! -d "$OLLAMA_TMP_DIR/lib/ollama" ]; then
         echo "Windows Ollama archive is missing its lib/ollama inference runtime"
         exit 1

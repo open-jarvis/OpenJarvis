@@ -193,9 +193,9 @@ fn home_dir() -> String {
 fn resolve_bin(name: &str) -> String {
     let home = home_dir();
 
-    // Tauri installs the Windows ARM64 sidecar beside the desktop executable.
+    // Tauri installs the Windows sidecar beside the desktop executable.
     // Prefer the bundled runtime over an unrelated Ollama install on PATH.
-    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    #[cfg(target_os = "windows")]
     if name == "ollama" {
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
