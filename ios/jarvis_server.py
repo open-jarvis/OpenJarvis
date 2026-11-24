@@ -168,7 +168,7 @@ _MOBILE_UI_HTML = """<!DOCTYPE html>
       :root { --bg: #f5f7fb; --card: #ffffff; --text: #111827; --muted: #6b7280; --accent: #2563eb; --border: #e5e7eb; }
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; height: 100dvh; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
     header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--card); }
     header h1 { font-size: 1rem; margin: 0; font-weight: 600; }
     .controls { display: flex; gap: 6px; align-items: center; }
@@ -183,8 +183,9 @@ _MOBILE_UI_HTML = """<!DOCTYPE html>
     .file-chip { display: none; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); font-size: 0.8rem; color: var(--muted); }
     .file-chip.visible { display: flex; }
     .file-chip button { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 4px; }
-    .composer-row { display: flex; gap: 8px; align-items: stretch; }
-    .attach-btn { border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 12px; padding: 0 12px; font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+    .composer-row { display: flex; gap: 8px; align-items: stretch; position: relative; }
+    .file-input-sr { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+    .attach-btn { display: inline-flex; align-items: center; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 12px; padding: 0 12px; font-size: 0.85rem; cursor: pointer; white-space: nowrap; user-select: none; -webkit-user-select: none; }
     textarea { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font: inherit; background: var(--bg); color: var(--text); min-height: 44px; max-height: 140px; }
     button[type="submit"] { background: var(--accent); color: #fff; border: none; border-radius: 12px; padding: 0 18px; font-weight: 600; cursor: pointer; }
     button:disabled { opacity: 0.55; }
@@ -206,8 +207,8 @@ _MOBILE_UI_HTML = """<!DOCTYPE html>
       <button id="file-clear" type="button" aria-label="Remove file">&times;</button>
     </div>
     <div class="composer-row">
-      <input id="file-input" type="file" hidden />
-      <button id="btn-attach" class="attach-btn" type="button">+ File</button>
+      <input id="file-input" class="file-input-sr" type="file" />
+      <label id="btn-attach" class="attach-btn" for="file-input">+ File</label>
       <textarea id="prompt" rows="1" placeholder="Ask OpenJarvis..." required></textarea>
       <button id="send" type="submit">Send</button>
     </div>
@@ -231,7 +232,6 @@ _MOBILE_UI_HTML = """<!DOCTYPE html>
       fileLabel.textContent = "";
     }
 
-    document.getElementById("btn-attach").onclick = () => fileInput.click();
     document.getElementById("file-clear").onclick = clearAttachment;
     fileInput.onchange = async () => {
       const file = fileInput.files && fileInput.files[0];
