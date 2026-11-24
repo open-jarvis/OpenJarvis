@@ -12,15 +12,21 @@ PROFILE="$HOME/.profile"
 
 mkdir -p "$IOS_DEST" "$CFG_DIR"
 
-cp "$SCRIPT_DIR/jarvis_ios.py" "$IOS_DEST/jarvis_ios.py"
-cp "$SCRIPT_DIR/jarvis_server.py" "$IOS_DEST/jarvis_server.py"
-cp "$SCRIPT_DIR/start_jarvis.sh" "$IOS_DEST/start_jarvis.sh"
+if [ "$SCRIPT_DIR" != "$IOS_DEST" ]; then
+  cp "$SCRIPT_DIR/jarvis_ios.py" "$IOS_DEST/jarvis_ios.py"
+  cp "$SCRIPT_DIR/jarvis_server.py" "$IOS_DEST/jarvis_server.py"
+  cp "$SCRIPT_DIR/start_jarvis.sh" "$IOS_DEST/start_jarvis.sh"
+fi
 printf '%s\n' "$REPO_ROOT" > "$IOS_DEST/repo_root.txt"
 chmod +x "$IOS_DEST/start_jarvis.sh"
 
 if [ ! -f "$CFG_DEST" ]; then
   cp "$SCRIPT_DIR/config.toml" "$CFG_DEST"
   echo "Created $CFG_DEST"
+elif grep -qE 'default *= *"llamacpp"|AskAFMLocal' "$CFG_DEST" 2>/dev/null; then
+  cp "$CFG_DEST" "$CFG_DEST.bak"
+  cp "$SCRIPT_DIR/config.toml" "$CFG_DEST"
+  echo "Migrated stale $CFG_DEST (backup saved to $CFG_DEST.bak)"
 else
   echo "Preserving existing $CFG_DEST"
 fi

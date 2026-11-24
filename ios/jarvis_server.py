@@ -61,19 +61,12 @@ _CACHED_IOS_SYSTEM: Any = None
 _IOS_SYSTEM_INITIALIZED = False
 
 
-def is_ashell() -> bool:
-    """Return True when running inside iOS a-Shell / a-Shell mini."""
-    return os.environ.get("TERM_PROGRAM", "").strip().lower() == "a-shell"
-
-
 def _get_ios_system() -> Any:
     """Lazily load ``ios_system`` from the host a-Shell binary."""
     global _CACHED_IOS_SYSTEM, _IOS_SYSTEM_INITIALIZED
     if _IOS_SYSTEM_INITIALIZED:
         return _CACHED_IOS_SYSTEM
     _IOS_SYSTEM_INITIALIZED = True
-    if not is_ashell():
-        return None
     try:
         fn = ctypes.CDLL(None).ios_system
         fn.argtypes = [ctypes.c_char_p]
@@ -84,19 +77,31 @@ def _get_ios_system() -> Any:
     return _CACHED_IOS_SYSTEM
 
 
+def is_ashell() -> bool:
+    """Return True when running inside iOS a-Shell / a-Shell mini."""
+    if os.environ.get("TERM_PROGRAM", "").strip().lower() == "a-shell":
+        return True
+    return _get_ios_system() is not None
+
+
 def _escape_shell_arg(arg: str) -> str:
     """Escape single quotes for a-Shell ``ios_system`` commands."""
     return "'" + arg.replace("'", "'\\''") + "'"
 
 
-def open_in_internal_browser(url: str) -> bool:
-    """Open ``url`` in a-Shell's ``internalbrowser`` using serialized ``ios_system``."""
+def _run_ios_system(command: str) -> bool:
+    """Execute a built-in a-Shell command serialized via ``ios_system``."""
     ios_system = _get_ios_system()
     if ios_system is None:
         return False
-    cmd = f"internalbrowser {_escape_shell_arg(url)}".encode("utf-8")
+    cmd_bytes = command.encode("utf-8")
     with _IOS_SYSTEM_LOCK:
-        return int(ios_system(cmd)) == 0
+        return int(ios_system(cmd_bytes)) == 0
+
+
+def open_in_internal_browser(url: str) -> bool:
+    """Open ``url`` in a-Shell's ``internalbrowser`` using serialized ``ios_system``."""
+    return _run_ios_system(f"internalbrowser {_escape_shell_arg(url)}")
 
 
 def resolve_static_dir(static_dir: Path | str | None = None) -> Path | None:
@@ -309,6 +314,8 @@ def _pbpaste() -> str:
 
 def _trigger_shortcut(shortcut_name: str = SHORTCUT_NAME) -> None:
     url = f"shortcuts://run-shortcut?name={shortcut_name}"
+    if _run_ios_system(f"open {_escape_shell_arg(url)}"):
+        return
     subprocess.run(["open", url], check=True)
 
 
