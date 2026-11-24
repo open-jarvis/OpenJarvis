@@ -6,6 +6,8 @@ use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 use tokio::sync::Mutex;
 
+mod local_access;
+
 const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8000;
 #[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
@@ -3475,6 +3477,13 @@ pub fn run() {
             toggle_overlay,
             hide_overlay,
             get_overlay_conversation,
+            local_access::get_local_access_settings,
+            local_access::set_local_access_settings,
+            local_access::list_local_files,
+            local_access::read_local_file,
+            local_access::write_local_file,
+            local_access::launch_allowed_app,
+            local_access::run_allowed_command,
         ])
         .build(tauri::generate_context!())
         .expect("error while building OpenJarvis Desktop")

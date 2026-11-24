@@ -3,10 +3,57 @@
 How to give an agent access to the machine it runs on, and where the real
 limits are.
 
+## Desktop Local Access
+
+The desktop app has a **Local Access** page alongside Chat. It is the
+recommended starting point for file and application actions:
+
+- Access is **off by default**. Enable it explicitly and save settings.
+- Choose the folders the app may browse. Only Markdown, text, CSV, and JSON
+  documents in those folders are shown; sensitive filenames and symbolic links
+  are excluded. Documents are limited to 1 MiB.
+- Add applications by exact name or executable path. Each launch requires
+  confirmation and starts without arguments.
+- The command selector exposes only a small fixed list of read-only Git
+  commands. Each run requires confirmation, runs in the first allowed folder,
+  has a 30-second timeout, and does not invoke a shell.
+- Saving a new document is limited to the selected folders and supported
+  document types. Overwriting an existing document requires confirmation.
+  There is no delete action.
+- **Ask Jarvis** prefills a chat with the open document; review the text before
+  sending it to the selected model.
+
+The page saves its settings in the active `config.toml` under `[local_access]`
+(normally `~/.openjarvis/config.toml`; `OPENJARVIS_CONFIG` can select another
+file). The visible page is the preferred way to manage these values. The
+corresponding TOML shape is:
+
+```toml
+[local_access]
+enabled = false
+allowed_dirs = []
+allowed_apps = []
+allowed_commands = []
+```
+
+Enabling access requires at least one existing allowed folder. Applications
+and commands must be added explicitly. The command allowlist is intentionally
+limited to `git status --short`, `git diff --stat`, `git diff --name-only`,
+`git log --oneline -10`, and `git branch --show-current`; it is not a general
+shell and does not support scripts, command chaining, or arbitrary arguments.
+The UI reports configuration, filesystem, and process errors instead of
+silently granting broader access.
+
+This desktop feature is separate from the legacy `shell_exec`, `file_read`,
+and `file_write` agent tools described below. Enabling Local Access does not
+enable those tools or change their policies.
+
+---
+
 !!! warning
-    `shell_exec` runs arbitrary commands as your user. There is no command
-    allowlist, no denylist, and no sandbox unless you turn one on. An agent
-    holding this tool can do anything you can do from a terminal.
+    The legacy `shell_exec` tool runs arbitrary commands as your user. It has
+    no command allowlist, no denylist, and no sandbox unless you turn one on.
+    An agent holding this tool can do anything you can do from a terminal.
 
 ---
 
