@@ -93,9 +93,9 @@ def _run_shell(command: str, timeout: int, cwd: str | None, env: dict[str, str])
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         # Shell syntax is this confirmed tool's API, not a string built from
         # unrelated request data. Its capability/confirmation gates stay intact.
-        # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true  # noqa: E501
         proc = subprocess.Popen(
             command,
+            # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true  # noqa: E501
             shell=True,  # nosec B602 -- this tool explicitly runs confirmed shell commands
             stdout=stdout,
             stderr=stderr,
