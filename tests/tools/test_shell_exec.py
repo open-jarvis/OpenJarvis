@@ -12,6 +12,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -94,15 +95,32 @@ class TestShellExecTool:
 
     def test_timeout_exceeded(self):
         tool = ShellExecTool()
-        # sleep is short on purpose: on Windows the killed shell can leave
-        # the child holding the pipes until it exits by itself
+        start = time.monotonic()
         result = tool.execute(
-            command=_python_cmd("import time; time.sleep(5)"), timeout=1
+            command=_python_cmd("import time; time.sleep(30)"), timeout=1
         )
+        assert time.monotonic() - start < 10
         assert result.success is False
         assert "timed out" in result.content
         assert result.metadata["returncode"] == -1
         assert result.metadata["timeout_used"] == 1
+
+    def test_timeout_stops_a_descendant_before_it_can_write(self, tmp_path):
+        marker = tmp_path / "after-timeout.txt"
+        child = (
+            "import time; from pathlib import Path; time.sleep(3); "
+            f"Path({str(marker)!r}).write_text('should not run')"
+        )
+        parent = (
+            "import subprocess,sys,time; "
+            f"subprocess.Popen([sys.executable, '-c', {child!r}]); "
+            "time.sleep(30)"
+        )
+        result = ShellExecTool().execute(command=_python_cmd(parent), timeout=1)
+        assert result.success is False
+        assert "timed out" in result.content
+        time.sleep(3.2)
+        assert not marker.exists()
 
     def test_timeout_capped_at_max(self):
         tool = ShellExecTool()
@@ -268,27 +286,16 @@ class TestSanitizedEnvWindowsKeys:
         monkeypatch.setenv("SystemRoot", r"C:\Windows")
         monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\tester\AppData\Local")
 
-        captured: dict = {}
-
-        def _fake_run(*args, **kwargs):
-            captured["env"] = kwargs.get("env")
-            return subprocess.CompletedProcess(args, 0, stdout="ok\n", stderr="")
-
         tool = ShellExecTool()
-        with (
-            patch(
-                "openjarvis._rust_bridge.get_rust_module",
-                side_effect=ImportError("no rust module"),
-            ),
-            patch("subprocess.run", side_effect=_fake_run),
-        ):
-            result = tool.execute(command="echo ok")
-
+        result = tool.execute(
+            command=_python_cmd(
+                "import os; print(os.environ['SystemRoot']); "
+                "print(os.environ['LOCALAPPDATA'])"
+            )
+        )
         assert result.success is True
-        env = captured["env"]
-        assert env is not None
-        assert env.get("SystemRoot") == r"C:\Windows"
-        assert env.get("LOCALAPPDATA") == r"C:\Users\tester\AppData\Local"
+        assert r"C:\Windows" in result.content
+        assert r"C:\Users\tester\AppData\Local" in result.content
 
     @pytest.mark.skipif(os.name != "nt", reason="requires a real Windows child")
     def test_real_windows_child_bootstraps_and_resolves_localhost(

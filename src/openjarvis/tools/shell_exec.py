@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import locale
 import os
+import signal
 import subprocess
+import tempfile
 from pathlib import Path
-from typing import Any, List
+from typing import Any, BinaryIO, List
+
+import psutil
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -46,6 +51,66 @@ _WINDOWS_ENV_KEYS = (
     "APPDATA",
 )
 _BASE_ENV_KEYS = _PORTABLE_ENV_KEYS + (_WINDOWS_ENV_KEYS if os.name == "nt" else ())
+
+
+def _stop_shell(proc: subprocess.Popen) -> None:
+    """Stop the owned POSIX group or known Windows descendants, then reap."""
+    if os.name == "posix":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    else:
+        try:
+            children = psutil.Process(proc.pid).children(recursive=True)
+        except psutil.Error:
+            children = []
+        for child in reversed(children):
+            try:
+                child.kill()
+            except psutil.Error:
+                pass
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait(timeout=2)
+
+
+def _read_output(stream: BinaryIO, label: str) -> str:
+    stream.seek(0)
+    raw = stream.read(_MAX_OUTPUT_BYTES + 1)
+    text = (
+        raw[:_MAX_OUTPUT_BYTES]
+        .decode(locale.getpreferredencoding(False), errors="replace")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+    )
+    return text + (f"\n... ({label} truncated)" if len(raw) > _MAX_OUTPUT_BYTES else "")
+
+
+def _run_shell(command: str, timeout: int, cwd: str | None, env: dict[str, str]):
+    # Files avoid waiting indefinitely for inherited output pipes on Windows
+    # and keep a large command response out of application memory.
+    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        proc = subprocess.Popen(
+            command,
+            shell=True,  # nosec B602 -- this tool explicitly runs confirmed shell commands
+            stdout=stdout,
+            stderr=stderr,
+            cwd=cwd,
+            env=env,
+            start_new_session=os.name == "posix",
+        )
+        try:
+            proc.wait(timeout=timeout)
+        except BaseException:
+            _stop_shell(proc)
+            raise
+        return subprocess.CompletedProcess(
+            command,
+            proc.returncode,
+            _read_output(stdout, "stdout"),
+            _read_output(stderr, "stderr"),
+        )
 
 
 @ToolRegistry.register("shell_exec")
@@ -151,16 +216,7 @@ class ShellExecTool(BaseTool):
         # timeout or env and hides the exit code, so it skipped all three of
         # the checks above (#1332). Bring it back once the binding has parity.
         try:
-            result = subprocess.run(
-                command,
-                # This tool executes shell commands after its confirmation gate.
-                shell=True,  # nosec B602
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=working_dir,
-                env=env,
-            )
+            result = _run_shell(command, timeout, working_dir, env)
         except subprocess.TimeoutExpired:
             return ToolResult(
                 tool_name="shell_exec",
@@ -185,13 +241,8 @@ class ShellExecTool(BaseTool):
                 success=False,
             )
 
-        # Truncate output if needed
         stdout = result.stdout
         stderr = result.stderr
-        if len(stdout) > _MAX_OUTPUT_BYTES:
-            stdout = stdout[:_MAX_OUTPUT_BYTES] + "\n... (stdout truncated)"
-        if len(stderr) > _MAX_OUTPUT_BYTES:
-            stderr = stderr[:_MAX_OUTPUT_BYTES] + "\n... (stderr truncated)"
 
         # Format output
         sections: list[str] = []

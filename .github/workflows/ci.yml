@@ -176,6 +176,10 @@ jobs:
         shell: bash
         run: uv run pytest tests/security/test_capabilities.py tests/security/test_rate_limiter.py tests/security/test_optional_native_security.py -q
 
+      - name: Verify shell subprocess policies
+        shell: bash
+        run: uv run pytest tests/tools/test_shell_exec.py -q
+
       - name: Smoke-test CLI
         shell: bash
         run: |
