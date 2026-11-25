@@ -36,6 +36,26 @@ dedicated optional-sharing prompt: **Press Enter or Y to consent, or N to
 decline**. The choice also controls runtime analytics. No terminal, EOF, or
 cancelled input leaves sharing off. See [Telemetry](../telemetry.md) for details.
 
+### Review before you run
+
+The one-liner runs the script as soon as it downloads. To read it first, save it, review it, then run it:
+
+```bash
+curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh -o install.sh
+less install.sh
+bash install.sh
+```
+
+On native Windows (the `-ExecutionPolicy Bypass` applies to this one run only):
+
+```powershell
+irm https://open-jarvis.github.io/OpenJarvis/install.ps1 -OutFile install.ps1
+notepad install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+The installer then fetches other tools through their official installers: uv, Ollama and (in the background) Rust for the bash installer, and uv for PowerShell. Those are downloaded at install time too, as listed in [What the installer does](#what-the-installer-does).
+
 ## What the installer does
 
 | Phase | Step | Where |
