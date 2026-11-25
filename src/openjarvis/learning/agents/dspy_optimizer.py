@@ -8,6 +8,7 @@ config updates written via AgentConfigEvolver.
 from __future__ import annotations
 
 import logging
+from importlib.util import find_spec
 from typing import Any, Dict, List
 
 from openjarvis.core.config import DSPyOptimizerConfig
@@ -16,14 +17,12 @@ from openjarvis.learning._stubs import AgentLearningPolicy
 
 logger = logging.getLogger(__name__)
 
-# Optional dependency
+# Detect availability without loading DSPy or its persistent cache at startup.
 try:
-    import dspy
-
-    HAS_DSPY = True
-except ImportError:
+    HAS_DSPY = find_spec("dspy") is not None
+except (ImportError, ValueError):
     HAS_DSPY = False
-    dspy = None  # type: ignore[assignment]
+dspy: Any = None
 
 
 class DSPyAgentOptimizer:
@@ -89,6 +88,19 @@ class DSPyAgentOptimizer:
 
     def _run_dspy_optimization(self, traces: List[Any]) -> Dict[str, Any]:
         """Run the DSPy teleprompter on converted trace examples."""
+        global dspy
+        if dspy is None:
+            import importlib
+
+            dspy = importlib.import_module("dspy")
+        # DiskCache has no published fix for unsafe deserialization. Keep
+        # optimizer responses in memory and never read persistent cache entries.
+        # Missing cache controls fail through optimize() before any model call.
+        dspy.configure_cache(
+            enable_disk_cache=False,
+            enable_memory_cache=True,
+            restrict_pickle=True,
+        )
         # Convert traces to dspy.Example objects
         examples = []
         for t in traces:

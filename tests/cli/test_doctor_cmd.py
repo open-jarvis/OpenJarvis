@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from openjarvis.cli import cli
@@ -18,6 +20,7 @@ from openjarvis.cli.doctor_cmd import (
     _check_speech_backend,
     _run_all_checks,
 )
+from openjarvis.core.config import JarvisConfig
 from openjarvis.core.registry import EngineRegistry
 
 
@@ -85,6 +88,23 @@ class TestDoctorJsonOutput:
 
 
 class TestCheckPythonVersion:
+    @pytest.mark.parametrize(
+        "major,minor,status",
+        [
+            (3, 10, "fail"),
+            (3, 11, "ok"),
+            (3, 13, "ok"),
+            (3, 14, "fail"),
+            (4, 11, "fail"),
+        ],
+    )
+    def test_supported_range(self, major, minor, status):
+        with patch(
+            "openjarvis.cli.doctor_cmd.sys.version_info",
+            SimpleNamespace(major=major, minor=minor, micro=0),
+        ):
+            assert _check_python_version().status == status
+
     def test_check_python_version(self) -> None:
         """Python version check passes on any supported Python."""
         result = _check_python_version()
@@ -144,15 +164,21 @@ class TestCheckEngineProbing:
 
     def test_full_doctor_health_checks_each_engine_once(self) -> None:
         """All engine/model checks share one health snapshot (#766)."""
-        config = MagicMock()
+        config = JarvisConfig()
         config.intelligence.default_model = "model-a"
         config.intelligence.preferred_engine = "alpha"
         config.engine.default = "alpha"
 
+        for key in ("alpha", "beta"):
+            EngineRegistry.register_value(
+                key, type(key, (), {"engine_id": key, "is_cloud": False})
+            )
         alpha = MagicMock()
+        alpha._host = "http://localhost:8000"
         alpha.health.return_value = True
         alpha.list_models.return_value = ["model-a"]
         beta = MagicMock()
+        beta._host = "http://localhost:8000"
         beta.health.return_value = False
 
         def make_engine(key, _config):
@@ -184,6 +210,8 @@ class TestCheckEngineProbing:
         assert make.call_count == 2
         alpha.health.assert_called_once_with()
         beta.health.assert_called_once_with()
+        alpha.close.assert_called_once_with()
+        beta.close.assert_called_once_with()
         assert any(
             result.name == "Default model" and result.status == "ok"
             for result in results
@@ -201,11 +229,15 @@ class TestCheckDefaultModel:
         assert "auto" in result.message.lower()
 
     def test_mlx_catalog_model_is_checked_by_repo_id(self) -> None:
-        mock_config = MagicMock()
+        mock_config = JarvisConfig()
         mock_config.intelligence.default_model = "qwen3.5:4b"
         mock_config.intelligence.preferred_engine = "mlx"
         mock_config.engine.default = "mlx"
+        EngineRegistry.register_value(
+            "mlx", type("MLX", (), {"engine_id": "mlx", "is_cloud": False})
+        )
         mock_engine = MagicMock()
+        mock_engine._host = "http://localhost:8000"
         mock_engine.health.return_value = True
         mock_engine.list_models.return_value = ["mlx-community/Qwen3.5-4B-OptiQ-4bit"]
 
@@ -290,3 +322,143 @@ class TestCheckNodejs:
         assert "Not found" in result.message
         assert result.details is not None
         assert "OpenClaw" not in result.details
+
+
+@pytest.mark.parametrize(
+    "host,cloud,should_probe",
+    [
+        ("http://localhost:8000", False, True),
+        ("http://[::1]:8000", False, True),
+        ("http://127.0.0.1:8000", False, True),
+        (None, False, True),
+        (None, True, False),
+        ("https://integrate.api.nvidia.com", True, False),
+        ("https://api.example.com?@localhost", False, False),
+        ("https://api.example.com#@127.0.0.1", False, False),
+        ("http://box.local:8000", False, False),
+        ("http://192.168.1.20:8000", False, False),
+        ("http://localhost:99999", False, False),
+    ],
+)
+def test_doctor_skips_off_device_clients_before_construction(host, cloud, should_probe):
+    from openjarvis.cli.doctor_cmd import _check_models, _probe_engines
+
+    constructed = []
+    health = MagicMock(return_value=True)
+    models = MagicMock(return_value=["model-a"])
+
+    class Engine:
+        engine_id = "test-endpoint"
+        _default_host = host
+        is_cloud = cloud
+
+        def __init__(self):
+            constructed.append(self)
+            self._host = host
+
+        def health(self):
+            return health()
+
+        def list_models(self):
+            return models()
+
+    EngineRegistry.register_value("test-endpoint", Engine)
+    with patch("openjarvis.cli.doctor_cmd._ensure_engines_imported"):
+        probes = _probe_engines(JarvisConfig())
+    _check_models(probes)
+    assert probes["test-endpoint"].skipped is (not should_probe)
+    assert len(constructed) == int(should_probe)
+    assert health.call_count == int(should_probe)
+    assert models.call_count == int(should_probe)
+
+
+@pytest.mark.parametrize("probe_remote", [False, True])
+def test_remote_opt_in_and_cli_flag(probe_remote):
+    from openjarvis.cli.doctor_cmd import _probe_engines
+
+    cls = type("CloudEngine", (), {"engine_id": "cloud", "is_cloud": True})
+    EngineRegistry.register_value("cloud", cls)
+    engine = MagicMock()
+    engine._host = None
+    engine.host = None
+    engine.is_cloud = True
+    engine.health.return_value = True
+    with (
+        patch("openjarvis.cli.doctor_cmd._ensure_engines_imported"),
+        patch("openjarvis.engine._discovery._make_engine", return_value=engine) as make,
+    ):
+        probes = _probe_engines(JarvisConfig(), probe_remote=probe_remote)
+    assert make.call_count == int(probe_remote)
+    assert engine.health.call_count == int(probe_remote)
+    assert probes["cloud"].skipped is (not probe_remote)
+    with patch("openjarvis.cli.doctor_cmd._run_all_checks", return_value=[]) as checks:
+        args = ["doctor", "--json"] + (["--probe-remote"] if probe_remote else [])
+        result = CliRunner().invoke(cli, args)
+        assert result.exit_code == 0
+        checks.assert_called_once_with(probe_remote=probe_remote)
+
+
+def test_default_model_on_skipped_engine_is_unchecked_not_missing():
+    from openjarvis.cli.doctor_cmd import _EngineProbe
+
+    config = JarvisConfig()
+    config.engine.default = "nim"
+    config.intelligence.default_model = "vendor/model"
+    with patch("openjarvis.cli.doctor_cmd.load_config", return_value=config):
+        result = _check_default_model({"nim": _EngineProbe(None, False, skipped=True)})
+    assert result.status == "info"
+    assert "--probe-remote" in result.message
+    assert "not found" not in result.message
+
+
+@pytest.mark.parametrize(
+    "env_host", ["https://api.example.com", "http://localhost:8000"]
+)
+def test_nim_environment_host_controls_preflight(monkeypatch, env_host):
+    from openjarvis.cli.doctor_cmd import _probe_engines
+    from openjarvis.engine.nim import NIMEngine
+
+    monkeypatch.setenv("NIM_HOST", env_host)
+    EngineRegistry.register_value("nim", NIMEngine)
+    engine = MagicMock()
+    engine._host = env_host
+    with (
+        patch("openjarvis.cli.doctor_cmd._ensure_engines_imported"),
+        patch("openjarvis.engine._discovery._make_engine", return_value=engine) as make,
+    ):
+        _probe_engines(JarvisConfig())
+    assert make.call_count == int("localhost" in env_host)
+
+
+def test_actual_endpoint_is_checked_again_and_errors_do_not_expose_secrets():
+    from openjarvis.cli.doctor_cmd import _check_engines, _probe_engines
+
+    cls = type("Engine", (), {"engine_id": "test", "is_cloud": False})
+    EngineRegistry.register_value("test", cls)
+    engine = MagicMock()
+    engine._host = "https://remote.example.com"
+    with (
+        patch("openjarvis.cli.doctor_cmd._ensure_engines_imported"),
+        patch("openjarvis.engine._discovery._make_engine", return_value=engine),
+    ):
+        probes = _probe_engines(JarvisConfig())
+        assert probes["test"].skipped is True
+        engine.health.assert_not_called()
+        engine._host = "http://localhost:8000"
+        engine.health.side_effect = RuntimeError("secret-access-token")
+        probes = _probe_engines(JarvisConfig())
+    assert probes["test"].engine is engine  # still owned for cleanup
+    output = str(_check_engines(probes))
+    assert "RuntimeError" in output
+    assert "secret-access-token" not in output
+
+
+def test_unreadable_host_is_not_assumed_local():
+    from openjarvis.cli.doctor_cmd import _is_local_endpoint
+
+    class Engine:
+        @property
+        def _host(self):
+            raise ValueError("unreadable")
+
+    assert _is_local_endpoint(Engine()) is False

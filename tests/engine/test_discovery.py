@@ -416,3 +416,28 @@ class TestMiningSidecarEngineHandoff:
             discover_engines(cfg)
 
         assert not EngineRegistry.contains("vllm-pearl-mining")
+
+
+def test_local_fallback_prefers_ollama_over_hosted_nim(monkeypatch):
+    from openjarvis.engine.nim import NIMEngine
+
+    monkeypatch.delenv("NIM_HOST", raising=False)
+    _reg("broken", "broken")
+    config = JarvisConfig()
+    config.engine.default = "broken"
+    nim = NIMEngine()
+    local = _FakeEngine()
+    try:
+        with (
+            mock.patch(
+                "openjarvis.engine._discovery._make_engine",
+                return_value=_FakeEngine(healthy=False),
+            ),
+            mock.patch(
+                "openjarvis.engine._discovery.discover_engines",
+                return_value=[("nim", nim), ("ollama", local)],
+            ),
+        ):
+            assert get_engine(config) == ("ollama", local)
+    finally:
+        nim.close()
