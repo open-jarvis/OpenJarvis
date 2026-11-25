@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { VOICE_LANGUAGES, systemLanguage } from '../lib/voice/language';
 import {
   Palette,
   Globe,
@@ -294,6 +295,10 @@ export function SettingsPage() {
   const serverInfo = useAppStore((s) => s.serverInfo);
   const [healthy, setHealthy] = useState<boolean | null>(null);
   const [speechBackendAvailable, setSpeechBackendAvailable] = useState<boolean | null>(null);
+  const systemLanguageName = (() => {
+    const code = systemLanguage();
+    return VOICE_LANGUAGES.find(([c]) => c === code)?.[1] ?? code;
+  })();
   const [ttsBackend, setTtsBackend] = useState<{ available: boolean; backend?: string; voice_id?: string } | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -860,6 +865,63 @@ export function SettingsPage() {
                   }}
                 />
               </button>
+            </SettingRow>
+            <SettingRow
+              label="Hands-free voice"
+              description={`Keep the microphone open and answer out loud whenever you say "${settings.wakeWord || 'jarvis'}" — no clicking needed`}
+            >
+              <button
+                onClick={() => { updateSettings({ handsFreeEnabled: !settings.handsFreeEnabled }); showSaved(); }}
+                disabled={speechBackendAvailable === false}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: settings.handsFreeEnabled && speechBackendAvailable !== false ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                  opacity: speechBackendAvailable === false ? 0.4 : 1,
+                  cursor: speechBackendAvailable === false ? 'default' : 'pointer',
+                }}
+                aria-label="Hands-free voice"
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: settings.handsFreeEnabled && speechBackendAvailable !== false ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
+            <SettingRow label="Wake word" description="The name that gets the assistant's attention in hands-free mode">
+              <input
+                type="text"
+                value={settings.wakeWord}
+                onChange={(e) => updateSettings({ wakeWord: e.target.value.trim() })}
+                onBlur={showSaved}
+                placeholder="jarvis"
+                className="w-32 px-2 py-1 rounded-md text-xs outline-none"
+                style={{
+                  background: 'var(--color-input-bg)',
+                  border: '1px solid var(--color-input-border)',
+                  color: 'var(--color-text)',
+                }}
+              />
+            </SettingRow>
+            <SettingRow label="Voice language" description="The language you speak in hands-free mode. Short commands like a bare wake word are misheard when the language is auto-detected">
+              <select
+                value={settings.voiceLanguage}
+                onChange={(e) => { updateSettings({ voiceLanguage: e.target.value }); showSaved(); }}
+                className="px-2 py-1 rounded-md text-xs outline-none cursor-pointer"
+                style={{
+                  background: 'var(--color-input-bg)',
+                  border: '1px solid var(--color-input-border)',
+                  color: 'var(--color-text)',
+                }}
+              >
+                <option value="">Match system{systemLanguageName ? ` (${systemLanguageName})` : ''}</option>
+                <option value="auto">Auto-detect</option>
+                {VOICE_LANGUAGES.map(([code, name]) => (
+                  <option key={code} value={code}>{name}</option>
+                ))}
+              </select>
             </SettingRow>
             <SettingRow label="Voice" description="Backend and voice used for spoken replies">
               <div className="flex items-center gap-2">

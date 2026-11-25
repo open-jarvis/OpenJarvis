@@ -11,7 +11,11 @@ import {
   resolveChatEngine,
 } from '../../lib/chat-telemetry';
 import { MicButton } from './MicButton';
+import { HandsFreeToggle } from './HandsFreeToggle';
 import { useSpeech } from '../../hooks/useSpeech';
+import { useHandsFree } from '../../hooks/useHandsFree';
+import { useTtsStore } from '../../lib/tts';
+import { resolveVoiceLanguage } from '../../lib/voice/language';
 import type {
   ChatMessage,
   MessageTelemetry,
@@ -20,6 +24,12 @@ import type {
   TokenUsage,
   ToolCallInfo,
 } from '../../types';
+
+// System prompt for turns that arrive by voice and are answered out loud.
+const VOICE_REPLY_STYLE =
+  'The user is talking to you by voice and your reply will be read aloud. ' +
+  'Answer in a natural, conversational tone, briefly (one to three sentences unless ' +
+  'asked for more), in plain sentences with no markdown, lists, tables, code or URLs.';
 
 // While Deep Research is toggled on, poll connected sources for sync
 // progress so we can surface "Searching over N items — sync in progress"
@@ -90,6 +100,10 @@ export function InputArea() {
   const streamState = useAppStore((s) => s.streamState);
   const messages = useAppStore((s) => s.messages);
   const speechEnabled = useAppStore((s) => s.settings.speechEnabled);
+  const handsFreeEnabled = useAppStore((s) => s.settings.handsFreeEnabled);
+  const wakeWord = useAppStore((s) => s.settings.wakeWord);
+  const voiceLanguage = useAppStore((s) => s.settings.voiceLanguage);
+  const updateSettings = useAppStore((s) => s.updateSettings);
   const maxTokens = useAppStore((s) => s.settings.maxTokens);
   const temperature = useAppStore((s) => s.settings.temperature);
   const createConversation = useAppStore((s) => s.createConversation);
@@ -171,15 +185,23 @@ export function InputArea() {
     resetStream();
   }, [resetStream]);
 
-  const sendMessage = useCallback(async () => {
-    const content = input.trim();
-    if (!content || streamState.isStreaming) return;
+  /**
+   * Send one user turn and stream the reply. Resolves with the final reply text
+   * (null if nothing was sent). Voice turns pass their transcript directly and
+   * leave the textarea alone.
+   */
+  const submitMessage = useCallback(async (
+    raw: string,
+    opts: { voice?: boolean; onAssistantId?: (id: string) => void; signal?: AbortSignal } = {},
+  ): Promise<string | null> => {
+    const content = raw.trim();
+    if (!content || useAppStore.getState().streamState.isStreaming) return null;
     if (!selectedModel) {
       toast.error('Pick a model first (⌘K)');
-      return;
+      return null;
     }
 
-    setInput('');
+    if (!opts.voice) setInput('');
 
     let convId = activeId;
     if (!convId) {
@@ -196,10 +218,15 @@ export function InputArea() {
 
     // Build API messages before adding assistant placeholder
     const currentMessages = useAppStore.getState().messages;
-    const apiMessages = currentMessages.map((m) => ({
+    const apiMessages: Array<{ role: string; content: string }> = currentMessages.map((m) => ({
       role: m.role,
       content: m.content,
     }));
+    if (opts.voice) {
+      // The reply will be read aloud: ask for something that sounds natural
+      // when spoken rather than formatted text.
+      apiMessages.unshift({ role: 'system', content: VOICE_REPLY_STYLE });
+    }
 
     const assistantMsg: ChatMessage = {
       id: generateId(),
@@ -209,6 +236,7 @@ export function InputArea() {
       isResearch: deepResearch || undefined,
     };
     addMessage(convId, assistantMsg);
+    opts.onAssistantId?.(assistantMsg.id);
 
     // Start streaming
     const startTime = Date.now();
@@ -219,6 +247,7 @@ export function InputArea() {
 
     const controller = new AbortController();
     abortRef.current = controller;
+    opts.signal?.addEventListener('abort', () => controller.abort(), { once: true });
 
     let accumulatedContent = '';
     let usage: TokenUsage | undefined;
@@ -539,8 +568,8 @@ export function InputArea() {
           .catch(() => {});
       }
     }
+    return controller.signal.aborted ? null : accumulatedContent;
   }, [
-    input,
     activeId,
     selectedModel,
     streamState.isStreaming,
@@ -553,6 +582,29 @@ export function InputArea() {
     temperature,
     maxTokens,
   ]);
+
+  const sendMessage = useCallback(() => {
+    void submitMessage(input);
+  }, [submitMessage, input]);
+
+  const handsFree = useHandsFree({
+    enabled: handsFreeEnabled && speechAvailable,
+    wakeWord: wakeWord || 'jarvis',
+    language: resolveVoiceLanguage(voiceLanguage),
+    onCommand: async (command, signal) => {
+      // Fence the reply off from read-aloud autoplay: hands-free speaks it.
+      useTtsStore.getState().stop();
+      return submitMessage(command, {
+        voice: true,
+        signal,
+        onAssistantId: (id) => useTtsStore.getState().markAutoSpoken(id),
+      });
+    },
+  });
+
+  useEffect(() => {
+    if (handsFree.error) toast.error(handsFree.error, { duration: 8000 });
+  }, [handsFree.error]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -581,6 +633,17 @@ export function InputArea() {
             <Search size={12} />
             Deep Research
           </button>
+          <HandsFreeToggle
+            enabled={handsFreeEnabled}
+            available={speechAvailable}
+            wakeWord={wakeWord || 'jarvis'}
+            mode={handsFree.mode}
+            transcribing={handsFree.transcribing}
+            level={handsFree.level}
+            heard={handsFree.heard}
+            onToggle={() => updateSettings({ handsFreeEnabled: !handsFreeEnabled })}
+            onStop={handsFree.stopTurn}
+          />
         </div>
         {deepResearch && corpusSync.syncing && corpusSync.itemsSynced > 0 && (
           <div
@@ -632,7 +695,7 @@ export function InputArea() {
               reason={micReason}
             />
             <button
-              onClick={sendMessage}
+              onClick={() => sendMessage()}
               disabled={streamState.isStreaming || !input.trim() || modelLoading || !selectedModel}
               title={selectedModel ? 'Send message' : 'Pick a model first (⌘K)'}
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"

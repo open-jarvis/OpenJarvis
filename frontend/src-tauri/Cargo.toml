@@ -35,6 +35,11 @@ keyring = { version = "3", features = ["apple-native"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
+# Grant the WebView2 microphone/camera getUserMedia permission from the host
+# (see the PermissionRequested handler in lib.rs setup). Pinned to the same
+# version Tauri 2.12 resolves so `PlatformWebview::controller()` returns a
+# matching ICoreWebView2 type.
+webview2-com = "0.39"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Blocking Secret Service backend (no internal async runtime, so it is safe to
