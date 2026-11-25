@@ -106,3 +106,21 @@ def test_skill_manage_writes_utf8_toml(tmp_path: Path) -> None:
     loaded = tool.execute(action="load", name=f"caf{_E}")
     assert loaded.success
     assert description in loaded.content
+
+
+@pytest.mark.parametrize("kind", ["memory", "user"])
+def test_legacy_invalid_utf8_is_not_truncated(tmp_path: Path, kind: str) -> None:
+    from openjarvis.tools.memory_manage import MemoryManageTool
+    from openjarvis.tools.user_profile_manage import UserProfileManageTool
+
+    path = tmp_path / "legacy.md"
+    original = b"- caf\xe9\n"
+    path.write_bytes(original)
+    tool = (
+        MemoryManageTool(memory_path=path)
+        if kind == "memory"
+        else UserProfileManageTool(user_path=path)
+    )
+    with pytest.raises(UnicodeDecodeError):
+        tool.execute(action="add", entry="New fact")
+    assert path.read_bytes() == original
