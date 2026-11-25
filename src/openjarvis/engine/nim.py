@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 
 import httpx
 
+from openjarvis.core._network import endpoint_is_local_network
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message
 from openjarvis.engine._base import (
@@ -23,6 +24,11 @@ from openjarvis.engine._stubs import StreamChunk
 logger = logging.getLogger(__name__)
 
 
+def _host_is_local(host: str) -> bool:
+    """Return True when *host* points at this machine or the local network."""
+    return endpoint_is_local_network(host)
+
+
 @EngineRegistry.register("nim")
 class NIMEngine(InferenceEngine):
     """NVIDIA NIM inference engine.
@@ -34,10 +40,18 @@ class NIMEngine(InferenceEngine):
     engine_id = "nim"
     _default_host = "https://integrate.api.nvidia.com"
     _api_prefix = "/v1"
+    # Conservative class-level default: an unconfigured NIM talks to NVIDIA's
+    # hosted endpoint. Engine fallback uses this flag to prefer the same
+    # boundary, and without it a healthy local Ollama lost
+    # to a remote API whenever the preferred engine was unavailable. The
+    # instance value below reflects the host actually in use, so a self-hosted
+    # NIM is still recognised as local.
+    is_cloud = True
 
     def __init__(self, host: str | None = None, *, timeout: float = 600.0) -> None:
         env_host = os.environ.get("NIM_HOST")
         self._host = (host or env_host or self._default_host).rstrip("/")
+        self.is_cloud = not _host_is_local(self._host)
 
         api_key = os.environ.get("NIM_API_KEY", "")
         self._api_key = api_key if api_key else None
