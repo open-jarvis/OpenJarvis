@@ -106,7 +106,7 @@ describe('apiFetch', () => {
     });
   });
 
-  it('preserves full http/https URLs and does not duplicate base url', async () => {
+  it('preserves same-server absolute URLs and does not duplicate base url', async () => {
     localStorage.setItem(
       SETTINGS_KEY,
       JSON.stringify({ apiUrl: 'https://jarvis.example', apiKey: 'sk-local-123' }),
@@ -114,11 +114,67 @@ describe('apiFetch', () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
     const { apiFetch } = await freshApi();
 
-    await apiFetch('http://127.0.0.1:8000/api/digest/audio');
+    await apiFetch('https://jarvis.example/api/digest/audio');
 
-    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:8000/api/digest/audio', {
+    expect(fetchMock).toHaveBeenCalledWith('https://jarvis.example/api/digest/audio', {
       headers: { Authorization: 'Bearer sk-local-123' },
     });
+  });
+
+  it.each([
+    'https://attacker.example/api/digest/audio',
+    'http://jarvis.example/api/digest/audio',
+    'https://jarvis.example:8443/api/digest/audio',
+    '//attacker.example/api/digest/audio',
+    'https://jarvis.example@attacker.example/audio',
+    'https://attacker@jarvis.example/audio',
+    'data:audio/mp3;base64,AAAA',
+    'blob:https://jarvis.example/123',
+    'javascript:alert(1)',
+    'file:///etc/passwd',
+    'https:\\attacker.example/audio',
+    '/\\attacker.example/audio',
+    'https://jarvis.example\n.attacker.example/audio',
+  ])('rejects an unsafe destination without sending credentials: %s', async (url) => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      apiUrl: 'https://jarvis.example', apiKey: 'private-server-key',
+    }));
+    const { apiFetch } = await freshApi();
+    await expect(apiFetch(url)).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps requests inside a configured reverse-proxy prefix', async () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      apiUrl: 'https://jarvis.example/oj', apiKey: 'private-server-key',
+    }));
+    fetchMock.mockResolvedValue(new Response('{}'));
+    const { apiFetch } = await freshApi();
+    await apiFetch('/api/digest/audio');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://jarvis.example/oj/api/digest/audio');
+    await expect(apiFetch('https://jarvis.example/another-app/audio')).rejects.toThrow();
+    await expect(apiFetch('/../another-app/audio')).rejects.toThrow();
+    await expect(apiFetch('/%2e%2e%2fanother-app/audio')).rejects.toThrow();
+    await expect(apiFetch('/%2e%2e%5canother-app/audio')).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves relative requests on the current page origin', async () => {
+    vi.stubEnv('VITE_API_URL', '');
+    vi.stubGlobal('window', { location: { href: 'https://web.example/chat' } });
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ apiKey: 'page-api-key' }));
+    fetchMock.mockResolvedValue(new Response('{}'));
+    try {
+      const { apiFetch } = await freshApi();
+      await apiFetch('/api/digest/audio');
+      expect(fetchMock).toHaveBeenCalledWith('/api/digest/audio', {
+        headers: { Authorization: 'Bearer page-api-key' },
+      });
+      await expect(apiFetch('https://other.example/audio')).rejects.toThrow();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('merges caller-specified headers with authHeaders', async () => {

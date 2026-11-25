@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { Play, Pause, Volume2, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '../../lib/api';
+import { loadAudioSource } from '../../lib/authenticated-audio';
 
 interface AudioPlayerProps {
   src: string;
@@ -30,44 +30,24 @@ export function AudioPlayer({ src }: AudioPlayerProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (src.startsWith('blob:') || src.startsWith('data:')) {
-      setAudioUrl(src);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    let revoked = false;
-    let objectUrl: string | null = null;
-    const ac = new AbortController();
-
+    audioRef.current?.pause();
+    setPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setAudioUrl(null);
     setLoading(true);
     setError(null);
-
-    apiFetch(src, { signal: ac.signal })
-      .then(async (res) => {
-        if (!res.ok) {
-          throw new Error(`Failed to load audio (${res.status})`);
-        }
-        const blob = await res.blob();
-        if (revoked) return;
-        objectUrl = URL.createObjectURL(blob);
-        setAudioUrl(objectUrl);
+    return loadAudioSource(
+      src,
+      (url) => {
+        setAudioUrl(url);
         setLoading(false);
-      })
-      .catch((err) => {
-        if (ac.signal.aborted || revoked) return;
+      },
+      (message) => {
         setLoading(false);
-        setError(err instanceof Error ? err.message : 'Failed to load audio');
-      });
-
-    return () => {
-      revoked = true;
-      ac.abort();
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
-    };
+        setError(message);
+      },
+    );
   }, [src]);
 
   const toggle = useCallback(() => {
@@ -104,6 +84,7 @@ export function AudioPlayer({ src }: AudioPlayerProps) {
     el.addEventListener('ended', onEnded);
     el.addEventListener('error', onError);
     return () => {
+      el.pause();
       el.removeEventListener('timeupdate', onTime);
       el.removeEventListener('loadedmetadata', onMeta);
       el.removeEventListener('ended', onEnded);
