@@ -523,9 +523,7 @@ class BrowserScreenshotTool(BaseTool):
         full_page = params.get("full_page", False)
 
         try:
-            page = _session.page
-            screenshot_bytes = page.screenshot(full_page=full_page)
-
+            save_path = None
             if path:
                 save_path = Path(path).expanduser()
                 if not save_path.is_absolute() and self._allowed_dirs:
@@ -561,6 +559,9 @@ class BrowserScreenshotTool(BaseTool):
                         success=False,
                     )
 
+            page = _session.page
+            screenshot_bytes = page.screenshot(full_page=full_page)
+            if save_path is not None:
                 save_path.parent.mkdir(parents=True, exist_ok=True)
                 with save_path.open("wb") as f:
                     f.write(screenshot_bytes)

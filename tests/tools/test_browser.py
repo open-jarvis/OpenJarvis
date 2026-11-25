@@ -796,6 +796,7 @@ class TestBrowserScreenshotTool:
         assert result.success is False
         assert "outside allowed directories" in result.content
         assert not outside.exists()
+        page.screenshot.assert_not_called()
 
     def test_execute_screenshot_rejects_sensitive_symlink_alias(self, tmp_path):
         from openjarvis.tools.browser import BrowserScreenshotTool
@@ -820,6 +821,7 @@ class TestBrowserScreenshotTool:
         assert result.success is False
         assert "sensitive" in result.content.lower()
         assert target.read_bytes() == b"existing"
+        page.screenshot.assert_not_called()
 
     def test_execute_screenshot_error(self):
         from openjarvis.tools.browser import BrowserScreenshotTool
