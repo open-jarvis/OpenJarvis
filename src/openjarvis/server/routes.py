@@ -819,6 +819,14 @@ async def _handle_agent_stream(
         finish_data["usage"] = response.usage.model_dump()
         if complexity_info is not None:
             finish_data["complexity"] = complexity_info.model_dump()
+        # ``_handle_agent`` already decided whether THIS run produced audio.
+        # Streaming used to drop that, leaving clients no way to tell a digest
+        # reply from any other, so the desktop UI asked /api/digest instead --
+        # a global question that says a digest exists, not that this answer is
+        # one. Carry the per-response answer here, like usage and complexity.
+        audio_meta = response.choices[0].message.audio if response.choices else None
+        if audio_meta is not None:
+            finish_data["audio"] = audio_meta.model_dump()
         yield f"data: {_json.dumps(finish_data)}\n\n"
 
         _record_completed_exchange(
