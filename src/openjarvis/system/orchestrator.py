@@ -355,8 +355,8 @@ class QueryOrchestrator:
                     from openjarvis.tools.llm_tool import LLMTool
 
                     tools.append(LLMTool(s.engine, model=s.model))
-                elif name in {"file_read", "file_write"} and ToolRegistry.contains(
-                    name
+                elif name in {"file_read", "file_list", "file_write"} and (
+                    ToolRegistry.contains(name)
                 ):
                     from openjarvis.tools._paths import file_tool_kwargs
 

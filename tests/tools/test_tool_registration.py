@@ -20,6 +20,7 @@ EXPECTED_TOOLS = {
     "llm",
     # file_read.py
     "file_read",
+    "file_list",
     # file_write.py
     "file_write",
     # web_search.py

@@ -191,6 +191,7 @@ All built-in tools are registered via `@ToolRegistry.register()` and are availab
 | **Weather** | `get_weather` | Dynamic current conditions and forecast via OpenWeatherMap |
 | **Finance** | `fx_macro_data` | Official macro releases, release calendars and FX rates via FXMacroData |
 | **File I/O** | `file_read` | Read file contents with safety validations |
+| **File I/O** | `file_list` | List names in an allowed directory (read-only) |
 | **HTTP** | `http_request` | Make HTTP requests with SSRF protection |
 | **Memory** | `retrieval` | Search the memory backend for relevant context |
 | **Memory** | `memory_store` | Store content in the memory backend |

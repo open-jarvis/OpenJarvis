@@ -92,6 +92,43 @@ def test_top_k():
     assert len(results) <= 3
 
 
+def test_top_k_zero_returns_no_results():
+    backend = _make_backend()
+    backend.store("a document")
+
+    assert backend.retrieve("document", top_k=0) == []
+
+
+def test_retrieve_expands_candidates_only_when_deleted_docs_hide_results():
+    backend = _make_backend()
+    doc_ids = [backend.store(f"document {i}") for i in range(32)]
+    for doc_id in doc_ids[:20]:
+        backend.delete(doc_id)
+
+    class _TrackingIndex:
+        ntotal = len(doc_ids)
+
+        def __init__(self):
+            self.requested_k = []
+
+        def search(self, _query, k):
+            self.requested_k.append(k)
+            scores = np.arange(k, 0, -1, dtype=np.float32).reshape(1, -1)
+            indices = np.arange(k, dtype=np.int64).reshape(1, -1)
+            return scores, indices
+
+    index = _TrackingIndex()
+    backend._index = index
+    results = backend.retrieve("document", top_k=3)
+
+    assert [result.content for result in results] == [
+        "document 20",
+        "document 21",
+        "document 22",
+    ]
+    assert index.requested_k == [6, 12, 24]
+
+
 def test_retrieve_empty():
     """Querying an empty backend returns an empty list."""
     backend = _make_backend()

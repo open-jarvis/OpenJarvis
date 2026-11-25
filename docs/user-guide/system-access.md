@@ -25,7 +25,8 @@ First check whether you have a config file at all:
 cat ~/.openjarvis/config.toml
 ```
 
-If it isn't there, that's your answer. Create it:
+If it isn't there, that's your answer. For read-only folder access, create it
+with the tools enabled and directories you want the agent to see:
 
 ```toml
 [engine]
@@ -38,7 +39,10 @@ default_model = "qwen3.5:9b"
 default_agent = "orchestrator"
 
 [tools]
-enabled = ["shell_exec", "file_read", "file_write", "think"]
+enabled = ["file_list", "file_read", "think"]
+
+[security]
+allowed_dirs = ['C:\Users\you\Documents']
 ```
 
 There's a fuller version at
@@ -56,13 +60,14 @@ python -c "from openjarvis.core.config import load_config; print(load_config().t
 
 | Tool | Scope |
 |------|-------|
+| `file_list` | List names of files and subdirectories (up to 500 entries). Sensitive filenames are hidden. |
 | `shell_exec` | Any command, as your user. 30s default timeout, 300s max, output capped at 100 KB per stream. |
 | `file_read` | Any readable path. 1 MB cap. |
 | `file_write` | Any writable path. 10 MB cap, can create parent directories. |
 | `apply_patch` | Applies unified diffs to any path. |
 | `code_interpreter` | Python in a subprocess, behind a coarse pattern blocklist. |
 
-`file_read` and `file_write` take an `allowed_dirs` argument that limits them to
+`file_list`, `file_read` and `file_write` take an `allowed_dirs` argument that limits them to
 a set of directories. When the argument is not passed they use
 `[security] allowed_dirs` from `config.toml`:
 
@@ -72,7 +77,7 @@ allowed_dirs = ["/home/user/workspace"]
 ```
 
 When the list is empty (the default) every path is allowed. This restricts only
-these two tools; `shell_exec`, `apply_patch` and `code_interpreter` are not
+these file tools; `shell_exec`, `apply_patch` and `code_interpreter` are not
 affected, so use the container sandbox if you need a real filesystem jail.
 Relative file names resolve inside the first allowed directory. Paths using
 `..` or symlinks must still resolve within an allowed directory. Use an array
@@ -85,8 +90,8 @@ including managed-agent streaming, scheduled ticks, and ephemeral turns.
 
 `file_read` and `file_write` refuse names matching a short glob list: `.env`,
 `*.pem`, `id_rsa`, `credentials.*` and a dozen or so others. It matches on the
-filename only, not the path or the contents, and only those two tools consult
-it. `shell_exec`, `apply_patch` and `code_interpreter` skip it entirely, so
+filename only, not the path or the contents. `file_list` hides matching
+filenames from listings. `shell_exec`, `apply_patch` and `code_interpreter` skip it, so
 `cat ~/.ssh/id_rsa` through `shell_exec` works fine. Treat it as protection
 against fat fingers, not as a security boundary.
 

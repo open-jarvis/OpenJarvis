@@ -91,7 +91,7 @@ class FAISSMemory(MemoryBackend):
         **kwargs: Any,
     ) -> List[RetrievalResult]:
         """Embed *query* and return the top-k most similar docs."""
-        if not query.strip() or self._index.ntotal == 0:
+        if not query.strip() or top_k <= 0 or self._index.ntotal == 0:
             bus = get_event_bus()
             bus.publish(
                 EventType.MEMORY_RETRIEVE,
@@ -106,31 +106,35 @@ class FAISSMemory(MemoryBackend):
         vec = self._embedder.embed([query])
         faiss.normalize_L2(vec)
 
-        # Request more results to compensate for deleted docs
-        k = min(
-            top_k + len(self._deleted),
-            self._index.ntotal,
-        )
-        scores, indices = self._index.search(vec, k)
+        # Grow the candidate set only when deleted results hide live ones.
+        # Using the total deleted count here can make every query scan nearly
+        # the full index even when deleted documents rank below the results.
+        k = min(max(top_k * 2, top_k + 1), self._index.ntotal)
+        while True:
+            scores, indices = self._index.search(vec, k)
 
-        results: List[RetrievalResult] = []
-        for score, idx in zip(scores[0].tolist(), indices[0].tolist()):
-            if idx < 0:
-                continue
-            doc_id = self._id_map[idx]
-            if doc_id in self._deleted:
-                continue
-            content, source, meta = self._documents[doc_id]
-            results.append(
-                RetrievalResult(
-                    content=content,
-                    score=float(score),
-                    source=source,
-                    metadata=dict(meta),
+            results: List[RetrievalResult] = []
+            for score, idx in zip(scores[0].tolist(), indices[0].tolist()):
+                if idx < 0:
+                    continue
+                doc_id = self._id_map[idx]
+                if doc_id in self._deleted:
+                    continue
+                content, source, meta = self._documents[doc_id]
+                results.append(
+                    RetrievalResult(
+                        content=content,
+                        score=float(score),
+                        source=source,
+                        metadata=dict(meta),
+                    )
                 )
-            )
-            if len(results) >= top_k:
+                if len(results) >= top_k:
+                    break
+
+            if len(results) >= top_k or k == self._index.ntotal:
                 break
+            k = min(k * 2, self._index.ntotal)
 
         bus = get_event_bus()
         bus.publish(

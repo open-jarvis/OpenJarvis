@@ -33,6 +33,7 @@ _BUILTIN_TOOL_MODULES = (
     "memory_manage",
     "user_profile_manage",
     "skill_manage",
+    "file_list",
     "file_write",
     "apply_patch",
     "git_tool",

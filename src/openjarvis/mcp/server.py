@@ -31,6 +31,7 @@ _TOOL_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
     "retrieval": {"readOnlyHint": True, "destructiveHint": False},
     "llm": {"readOnlyHint": False, "destructiveHint": False},
     "file_read": {"readOnlyHint": True, "destructiveHint": False},
+    "file_list": {"readOnlyHint": True, "destructiveHint": False},
     "web_search": {"readOnlyHint": True, "destructiveHint": False},
     "code_interpreter": {"destructiveHint": True, "readOnlyHint": False},
     "repl": {"destructiveHint": True, "readOnlyHint": False},
@@ -120,6 +121,12 @@ class MCPServer:
         except ImportError:
             pass
         try:
+            from openjarvis.tools.file_list import FileListTool
+
+            _tool_classes.append(FileListTool)
+        except ImportError:
+            pass
+        try:
             from openjarvis.tools.web_search import WebSearchTool
 
             _tool_classes.append(WebSearchTool)
@@ -194,7 +201,11 @@ class MCPServer:
 
         for cls in _tool_classes:
             try:
-                if getattr(cls, "tool_id", None) in {"file_read", "file_write"}:
+                if getattr(cls, "tool_id", None) in {
+                    "file_read",
+                    "file_list",
+                    "file_write",
+                }:
                     tools.append(cls(allowed_dirs=allowed_dirs))
                 else:
                     tools.append(cls())
@@ -211,7 +222,7 @@ class MCPServer:
                     try:
                         kwargs = (
                             {"allowed_dirs": allowed_dirs}
-                            if key in {"file_read", "file_write"}
+                            if key in {"file_read", "file_list", "file_write"}
                             else {}
                         )
                         tool = ToolRegistry.create(key, **kwargs)

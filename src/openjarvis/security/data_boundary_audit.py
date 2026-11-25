@@ -265,6 +265,7 @@ LOCAL_ACCESS_TOOLS = {
     "db_query",
     "docker_shell_exec",
     "file_read",
+    "file_list",
     "file_write",
     "get_pending_actions",
     "git_commit",

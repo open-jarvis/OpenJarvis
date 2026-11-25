@@ -43,3 +43,16 @@ def test_preset_loads(preset_path: Path) -> None:
     # slots `jarvis init` expects to be populated for a working first run.
     assert cfg.engine.default, f"{preset_path.stem}: engine.default is empty"
     assert cfg.agent.default_agent, f"{preset_path.stem}: agent.default_agent is empty"
+
+
+def test_offline_preset_uses_only_local_chat() -> None:
+    cfg = load_config(path=PRESETS_DIR / "offline-local.toml")
+
+    assert cfg.engine.default == "ollama"
+    assert cfg.intelligence.default_model == "qwen3.5:4b"
+    assert cfg.agent.default_agent == "simple"
+    assert cfg.agent.tools == ""
+    assert cfg.tools.enabled == ""
+    assert not cfg.analytics.enabled
+    assert not cfg.telemetry.enabled
+    assert not cfg.traces.enabled
