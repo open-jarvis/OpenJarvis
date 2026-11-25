@@ -96,7 +96,7 @@ class SkillManageTool(BaseTool):
             if "output_key" in step:
                 lines.append(f'output_key = "{step["output_key"]}"')
             lines.append("")
-        path.write_text("\n".join(lines))
+        path.write_text("\n".join(lines), encoding="utf-8")
         return ToolResult(
             tool_name=self.spec.name,
             success=True,
@@ -136,7 +136,7 @@ class SkillManageTool(BaseTool):
         return ToolResult(
             tool_name=self.spec.name,
             success=True,
-            content=path.read_text(),
+            content=path.read_text(encoding="utf-8"),
         )
 
     def _delete(self, name: str) -> ToolResult:
