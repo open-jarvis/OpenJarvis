@@ -124,3 +124,33 @@ def test_recommended_model_never_configured_embedder():
     models = ["nomic-embed-text", "qwen3.5:4b"]
     result = _pick_recommended_model(models, configured="nomic-embed-text")
     assert result["model"] == "qwen3.5:4b"
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
+def test_recommendation_endpoint_uses_active_server_model(tmp_path):
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from openjarvis.agents.manager import AgentManager
+    from openjarvis.server.agent_manager_routes import create_agent_manager_router
+
+    manager = AgentManager(db_path=str(tmp_path / "agents.db"))
+    app = FastAPI()
+    app.state.engine = SimpleNamespace(
+        list_models=lambda: ["qwen3.5:2b", "bigcode/starcoder2-15b"]
+    )
+    app.state.model = "qwen3.5:2b"
+    for router in create_agent_manager_router(manager):
+        app.include_router(router)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/recommended-model")
+        assert response.status_code == 200
+        assert response.json() == {
+            "model": "qwen3.5:2b",
+            "reason": "Configured default model",
+        }
+    finally:
+        manager.close()
