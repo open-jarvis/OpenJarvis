@@ -344,12 +344,20 @@ _CLOUD_PREFIXES = ("gpt-", "claude-", "gemini-", "o1-", "o3-", "o4-")
 
 def _pick_recommended_model(
     model_ids: list[str],
+    configured: str = "",
 ) -> dict[str, str]:
-    """Pick the second-largest local *chat* model from a list.
+    """Pick the model a fresh UI session should start with.
+
+    The server's configured model (``jarvis serve --model`` / ``[intelligence]
+    default_model``) wins whenever the engine actually lists it: it is what
+    the user chose, and ``/v1/models`` already lists it first (#1315).
+    Otherwise pick the second-largest local *chat* model.
 
     Embedding-only models (nomic-embed-text, etc.) are excluded — they return
     HTTP 400 "does not support chat" when used as the generation model.
     """
+    if configured and configured in model_ids and not is_embed_only_model(configured):
+        return {"model": configured, "reason": "Configured default model"}
     local = [
         m
         for m in model_ids
@@ -2361,7 +2369,11 @@ def create_agent_manager_router(
             models = engine.list_models()
         except Exception:
             models = []
-        return _pick_recommended_model(models)
+        # Without the configured model, a cloud catalog merged into the list
+        # (e.g. NVIDIA NIM ids such as "bigcode/starcoder2-15b", which carry no
+        # ":<n>b" size tag) could be picked as the "second-largest local" model.
+        configured = getattr(request.app.state, "model", "") or ""
+        return _pick_recommended_model(models, configured)
 
     # ── Tools & credentials ──────────────────────────────────
 

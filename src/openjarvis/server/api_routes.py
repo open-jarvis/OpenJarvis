@@ -421,6 +421,14 @@ def _serialise_trace(trace) -> dict:
         st = step.get("step_type")
         if hasattr(st, "value"):
             step["step_type"] = st.value
+        # The trace viewers read a flat ``data`` mapping and ``duration_ms``.
+        step["duration_ms"] = round((step.get("duration_seconds") or 0.0) * 1000)
+        data: dict = {}
+        for part in ("input", "output", "metadata"):
+            value = step.get(part)
+            if isinstance(value, dict):
+                data.update(value)
+        step["data"] = {k: v for k, v in data.items() if v not in (None, "", [], {})}
     return d
 
 

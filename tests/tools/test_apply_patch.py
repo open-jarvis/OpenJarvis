@@ -395,3 +395,20 @@ class TestApplyPatchTool:
 
         assert result.success is True, result.content
         assert target.read_text(encoding="utf-8") == "created\n"
+
+    def test_rejects_path_outside_allowed_dirs(self, tmp_path):
+        allowed = tmp_path / "allowed"
+        outside = tmp_path / "outside.txt"
+        allowed.mkdir()
+        outside.write_text("before\n", encoding="utf-8")
+        patch = "@@ -1 +1 @@\n-before\n+after\n"
+
+        result = ApplyPatchTool(allowed_dirs=[str(allowed)]).execute(
+            patch=patch,
+            path=str(outside),
+            backup=False,
+        )
+
+        assert result.success is False
+        assert "outside allowed directories" in result.content
+        assert outside.read_text(encoding="utf-8") == "before\n"

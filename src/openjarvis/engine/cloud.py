@@ -1079,14 +1079,12 @@ class CloudEngine(InferenceEngine):
             "ttft": elapsed,
         }
         if getattr(choice.message, "tool_calls", None):
+            # Flat shape, like the other engines: agents read tc["name"].
             result["tool_calls"] = [
                 {
                     "id": tc.id,
-                    "type": tc.type,
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
                 }
                 for tc in choice.message.tool_calls
             ]
@@ -1150,14 +1148,12 @@ class CloudEngine(InferenceEngine):
             "ttft": elapsed,
         }
         if getattr(choice.message, "tool_calls", None):
+            # Flat shape, like the other engines: agents read tc["name"].
             result["tool_calls"] = [
                 {
                     "id": tc.id,
-                    "type": tc.type,
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
                 }
                 for tc in choice.message.tool_calls
             ]

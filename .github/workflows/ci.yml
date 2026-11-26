@@ -167,14 +167,23 @@ jobs:
         run: |
           uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
           uv run python -c "import openjarvis_rust; print('openjarvis_rust imports on Windows OK')"
+          uv run pytest tests/agents/test_rust_agent_ctors.py -q
 
       - name: Verify file aliases and network address policy
         shell: bash
         run: uv run pytest tests/security/test_file_policy.py tests/security/test_ssrf.py -q
 
+      - name: Verify filesystem tool allowlists
+        shell: bash
+        run: uv run pytest tests/tools/test_apply_patch.py tests/tools/test_browser.py tests/tools/test_allowed_dirs_config.py -q
+
       - name: Verify capability and rate-limit backend parity
         shell: bash
         run: uv run pytest tests/security/test_capabilities.py tests/security/test_rate_limiter.py tests/security/test_optional_native_security.py -q
+
+      - name: Verify shell subprocess policies
+        shell: bash
+        run: uv run pytest tests/tools/test_shell_exec.py -q
 
       - name: Smoke-test CLI
         shell: bash

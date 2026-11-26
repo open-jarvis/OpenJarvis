@@ -220,7 +220,10 @@ class _OpenAICompatibleEngine(AsyncHTTPEngineMixin, InferenceEngine):
                         chunk = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    # The final chunk may carry ``"choices": []`` (usage-only
+                    # chunk, as sent by OpenAI-style gateways).
+                    choice = (chunk.get("choices") or [{}])[0]
+                    delta = choice.get("delta") or {}
                     content = delta.get("content")
                     if content:
                         yield content
@@ -277,8 +280,10 @@ class _OpenAICompatibleEngine(AsyncHTTPEngineMixin, InferenceEngine):
                         chunk = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
-                    choice = chunk.get("choices", [{}])[0]
-                    delta = choice.get("delta", {})
+                    # The final chunk may carry ``"choices": []`` with only
+                    # ``usage``; keep the usage instead of raising IndexError.
+                    choice = (chunk.get("choices") or [{}])[0]
+                    delta = choice.get("delta") or {}
                     finish = choice.get("finish_reason")
                     content = delta.get("content")
                     tool_calls = delta.get("tool_calls")

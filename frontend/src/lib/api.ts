@@ -109,16 +109,45 @@ export const authHeaders = (
 // Centralized fetch for the local server: prepends getBase() and injects the
 // Bearer auth header (when a key is set) on every call. Using this everywhere
 // guarantees no /v1 or /api request is sent without auth — the bug in #266 was
-// that direct fetch() calls omitted the header and 401'd. `path` is the
-// server-relative path (e.g. "/v1/savings").
-export const apiFetch = (
+// that direct fetch() calls omitted the header and 401'd. `path` can be a
+// server-relative path or an absolute URL on the configured API server.
+// Never forward that server's credentials to another origin or app prefix.
+const resolveApiUrl = (path: string): string => {
+  if (path.startsWith('//') || path.includes('\\') || /[\u0000-\u001f\u007f]/.test(path) || path.trim() !== path) {
+    throw new Error('Invalid API request URL');
+  }
+  const base = getBase().replace(/\/+$/, '');
+  const page = typeof window !== 'undefined' && window.location?.href
+    ? window.location.href : 'http://localhost/';
+  const boundary = new URL(base || '/', page);
+  const absolute = /^[a-z][a-z0-9+.-]*:/i.test(path);
+  const url = absolute ? path : `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+  const target = new URL(url, page);
+  const prefix = boundary.pathname.replace(/\/+$/, '');
+  const insidePrefix = (pathname: string) => pathname === prefix || pathname.startsWith(`${prefix}/`);
+  const decodedPath = prefix
+    ? new URL(decodeURIComponent(target.pathname), target.origin).pathname : target.pathname;
+  if (
+    !['http:', 'https:'].includes(target.protocol)
+    || target.origin !== boundary.origin
+    || target.username || target.password
+    || boundary.username || boundary.password || boundary.search || boundary.hash
+    || (prefix && (!insidePrefix(target.pathname) || !insidePrefix(decodedPath)))
+  ) {
+    throw new Error('API request must stay on the configured server');
+  }
+  return url;
+};
+
+export const apiFetch = async (
   path: string,
   init: RequestInit = {},
 ): Promise<Response> => {
+  const url = resolveApiUrl(path);
   const headers = authHeaders(
     (init.headers as Record<string, string> | undefined) ?? {},
   );
-  return fetch(`${getBase()}${path}`, { ...init, headers });
+  return fetch(url, { ...init, headers });
 };
 
 async function tauriInvoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
