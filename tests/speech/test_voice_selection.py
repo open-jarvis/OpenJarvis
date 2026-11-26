@@ -64,14 +64,13 @@ def test_cartesia_voice_routes_back_to_cartesia_only():
     assert session.voice_for_backend(_Backend("kokoro"))[0] == "bm_george"
 
 
-def test_elevenlabs_fallback_uses_openjarvis_voice():
+def test_elevenlabs_fallback_uses_george_replacement():
     session = _session(
         tts_backend="kokoro",
         voice_id="bm_george",
     )
-    assert session.voice_for_backend(_Backend("elevenlabs"))[0] == (
-        "EitqXD7jgIy0K5Z1zGGp"
-    )
+    voice_id, _ = session.voice_for_backend(_Backend("elevenlabs"))
+    assert voice_id == "6WwXjDDEMyNmFG95zycZ"
 
 
 def test_zero_speed_is_not_silently_rewritten():

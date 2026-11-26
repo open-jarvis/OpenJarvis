@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
+from openjarvis.speech.elevenlabs_tts import _DEFAULT_VOICE_ID as _ELEVENLABS_VOICE_ID
+
 if TYPE_CHECKING:
     from openjarvis.core.config import JarvisConfig
 
@@ -25,7 +27,7 @@ BACKEND_DEFAULT_VOICE = {
     "kokoro": "bm_george",  # British male
     "openai_tts": "onyx",  # deepest OpenAI preset
     "cartesia": "",  # no safe static default; let Cartesia choose
-    "elevenlabs": "EitqXD7jgIy0K5Z1zGGp",
+    "elevenlabs": _ELEVENLABS_VOICE_ID,
 }
 
 

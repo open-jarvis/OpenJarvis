@@ -1160,8 +1160,8 @@ OpenJarvis respects the following environment variables:
 | Variable | Description |
 |----------|-------------|
 | `OPENAI_API_KEY` | API key for OpenAI cloud inference. Required for the `cloud` engine with OpenAI models. |
-| `ELEVENLABS_API_KEY` | API key for ElevenLabs text-to-speech. Required only when `[speech]` or `[digest]` uses `tts_backend = "elevenlabs"` or `tts_backend = "elevenlabs"` is requested by a tool. |
-| `ELEVENLABS_VOICE_ID` | Optional ElevenLabs voice override. OpenJarvis defaults to `EitqXD7jgIy0K5Z1zGGp`; this environment variable takes precedence over the backend default. |
+| `ELEVENLABS_API_KEY` | API key for ElevenLabs cloud text-to-speech. Keep this in the environment of the OpenJarvis process. |
+| `ELEVENLABS_VOICE_ID` | Optional voice ID for ElevenLabs synthesis when no voice ID is supplied. The built-in default is Eldrin (`6WwXjDDEMyNmFG95zycZ`). |
 | `ELEVENLABS_MODEL` | Optional ElevenLabs model override. Defaults to `eleven_multilingual_v2`. |
 | `ANTHROPIC_API_KEY` | API key for Anthropic cloud inference. Required for the `cloud` engine with Claude models. |
 | `GOOGLE_API_KEY` | API key for Google Gemini inference. Required for the `google` engine. |
@@ -1178,6 +1178,21 @@ OpenJarvis respects the following environment variables:
 
 In the desktop app, you can save `ATLASCLOUD_API_KEY` in **Cloud Models** or
 **Settings → API Keys** instead of setting an environment variable.
+
+### ElevenLabs speech output
+
+To select ElevenLabs, set `tts_backend = "elevenlabs"` in `[speech]` and provide
+`ELEVENLABS_API_KEY` in the process environment. To choose a different voice,
+add `voice_id` with an ID available to your account. ElevenLabs [recommends
+Eldrin to replace George](https://elevenlabs.io/docs/help-center/product/voices/my-voices/what-are-default-voices),
+which retires on December 31, 2026. If your config explicitly selects George,
+update that ID before the retirement date. [Voice access depends on your
+ElevenLabs plan](https://elevenlabs.io/docs/eleven-creative/voices/voice-library).
+
+When the API key is set, chat and web speech can also select ElevenLabs as a
+fallback if the preferred and other earlier backends are unavailable. That
+fallback uses the built-in voice. Synthesis sends the text being spoken to
+ElevenLabs. Leave the API key unset if you do not want this provider used.
 
 ## Next Steps
 
