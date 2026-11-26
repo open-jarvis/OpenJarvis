@@ -196,6 +196,52 @@ class TestOpenAICompatStreamFull:
         assert chunks[2].usage["total_tokens"] == 7
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("choices", [[], None])
+    async def test_usage_only_chunk_with_empty_choices(self, choices):
+        # OpenAI-compatible gateways may end the stream with a usage-only
+        # chunk whose ``choices`` list is empty.
+        sse_lines = [
+            f"data: {json.dumps({'choices': [{'delta': {'content': 'Hi'}}]})}",
+            "data: "
+            + json.dumps({"choices": [{"delta": {}, "finish_reason": "stop"}]}),
+            "data: " + json.dumps({"choices": choices, "usage": {"total_tokens": 9}}),
+            "data: [DONE]",
+        ]
+        engine = VLLMEngine(host="http://localhost:8000")
+        engine._async_transport = _sse_transport(sse_lines)
+
+        chunks = [
+            chunk
+            async for chunk in engine.stream_full(
+                [Message(role=Role.USER, content="test")], model="test-model"
+            )
+        ]
+
+        assert [c.content for c in chunks] == ["Hi", None, None]
+        assert chunks[1].finish_reason == "stop"
+        assert chunks[2].usage == {"total_tokens": 9}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("choices", [[], None])
+    async def test_stream_ignores_usage_only_chunk_with_empty_choices(self, choices):
+        sse_lines = [
+            f"data: {json.dumps({'choices': [{'delta': {'content': 'Hi'}}]})}",
+            "data: " + json.dumps({"choices": choices, "usage": {"total_tokens": 9}}),
+            "data: [DONE]",
+        ]
+        engine = VLLMEngine(host="http://localhost:8000")
+        engine._async_transport = _sse_transport(sse_lines)
+
+        tokens = [
+            token
+            async for token in engine.stream(
+                [Message(role=Role.USER, content="test")], model="test-model"
+            )
+        ]
+
+        assert tokens == ["Hi"]
+
+    @pytest.mark.asyncio
     async def test_parses_tool_call_fragments(self):
         # Simulate streamed tool_call fragments
         _tc1 = (
