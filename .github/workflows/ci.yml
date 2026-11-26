@@ -167,6 +167,7 @@ jobs:
         run: |
           uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
           uv run python -c "import openjarvis_rust; print('openjarvis_rust imports on Windows OK')"
+          uv run pytest tests/agents/test_rust_agent_ctors.py -q
 
       - name: Verify file aliases and network address policy
         shell: bash

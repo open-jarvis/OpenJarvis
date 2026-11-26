@@ -48,20 +48,22 @@ impl AgentEnum {
     }
 }
 
-fn make_adapter(engine_key: &str, host: &str, model: &str) -> PyResult<DefaultAdapter> {
+fn make_adapter(engine_key: &str, host: Option<&str>, model: &str) -> PyResult<DefaultAdapter> {
     let mut config = openjarvis_core::JarvisConfig::default();
-    match engine_key {
-        "ollama" => config.engine.ollama.host = host.to_string(),
-        "vllm" => config.engine.vllm.host = host.to_string(),
-        "sglang" => config.engine.sglang.host = host.to_string(),
-        "llamacpp" => config.engine.llamacpp.host = host.to_string(),
-        "mlx" => config.engine.mlx.host = host.to_string(),
-        "lmstudio" => config.engine.lmstudio.host = host.to_string(),
-        "exo" => config.engine.exo.host = host.to_string(),
-        "nexa" => config.engine.nexa.host = host.to_string(),
-        "uzu" => config.engine.uzu.host = host.to_string(),
-        "apple_fm" => config.engine.apple_fm.host = host.to_string(),
-        _ => config.engine.ollama.host = host.to_string(),
+    if let Some(host) = host {
+        match engine_key {
+            "ollama" => config.engine.ollama.host = host.to_string(),
+            "vllm" => config.engine.vllm.host = host.to_string(),
+            "sglang" => config.engine.sglang.host = host.to_string(),
+            "llamacpp" => config.engine.llamacpp.host = host.to_string(),
+            "mlx" => config.engine.mlx.host = host.to_string(),
+            "lmstudio" => config.engine.lmstudio.host = host.to_string(),
+            "exo" => config.engine.exo.host = host.to_string(),
+            "nexa" => config.engine.nexa.host = host.to_string(),
+            "uzu" => config.engine.uzu.host = host.to_string(),
+            "apple_fm" => config.engine.apple_fm.host = host.to_string(),
+            _ => {}
+        }
     }
     let engine = openjarvis_engine::get_engine_static(&config, Some(engine_key))
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
@@ -76,10 +78,10 @@ pub struct PySimpleAgent {
 #[pymethods]
 impl PySimpleAgent {
     #[new]
-    #[pyo3(signature = (engine_key="ollama", host="http://localhost:11434", model="qwen3:8b", system_prompt="You are a helpful assistant.", temperature=0.7))]
+    #[pyo3(signature = (engine_key="ollama", host=None, model="qwen3:8b", system_prompt="You are a helpful assistant.", temperature=0.7))]
     fn new(
         engine_key: &str,
-        host: &str,
+        host: Option<&str>,
         model: &str,
         system_prompt: &str,
         temperature: f64,
@@ -87,7 +89,9 @@ impl PySimpleAgent {
         let _guard = crate::RUNTIME.enter();
         let adapter = make_adapter(engine_key, host, model)?;
         let agent = openjarvis_agents::SimpleAgent::new(adapter, system_prompt, temperature);
-        Ok(Self { inner: AgentEnum::Simple(agent) })
+        Ok(Self {
+            inner: AgentEnum::Simple(agent),
+        })
     }
 
     fn agent_id(&self) -> &str {
@@ -117,10 +121,10 @@ pub struct PyOrchestratorAgent {
 #[pymethods]
 impl PyOrchestratorAgent {
     #[new]
-    #[pyo3(signature = (engine_key="ollama", host="http://localhost:11434", model="qwen3:8b", system_prompt="You are a helpful orchestrator agent.", max_turns=10, temperature=0.7))]
+    #[pyo3(signature = (engine_key="ollama", host=None, model="qwen3:8b", system_prompt="You are a helpful orchestrator agent.", max_turns=10, temperature=0.7))]
     fn new(
         engine_key: &str,
-        host: &str,
+        host: Option<&str>,
         model: &str,
         system_prompt: &str,
         max_turns: usize,
@@ -130,9 +134,15 @@ impl PyOrchestratorAgent {
         let adapter = make_adapter(engine_key, host, model)?;
         let executor = Arc::new(openjarvis_tools::ToolExecutor::new(None, None));
         let agent = openjarvis_agents::OrchestratorAgent::new(
-            adapter, system_prompt, executor, max_turns, temperature,
+            adapter,
+            system_prompt,
+            executor,
+            max_turns,
+            temperature,
         );
-        Ok(Self { inner: AgentEnum::Orchestrator(agent) })
+        Ok(Self {
+            inner: AgentEnum::Orchestrator(agent),
+        })
     }
 
     fn agent_id(&self) -> &str {
@@ -162,10 +172,10 @@ pub struct PyNativeReActAgent {
 #[pymethods]
 impl PyNativeReActAgent {
     #[new]
-    #[pyo3(signature = (engine_key="ollama", host="http://localhost:11434", model="qwen3:8b", max_turns=10, temperature=0.7))]
+    #[pyo3(signature = (engine_key="ollama", host=None, model="qwen3:8b", max_turns=10, temperature=0.7))]
     fn new(
         engine_key: &str,
-        host: &str,
+        host: Option<&str>,
         model: &str,
         max_turns: usize,
         temperature: f64,
@@ -173,10 +183,11 @@ impl PyNativeReActAgent {
         let _guard = crate::RUNTIME.enter();
         let adapter = make_adapter(engine_key, host, model)?;
         let executor = Arc::new(openjarvis_tools::ToolExecutor::new(None, None));
-        let agent = openjarvis_agents::NativeReActAgent::new(
-            adapter, executor, max_turns, temperature,
-        );
-        Ok(Self { inner: AgentEnum::NativeReAct(agent) })
+        let agent =
+            openjarvis_agents::NativeReActAgent::new(adapter, executor, max_turns, temperature);
+        Ok(Self {
+            inner: AgentEnum::NativeReAct(agent),
+        })
     }
 
     fn agent_id(&self) -> &str {
@@ -207,10 +218,10 @@ pub struct PyNativeOpenHandsAgent {
 #[pymethods]
 impl PyNativeOpenHandsAgent {
     #[new]
-    #[pyo3(signature = (engine_key="ollama", host="http://localhost:11434", model="qwen3:8b", max_turns=10, temperature=0.7))]
+    #[pyo3(signature = (engine_key="ollama", host=None, model="qwen3:8b", max_turns=10, temperature=0.7))]
     fn new(
         engine_key: &str,
-        host: &str,
+        host: Option<&str>,
         model: &str,
         max_turns: usize,
         temperature: f64,
@@ -218,12 +229,8 @@ impl PyNativeOpenHandsAgent {
         let _guard = crate::RUNTIME.enter();
         let adapter = make_adapter(engine_key, host, model)?;
         let executor = Arc::new(openjarvis_tools::ToolExecutor::new(None, None));
-        let agent = openjarvis_agents::NativeOpenHandsAgent::new(
-            adapter,
-            executor,
-            max_turns,
-            temperature,
-        );
+        let agent =
+            openjarvis_agents::NativeOpenHandsAgent::new(adapter, executor, max_turns, temperature);
         Ok(Self {
             inner: Box::new(agent),
         })
@@ -266,7 +273,7 @@ impl PyMonitorOperativeAgent {
     #[new]
     #[pyo3(signature = (
         engine_key="ollama",
-        host="http://localhost:11434",
+        host=None,
         model="qwen3:8b",
         max_turns=10,
         temperature=0.7,
@@ -280,7 +287,7 @@ impl PyMonitorOperativeAgent {
     #[allow(clippy::too_many_arguments)]
     fn new(
         engine_key: &str,
-        host: &str,
+        host: Option<&str>,
         model: &str,
         max_turns: usize,
         temperature: f64,
