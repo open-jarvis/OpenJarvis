@@ -801,6 +801,70 @@ class TestOpenAICompatGatewayToolCallShape:
             for i in range(n_calls)
         ]
 
+    @pytest.mark.parametrize(
+        ("model", "client_attr"),
+        [
+            ("openrouter/test-model", "_openrouter_client"),
+            ("atlascloud/test-model", "_atlascloud_client"),
+        ],
+    )
+    def test_agent_executes_gateway_tool_call(self, monkeypatch, model, client_attr):
+        from openjarvis.agents.orchestrator import OrchestratorAgent
+        from openjarvis.tools.calculator import CalculatorTool
+
+        for var in CLOUD_KEY_ENV_VARS:
+            monkeypatch.delenv(var, raising=False)
+
+        def response(content, tool_calls=None):
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content=content, tool_calls=tool_calls),
+                        finish_reason="tool_calls" if tool_calls else "stop",
+                    )
+                ],
+                usage=SimpleNamespace(
+                    prompt_tokens=3, completion_tokens=2, total_tokens=5
+                ),
+                model="test-model",
+            )
+
+        client = mock.MagicMock()
+        client.chat.completions.create.side_effect = [
+            response(
+                "",
+                [
+                    SimpleNamespace(
+                        id="call_calc",
+                        type="function",
+                        function=SimpleNamespace(
+                            name="calculator", arguments='{"expression":"2+2"}'
+                        ),
+                    )
+                ],
+            ),
+            response("The answer is 4."),
+        ]
+        engine = CloudEngine()
+        setattr(engine, client_attr, client)
+        agent = OrchestratorAgent(engine, model, tools=[CalculatorTool()], max_turns=2)
+
+        result = agent.run("What is 2+2? Use the calculator.")
+
+        assert result.content == "The answer is 4."
+        assert len(result.tool_results) == 1
+        tool_result = result.tool_results[0]
+        assert tool_result.tool_name == "calculator"
+        assert tool_result.success
+        assert float(tool_result.content) == 4
+        messages = client.chat.completions.create.call_args.kwargs["messages"]
+        assert any(
+            message.get("role") == "tool"
+            and message.get("tool_call_id") == "call_calc"
+            and float(message["content"]) == 4
+            for message in messages
+        )
+
 
 class TestCloudEngineCanServe:
     """#532: can_serve gates on the per-provider client, not just health().
