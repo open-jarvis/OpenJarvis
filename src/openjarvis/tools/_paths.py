@@ -20,7 +20,10 @@ def validate_allowed_dirs(allowed_dirs: object) -> List[str]:
 
 def file_tool_kwargs(name: str, config: Any = None) -> dict[str, List[str]]:
     """Bind native file tools to the caller's config when one was supplied."""
-    if name not in {"file_read", "file_write"} or config is None:
+    if (
+        name not in {"file_read", "file_write", "apply_patch", "browser_screenshot"}
+        or config is None
+    ):
         return {}
     return {"allowed_dirs": validate_allowed_dirs(config.security.allowed_dirs)}
 

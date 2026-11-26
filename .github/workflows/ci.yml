@@ -172,9 +172,17 @@ jobs:
         shell: bash
         run: uv run pytest tests/security/test_file_policy.py tests/security/test_ssrf.py -q
 
+      - name: Verify filesystem tool allowlists
+        shell: bash
+        run: uv run pytest tests/tools/test_apply_patch.py tests/tools/test_browser.py tests/tools/test_allowed_dirs_config.py -q
+
       - name: Verify capability and rate-limit backend parity
         shell: bash
         run: uv run pytest tests/security/test_capabilities.py tests/security/test_rate_limiter.py tests/security/test_optional_native_security.py -q
+
+      - name: Verify shell subprocess policies
+        shell: bash
+        run: uv run pytest tests/tools/test_shell_exec.py -q
 
       - name: Smoke-test CLI
         shell: bash

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import base64
-from typing import Any
+from pathlib import Path
+from typing import Any, List, Optional
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
+from openjarvis.tools._paths import resolve_allowed_dirs
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 
@@ -485,6 +487,11 @@ class BrowserScreenshotTool(BaseTool):
     tool_id = "browser_screenshot"
     is_local = False
 
+    def __init__(self, allowed_dirs: Optional[List[str]] = None) -> None:
+        self._allowed_dirs = [
+            Path(d).expanduser().resolve() for d in resolve_allowed_dirs(allowed_dirs)
+        ]
+
     @property
     def spec(self) -> ToolSpec:
         return ToolSpec(
@@ -516,11 +523,47 @@ class BrowserScreenshotTool(BaseTool):
         full_page = params.get("full_page", False)
 
         try:
+            save_path = None
+            if path:
+                save_path = Path(path).expanduser()
+                if not save_path.is_absolute() and self._allowed_dirs:
+                    save_path = self._allowed_dirs[0] / save_path
+
+                from openjarvis.security.file_policy import is_sensitive_file
+
+                if is_sensitive_file(save_path):
+                    return ToolResult(
+                        tool_name="browser_screenshot",
+                        content=f"Access denied: {path} is a sensitive file.",
+                        success=False,
+                    )
+
+                save_path = save_path.resolve()
+
+                if self._allowed_dirs and not any(
+                    save_path == d or save_path.is_relative_to(d)
+                    for d in self._allowed_dirs
+                ):
+                    return ToolResult(
+                        tool_name="browser_screenshot",
+                        content=(
+                            f"Access denied: {path} is outside allowed directories."
+                        ),
+                        success=False,
+                    )
+
+                if is_sensitive_file(save_path):
+                    return ToolResult(
+                        tool_name="browser_screenshot",
+                        content=f"Access denied: {path} is a sensitive file.",
+                        success=False,
+                    )
+
             page = _session.page
             screenshot_bytes = page.screenshot(full_page=full_page)
-
-            if path:
-                with open(path, "wb") as f:
+            if save_path is not None:
+                save_path.parent.mkdir(parents=True, exist_ok=True)
+                with save_path.open("wb") as f:
                     f.write(screenshot_bytes)
 
             b64_data = base64.b64encode(screenshot_bytes).decode("utf-8")
