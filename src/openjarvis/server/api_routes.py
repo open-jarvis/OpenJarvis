@@ -1012,11 +1012,15 @@ async def transcribe_speech(request: Request):
 
     audio_bytes = await audio_file.read()
     language = form.get("language")
-    # Optional vocabulary hint (e.g. the wake word in hands-free mode). Only
-    # forwarded when present, so backends written against the original
-    # transcribe() signature keep working.
-    hotwords = str(form.get("hotwords") or "").strip()[:200]
-    extra = {"hotwords": hotwords} if hotwords else {}
+    raw_hotwords = form.get("hotwords")
+    if raw_hotwords is not None and not isinstance(raw_hotwords, str):
+        raise HTTPException(status_code=400, detail="'hotwords' must be text")
+    hotwords = (raw_hotwords or "").strip()[:200]
+    extra = (
+        {"hotwords": hotwords}
+        if hotwords and getattr(backend, "supports_hotwords", False)
+        else {}
+    )
 
     # Detect format from filename
     filename = getattr(audio_file, "filename", "audio.wav")

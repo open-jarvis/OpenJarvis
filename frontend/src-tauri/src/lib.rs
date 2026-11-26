@@ -2079,6 +2079,7 @@ async fn transcribe_audio(
     filename: String,
     hotwords: Option<String>,
     language: Option<String>,
+    api_key: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let url = format!("{}/v1/speech/transcribe", api_url);
     let client = reqwest::Client::new();
@@ -2097,8 +2098,11 @@ async fn transcribe_audio(
         form = form.text("language", lang);
     }
 
-    let resp = client
-        .post(&url)
+    let mut request = client.post(&url);
+    if let Some(key) = api_key.filter(|key| !key.is_empty()) {
+        request = request.bearer_auth(key);
+    }
+    let resp = request
         .multipart(form)
         .send()
         .await

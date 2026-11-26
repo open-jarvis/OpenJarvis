@@ -20,6 +20,7 @@ class OpenAIWhisperBackend(SpeechBackend):
     """Cloud speech-to-text using OpenAI Whisper API."""
 
     backend_id = "openai"
+    supports_hotwords = True
 
     def __init__(self, api_key: Optional[str] = None) -> None:
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")

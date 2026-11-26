@@ -198,13 +198,37 @@ def test_faster_whisper_hotwords_enable_vad_filter():
     Hotwords alone can make Whisper "hear" the hinted word in noise (#1301).
     """
     model = _mock_model()
+    response = model.transcribe.return_value
+    calls = []
+
+    def transcribe(path, *, hotwords=None, vad_filter=False):
+        calls.append((hotwords, vad_filter))
+        return response
+
+    model.transcribe = transcribe
     with patch("openjarvis.speech.faster_whisper.WhisperModel", return_value=model):
         backend = FasterWhisperBackend(model_size="base", device="cpu")
         backend.transcribe(b"audio", hotwords="Jarvis")
 
-    kwargs = model.transcribe.call_args.kwargs
-    assert kwargs["hotwords"] == "Jarvis"
-    assert kwargs["vad_filter"] is True
+    assert calls == [("Jarvis", True)]
+
+
+def test_faster_whisper_older_model_accepts_audio_without_unsupported_hint():
+    model = _mock_model()
+    response = model.transcribe.return_value
+    calls = []
+
+    def transcribe(path, *, language=None):
+        calls.append(language)
+        return response
+
+    model.transcribe = transcribe
+    with patch("openjarvis.speech.faster_whisper.WhisperModel", return_value=model):
+        backend = FasterWhisperBackend(model_size="base", device="cpu")
+        result = backend.transcribe(b"audio", language="en", hotwords="Jarvis")
+
+    assert calls == ["en"]
+    assert result.language == "en"
 
 
 def test_faster_whisper_without_hotwords_keeps_defaults():
