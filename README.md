@@ -50,6 +50,8 @@ Pick your platform and run one command. Each installer handles [uv](https://docs
 
 Then `jarvis` to start. The Rust extension and larger models continue downloading in the background; `jarvis doctor` shows status.
 
+Prefer to read the installer before it runs? See [Review before you run](https://open-jarvis.github.io/OpenJarvis/getting-started/install/#review-before-you-run).
+
 Platform-specific notes (WSL2 setup, native-Windows scheduled-task service, desktop prerequisites, manual / contributor install): see the [installation docs](https://open-jarvis.github.io/OpenJarvis/getting-started/install/).
 
 ## Quick Start
