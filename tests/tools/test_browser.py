@@ -779,6 +779,50 @@ class TestBrowserScreenshotTool:
         with open(save_path, "rb") as f:
             assert f.read() == fake_png
 
+    def test_execute_screenshot_rejects_path_outside_allowed_dirs(self, tmp_path):
+        from openjarvis.tools.browser import BrowserScreenshotTool
+
+        allowed = tmp_path / "allowed"
+        allowed.mkdir()
+        outside = tmp_path / "outside.png"
+        page = _make_mock_page()
+        page.screenshot.return_value = b"\x89PNGoutside"
+        session = _make_mock_session(page)
+
+        with patch("openjarvis.tools.browser._session", session):
+            tool = BrowserScreenshotTool(allowed_dirs=[str(allowed)])
+            result = tool.execute(path=str(outside))
+
+        assert result.success is False
+        assert "outside allowed directories" in result.content
+        assert not outside.exists()
+        page.screenshot.assert_not_called()
+
+    def test_execute_screenshot_rejects_sensitive_symlink_alias(self, tmp_path):
+        from openjarvis.tools.browser import BrowserScreenshotTool
+
+        target = tmp_path / "notes.png"
+        target.write_bytes(b"existing")
+        alias = tmp_path / ".env"
+        try:
+            alias.symlink_to(target)
+        except OSError:
+            pytest.skip("filesystem does not permit creating symlinks")
+
+        page = _make_mock_page()
+        page.screenshot.return_value = b"\x89PNGnew"
+        session = _make_mock_session(page)
+
+        with patch("openjarvis.tools.browser._session", session):
+            result = BrowserScreenshotTool(allowed_dirs=[str(tmp_path)]).execute(
+                path=str(alias)
+            )
+
+        assert result.success is False
+        assert "sensitive" in result.content.lower()
+        assert target.read_bytes() == b"existing"
+        page.screenshot.assert_not_called()
+
     def test_execute_screenshot_error(self):
         from openjarvis.tools.browser import BrowserScreenshotTool
 

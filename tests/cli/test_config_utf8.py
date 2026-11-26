@@ -146,3 +146,14 @@ def test_quickstart_writes_utf8_config(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert _read_utf8(config_path).startswith(_NON_CP1252_COMMENT)
+
+
+def test_digest_schedule_preserves_utf8_config(config_path: Path) -> None:
+    from openjarvis.cli.digest_cmd import _save_digest_schedule
+
+    with patch("openjarvis.cli.digest_cmd.DEFAULT_CONFIG_PATH", config_path):
+        _save_digest_schedule(enabled=True, cron="0 8 * * *")
+
+    text = _read_utf8(config_path)
+    assert text.startswith(_NON_CP1252_COMMENT)
+    assert '[digest]\nenabled = true\nschedule = "0 8 * * *"' in text

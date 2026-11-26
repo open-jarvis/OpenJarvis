@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import call, patch
+
 import pytest
 
 from openjarvis.mcp.protocol import MCPRequest
@@ -62,6 +64,24 @@ class TestAnnotations:
 
 
 class TestAutoDiscovery:
+    def test_auto_discovery_passes_allowed_dirs_to_all_file_writers(self):
+        from openjarvis.core.registry import ToolRegistry
+
+        with (
+            patch.object(
+                ToolRegistry,
+                "keys",
+                return_value=["apply_patch", "browser_screenshot"],
+            ),
+            patch.object(ToolRegistry, "create") as create_tool,
+        ):
+            MCPServer._auto_discover_tools(allowed_dirs=["/sandbox"])
+
+        assert create_tool.call_args_list == [
+            call("apply_patch", allowed_dirs=["/sandbox"]),
+            call("browser_screenshot", allowed_dirs=["/sandbox"]),
+        ]
+
     def test_auto_discover_creates_server(self):
         """MCPServer() with no tools arg should auto-discover."""
         server = MCPServer()

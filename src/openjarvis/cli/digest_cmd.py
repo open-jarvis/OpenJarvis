@@ -54,7 +54,7 @@ def _save_digest_schedule(enabled: bool, cron: str) -> None:
     # Read existing TOML content (or start fresh)
     content = ""
     if config_path.exists():
-        content = config_path.read_text()
+        content = config_path.read_text(encoding="utf-8")
 
     # Check if [digest] section already exists
     lines = content.split("\n")
@@ -94,7 +94,7 @@ def _save_digest_schedule(enabled: bool, cron: str) -> None:
         new_lines.append("")
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text("\n".join(new_lines))
+    config_path.write_text("\n".join(new_lines), encoding="utf-8")
 
 
 def _create_scheduler_task(cron: str, timezone_name: str = "") -> Optional[str]:
