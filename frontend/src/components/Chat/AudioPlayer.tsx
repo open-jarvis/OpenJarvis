@@ -1,11 +1,13 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Play, Pause, Volume2 } from 'lucide-react';
+import { Play, Pause, Volume2, Loader2, AlertCircle } from 'lucide-react';
+import { loadAudioSource } from '../../lib/authenticated-audio';
 
 interface AudioPlayerProps {
   src: string;
 }
 
 function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
@@ -16,17 +18,51 @@ export function AudioPlayer({ src }: AudioPlayerProps) {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [audioUrl, setAudioUrl] = useState<string | null>(() => {
+    if (src.startsWith('blob:') || src.startsWith('data:')) {
+      return src;
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState<boolean>(
+    !src.startsWith('blob:') && !src.startsWith('data:'),
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    audioRef.current?.pause();
+    setPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setAudioUrl(null);
+    setLoading(true);
+    setError(null);
+    return loadAudioSource(
+      src,
+      (url) => {
+        setAudioUrl(url);
+        setLoading(false);
+      },
+      (message) => {
+        setLoading(false);
+        setError(message);
+      },
+    );
+  }, [src]);
 
   const toggle = useCallback(() => {
     const el = audioRef.current;
-    if (!el) return;
+    if (!el || !audioUrl) return;
     if (playing) {
       el.pause();
     } else {
-      el.play();
+      el.play().catch((err) => {
+        console.error('Audio playback failed:', err);
+        setPlaying(false);
+      });
     }
     setPlaying(!playing);
-  }, [playing]);
+  }, [playing, audioUrl]);
 
   useEffect(() => {
     const el = audioRef.current;
@@ -38,16 +74,23 @@ export function AudioPlayer({ src }: AudioPlayerProps) {
       setPlaying(false);
       setCurrentTime(0);
     };
+    const onError = () => {
+      setPlaying(false);
+      setError('Playback failed');
+    };
 
     el.addEventListener('timeupdate', onTime);
     el.addEventListener('loadedmetadata', onMeta);
     el.addEventListener('ended', onEnded);
+    el.addEventListener('error', onError);
     return () => {
+      el.pause();
       el.removeEventListener('timeupdate', onTime);
       el.removeEventListener('loadedmetadata', onMeta);
       el.removeEventListener('ended', onEnded);
+      el.removeEventListener('error', onError);
     };
-  }, []);
+  }, [audioUrl]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -67,18 +110,28 @@ export function AudioPlayer({ src }: AudioPlayerProps) {
         border: '1px solid var(--color-border)',
       }}
     >
-      <audio ref={audioRef} src={src} preload="metadata" />
+      {audioUrl && <audio ref={audioRef} src={audioUrl} preload="metadata" />}
 
       <button
         onClick={toggle}
-        className="flex items-center justify-center w-9 h-9 rounded-full transition-colors shrink-0"
+        disabled={loading || !!error}
+        aria-label={playing ? 'Pause' : 'Play'}
+        className="flex items-center justify-center w-9 h-9 rounded-full transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
         style={{
           background: 'var(--color-accent)',
           color: 'var(--color-on-accent)',
-          cursor: 'pointer',
+          cursor: loading || !!error ? 'not-allowed' : 'pointer',
         }}
       >
-        {playing ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
+        {loading ? (
+          <Loader2 size={16} className="animate-spin" />
+        ) : error ? (
+          <AlertCircle size={16} />
+        ) : playing ? (
+          <Pause size={16} />
+        ) : (
+          <Play size={16} className="ml-0.5" />
+        )}
       </button>
 
       <div className="flex flex-col gap-1.5 flex-1 min-w-0">
@@ -90,6 +143,14 @@ export function AudioPlayer({ src }: AudioPlayerProps) {
           >
             Morning Digest
           </span>
+          {error && (
+            <span
+              className="text-xs text-red-500 truncate"
+              title={error}
+            >
+              (Playback unavailable)
+            </span>
+          )}
         </div>
 
         <div
