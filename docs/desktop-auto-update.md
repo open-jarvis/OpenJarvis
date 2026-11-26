@@ -34,6 +34,17 @@ Windows ARM64 releases use an NSIS `arm64-setup.exe` installer, with a separate
 Release verification requires both entries and their matching signature assets,
 so an ARM64 app cannot be offered an x64 package by the release manifest.
 
+On Windows the updater launches the installer and exits the app immediately,
+and the installer replaces the bundled `ollama.exe` and `lib\ollama` runtime.
+The app therefore downloads first, stops its own Ollama process tree
+(`prepare_update_install`), and only then installs. The NSIS and MSI installers
+also stop any `ollama.exe` or `lib\ollama` process running from the install
+directory, which covers updates started by releases without that step. PR CI
+(`test-windows-x64-install`) runs
+[`verify-windows-install.ps1`](../frontend/src-tauri/scripts/verify-windows-install.ps1)
+to check a fresh install, an update while the installed Ollama is running, and
+an uninstall for both x64 formats.
+
 ## How releases reach the update endpoint
 
 The `Desktop Build & Release` GitHub Action

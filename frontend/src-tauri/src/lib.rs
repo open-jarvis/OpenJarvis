@@ -404,6 +404,24 @@ impl ChildHandle {
     async fn kill(&mut self) {
         let _ = self.child.kill().await;
     }
+
+    /// Stop the child and every process it started. On Windows, Ollama's
+    /// `lib\ollama` runners survive a plain kill of `ollama.exe` and keep the
+    /// bundled runtime's files locked, so terminate the whole tree first.
+    async fn kill_tree(&mut self) {
+        #[cfg(target_os = "windows")]
+        if let Some(pid) = self.child.id() {
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            let _ = tokio::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .creation_flags(CREATE_NO_WINDOW)
+                .status()
+                .await;
+        }
+        self.kill().await;
+    }
 }
 
 /// Spawn a subprocess whose lifetime cannot escape the async operation that
@@ -459,7 +477,7 @@ impl BackendManager {
         }
         self.jarvis = None;
         if let Some(ref mut h) = self.ollama {
-            h.kill().await;
+            h.kill_tree().await;
         }
         self.ollama = None;
     }
@@ -1777,6 +1795,25 @@ async fn start_backend(
 async fn stop_backend(backend: tauri::State<'_, SharedBackend>) -> Result<(), String> {
     backend.lock().await.stop_all().await;
     Ok(())
+}
+
+/// Called before the updater hands over to the installer. On Windows the
+/// updater exits the app without running async shutdown, and the installer
+/// replaces the bundled `ollama.exe` and `lib\ollama` files, so the app-owned
+/// processes must be stopped (and awaited) first. Other platforms keep running
+/// until the user chooses to relaunch. Returns whether services were stopped.
+#[tauri::command]
+async fn prepare_update_install(backend: tauri::State<'_, SharedBackend>) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        backend.lock().await.stop_all().await;
+        Ok(true)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = backend;
+        Ok(false)
+    }
 }
 
 /// Abort startup, stop every child, discard an unworkable source, and return
@@ -3449,6 +3486,7 @@ pub fn run() {
             get_api_base,
             start_backend,
             stop_backend,
+            prepare_update_install,
             reset_inference_source,
             check_health,
             fetch_energy,
@@ -4293,6 +4331,69 @@ mod tests {
         std::fs::write(started, "started").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(500));
         std::fs::write(completed, "completed").unwrap();
+    }
+
+    /// Stands in for `ollama.exe` (parent) and a `lib\ollama` runner
+    /// (grandchild) in `kill_tree_stops_runner_grandchildren`.
+    #[test]
+    fn process_tree_helper() {
+        let Some(root) = std::env::var_os("OPENJARVIS_TREE_ROOT") else {
+            return;
+        };
+        let root = std::path::PathBuf::from(root);
+        if std::env::var_os("OPENJARVIS_TREE_GRANDCHILD").is_some() {
+            std::fs::write(root.join("grandchild-started"), "").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            std::fs::write(root.join("grandchild-completed"), "").unwrap();
+            return;
+        }
+        // Deliberately not waited on: the grandchild must outlive this parent.
+        #[allow(clippy::zombie_processes)]
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "tests::process_tree_helper", "--nocapture"])
+            .env("OPENJARVIS_TREE_ROOT", &root)
+            .env("OPENJARVIS_TREE_GRANDCHILD", "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(10));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn kill_tree_stops_runner_grandchildren() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "openjarvis-process-tree-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut cmd = tokio::process::Command::new(std::env::current_exe().unwrap());
+        cmd.args(["--exact", "tests::process_tree_helper", "--nocapture"])
+            .env("OPENJARVIS_TREE_ROOT", &root)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let mut handle = super::ChildHandle {
+            child: spawn_owned_child(&mut cmd).unwrap(),
+        };
+        for _ in 0..500 {
+            if root.join("grandchild-started").exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(root.join("grandchild-started").exists());
+
+        handle.kill_tree().await;
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+
+        let survived = root.join("grandchild-completed").exists();
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(!survived, "kill_tree left a grandchild runner running");
     }
 
     #[tokio::test]

@@ -192,6 +192,13 @@ export async function startBackend(): Promise<void> {
   }
 }
 
+/** Stop desktop services that lock files the installer replaces (Windows only). */
+export async function prepareUpdateInstall(): Promise<boolean> {
+  if (!isTauri()) return false;
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<boolean>('prepare_update_install');
+}
+
 /** Stop an in-flight setup and return the desktop to its inert source chooser. */
 export async function resetInferenceSource(): Promise<void> {
   if (!isTauri()) throw new Error('Inference setup recovery is available in the desktop app only.');

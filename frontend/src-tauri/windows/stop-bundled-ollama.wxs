@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Stop the app-owned Ollama before Windows Installer checks for files in use.
+  Installed ollama.exe and its lib\ollama runners stay locked while running,
+  and app versions released before the full runtime was bundled do not stop
+  them before launching the updater. Only processes started from INSTALLDIR
+  are touched, never a separate Ollama installation. MSI formatted strings
+  require the braces to be escaped as [\{] and [\}].
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <CustomAction
+      Id="StopBundledOllama"
+      Directory="INSTALLDIR"
+      Execute="immediate"
+      Impersonate="yes"
+      Return="ignore"
+      ExeCommand='powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command "$d = &apos;[INSTALLDIR]&apos;; Get-CimInstance Win32_Process | Where-Object [\{] $_.ExecutablePath -ieq ($d + &apos;ollama.exe&apos;) -or $_.ExecutablePath -like ($d + &apos;lib\ollama\*&apos;) [\}] | ForEach-Object [\{] Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue [\}]"' />
+    <InstallExecuteSequence>
+      <Custom Action="StopBundledOllama" Before="InstallValidate" />
+    </InstallExecuteSequence>
+    <ComponentGroup Id="StopBundledOllamaGroup" />
+  </Fragment>
+</Wix>

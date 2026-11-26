@@ -286,6 +286,34 @@ const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: 'system', label: 'System', icon: Monitor },
 ];
 
+/** Split a saved source into per-kind model selections. */
+export function savedModelSelections(source: InferenceSource): { customModel: string; ollamaModel: string } {
+  const model = source.model ?? '';
+  return source.kind === 'custom'
+    ? { customModel: model, ollamaModel: '' }
+    : { customModel: '', ollamaModel: model };
+}
+
+/**
+ * Build the source to persist. A custom endpoint's model ID is never valid for
+ * Bundled Ollama, so each kind only ever saves its own model selection.
+ */
+export function inferenceSourceToSave(
+  kind: InferenceSource['kind'],
+  fields: { customHost: string; customModel: string; ollamaModel: string; customEngine: string; customKey: string },
+): InferenceSource & { apiKey?: string } {
+  if (kind === 'custom') {
+    return {
+      kind: 'custom',
+      host: fields.customHost,
+      model: fields.customModel,
+      engine: fields.customEngine,
+      apiKey: fields.customKey || undefined,
+    };
+  }
+  return { kind: 'ollama', model: fields.ollamaModel || undefined };
+}
+
 export function SettingsPage() {
   const settings = useAppStore((s) => s.settings);
   const timeZones = useMemo(listTimeZones, []);
@@ -339,6 +367,7 @@ export function SettingsPage() {
   const [srcKind, setSrcKind] = useState<InferenceSource['kind']>('ollama');
   const [customHost, setCustomHost] = useState('http://localhost:1234/v1');
   const [customModel, setCustomModel] = useState('');
+  const [ollamaModel, setOllamaModel] = useState('');
   const [customEngine, setCustomEngine] = useState('lmstudio');
   const [customKey, setCustomKey] = useState('');
   const [srcMsg, setSrcMsg] = useState('');
@@ -347,26 +376,23 @@ export function SettingsPage() {
     getInferenceSource().then((s) => {
       setSrcKind(s.kind);
       if (s.host) setCustomHost(s.host);
-      if (s.model) setCustomModel(s.model);
+      const models = savedModelSelections(s);
+      if (models.customModel) setCustomModel(models.customModel);
+      if (models.ollamaModel) setOllamaModel(models.ollamaModel);
       if (s.engine) setCustomEngine(s.engine);
     }).catch(() => {});
   }, []);
 
   const saveSource = useCallback(async () => {
     try {
-      if (srcKind === 'custom') {
-        await setInferenceSource({ kind: 'custom', host: customHost, model: customModel, engine: customEngine, apiKey: customKey || undefined });
-      } else {
-        await setInferenceSource({
-          kind: 'ollama',
-          model: customModel || undefined,
-        });
-      }
+      await setInferenceSource(inferenceSourceToSave(srcKind, {
+        customHost, customModel, ollamaModel, customEngine, customKey,
+      }));
       setSrcMsg('Saved — restart the app to apply.');
     } catch (e: any) {
       setSrcMsg(e?.message ?? 'Failed to save.');
     }
-  }, [srcKind, customHost, customModel, customEngine, customKey]);
+  }, [srcKind, customHost, customModel, ollamaModel, customEngine, customKey]);
 
   const refreshMemoryStatus = useCallback(async () => {
     const requestId = ++memoryRequestId.current;

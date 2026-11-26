@@ -5,6 +5,16 @@ Phase-1 of the native-Windows-support RFC (#298). Mirrors the Linux
 WSL2 or Docker. Choose this over [WSL2](wsl2.md) only if you want to
 avoid a Linux VM; WSL2 remains the smoother experience for most users.
 
+## Windows desktop Ollama runtime
+
+Both Windows desktop installers bundle a pinned Ollama release (see
+`OLLAMA_VERSION` in `frontend/src-tauri/scripts/download-ollama.sh`, which
+verifies each archive's SHA-256) together with its `lib\ollama` inference
+runners, and the app prefers this bundled Ollama over one found on `PATH`.
+The x64 installer ships the CPU, Vulkan, and CUDA v12 runners. Ollama's CUDA v13
+runners are left out because the full x64 runtime (about 2.2 GB) exceeds the
+roughly 2 GB payload limit of both NSIS and MSI; NVIDIA GPUs use CUDA v12.
+
 ## Windows ARM64 desktop
 
 The existing Tauri/React desktop app can be built for Windows 11 on ARM.
