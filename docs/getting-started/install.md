@@ -38,23 +38,38 @@ cancelled input leaves sharing off. See [Telemetry](../telemetry.md) for details
 
 ### Review before you run
 
-The one-liner runs the script as soon as it downloads. To read it first, save it, review it, then run it:
+Use a new, empty directory to download and review the installer. If the download fails, stop there.
 
 ```bash
-curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh -o install.sh
-less install.sh
+curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh -o install.sh && less install.sh
+```
+
+After reviewing the saved script, run it from the same directory:
+
+```bash
 bash install.sh
 ```
 
-On native Windows (the `-ExecutionPolicy Bypass` applies to this one run only):
+On native Windows, download and open the script in Notepad:
 
 ```powershell
-irm https://open-jarvis.github.io/OpenJarvis/install.ps1 -OutFile install.ps1
-notepad install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+Invoke-WebRequest -UseBasicParsing -Uri 'https://open-jarvis.github.io/OpenJarvis/install.ps1' -OutFile '.\install.ps1' -ErrorAction Stop
+notepad '.\install.ps1'
 ```
 
-The installer then fetches other tools through their official installers: uv, Ollama and (in the background) Rust for the bash installer, and uv for PowerShell. Those are downloaded at install time too, as listed in [What the installer does](#what-the-installer-does).
+After reviewing the file, run it from the same directory. The execution policy
+flag applies to the new PowerShell process. Group Policy still takes precedence.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Both scripts fetch OpenJarvis source at install time. If tools are missing,
+the Bash script can download uv, Ollama, and Rust installers. On Windows, the
+script can download the uv installer and `OllamaSetup.exe`, and use `winget` to
+install Python or Git. Reviewing the saved script only covers the initial
+download. See [What the installer does](#what-the-installer-does) and the
+[native Windows guide](windows-native.md) for the rest of the setup.
 
 ## What the installer does
 
