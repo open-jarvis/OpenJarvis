@@ -13,8 +13,8 @@ interface TraceStepData {
 
 interface TraceStep {
   step_type: string;
-  duration_ms: number;
-  data: TraceStepData;
+  duration_ms?: number;
+  data?: TraceStepData;
 }
 
 interface TraceSummary {
@@ -46,7 +46,7 @@ function StepBadge({ type }: { type: string }) {
 }
 
 function TraceCard({ trace, isActive, onClick }: { trace: TraceSummary; isActive: boolean; onClick: () => void }) {
-  const totalMs = trace.steps.reduce((sum, s) => sum + s.duration_ms, 0);
+  const totalMs = trace.steps.reduce((sum, s) => sum + (s.duration_ms ?? 0), 0);
 
   return (
     <button
@@ -75,7 +75,7 @@ function TraceCard({ trace, isActive, onClick }: { trace: TraceSummary; isActive
 
 function StepDetail({ step, index }: { step: TraceStep; index: number }) {
   const [expanded, setExpanded] = useState(false);
-  const dataEntries = Object.entries(step.data).filter(([_, v]) => v != null);
+  const dataEntries = Object.entries(step.data ?? {}).filter(([_, v]) => v != null);
 
   return (
     <div
@@ -97,7 +97,7 @@ function StepDetail({ step, index }: { step: TraceStep; index: number }) {
         <span className="flex-1" />
         <span className="text-xs font-mono flex items-center gap-1" style={{ color: 'var(--color-text-tertiary)' }}>
           <Clock size={10} />
-          {step.duration_ms.toFixed(0)}ms
+          {(step.duration_ms ?? 0).toFixed(0)}ms
         </span>
       </button>
       {expanded && dataEntries.length > 0 && (

@@ -386,3 +386,31 @@ class TestTraceRoutes:
         client = TestClient(_make_app())
         resp = client.get("/v1/traces")
         assert resp.status_code == 200
+
+    def test_serialised_steps_have_viewer_fields(self):
+        from openjarvis.core.types import StepType, Trace, TraceStep
+        from openjarvis.server.api_routes import _serialise_trace
+
+        trace = Trace(
+            query="q",
+            steps=[
+                TraceStep(
+                    step_type=StepType.GENERATE,
+                    timestamp=1.0,
+                    duration_seconds=1.2345,
+                    input={"model": "m"},
+                    output={"content": "hi", "tool_calls": []},
+                    metadata={"ttft": 0.5},
+                ),
+                TraceStep(step_type=StepType.RESPOND, timestamp=2.0),
+            ],
+        )
+
+        steps = _serialise_trace(trace)["steps"]
+
+        assert steps[0]["step_type"] == "generate"
+        assert steps[0]["duration_ms"] == 1234
+        assert steps[0]["data"] == {"model": "m", "content": "hi", "ttft": 0.5}
+        assert steps[0]["output"] == {"content": "hi", "tool_calls": []}
+        assert steps[1]["duration_ms"] == 0
+        assert steps[1]["data"] == {}
