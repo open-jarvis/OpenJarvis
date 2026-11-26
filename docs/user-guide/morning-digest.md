@@ -36,7 +36,7 @@ schedule = "0 6 * * *"          # 6 AM daily (cron syntax)
 timezone = "America/Los_Angeles"
 persona = "jarvis"
 honorific = "sir"               # or "ma'am", "boss", etc.
-tts_backend = "cartesia"        # or "openai"
+tts_backend = "cartesia"        # or "openai", "elevenlabs"
 voice_id = "c8f7835e-28a3-4f0c-80d7-c1302ac62aae"  # Alistair (British male)
 voice_speed = 1.2
 sections = ["health", "messages", "calendar", "world"]
@@ -102,6 +102,18 @@ export CARTESIA_API_KEY="sk_car_..."
 
 # Or OpenAI (https://platform.openai.com/api-keys)
 export OPENAI_API_KEY="sk-proj-..."
+
+# Or ElevenLabs (https://elevenlabs.io/app/settings/api-keys)
+export ELEVENLABS_API_KEY="<ELEVENLABS_API_KEY>"
+```
+
+To use the configured ElevenLabs voice:
+
+```toml
+[digest]
+tts_backend = "elevenlabs"
+voice_id = "EitqXD7jgIy0K5Z1zGGp"
+voice_speed = 1.0
 ```
 
 ### 6. Run your first digest

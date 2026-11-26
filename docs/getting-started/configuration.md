@@ -1160,6 +1160,9 @@ OpenJarvis respects the following environment variables:
 | Variable | Description |
 |----------|-------------|
 | `OPENAI_API_KEY` | API key for OpenAI cloud inference. Required for the `cloud` engine with OpenAI models. |
+| `ELEVENLABS_API_KEY` | API key for ElevenLabs text-to-speech. Required only when `[speech]` or `[digest]` uses `tts_backend = "elevenlabs"` or `tts_backend = "elevenlabs"` is requested by a tool. |
+| `ELEVENLABS_VOICE_ID` | Optional ElevenLabs voice override. OpenJarvis defaults to `EitqXD7jgIy0K5Z1zGGp`; this environment variable takes precedence over the backend default. |
+| `ELEVENLABS_MODEL` | Optional ElevenLabs model override. Defaults to `eleven_multilingual_v2`. |
 | `ANTHROPIC_API_KEY` | API key for Anthropic cloud inference. Required for the `cloud` engine with Claude models. |
 | `GOOGLE_API_KEY` | API key for Google Gemini inference. Required for the `google` engine. |
 | `MINIMAX_API_KEY` | API key for MiniMax cloud inference. Required for the `cloud` engine with MiniMax models (MiniMax-M3, MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed). |
