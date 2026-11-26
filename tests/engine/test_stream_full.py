@@ -196,14 +196,15 @@ class TestOpenAICompatStreamFull:
         assert chunks[2].usage["total_tokens"] == 7
 
     @pytest.mark.asyncio
-    async def test_usage_only_chunk_with_empty_choices(self):
+    @pytest.mark.parametrize("choices", [[], None])
+    async def test_usage_only_chunk_with_empty_choices(self, choices):
         # OpenAI-compatible gateways may end the stream with a usage-only
         # chunk whose ``choices`` list is empty.
         sse_lines = [
             f"data: {json.dumps({'choices': [{'delta': {'content': 'Hi'}}]})}",
             "data: "
             + json.dumps({"choices": [{"delta": {}, "finish_reason": "stop"}]}),
-            "data: " + json.dumps({"choices": [], "usage": {"total_tokens": 9}}),
+            "data: " + json.dumps({"choices": choices, "usage": {"total_tokens": 9}}),
             "data: [DONE]",
         ]
         engine = VLLMEngine(host="http://localhost:8000")
@@ -221,10 +222,11 @@ class TestOpenAICompatStreamFull:
         assert chunks[2].usage == {"total_tokens": 9}
 
     @pytest.mark.asyncio
-    async def test_stream_ignores_usage_only_chunk_with_empty_choices(self):
+    @pytest.mark.parametrize("choices", [[], None])
+    async def test_stream_ignores_usage_only_chunk_with_empty_choices(self, choices):
         sse_lines = [
             f"data: {json.dumps({'choices': [{'delta': {'content': 'Hi'}}]})}",
-            "data: " + json.dumps({"choices": [], "usage": {"total_tokens": 9}}),
+            "data: " + json.dumps({"choices": choices, "usage": {"total_tokens": 9}}),
             "data: [DONE]",
         ]
         engine = VLLMEngine(host="http://localhost:8000")
