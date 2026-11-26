@@ -19,6 +19,25 @@ export function engineFromCompletionChunk(data: unknown): string | undefined {
   return engine.trim();
 }
 
+/**
+ * Audio this completion produced, if any.
+ *
+ * Read it from the completion itself. Asking /api/digest instead answers a
+ * different question -- whether a digest exists at all -- so once the morning
+ * digest had ever written a .wav, every ordinary reply rendered a player for
+ * that recording.
+ */
+export function audioFromCompletionChunk(
+  data: unknown,
+): { url: string } | undefined {
+  if (!data || typeof data !== 'object') return undefined;
+  const audio = (data as { audio?: unknown }).audio;
+  if (!audio || typeof audio !== 'object') return undefined;
+  const url = (audio as { url?: unknown }).url;
+  if (typeof url !== 'string' || !url.trim()) return undefined;
+  return { url: url.trim() };
+}
+
 export function resolveChatEngine({
   routedEngine,
   serverEngine,

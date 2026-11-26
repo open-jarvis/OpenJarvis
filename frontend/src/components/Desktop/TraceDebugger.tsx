@@ -20,8 +20,8 @@ interface TraceStepData {
 
 interface TraceStep {
   step_type: string;
-  duration_ms: number;
-  data: TraceStepData;
+  duration_ms?: number;
+  data?: TraceStepData;
 }
 
 interface TraceSummary {
@@ -404,7 +404,7 @@ function TimelineStep({ step }: TimelineStepProps) {
           >
             {step.step_type}
           </span>
-          <span style={styles.stepDuration}>{formatDuration(step.duration_ms)}</span>
+          <span style={styles.stepDuration}>{formatDuration(step.duration_ms ?? 0)}</span>
         </div>
         {step.data && <StepDataView data={step.data} />}
       </div>
@@ -477,7 +477,7 @@ export function TraceDebugger({ apiUrl }: { apiUrl: string }) {
 
   // Compute totals for detail header
   const totalDuration =
-    traceDetail?.steps.reduce((sum, s) => sum + s.duration_ms, 0) ?? 0;
+    traceDetail?.steps.reduce((sum, s) => sum + (s.duration_ms ?? 0), 0) ?? 0;
 
   // --- Empty state ---
   if (!listLoading && traces.length === 0 && !error) {
