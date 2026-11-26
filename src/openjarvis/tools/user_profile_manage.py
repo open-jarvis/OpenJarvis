@@ -72,7 +72,7 @@ class UserProfileManageTool(BaseTool):
     def _read(self) -> ToolResult:
         content = ""
         if self._user_path.exists():
-            content = self._user_path.read_text()
+            content = self._user_path.read_text(encoding="utf-8")
         return ToolResult(
             tool_name=self.spec.name,
             success=True,
@@ -87,8 +87,14 @@ class UserProfileManageTool(BaseTool):
                 content="Entry cannot be empty.",
             )
         self._user_path.parent.mkdir(parents=True, exist_ok=True)
-        existing = self._user_path.read_text() if self._user_path.exists() else ""
-        self._user_path.write_text(existing.rstrip() + f"\n- {entry}\n")
+        existing = (
+            self._user_path.read_text(encoding="utf-8")
+            if self._user_path.exists()
+            else ""
+        )
+        self._user_path.write_text(
+            existing.rstrip() + f"\n- {entry}\n", encoding="utf-8"
+        )
         return ToolResult(
             tool_name=self.spec.name,
             success=True,
@@ -102,14 +108,14 @@ class UserProfileManageTool(BaseTool):
                 success=False,
                 content="User profile file does not exist.",
             )
-        text = self._user_path.read_text()
+        text = self._user_path.read_text(encoding="utf-8")
         if old not in text:
             return ToolResult(
                 tool_name=self.spec.name,
                 success=False,
                 content=f"Entry not found: {old}",
             )
-        self._user_path.write_text(text.replace(old, new, 1))
+        self._user_path.write_text(text.replace(old, new, 1), encoding="utf-8")
         return ToolResult(
             tool_name=self.spec.name,
             success=True,
@@ -123,7 +129,7 @@ class UserProfileManageTool(BaseTool):
                 success=False,
                 content="User profile file does not exist.",
             )
-        text = self._user_path.read_text()
+        text = self._user_path.read_text(encoding="utf-8")
         lines = text.split("\n")
         new_lines = [ln for ln in lines if entry not in ln]
         if len(new_lines) == len(lines):
@@ -132,7 +138,7 @@ class UserProfileManageTool(BaseTool):
                 success=False,
                 content=f"Entry not found: {entry}",
             )
-        self._user_path.write_text("\n".join(new_lines))
+        self._user_path.write_text("\n".join(new_lines), encoding="utf-8")
         return ToolResult(
             tool_name=self.spec.name,
             success=True,
