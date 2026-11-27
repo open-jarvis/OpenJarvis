@@ -69,17 +69,28 @@ class TestLoopGuard:
         bus = EventBus(record_history=True)
         return LoopGuard(config, bus=bus), bus
 
-    def test_identical_calls_blocked(self):
+    @pytest.mark.parametrize("backend", ["python", "rust"])
+    def test_identical_calls_blocked(self, backend):
         guard, bus = self._make_guard(max_identical_calls=2)
+        if backend == "python":
+            guard._rust_impl = None
+        elif guard._rust_impl is None:
+            pytest.skip("Rust extension unavailable")
         v1 = guard.check_call("calc", '{"x": 1}')
         assert not v1.blocked
-        # Rust backend uses a HashSet — blocks on the second identical call
         v2 = guard.check_call("calc", '{"x": 1}')
-        assert v2.blocked
-        assert "identical" in v2.reason.lower()
+        assert not v2.blocked
+        v3 = guard.check_call("calc", '{"x": 1}')
+        assert v3.blocked
+        assert "identical" in v3.reason.lower()
 
-    def test_different_args_not_blocked(self):
+    @pytest.mark.parametrize("backend", ["python", "rust"])
+    def test_different_args_not_blocked(self, backend):
         guard, _ = self._make_guard(max_identical_calls=2)
+        if backend == "python":
+            guard._rust_impl = None
+        elif guard._rust_impl is None:
+            pytest.skip("Rust extension unavailable")
         guard.check_call("calc", '{"x": 1}')
         guard.check_call("calc", '{"x": 1}')
         v = guard.check_call("calc", '{"x": 2}')
@@ -97,8 +108,14 @@ class TestLoopGuard:
         # The sequence [A, B, A, B, A] with window=4 should detect A-B-A-B
         # But detection happens after 4+ calls in sequence
 
-    def test_poll_budget_exceeded(self):
+    @pytest.mark.parametrize("backend", ["python", "rust"])
+    def test_poll_budget_exceeded(self, backend):
         guard, _ = self._make_guard(poll_tool_budget=3, max_identical_calls=100)
+        if backend == "python":
+            guard._rust_impl = None
+        elif guard._rust_impl is None:
+            pytest.skip("Rust extension unavailable")
+        guard.check_call("other", '{"a": 1}')
         guard.check_call("poll", '{"a": 1}')
         guard.check_call("poll", '{"a": 2}')
         guard.check_call("poll", '{"a": 3}')
@@ -115,8 +132,13 @@ class TestLoopGuard:
         ]
         assert len(events) == 1
 
-    def test_reset(self):
+    @pytest.mark.parametrize("backend", ["python", "rust"])
+    def test_reset(self, backend):
         guard, _ = self._make_guard(max_identical_calls=2)
+        if backend == "python":
+            guard._rust_impl = None
+        elif guard._rust_impl is None:
+            pytest.skip("Rust extension unavailable")
         guard.check_call("x", '{"a": 1}')
         guard.check_call("x", '{"a": 1}')
         guard.reset()
