@@ -276,3 +276,21 @@ class TestTraceStore:
         with pytest.raises(TypeError, match="not JSON serializable"):
             store.save(trace)
         store.close()
+
+    def test_step_failure_does_not_commit_a_partial_trace(self, tmp_path: Path) -> None:
+        path = tmp_path / "test.db"
+        store = TraceStore(path)
+        trace = _make_trace(num_steps=2)
+        trace.steps[1].output = {"unsupported": object()}
+        with pytest.raises(TypeError, match="not JSON serializable"):
+            store.save(trace)
+
+        repaired = _make_trace(num_steps=1)
+        store.save(repaired)
+        store.close()
+
+        reopened = TraceStore(path)
+        assert reopened.get(trace.trace_id) is None
+        assert reopened.get(repaired.trace_id) is not None
+        assert reopened.count() == 1
+        reopened.close()

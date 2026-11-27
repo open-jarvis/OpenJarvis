@@ -138,6 +138,27 @@ class TestTraceCollector:
         assert tool_steps[0].output["success"] is True
         store.close()
 
+    def test_retains_answer_after_recording_binary_signature(
+        self, tmp_path: Path
+    ) -> None:
+        bus = EventBus()
+        call = {"name": "calculator", "thought_signature": b"\x01\x02"}
+
+        class BinarySignatureAgent(_FakeAgent):
+            def run(self, input, context=None, **kwargs):
+                bus.publish(EventType.INFERENCE_END, {"tool_calls": [call]})
+                return AgentResult(content="4", turns=2)
+
+        store = TraceStore(tmp_path / "test.db")
+        collector = TraceCollector(BinarySignatureAgent(), store=store, bus=bus)
+        result = collector.run("What is 2+2?")
+
+        assert result.content == "4"
+        steps = store.list_traces()[0].steps
+        assert steps[0].output["tool_calls"][0]["thought_signature"] == "AQI="
+        assert call["thought_signature"] == b"\x01\x02"
+        store.close()
+
     def test_records_respond_step(self, tmp_path: Path) -> None:
         bus = EventBus()
         store = TraceStore(tmp_path / "test.db")
