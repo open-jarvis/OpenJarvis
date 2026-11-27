@@ -10,10 +10,10 @@ const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8000;
 #[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
 const DESKTOP_UV_SYNC_COMMAND: &str =
-    "uv sync --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
+    "uv sync --extra desktop --extra inference-cloud --extra inference-google --group desktop-native --inexact";
 #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
 const DESKTOP_UV_SYNC_COMMAND: &str =
-    "uv sync --python cpython-3.12-windows-x86_64-none --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
+    "uv sync --python cpython-3.12-windows-x86_64-none --extra desktop --extra inference-cloud --extra inference-google --group desktop-native --inexact";
 
 /// Small, fast model used when startup needs a default Ollama tag.
 const STARTUP_MODEL: &str = "qwen3.5:4b";
@@ -1539,6 +1539,13 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             // `desktop` extra) so pip installs from PyPI don't require it (#584).
             "--group",
             "desktop-native",
+            // Install what is missing while retaining unrelated packages.
+            // Optional features are opt-in installs on top of
+            // this set: spoken replies need `uv sync --inexact --extra voice`,
+            // and Kokoro downloads its spaCy English model at first use. An
+            // exact sync would uninstall both on every app launch, so voice
+            // output would silently disappear again after each restart.
+            "--inexact",
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
