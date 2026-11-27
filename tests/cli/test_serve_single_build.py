@@ -17,6 +17,7 @@ These tests pin the fix:
 from __future__ import annotations
 
 import importlib
+from threading import Event
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -102,6 +103,10 @@ def _run_serve(
     set_system_spy,
     security_primitives=None,
     channel_backend=None,
+    task_schedule_enabled=False,
+    agent_manager_enabled=True,
+    run_server=None,
+    engine=None,
 ):
     """Invoke ``jarvis serve`` with all heavy/blocking pieces stubbed out.
 
@@ -116,8 +121,11 @@ def _run_serve(
     config = JarvisConfig()
     # Keep the scheduler block alive (it owns the executor wiring under test)
     # while pointing every store at the temp dir.
-    config.agent_manager.enabled = True
+    config.agent_manager.enabled = agent_manager_enabled
     config.agent_manager.db_path = str(tmp_path / "agents.db")
+    config.scheduler.enabled = task_schedule_enabled
+    config.scheduler.db_path = str(tmp_path / "scheduled.db")
+    config.scheduler.poll_interval = 1
     config.sessions.enabled = True
     config.sessions.db_path = str(tmp_path / "sessions.db")
     config.memory.db_path = str(tmp_path / "memory.db")
@@ -135,7 +143,7 @@ def _run_serve(
     # Resolve a model without contacting a real engine / discovery.
     config.intelligence.default_model = "test-model"
 
-    engine = _fake_engine()
+    engine = engine if engine is not None else _fake_engine()
     # Keep this wiring test independent of the optional native memory runtime.
     # The assertion is that serve resolves and passes a backend even when
     # prompt-context injection is disabled, not that SQLite itself works.
@@ -175,7 +183,10 @@ def _run_serve(
             "openjarvis.agents.executor.AgentExecutor.set_system",
             set_system_spy,
         ),
-        patch("openjarvis.server.daemon.run_server", lambda *a, **k: None),
+        patch(
+            "openjarvis.server.daemon.run_server",
+            run_server or (lambda *a, **k: None),
+        ),
     ):
         return CliRunner().invoke(cli, ["serve"], catch_exceptions=False)
 
@@ -202,6 +213,53 @@ def test_serve_does_not_call_systembuilder_build(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     build_spy.assert_not_called()
     inject_spy.assert_called_once_with()
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_serve_runs_due_tasks_only_when_enabled(tmp_path, monkeypatch, enabled):
+    from fastapi.testclient import TestClient
+
+    from openjarvis.scheduler.scheduler import TaskScheduler
+    from openjarvis.scheduler.store import SchedulerStore
+
+    store = SchedulerStore(tmp_path / "scheduled.db")
+    task = TaskScheduler(store).create_task("Say hello", "once", "2020-01-01T10:00:00Z")
+    ran = Event()
+    fake_engine = _fake_engine()
+
+    def generate(*args, **kwargs):
+        ran.set()
+        return {"content": "Hello from the scheduled task"}
+
+    fake_engine.generate.side_effect = generate
+
+    def run_server(app, **kwargs):
+        with TestClient(app):
+            if enabled:
+                assert ran.wait(5)
+
+    try:
+        result = _run_serve(
+            tmp_path,
+            monkeypatch,
+            build_spy=MagicMock(side_effect=AssertionError("duplicate system build")),
+            set_system_spy=MagicMock(),
+            task_schedule_enabled=enabled,
+            agent_manager_enabled=False,
+            run_server=run_server,
+            engine=fake_engine,
+        )
+        assert result.exit_code == 0, result.output
+        logs = store.get_run_logs(task.id)
+        if enabled:
+            assert store.get_task(task.id)["status"] == "completed"
+            assert [log["result"] for log in logs] == ["Hello from the scheduled task"]
+        else:
+            assert store.get_task(task.id)["status"] == "active"
+            assert logs == []
+            fake_engine.generate.assert_not_called()
+    finally:
+        store.close()
 
 
 def test_serve_passes_environment_cors_origins(tmp_path, monkeypatch):

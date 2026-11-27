@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timezone
+from threading import Event
 from unittest.mock import MagicMock
 
 import pytest
@@ -173,6 +173,19 @@ class TestComputeNextRun:
         next_run = scheduler._compute_next_run(task)
         assert next_run == target
 
+    @pytest.mark.parametrize(
+        ("supplied", "expected"),
+        [
+            ("2099-01-02T00:30:00+01:00", "2099-01-01T23:30:00+00:00"),
+            ("2099-01-01T23:30:00-05:00", "2099-01-02T04:30:00+00:00"),
+            ("2099-01-01T23:30:00", "2099-01-01T23:30:00+00:00"),
+        ],
+    )
+    def test_once_is_stored_in_utc(self, scheduler, supplied, expected):
+        task = scheduler.create_task("test", "once", supplied)
+        assert task.next_run == expected
+        assert scheduler.list_tasks()[0].next_run == expected
+
     def test_once_already_run(self, scheduler):
         task = ScheduledTask(
             id="t",
@@ -245,7 +258,7 @@ class TestComputeNextRun:
 class TestExecuteTask:
     def test_execute_with_system(self, store):
         mock_system = MagicMock()
-        mock_system.ask.return_value = "result text"
+        mock_system.ask.return_value = {"content": "result text", "usage": {}}
         sched = TaskScheduler(store, system=mock_system, poll_interval=1)
 
         task = sched.create_task("what is 2+2?", "once", "2026-01-01T00:00:00+00:00")
@@ -264,12 +277,13 @@ class TestExecuteTask:
     def test_execute_without_system(self, store):
         sched = TaskScheduler(store, poll_interval=1)
         task = sched.create_task("dry run", "once", "2026-01-01T00:00:00+00:00")
-        sched._execute_task(task)
-
-        logs = store.get_run_logs(task.id)
-        assert len(logs) == 1
-        assert logs[0]["success"] == 1
-        assert "dry-run" in logs[0]["result"]
+        with pytest.raises(RuntimeError, match="execution system"):
+            sched.start()
+        with pytest.raises(RuntimeError, match="execution system"):
+            sched._execute_task(task)
+        assert store.get_run_logs(task.id) == []
+        assert store.get_task(task.id)["status"] == "active"
+        assert store.get_task(task.id)["next_run"] == task.next_run
 
     def test_execute_with_error(self, store):
         mock_system = MagicMock()
@@ -284,9 +298,23 @@ class TestExecuteTask:
         assert logs[0]["success"] == 0
         assert "engine down" in logs[0]["error"]
 
+    def test_execute_does_not_log_system_error_as_success(self, store):
+        mock_system = MagicMock()
+        mock_system.ask.return_value = {
+            "content": "Unknown agent: missing",
+            "error": True,
+        }
+        sched = TaskScheduler(store, system=mock_system)
+        task = sched.create_task("hello", "once", "2026-01-01T00:00:00Z")
+        sched._execute_task(task)
+
+        log = store.get_run_logs(task.id)[0]
+        assert log["success"] == 0
+        assert log["error"] == "Unknown agent: missing"
+
     def test_execute_publishes_events(self, store):
         mock_bus = MagicMock()
-        sched = TaskScheduler(store, bus=mock_bus, poll_interval=1)
+        sched = TaskScheduler(store, system=MagicMock(), bus=mock_bus, poll_interval=1)
         task = sched.create_task("test", "once", "2026-01-01T00:00:00+00:00")
         sched._execute_task(task)
 
@@ -297,7 +325,7 @@ class TestExecuteTask:
         assert end_call[0][0] == "scheduler_task_end"
 
     def test_execute_once_task_completed_after_run(self, store):
-        sched = TaskScheduler(store, poll_interval=1)
+        sched = TaskScheduler(store, system=MagicMock(), poll_interval=1)
         task = sched.create_task("one-shot", "once", "2026-01-01T00:00:00+00:00")
         sched._execute_task(task)
 
@@ -326,14 +354,16 @@ class TestExecuteTask:
 
 
 class TestLifecycle:
-    def test_start_stop(self, scheduler):
+    def test_start_stop(self, store):
+        scheduler = TaskScheduler(store, system=MagicMock(), poll_interval=1)
         scheduler.start()
         assert scheduler._thread is not None
         assert scheduler._thread.is_alive()
         scheduler.stop()
         assert not scheduler._thread
 
-    def test_double_start(self, scheduler):
+    def test_double_start(self, store):
+        scheduler = TaskScheduler(store, system=MagicMock(), poll_interval=1)
         scheduler.start()
         t1 = scheduler._thread
         scheduler.start()  # Should not create a second thread
@@ -341,18 +371,31 @@ class TestLifecycle:
         scheduler.stop()
 
     def test_poll_loop_finds_due_tasks(self, store):
-        sched = TaskScheduler(store, poll_interval=1)
-        # Create a task that is already due
+        system = MagicMock()
+        ran = Event()
+        system.ask.side_effect = lambda *args, **kwargs: ran.set() or "done"
+        sched = TaskScheduler(store, system=system, poll_interval=1)
         task = sched.create_task("immediate", "once", "2020-01-01T00:00:00+00:00")
-        # Manually set next_run to the past
-        d = store.get_task(task.id)
-        d["next_run"] = "2020-01-01T00:00:00+00:00"
-        store.update_task(d)
-
         sched.start()
-        # Give the poll loop time to execute
-        time.sleep(2.5)
-        sched.stop()
+        try:
+            assert ran.wait(3)
+        finally:
+            assert sched.stop(timeout=3)
+        assert store.get_run_logs(task.id)[0]["result"] == "done"
 
-        logs = store.get_run_logs(task.id)
-        assert len(logs) >= 1
+    def test_workers_do_not_share_a_database(self, tmp_path):
+        first_store = SchedulerStore(tmp_path / "shared.db")
+        second_store = SchedulerStore(tmp_path / "shared.db")
+        first = TaskScheduler(first_store, system=MagicMock())
+        second = TaskScheduler(second_store, system=MagicMock())
+        first.start()
+        try:
+            with pytest.raises(RuntimeError, match="already running"):
+                second.start()
+            assert first.stop(timeout=3)
+            second.start()
+        finally:
+            assert first.stop(timeout=3)
+            assert second.stop(timeout=3)
+            first_store.close()
+            second_store.close()

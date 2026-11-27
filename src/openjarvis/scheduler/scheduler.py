@@ -10,7 +10,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
-from openjarvis.scheduler.store import SchedulerStore
+from filelock import FileLock, Timeout
+
+from openjarvis.scheduler.store import SchedulerStore, parse_run_time
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +84,8 @@ class TaskScheduler:
     store:
         The persistence backend.
     system:
-        Optional ``JarvisSystem`` instance for executing prompts.
+        ``JarvisSystem`` instance for executing prompts. It may be omitted
+        when only managing tasks, but is required to start polling.
     poll_interval:
         Seconds between poll cycles (default 60).
     bus:
@@ -97,6 +100,8 @@ class TaskScheduler:
         poll_interval: int = 60,
         bus: Any = None,
     ) -> None:
+        if poll_interval <= 0:
+            raise ValueError("Scheduler poll interval must be positive")
         self._store = store
         self._system = system
         self._poll_interval = poll_interval
@@ -104,6 +109,7 @@ class TaskScheduler:
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
+        self._worker_lock: FileLock | None = None
 
     # -- Public API ----------------------------------------------------------
 
@@ -111,20 +117,43 @@ class TaskScheduler:
         """Start the background polling daemon thread."""
         if self._thread is not None and self._thread.is_alive():
             return
+        if self._system is None:
+            raise RuntimeError("Scheduler requires an execution system")
+        # SQLite stores coordinate across processes. In-memory store
+        # implementations can opt out by not exposing a worker lock.
+        make_worker_lock = getattr(self._store, "worker_lock", None)
+        self._worker_lock = make_worker_lock() if callable(make_worker_lock) else None
+        if self._worker_lock is not None:
+            try:
+                self._worker_lock.acquire(timeout=0)
+            except Timeout as exc:
+                raise RuntimeError(
+                    "A task scheduler is already running for this database"
+                ) from exc
         self._stop_event.clear()
         self._thread = threading.Thread(
-            target=self._poll_loop, daemon=True, name="jarvis-scheduler"
+            target=self._run_worker, daemon=True, name="jarvis-scheduler"
         )
-        self._thread.start()
+        try:
+            self._thread.start()
+        except BaseException:
+            self._thread = None
+            if self._worker_lock is not None:
+                self._worker_lock.release()
+            raise
         logger.info("Scheduler started (poll_interval=%ds)", self._poll_interval)
 
-    def stop(self) -> None:
-        """Signal the background thread to stop and wait for it."""
+    def stop(self, *, timeout: float | None = None) -> bool:
+        """Signal the worker and return whether it stopped within the timeout."""
         self._stop_event.set()
         if self._thread is not None:
-            self._thread.join(timeout=self._poll_interval + 5)
+            wait = self._poll_interval + 5 if timeout is None else timeout
+            self._thread.join(timeout=wait)
+            if self._thread.is_alive():
+                return False
             self._thread = None
         logger.info("Scheduler stopped")
+        return True
 
     def create_task(
         self,
@@ -188,6 +217,13 @@ class TaskScheduler:
 
     # -- Background loop -----------------------------------------------------
 
+    def _run_worker(self) -> None:
+        try:
+            self._poll_loop()
+        finally:
+            if self._worker_lock is not None:
+                self._worker_lock.release()
+
     def _poll_loop(self) -> None:
         """Poll for due tasks and execute them until stopped."""
         while not self._stop_event.is_set():
@@ -196,6 +232,8 @@ class TaskScheduler:
                 with self._lock:
                     due = self._store.get_due_tasks(now)
                 for task_dict in due:
+                    if self._stop_event.is_set():
+                        break
                     task = ScheduledTask.from_dict(task_dict)
                     self._execute_task(task)
             except Exception:
@@ -204,6 +242,8 @@ class TaskScheduler:
 
     def _execute_task(self, task: ScheduledTask) -> None:
         """Execute a single due task and log the result."""
+        if self._system is None:
+            raise RuntimeError("Scheduler requires an execution system")
         started_at = _now_iso()
 
         # Publish start event
@@ -218,29 +258,25 @@ class TaskScheduler:
         error_text = ""
 
         try:
-            if self._system is not None:
-                raw_tools = (
-                    task.tools
-                    if isinstance(task.tools, list)
-                    else task.tools.split(",")
-                )
-                tools_list = (
-                    [t.strip() for t in raw_tools if t.strip()] if task.tools else []
-                )
-                ask_kwargs: Dict[str, Any] = {
-                    "agent": task.agent,
-                    "tools": tools_list if tools_list else None,
-                }
-                meta = task.metadata or {}
-                if meta.get("operator_id"):
-                    ask_kwargs["system_prompt"] = meta.get("system_prompt", "")
-                    ask_kwargs["operator_id"] = meta["operator_id"]
-                result_text = self._system.ask(
-                    task.prompt,
-                    **ask_kwargs,
-                )
-            else:
-                result_text = f"[dry-run] Would execute: {task.prompt}"
+            raw_tools = (
+                task.tools if isinstance(task.tools, list) else task.tools.split(",")
+            )
+            tools_list = [t.strip() for t in raw_tools if t.strip()]
+            ask_kwargs: Dict[str, Any] = {
+                "agent": task.agent,
+                "tools": tools_list or None,
+            }
+            meta = task.metadata or {}
+            if meta.get("operator_id"):
+                ask_kwargs["system_prompt"] = meta.get("system_prompt", "")
+                ask_kwargs["operator_id"] = meta["operator_id"]
+            result = self._system.ask(task.prompt, **ask_kwargs)
+            if isinstance(result, dict):
+                result_text = str(result.get("content") or "")
+                if result.get("error"):
+                    raise RuntimeError(result_text or str(result["error"]))
+            elif result is not None:
+                result_text = str(result)
             success = True
         except Exception as exc:
             error_text = str(exc)
@@ -292,8 +328,7 @@ class TaskScheduler:
             # If already run, no more runs
             if task.last_run is not None:
                 return None
-            # Otherwise the schedule_value is the target ISO datetime
-            return task.schedule_value
+            return parse_run_time(task.schedule_value).isoformat()
 
         if task.schedule_type == "interval":
             seconds = float(task.schedule_value)

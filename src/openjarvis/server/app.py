@@ -172,6 +172,7 @@ def create_app(
     speech_backend=None,
     agent_manager=None,
     agent_scheduler=None,
+    task_system=None,
     mcp_tools=None,
     mcp_clients=None,
     capability_policy=None,
@@ -318,6 +319,30 @@ def create_app(
     # AuthMiddleware never sees WS upgrade requests). Empty = auth disabled.
     app.state.api_key = api_key
 
+    task_store = task_scheduler = None
+
+    if task_system is not None:
+
+        @app.on_event("startup")
+        async def _start_task_scheduler() -> None:
+            nonlocal task_store, task_scheduler
+            from openjarvis.scheduler.scheduler import TaskScheduler
+            from openjarvis.scheduler.store import SchedulerStore
+
+            task_store = SchedulerStore.from_config(task_system.config)
+            try:
+                task_scheduler = TaskScheduler(
+                    task_store,
+                    task_system,
+                    poll_interval=task_system.config.scheduler.poll_interval,
+                    bus=task_system.bus,
+                )
+                task_scheduler.start()
+            except BaseException:
+                task_store.close()
+                task_store = task_scheduler = None
+                raise
+
     @app.on_event("shutdown")
     async def _shutdown_managed_runtime() -> None:
         # Quiesce every producer before touching the shared MCP pool. Route
@@ -327,6 +352,10 @@ def create_app(
         with app.state._managed_worker_lock:
             app.state._managed_runtime_stopping = True
             managed_workers = list(app.state._managed_workers)
+
+        task_scheduler_drained = task_scheduler is None or task_scheduler.stop(
+            timeout=_MANAGED_SHUTDOWN_GRACE_SECONDS
+        )
 
         # Stop external listener threads before draining ticks or closing the
         # shared MCP pool. Channel callbacks are wired to that same pool by
@@ -391,6 +420,14 @@ def create_app(
             except Exception:
                 scheduler_drained = False
                 logger.debug("Agent scheduler drain failed", exc_info=True)
+        if not task_scheduler_drained and task_scheduler is not None:
+            task_scheduler_drained = task_scheduler.stop(
+                timeout=_MANAGED_SHUTDOWN_DRAIN_SECONDS
+            )
+        if task_scheduler_drained and task_store is not None:
+            task_store.close()
+        elif not task_scheduler_drained:
+            logger.warning("Task scheduler did not stop during shutdown")
         _join_workers(timeout=_MANAGED_SHUTDOWN_DRAIN_SECONDS)
         alive = [thread.name for thread in managed_workers if thread.is_alive()]
         if alive:
@@ -400,7 +437,7 @@ def create_app(
         # to this app process. Close it only after every tracked consumer has
         # been drained; injected/borrowed backends remain the caller's concern.
         owned_memory_backend = None
-        runtime_drained = scheduler_drained and not alive
+        runtime_drained = task_scheduler_drained and scheduler_drained and not alive
         if runtime_drained:
             with app.state._memory_backend_lock:
                 if app.state._owns_memory_backend:

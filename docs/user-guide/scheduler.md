@@ -3,7 +3,7 @@
 The task scheduler lets you run agent queries automatically on a schedule -- once at a future time, on a recurring interval, or via a cron expression. Scheduled tasks are persisted in SQLite so they survive process restarts, and execution is handled by a background daemon thread that polls for due tasks every 60 seconds.
 
 !!! note "Optional component"
-    The scheduler is a standalone module (`openjarvis.scheduler`). It is not wired into the default `Jarvis` / `JarvisSystem` startup. You enable it explicitly via `SystemBuilder` or by starting the CLI daemon with `jarvis scheduler start`.
+    To run tasks with `jarvis serve` or `jarvis start`, set `enabled = true` under `[scheduler]` in `config.toml`. Alternatively, run `jarvis scheduler start` as a standalone worker. Only one worker can poll a given scheduler database.
 
 ---
 
@@ -11,12 +11,12 @@ The task scheduler lets you run agent queries automatically on a schedule -- onc
 
 | `schedule_type` | `schedule_value` format            | Example                     | Meaning                             |
 |-----------------|------------------------------------|-----------------------------|-------------------------------------|
-| `once`          | ISO 8601 UTC datetime              | `"2026-03-01T09:00:00Z"`    | Run once at that timestamp          |
-| `interval`      | Seconds as a string                | `"3600"`                    | Run every hour, starting immediately |
+| `once`          | ISO 8601 datetime                  | `"2026-03-01T10:00:00+01:00"` | Run once at 09:00 UTC. No offset means UTC. |
+| `interval`      | Seconds as a string                | `"3600"`                    | Run every hour, first run in one hour |
 | `cron`          | Standard 5-field cron expression   | `"0 9 * * 1-5"`             | 09:00 UTC, Monday–Friday            |
 
 !!! tip "Cron support"
-    Full cron expression support requires `croniter` (`uv pip install croniter`). Without it, the scheduler uses a minimal built-in parser that handles simple `minute hour * * *` patterns only.
+    Cron expressions use `croniter`, an OpenJarvis dependency. Use `--timezone` with an IANA timezone such as `Europe/Madrid` for local wall-clock time. Cron defaults to UTC.
 
 ---
 
@@ -30,30 +30,28 @@ The `jarvis scheduler` subcommand group manages tasks and the daemon from the te
 jarvis scheduler start
 ```
 
-Starts the background polling daemon. The daemon runs in the foreground until interrupted (++ctrl+c++). In production, run it under systemd or launchd (see [Deployment](../deployment/systemd.md)).
+The standalone worker runs scheduled prompts through your configured inference engine and stays in the foreground until interrupted (++ctrl+c++). It uses `[scheduler].db_path` and `[scheduler].poll_interval`; pass `--poll-interval` to override the latter. Do not start a separate worker for a database already polled by `jarvis serve`.
 
 ### Create a task
 
 ```bash
 # Run once at a specific time
-jarvis scheduler create \
-  --prompt "Generate the weekly summary report" \
+jarvis scheduler create "Generate the weekly summary report" \
   --type once \
   --value "2026-03-01T09:00:00Z"
 
 # Run every hour
-jarvis scheduler create \
-  --prompt "Check for new emails and summarize" \
+jarvis scheduler create "Check for new emails and summarize" \
   --type interval \
   --value "3600" \
   --agent orchestrator \
   --tools retrieval,think
 
 # Run on a cron schedule
-jarvis scheduler create \
-  --prompt "Summarize overnight logs" \
+jarvis scheduler create "Summarize overnight logs" \
   --type cron \
-  --value "0 8 * * 1-5"
+  --value "0 8 * * 1-5" \
+  --timezone Europe/Madrid
 ```
 
 ### List tasks
@@ -159,7 +157,7 @@ jarvis.close()
 ```
 
 1. SQLite database storing all task state and run logs.
-2. The scheduler calls `system.ask(task.prompt, agent=task.agent, tools=...)` when a task is due. Pass `system=None` for a dry-run mode that logs what it would execute without calling the agent.
+2. The scheduler calls `system.ask(task.prompt, agent=task.agent, tools=...)` when a task is due. You can omit `system` to manage stored tasks, but the worker will not start without an execution system. To preview without consuming a task, use `jarvis scheduler run-task AGENT --dry-run`.
 3. Seconds between polling cycles. Lower values increase responsiveness at the cost of more SQLite reads.
 4. Starts a daemon thread named `"jarvis-scheduler"`. Daemon threads exit automatically when the main process exits.
 

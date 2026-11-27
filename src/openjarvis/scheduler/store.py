@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from filelock import FileLock
 
 _CREATE_TASKS_TABLE = """\
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
@@ -49,6 +52,14 @@ VALUES (?, ?, ?, ?, ?, ?)
 """
 
 
+def parse_run_time(value: str) -> datetime:
+    """Read legacy naive timestamps as UTC, not the host's local time."""
+    value_dt = datetime.fromisoformat(value)
+    if value_dt.tzinfo is None:
+        return value_dt.replace(tzinfo=timezone.utc)
+    return value_dt.astimezone(timezone.utc)
+
+
 class SchedulerStore:
     """SQLite CRUD store for scheduled tasks and their run logs."""
 
@@ -59,6 +70,19 @@ class SchedulerStore:
         self._conn.execute(_CREATE_TASKS_TABLE)
         self._conn.execute(_CREATE_LOGS_TABLE)
         self._conn.commit()
+
+    @classmethod
+    def from_config(cls, config) -> SchedulerStore:
+        """Open the same configured database for the CLI and server."""
+        db_path = config.scheduler.db_path or config._config_dir / "scheduler.db"
+        return cls(Path(db_path).expanduser() if db_path != ":memory:" else db_path)
+
+    def worker_lock(self) -> FileLock | None:
+        """Only one polling worker may execute tasks for a database."""
+        if self._db_path == ":memory:":
+            return None
+        lock_path = f"{Path(self._db_path).resolve()}.worker.lock"
+        return FileLock(lock_path, thread_local=False)
 
     # -- Task CRUD -----------------------------------------------------------
 
@@ -103,12 +127,20 @@ class SchedulerStore:
 
     def get_due_tasks(self, now_iso: str) -> List[Dict[str, Any]]:
         """Return active tasks whose ``next_run`` is at or before *now_iso*."""
+        now = parse_run_time(now_iso)
         rows = self._conn.execute(
             "SELECT * FROM scheduled_tasks WHERE status = 'active' "
-            "AND next_run IS NOT NULL AND next_run <= ?",
-            (now_iso,),
-        ).fetchall()
-        return [self._row_to_dict(r) for r in rows]
+            "AND next_run IS NOT NULL"
+        )
+        due = []
+        for row in rows:
+            try:
+                run_at = parse_run_time(row["next_run"])
+            except ValueError:
+                continue  # A malformed legacy record must not block other tasks.
+            if run_at <= now:
+                due.append(self._row_to_dict(row))
+        return due
 
     def update_task(self, task: Dict[str, Any]) -> None:
         """Update an existing task (same as save_task — uses INSERT OR REPLACE)."""
