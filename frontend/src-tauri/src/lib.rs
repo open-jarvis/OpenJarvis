@@ -10,10 +10,10 @@ const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8000;
 #[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
 const DESKTOP_UV_SYNC_COMMAND: &str =
-    "uv sync --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
+    "uv sync --extra desktop --extra inference-cloud --extra inference-google --group desktop-native --inexact";
 #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
 const DESKTOP_UV_SYNC_COMMAND: &str =
-    "uv sync --python cpython-3.12-windows-x86_64-none --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
+    "uv sync --python cpython-3.12-windows-x86_64-none --extra desktop --extra inference-cloud --extra inference-google --group desktop-native --inexact";
 
 /// Small, fast model used when startup needs a default Ollama tag.
 const STARTUP_MODEL: &str = "qwen3.5:4b";
@@ -1539,6 +1539,13 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             // `desktop` extra) so pip installs from PyPI don't require it (#584).
             "--group",
             "desktop-native",
+            // Install what is missing while retaining unrelated packages.
+            // Optional features are opt-in installs on top of
+            // this set: spoken replies need `uv sync --inexact --extra voice`,
+            // and Kokoro downloads its spaCy English model at first use. An
+            // exact sync would uninstall both on every app launch, so voice
+            // output would silently disappear again after each restart.
+            "--inexact",
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -2077,6 +2084,9 @@ async fn transcribe_audio(
     api_url: String,
     audio_data: Vec<u8>,
     filename: String,
+    hotwords: Option<String>,
+    language: Option<String>,
+    api_key: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let url = format!("{}/v1/speech/transcribe", api_url);
     let client = reqwest::Client::new();
@@ -2086,10 +2096,20 @@ async fn transcribe_audio(
         .mime_str("audio/webm")
         .map_err(|e| format!("Failed to create multipart: {}", e))?;
 
-    let form = reqwest::multipart::Form::new().part("file", part);
+    let mut form = reqwest::multipart::Form::new().part("file", part);
+    // Optional vocabulary hint, e.g. the wake word in hands-free mode.
+    if let Some(words) = hotwords.filter(|w| !w.trim().is_empty()) {
+        form = form.text("hotwords", words);
+    }
+    if let Some(lang) = language.filter(|l| !l.trim().is_empty()) {
+        form = form.text("language", lang);
+    }
 
-    let resp = client
-        .post(&url)
+    let mut request = client.post(&url);
+    if let Some(key) = api_key.filter(|key| !key.is_empty()) {
+        request = request.bearer_auth(key);
+    }
+    let resp = request
         .multipart(form)
         .send()
         .await

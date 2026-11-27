@@ -864,6 +864,21 @@ def test_elevenlabs_health_requires_key(monkeypatch):
     assert ElevenLabsTTSBackend(api_key="fake-key").health() is True
 
 
+def test_elevenlabs_default_uses_george_replacement(monkeypatch):
+    from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
+
+    monkeypatch.delenv("ELEVENLABS_VOICE_ID", raising=False)
+    backend = ElevenLabsTTSBackend(api_key="fake-key")
+    with patch(
+        "openjarvis.speech.elevenlabs_tts._elevenlabs_synthesize",
+        return_value=b"fake-mp3",
+    ) as synth:
+        result = backend.synthesize("Hello")
+
+    assert synth.call_args.kwargs["voice_id"] == "6WwXjDDEMyNmFG95zycZ"
+    assert result.voice_id == "6WwXjDDEMyNmFG95zycZ"
+
+
 def test_elevenlabs_synthesize_mp3():
     from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
 
@@ -924,7 +939,11 @@ def test_elevenlabs_ignores_kokoro_voice_ids(monkeypatch, kokoro_voice):
     assert result.voice_id == _DEFAULT_VOICE_ID
 
 
-def test_elevenlabs_env_voice_used_when_none_given(monkeypatch):
+@pytest.mark.parametrize(
+    ("voice_id", "expected"),
+    [("bm_george", "envVoice123"), ("explicitVoice456", "explicitVoice456")],
+)
+def test_elevenlabs_explicit_voice_takes_precedence(monkeypatch, voice_id, expected):
     from openjarvis.speech.elevenlabs_tts import ElevenLabsTTSBackend
 
     monkeypatch.setenv("ELEVENLABS_VOICE_ID", "envVoice123")
@@ -933,9 +952,9 @@ def test_elevenlabs_env_voice_used_when_none_given(monkeypatch):
         "openjarvis.speech.elevenlabs_tts._elevenlabs_synthesize",
         return_value=b"fake-mp3",
     ) as synth:
-        backend.synthesize("Hello", voice_id="bm_george")
+        backend.synthesize("Hello", voice_id=voice_id)
 
-    assert synth.call_args.kwargs["voice_id"] == "envVoice123"
+    assert synth.call_args.kwargs["voice_id"] == expected
 
 
 def test_elevenlabs_speed_is_clamped():

@@ -46,6 +46,36 @@ async function freshApi() {
   return await import('./api');
 }
 
+describe('Desktop transcription', () => {
+  it('passes the language, hint and configured key to the native command', async () => {
+    const invoke = vi.fn().mockResolvedValue({ text: 'Jarvis' });
+    vi.doMock('@tauri-apps/api/core', () => ({ invoke }));
+    vi.stubGlobal('window', { __TAURI_INTERNALS__: {} });
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ apiUrl: 'https://jarvis.example', apiKey: 'test-key' }),
+    );
+    try {
+      const { transcribeAudio } = await freshApi();
+      await transcribeAudio(new Blob([new Uint8Array([1, 2])]), 'clip.wav', {
+        hotwords: 'Jarvis',
+        language: 'en',
+      });
+      expect(invoke).toHaveBeenCalledWith('transcribe_audio', {
+        apiUrl: 'https://jarvis.example',
+        apiKey: 'test-key',
+        audioData: [1, 2],
+        filename: 'clip.wav',
+        hotwords: 'Jarvis',
+        language: 'en',
+      });
+    } finally {
+      vi.doUnmock('@tauri-apps/api/core');
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe('getApiKey', () => {
   it('returns empty string when no key is configured', async () => {
     const { getApiKey } = await freshApi();

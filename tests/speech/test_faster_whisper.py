@@ -183,3 +183,58 @@ def test_faster_whisper_supported_formats():
         assert "wav" in formats
         assert "mp3" in formats
         assert "webm" in formats
+
+
+def _mock_model():
+    model = MagicMock()
+    info = MagicMock(language="en", language_probability=0.9, duration=1.0)
+    model.transcribe.return_value = ([], info)
+    return model
+
+
+def test_faster_whisper_hotwords_enable_vad_filter():
+    """A vocabulary hint is forwarded, always together with the VAD filter.
+
+    Hotwords alone can make Whisper "hear" the hinted word in noise (#1301).
+    """
+    model = _mock_model()
+    response = model.transcribe.return_value
+    calls = []
+
+    def transcribe(path, *, hotwords=None, vad_filter=False):
+        calls.append((hotwords, vad_filter))
+        return response
+
+    model.transcribe = transcribe
+    with patch("openjarvis.speech.faster_whisper.WhisperModel", return_value=model):
+        backend = FasterWhisperBackend(model_size="base", device="cpu")
+        backend.transcribe(b"audio", hotwords="Jarvis")
+
+    assert calls == [("Jarvis", True)]
+
+
+def test_faster_whisper_older_model_accepts_audio_without_unsupported_hint():
+    model = _mock_model()
+    response = model.transcribe.return_value
+    calls = []
+
+    def transcribe(path, *, language=None):
+        calls.append(language)
+        return response
+
+    model.transcribe = transcribe
+    with patch("openjarvis.speech.faster_whisper.WhisperModel", return_value=model):
+        backend = FasterWhisperBackend(model_size="base", device="cpu")
+        result = backend.transcribe(b"audio", language="en", hotwords="Jarvis")
+
+    assert calls == ["en"]
+    assert result.language == "en"
+
+
+def test_faster_whisper_without_hotwords_keeps_defaults():
+    model = _mock_model()
+    with patch("openjarvis.speech.faster_whisper.WhisperModel", return_value=model):
+        backend = FasterWhisperBackend(model_size="base", device="cpu")
+        backend.transcribe(b"audio", language="en")
+
+    assert model.transcribe.call_args.kwargs == {"language": "en"}

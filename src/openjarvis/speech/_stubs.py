@@ -32,6 +32,7 @@ class SpeechBackend(ABC):
     """Abstract base class for speech-to-text backends."""
 
     backend_id: str = ""
+    supports_hotwords: bool = False
 
     @abstractmethod
     def transcribe(
@@ -40,8 +41,14 @@ class SpeechBackend(ABC):
         *,
         format: str = "wav",
         language: Optional[str] = None,
+        hotwords: Optional[str] = None,
     ) -> TranscriptionResult:
-        """Transcribe audio bytes to text."""
+        """Transcribe audio bytes to text.
+
+        ``hotwords`` is an optional vocabulary hint, e.g. the assistant's name
+        for wake-word detection. The HTTP route forwards it only to backends
+        that declare `supports_hotwords`.
+        """
 
     @abstractmethod
     def health(self) -> bool:

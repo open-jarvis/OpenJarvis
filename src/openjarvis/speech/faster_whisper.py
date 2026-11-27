@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+from inspect import signature
 from typing import List, Optional
 
 from openjarvis.core.registry import SpeechRegistry
@@ -28,6 +29,7 @@ class FasterWhisperBackend(SpeechBackend):
     """Local speech-to-text using Faster-Whisper (CTranslate2)."""
 
     backend_id = "faster-whisper"
+    supports_hotwords = True
 
     def __init__(
         self,
@@ -101,6 +103,7 @@ class FasterWhisperBackend(SpeechBackend):
         *,
         format: str = "wav",
         language: Optional[str] = None,
+        hotwords: Optional[str] = None,
     ) -> TranscriptionResult:
         """Transcribe audio bytes using Faster-Whisper."""
         try:
@@ -116,9 +119,17 @@ class FasterWhisperBackend(SpeechBackend):
                 with tmp:
                     tmp.write(audio)
 
-                kwargs = {}
+                kwargs: dict = {}
                 if language:
                     kwargs["language"] = language
+                # Older supported Faster-Whisper releases lack this keyword.
+                if hotwords and "hotwords" in signature(model.transcribe).parameters:
+                    # A vocabulary hint fixes names Whisper otherwise
+                    # mishears ("Jarvis" -> "Charis", "Service"). On its own
+                    # it can make the model "hear" the hinted word in noise,
+                    # so it always comes with the VAD filter (#1301).
+                    kwargs["hotwords"] = hotwords
+                    kwargs["vad_filter"] = True
 
                 segments_iter, info = model.transcribe(tmp.name, **kwargs)
                 segments_list = list(segments_iter)

@@ -36,7 +36,7 @@ schedule = "0 6 * * *"          # 6 AM daily (cron syntax)
 timezone = "America/Los_Angeles"
 persona = "jarvis"
 honorific = "sir"               # or "ma'am", "boss", etc.
-tts_backend = "cartesia"        # or "openai"
+tts_backend = "cartesia"        # or "openai", "elevenlabs"
 voice_id = "c8f7835e-28a3-4f0c-80d7-c1302ac62aae"  # Alistair (British male)
 voice_speed = 1.2
 sections = ["health", "messages", "calendar", "world"]
@@ -102,18 +102,34 @@ export CARTESIA_API_KEY="sk_car_..."
 
 # Or OpenAI (https://platform.openai.com/api-keys)
 export OPENAI_API_KEY="sk-proj-..."
+
+# Or ElevenLabs (https://elevenlabs.io/app/settings/api-keys)
+export ELEVENLABS_API_KEY="<ELEVENLABS_API_KEY>"
 ```
+
+To use ElevenLabs, edit the following settings in your `[digest]` section.
+Use a voice ID available through your ElevenLabs plan.
+
+```toml
+tts_backend = "elevenlabs"
+voice_id = "6WwXjDDEMyNmFG95zycZ"  # Eldrin
+```
+
+Cloud text-to-speech sends the digest narrative, which can contain personal
+information from connectors, to the provider. `--text-only` skips playback
+and still generates audio. To synthesize locally, select `tts_backend = "kokoro"`
+with an installed Kokoro backend and a Kokoro voice ID.
 
 ### 6. Run your first digest
 
 ```bash
-CARTESIA_API_KEY="sk_car_..." jarvis digest --fresh
+jarvis digest --fresh
 ```
 
 The digest will:
 1. Collect data from all connected sources
 2. Synthesize a spoken briefing with Qwen3.5 9B
-3. Generate audio with the Cartesia Alistair voice
+3. Generate audio with your configured voice
 4. Print the text and play the audio
 
 ## CLI Commands
@@ -225,4 +241,4 @@ On native Windows, install the playback dependencies with
 `pip install "openjarvis[speech]"`. If an external audio player is unavailable,
 the digest command decodes the saved file and plays it through PortAudio. The
 command shows the digest text first, waits for playback to finish, and reports
-playback errors. Use `--text-only` to skip audio or Ctrl+C to stop playback.
+playback errors. Use `--text-only` to skip playback or Ctrl+C to stop playback.
