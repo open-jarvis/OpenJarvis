@@ -20,7 +20,8 @@ def test_openai_whisper_registers():
     assert SpeechRegistry.contains("openai")
 
 
-def test_openai_whisper_transcribe():
+@pytest.mark.parametrize("hotwords", [None, "Jarvis"])
+def test_openai_whisper_transcribe(hotwords):
     mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.text = "Hello from OpenAI"
@@ -32,11 +33,16 @@ def test_openai_whisper_transcribe():
         from openjarvis.speech.openai_whisper import OpenAIWhisperBackend
 
         backend = OpenAIWhisperBackend(api_key="test-key")
-        result = backend.transcribe(b"fake audio", format="wav")
+        result = backend.transcribe(b"fake audio", format="wav", hotwords=hotwords)
 
         assert isinstance(result, TranscriptionResult)
         assert result.text == "Hello from OpenAI"
         assert result.language == "en"
+        kwargs = mock_client.audio.transcriptions.create.call_args.kwargs
+        if hotwords is None:
+            assert "prompt" not in kwargs
+        else:
+            assert kwargs["prompt"] == hotwords
 
 
 def test_openai_whisper_health():
