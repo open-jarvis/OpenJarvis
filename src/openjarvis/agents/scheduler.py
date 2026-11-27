@@ -72,6 +72,12 @@ class AgentScheduler:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        # Team handoffs run their receiving agent automatically (see handoffs.py).
+        self._handoffs: Any = None
+        if hasattr(type(manager), "campaigns"):
+            from openjarvis.agents.handoffs import HandoffDispatcher
+
+            self._handoffs = HandoffDispatcher(manager, executor)
 
     @property
     def registered_agents(self) -> set[str]:
@@ -133,6 +139,8 @@ class AgentScheduler:
             target=self._loop, daemon=True, name="agent-scheduler"
         )
         self._thread.start()
+        if self._handoffs is not None:
+            self._handoffs.start()
         logger.info("Agent scheduler started")
 
     def request_stop(self) -> None:
@@ -141,10 +149,14 @@ class AgentScheduler:
         self._stop_event.set()
         if self._bus:
             self._bus.unsubscribe(EventType.AGENT_TICK_END, self._on_tick_event)
+        if self._handoffs is not None:
+            self._handoffs.request_stop()
 
     def wait_stopped(self, timeout: float = 10.0) -> bool:
         """Wait for an active tick to finish, retaining live thread state."""
 
+        if self._handoffs is not None and not self._handoffs.wait_stopped(timeout):
+            return False
         thread = self._thread
         if thread is None:
             return True

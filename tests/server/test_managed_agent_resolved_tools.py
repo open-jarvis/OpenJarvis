@@ -429,3 +429,45 @@ async def test_sse_memory_tools_resolve_backend_when_context_injection_is_off(
     assert app_state._owns_memory_backend is True
     backend.store.assert_called_once_with("remember me", source="")
     assert engine.observed_tool_result == "Stored as doc-1"
+
+
+@pytest.mark.asyncio
+async def test_team_streaming_uses_bound_identity_and_never_discovers_global(
+    tmp_path, monkeypatch
+):
+    from openjarvis.agents.manager import AgentManager
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.server.agent_manager_routes import _stream_managed_agent
+
+    cfg = JarvisConfig()
+    cfg.tools.storage.enabled = False
+    manager = AgentManager(str(tmp_path / "agents.db"))
+    team = manager.create_team("Company")
+    source = manager.create_agent("Source", team_id=team["id"], config={"max_turns": 3})
+    target = manager.create_agent("Target", team_id=team["id"])
+    discover_global = MagicMock(
+        side_effect=AssertionError("Global discovery forbidden")
+    )
+    monkeypatch.setattr(
+        "openjarvis.server.agent_manager_routes._get_mcp_tools", discover_global
+    )
+    engine = _ToolCallingEngine(
+        "managed_agent_message",
+        {"target_agent_id": target["id"], "message": "Campaign draft ready"},
+    )
+    response = await _stream_managed_agent(
+        manager=manager,
+        agent_record=source,
+        user_content="Send the handoff",
+        message_id="test-message",
+        engine=engine,
+        bus=None,
+        app_state=SimpleNamespace(config=cfg, memory_backend=None),
+    )
+    async for _ in response.body_iterator:
+        pass
+    assert json.loads(engine.observed_tool_result)["status"] == "queued"
+    pending = manager.get_pending_messages(target["id"])
+    assert json.loads(pending[0]["content"])["source_agent_id"] == source["id"]
+    discover_global.assert_not_called()
+    manager.close()

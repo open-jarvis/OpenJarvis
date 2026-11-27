@@ -2,9 +2,11 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
+import { AgentTeamToolbar, AgentTeamAssignment, TeamSelect } from '../components/AgentTeams';
 import { useAppStore } from '../lib/store';
 import {
   fetchManagedAgents,
+  fetchAgentTeams,
   fetchAgentTasks,
   fetchAgentChannels,
   bindAgentChannel,
@@ -31,7 +33,7 @@ import {
   sendblueTest,
   sendblueHealth,
 } from '../lib/api';
-import type { AgentTask, ChannelBinding, AgentTemplate, ManagedAgent, LearningLogEntry, AgentTrace, AgentTraceDetail, ToolInfo } from '../lib/api';
+import type { AgentTeam, AgentTask, ChannelBinding, AgentTemplate, ManagedAgent, LearningLogEntry, AgentTrace, AgentTraceDetail, ToolInfo } from '../lib/api';
 import { useAgentEvents } from '../lib/useAgentEvents';
 import type { AgentEvent } from '../lib/useAgentEvents';
 import {
@@ -643,13 +645,18 @@ function ToolsPicker({
 
 function LaunchWizard({
   templates,
+  teams,
+  initialTeamId,
   onClose,
   onLaunched,
 }: {
   templates: AgentTemplate[];
+  teams: AgentTeam[];
+  initialTeamId: string;
   onClose: () => void;
   onLaunched: () => void;
 }) {
+  const [teamId, setTeamId] = useState(initialTeamId);
   const UNIVERSAL_DEFAULTS = {
     memoryExtraction: 'structured_json',
     observationCompression: 'summarize',
@@ -756,6 +763,7 @@ function LaunchWizard({
       await createManagedAgent({
         name: wizard.name.trim(),
         template_id: wizard.templateId || undefined,
+        team_id: teamId || null,
         config,
       });
       toast.success(`Agent "${wizard.name}" created`);
@@ -849,6 +857,7 @@ function LaunchWizard({
         </div>
 
         <div className="space-y-4">
+          <TeamSelect id="new-agent-team" teams={teams} value={teamId} onChange={setTeamId} />
           {/* Name */}
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Agent Name</label>
@@ -1181,6 +1190,7 @@ function OverflowMenu({
 
 function AgentCard({
   agent,
+  teamName,
   onClick,
   onPause,
   onResume,
@@ -1191,6 +1201,7 @@ function AgentCard({
   onEdit,
 }: {
   agent: ManagedAgent;
+  teamName?: string;
   onClick: () => void;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
@@ -1223,6 +1234,7 @@ function AgentCard({
         <StatusDot status={agent.status} />
       </div>
 
+      <p className="text-xs mb-2 truncate" dir="auto" style={{ color: 'var(--color-text-secondary)' }}>{teamName || 'Unassigned'}</p>
       {/* Row 2: Schedule + last run */}
       <div className="text-xs mb-2 flex items-center gap-3" style={{ color: 'var(--color-text-tertiary)' }}>
         <span>{formatAgentSchedule(agent)}</span>
@@ -3429,6 +3441,18 @@ export function AgentsPage() {
   const [channels, setChannels] = useState<ChannelBinding[]>([]);
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [showWizard, setShowWizard] = useState(false);
+  const [teams, setTeams] = useState<AgentTeam[]>([]);
+  const [teamFilter, setTeamFilter] = useState('all');
+  const [teamsUnavailable, setTeamsUnavailable] = useState(false);
+  const refreshTeams = useCallback(async () => {
+    try {
+      const next = await fetchAgentTeams();
+      setTeams(next);
+      setTeamsUnavailable(false);
+      setTeamFilter((current) => current === 'all' || current === 'unassigned' || next.some((team) => team.id === current) ? current : 'all');
+    } catch { setTeamsUnavailable(true); }
+  }, []);
+  const visibleAgents = managedAgents.filter((agent) => teamFilter === 'all' || (teamFilter === 'unassigned' ? !agent.team_id : agent.team_id === teamFilter));
   const [detailTab, setDetailTab] = useState<'overview' | 'interact' | 'channels' | 'messaging' | 'tasks' | 'memory' | 'learning' | 'logs'>('interact');
 
   const refresh = useCallback(async () => {
@@ -3449,7 +3473,8 @@ export function AgentsPage() {
   useEffect(() => {
     refresh();
     fetchTemplates().then(setTemplates).catch(() => {});
-  }, [refresh]);
+    refreshTeams();
+  }, [refresh, refreshTeams]);
 
   const selectedAgent = managedAgents.find((a) => a.id === selectedAgentId);
 
@@ -3684,6 +3709,7 @@ export function AgentsPage() {
         {/* Tab: Overview */}
         {detailTab === 'overview' && (
           <div className="space-y-3">
+            <AgentTeamAssignment key={selectedAgent.id} agent={selectedAgent} teams={teams} onUpdated={refresh} />
             {/* Instruction */}
             <AgentInstructionSection agent={selectedAgent} onAgentUpdated={refresh} />
 
@@ -3910,6 +3936,8 @@ export function AgentsPage() {
       {showWizard && (
         <LaunchWizard
           templates={templates}
+          teams={teams}
+          initialTeamId={teams.some((team) => team.id === teamFilter) ? teamFilter : ''}
           onClose={() => setShowWizard(false)}
           onLaunched={() => {
             setShowWizard(false);
@@ -3954,12 +3982,15 @@ export function AgentsPage() {
         </div>
       )}
 
+      <AgentTeamToolbar teams={teams} agents={managedAgents} filter={teamFilter} onFilter={setTeamFilter} unavailable={teamsUnavailable || agentManagerAvailable !== true} onUpdated={() => { refreshTeams(); refresh(); }} />
+
       {/* Agent cards grid */}
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
-        {managedAgents.map((a) => (
+        {visibleAgents.map((a) => (
           <AgentCard
             key={a.id}
             agent={a}
+            teamName={teams.find((team) => team.id === a.team_id)?.name}
             onClick={() => {
               setSelectedAgentId(a.id);
               setDetailTab('overview');
@@ -3981,11 +4012,11 @@ export function AgentsPage() {
         ))}
       </div>
 
-      {managedAgents.length === 0 && (
+      {visibleAgents.length === 0 && (
         <div className="text-center py-16" style={{ color: 'var(--color-text-tertiary)' }}>
           <Bot size={48} className="mx-auto mb-4 opacity-30" />
           <p className="mb-2 font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-            No agents yet
+            {managedAgents.length ? 'No agents in this team' : 'No agents yet'}
           </p>
           <p className="text-sm mb-6">Create your first agent to get started with autonomous task management.</p>
           <button

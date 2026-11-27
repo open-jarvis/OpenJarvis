@@ -59,3 +59,6 @@ for _name in _BUILTIN_TOOL_MODULES:
         logger.debug("Optional tool %s not loaded: %s", _name, _exc)
 
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]
+
+# Organic marketing production tools.
+import openjarvis.tools.marketing  # noqa: F401
