@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import pytest
+
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import StepType, Trace, TraceStep
 from openjarvis.traces.store import TraceStore
@@ -228,4 +230,49 @@ class TestTraceStore:
         assert retrieved is not None
         assert retrieved.metadata["key"] == "value"
         assert retrieved.metadata["nested"] == [1, 2, 3]
+        store.close()
+
+    def test_bytes_in_step_output_saved_as_base64(self, tmp_path: Path) -> None:
+        # Gemini tool calls carry a binary thought_signature, which reaches
+        # the step output through the agent's generate result.
+        store = TraceStore(tmp_path / "test.db")
+        trace = _make_trace(num_steps=1)
+        trace.steps[0].output = {
+            "tool_calls": [
+                {
+                    "id": "google_web_search",
+                    "name": "web_search",
+                    "arguments": '{"query": "x"}',
+                    "thought_signature": b"\x01\x02sig",
+                }
+            ]
+        }
+        store.save(trace)
+
+        retrieved = store.get(trace.trace_id)
+        assert retrieved is not None
+        call = retrieved.steps[0].output["tool_calls"][0]
+        assert call["name"] == "web_search"
+        assert call["thought_signature"] == "AQJzaWc="
+        store.close()
+
+    def test_bytes_in_metadata_and_messages(self, tmp_path: Path) -> None:
+        store = TraceStore(tmp_path / "test.db")
+        trace = _make_trace()
+        trace.metadata = {"blob": bytearray(b"\xff")}
+        trace.messages = [{"role": "assistant", "signature": b"\x00"}]
+        store.save(trace)
+
+        retrieved = store.get(trace.trace_id)
+        assert retrieved is not None
+        assert retrieved.metadata["blob"] == "/w=="
+        assert retrieved.messages[0]["signature"] == "AA=="
+        store.close()
+
+    def test_other_unserializable_values_still_raise(self, tmp_path: Path) -> None:
+        store = TraceStore(tmp_path / "test.db")
+        trace = _make_trace()
+        trace.metadata = {"obj": object()}
+        with pytest.raises(TypeError, match="not JSON serializable"):
+            store.save(trace)
         store.close()
