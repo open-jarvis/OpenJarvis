@@ -105,7 +105,7 @@ BUILTIN_MODELS: List[ModelSpec] = [
         name="Qwen3.5 0.8B",
         parameter_count_b=0.8,
         context_length=131072,
-        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx"),
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx", "rapidmlx"),
         provider="alibaba",
         metadata={
             "architecture": "dense",
@@ -118,7 +118,7 @@ BUILTIN_MODELS: List[ModelSpec] = [
         name="Qwen3.5 2B",
         parameter_count_b=2.0,
         context_length=131072,
-        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx"),
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx", "rapidmlx"),
         provider="alibaba",
         metadata={
             "architecture": "dense",
@@ -131,7 +131,7 @@ BUILTIN_MODELS: List[ModelSpec] = [
         name="Qwen3.5 9B",
         parameter_count_b=9.0,
         context_length=131072,
-        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx"),
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx", "rapidmlx"),
         provider="alibaba",
         metadata={
             "architecture": "dense",
@@ -146,7 +146,7 @@ BUILTIN_MODELS: List[ModelSpec] = [
         parameter_count_b=27.0,
         context_length=131072,
         min_vram_gb=16.0,
-        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx"),
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx", "rapidmlx"),
         provider="alibaba",
         metadata={
             "architecture": "dense",
@@ -299,7 +299,7 @@ BUILTIN_MODELS: List[ModelSpec] = [
         parameter_count_b=4.0,
         context_length=262144,
         min_vram_gb=3.0,
-        supported_engines=("ollama", "vllm", "sglang", "llamacpp", "mlx"),
+        supported_engines=("ollama", "vllm", "sglang", "llamacpp", "mlx", "rapidmlx"),
         provider="alibaba",
         metadata={
             "architecture": "dense",
@@ -1192,7 +1192,7 @@ BUILTIN_MODELS: List[ModelSpec] = [
 
 def resolve_model_id_for_engine(model_id: str, engine_id: str) -> str:
     """Resolve a catalog model ID when an engine has a distinct runtime ID."""
-    if engine_id != "mlx":
+    if engine_id not in ("mlx", "rapidmlx"):
         return model_id
 
     for spec in BUILTIN_MODELS:

@@ -114,7 +114,7 @@ host = "http://localhost:30000"
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `default` | string | Auto-detected | Default engine backend. Registered keys include `ollama`, `vllm`, `sglang`, `llamacpp`, `mlx`, `lmstudio`, `exo`, `nexa`, `uzu`, `apple_fm`, `afm`, `lemonade`, `nim`, `cloud`, `litellm`, and `gemma_cpp`. Optional engines are available only when their dependencies are installed. |
+| `default` | string | Auto-detected | Default engine backend. Registered keys include `ollama`, `vllm`, `sglang`, `llamacpp`, `mlx`, `lmstudio`, `exo`, `nexa`, `uzu`, `apple_fm`, `afm`, `lemonade`, `rapidmlx`, `nim`, `cloud`, `litellm`, and `gemma_cpp`. Optional engines are available only when their dependencies are installed. |
 
 **`[engine.ollama]`:**
 
@@ -127,6 +127,12 @@ host = "http://localhost:30000"
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `host` | string | `http://localhost:8000` | Base URL for the vLLM OpenAI-compatible server. |
+
+**`[engine.rapidmlx]`:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `host` | string | `http://localhost:8000` | Rapid-MLX server base URL (API under `/v1`). Select with `engine.default = "rapidmlx"`; legacy property: `rapidmlx_host`. |
 
 **`[engine.sglang]`:**
 
