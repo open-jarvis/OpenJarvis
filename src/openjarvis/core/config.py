@@ -141,25 +141,92 @@ def _detect_nvidia_gpu() -> Optional[GpuInfo]:
         return None
 
 
+# rocm-smi prints a banner and a "Product Info" header before any real data,
+# and on some cards the name probe itself fails ("get_name, Failed to load a
+# library"). Field values are also frequently "N/A". So the product name has to
+# be looked up by field, with fallbacks, rather than read off a line number.
+# "Card Model" is last before the GFX fallback: it is a raw PCI device id
+# ("0x1586"), useful only when nothing nameable is available.
+_ROCM_NAME_FIELDS = ("Card Series", "Card SKU", "GFX Version", "Card Model")
+
+# APUs expose a small VRAM "carveout" (the UMA frame buffer) plus a large GTT
+# aperture backed by system RAM. Models are allocated from GTT, so VRAM alone
+# badly understates capacity -- a Strix Halo reports 0.5 GB VRAM next to 100 GB
+# of GTT. Only treat GTT as the usable pool when VRAM is implausibly small for
+# a discrete card, so discrete GPUs (where GTT is merely a host-memory
+# aperture) keep reporting their real VRAM.
+_UMA_CARVEOUT_MAX_GB = 2.0
+
+
+def _parse_rocm_fields(raw: str) -> dict[str, str]:
+    """Map ``Field -> value`` from ``GPU[n]\t: Field: \tvalue`` output lines.
+
+    Lines without a ``GPU[n]:`` prefix (banners, section headers) and values of
+    ``N/A`` or failed probes are skipped, so callers can rely on a hit being
+    real data.
+    """
+    fields: dict[str, str] = {}
+    for line in raw.splitlines():
+        if not line.startswith("GPU["):
+            continue
+        _, _, rest = line.partition(":")
+        key, sep, value = rest.partition(":")
+        if not sep:
+            continue
+        key = key.strip()
+        value = value.strip()
+        if not key or not value or value == "N/A" or "Failed" in value:
+            continue
+        fields.setdefault(key, value)
+    return fields
+
+
+def _parse_rocm_memory(raw: str) -> dict[str, int]:
+    """Map ``VRAM``/``GTT`` -> total bytes from ``--showmeminfo`` output."""
+    totals: dict[str, int] = {}
+    for line in raw.splitlines():
+        lowered = line.lower()
+        for pool in ("VRAM", "GTT"):
+            # Case-insensitive: rocm-smi has shipped both "VRAM" and "vram".
+            if f"{pool.lower()} total memory (b):" in lowered:
+                try:
+                    totals[pool] = int(line.split(":")[-1].strip())
+                except ValueError:
+                    pass
+    return totals
+
+
 def _detect_amd_gpu() -> Optional[GpuInfo]:
     if not shutil.which("rocm-smi"):
         return None
     raw = _run_cmd(["rocm-smi", "--showproductname"])
     if not raw:
         return None
-    name = raw.splitlines()[0] if raw else "AMD GPU"
 
-    # Parse VRAM from rocm-smi --showmeminfo vram
-    vram_gb = 0.0
-    try:
-        vram_raw = _run_cmd(["rocm-smi", "--showmeminfo", "vram"])
-        for line in vram_raw.splitlines():
-            if "Total Memory (B):" in line:
-                vram_bytes = int(line.split(":")[-1].strip())
-                vram_gb = round(vram_bytes / (1024**3), 1)
-                break
-    except (ValueError, IndexError):
-        vram_gb = 0.0
+    fields = _parse_rocm_fields(raw)
+    name = next((fields[f] for f in _ROCM_NAME_FIELDS if f in fields), "")
+    if not name:
+        # No "GPU[n]: Field: value" lines at all. Older/simpler rocm-smi builds
+        # print the bare product name, so fall back to the first line that is
+        # not a banner or section header.
+        name = next(
+            (
+                ln.strip()
+                for ln in raw.splitlines()
+                if ln.strip().strip("=").strip() and not ln.lstrip().startswith("=")
+            ),
+            "AMD GPU",
+        )
+
+    # Ask for both pools in one call; older rocm-smi ignores the extra argument
+    # rather than failing, in which case GTT is simply absent.
+    totals = _parse_rocm_memory(_run_cmd(["rocm-smi", "--showmeminfo", "vram", "gtt"]))
+    vram_bytes = totals.get("VRAM", 0)
+    gtt_bytes = totals.get("GTT", 0)
+    usable_bytes = vram_bytes
+    if vram_bytes / (1024**3) <= _UMA_CARVEOUT_MAX_GB and gtt_bytes > vram_bytes:
+        usable_bytes = gtt_bytes
+    vram_gb = round(usable_bytes / (1024**3), 1)
 
     # Parse GPU count from rocm-smi --showallinfo
     count = 1
@@ -173,7 +240,13 @@ def _detect_amd_gpu() -> Optional[GpuInfo]:
     except (ValueError, IndexError):
         count = 1
 
-    return GpuInfo(vendor="amd", name=name, vram_gb=vram_gb, count=count)
+    return GpuInfo(
+        vendor="amd",
+        name=name,
+        vram_gb=vram_gb,
+        compute_capability=fields.get("GFX Version", ""),
+        count=count,
+    )
 
 
 def _detect_apple_gpu() -> Optional[GpuInfo]:
