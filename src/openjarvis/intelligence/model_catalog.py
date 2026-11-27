@@ -1076,6 +1076,101 @@ BUILTIN_MODELS: List[ModelSpec] = [
         },
     ),
     # -----------------------------------------------------------------------
+    # Cloud models — PopNow (OpenAI-compatible aggregator)
+    # IDs carry the "popnow/" routing prefix the cloud engine dispatches on.
+    # Context lengths and USD rates are from GET https://api.popnow.ai/v1/models.
+    # -----------------------------------------------------------------------
+    ModelSpec(
+        model_id="popnow/openai/gpt-6.1-terra/chat",
+        name="GPT-6.1 Terra (PopNow)",
+        parameter_count_b=0.0,
+        context_length=1_050_000,
+        supported_engines=("cloud",),
+        provider="popnow",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 1.0,
+            "pricing_output": 5.0,
+            "url": "https://popnow.ai/api/models",
+        },
+    ),
+    ModelSpec(
+        model_id="popnow/anthropic/claude-sonnet-5.5/chat",
+        name="Claude Sonnet 5.5 (PopNow)",
+        parameter_count_b=0.0,
+        context_length=1_000_000,
+        supported_engines=("cloud",),
+        provider="popnow",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 2.0,
+            "pricing_output": 10.0,
+            "url": "https://popnow.ai/api/models",
+        },
+    ),
+    ModelSpec(
+        model_id="popnow/google/gemini-3.7-flash/chat",
+        name="Gemini 3.7 Flash (PopNow)",
+        parameter_count_b=0.0,
+        context_length=1_048_576,
+        supported_engines=("cloud",),
+        provider="popnow",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 0.675,
+            "pricing_output": 3.375,
+            "url": "https://popnow.ai/api/models",
+        },
+    ),
+    ModelSpec(
+        model_id="popnow/deepseek/v4-flash/chat",
+        name="DeepSeek V4 Flash (PopNow)",
+        parameter_count_b=0.0,
+        context_length=1_048_576,
+        supported_engines=("cloud",),
+        provider="popnow",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 0.44,
+            "pricing_output": 1.32,
+            "url": "https://popnow.ai/api/models",
+        },
+    ),
+    ModelSpec(
+        model_id="popnow/deepseek/v4-pro/chat",
+        name="DeepSeek V4 Pro (PopNow)",
+        parameter_count_b=0.0,
+        context_length=1_048_576,
+        supported_engines=("cloud",),
+        provider="popnow",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 1.32,
+            "pricing_output": 3.96,
+            "url": "https://popnow.ai/api/models",
+        },
+    ),
+    ModelSpec(
+        model_id="popnow/moonshot/kimi-k3/chat",
+        name="Kimi K3 (PopNow)",
+        parameter_count_b=0.0,
+        context_length=1_000_000,
+        supported_engines=("cloud",),
+        provider="popnow",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 2.7,
+            "pricing_output": 13.5,
+            "url": "https://popnow.ai/api/models",
+        },
+    ),
+    # -----------------------------------------------------------------------
     # Cloud models — Google
     # -----------------------------------------------------------------------
     ModelSpec(
