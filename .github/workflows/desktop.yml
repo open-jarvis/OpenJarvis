@@ -12,6 +12,7 @@ on:
       - 'rust/**'
       - 'pyproject.toml'
       - 'uv.lock'
+      - '.github/signpath/**'
       - '.github/workflows/desktop.yml'
   workflow_dispatch:
     inputs:
@@ -27,6 +28,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -152,6 +154,13 @@ jobs:
       - name: TypeScript type-check
         working-directory: frontend
         run: npx tsc --noEmit
+
+      - name: Test Windows signing hook
+        working-directory: .github/signpath
+        run: |
+          npm ci --ignore-scripts
+          npm audit
+          npm test
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -502,11 +511,41 @@ jobs:
           fi
           echo "tauri_version=${TAURI_VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare Windows SignPath signing
+        if: runner.os == 'Windows'
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_CERTIFICATE_THUMBPRINT: ${{ vars.SIGNPATH_CERTIFICATE_THUMBPRINT }}
+        shell: pwsh
+        run: |
+          foreach ($name in @('SIGNPATH_API_TOKEN', 'SIGNPATH_ORGANIZATION_ID',
+              'SIGNPATH_PROJECT_SLUG', 'SIGNPATH_SIGNING_POLICY_SLUG',
+              'SIGNPATH_CERTIFICATE_THUMBPRINT')) {
+            if (-not [Environment]::GetEnvironmentVariable($name)) {
+              throw "Configure $name before building signed Windows releases."
+            }
+          }
+          npm ci --ignore-scripts --prefix .github/signpath
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install the locked signing helper' }
+
+      - name: Get the reviewed SignPath action
+        if: runner.os == 'Windows'
+        uses: actions/checkout@v7
+        with:
+          repository: signpath/github-action-submit-signing-request
+          ref: f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+          path: .signpath-action
+          persist-credentials: false
+
       - name: Write Tauri release config
         shell: bash
         env:
           TAURI_VERSION: ${{ steps.release-info.outputs.tauri_version }}
           OLLAMA_TARGET: ${{ matrix.target }}
+          SIGNPATH_NODE: ${{ runner.os == 'Windows' && 'node' || '' }}
         run: |
           # The CLI and tauri-action both read --config. An environment-only
           # TAURI_CONFIG override leaves the action's version at tauri.conf.json.
@@ -525,6 +564,15 @@ jobs:
           };
           if (process.env.OLLAMA_TARGET === 'aarch64-pc-windows-msvc') {
             config.bundle.resources = { 'binaries/ollama-runtime-aarch64-pc-windows-msvc/': './' };
+          }
+          if (process.env.SIGNPATH_NODE) {
+            const { resolve } = require('node:path');
+            config.bundle.windows = {
+              signCommand: {
+                cmd: process.env.SIGNPATH_NODE,
+                args: [resolve('.github/signpath/sign-file.mjs'), '%1'],
+              },
+            };
           }
           writeFileSync('frontend/src-tauri/tauri.release.conf.json', JSON.stringify(config));
           NODE
@@ -564,6 +612,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SIGNPATH_API_TOKEN: ${{ runner.os == 'Windows' && secrets.SIGNPATH_API_TOKEN || '' }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          SIGNPATH_CERTIFICATE_THUMBPRINT: ${{ vars.SIGNPATH_CERTIFICATE_THUMBPRINT }}
+          SIGNPATH_ACTION_DIRECTORY: ${{ github.workspace }}/.signpath-action
           # tauri-action runs beforeBuildCommand (npm run build:tauri -> vite
           # build), which requires this at build time (#587). Strict for
           # releases: a missing/empty secret fails the build by design.
@@ -581,6 +636,30 @@ jobs:
           prerelease: ${{ steps.release-info.outputs.prerelease }}
           uploadUpdaterJson: true
           args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
+
+      - name: Verify Windows app and installer signatures
+        if: runner.os == 'Windows'
+        env:
+          ARTIFACT_PATHS: ${{ steps.tauri-build.outputs.artifactPaths }}
+          EXPECTED_THUMBPRINT: ${{ vars.SIGNPATH_CERTIFICATE_THUMBPRINT }}
+          OLLAMA_TARGET: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $releaseDir = 'frontend/src-tauri/target/release'
+          if ($env:OLLAMA_TARGET -eq 'aarch64-pc-windows-msvc') {
+            $releaseDir = "frontend/src-tauri/target/$env:OLLAMA_TARGET/release"
+          }
+          & .github/signpath/verify-signature.ps1 `
+            -Path "$releaseDir/openjarvis-desktop.exe" `
+            -ExpectedThumbprint $env:EXPECTED_THUMBPRINT
+          $installers = @($env:ARTIFACT_PATHS | ConvertFrom-Json | Where-Object {
+            $_.EndsWith('.exe') -or $_.EndsWith('.msi')
+          })
+          if (-not $installers.Count) { throw 'No Windows installer artifacts were produced' }
+          foreach ($installer in $installers) {
+            & .github/signpath/verify-signature.ps1 `
+              -Path $installer -ExpectedThumbprint $env:EXPECTED_THUMBPRINT
+          }
 
       - name: Verify release metadata and updater signature
         shell: bash
