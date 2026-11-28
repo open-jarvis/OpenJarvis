@@ -119,6 +119,100 @@ jobs:
           path: frontend/src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/**/*.exe
           if-no-files-found: error
 
+  # Build the shipped x64 formats with the real bundled Ollama runtime and
+  # verify a fresh install, an update while the installed Ollama is running,
+  # and an uninstall, using the updater's installer arguments. Unsigned; never
+  # publishes.
+  test-windows-x64-install:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Use the reviewed npm toolchain
+        run: npm install --global npm@11.19.0
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'frontend/src-tauri -> target'
+
+      - name: Download x64 Ollama runtime
+        shell: bash
+        run: frontend/src-tauri/scripts/download-ollama.sh x86_64-pc-windows-msvc
+
+      - name: Build v1 and v2 installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          conf=frontend/src-tauri/tauri.conf.json
+          v1=$(node -p "require('./$conf').version")
+          v2=$(node -p "const [a,b,c]='$v1'.split('.').map(Number); [a,b,c+1].join('.')")
+          echo "V2_VERSION=$v2" >> "$GITHUB_ENV"
+          out="$RUNNER_TEMP/installers"
+          mkdir -p "$out/v1" "$out/v2"
+          build() {
+            node -e "require('node:fs').writeFileSync('frontend/src-tauri/tauri.install-test.conf.json', JSON.stringify({
+              version: '$1',
+              bundle: {
+                targets: ['nsis', 'msi'],
+                externalBin: ['binaries/ollama'],
+                resources: { 'binaries/ollama-runtime-x86_64-pc-windows-msvc/': './' },
+              },
+            }))"
+            (cd frontend && npx tauri build --bundles nsis,msi --config src-tauri/tauri.install-test.conf.json)
+            cp frontend/src-tauri/target/release/bundle/nsis/*_"$1"_x64-setup.exe "$out/$2/setup.exe"
+            cp frontend/src-tauri/target/release/bundle/msi/*_"$1"_x64_en-US.msi "$out/$2/setup.msi"
+          }
+          build "$v1" v1
+          # Make v2's Ollama binaries differ so replacing the running,
+          # locked files is observable after the update.
+          bin=frontend/src-tauri/binaries
+          printf 'OPENJARVIS-UPDATE-TEST' >> "$bin/ollama-x86_64-pc-windows-msvc.exe"
+          printf 'OPENJARVIS-UPDATE-TEST' >> "$bin/ollama-runtime-x86_64-pc-windows-msvc/lib/ollama/llama-server.exe"
+          build "$v2" v2
+          ls -l "$out"/v1 "$out"/v2
+
+      - name: Verify NSIS and MSI install, update and uninstall
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\installers"
+          $bin = 'frontend\src-tauri\binaries'
+          foreach ($format in 'nsis', 'msi') {
+            $ext = if ($format -eq 'nsis') { 'exe' } else { 'msi' }
+            # The NSIS uninstaller keeps its install-location key.
+            Remove-Item HKCU:\Software\openjarvis -Recurse -Force -ErrorAction SilentlyContinue
+            ./frontend/src-tauri/scripts/verify-windows-install.ps1 -Format $format `
+              -V1 "$out\v1\setup.$ext" -V2 "$out\v2\setup.$ext" `
+              -Stage "$bin\ollama-runtime-x86_64-pc-windows-msvc" `
+              -Sidecar "$bin\ollama-x86_64-pc-windows-msvc.exe" `
+              -V2Version $env:V2_VERSION -InstallDir "$env:RUNNER_TEMP\oj-$format" `
+              -LogDir "$env:RUNNER_TEMP\install-logs\$format"
+          }
+
+      - name: Upload installer logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-x64-install-logs
+          path: ${{ runner.temp }}/install-logs
+          if-no-files-found: ignore
+
   validate:
     runs-on: ubuntu-22.04
 
@@ -523,8 +617,10 @@ jobs:
               externalBin: ['binaries/ollama'],
             },
           };
-          if (process.env.OLLAMA_TARGET === 'aarch64-pc-windows-msvc') {
-            config.bundle.resources = { 'binaries/ollama-runtime-aarch64-pc-windows-msvc/': './' };
+          if (process.env.OLLAMA_TARGET.includes('windows')) {
+            config.bundle.resources = {
+              [`binaries/ollama-runtime-${process.env.OLLAMA_TARGET}/`]: './',
+            };
           }
           writeFileSync('frontend/src-tauri/tauri.release.conf.json', JSON.stringify(config));
           NODE
@@ -622,6 +718,16 @@ jobs:
             frontend/src-tauri/target/aarch64-pc-windows-msvc/release/openjarvis-desktop.exe \
             frontend/src-tauri/binaries/ollama-aarch64-pc-windows-msvc.exe \
             frontend/src-tauri/binaries/ollama-runtime-aarch64-pc-windows-msvc/lib/ollama/llama-server.exe
+
+      - name: Verify Windows Ollama runtime
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          OLLAMA_TARGET: ${{ matrix.target }}
+        run: |
+          test -f "frontend/src-tauri/binaries/ollama-runtime-${OLLAMA_TARGET}/lib/ollama/llama-server.exe"
+          "frontend/src-tauri/binaries/ollama-${OLLAMA_TARGET}.exe" --version
+          "frontend/src-tauri/binaries/ollama-runtime-${OLLAMA_TARGET}/lib/ollama/llama-server.exe" --version
 
   verify-release:
     needs: [build-and-release]

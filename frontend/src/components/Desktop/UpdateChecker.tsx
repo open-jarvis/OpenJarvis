@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { prepareUpdateInstall, startBackend } from '../../lib/api';
 
 type UpdateState = 'idle' | 'available' | 'downloading' | 'ready' | 'error';
 
@@ -21,6 +22,34 @@ export function setAutoUpdateDisabled(disabled: boolean): void {
       localStorage.removeItem(DISABLED_KEY);
     }
   } catch {}
+}
+
+type UpdateEvent = { event: string; data?: { chunkLength?: number } };
+
+type InstallableUpdate = {
+  download: (onEvent?: (event: UpdateEvent) => void) => Promise<void>;
+  install: () => Promise<void>;
+};
+
+/**
+ * Download first, then stop app-owned services, then install. On Windows the
+ * installer replaces the bundled Ollama runtime, which stays locked while the
+ * app's Ollama runs; if installing fails, bring the services back up.
+ */
+export async function downloadThenInstallUpdate(
+  update: InstallableUpdate,
+  onEvent: (event: UpdateEvent) => void,
+  prepare: () => Promise<boolean> = prepareUpdateInstall,
+  restart: () => Promise<void> = startBackend,
+): Promise<void> {
+  await update.download(onEvent);
+  const stopped = await prepare();
+  try {
+    await update.install();
+  } catch (e) {
+    if (stopped) await restart().catch(() => {});
+    throw e;
+  }
 }
 
 export function UpdateChecker() {
@@ -79,7 +108,7 @@ export function UpdateChecker() {
       let downloaded = 0;
       const contentLength = update.contentLength ?? 0;
 
-      await update.downloadAndInstall((event: any) => {
+      await downloadThenInstallUpdate(update, (event) => {
         if (event.event === 'Progress') {
           downloaded += event.data?.chunkLength ?? 0;
           if (contentLength > 0) {

@@ -52,7 +52,14 @@
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
-      "timestampUrl": "http://timestamp.digicert.com"
+      "timestampUrl": "http://timestamp.digicert.com",
+      "nsis": {
+        "installerHooks": "windows/hooks.nsh"
+      },
+      "wix": {
+        "fragmentPaths": ["windows/stop-bundled-ollama.wxs"],
+        "componentGroupRefs": ["StopBundledOllamaGroup"]
+      }
     }
   },
   "plugins": {

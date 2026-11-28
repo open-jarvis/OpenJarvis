@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -65,7 +67,16 @@ def sidecar_download(tmp_path):
     return script, archive, env
 
 
-def download(script, env, *args):
+def download(script, env, *args, pin_archive=True):
+    """Run the script; by default pin the stubbed archive's digest in place."""
+    if pin_archive:
+        digest = hashlib.sha256(Path(env["TEST_ARCHIVE"]).read_bytes()).hexdigest()
+        text = re.sub(
+            r'ASSET_SHA256="[0-9a-f]{64}"',
+            f'ASSET_SHA256="{digest}"',
+            script.read_text(),
+        )
+        script.write_text(text)
     return subprocess.run(
         ["bash", str(script), *args], env=env, capture_output=True, text=True
     )
@@ -117,6 +128,83 @@ def test_explicit_x64_target_wins_over_arm_host(sidecar_download):
     result = download(script, env, "x86_64-pc-windows-msvc")
     assert result.returncode == 0, result.stderr
     assert Path(env["TEST_URL"]).read_text().endswith("/ollama-windows-amd64.zip")
+
+
+def test_stages_x64_windows_inference_runtime(sidecar_download):
+    script, archive, env = sidecar_download
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("ollama.exe", pe_executable(0x8664))
+        bundle.writestr("lib/ollama/llama-server.exe", pe_executable(0x8664))
+        bundle.writestr("lib/ollama/ggml-cpu.dll", b"x64 runtime")
+        bundle.writestr("lib/ollama/cuda_v12/ggml-cuda.dll", b"cuda 12")
+        bundle.writestr("lib/ollama/cuda_v13/ggml-cuda.dll", b"cuda 13")
+
+    result = download(script, env, "x86_64-pc-windows-msvc")
+
+    assert result.returncode == 0, result.stderr
+    runtime = (
+        script.parent.parent
+        / "binaries/ollama-runtime-x86_64-pc-windows-msvc/lib/ollama"
+    )
+    assert (runtime / "llama-server.exe").is_file()
+    assert (runtime / "ggml-cpu.dll").read_bytes() == b"x64 runtime"
+    # The full runtime exceeds the NSIS and MSI payload limits.
+    assert (runtime / "cuda_v12/ggml-cuda.dll").read_bytes() == b"cuda 12"
+    assert not (runtime / "cuda_v13").exists()
+    reused = download(script, env, "x86_64-pc-windows-msvc")
+    assert "Already staged" in reused.stdout
+
+
+def test_rejects_archive_with_unpinned_checksum(sidecar_download):
+    script, _, env = sidecar_download
+    result = download(script, env, ARM_TARGET, pin_archive=False)
+    assert result.returncode != 0
+    assert "Checksum mismatch" in result.stdout
+    binaries = script.parent.parent / "binaries"
+    assert not (binaries / f"ollama-{ARM_TARGET}.exe").exists()
+    assert not (binaries / f"ollama-runtime-{ARM_TARGET}").exists()
+    assert (
+        Path(env["TEST_URL"])
+        .read_text()
+        .startswith("https://github.com/ollama/ollama/releases/download/v")
+    )
+
+
+def test_complete_stage_is_reused_without_download(sidecar_download):
+    script, _, env = sidecar_download
+    assert download(script, env, ARM_TARGET).returncode == 0
+    Path(env["TEST_URL"]).unlink()
+    result = download(script, env, ARM_TARGET)
+    assert result.returncode == 0, result.stderr
+    assert "Already staged" in result.stdout
+    assert not Path(env["TEST_URL"]).exists()
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["lib/ollama/llama-server.exe", "lib/ollama/ggml-cpu.dll", "root.dll"],
+)
+def test_incomplete_stage_is_restaged(sidecar_download, damage):
+    script, _, env = sidecar_download
+    assert download(script, env, ARM_TARGET).returncode == 0
+    runtime = script.parent.parent / "binaries" / f"ollama-runtime-{ARM_TARGET}"
+    (runtime / damage).unlink()
+    result = download(script, env, ARM_TARGET)
+    assert result.returncode == 0, result.stderr
+    assert "restaging" in result.stdout
+    assert (runtime / damage).is_file()
+
+
+def test_unfinished_publish_is_restaged(sidecar_download):
+    """A stage without the manifest written last was never fully published."""
+    script, _, env = sidecar_download
+    assert download(script, env, ARM_TARGET).returncode == 0
+    binaries = script.parent.parent / "binaries"
+    (binaries / f"ollama-runtime-{ARM_TARGET}.manifest").unlink()
+    result = download(script, env, ARM_TARGET)
+    assert result.returncode == 0, result.stderr
+    assert "restaging" in result.stdout
+    assert (binaries / f"ollama-runtime-{ARM_TARGET}.manifest").is_file()
 
 
 @pytest.mark.parametrize(
