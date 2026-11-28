@@ -36,6 +36,41 @@ dedicated optional-sharing prompt: **Press Enter or Y to consent, or N to
 decline**. The choice also controls runtime analytics. No terminal, EOF, or
 cancelled input leaves sharing off. See [Telemetry](../telemetry.md) for details.
 
+### Review before you run
+
+Use a new, empty directory to download and review the installer. If the download fails, stop there.
+
+```bash
+curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh -o install.sh && less install.sh
+```
+
+After reviewing the saved script, run it from the same directory:
+
+```bash
+bash install.sh
+```
+
+On native Windows, download and open the script in Notepad:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing -Uri 'https://open-jarvis.github.io/OpenJarvis/install.ps1' -OutFile '.\install.ps1' -ErrorAction Stop
+notepad '.\install.ps1'
+```
+
+After reviewing the file, run it from the same directory. The execution policy
+flag applies to the new PowerShell process. Group Policy still takes precedence.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Both scripts fetch OpenJarvis source at install time. If tools are missing,
+the Bash script can download uv, Ollama, and Rust installers. On Windows, the
+script can download the uv installer and `OllamaSetup.exe`, and use `winget` to
+install Python or Git. Reviewing the saved script only covers the initial
+download. See [What the installer does](#what-the-installer-does) and the
+[native Windows guide](windows-native.md) for the rest of the setup.
+
 ## What the installer does
 
 | Phase | Step | Where |
