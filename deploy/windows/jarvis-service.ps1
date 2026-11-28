@@ -8,19 +8,19 @@
 
     Registers a per-user scheduled task named "OpenJarvis" that starts
     `jarvis serve` at logon and restarts on failure. Loopback default
-    (127.0.0.1) so no API key is required — matches launchd parity.
+    (127.0.0.1) so no API key is required - matches launchd parity.
 
     Subcommands:
-      install   — create or replace the task
-      uninstall — remove the task
-      status    — show task state
+      install   - create or replace the task
+      uninstall - remove the task
+      status    - show task state
 
     Arguments (install only):
       -InstallRoot <path>  default: %LOCALAPPDATA%\OpenJarvis (matches
                            install.ps1's default)
       -ListenHost <addr>   default: 127.0.0.1 (loopback). Set to 0.0.0.0
                            ONLY if you also set $env:OPENJARVIS_API_KEY
-                           — the server refuses to start unauthenticated
+                           - the server refuses to start unauthenticated
                            on a non-loopback bind.
       -ListenPort <int>    default: 8000
 
@@ -102,7 +102,7 @@ then re-run with -ListenHost 0.0.0.0.
     # CRITICAL: scheduled tasks do NOT inherit the registering session's
     # environment. If we registered the task now and stopped here, the
     # task would launch at logon with a clean env, find no API key, and
-    # `jarvis serve` would refuse to bind 0.0.0.0 — failing silently every
+    # `jarvis serve` would refuse to bind 0.0.0.0 - failing silently every
     # logon. Persist the key to the User env scope so the task's logon
     # session picks it up. (Loopback path doesn't need the key, so this
     # only runs for the explicit LAN-exposed case.)
@@ -123,7 +123,7 @@ then re-run with -ListenHost 0.0.0.0.
     # If a previous task exists, remove it first (idempotent install).
     $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if ($existing) {
-        Write-Info "Existing task found — replacing."
+        Write-Info "Existing task found - replacing."
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     }
 
@@ -153,7 +153,7 @@ then re-run with -ListenHost 0.0.0.0.
         -Trigger $trigger `
         -Settings $settings `
         -Principal $principal `
-        -Description 'OpenJarvis API server (loopback default — see deploy/windows/README.md)' | Out-Null
+        -Description 'OpenJarvis API server (loopback default - see deploy/windows/README.md)' | Out-Null
 
     Write-Ok "Task '$TaskName' registered."
     Write-Info "It will start automatically at next logon."
@@ -167,7 +167,7 @@ then re-run with -ListenHost 0.0.0.0.
 function Uninstall-Task {
     $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if (-not $existing) {
-        Write-Warn2 "Task '$TaskName' is not registered — nothing to remove."
+        Write-Warn2 "Task '$TaskName' is not registered - nothing to remove."
         return
     }
     Write-Info "Stopping '$TaskName' (if running)..."
