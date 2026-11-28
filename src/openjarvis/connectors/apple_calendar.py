@@ -306,7 +306,28 @@ class AppleCalendarConnector(BaseConnector):
         *,
         since: Optional[datetime] = None,
         cursor: Optional[str] = None,
+        include_upcoming: bool = False,
     ) -> Iterator[Document]:
+        """Yield calendar events from the local Calendar database.
+
+        Parameters
+        ----------
+        since:
+            The shared incremental-sync watermark: only items created or
+            modified after this time are returned.  SyncEngine passes the
+            last successful checkpoint here, so honouring it is what keeps
+            an unchanged second run empty.
+        cursor:
+            Unused; the query is bounded by the configured day window.
+        include_upcoming:
+            Opt-in for callers that want a calendar snapshot rather than a
+            feed of edits.  A briefing needs tomorrow's meeting even when
+            it was created a month ago and nobody has touched it since,
+            and an edit-time watermark cannot express that.  Under this
+            flag an event that is current or still upcoming is kept
+            regardless of ``since``; everything else still obeys it.  The
+            flag is off by default, so no other caller is affected.
+        """
         conn = _open_db(self._db_path)
         if conn is None:
             return
@@ -345,19 +366,38 @@ class AppleCalendarConnector(BaseConnector):
                 ) = row
 
                 timestamp = _apple_ts(last_mod) if last_mod else _apple_ts(start_date)
+                start_dt, end_dt = self._display_datetimes(
+                    start_date, end_date, start_tz, bool(all_day)
+                )
                 if since is not None:
                     since_utc = (
                         since if since.tzinfo else since.replace(tzinfo=timezone.utc)
                     )
-                    if timestamp < since_utc:
+                    keep_regardless = False
+                    if include_upcoming:
+                        # Only for callers that asked for a snapshot.  An
+                        # event is current or still upcoming when it has not
+                        # ended yet, respecting floating wall times and
+                        # all-day dates (whose end date is exclusive).
+                        local_now = now.astimezone().replace(tzinfo=None)
+                        if all_day:
+                            keep_regardless = (
+                                end_dt.date() > local_now.date()
+                                if end_dt is not None and end_dt > start_dt
+                                else start_dt.date() >= local_now.date()
+                            )
+                        else:
+                            reference = now if start_dt.tzinfo else local_now
+                            keep_regardless = (
+                                end_dt > reference
+                                if end_dt is not None and end_dt > start_dt
+                                else start_dt >= reference
+                            )
+                    if timestamp < since_utc and not keep_regardless:
                         continue
 
                 location = self._fetch_location(conn, loc_id)
                 content = self._build_content(row, location)
-                start_dt, _ = self._display_datetimes(
-                    start_date, end_date, start_tz, bool(all_day)
-                )
-
                 meta: Dict[str, Any] = {
                     "summary": summary,
                     "calendar": cal_title,

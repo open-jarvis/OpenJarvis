@@ -507,6 +507,14 @@ class DigestCollectTool(BaseTool):
                 sync_kwargs: Dict[str, Any] = {"since": since}
                 if unacted_only and source == "gmail":
                     sync_kwargs["query_extra"] = "is:unread"
+                if source == "apple_calendar":
+                    # A briefing wants a calendar snapshot, not a feed of
+                    # edits: tomorrow's meeting belongs in it even when it
+                    # was created a month ago.  `since` filters on
+                    # last-modified, so ask for the snapshot explicitly
+                    # here rather than weakening that filter for every
+                    # other caller of the connector.
+                    sync_kwargs["include_upcoming"] = True
 
                 for d in connector.sync(**sync_kwargs):
                     if d.doc_id not in seen_ids:
