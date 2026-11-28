@@ -112,6 +112,18 @@ export function InputArea() {
     stopRecording,
   } = useSpeech();
 
+  useEffect(() => {
+    const draft = sessionStorage.getItem('openjarvis-local-document-draft');
+    if (!draft) return;
+    sessionStorage.removeItem('openjarvis-local-document-draft');
+    try {
+      const { path, content } = JSON.parse(draft) as { path: string; content: string };
+      setInput(`Please help me with this document. Do not make changes unless I ask.\n\nFile: ${path}\n\n${content}`);
+    } catch {
+      toast.error('Could not load the selected document into chat.');
+    }
+  }, []);
+
   // Abort in-flight stream when the user switches models mid-generation.
   // This prevents errors from trying to continue a stream with a stale model.
   const prevModelRef = useRef(selectedModel);
